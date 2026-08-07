@@ -368,6 +368,33 @@ details.block summary:hover { color: var(--text); }
 }
 .block-search-nav:hover { border-color: var(--border-strong); background: rgba(139,92,246,0.22); }
 
+.block-search-mode {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.18rem 0.5rem;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.block-search-mode:hover { border-color: var(--border-strong); color: var(--text-dim); }
+.block-search-mode.active {
+  background: rgba(139,92,246,0.22);
+  border-color: var(--border-strong);
+  color: var(--purple-light);
+}
+
+.hidden-lines-note {
+  margin-top: 0.4rem;
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
 pre.json {
   margin: 0;
   padding: 0.75rem;
