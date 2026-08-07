@@ -30,18 +30,18 @@ function makeForm(overrides: Partial<ExportFormData> = {}): ExportFormData {
 }
 
 describe('buildExportMarkdown', () => {
-  it('includes every metadata field', () => {
+  it('includes every metadata field in a table', () => {
     const md = buildExportMarkdown(makeCall(), makeForm());
-    expect(md).toContain('**Supplier Name:** FlyNas');
-    expect(md).toContain('**Supplier Credentials Used:** EGY');
-    expect(md).toContain('**Environment:** Staging');
-    expect(md).toContain('**URL:** https://example.com/api/x');
-    expect(md).toContain('**API Key:** secret-key');
+    expect(md).toContain('| Supplier Name | FlyNas |');
+    expect(md).toContain('| Supplier Credentials Used | EGY |');
+    expect(md).toContain('| Environment | Staging |');
+    expect(md).toContain('| URL | https://example.com/api/x |');
+    expect(md).toContain('| API Key | secret-key |');
   });
 
   it('shows a placeholder for blank optional fields instead of an empty value', () => {
     const md = buildExportMarkdown(makeCall(), makeForm({ description: '' }));
-    expect(md).toContain('**Description:** _(none provided)_');
+    expect(md).toContain('| Description | _(none provided)_ |');
   });
 
   it('pretty-prints JSON bodies and headers in fenced code blocks', () => {
@@ -72,13 +72,14 @@ describe('buildExportMarkdown', () => {
     const closeCount = md.match(/<\/details>/g)?.length ?? 0;
     expect(detailsCount).toBe(4); // request headers, request body, response headers, response body
     expect(closeCount).toBe(detailsCount);
-    expect(md).toContain('<details>\n<summary>Show JSON</summary>\n\n```json\n{\n  "supplier": "FlyNas"\n}\n```\n\n</details>');
+    expect(md).toContain('<details>\n<summary>Body</summary>\n\n```json\n{\n  "supplier": "FlyNas"\n}\n```\n\n</details>');
   });
 
-  it('labels a collapsible non-JSON body "Show details" instead of "Show JSON"', () => {
+  it('labels each collapsible block "Headers" or "Body" regardless of whether the content is valid JSON', () => {
     const call = makeCall({ request: { headers: {}, body: 'not json at all' } });
     const md = buildExportMarkdown(call, makeForm());
-    expect(md).toContain('<summary>Show details</summary>\n\n```\nnot json at all\n```');
+    expect(md).toContain('<summary>Headers</summary>');
+    expect(md).toContain('<summary>Body</summary>\n\n```\nnot json at all\n```');
   });
 
   it('shows the error and omits the Response Status/Headers/Body when there is no response', () => {
@@ -95,8 +96,9 @@ describe('buildExportMarkdown', () => {
     expect(md).toContain('**Status:** `200`');
   });
 
-  it('includes duration only when present', () => {
+  it('includes duration only when present, with thousands separators for large values', () => {
     expect(buildExportMarkdown(makeCall({ duration_ms: 42 }), makeForm())).toContain('**Duration:** 42 ms');
+    expect(buildExportMarkdown(makeCall({ duration_ms: 4182.38 }), makeForm())).toContain('**Duration:** 4,182.38 ms');
     expect(buildExportMarkdown(makeCall({ duration_ms: undefined }), makeForm())).not.toContain('**Duration:**');
   });
 
@@ -125,7 +127,7 @@ describe('buildExportMarkdown', () => {
     ];
     const md = buildExportMarkdown(makeCall(), makeForm(), comments);
 
-    expect(md).toContain('## Flagged Issues');
+    expect(md).toContain('Flagged Issues');
     expect(md).toContain('### Request Body');
     expect(md).toContain('- **Line 2:** `"supplier": "FlyNas",`');
     expect(md).toContain('> Should be EGY');
@@ -162,6 +164,8 @@ describe('exportFilename', () => {
 });
 
 describe('buildBulkExportMarkdown', () => {
+  const EXPORTED_AT = '2026-08-07T18:00:00.000Z';
+
   function makeComment(overrides: Partial<Comment> = {}): Comment {
     return {
       id: 'c1',
@@ -180,30 +184,32 @@ describe('buildBulkExportMarkdown', () => {
       makeCall({ method: 'POST', response: { status: 200, headers: {}, body: '{}' } }),
       makeCall({ method: 'GET', timestamp: 't2', response: undefined, error: 'boom' }),
     ];
-    const md = buildBulkExportMarkdown(calls, makeForm(), new Map());
+    const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), EXPORTED_AT);
 
-    expect(md).toContain('# API Calls Export (2 calls)');
-    expect(md).toContain('| [1](#call-1) | POST |');
-    expect(md).toContain('| [2](#call-2) | GET |');
+    expect(md).toContain('# 📋 API Calls Export — 2 Calls');
+    expect(md).toContain('| [1](#call-1) | `POST` |');
+    expect(md).toContain('| [2](#call-2) | `GET` |');
     expect(md).toContain('<a id="call-1"></a>');
     expect(md).toContain('<a id="call-2"></a>');
   });
 
-  it('writes the metadata section once, not once per call', () => {
-    const calls = [makeCall(), makeCall({ timestamp: 't2' }), makeCall({ timestamp: 't3' })];
-    const md = buildBulkExportMarkdown(calls, makeForm({ supplierName: 'FlyNas' }), new Map());
-
-    expect(md.match(/## Metadata/g)?.length).toBe(1);
-    expect(md.match(/\*\*Supplier Name:\*\* FlyNas/g)?.length).toBe(1);
-  });
-
-  it('computes overall succeeded/failed counts and total duration across all calls', () => {
+  it('shows the exported timestamp and overall succeeded/failed/duration in the header line', () => {
     const ok = makeCall({ duration_ms: 100, response: { status: 200, headers: {}, body: '' } });
     const failed = makeCall({ timestamp: 't2', duration_ms: 50, response: undefined, error: 'x' });
-    const md = buildBulkExportMarkdown([ok, failed], makeForm(), new Map());
+    const md = buildBulkExportMarkdown([ok, failed], makeForm(), new Map(), EXPORTED_AT);
 
-    expect(md).toContain('**Overall:** 1 succeeded, 1 failed');
-    expect(md).toContain('**Total duration:** 150.00 ms');
+    expect(md).toContain(`**Exported:** ${EXPORTED_AT}`);
+    expect(md).toContain('**Succeeded:** 1 ✅');
+    expect(md).toContain('**Failed:** 1 ❌');
+    expect(md).toContain('**Total duration:** 150 ms');
+  });
+
+  it('writes the metadata table once, not once per call', () => {
+    const calls = [makeCall(), makeCall({ timestamp: 't2' }), makeCall({ timestamp: 't3' })];
+    const md = buildBulkExportMarkdown(calls, makeForm({ supplierName: 'FlyNas' }), new Map(), EXPORTED_AT);
+
+    expect(md.match(/Metadata/g)?.length).toBe(1);
+    expect(md.match(/\| Supplier Name \| FlyNas \|/g)?.length).toBe(1);
   });
 
   it('includes each call\'s own flagged issues under its own section, not mixed with another call\'s', () => {
@@ -214,10 +220,10 @@ describe('buildBulkExportMarkdown', () => {
       [callKey(callB), [makeComment({ comment: 'issue on call B' })]],
     ]);
 
-    const md = buildBulkExportMarkdown([callA, callB], makeForm(), commentsByCallId);
+    const md = buildBulkExportMarkdown([callA, callB], makeForm(), commentsByCallId, EXPORTED_AT);
 
-    const call1Section = md.slice(md.indexOf('## Call 1'), md.indexOf('## Call 2'));
-    const call2Section = md.slice(md.indexOf('## Call 2'));
+    const call1Section = md.slice(md.indexOf('<b>Call 1</b>'), md.indexOf('<b>Call 2</b>'));
+    const call2Section = md.slice(md.indexOf('<b>Call 2</b>'));
 
     expect(call1Section).toContain('issue on call A');
     expect(call1Section).not.toContain('issue on call B');
@@ -228,24 +234,33 @@ describe('buildBulkExportMarkdown', () => {
   it('never truncates any call\'s body, however many calls or however large', () => {
     const bigArray = Array.from({ length: 200 }, (_, i) => ({ index: i }));
     const call = makeCall({ response: { status: 200, headers: {}, body: JSON.stringify(bigArray) } });
-    const md = buildBulkExportMarkdown([call], makeForm(), new Map());
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
 
     // The summary table legitimately shortens the URL column with a
-    // ".../" prefix, so scope the "no truncation" check to the actual
-    // response body content rather than the whole document.
-    const bodySection = md.slice(md.indexOf('#### Body', md.indexOf('### Response')));
-    expect(bodySection).toContain('"index": 199');
-    expect(bodySection).not.toContain('...');
+    // ".../" prefix, so scope the "no truncation" check to content after
+    // the Response heading rather than the whole document.
+    const responseSection = md.slice(md.indexOf('📥 Response'));
+    expect(responseSection).toContain('"index": 199');
+    expect(responseSection).not.toContain('...');
   });
 
-  it('wraps each call\'s JSON code blocks in a collapsible <details>', () => {
+  it('wraps each call in an open-by-default <details>, with its Headers/Body blocks collapsed inside', () => {
     const calls = [makeCall(), makeCall({ timestamp: 't2' })];
-    const md = buildBulkExportMarkdown(calls, makeForm(), new Map());
+    const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), EXPORTED_AT);
 
-    const detailsCount = md.match(/<details>/g)?.length ?? 0;
+    const anyDetailsCount = md.match(/<details(?: open)?>/g)?.length ?? 0;
     const closeCount = md.match(/<\/details>/g)?.length ?? 0;
-    expect(detailsCount).toBe(8); // 4 blocks per call x 2 calls
-    expect(closeCount).toBe(detailsCount);
+    const openDetailsCount = md.match(/<details open>/g)?.length ?? 0;
+    expect(openDetailsCount).toBe(2); // one open <details> wrapper per call
+    expect(anyDetailsCount).toBe(10); // (4 Headers/Body blocks + 1 call wrapper) x 2 calls
+    expect(closeCount).toBe(anyDetailsCount);
+  });
+
+  it('shows the call\'s method and URL next to its heading', () => {
+    const call = makeCall({ method: 'POST', url: 'https://example.com/api/x' });
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(md).toContain('<summary><b>Call 1</b> &nbsp; <code>POST https://example.com/api/x</code>');
   });
 });
 

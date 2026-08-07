@@ -85,7 +85,7 @@ export class ExportDialogComponent {
       const markdown = buildExportMarkdown(call, form, commentsByCallId.get(callKey(call)) ?? []);
       downloadText(markdown, exportFilename(call));
     } else {
-      const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId);
+      const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString());
       downloadText(markdown, bulkExportFilename(calls, 'md'));
     }
 
