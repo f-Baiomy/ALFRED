@@ -163,6 +163,25 @@ export class JsonPanelComponent {
         const mark = marks[this.activeMatchIndex()];
         const scrollable = root.querySelector<HTMLElement>('.scrollable');
         if (!mark || !scrollable) return;
+
+        // In tree mode a match can be nested inside collapsed ancestor
+        // nodes - closed <details> content is still in the DOM (just
+        // display:none), so the match is found and counted either way, but
+        // it's invisible and has a zero-size layout box until its ancestor
+        // chain is opened. Do that before measuring anything below.
+        this.revealAncestorTreeNodes(mark);
+
+        // Tree mode computes each leaf's highlight tokens independently, so
+        // its local matchIndex always restarts at 0 and can't line up with
+        // the panel-wide activeMatchIndex the way flat mode's single
+        // whole-text tokenization does - flat mode's [class.active] binding
+        // already gets this right reactively, so only patch it directly
+        // here for tree mode.
+        if (this.effectiveViewMode() === 'tree') {
+          root.querySelectorAll<HTMLElement>('mark.hl.active').forEach((el) => el.classList.remove('active'));
+          mark.classList.add('active');
+        }
+
         // mark.offsetTop is relative to its nearest *positioned* ancestor,
         // not necessarily the scrollable container - since nothing in this
         // tree sets position:relative, that ends up being the whole page,
@@ -177,5 +196,19 @@ export class JsonPanelComponent {
       },
       { injector: this.injector }
     );
+  }
+
+  private revealAncestorTreeNodes(mark: HTMLElement): void {
+    // Only .tree-node details, not the outer .block panel - that one's open
+    // state is driven by the `open` signal (set separately, before this
+    // runs), so mutating its DOM attribute directly here would desync it
+    // from that signal until the next unrelated change-detection pass.
+    let node: HTMLElement | null = mark.parentElement;
+    while (node) {
+      if (node instanceof HTMLDetailsElement && node.classList.contains('tree-node') && !node.open) {
+        node.open = true;
+      }
+      node = node.parentElement;
+    }
   }
 }
