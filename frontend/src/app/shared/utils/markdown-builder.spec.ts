@@ -66,6 +66,21 @@ describe('buildExportMarkdown', () => {
     expect(md).toContain('```\nnot json at all\n```');
   });
 
+  it('wraps every JSON code block in a collapsible <details> so large payloads can be collapsed', () => {
+    const md = buildExportMarkdown(makeCall(), makeForm());
+    const detailsCount = md.match(/<details>/g)?.length ?? 0;
+    const closeCount = md.match(/<\/details>/g)?.length ?? 0;
+    expect(detailsCount).toBe(4); // request headers, request body, response headers, response body
+    expect(closeCount).toBe(detailsCount);
+    expect(md).toContain('<details>\n<summary>Show JSON</summary>\n\n```json\n{\n  "supplier": "FlyNas"\n}\n```\n\n</details>');
+  });
+
+  it('labels a collapsible non-JSON body "Show details" instead of "Show JSON"', () => {
+    const call = makeCall({ request: { headers: {}, body: 'not json at all' } });
+    const md = buildExportMarkdown(call, makeForm());
+    expect(md).toContain('<summary>Show details</summary>\n\n```\nnot json at all\n```');
+  });
+
   it('shows the error and omits the Response Status/Headers/Body when there is no response', () => {
     const call = makeCall({ response: undefined, error: 'Client disconnected.' });
     const md = buildExportMarkdown(call, makeForm());
@@ -221,6 +236,16 @@ describe('buildBulkExportMarkdown', () => {
     const bodySection = md.slice(md.indexOf('#### Body', md.indexOf('### Response')));
     expect(bodySection).toContain('"index": 199');
     expect(bodySection).not.toContain('...');
+  });
+
+  it('wraps each call\'s JSON code blocks in a collapsible <details>', () => {
+    const calls = [makeCall(), makeCall({ timestamp: 't2' })];
+    const md = buildBulkExportMarkdown(calls, makeForm(), new Map());
+
+    const detailsCount = md.match(/<details>/g)?.length ?? 0;
+    const closeCount = md.match(/<\/details>/g)?.length ?? 0;
+    expect(detailsCount).toBe(8); // 4 blocks per call x 2 calls
+    expect(closeCount).toBe(detailsCount);
   });
 });
 

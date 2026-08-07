@@ -14,10 +14,23 @@ function commentsForBlock(comments: readonly Comment[], block: CommentBlock): Co
 }
 
 /**
+ * `<details>` is GitHub-Flavored-Markdown's native collapsible section -
+ * every export target this file is meant for (GitHub, most IDE previews,
+ * modern chat tools) renders it. Left collapsed by default (no `open`
+ * attribute) since a multi-call report is mostly scanned by heading first,
+ * then expanded where the reader actually needs to look at the payload.
+ */
+function collapsibleCodeBlock(fenced: string, summary: string): string {
+  return `<details>\n<summary>${summary}</summary>\n\n${fenced}\n\n</details>`;
+}
+
+/**
  * Pretty-prints if the text is valid JSON, otherwise embeds it verbatim.
  * Deliberately never truncates or summarizes - this file gets handed to
  * another team to diagnose a bug, so partial data would be worse than no
- * export at all.
+ * export at all. The whole fenced block is wrapped in a collapsible
+ * `<details>` so a large payload doesn't force the reader to scroll past it
+ * to reach the next section.
  *
  * Flagged lines get an inline `// FLAGGED: ...` marker appended, on top of
  * the dedicated "Flagged Issues" summary section below - the summary is
@@ -25,13 +38,15 @@ function commentsForBlock(comments: readonly Comment[], block: CommentBlock): Co
  * while looking at the actual data.
  */
 function codeBlock(text: string | undefined, lineComments: readonly Comment[] = []): string {
-  if (!text) return '```\n(empty)\n```';
+  if (!text) return collapsibleCodeBlock('```\n(empty)\n```', 'Show details');
+
   const parsed = tryParseJson(text);
   const lang = parsed.ok ? 'json' : '';
+  const summary = parsed.ok ? 'Show JSON' : 'Show details';
   const body = parsed.ok ? JSON.stringify(parsed.value, null, 2) : text;
 
   if (lineComments.length === 0) {
-    return `\`\`\`${lang}\n${body}\n\`\`\``;
+    return collapsibleCodeBlock(`\`\`\`${lang}\n${body}\n\`\`\``, summary);
   }
 
   const byLine = new Map<number, Comment[]>();
@@ -51,7 +66,7 @@ function codeBlock(text: string | undefined, lineComments: readonly Comment[] = 
     })
     .join('\n');
 
-  return `\`\`\`${lang}\n${annotated}\n\`\`\``;
+  return collapsibleCodeBlock(`\`\`\`${lang}\n${annotated}\n\`\`\``, summary);
 }
 
 function headersBlock(headers: Readonly<Record<string, string>> | undefined, lineComments: readonly Comment[] = []): string {
