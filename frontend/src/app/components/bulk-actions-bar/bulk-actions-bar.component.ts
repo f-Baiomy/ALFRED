@@ -12,12 +12,14 @@ import { downloadText } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
 
 /**
- * Sticky bar shown once at least one call is selected. Markdown/JSON export
- * both go through the (now-generalized) export dialog so the user can
- * review/edit metadata first - pre-filled from the FIRST selected call in
- * current list order, same rule the user asked for. cURL export skips the
- * dialog entirely since it's a replay script, not a report: metadata is
- * only used for a header comment, not a form the user needs to see.
+ * Sticky bar always present above the list so "Select all" is reachable
+ * even before anything is selected; it grows to show export actions once
+ * `selectedCalls().length > 0`. Markdown/JSON export both go through the
+ * (now-generalized) export dialog so the user can review/edit metadata
+ * first - pre-filled from the FIRST selected call in current list order,
+ * same rule the user asked for. cURL export skips the dialog entirely
+ * since it's a replay script, not a report: metadata is only used for a
+ * header comment, not a form the user needs to see.
  */
 @Component({
   selector: 'app-bulk-actions-bar',
@@ -33,6 +35,10 @@ export class BulkActionsBarComponent {
   readonly curlLoading = signal(false);
   readonly mdLoading = signal(false);
   readonly jsonLoading = signal(false);
+
+  selectAll(): void {
+    this.state.selectAll();
+  }
 
   clearSelection(): void {
     this.state.clearSelection();

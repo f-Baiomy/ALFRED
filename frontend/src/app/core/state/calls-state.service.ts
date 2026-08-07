@@ -152,6 +152,11 @@ export class CallsStateService {
     this.selectedIds.set(new Set());
   }
 
+  /** Selects every call currently matching the search/supplier filter - not just the paginated slice - so "select all" behaves the way a user expects even before scrolling to load more. */
+  selectAll(): void {
+    this.selectedIds.set(new Set(this.matchingCalls().map(callKey)));
+  }
+
   setLimit(limit: number): void {
     this.limit.set(limit);
     this.visibleCount.set(PAGE_SIZE);

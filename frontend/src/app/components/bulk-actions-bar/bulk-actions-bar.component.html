@@ -1,8 +1,15 @@
-@if (state.selectedCalls().length > 0) {
-  <div class="bulk-actions-bar">
+<div class="bulk-actions-bar" [class.active]="state.selectedCalls().length > 0">
+  @if (state.selectedCalls().length > 0) {
     <span class="bulk-count"><b>{{ state.selectedCalls().length }}</b> selected</span>
+  } @else {
+    <span class="bulk-count muted">No calls selected</span>
+  }
 
-    <div class="bulk-actions">
+  <div class="bulk-actions">
+    <button type="button" class="bulk-btn secondary" (click)="selectAll()">Select all</button>
+
+    @if (state.selectedCalls().length > 0) {
+      <button type="button" class="bulk-btn secondary" (click)="clearSelection()">Deselect all</button>
       <button type="button" class="bulk-btn" [disabled]="mdLoading()" (click)="exportAsMarkdown()">
         {{ mdLoading() ? 'Loading...' : 'Export .md' }}
       </button>
@@ -12,7 +19,6 @@
       <button type="button" class="bulk-btn" [disabled]="curlLoading()" (click)="exportAsCurl()">
         {{ curlLoading() ? 'Loading...' : 'Export cURL' }}
       </button>
-      <button type="button" class="bulk-btn secondary" (click)="clearSelection()">Clear</button>
-    </div>
+    }
   </div>
-}
+</div>
