@@ -148,7 +148,16 @@ export class JsonPanelComponent {
         const mark = marks[this.activeMatchIndex()];
         const scrollable = root.querySelector<HTMLElement>('.scrollable');
         if (!mark || !scrollable) return;
-        const target = mark.offsetTop - scrollable.clientHeight / 2 + mark.offsetHeight / 2;
+        // mark.offsetTop is relative to its nearest *positioned* ancestor,
+        // not necessarily the scrollable container - since nothing in this
+        // tree sets position:relative, that ends up being the whole page,
+        // which threw the "center the match" math off by however far the
+        // panel sits down the page. getBoundingClientRect() sidesteps that
+        // entirely by measuring both elements in the same (viewport) space.
+        const markRect = mark.getBoundingClientRect();
+        const scrollableRect = scrollable.getBoundingClientRect();
+        const markOffsetWithinScrollable = markRect.top - scrollableRect.top + scrollable.scrollTop;
+        const target = markOffsetWithinScrollable - scrollable.clientHeight / 2 + mark.offsetHeight / 2;
         scrollable.scrollTop = Math.max(0, target);
       },
       { injector: this.injector }
