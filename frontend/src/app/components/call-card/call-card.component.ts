@@ -1,4 +1,4 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import {
   callKey,
@@ -8,8 +8,9 @@ import {
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { JsonPanelComponent } from '../json-panel/json-panel.component';
+import { CallsStateService } from '../../core/state/calls-state.service';
 
-/** One logged request/response pair: badges, from/to urls, actions, and the four Headers/Body panels. */
+/** One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the four Headers/Body panels. */
 @Component({
   selector: 'app-call-card',
   standalone: true,
@@ -17,6 +18,8 @@ import { JsonPanelComponent } from '../json-panel/json-panel.component';
   templateUrl: './call-card.component.html',
 })
 export class CallCardComponent {
+  private readonly state = inject(CallsStateService);
+
   readonly call = input.required<CallRecord>();
   readonly pinned = input<boolean>(false);
 
@@ -28,4 +31,12 @@ export class CallCardComponent {
     const ts = this.call().timestamp;
     return ts ? new Date(ts).toLocaleString() : '';
   });
+
+  isSelected(): boolean {
+    return this.state.isSelected(this.call());
+  }
+
+  toggleSelected(): void {
+    this.state.toggleSelected(this.call());
+  }
 }

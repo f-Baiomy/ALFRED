@@ -162,6 +162,62 @@ main {
   flex-wrap: wrap;
 }
 
+.bulk-actions-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.bulk-count {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.bulk-btn {
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: rgba(139, 92, 246, 0.22);
+  border-color: var(--border-strong);
+  color: var(--purple-light);
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(139, 92, 246, 0.35);
+  }
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  &.secondary {
+    background: var(--bg-2);
+    color: var(--text-dim);
+    &:hover {
+      border-color: var(--border-strong);
+      color: var(--text);
+    }
+  }
+}
+
 .stat-pill {
   background: var(--card);
   border: 1px solid var(--border);
@@ -222,6 +278,18 @@ main {
   &.pinned {
     border-color: rgba(251, 191, 36, 0.4);
   }
+  &.selected {
+    border-color: var(--purple);
+    box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.4);
+  }
+}
+
+.call-select {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--purple);
+  cursor: pointer;
 }
 
 .call-top {

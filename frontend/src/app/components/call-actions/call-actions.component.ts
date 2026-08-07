@@ -59,7 +59,7 @@ export class CallActionsComponent {
       comments: this.fetchComments(call),
     }).subscribe(({ metadata, comments }) => {
       this.exportLoading.set(false);
-      this.exportDialog.open(call, metadata, comments);
+      this.exportDialog.open([call], metadata, new Map([[callKey(call), comments]]), 'markdown');
     });
   }
 

@@ -1,12 +1,18 @@
 @if (state(); as current) {
   <div class="dialog-backdrop" (click)="close()">
     <div class="dialog-card" (click)="$event.stopPropagation()">
-      <h2>Export call as Markdown</h2>
+      <h2>
+        @if (isBulk()) {
+          Export {{ current.calls.length }} calls as {{ current.format === 'json' ? 'JSON' : 'Markdown' }}
+        } @else {
+          Export call as {{ current.format === 'json' ? 'JSON' : 'Markdown' }}
+        }
+      </h2>
       <p class="dialog-sub">Pre-filled where possible - review and edit before exporting. Nothing here is required.</p>
 
-      @if (current.comments.length > 0) {
+      @if (totalFlaggedCount() > 0) {
         <p class="dialog-sub dialog-flagged-note">
-          &#9873; {{ current.comments.length }} flagged issue{{ current.comments.length === 1 ? '' : 's' }} will be included in the export.
+          &#9873; {{ totalFlaggedCount() }} flagged issue{{ totalFlaggedCount() === 1 ? '' : 's' }} will be included in the export.
         </p>
       }
 
@@ -49,7 +55,7 @@
 
       <div class="dialog-actions">
         <button type="button" class="dialog-btn secondary" (click)="close()">Cancel</button>
-        <button type="button" class="dialog-btn primary" (click)="confirmExport()">Export .md</button>
+        <button type="button" class="dialog-btn primary" (click)="confirmExport()">Export {{ current.format === 'json' ? '.json' : '.md' }}</button>
       </div>
     </div>
   </div>

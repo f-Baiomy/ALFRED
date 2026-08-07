@@ -3,19 +3,27 @@ import { CallRecord } from '../models/call.model';
 import { ExportMetadata } from '../models/export-metadata.model';
 import { Comment } from '../models/comment.model';
 
+export type ExportFormat = 'markdown' | 'json';
+
 export interface ExportDialogState {
-  readonly call: CallRecord;
+  readonly calls: readonly CallRecord[];
   readonly metadata: ExportMetadata | null;
-  readonly comments: readonly Comment[];
+  readonly commentsByCallId: ReadonlyMap<string, readonly Comment[]>;
+  readonly format: ExportFormat;
 }
 
-/** Single source of truth for "is the export dialog open, and for which call" - one dialog instance at the app root reads this instead of every call needing its own dialog. */
+/** Single source of truth for "is the export dialog open, and for which call(s)" - one dialog instance at the app root reads this instead of every call needing its own dialog. Works for a single call (length-1 `calls`) or a bulk selection alike. */
 @Injectable({ providedIn: 'root' })
 export class ExportDialogService {
   readonly state = signal<ExportDialogState | null>(null);
 
-  open(call: CallRecord, metadata: ExportMetadata | null, comments: readonly Comment[]): void {
-    this.state.set({ call, metadata, comments });
+  open(
+    calls: readonly CallRecord[],
+    metadata: ExportMetadata | null,
+    commentsByCallId: ReadonlyMap<string, readonly Comment[]>,
+    format: ExportFormat = 'markdown'
+  ): void {
+    this.state.set({ calls, metadata, commentsByCallId, format });
   }
 
   close(): void {

@@ -49,6 +49,9 @@ export class CallsStateService {
   readonly visibleCount = signal(PAGE_SIZE);
   readonly error = signal<string | null>(null);
 
+  /** Calls picked for bulk export, keyed by callKey() - not tied to sort/filter/pagination, so a selection survives those changing underneath it. */
+  readonly selectedIds = signal<ReadonlySet<string>>(new Set());
+
   readonly loadMorePageSize = PAGE_SIZE;
 
   private readonly manualRefresh = new Subject<void>();
@@ -122,6 +125,32 @@ export class CallsStateService {
       .map(([supplier, calls]) => ({ supplier, calls }))
       .sort((a, b) => b.calls.length - a.calls.length);
   });
+
+  /** In current-sort-order, not click order - deterministic regardless of which one you happened to check first. */
+  readonly selectedCalls = computed(() => {
+    const ids = this.selectedIds();
+    if (ids.size === 0) return [];
+    return sortCalls(this.calls(), this.sortMode()).filter((c) => ids.has(callKey(c)));
+  });
+
+  isSelected(call: CallRecord): boolean {
+    return this.selectedIds().has(callKey(call));
+  }
+
+  toggleSelected(call: CallRecord): void {
+    const id = callKey(call);
+    const next = new Set(this.selectedIds());
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    this.selectedIds.set(next);
+  }
+
+  clearSelection(): void {
+    this.selectedIds.set(new Set());
+  }
 
   setLimit(limit: number): void {
     this.limit.set(limit);

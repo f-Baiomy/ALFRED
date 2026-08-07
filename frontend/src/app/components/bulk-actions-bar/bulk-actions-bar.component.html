@@ -1,0 +1,18 @@
+@if (state.selectedCalls().length > 0) {
+  <div class="bulk-actions-bar">
+    <span class="bulk-count"><b>{{ state.selectedCalls().length }}</b> selected</span>
+
+    <div class="bulk-actions">
+      <button type="button" class="bulk-btn" [disabled]="mdLoading()" (click)="exportAsMarkdown()">
+        {{ mdLoading() ? 'Loading...' : 'Export .md' }}
+      </button>
+      <button type="button" class="bulk-btn" [disabled]="jsonLoading()" (click)="exportAsJson()">
+        {{ jsonLoading() ? 'Loading...' : 'Export .json' }}
+      </button>
+      <button type="button" class="bulk-btn" [disabled]="curlLoading()" (click)="exportAsCurl()">
+        {{ curlLoading() ? 'Loading...' : 'Export cURL' }}
+      </button>
+      <button type="button" class="bulk-btn secondary" (click)="clearSelection()">Clear</button>
+    </div>
+  </div>
+}

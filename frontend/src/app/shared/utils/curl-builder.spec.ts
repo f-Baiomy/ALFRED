@@ -1,5 +1,5 @@
 import { CallRecord } from '../../core/models/call.model';
-import { buildCurlCommand } from './curl-builder';
+import { buildBulkCurlScript, buildCurlCommand, bulkCurlFilename } from './curl-builder';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -44,5 +44,42 @@ describe('buildCurlCommand', () => {
 
   it('omits --data-raw when there is no body', () => {
     expect(buildCurlCommand(makeCall({ request: { headers: {}, body: '' } }))).not.toContain('--data-raw');
+  });
+});
+
+describe('buildBulkCurlScript', () => {
+  it('numbers each call with a comment header and saves its response to its own file', () => {
+    const calls = [
+      makeCall({ method: 'GET', url: 'https://a.example/x' }),
+      makeCall({ method: 'POST', url: 'https://b.example/y', timestamp: 't2' }),
+    ];
+    const script = buildBulkCurlScript(calls, '2026-08-07T18:00:00Z');
+
+    expect(script).toContain('#!/bin/sh');
+    expect(script).toContain('# --- Call 1: GET https://a.example/x ---');
+    expect(script).toContain("curl -X GET 'https://a.example/x' \\\n  -o call-1-response.json");
+    expect(script).toContain('# --- Call 2: POST https://b.example/y ---');
+    expect(script).toContain('-o call-2-response.json');
+  });
+
+  it('includes the supplier hint in the header comment when provided, omits it otherwise', () => {
+    const withHint = buildBulkCurlScript([makeCall()], '2026-08-07T18:00:00Z', { supplierName: 'FlyNas', credentialsUsed: 'EGY' });
+    expect(withHint).toContain('# Supplier: FlyNas | Credentials: EGY');
+
+    const withoutHint = buildBulkCurlScript([makeCall()], '2026-08-07T18:00:00Z', null);
+    expect(withoutHint).not.toContain('# Supplier:');
+  });
+
+  it('never truncates a call\'s body', () => {
+    const bigBody = JSON.stringify(Array.from({ length: 200 }, (_, i) => i));
+    const call = makeCall({ request: { headers: {}, body: bigBody } });
+    const script = buildBulkCurlScript([call], '2026-08-07T18:00:00Z');
+    expect(script).toContain(bigBody);
+  });
+});
+
+describe('bulkCurlFilename', () => {
+  it('names the file after the call count', () => {
+    expect(bulkCurlFilename([makeCall(), makeCall(), makeCall()])).toBe('alfred-export-3-calls.sh');
   });
 });
