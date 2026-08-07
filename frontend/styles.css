@@ -197,6 +197,30 @@ main {
   transition: border-color 0.15s, transform 0.1s;
 }
 .call:hover { border-color: var(--border-strong); }
+.call.pinned { border-color: rgba(251, 191, 36, 0.4); }
+
+.pinned-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px dashed var(--border);
+}
+
+.pinned-header {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.pin-btn.active {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.5);
+  color: var(--amber);
+}
 
 .call-top {
   display: flex;

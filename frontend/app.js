@@ -375,6 +375,28 @@ function callKey(c) {
 
 const callDataById = new Map(); // call id -> the call object, for cURL/download actions
 
+const PIN_STORAGE_KEY = "alfred_pinned_calls";
+const pinnedCalls = new Map(); // call id -> full call object, persisted in localStorage
+
+function loadPinnedCalls() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PIN_STORAGE_KEY) || "[]");
+    stored.forEach((c) => pinnedCalls.set(callKey(c), c));
+  } catch {
+    // corrupt/blocked storage - start with no pins rather than throwing
+  }
+}
+
+function savePinnedCalls() {
+  try {
+    localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify([...pinnedCalls.values()]));
+  } catch {
+    // storage full/blocked - pins just won't survive a reload this time
+  }
+}
+
+loadPinnedCalls();
+
 function shQuote(str) {
   return `'${String(str).replace(/'/g, `'\\''`)}'`;
 }
@@ -445,13 +467,16 @@ function renderCall(c) {
     </div>`
     : "";
 
+  const isPinned = pinnedCalls.has(idBase);
+
   return `
-    <div class="call">
+    <div class="call${isPinned ? " pinned" : ""}">
       <div class="call-top">
         <span class="badge ${methodClass(method)}">${escapeHtml(method)}</span>
         ${statusBadge}
         ${duration != null ? `<span class="duration ${durationClass(duration)}">${duration} ms</span>` : ""}
         <div class="call-actions">
+          <button class="action-btn pin-btn${isPinned ? " active" : ""}" data-action="pin" data-call-id="${idBase}" title="${isPinned ? "Unpin this call" : "Pin this call"}">${isPinned ? "★ Pinned" : "☆ Pin"}</button>
           <button class="action-btn" data-action="curl" data-call-id="${idBase}" title="Copy as cURL">cURL</button>
           <button class="action-btn" data-action="download" data-call-id="${idBase}" title="Download raw call as JSON">JSON &darr;</button>
         </div>
@@ -539,19 +564,36 @@ function sortCalls(calls, mode) {
   }
 }
 
+function renderPinnedSection() {
+  if (pinnedCalls.size === 0) return "";
+  const cards = [...pinnedCalls.values()].map(renderCall).join("");
+  return `<div class="pinned-section"><div class="pinned-header">&#9733; Pinned (${pinnedCalls.size})</div>${cards}</div>`;
+}
+
 function renderAll() {
   const query = el("#search").value.trim();
   const sortMode = el("#sort").value;
-  const filtered = sortCalls(allCalls.filter(c => matchesFilter(c, query)), sortMode);
-  renderStats(filtered);
+  const matching = allCalls.filter(c => matchesFilter(c, query));
+  renderStats(matching);
+
+  // Pinned calls get their own always-visible section, so drop them from the
+  // main list here to avoid rendering the same call (and duplicate DOM ids)
+  // twice.
+  const filtered = sortCalls(matching.filter(c => !pinnedCalls.has(callKey(c))), sortMode);
 
   const container = el("#calls");
+  const pinnedHtml = renderPinnedSection();
+
   if (allCalls.length === 0) {
-    container.innerHTML = `<div class="empty">No calls logged yet — waiting for traffic through Alfred.</div>`;
+    container.innerHTML = pinnedHtml || `<div class="empty">No calls logged yet — waiting for traffic through Alfred.</div>`;
+    restoreScrollPositions(container);
+    restoreBlockSearches(container);
     return;
   }
   if (filtered.length === 0) {
-    container.innerHTML = `<div class="empty">No calls match "${escapeHtml(query)}".</div>`;
+    container.innerHTML = pinnedHtml + `<div class="empty">No calls match "${escapeHtml(query)}".</div>`;
+    restoreScrollPositions(container);
+    restoreBlockSearches(container);
     return;
   }
 
@@ -565,7 +607,7 @@ function renderAll() {
       ? `<div class="all-shown-note">Showing all ${filtered.length} matching calls</div>`
       : "";
 
-  container.innerHTML = visible.map(renderCall).join("") + loadMoreHtml;
+  container.innerHTML = pinnedHtml + visible.map(renderCall).join("") + loadMoreHtml;
   restoreScrollPositions(container);
   restoreBlockSearches(container);
 }
@@ -585,12 +627,26 @@ async function loadCalls() {
 document.addEventListener("click", (e) => {
   const actionBtn = e.target.closest(".action-btn");
   if (actionBtn) {
-    const c = callDataById.get(actionBtn.dataset.callId);
+    const callId = actionBtn.dataset.callId;
+
+    if (actionBtn.dataset.action === "pin") {
+      if (pinnedCalls.has(callId)) {
+        pinnedCalls.delete(callId);
+      } else {
+        const c = callDataById.get(callId);
+        if (c) pinnedCalls.set(callId, c);
+      }
+      savePinnedCalls();
+      renderAll();
+      return;
+    }
+
+    const c = callDataById.get(callId);
     if (!c) return;
     if (actionBtn.dataset.action === "curl") {
       navigator.clipboard.writeText(buildCurlCommand(c)).then(() => flashButtonText(actionBtn, "Copied!"));
     } else if (actionBtn.dataset.action === "download") {
-      downloadCallJson(c, actionBtn.dataset.callId);
+      downloadCallJson(c, callId);
     }
     return;
   }
