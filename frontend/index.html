@@ -423,6 +423,11 @@
 
     let allCalls = [];
     let expanded = true;
+    const openState = new Map(); // block id -> whether the user last left it open
+
+    function isBlockOpen(id) {
+      return openState.has(id) ? openState.get(id) : expanded;
+    }
 
     const el = (sel) => document.querySelector(sel);
     const escapeHtml = (str) =>
@@ -473,7 +478,7 @@
         inner = `<pre class="plain">(empty)</pre>`;
       }
       return `
-        <details class="block"${expanded ? " open" : ""}>
+        <details class="block" id="${id}-details"${isBlockOpen(`${id}-details`) ? " open" : ""}>
           <summary>${label}</summary>
           <div class="json-wrap">
             <button class="copy-btn" data-copy-target="${id}">Copy</button>
@@ -504,12 +509,19 @@
         : "method-DEFAULT";
     }
 
+    function callKey(c) {
+      // Stable across re-renders even when new calls shift list indices -
+      // deliberately NOT index-based, since the list is prepended to.
+      const raw = `${c.timestamp || ""}|${c.method || ""}|${c.original_url || ""}`;
+      return "c_" + raw.replace(/[^a-zA-Z0-9]/g, "_");
+    }
+
     function renderCall(c, idx) {
       const method = c.method || "?";
       const status = c.response ? c.response.status : null;
       const duration = c.duration_ms;
       const ts = c.timestamp ? new Date(c.timestamp).toLocaleString() : "";
-      const idBase = `call-${idx}`;
+      const idBase = callKey(c);
 
       const errorBanner = c.error
         ? `<div class="error-banner">⚠ ${escapeHtml(c.error)}</div>`
@@ -627,13 +639,30 @@
       });
     });
 
+    // "toggle" does not bubble, so listen on the container in the capture
+    // phase - this is what remembers a manually expanded/collapsed block
+    // across the next auto-refresh re-render.
+    el("#calls").addEventListener(
+      "toggle",
+      (e) => {
+        const details = e.target;
+        if (details.classList && details.classList.contains("block")) {
+          openState.set(details.id, details.open);
+        }
+      },
+      true
+    );
+
     el("#search").addEventListener("input", renderAll);
     el("#limit").addEventListener("change", loadCalls);
     el("#refreshBtn").addEventListener("click", loadCalls);
     el("#toggleAllBtn").addEventListener("click", () => {
       expanded = !expanded;
       el("#toggleAllBtn").textContent = expanded ? "Collapse all" : "Expand all";
-      document.querySelectorAll("details.block").forEach(d => d.open = expanded);
+      document.querySelectorAll("details.block").forEach(d => {
+        d.open = expanded;
+        openState.set(d.id, expanded);
+      });
     });
 
     loadCalls();
