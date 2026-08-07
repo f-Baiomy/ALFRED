@@ -2,6 +2,8 @@ const BACKEND_URL = window.BACKEND_URL || "http://localhost:5000";
 
 let allCalls = [];
 let expanded = true;
+const PAGE_SIZE = 20;
+let visibleCount = PAGE_SIZE;
 const openState = new Map(); // block id -> whether the user last left it open
 const scrollState = new Map(); // pre id -> scrollTop the user last left it at
 const blockSearchState = new Map(); // content div id -> { query, matches: [], index }
@@ -470,9 +472,32 @@ function restoreScrollPositions(container) {
   });
 }
 
+function statusRank(c) {
+  if (c.error) return 999;
+  return c.response?.status ?? -1;
+}
+
+function sortCalls(calls, mode) {
+  const arr = [...calls];
+  switch (mode) {
+    case "oldest":
+      // allCalls arrives newest-first from the backend.
+      return arr.reverse();
+    case "slowest":
+      return arr.sort((a, b) => (b.duration_ms ?? -1) - (a.duration_ms ?? -1));
+    case "fastest":
+      return arr.sort((a, b) => (a.duration_ms ?? Infinity) - (b.duration_ms ?? Infinity));
+    case "status":
+      return arr.sort((a, b) => statusRank(b) - statusRank(a));
+    default:
+      return arr;
+  }
+}
+
 function renderAll() {
   const query = el("#search").value.trim();
-  const filtered = allCalls.filter(c => matchesFilter(c, query));
+  const sortMode = el("#sort").value;
+  const filtered = sortCalls(allCalls.filter(c => matchesFilter(c, query)), sortMode);
   renderStats(filtered);
 
   const container = el("#calls");
@@ -484,7 +509,18 @@ function renderAll() {
     container.innerHTML = `<div class="empty">No calls match "${escapeHtml(query)}".</div>`;
     return;
   }
-  container.innerHTML = filtered.map(renderCall).join("");
+
+  visibleCount = Math.max(PAGE_SIZE, Math.min(visibleCount, filtered.length));
+  const visible = filtered.slice(0, visibleCount);
+  const remaining = filtered.length - visible.length;
+
+  const loadMoreHtml = remaining > 0
+    ? `<button class="load-more-btn" id="loadMoreBtn">Load ${Math.min(PAGE_SIZE, remaining)} more (showing ${visible.length} of ${filtered.length})</button>`
+    : filtered.length > PAGE_SIZE
+      ? `<div class="all-shown-note">Showing all ${filtered.length} matching calls</div>`
+      : "";
+
+  container.innerHTML = visible.map(renderCall).join("") + loadMoreHtml;
   restoreScrollPositions(container);
   restoreBlockSearches(container);
 }
@@ -549,6 +585,12 @@ el("#calls").addEventListener("input", (e) => {
 });
 
 el("#calls").addEventListener("click", (e) => {
+  if (e.target.closest("#loadMoreBtn")) {
+    visibleCount += PAGE_SIZE;
+    renderAll();
+    return;
+  }
+
   const viewTab = e.target.closest(".block-view-tab");
   if (viewTab) {
     const blockId = viewTab.dataset.target;
@@ -590,8 +632,18 @@ el("#calls").addEventListener("keydown", (e) => {
   setActiveBlockMatch(blockId, state.index + (e.shiftKey ? -1 : 1));
 });
 
-el("#search").addEventListener("input", renderAll);
-el("#limit").addEventListener("change", loadCalls);
+el("#search").addEventListener("input", () => {
+  visibleCount = PAGE_SIZE;
+  renderAll();
+});
+el("#limit").addEventListener("change", () => {
+  visibleCount = PAGE_SIZE;
+  loadCalls();
+});
+el("#sort").addEventListener("change", () => {
+  visibleCount = PAGE_SIZE;
+  renderAll();
+});
 el("#refreshBtn").addEventListener("click", loadCalls);
 el("#toggleAllBtn").addEventListener("click", () => {
   expanded = !expanded;
