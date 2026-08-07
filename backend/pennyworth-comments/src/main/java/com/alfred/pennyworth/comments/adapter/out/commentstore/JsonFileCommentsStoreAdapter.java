@@ -7,6 +7,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -20,10 +21,13 @@ import java.util.List;
  * Comments are flagged issues on a specific line of a call's request/response, for the
  * support-team export workflow. Persisted as a flat JSON file rather than a database - this app
  * has no database anywhere else either, and comment volume is small (one team, ad-hoc
- * annotations). Swapping to a real database later means writing a new CommentsStorePort
- * implementation, not touching CommentsService.
+ * annotations). Swapping to Redis/MySQL/etc. later means writing a new CommentsStorePort
+ * implementation with its own {@code havingValue} (e.g. "redis"), not touching CommentsService or
+ * anything upstream of the port. {@code matchIfMissing = true} keeps this the default so existing
+ * deployments (no {@code alfred.storage.comments.type} set) behave exactly as before.
  */
 @Component
+@ConditionalOnProperty(prefix = "alfred.storage.comments", name = "type", havingValue = "file", matchIfMissing = true)
 public class JsonFileCommentsStoreAdapter implements CommentsStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(JsonFileCommentsStoreAdapter.class);

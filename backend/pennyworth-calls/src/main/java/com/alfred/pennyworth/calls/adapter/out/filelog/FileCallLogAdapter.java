@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -17,10 +18,13 @@ import java.util.List;
 
 /**
  * Reads the proxy's JSON-lines log file. This is the only place in the app that knows calls live
- * in a flat file - swapping to a different storage would mean writing a new CallLogPort
- * implementation, not touching CallsService.
+ * in a flat file - swapping to a different storage (Redis, MySQL, ...) later means writing a new
+ * CallLogPort implementation with its own {@code havingValue}, not touching CallsService or
+ * anything upstream of the port. {@code matchIfMissing = true} keeps this the default so existing
+ * deployments (no {@code alfred.storage.calls.type} set) behave exactly as before.
  */
 @Component
+@ConditionalOnProperty(prefix = "alfred.storage.calls", name = "type", havingValue = "file", matchIfMissing = true)
 public class FileCallLogAdapter implements CallLogPort {
 
     private static final Logger log = LoggerFactory.getLogger(FileCallLogAdapter.class);
