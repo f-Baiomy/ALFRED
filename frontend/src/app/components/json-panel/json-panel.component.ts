@@ -1,9 +1,12 @@
 import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, signal, viewChild } from '@angular/core';
-import { JsonFlatViewComponent } from '../json-flat-view/json-flat-view.component';
+import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTreeComponent } from '../json-tree/json-tree.component';
 import { CallsStateService } from '../../core/state/calls-state.service';
-import { HighlightToken, filterLinesContaining, highlightTokens, prettyJsonText, tokenizeJsonText, tryParseJson } from '../../shared/utils/json-tokenizer';
+import { HighlightToken, highlightTokens, prettyJsonText, tokenizeJsonText, tryParseJson } from '../../shared/utils/json-tokenizer';
+import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
 import { JsonViewMode } from '../../core/models/call.model';
+import { Comment, CommentBlock } from '../../core/models/comment.model';
+import { CommentsStore } from '../../core/state/comments-store.service';
 
 type ParsedValue = { hasJson: true; value: unknown } | { hasJson: false; plainText: string };
 
@@ -24,10 +27,13 @@ type ParsedValue = { hasJson: true; value: unknown } | { hasJson: false; plainTe
 export class JsonPanelComponent {
   private readonly state = inject(CallsStateService);
   private readonly injector = inject(Injector);
+  private readonly commentsStore = inject(CommentsStore);
 
   readonly label = input.required<string>();
   readonly rawValue = input<unknown>(undefined);
   readonly panelId = input<string | undefined>(undefined);
+  readonly callId = input.required<string>();
+  readonly block = input.required<CommentBlock>();
 
   readonly open = signal(true);
   readonly viewMode = signal<JsonViewMode>('flat');
@@ -63,28 +69,61 @@ export class JsonPanelComponent {
     return p.hasJson ? prettyJsonText(p.value) : p.plainText || '(empty)';
   });
 
-  readonly hiddenLinesNote = computed<string>(() => {
-    const query = this.searchQuery();
-    if (this.effectiveViewMode() !== 'flat' || !this.filterLinesOnly() || !query) return '';
-    const { text, hiddenCount, totalCount } = filterLinesContaining(this.baseText(), query);
-    if (text.trim().length === 0) return `No lines match - ${hiddenCount} hidden`;
-    if (hiddenCount === 0) return '';
-    return `${hiddenCount} of ${totalCount} lines hidden`;
+  // Every line of the full (unfiltered) text, highlighted, in original line
+  // order. Each line's position in this array *is* its permanent identity -
+  // comments key off it, so "Lines only" filtering below must hide lines,
+  // never renumber them, or a comment would silently jump to the wrong line
+  // the next time the filter is toggled off.
+  private readonly allLines = computed<HighlightToken[][]>(() => {
+    const tokens = highlightTokens(tokenizeJsonText(this.baseText()), this.searchQuery()).tokens;
+    return splitTokensIntoLines(tokens);
   });
 
-  readonly displayTokens = computed<HighlightToken[]>(() => {
+  private readonly visibleLineIndices = computed<number[]>(() => {
+    const lines = this.allLines();
     const query = this.searchQuery();
-    let text = this.baseText();
-    if (this.effectiveViewMode() === 'flat' && this.filterLinesOnly() && query) {
-      text = filterLinesContaining(text, query).text;
+    if (this.effectiveViewMode() !== 'flat' || !this.filterLinesOnly() || !query) {
+      return lines.map((_, i) => i);
     }
-    return highlightTokens(tokenizeJsonText(text), query).tokens;
+    const q = query.toLowerCase();
+    return lines
+      .map((line, i) => ({ i, text: line.map((t) => t.text).join('') }))
+      .filter(({ text }) => text.toLowerCase().includes(q))
+      .map(({ i }) => i);
   });
 
-  readonly matchCount = computed(() => this.displayTokens().filter((t) => t.highlighted).length);
+  readonly displayLines = computed<LineTokens[]>(() =>
+    this.visibleLineIndices().map((index) => ({ index, tokens: this.allLines()[index] }))
+  );
+
+  readonly hiddenLinesNote = computed<string>(() => {
+    if (this.effectiveViewMode() !== 'flat' || !this.filterLinesOnly() || !this.searchQuery()) return '';
+    const total = this.allLines().length;
+    const visible = this.visibleLineIndices().length;
+    if (visible === 0) return `No lines match - ${total} hidden`;
+    const hidden = total - visible;
+    return hidden === 0 ? '' : `${hidden} of ${total} lines hidden`;
+  });
+
+  readonly matchCount = computed(() => this.allLines().flat().filter((t) => t.highlighted).length);
   readonly copyFeedback = signal(false);
 
+  readonly comments = computed(() =>
+    (this.commentsStore.cache().get(this.callId()) ?? []).filter((c) => c.block === this.block())
+  );
+
+  readonly commentsByLine = computed<ReadonlyMap<number, Comment[]>>(() => {
+    const map = new Map<number, Comment[]>();
+    for (const c of this.comments()) {
+      const list = map.get(c.lineIndex) ?? [];
+      list.push(c);
+      map.set(c.lineIndex, list);
+    }
+    return map;
+  });
+
   constructor() {
+    effect(() => this.commentsStore.ensureLoaded(this.callId()), { allowSignalWrites: true });
     // A bulk "Collapse/Expand all" click should force every panel's open
     // state to match, but shouldn't fight a user's individual toggle made
     // in between two bulk clicks - so we only react when the version
@@ -143,6 +182,20 @@ export class JsonPanelComponent {
     this.activeMatchIndex.set(((this.activeMatchIndex() + delta) % count + count) % count);
     this.open.set(true);
     this.scrollToActiveMatch();
+  }
+
+  onAddComment(event: { lineIndex: number; lineText: string; comment: string }): void {
+    this.commentsStore.addComment({
+      callId: this.callId(),
+      block: this.block(),
+      lineIndex: event.lineIndex,
+      lineText: event.lineText,
+      comment: event.comment,
+    });
+  }
+
+  onDeleteComment(id: string): void {
+    this.commentsStore.deleteComment(this.callId(), id);
   }
 
   copyContent(): void {

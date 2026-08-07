@@ -62,10 +62,13 @@
         <app-json-tree [value]="treeValue()" [searchQuery]="searchQuery()" [scrollId]="panelId()" />
       } @else {
         <app-json-flat-view
-          [tokens]="displayTokens()"
+          [lines]="displayLines()"
           [variant]="parsed().hasJson ? 'json' : 'plain'"
           [activeMatchIndex]="activeMatchIndex()"
           [scrollId]="panelId()"
+          [commentsByLine]="commentsByLine()"
+          (addComment)="onAddComment($event)"
+          (deleteComment)="onDeleteComment($event)"
         />
       }
     </div>

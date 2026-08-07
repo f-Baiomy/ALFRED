@@ -4,6 +4,12 @@
       <h2>Export call as Markdown</h2>
       <p class="dialog-sub">Pre-filled where possible - review and edit before exporting. Nothing here is required.</p>
 
+      @if (current.comments.length > 0) {
+        <p class="dialog-sub dialog-flagged-note">
+          &#9873; {{ current.comments.length }} flagged issue{{ current.comments.length === 1 ? '' : 's' }} will be included in the export.
+        </p>
+      }
+
       <label class="dialog-field">
         <span>Supplier Name</span>
         <input type="text" [value]="supplierName()" (input)="supplierName.set($any($event.target).value)" placeholder="e.g. FlyNas" />

@@ -1,5 +1,6 @@
 import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
+import { Comment } from '../../core/models/comment.model';
 import { buildExportMarkdown, exportFilename } from './markdown-builder';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
@@ -81,6 +82,59 @@ describe('buildExportMarkdown', () => {
   it('includes duration only when present', () => {
     expect(buildExportMarkdown(makeCall({ duration_ms: 42 }), makeForm())).toContain('**Duration:** 42 ms');
     expect(buildExportMarkdown(makeCall({ duration_ms: undefined }), makeForm())).not.toContain('**Duration:**');
+  });
+
+  it('omits the Flagged Issues section entirely when there are no comments', () => {
+    const md = buildExportMarkdown(makeCall(), makeForm(), []);
+    expect(md).not.toContain('Flagged Issues');
+  });
+
+  function makeComment(overrides: Partial<Comment> = {}): Comment {
+    return {
+      id: 'c1',
+      callId: 'call-1',
+      block: 'request-body',
+      lineIndex: 0,
+      lineText: '{',
+      comment: 'This looks wrong',
+      createdAt: '2026-08-07T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('lists flagged lines in a dedicated summary section, grouped by block', () => {
+    const comments: Comment[] = [
+      makeComment({ id: 'c1', block: 'request-body', lineIndex: 1, lineText: '"supplier": "FlyNas",', comment: 'Should be EGY' }),
+      makeComment({ id: 'c2', block: 'response-headers', lineIndex: 0, lineText: '{', comment: 'Missing CORS header' }),
+    ];
+    const md = buildExportMarkdown(makeCall(), makeForm(), comments);
+
+    expect(md).toContain('## Flagged Issues');
+    expect(md).toContain('### Request Body');
+    expect(md).toContain('- **Line 2:** `"supplier": "FlyNas",`');
+    expect(md).toContain('> Should be EGY');
+    expect(md).toContain('### Response Headers');
+    expect(md).toContain('> Missing CORS header');
+  });
+
+  it('also annotates the flagged line inline within its code block', () => {
+    const call = makeCall({ request: { headers: {}, body: '{"supplier":"FlyNas"}' } });
+    const comments: Comment[] = [makeComment({ block: 'request-body', lineIndex: 1, comment: 'Should be EGY' })];
+    const md = buildExportMarkdown(call, makeForm(), comments);
+
+    // Line 1 (0-indexed) of `{\n  "supplier": "FlyNas"\n}` is the supplier line.
+    expect(md).toContain('"supplier": "FlyNas"  // ⚠ FLAGGED: Should be EGY');
+  });
+
+  it('joins multiple comments on the same line with a separator instead of dropping any', () => {
+    const call = makeCall({ request: { headers: {}, body: '{"a":1}' } });
+    const comments: Comment[] = [
+      makeComment({ id: 'c1', block: 'request-body', lineIndex: 1, comment: 'First issue' }),
+      makeComment({ id: 'c2', block: 'request-body', lineIndex: 1, comment: 'Second issue' }),
+    ];
+    const md = buildExportMarkdown(call, makeForm(), comments);
+
+    expect(md).toContain('FLAGGED: First issue | FLAGGED: Second issue');
   });
 });
 

@@ -55,14 +55,18 @@ export class ExportDialogComponent {
     const current = this.state();
     if (!current) return;
 
-    const markdown = buildExportMarkdown(current.call, {
-      supplierName: this.supplierName(),
-      credentialsUsed: this.credentialsUsed(),
-      apiKey: this.apiKey(),
-      url: this.url(),
-      environment: this.environment(),
-      description: this.description(),
-    });
+    const markdown = buildExportMarkdown(
+      current.call,
+      {
+        supplierName: this.supplierName(),
+        credentialsUsed: this.credentialsUsed(),
+        apiKey: this.apiKey(),
+        url: this.url(),
+        environment: this.environment(),
+        description: this.description(),
+      },
+      current.comments
+    );
 
     downloadText(markdown, exportFilename(current.call));
     this.close();

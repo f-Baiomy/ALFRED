@@ -1,8 +1,12 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { CallRecord } from '../../core/models/call.model';
+import { Comment } from '../../core/models/comment.model';
 import { PinService } from '../../core/services/pin.service';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
+import { CommentsApiService } from '../../core/services/comments-api.service';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
 import { downloadJson } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
@@ -17,10 +21,12 @@ export class CallActionsComponent {
   private readonly pinService = inject(PinService);
   private readonly exportApi = inject(ExportApiService);
   private readonly exportDialog = inject(ExportDialogService);
+  private readonly commentsApi = inject(CommentsApiService);
 
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
   readonly exportLoading = signal(false);
+  readonly downloadLoading = signal(false);
 
   readonly isPinned = computed(() => this.pinService.isPinned(this.call()));
 
@@ -35,24 +41,29 @@ export class CallActionsComponent {
     });
   }
 
+  /** The JSON download is meant for reprocessing, so flagged issues ride along as a plain `comments` array rather than inline markers that would make the file invalid JSON. */
   downloadAsJson(): void {
-    downloadJson(this.call(), `${callKey(this.call())}.json`);
+    const call = this.call();
+    this.downloadLoading.set(true);
+    this.fetchComments(call).subscribe((comments) => {
+      this.downloadLoading.set(false);
+      downloadJson({ ...call, comments }, `${callKey(call)}.json`);
+    });
   }
 
   exportAsMarkdown(): void {
     const call = this.call();
     this.exportLoading.set(true);
-    this.exportApi.fetchMetadata(call).subscribe({
-      next: (metadata) => {
-        this.exportLoading.set(false);
-        this.exportDialog.open(call, metadata);
-      },
-      error: () => {
-        // Backend couldn't extract metadata (or is unreachable) - still let
-        // the user fill the form in manually rather than blocking the export.
-        this.exportLoading.set(false);
-        this.exportDialog.open(call, null);
-      },
+    forkJoin({
+      metadata: this.exportApi.fetchMetadata(call).pipe(catchError(() => of(null))),
+      comments: this.fetchComments(call),
+    }).subscribe(({ metadata, comments }) => {
+      this.exportLoading.set(false);
+      this.exportDialog.open(call, metadata, comments);
     });
+  }
+
+  private fetchComments(call: CallRecord) {
+    return this.commentsApi.listForCall(callKey(call)).pipe(catchError(() => of<Comment[]>([])));
   }
 }

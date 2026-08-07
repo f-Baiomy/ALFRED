@@ -15,6 +15,9 @@ venv/
 backend/target/
 *.class
 
+# Generated at runtime - persisted call comments
+backend/data/
+
 # Docker / editor / OS noise
 .env
 .DS_Store

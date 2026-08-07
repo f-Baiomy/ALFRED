@@ -642,6 +642,131 @@ details.block {
   color: var(--text);
 }
 
+// ---------- Line-based Flat view + inline comments ----------
+
+.code-lines {
+  padding: 0.5rem 0.75rem;
+}
+
+.code-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: 4px;
+  padding: 0 0.25rem;
+
+  &:hover {
+    background: rgba(139, 92, 246, 0.08);
+  }
+  &.has-comment {
+    background: rgba(251, 191, 36, 0.07);
+    border-left: 2px solid rgba(251, 191, 36, 0.5);
+  }
+}
+
+.line-number {
+  flex: 0 0 auto;
+  min-width: 2.2em;
+  text-align: right;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.line-comment-btn {
+  flex: 0 0 auto;
+  width: 1.3em;
+  height: 1.3em;
+  line-height: 1;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--purple-light);
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.15s;
+  margin-top: 0.1em;
+
+  .code-line:hover &,
+  .code-line.has-comment & {
+    opacity: 1;
+  }
+  &:hover {
+    background: rgba(139, 92, 246, 0.3);
+  }
+}
+
+.line-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.comment-composer {
+  margin: 0.15rem 2.5rem 0.5rem 2.7em;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 0.5rem;
+
+  textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.4rem 0.55rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-family: inherit;
+    resize: vertical;
+    outline: none;
+
+    &:focus {
+      border-color: var(--purple);
+    }
+  }
+}
+
+.comment-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.comment-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.15rem 2.5rem 0.5rem 2.7em;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.comment-card-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comment-card-delete {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.1rem;
+
+  &:hover {
+    color: var(--red);
+  }
+}
+
 .tree-node summary {
   cursor: pointer;
   list-style: none;
@@ -835,6 +960,14 @@ mark.hl.active {
     font-size: 1.15rem;
     color: var(--text);
   }
+}
+
+.dialog-flagged-note {
+  color: var(--amber);
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
 }
 
 .dialog-sub {

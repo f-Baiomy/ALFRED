@@ -1,8 +1,31 @@
-<pre
-  class="scrollable"
-  [class.json]="variant() === 'json'"
-  [class.plain]="variant() === 'plain'"
-  [attr.id]="scrollId()"
->
-  <app-json-tokens [tokens]="tokens()" [activeMatchIndex]="activeMatchIndex()" />
-</pre>
+<div class="scrollable code-lines" [class.json]="variant() === 'json'" [class.plain]="variant() === 'plain'" [attr.id]="scrollId()">
+  @for (line of lines(); track line.index) {
+    <div class="code-line" [class.has-comment]="(commentsByLine().get(line.index)?.length ?? 0) > 0">
+      <span class="line-number">{{ line.index + 1 }}</span>
+      <button type="button" class="line-comment-btn" title="Flag an issue on this line" (click)="toggleAddComment(line.index)">+</button>
+      <span class="line-content"><app-json-tokens [tokens]="line.tokens" [activeMatchIndex]="activeMatchIndex()" /></span>
+    </div>
+
+    @if (openCommentLineIndex() === line.index) {
+      <div class="comment-composer">
+        <textarea
+          rows="2"
+          [value]="draftText()"
+          (input)="draftText.set($any($event.target).value)"
+          placeholder="Describe the issue on this line..."
+        ></textarea>
+        <div class="comment-composer-actions">
+          <button type="button" class="dialog-btn secondary" (click)="cancelAddComment()">Cancel</button>
+          <button type="button" class="dialog-btn primary" [disabled]="!draftText().trim()" (click)="submitComment(line)">Comment</button>
+        </div>
+      </div>
+    }
+
+    @for (c of commentsByLine().get(line.index) ?? []; track c.id) {
+      <div class="comment-card">
+        <div class="comment-card-text">{{ c.comment }}</div>
+        <button type="button" class="comment-card-delete" title="Delete this comment" (click)="deleteComment.emit(c.id)">&times;</button>
+      </div>
+    }
+  }
+</div>
