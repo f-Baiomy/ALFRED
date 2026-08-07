@@ -83,19 +83,22 @@ truststore changes live.
       start.py                <- cross-platform entry point (recommended)
       start.sh                  <- Linux/macOS: hosts + compose + cert trust
       start.ps1                   <- Windows: hosts + compose + cert trust
+      restart.py                    <- rebuild/restart the stack (or one service)
       README.md
 
 ## The three services
 
   - alfred (mitmproxy)   - intercepts and logs supplier calls, as before
-  - pennyworth (backend) - reads proxy/logs/calls.log and serves it over
-                            a small API (http://localhost:5000). Minimal
-                            for now (GET /calls, GET /health) - scope to
-                            be expanded once discussed further.
+  - pennyworth (backend) - Spring Boot app that reads proxy/logs/calls.log
+                            and serves it over a small API
+                            (http://localhost:5000). Minimal for now
+                            (GET /calls, GET /health) - scope to be
+                            expanded once discussed further.
   - manor (frontend)     - dashboard at http://localhost:3000 that polls
-                            pennyworth and displays recent calls. Current
-                            version is a plain placeholder page, meant to
-                            be replaced with a real UI.
+                            pennyworth every 5s and displays recent calls
+                            with formatted, syntax-highlighted request/
+                            response headers and bodies, status/method
+                            badges, and a search filter.
 
 python3 start.py builds and starts all three (docker compose up -d --build).
 
@@ -208,6 +211,13 @@ forwarded to:
 
     docker compose down
     python3 start.py    (re-adds any new suppliers.txt entries, then starts back up)
+
+To rebuild and restart without touching hosts/cert setup (e.g. after
+editing backend or frontend code):
+
+    python3 restart.py                 restart every service
+    python3 restart.py pennyworth      restart/rebuild just one service
+    python3 restart.py manor pennyworth  restart/rebuild multiple named services
 
 ## Change the port
 

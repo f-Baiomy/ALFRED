@@ -408,7 +408,7 @@
         <option value="100">Last 100</option>
         <option value="200">Last 200</option>
       </select>
-      <button id="toggleAllBtn">Expand all</button>
+      <button id="toggleAllBtn">Collapse all</button>
       <button id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -422,7 +422,7 @@
     const BACKEND_URL = window.BACKEND_URL || "http://localhost:5000";
 
     let allCalls = [];
-    let expanded = false;
+    let expanded = true;
 
     const el = (sel) => document.querySelector(sel);
     const escapeHtml = (str) =>
@@ -473,7 +473,7 @@
         inner = `<pre class="plain">(empty)</pre>`;
       }
       return `
-        <details class="block" open>
+        <details class="block"${expanded ? " open" : ""}>
           <summary>${label}</summary>
           <div class="json-wrap">
             <button class="copy-btn" data-copy-target="${id}">Copy</button>
@@ -601,10 +601,6 @@
         return;
       }
       container.innerHTML = filtered.map(renderCall).join("");
-
-      if (expanded) {
-        container.querySelectorAll("details.block").forEach(d => d.open = true);
-      }
     }
 
     async function loadCalls() {
