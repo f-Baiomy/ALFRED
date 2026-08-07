@@ -1,0 +1,11 @@
+<details class="supplier-group" open>
+  <summary>
+    <span class="supplier-name">{{ supplier() }}</span>
+    <span class="supplier-count">{{ calls().length }} call{{ calls().length === 1 ? '' : 's' }}</span>
+  </summary>
+  <div class="supplier-group-body">
+    @for (call of calls(); track trackByCallKey(call)) {
+      <app-call-card [call]="call" />
+    }
+  </div>
+</details>

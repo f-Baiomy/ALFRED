@@ -1,0 +1,9 @@
+@for (t of tokens(); track $index) {
+  @if (t.highlighted) {
+    <mark class="hl" [class.active]="t.matchIndex === activeMatchIndex()">{{ t.text }}</mark>
+  } @else if (t.cls) {
+    <span [class]="t.cls">{{ t.text }}</span>
+  } @else {
+    <ng-container>{{ t.text }}</ng-container>
+  }
+}

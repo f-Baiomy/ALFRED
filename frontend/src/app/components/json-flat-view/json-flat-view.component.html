@@ -1,0 +1,8 @@
+<pre
+  class="scrollable"
+  [class.json]="variant() === 'json'"
+  [class.plain]="variant() === 'plain'"
+  [attr.id]="scrollId()"
+>
+  <app-json-tokens [tokens]="tokens()" [activeMatchIndex]="activeMatchIndex()" />
+</pre>

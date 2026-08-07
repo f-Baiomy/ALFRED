@@ -1,0 +1,40 @@
+@if (state.error()) {
+  <div class="error-box">Could not reach backend: {{ state.error() }}</div>
+}
+
+@if (pinnedCalls().length > 0) {
+  <div class="pinned-section">
+    <div class="pinned-header">&#9733; Pinned ({{ pinnedCalls().length }})</div>
+    @for (call of pinnedCalls(); track trackByCallKey(call)) {
+      <app-call-card [call]="call" [pinned]="true" />
+    }
+  </div>
+}
+
+@if (!state.error()) {
+  @if (!hasAnyData()) {
+    <div class="empty">No calls logged yet — waiting for traffic through Alfred.</div>
+  } @else if (state.groupBySupplier()) {
+    @if (state.mainListCalls().length === 0) {
+      <div class="empty">No calls match "{{ state.searchQuery() }}".</div>
+    } @else {
+      @for (group of state.groupedCalls(); track group.supplier) {
+        <app-supplier-group [supplier]="group.supplier" [calls]="group.calls" />
+      }
+    }
+  } @else if (state.mainListCalls().length === 0) {
+    <div class="empty">No calls match "{{ state.searchQuery() }}".</div>
+  } @else {
+    @for (call of state.visibleCalls(); track trackByCallKey(call)) {
+      <app-call-card [call]="call" />
+    }
+    @if (state.remainingCount() > 0) {
+      <button type="button" class="load-more-btn" (click)="loadMore()">
+        Load {{ state.loadMorePageSize < state.remainingCount() ? state.loadMorePageSize : state.remainingCount() }} more
+        (showing {{ state.visibleCalls().length }} of {{ state.mainListCalls().length }})
+      </button>
+    } @else if (state.mainListCalls().length > state.loadMorePageSize) {
+      <div class="all-shown-note">Showing all {{ state.mainListCalls().length }} matching calls</div>
+    }
+  }
+}

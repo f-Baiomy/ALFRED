@@ -1,0 +1,11 @@
+<div class="call-actions">
+  <button
+    type="button"
+    class="action-btn pin-btn"
+    [class.active]="isPinned()"
+    [title]="isPinned() ? 'Unpin this call' : 'Pin this call'"
+    (click)="togglePin()"
+  >{{ isPinned() ? '★ Pinned' : '☆ Pin' }}</button>
+  <button type="button" class="action-btn" title="Copy as cURL" (click)="copyAsCurl()">{{ curlCopyFeedback() ? 'Copied!' : 'cURL' }}</button>
+  <button type="button" class="action-btn" title="Download raw call as JSON" (click)="downloadAsJson()">JSON &darr;</button>
+</div>

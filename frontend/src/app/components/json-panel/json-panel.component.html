@@ -1,0 +1,68 @@
+<details class="block" [open]="open()" (toggle)="onToggle($event)">
+  <summary>{{ label() }}</summary>
+  <div class="json-wrap">
+    <div class="block-toolbar">
+      @if (parsed().hasJson) {
+        <div class="block-view-tabs">
+          <button
+            type="button"
+            class="block-view-tab"
+            [class.active]="effectiveViewMode() === 'flat'"
+            (click)="setViewMode('flat')"
+          >Flat</button>
+          <button
+            type="button"
+            class="block-view-tab"
+            [class.active]="effectiveViewMode() === 'tree'"
+            (click)="setViewMode('tree')"
+          >Tree</button>
+        </div>
+      }
+
+      <input
+        type="text"
+        class="block-search"
+        placeholder="Find in block..."
+        [value]="searchQuery()"
+        (input)="onSearchInput($any($event.target).value)"
+        (keydown.enter)="nextMatch(1)"
+        (keydown.shift.enter)="nextMatch(-1)"
+      />
+      <span class="block-search-count">
+        @if (searchQuery()) {
+          {{ matchCount() > 0 ? activeMatchIndex() + 1 + '/' + matchCount() : '0/0' }}
+        }
+      </span>
+      <button type="button" class="block-search-nav" title="Previous match" (click)="nextMatch(-1)">&lsaquo;</button>
+      <button type="button" class="block-search-nav" title="Next match" (click)="nextMatch(1)">&rsaquo;</button>
+
+      @if (effectiveViewMode() === 'flat') {
+        <button
+          type="button"
+          class="block-search-mode"
+          [class.active]="filterLinesOnly()"
+          title="Toggle: show only matching lines"
+          (click)="toggleFilterMode()"
+        >Lines only</button>
+      }
+
+      <button type="button" class="copy-btn" (click)="copyContent()">{{ copyFeedback() ? 'Copied!' : 'Copy' }}</button>
+    </div>
+
+    @if (hiddenLinesNote()) {
+      <div class="hidden-lines-note">{{ hiddenLinesNote() }}</div>
+    }
+    <div #contentRoot>
+      @if (effectiveViewMode() === 'tree') {
+        <app-json-tree [value]="treeValue()" [searchQuery]="searchQuery()" [scrollId]="panelId()" />
+      } @else {
+        <app-json-flat-view
+          [tokens]="displayTokens()"
+          [variant]="parsed().hasJson ? 'json' : 'plain'"
+          [activeMatchIndex]="activeMatchIndex()"
+          [scrollId]="panelId()"
+        />
+      }
+    </div>
+  </div>
+</details>

@@ -1,0 +1,46 @@
+<div class="call" [class.pinned]="pinned()">
+  <div class="call-top">
+    <span class="badge" [class]="methodClass()">{{ call().method }}</span>
+    @if (call().error) {
+      <span class="badge status-err">ERROR</span>
+    } @else {
+      <span class="badge" [class]="statusClass()">{{ call().response?.status ?? '?' }}</span>
+    }
+    @if (call().duration_ms != null) {
+      <span class="duration" [class]="durationClass()">{{ call().duration_ms }} ms</span>
+    }
+    <app-call-actions [call]="call()" />
+    <span class="call-time">{{ formattedTime() }}</span>
+  </div>
+
+  <div class="call-urls">
+    <div class="uri-row">
+      <span class="uri-label from">From</span>
+      <span class="uri-value from">{{ call().original_url }}</span>
+    </div>
+    <div class="uri-row">
+      <span class="uri-label to">To</span>
+      <span class="uri-value to">{{ call().url }}</span>
+    </div>
+  </div>
+
+  @if (call().error) {
+    <div class="error-banner">&#9888; {{ call().error }}</div>
+  }
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-title">Request</div>
+      <app-json-panel label="Headers" [rawValue]="call().request.headers" [panelId]="idBase() + '-req-headers'" />
+      <app-json-panel label="Body" [rawValue]="call().request.body" [panelId]="idBase() + '-req-body'" />
+    </div>
+
+    @if (call().response) {
+      <div class="panel">
+        <div class="panel-title">Response</div>
+        <app-json-panel label="Headers" [rawValue]="call().response!.headers" [panelId]="idBase() + '-res-headers'" />
+        <app-json-panel label="Body" [rawValue]="call().response!.body" [panelId]="idBase() + '-res-body'" />
+      </div>
+    }
+  </div>
+</div>

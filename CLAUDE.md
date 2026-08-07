@@ -9,7 +9,7 @@ Alfred is a reverse-mode mitmproxy setup that transparently intercepts and logs 
 Three Docker services (see `docker-compose.yml`):
 - **alfred** (mitmproxy, port 8444->8080) — intercepts, dynamically routes `*-proxy` hostnames to their real backend by stripping the suffix, and logs full request/response data as JSON lines to `proxy/logs/calls.log`.
 - **pennyworth** (Spring Boot backend, port 5000) — reads `calls.log` and serves it over a small HTTP API (`GET /calls`, `GET /health`). Intentionally minimal; scope expands as needed.
-- **manor** (static HTML dashboard via nginx, port 3000) — polls pennyworth every 5s and displays recent calls. Current version is a placeholder page meant to be replaced.
+- **manor** (Angular dashboard, built and served via nginx, port 3000) — polls pennyworth every 5s and displays recent calls with syntax-highlighted flat/tree JSON views, per-block search, sort/pagination, pinning, supplier grouping, and cURL/JSON export.
 
 ## Commands
 
@@ -45,7 +45,14 @@ Watch logs live:
 Get-Content .\proxy\logs\calls.log -Wait -Tail 20 | jq .
 ```
 
-There is no test suite, linter, or build step beyond the Docker builds themselves.
+There is no test suite, linter, or build step for `alfred`/`pennyworth` beyond the Docker builds themselves. The `manor` frontend does have a Karma/Jasmine unit test suite:
+
+```bash
+cd frontend
+npm install
+npm test           # ng test - Karma/Jasmine, watches by default
+npm run build       # ng build - production build, output in dist/manor/browser
+```
 
 ## Architecture notes
 
@@ -56,3 +63,10 @@ There is no test suite, linter, or build step beyond the Docker builds themselve
 - **Docker cannot touch the host** (hosts file, OS cert store): this is why `start.py`/`start.sh`/`start.ps1` exist as host-side wrappers run outside any container, before/alongside `docker compose`.
 - **JVM truststore caching**: a running JVM does not pick up truststore changes live — restart the Java app/server after its JDK's cert import.
 - Log format written by the proxy (see README for the full example) always includes both `original_url` (the `-proxy` URL the app called) and `url` (the real forwarded URL), plus method, headers, body, timestamp, duration_ms, and response.
+
+## manor (frontend) architecture notes
+
+- Standalone Angular components + signals throughout (no NgModules, no NgRx) — `frontend/src/app/core/state/calls-state.service.ts` is the single facade: it polls pennyworth on a 5s timer, and every filtered/sorted/paginated/grouped view of the data is a `computed()` signal derived from it. Components inject it directly rather than receiving props through a parent chain.
+- **JSON rendering never uses `innerHTML`.** Pretty-printed JSON is tokenized into `{text, cls}` pieces (`shared/utils/json-tokenizer.ts`) and rendered via template interpolation (`shared/components/json-tokens`); the collapsible tree view (`components/json-tree`) is a genuinely recursive component, not a string-built HTML tree. There is nothing here for an XSS payload in a supplier's response body to attach to.
+- **Per-block search/filter/view-mode state lives directly on `JsonPanelComponent`, with no external persistence map.** Because the call list's `@for` uses `trackByCallKey` (a stable id derived from timestamp+method+url, not array index), Angular keeps the same component instances alive across every 5s poll instead of destroying and recreating them — so a component's own signals (search query, flat/tree mode, scroll position via the native DOM node) survive automatically. A prior vanilla-JS version of this dashboard had to manually re-apply that state from lookup Maps after every re-render; that entire category of bug is structurally impossible here.
+- The one exception is the global "Collapse/Expand all" button: it needs to reach into already-existing panels, so `CallsStateService.collapseAllVersion` is a bump counter each `JsonPanelComponent` watches via an `effect()` — it force-syncs on a version change but otherwise leaves the panel's own toggle alone.

@@ -75,9 +75,10 @@ truststore changes live.
         Dockerfile
         pom.xml
         src/main/java/com/alfred/pennyworth/
-      frontend/                  <- manor: dashboard that queries pennyworth
+      frontend/                  <- manor: Angular dashboard that queries pennyworth
         Dockerfile
-        index.html
+        angular.json
+        src/app/
       suppliers.txt       <- list of real supplier domains (one per line)
       jdks.txt              <- list of JAVA_HOME paths needing cert trust
       start.py                <- cross-platform entry point (recommended)
@@ -94,11 +95,12 @@ truststore changes live.
                             (http://localhost:5000). Minimal for now
                             (GET /calls, GET /health) - scope to be
                             expanded once discussed further.
-  - manor (frontend)     - dashboard at http://localhost:3000 that polls
-                            pennyworth every 5s and displays recent calls
-                            with formatted, syntax-highlighted request/
-                            response headers and bodies, status/method
-                            badges, and a search filter.
+  - manor (frontend)     - Angular dashboard at http://localhost:3000 that
+                            polls pennyworth every 5s and displays recent
+                            calls with syntax-highlighted flat/tree JSON
+                            views, per-block search, sort/pagination,
+                            pinning, supplier grouping, and cURL/JSON
+                            export.
 
 python3 start.py builds and starts all three (docker compose up -d --build).
 
