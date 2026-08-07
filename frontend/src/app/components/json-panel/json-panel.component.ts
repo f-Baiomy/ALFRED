@@ -122,6 +122,21 @@ export class JsonPanelComponent {
     this.viewMode.set(mode);
   }
 
+  /**
+   * Tree nodes render a plain (unbound) `open` attribute rather than an
+   * Angular [open] binding - that's what lets a user's individual
+   * expand/collapse of one node survive later re-renders undisturbed. It
+   * does mean a bulk expand/collapse has to reach in and flip the DOM
+   * attribute directly, the same way scrollToActiveMatch already does.
+   */
+  setAllTreeNodesOpen(isOpen: boolean): void {
+    const root = this.contentRoot()?.nativeElement;
+    if (!root) return;
+    root.querySelectorAll<HTMLDetailsElement>('details.tree-node').forEach((node) => {
+      node.open = isOpen;
+    });
+  }
+
   nextMatch(delta: number): void {
     const count = this.matchCount();
     if (count === 0) return;

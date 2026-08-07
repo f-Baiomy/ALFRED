@@ -46,6 +46,11 @@
         >Lines only</button>
       }
 
+      @if (effectiveViewMode() === 'tree') {
+        <button type="button" class="block-search-mode" title="Expand every node in this tree" (click)="setAllTreeNodesOpen(true)">Expand all</button>
+        <button type="button" class="block-search-mode" title="Collapse every node in this tree" (click)="setAllTreeNodesOpen(false)">Collapse all</button>
+      }
+
       <button type="button" class="copy-btn" (click)="copyContent()">{{ copyFeedback() ? 'Copied!' : 'Copy' }}</button>
     </div>
 
