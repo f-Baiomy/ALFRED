@@ -1,7 +1,8 @@
 """
 mitmproxy addon: dynamically routes ANY hostname ending in "-proxy" to its
-real backend (by stripping the "-proxy" suffix), and logs every request/
-response (url, method, headers, body, status, timing) as JSON lines.
+real backend (by stripping the "-proxy" suffix), and POSTs every finished
+request/response (url, method, headers, body, status, timing) to
+pennyworth's webhook.
 
 Works for unlimited suppliers with zero per-supplier configuration:
   https://ndc-integration-stg-ne-3.azurewebsites.net-proxy/...
@@ -15,8 +16,10 @@ Runs in mitmproxy's reverse mode (see docker-compose.yml), so your client
 entry, and this addon dynamically rewrites the destination per request
 based on whatever hostname the client actually connected to.
 
-Log file path is configurable via the LOG_FILE environment variable,
-defaults to ./calls.log
+This addon does not persist anything itself - pennyworth owns storage
+(RECENT_CALLS.log, written after a successful webhook call). That means
+WEBHOOK_URL is not really optional: if it's unset, calls are proxied
+correctly but never recorded anywhere.
 """
 
 import json
@@ -26,12 +29,8 @@ import threading
 import time
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
 
 SUFFIX = "-proxy"
-
-LOG_FILE = Path(os.environ.get('LOG_FILE', './calls.log'))
-LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # Max characters to log per body. 0 (the default) means no truncation -
 # full request/response bodies are always logged in full. Override with
@@ -39,10 +38,8 @@ LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 # large/binary responses.
 BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
 
-# Optional real-time push: if set, every finished call is also POSTed here
-# (pennyworth relays it to the dashboard over WebSocket) in addition to the
-# file write above, which stays the durable source of truth. Left unset,
-# this feature is simply off - nothing else changes.
+# Every finished call is POSTed here for pennyworth to persist and relay to
+# the dashboard over WebSocket - see the module docstring above.
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
 WEBHOOK_TIMEOUT_SECONDS = 2
@@ -69,8 +66,9 @@ def _webhook_worker():
             )
             urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS)
         except Exception as e:
-            # Best-effort only - a webhook failure must never affect
-            # proxying or the calls.log write that already happened.
+            # A webhook failure must never affect proxying - it just means
+            # this particular call never reaches pennyworth (nothing else
+            # in this addon persists it as a fallback, see module docstring).
             print(f"[webhook] failed to notify {WEBHOOK_URL}: {e}")
 
 
@@ -169,8 +167,6 @@ class RouteAndLog:
         return text
 
     def _write(self, data):
-        with open(LOG_FILE, 'a') as f:
-            f.write(json.dumps(data) + '\n')
         if WEBHOOK_URL:
             _webhook_queue.put_nowait(data)
 

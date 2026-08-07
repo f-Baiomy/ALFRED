@@ -39,12 +39,14 @@ public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
     }
 
     /**
-     * calls.log (via CallLogPort) is still the source of truth for GET /calls - this exists
-     * purely to fan the event out live over WebSocket, since the proxy already has it in hand
-     * and pushing it beats waiting for the next poll to pick it up from the file.
+     * The proxy only calls the webhook now - it doesn't write any file itself - so this is where
+     * a call actually becomes durable. Saved first, broadcast second: a client that reacts to the
+     * WebSocket push and immediately re-fetches GET /calls must always find the record already
+     * there.
      */
     @Override
     public void receiveNewCall(CallRecord call) {
+        callLogPort.save(call);
         notificationPort.notifyNewCall(call);
     }
 }

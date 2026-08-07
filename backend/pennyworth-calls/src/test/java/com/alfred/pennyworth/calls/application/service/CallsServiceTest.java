@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CallsServiceTest {
@@ -69,7 +69,7 @@ class CallsServiceTest {
     }
 
     @Test
-    void receiveNewCallForwardsToTheNotificationPort() {
+    void receiveNewCallSavesBeforeBroadcasting() {
         CallLogPort port = mock(CallLogPort.class);
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);
         CallsService service = new CallsService(port, notificationPort);
@@ -77,6 +77,8 @@ class CallsServiceTest {
 
         service.receiveNewCall(call);
 
-        verify(notificationPort).notifyNewCall(call);
+        var order = inOrder(port, notificationPort);
+        order.verify(port).save(call);
+        order.verify(notificationPort).notifyNewCall(call);
     }
 }

@@ -12,7 +12,7 @@ export interface CallRecord {
   readonly original_url: string;
   readonly url: string;
   readonly method: string;
-  readonly request: HttpMessageData;
+  readonly request?: HttpMessageData;
   readonly timestamp: string;
   readonly duration_ms: number;
   readonly response?: CallResponse;

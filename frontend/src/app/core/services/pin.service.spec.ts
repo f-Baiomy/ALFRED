@@ -72,7 +72,7 @@ describe('PinService', () => {
     service.toggle(call);
 
     const stored = [...service.pinned().values()][0];
-    expect(stored.request.body).toBe('payload');
+    expect(stored.request!.body).toBe('payload');
     expect(callKey(stored)).toBe(callKey(call));
   });
 });

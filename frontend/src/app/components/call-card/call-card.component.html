@@ -37,11 +37,13 @@
   }
 
   <div class="panels">
-    <div class="panel">
-      <div class="panel-title">Request</div>
-      <app-json-panel label="Headers" [rawValue]="call().request.headers" [panelId]="idBase() + '-req-headers'" [callId]="idBase()" block="request-headers" />
-      <app-json-panel label="Body" [rawValue]="call().request.body" [panelId]="idBase() + '-req-body'" [callId]="idBase()" block="request-body" />
-    </div>
+    @if (call().request) {
+      <div class="panel">
+        <div class="panel-title">Request</div>
+        <app-json-panel label="Headers" [rawValue]="call().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="idBase()" block="request-headers" />
+        <app-json-panel label="Body" [rawValue]="call().request!.body" [panelId]="idBase() + '-req-body'" [callId]="idBase()" block="request-body" />
+      </div>
+    }
 
     @if (call().response) {
       <div class="panel">

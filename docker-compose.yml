@@ -8,24 +8,22 @@ services:
     ports:
       - "8444:8080"
     environment:
-      - LOG_FILE=/home/mitmproxy/logs/calls.log
-      # Real-time push: every finished call is POSTed here in addition to the file write above
-      # (pennyworth relays it to the dashboard over WebSocket). Container-name DNS works because
-      # both services share alfred-net. WEBHOOK_SECRET is a placeholder - use a real secret for
-      # any deployment reachable outside a trusted docker network.
+      # The proxy only calls the webhook now - pennyworth owns persistence (RECENT_CALLS.log).
+      # Container-name DNS works because both services share alfred-net. WEBHOOK_SECRET is a
+      # placeholder - use a real secret for any deployment reachable outside a trusted docker
+      # network.
       - WEBHOOK_URL=http://pennyworth:5000/calls/webhook
       - WEBHOOK_SECRET=change-me-in-production
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
-      - ./proxy/logs:/home/mitmproxy/logs
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
     working_dir: /home/mitmproxy
     command: mitmdump -q -s log_and_route.py --mode reverse:https://placeholder.invalid -p 8080 --set upstream_cert=false --set connection_strategy=lazy
     networks:
       - alfred-net
 
-  # Backend - reads the proxy's log file and serves it over an API.
-  # Scope/endpoints to be expanded once discussed further.
+  # Backend - persists calls the proxy's webhook sends it (RECENT_CALLS.log) and serves them
+  # over an API, plus a WebSocket push to the dashboard for each new one.
   pennyworth:
     build:
       context: ./backend
@@ -34,12 +32,13 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - LOG_FILE=/data/calls.log
+      # Recent calls now live here, written by pennyworth itself after each webhook call from
+      # the proxy - not read from the proxy's filesystem at all anymore.
+      - RECENT_CALLS_FILE=/appdata/RECENT_CALLS.log
       - COMMENTS_FILE=/appdata/comments.json
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
     volumes:
-      - ./proxy/logs:/data:ro
       - ./backend/data:/appdata
     depends_on:
       - alfred
