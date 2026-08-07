@@ -8,7 +8,7 @@ Alfred is a reverse-mode mitmproxy setup that transparently intercepts and logs 
 
 Three Docker services (see `docker-compose.yml`):
 - **alfred** (mitmproxy, port 8444->8080) — intercepts, dynamically routes `*-proxy` hostnames to their real backend by stripping the suffix, and logs full request/response data as JSON lines to `proxy/logs/calls.log`.
-- **pennyworth** (Spring Boot backend, port 5000, hexagonal/ports-&-adapters architecture — see below) — reads `calls.log` and serves it over a small HTTP API (`GET /calls`, `GET /health`), plus a small comments API (`GET/POST /comments`, `DELETE /comments/{id}`) backed by a flat JSON file (`backend/data/comments.json`, writable volume — see docker-compose.yml).
+- **pennyworth** (Spring Boot backend, port 5000; multi-module Maven reactor - one module per vertical slice, hexagonal internally, see below) — reads `calls.log` and serves it over a small HTTP API (`GET /calls`, `GET /health`), plus a small comments API (`GET/POST /comments`, `DELETE /comments/{id}`) backed by a flat JSON file (`backend/data/comments.json`, writable volume — see docker-compose.yml).
 - **manor** (Angular dashboard, built and served via nginx, port 3000) — polls pennyworth every 5s and displays recent calls with syntax-highlighted flat/tree JSON views, per-block search, sort/pagination, pinning, supplier grouping, cURL/JSON export, and GitHub-style line comments for flagging issues to hand off to a support team.
 
 ## Commands
@@ -70,40 +70,42 @@ npm run build       # ng build - production build, output in dist/manor/browser
 
 ## pennyworth (backend) architecture notes
 
-`backend` follows hexagonal (ports & adapters) architecture. **Every new backend feature or fix must follow this same shape** - this is a binding convention, not a one-time cleanup.
+`backend` is a Maven multi-module reactor: **one module per vertical slice** (business feature), each internally following hexagonal (ports & adapters) layering. **Every new backend feature or fix must follow this same shape** - this is a binding convention, enforced two different ways (see below), not a one-time cleanup.
 
 ```
-com.alfred.pennyworth
-├── domain.model          Plain records (CallRecord, Comment, NewComment, ExportMetadata, ...).
-│                         Zero Spring imports. No behavior beyond the data itself.
-├── application.port.in   Use-case interfaces (GetCallsUseCase, CreateCommentUseCase, ...) -
-│                         the only thing a controller is allowed to depend on.
-├── application.port.out  Interfaces for what the app core needs from the outside world
-│                         (CallLogPort, CommentsStorePort) - no mention of files/Spring/JSON.
-├── application.service   Use-case implementations (CallsService, CommentsService, ...).
-│                         Implement "in" ports, depend only on "out" ports. All business rules
-│                         live here: limit clamping, id/timestamp assignment, filtering,
-│                         metadata extraction.
-├── adapter.in.web         Controllers + web-facing DTOs + GlobalExceptionHandler. Depend only
-│                         on "in" port interfaces - never on a service class or an "out" port.
-├── adapter.out.*          One package per outbound integration (filelog, commentstore, ...),
-│                         each implementing exactly one "out" port. This is the only place that
-│                         knows calls/comments live in flat files today.
-└── config                 CorsConfig and similar cross-cutting Spring config.
+backend/
+├── pom.xml                        packaging=pom, parent=spring-boot-starter-parent, <modules> list
+├── pennyworth-platform/            cross-cutting, no feature dependencies
+│   └── com.alfred.pennyworth.platform.{config.CorsConfig, web.GlobalExceptionHandler, web.HealthController}
+├── pennyworth-calls/                vertical slice
+│   └── com.alfred.pennyworth.calls.{domain.model.*, application.port.in/out, application.service, adapter.in.web, adapter.out.filelog}
+├── pennyworth-comments/             vertical slice
+│   └── com.alfred.pennyworth.comments.{domain.model.*, application.port.in/out, application.service, adapter.in.web(+dto), adapter.out.commentstore}
+├── pennyworth-export/               vertical slice - depends on pennyworth-calls (needs CallRecord as input)
+│   └── com.alfred.pennyworth.export.{domain.model.ExportMetadata, application.port.in, application.service, adapter.in.web}
+├── pennyworth-app/                  composition root: depends on all 4 modules above, owns spring-boot-maven-plugin repackage
+│   └── com.alfred.pennyworth.PennyworthApplication + application.properties
+└── pennyworth-architecture-test/    test-only module, depends on everything, holds the ArchUnit suite
 ```
 
-**Dependency rule:** dependencies only point inward - `adapter` → `application` + `domain`; `application` → `domain` only; `domain` depends on nothing. A controller may only inject an inbound port interface, never a concrete service or an outbound port directly. Any new feature that talks to something external (a new file format, a future real database, an outbound HTTP call) is introduced as a new outbound port + adapter pair - never called directly from a service.
+**Why modules, not just packages:** a single-module hexagonal layout only enforces its rules by convention - nothing stops a `comments` class from importing a `calls` internal, or a controller from reaching straight into a service. Splitting into one Maven module per slice makes that a *compile error*: a slice's code simply isn't on another slice's classpath unless declared as a dependency. `pennyworth-export → pennyworth-calls` is the **one intentional exception** (export receives a full logged call and extracts metadata from it) - one-directional, no cycle back. Every other cross-slice access is impossible to even attempt, let alone merge.
 
-**When to add a web DTO vs. reuse the domain type directly:** reuse the domain record across the HTTP boundary when the wire shape and constraints are identical - `CallRecord`, `Comment`, and `ExportMetadata` all qualify today, which is why they're serialized/deserialized directly with no mapping layer in between (mapping code that does nothing but rename fields 1:1 is not "clean," it's noise). Introduce a distinct `adapter.in.web.dto` type only when the boundary genuinely needs something the domain type doesn't - the one case that exists today is `CommentRequestDto`, which carries Bean Validation annotations (`@NotBlank`, `@PositiveOrZero`) that are a transport concern and don't belong on the domain `NewComment` command.
+**Two enforcement mechanisms, two different jobs:**
+1. **Maven module boundaries** enforce slice isolation - `calls` cannot depend on `comments` or `export` because there is no `<dependency>` declaring it, full stop.
+2. **`pennyworth-architecture-test`'s ArchUnit suite** (`HexagonalArchitectureTest`) enforces everything modules can't: the *direction* of dependencies **within** a slice (domain → application → adapter, never reversed), that domain stays free of `org.springframework` (Jackson is explicitly allowed - see below), that inbound adapters depend on ports and never reach past them into a service class or into an outbound adapter, and that `calls`/`comments` never depend on each other or on `export`. A violation fails `mvn test` - it does not wait for a review comment. (Verified live while building this: temporarily annotating a domain record with `@Component` made exactly one rule fail with a precise message, then reverted.)
+
+**When to add a web DTO vs. reuse the domain type directly:** reuse the domain record across the HTTP boundary when the wire shape and constraints are identical - `CallRecord`, `Comment`, and `ExportMetadata` all qualify today, which is why they're serialized/deserialized directly with no mapping layer in between (mapping code that does nothing but rename fields 1:1 is not "clean," it's noise; this is also why `CallRecord` keeps its `@JsonProperty` annotations and the ArchUnit domain-purity rule explicitly allows Jackson while forbidding Spring). Introduce a distinct `adapter.in.web.dto` type only when the boundary genuinely needs something the domain type doesn't - the one case that exists today is `CommentRequestDto`, which carries Bean Validation annotations (`@NotBlank`, `@PositiveOrZero`) that are a transport concern and don't belong on the domain `NewComment` command.
+
+**Adding a new slice:** create a new `pennyworth-<name>` module (own `pom.xml`, parent = the aggregator), give it the same internal package shape, add it to the aggregator's `<modules>` and to `pennyworth-app`'s dependencies so its beans get component-scanned, and add it to `pennyworth-architecture-test`'s dependencies plus a slice-isolation rule in `HexagonalArchitectureTest` for it. If it needs `@WebMvcTest` coverage, it needs its own tiny test-only `@SpringBootApplication` class (see `pennyworth-comments`' `TestApplication`) - bare `@SpringBootConfiguration` alone does not imply component scanning, only `@SpringBootApplication`/`@ComponentScan` does.
 
 **Security posture:**
-- All inbound web DTOs are validated with Jakarta Bean Validation (`@Valid` in the controller); `GlobalExceptionHandler` (`@RestControllerAdvice`) turns validation failures into a clean `400 {"error": "..."}` body and any unexpected exception into a generic `500` - internal detail (stack traces, file paths) is logged server-side via SLF4J and never sent to the client.
+- All inbound web DTOs are validated with Jakarta Bean Validation (`@Valid` in the controller); `GlobalExceptionHandler` (`@RestControllerAdvice`, in `pennyworth-platform`) turns validation failures into a clean `400 {"error": "..."}` body and any unexpected exception into a generic `500` - internal detail (stack traces, file paths) is logged server-side via SLF4J and never sent to the client.
 - `GET /calls?limit=` is clamped server-side to `[1, CallsService.MAX_LIMIT]` regardless of what's requested, so a request can't force an unbounded read.
 - `DELETE /comments/{id}` returns `404` when the id doesn't exist and `204` when it does - use the boolean a port already returns instead of always answering `200`.
 - CORS origins come from `alfred.cors.allowed-origins` (env `ALFRED_CORS_ALLOWED_ORIGINS`), not a hardcoded `"*"` - defaults permissive for the current single-team deployment, but tightening for a real deployment is a one-line env change, not a code change.
 - Adapters never swallow failures silently: malformed call-log lines and comments-file read/write errors are logged via SLF4J (WARN/ERROR) instead of silently disappearing. `JsonFileCommentsStoreAdapter` also checks its storage directory is writable at startup (`@PostConstruct`) so a misconfigured volume fails loudly immediately instead of confusingly on the first `POST /comments`.
 
-**Testing convention:** application services are unit-tested against fake/mocked ports (`CallsServiceTest`, `CommentsServiceTest`, `ExportMetadataServiceTest`) - no Spring context, no filesystem, because the ports interface is exactly what makes that possible. Adapters get focused tests against a real temp directory (`@TempDir`) rather than mocks, since their whole job is file I/O (`FileCallLogAdapterTest`, `JsonFileCommentsStoreAdapterTest`). Controllers get thin `@WebMvcTest` coverage for HTTP-level concerns only - status codes, validation - with the use cases mocked (`CommentsControllerTest`).
+**Testing convention:** application services are unit-tested against fake/mocked ports (`CallsServiceTest`, `CommentsServiceTest`, `ExportMetadataServiceTest`) - no Spring context, no filesystem, because the ports interface is exactly what makes that possible. Adapters get focused tests against a real temp directory (`@TempDir`) rather than mocks, since their whole job is file I/O (`FileCallLogAdapterTest`, `JsonFileCommentsStoreAdapterTest`). Controllers get thin `@WebMvcTest` coverage for HTTP-level concerns only - status codes, validation - with the use cases mocked (`CommentsControllerTest`). `mvn test` at the aggregator (`backend/`) runs the entire reactor including the ArchUnit suite; `docker compose up -d --build pennyworth` uses `-DskipTests` for the image build itself, matching the existing convention of running tests separately from the Docker build.
 
 ## manor (frontend) architecture notes
 

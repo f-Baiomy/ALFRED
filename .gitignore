@@ -12,7 +12,7 @@ __pycache__/
 venv/
 
 # Java / Maven
-backend/target/
+backend/**/target/
 *.class
 
 # Generated at runtime - persisted call comments
