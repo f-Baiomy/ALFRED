@@ -323,9 +323,50 @@ details.block[open] summary::before { transform: rotate(90deg); }
 details.block summary:hover { color: var(--text); }
 
 .json-wrap {
-  position: relative;
   margin: 0 0.75rem 0.75rem;
 }
+
+.block-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.block-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.3rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.block-search:focus { border-color: var(--purple); }
+.block-search::placeholder { color: var(--text-faint); }
+
+.block-search-count {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  min-width: 2.8em;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.block-search-nav {
+  background: rgba(139,92,246,0.12);
+  border: 1px solid var(--border);
+  color: var(--purple-light);
+  font-size: 0.75rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 5px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.block-search-nav:hover { border-color: var(--border-strong); background: rgba(139,92,246,0.22); }
 
 pre.json {
   margin: 0;
@@ -359,9 +400,7 @@ pre.plain {
 }
 
 .copy-btn {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.9rem;
+  flex: 0 0 auto;
   background: rgba(139,92,246,0.18);
   border: 1px solid var(--border-strong);
   color: var(--purple-light);
@@ -370,6 +409,7 @@ pre.plain {
   border-radius: 5px;
   cursor: pointer;
   opacity: 0.8;
+  white-space: nowrap;
 }
 .copy-btn:hover { opacity: 1; background: rgba(139,92,246,0.3); }
 
@@ -378,6 +418,18 @@ pre.plain {
 .n { color: var(--json-number); }
 .b { color: var(--json-bool); font-weight: 600; }
 .z { color: var(--json-null); font-style: italic; }
+
+mark.hl {
+  background: rgba(251, 191, 36, 0.85);
+  color: #1a1247;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+mark.hl.active {
+  background: var(--purple);
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.5);
+}
 
 ::-webkit-scrollbar { height: 8px; width: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

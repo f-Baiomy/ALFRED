@@ -4,6 +4,8 @@ let allCalls = [];
 let expanded = true;
 const openState = new Map(); // block id -> whether the user last left it open
 const scrollState = new Map(); // pre id -> scrollTop the user last left it at
+const blockSearchState = new Map(); // content div id -> { query, matches: [], index }
+const blockOriginalHtml = new Map(); // content div id -> pristine (unhighlighted) innerHTML
 
 function isBlockOpen(id) {
   return openState.has(id) ? openState.get(id) : expanded;
@@ -60,14 +62,134 @@ function renderJsonBlock(id, label, value, rawTextFallback) {
   const preId = `${id}-pre`;
   inner = inner.replace(/^<pre class="(json|plain)">/, `<pre id="${preId}" class="$1">`);
 
+  const savedQuery = blockSearchState.get(id)?.query || "";
+
   return `
     <details class="block" id="${id}-details"${isBlockOpen(`${id}-details`) ? " open" : ""}>
       <summary>${label}</summary>
       <div class="json-wrap">
-        <button class="copy-btn" data-copy-target="${id}">Copy</button>
+        <div class="block-toolbar">
+          <input
+            type="text"
+            class="block-search"
+            id="${id}-search"
+            placeholder="Find in block..."
+            value="${escapeHtml(savedQuery)}"
+          />
+          <span class="block-search-count" id="${id}-search-count"></span>
+          <button class="block-search-nav" data-dir="-1" data-target="${id}" title="Previous match">&lsaquo;</button>
+          <button class="block-search-nav" data-dir="1" data-target="${id}" title="Next match">&rsaquo;</button>
+          <button class="copy-btn" data-copy-target="${id}">Copy</button>
+        </div>
         <div id="${id}">${inner}</div>
       </div>
     </details>`;
+}
+
+function clearBlockHighlights(blockId) {
+  const container = document.getElementById(blockId);
+  const pristine = blockOriginalHtml.get(blockId);
+  if (container && pristine !== undefined) {
+    container.innerHTML = pristine;
+  }
+}
+
+function updateBlockSearchCount(blockId) {
+  const countEl = document.getElementById(`${blockId}-search-count`);
+  if (!countEl) return;
+  const state = blockSearchState.get(blockId);
+  if (!state || !state.query) {
+    countEl.textContent = "";
+  } else {
+    countEl.textContent = state.matches.length ? `${state.index + 1}/${state.matches.length}` : "0/0";
+  }
+}
+
+function setActiveBlockMatch(blockId, newIndex) {
+  const state = blockSearchState.get(blockId);
+  if (!state || !state.matches.length) return;
+  const len = state.matches.length;
+  const idx = ((newIndex % len) + len) % len;
+
+  state.matches.forEach((m) => m.classList.remove("active"));
+  const mark = state.matches[idx];
+  mark.classList.add("active");
+  state.index = idx;
+  updateBlockSearchCount(blockId);
+
+  const details = document.getElementById(`${blockId}-details`);
+  if (details && !details.open) {
+    details.open = true;
+    openState.set(details.id, true);
+  }
+
+  const pre = mark.closest("pre");
+  if (pre) {
+    const target = mark.offsetTop - pre.clientHeight / 2 + mark.offsetHeight / 2;
+    pre.scrollTop = Math.max(0, target);
+    scrollState.set(pre.id, pre.scrollTop);
+  }
+}
+
+function applyBlockSearch(blockId, query) {
+  const container = document.getElementById(blockId);
+  if (!container) return;
+
+  clearBlockHighlights(blockId);
+
+  if (!query) {
+    blockSearchState.delete(blockId);
+    updateBlockSearchCount(blockId);
+    return;
+  }
+
+  const pre = container.querySelector("pre");
+  const q = query.toLowerCase();
+  const matches = [];
+
+  if (pre) {
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) textNodes.push(node);
+
+    textNodes.forEach((textNode) => {
+      const text = textNode.nodeValue;
+      const lower = text.toLowerCase();
+      if (!lower.includes(q)) return;
+
+      const frag = document.createDocumentFragment();
+      let lastIndex = 0;
+      let idx;
+      while ((idx = lower.indexOf(q, lastIndex)) !== -1) {
+        if (idx > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, idx)));
+        const mark = document.createElement("mark");
+        mark.className = "hl";
+        mark.textContent = text.slice(idx, idx + q.length);
+        frag.appendChild(mark);
+        matches.push(mark);
+        lastIndex = idx + q.length;
+      }
+      if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+      textNode.parentNode.replaceChild(frag, textNode);
+    });
+  }
+
+  blockSearchState.set(blockId, { query, matches, index: matches.length ? 0 : -1 });
+  updateBlockSearchCount(blockId);
+  if (matches.length) {
+    setActiveBlockMatch(blockId, 0);
+  }
+}
+
+function restoreBlockSearches(container) {
+  container.querySelectorAll(".json-wrap > div[id]").forEach((div) => {
+    blockOriginalHtml.set(div.id, div.innerHTML);
+  });
+  blockSearchState.forEach((state, blockId) => {
+    if (!state.query) return;
+    applyBlockSearch(blockId, state.query);
+  });
 }
 
 function durationClass(ms) {
@@ -214,6 +336,7 @@ function renderAll() {
   }
   container.innerHTML = filtered.map(renderCall).join("");
   restoreScrollPositions(container);
+  restoreBlockSearches(container);
 }
 
 async function loadCalls() {
@@ -267,6 +390,32 @@ el("#calls").addEventListener(
   },
   true
 );
+
+el("#calls").addEventListener("input", (e) => {
+  const input = e.target.closest(".block-search");
+  if (!input) return;
+  const blockId = input.id.replace(/-search$/, "");
+  applyBlockSearch(blockId, input.value.trim());
+});
+
+el("#calls").addEventListener("click", (e) => {
+  const btn = e.target.closest(".block-search-nav");
+  if (!btn) return;
+  const blockId = btn.dataset.target;
+  const state = blockSearchState.get(blockId);
+  if (!state || !state.matches.length) return;
+  setActiveBlockMatch(blockId, state.index + parseInt(btn.dataset.dir, 10));
+});
+
+el("#calls").addEventListener("keydown", (e) => {
+  if (!e.target.classList || !e.target.classList.contains("block-search")) return;
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const blockId = e.target.id.replace(/-search$/, "");
+  const state = blockSearchState.get(blockId);
+  if (!state || !state.matches.length) return;
+  setActiveBlockMatch(blockId, state.index + (e.shiftKey ? -1 : 1));
+});
 
 el("#search").addEventListener("input", renderAll);
 el("#limit").addEventListener("change", loadCalls);
