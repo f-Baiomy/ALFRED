@@ -11,6 +11,10 @@ __pycache__/
 .venv/
 venv/
 
+# Java / Maven
+backend/target/
+*.class
+
 # Docker / editor / OS noise
 .env
 .DS_Store

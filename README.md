@@ -73,8 +73,8 @@ truststore changes live.
         certs/                     <- CA certificate appears here after first run
       backend/                  <- pennyworth: serves the logged data over an API
         Dockerfile
-        app.py
-        requirements.txt
+        pom.xml
+        src/main/java/com/alfred/pennyworth/
       frontend/                  <- manor: dashboard that queries pennyworth
         Dockerfile
         index.html

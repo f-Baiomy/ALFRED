@@ -8,7 +8,7 @@ Alfred is a reverse-mode mitmproxy setup that transparently intercepts and logs 
 
 Three Docker services (see `docker-compose.yml`):
 - **alfred** (mitmproxy, port 8444->8080) — intercepts, dynamically routes `*-proxy` hostnames to their real backend by stripping the suffix, and logs full request/response data as JSON lines to `proxy/logs/calls.log`.
-- **pennyworth** (FastAPI backend, port 5000) — reads `calls.log` and serves it over a small HTTP API (`GET /calls`, `GET /health`). Intentionally minimal; scope expands as needed.
+- **pennyworth** (Spring Boot backend, port 5000) — reads `calls.log` and serves it over a small HTTP API (`GET /calls`, `GET /health`). Intentionally minimal; scope expands as needed.
 - **manor** (static HTML dashboard via nginx, port 3000) — polls pennyworth every 5s and displays recent calls. Current version is a placeholder page meant to be replaced.
 
 ## Commands
