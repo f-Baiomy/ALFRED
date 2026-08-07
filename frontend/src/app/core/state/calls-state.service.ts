@@ -133,19 +133,43 @@ export class CallsStateService {
     return sortCalls(this.calls(), this.sortMode()).filter((c) => ids.has(callKey(c)));
   });
 
+  /** Whether a drag-select is in progress, and which state (select/deselect) it's painting - set by the card the drag started on, applied to every card the pointer subsequently enters. */
+  private dragSelectValue: boolean | null = null;
+
   isSelected(call: CallRecord): boolean {
     return this.selectedIds().has(callKey(call));
   }
 
   toggleSelected(call: CallRecord): void {
+    this.setSelected(call, !this.isSelected(call));
+  }
+
+  private setSelected(call: CallRecord, selected: boolean): void {
     const id = callKey(call);
     const next = new Set(this.selectedIds());
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
+    if (selected) {
       next.add(id);
+    } else {
+      next.delete(id);
     }
     this.selectedIds.set(next);
+  }
+
+  /** Call on mousedown on a card: flips that card and remembers the resulting state so a subsequent drag paints the same state onto every card the pointer passes over. */
+  startDragSelect(call: CallRecord): void {
+    this.dragSelectValue = !this.isSelected(call);
+    this.setSelected(call, this.dragSelectValue);
+  }
+
+  /** Call on mouseenter while a drag-select is active. */
+  dragSelectOver(call: CallRecord): void {
+    if (this.dragSelectValue === null) return;
+    this.setSelected(call, this.dragSelectValue);
+  }
+
+  /** Call on mouseup/dragend anywhere, to end the drag regardless of where the pointer was released. */
+  endDragSelect(): void {
+    this.dragSelectValue = null;
   }
 
   clearSelection(): void {

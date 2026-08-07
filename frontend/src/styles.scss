@@ -288,6 +288,8 @@ main {
   border-radius: 14px;
   padding: 1rem 1.15rem;
   transition: border-color 0.15s;
+  cursor: pointer;
+  user-select: none;
 
   &:hover {
     border-color: var(--border-strong);
@@ -511,6 +513,15 @@ main {
 }
 .uri-value.to {
   color: var(--cyan);
+}
+
+// The card as a whole is a click/drag selection target (see .call above),
+// but the URLs and JSON panel contents are exactly what a user copies out
+// of this tool most often, so they stay normally text-selectable.
+.uri-value,
+app-json-panel {
+  cursor: text;
+  user-select: text;
 }
 
 .error-banner {

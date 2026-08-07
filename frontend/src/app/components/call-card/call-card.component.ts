@@ -1,4 +1,4 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, HostListener, computed, inject, input } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import {
   callKey,
@@ -9,6 +9,10 @@ import {
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { JsonPanelComponent } from '../json-panel/json-panel.component';
 import { CallsStateService } from '../../core/state/calls-state.service';
+
+/** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
+const SELECTION_EXEMPT_SELECTOR =
+  'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel';
 
 /** One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the four Headers/Body panels. */
 @Component({
@@ -38,5 +42,31 @@ export class CallCardComponent {
 
   toggleSelected(): void {
     this.state.toggleSelected(this.call());
+  }
+
+  /**
+   * Clicking anywhere on the card outside an interactive control toggles
+   * its selection, and dragging from there across other cards paints the
+   * same selection state onto each one - the checkbox stays as a small,
+   * precise alternative to this larger "click the row" target.
+   */
+  @HostListener('mousedown', ['$event'])
+  onMouseDown(event: MouseEvent): void {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest(SELECTION_EXEMPT_SELECTOR)) return;
+
+    event.preventDefault();
+    this.state.startDragSelect(this.call());
+  }
+
+  @HostListener('mouseenter')
+  onMouseEnter(): void {
+    this.state.dragSelectOver(this.call());
+  }
+
+  @HostListener('window:mouseup')
+  onWindowMouseUp(): void {
+    this.state.endDragSelect();
   }
 }
