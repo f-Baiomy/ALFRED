@@ -1,4 +1,4 @@
-import { Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, input, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, signal, viewChild } from '@angular/core';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTreeComponent } from '../json-tree/json-tree.component';
 import { CallsStateService } from '../../core/state/calls-state.service';
@@ -7,7 +7,7 @@ import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
 import { JsonViewMode } from '../../core/models/call.model';
 import { Comment, CommentBlock } from '../../core/models/comment.model';
 import { CommentsStore } from '../../core/state/comments-store.service';
-import { JsonEditorBridgeService } from '../../core/services/json-editor-bridge.service';
+import { PanelViewLauncherService } from '../../core/services/panel-view-launcher.service';
 
 type ParsedValue = { hasJson: true; value: unknown } | { hasJson: false; plainText: string };
 
@@ -18,6 +18,10 @@ type ParsedValue = { hasJson: true; value: unknown } | { hasJson: false; plainTe
  * none of that state needs to be externally persisted in a lookup map the
  * way the original vanilla-JS version required - it just lives here as
  * ordinary component state.
+ *
+ * This same component is reused verbatim inside JsonViewPageComponent (the
+ * "open in new tab" destination) - it doesn't know or care which page it's
+ * rendered in, so any feature added here automatically shows up there too.
  */
 @Component({
   selector: 'app-json-panel',
@@ -29,8 +33,7 @@ export class JsonPanelComponent {
   private readonly state = inject(CallsStateService);
   private readonly injector = inject(Injector);
   private readonly commentsStore = inject(CommentsStore);
-  private readonly editorBridge = inject(JsonEditorBridgeService);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly panelViewLauncher = inject(PanelViewLauncherService);
 
   readonly label = input.required<string>();
   readonly rawValue = input<unknown>(undefined);
@@ -47,17 +50,7 @@ export class JsonPanelComponent {
   readonly contentRoot = viewChild<ElementRef<HTMLElement>>('contentRoot');
   private lastSeenCollapseAllVersion = -1;
 
-  /**
-   * Set while a "live edit preview" from an editor tab is active. This is
-   * deliberately never written back into CallsStateService/the call
-   * object - it only ever changes what this one panel renders. Comments,
-   * cURL, and the export dialog all keep reading the real call directly,
-   * so a hypothetical edit here can't leak into a bug report.
-   */
-  readonly liveOverrideText = signal<string | null>(null);
-  private editorCleanup: (() => void) | null = null;
-
-  private readonly sourceParsed = computed<ParsedValue>(() => {
+  readonly parsed = computed<ParsedValue>(() => {
     const value = this.rawValue();
     if (value !== null && value !== undefined && typeof value === 'object') {
       return { hasJson: true, value };
@@ -68,17 +61,6 @@ export class JsonPanelComponent {
     }
     return { hasJson: false, plainText: '' };
   });
-
-  readonly parsed = computed<ParsedValue>(() => {
-    const override = this.liveOverrideText();
-    if (override !== null) {
-      const result = tryParseJson(override);
-      if (result.ok) return { hasJson: true, value: result.value };
-    }
-    return this.sourceParsed();
-  });
-
-  readonly isLiveOverride = computed(() => this.liveOverrideText() !== null);
 
   readonly effectiveViewMode = computed<JsonViewMode>(() => (this.parsed().hasJson ? this.viewMode() : 'flat'));
 
@@ -162,30 +144,15 @@ export class JsonPanelComponent {
       },
       { allowSignalWrites: true }
     );
-
-    this.destroyRef.onDestroy(() => this.editorCleanup?.());
   }
 
-  openInEditor(): void {
-    if (!this.parsed().hasJson) return;
-    this.editorCleanup?.();
-
-    const initialText = this.liveOverrideText() ?? this.baseText();
-    const session = this.editorBridge.openEditor(this.label(), initialText);
-    const subscription = session.updates$.subscribe((text) => {
-      if (tryParseJson(text).ok) {
-        this.liveOverrideText.set(text);
-      }
+  openInNewTab(): void {
+    this.panelViewLauncher.open({
+      callId: this.callId(),
+      block: this.block(),
+      label: this.label(),
+      rawValue: this.rawValue(),
     });
-
-    this.editorCleanup = () => {
-      subscription.unsubscribe();
-      session.close();
-    };
-  }
-
-  resetLiveOverride(): void {
-    this.liveOverrideText.set(null);
   }
 
   onToggle(event: Event): void {

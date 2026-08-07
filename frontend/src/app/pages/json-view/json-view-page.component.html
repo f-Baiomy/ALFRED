@@ -1,0 +1,19 @@
+@if (expired()) {
+  <div class="panel-view-expired">
+    <h1>This view has expired</h1>
+    <p>Go back to the dashboard tab and click "Open in new tab" again.</p>
+  </div>
+} @else {
+  <div class="view-page">
+    <header class="view-page-header">
+      <div class="view-page-title">
+        <span class="dot"></span>
+        <h1>{{ label() }}</h1>
+      </div>
+      <button type="button" class="dialog-btn secondary" (click)="closeTab()">Close tab</button>
+    </header>
+    <main class="view-page-body">
+      <app-json-panel [label]="label()" [rawValue]="rawValue()" [callId]="callId()" [block]="block()" panelId="view-panel" />
+    </main>
+  </div>
+}

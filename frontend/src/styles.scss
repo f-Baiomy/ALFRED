@@ -594,11 +594,6 @@ details.block {
   color: var(--text-faint);
 }
 
-.live-override-note {
-  color: var(--amber);
-  font-style: normal;
-  font-weight: 600;
-}
 
 .copy-btn {
   flex: 0 0 auto;
@@ -1085,15 +1080,15 @@ mark.hl.active {
   }
 }
 
-// ---------- JSON editor tab ----------
+// ---------- "Open in new tab" panel view page ----------
 
-.editor-page {
+.view-page {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
 
-.editor-header {
+.view-page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1104,7 +1099,7 @@ mark.hl.active {
   flex: 0 0 auto;
 }
 
-.editor-header-title {
+.view-page-title {
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -1124,35 +1119,20 @@ mark.hl.active {
   }
 }
 
-.editor-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-}
-
-.editor-status {
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
-
-  &.ok {
-    color: var(--green);
-  }
-  &.warn {
-    color: var(--amber);
-  }
-}
-
-.editor-host {
+.view-page-body {
   flex: 1 1 auto;
-  overflow: hidden;
+  overflow-y: auto;
+  padding: 1.25rem;
+
+  // The panel is the exact same component as on the dashboard - only this
+  // page's extra room changes, via a plain CSS override rather than any
+  // dashboard-vs-viewer branching inside JsonPanelComponent itself.
+  .scrollable {
+    max-height: calc(100vh - 260px);
+  }
 }
 
-.editor-host .cm-editor {
-  height: 100%;
-}
-
-.editor-expired {
+.panel-view-expired {
   display: flex;
   flex-direction: column;
   align-items: center;
