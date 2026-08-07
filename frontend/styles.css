@@ -109,7 +109,7 @@ input#search {
 input#search:focus { border-color: var(--purple); }
 input#search::placeholder { color: var(--text-faint); }
 
-select#limit, select#sort, button#refreshBtn, button#toggleAllBtn {
+select#limit, select#sort, select#supplierFilter, button#refreshBtn, button#toggleAllBtn, button#groupByBtn {
   background: var(--bg-2);
   border: 1px solid var(--border);
   color: var(--text-dim);
@@ -117,11 +117,16 @@ select#limit, select#sort, button#refreshBtn, button#toggleAllBtn {
   border-radius: 8px;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
-select#limit:hover, select#sort:hover, button#refreshBtn:hover, button#toggleAllBtn:hover {
+select#limit:hover, select#sort:hover, select#supplierFilter:hover, button#refreshBtn:hover, button#toggleAllBtn:hover, button#groupByBtn:hover {
   border-color: var(--purple);
   color: var(--text);
+}
+button#groupByBtn.active {
+  background: rgba(139,92,246,0.22);
+  border-color: var(--border-strong);
+  color: var(--purple-light);
 }
 
 main {
@@ -220,6 +225,48 @@ main {
   background: rgba(251, 191, 36, 0.18);
   border-color: rgba(251, 191, 36, 0.5);
   color: var(--amber);
+}
+
+.supplier-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(20, 26, 69, 0.4);
+  overflow: hidden;
+}
+
+.supplier-group summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  user-select: none;
+}
+.supplier-group summary::-webkit-details-marker { display: none; }
+.supplier-group summary::before {
+  content: '▾';
+  color: var(--purple);
+}
+.supplier-group:not([open]) summary::before { content: '▸'; }
+
+.supplier-name {
+  font-weight: 700;
+  color: var(--text);
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.supplier-count {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.supplier-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0 1rem 1rem;
 }
 
 .call-top {

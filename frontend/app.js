@@ -4,6 +4,7 @@ let allCalls = [];
 let expanded = true;
 const PAGE_SIZE = 20;
 let visibleCount = PAGE_SIZE;
+let groupBySupplier = false;
 const openState = new Map(); // block id -> whether the user last left it open
 const scrollState = new Map(); // pre id -> scrollTop the user last left it at
 const blockSearchState = new Map(); // content div id -> { query, matches: [], index }
@@ -570,10 +571,68 @@ function renderPinnedSection() {
   return `<div class="pinned-section"><div class="pinned-header">&#9733; Pinned (${pinnedCalls.size})</div>${cards}</div>`;
 }
 
+function supplierOf(c) {
+  try {
+    return new URL(c.url).hostname;
+  } catch {
+    return c.url || c.original_url || "unknown";
+  }
+}
+
+function populateSupplierFilter(calls) {
+  const select = el("#supplierFilter");
+  if (!select) return;
+  const current = select.value;
+
+  const counts = new Map();
+  calls.forEach((c) => {
+    const s = supplierOf(c);
+    counts.set(s, (counts.get(s) || 0) + 1);
+  });
+  const suppliers = [...counts.keys()].sort();
+
+  select.innerHTML = [
+    `<option value="">All suppliers (${calls.length})</option>`,
+    ...suppliers.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)} (${counts.get(s)})</option>`),
+  ].join("");
+
+  if (suppliers.includes(current)) select.value = current;
+}
+
+function renderGrouped(calls) {
+  const groups = new Map();
+  calls.forEach((c) => {
+    const s = supplierOf(c);
+    if (!groups.has(s)) groups.set(s, []);
+    groups.get(s).push(c);
+  });
+
+  const suppliers = [...groups.keys()].sort((a, b) => groups.get(b).length - groups.get(a).length);
+
+  return suppliers
+    .map((s) => {
+      const items = groups.get(s);
+      const cards = items.map(renderCall).join("");
+      return `
+        <details class="supplier-group" open>
+          <summary>
+            <span class="supplier-name">${escapeHtml(s)}</span>
+            <span class="supplier-count">${items.length} call${items.length === 1 ? "" : "s"}</span>
+          </summary>
+          <div class="supplier-group-body">${cards}</div>
+        </details>`;
+    })
+    .join("");
+}
+
 function renderAll() {
   const query = el("#search").value.trim();
   const sortMode = el("#sort").value;
-  const matching = allCalls.filter(c => matchesFilter(c, query));
+  const supplierValue = el("#supplierFilter")?.value || "";
+
+  populateSupplierFilter(allCalls);
+
+  const matching = allCalls.filter((c) => matchesFilter(c, query) && (!supplierValue || supplierOf(c) === supplierValue));
   renderStats(matching);
 
   // Pinned calls get their own always-visible section, so drop them from the
@@ -592,6 +651,13 @@ function renderAll() {
   }
   if (filtered.length === 0) {
     container.innerHTML = pinnedHtml + `<div class="empty">No calls match "${escapeHtml(query)}".</div>`;
+    restoreScrollPositions(container);
+    restoreBlockSearches(container);
+    return;
+  }
+
+  if (groupBySupplier) {
+    container.innerHTML = pinnedHtml + renderGrouped(filtered);
     restoreScrollPositions(container);
     restoreBlockSearches(container);
     return;
@@ -750,6 +816,17 @@ el("#limit").addEventListener("change", () => {
   loadCalls();
 });
 el("#sort").addEventListener("change", () => {
+  visibleCount = PAGE_SIZE;
+  renderAll();
+});
+el("#supplierFilter").addEventListener("change", () => {
+  visibleCount = PAGE_SIZE;
+  renderAll();
+});
+el("#groupByBtn").addEventListener("click", () => {
+  groupBySupplier = !groupBySupplier;
+  el("#groupByBtn").classList.toggle("active", groupBySupplier);
+  el("#groupByBtn").textContent = groupBySupplier ? "Ungroup" : "Group by supplier";
   visibleCount = PAGE_SIZE;
   renderAll();
 });
