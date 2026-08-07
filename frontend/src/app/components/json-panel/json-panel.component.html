@@ -51,9 +51,29 @@
         <button type="button" class="block-search-mode" title="Collapse every node in this tree" (click)="setAllTreeNodesOpen(false)">Collapse all</button>
       }
 
+      @if (parsed().hasJson) {
+        <button
+          type="button"
+          class="block-search-mode"
+          title="Open this JSON in a new tab to edit freely - updates this view live as you type, doesn't change the logged data"
+          (click)="openInEditor()"
+        >Edit in new tab &#10697;</button>
+      }
+      @if (isLiveOverride()) {
+        <button
+          type="button"
+          class="block-search-mode active"
+          title="Discard the live edit preview and show the real logged data again"
+          (click)="resetLiveOverride()"
+        >Reset</button>
+      }
+
       <button type="button" class="copy-btn" (click)="copyContent()">{{ copyFeedback() ? 'Copied!' : 'Copy' }}</button>
     </div>
 
+    @if (isLiveOverride()) {
+      <div class="hidden-lines-note live-override-note">&#10697; Showing a live-edited preview, not the real logged data.</div>
+    }
     @if (hiddenLinesNote()) {
       <div class="hidden-lines-note">{{ hiddenLinesNote() }}</div>
     }

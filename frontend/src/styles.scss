@@ -594,6 +594,12 @@ details.block {
   color: var(--text-faint);
 }
 
+.live-override-note {
+  color: var(--amber);
+  font-style: normal;
+  font-weight: 600;
+}
+
 .copy-btn {
   flex: 0 0 auto;
   background: rgba(139, 92, 246, 0.18);
@@ -1076,5 +1082,88 @@ mark.hl.active {
     &:hover {
       background: rgba(139, 92, 246, 0.35);
     }
+  }
+}
+
+// ---------- JSON editor tab ----------
+
+.editor-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  background: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  border-bottom: 1px solid var(--border-strong);
+  flex: 0 0 auto;
+}
+
+.editor-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+
+  h1 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--text);
+  }
+
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--purple);
+  }
+}
+
+.editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.editor-status {
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &.ok {
+    color: var(--green);
+  }
+  &.warn {
+    color: var(--amber);
+  }
+}
+
+.editor-host {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.editor-host .cm-editor {
+  height: 100%;
+}
+
+.editor-expired {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  text-align: center;
+  color: var(--text-dim);
+  gap: 0.5rem;
+
+  h1 {
+    color: var(--text);
+    font-size: 1.2rem;
   }
 }
