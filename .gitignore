@@ -24,4 +24,4 @@ backend/data/
 Thumbs.db
 .vscode/
 .idea/
-out/
+/out/

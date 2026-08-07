@@ -8,7 +8,7 @@ Alfred is a reverse-mode mitmproxy setup that transparently intercepts and logs 
 
 Three Docker services (see `docker-compose.yml`):
 - **alfred** (mitmproxy, port 8444->8080) — intercepts, dynamically routes `*-proxy` hostnames to their real backend by stripping the suffix, and logs full request/response data as JSON lines to `proxy/logs/calls.log`.
-- **pennyworth** (Spring Boot backend, port 5000) — reads `calls.log` and serves it over a small HTTP API (`GET /calls`, `GET /health`), plus a small comments API (`GET/POST /comments`, `DELETE /comments/{id}`) backed by a flat JSON file (`backend/data/comments.json`, writable volume — see docker-compose.yml).
+- **pennyworth** (Spring Boot backend, port 5000, hexagonal/ports-&-adapters architecture — see below) — reads `calls.log` and serves it over a small HTTP API (`GET /calls`, `GET /health`), plus a small comments API (`GET/POST /comments`, `DELETE /comments/{id}`) backed by a flat JSON file (`backend/data/comments.json`, writable volume — see docker-compose.yml).
 - **manor** (Angular dashboard, built and served via nginx, port 3000) — polls pennyworth every 5s and displays recent calls with syntax-highlighted flat/tree JSON views, per-block search, sort/pagination, pinning, supplier grouping, cURL/JSON export, and GitHub-style line comments for flagging issues to hand off to a support team.
 
 ## Commands
@@ -45,9 +45,13 @@ Watch logs live:
 Get-Content .\proxy\logs\calls.log -Wait -Tail 20 | jq .
 ```
 
-There is no test suite, linter, or build step for `alfred`/`pennyworth` beyond the Docker builds themselves. The `manor` frontend does have a Karma/Jasmine unit test suite:
+There is no test suite, linter, or build step for `alfred` beyond the Docker build itself. `pennyworth` and `manor` both have real test suites:
 
 ```bash
+cd backend
+mvn test            # JUnit 5 + Mockito + AssertJ - application services, file adapters, and a @WebMvcTest controller test
+mvn package          # full build, produces the Spring Boot jar Docker packages
+
 cd frontend
 npm install
 npm test           # ng test - Karma/Jasmine, watches by default
@@ -63,6 +67,43 @@ npm run build       # ng build - production build, output in dist/manor/browser
 - **Docker cannot touch the host** (hosts file, OS cert store): this is why `start.py`/`start.sh`/`start.ps1` exist as host-side wrappers run outside any container, before/alongside `docker compose`.
 - **JVM truststore caching**: a running JVM does not pick up truststore changes live — restart the Java app/server after its JDK's cert import.
 - Log format written by the proxy (see README for the full example) always includes both `original_url` (the `-proxy` URL the app called) and `url` (the real forwarded URL), plus method, headers, body, timestamp, duration_ms, and response.
+
+## pennyworth (backend) architecture notes
+
+`backend` follows hexagonal (ports & adapters) architecture. **Every new backend feature or fix must follow this same shape** - this is a binding convention, not a one-time cleanup.
+
+```
+com.alfred.pennyworth
+├── domain.model          Plain records (CallRecord, Comment, NewComment, ExportMetadata, ...).
+│                         Zero Spring imports. No behavior beyond the data itself.
+├── application.port.in   Use-case interfaces (GetCallsUseCase, CreateCommentUseCase, ...) -
+│                         the only thing a controller is allowed to depend on.
+├── application.port.out  Interfaces for what the app core needs from the outside world
+│                         (CallLogPort, CommentsStorePort) - no mention of files/Spring/JSON.
+├── application.service   Use-case implementations (CallsService, CommentsService, ...).
+│                         Implement "in" ports, depend only on "out" ports. All business rules
+│                         live here: limit clamping, id/timestamp assignment, filtering,
+│                         metadata extraction.
+├── adapter.in.web         Controllers + web-facing DTOs + GlobalExceptionHandler. Depend only
+│                         on "in" port interfaces - never on a service class or an "out" port.
+├── adapter.out.*          One package per outbound integration (filelog, commentstore, ...),
+│                         each implementing exactly one "out" port. This is the only place that
+│                         knows calls/comments live in flat files today.
+└── config                 CorsConfig and similar cross-cutting Spring config.
+```
+
+**Dependency rule:** dependencies only point inward - `adapter` → `application` + `domain`; `application` → `domain` only; `domain` depends on nothing. A controller may only inject an inbound port interface, never a concrete service or an outbound port directly. Any new feature that talks to something external (a new file format, a future real database, an outbound HTTP call) is introduced as a new outbound port + adapter pair - never called directly from a service.
+
+**When to add a web DTO vs. reuse the domain type directly:** reuse the domain record across the HTTP boundary when the wire shape and constraints are identical - `CallRecord`, `Comment`, and `ExportMetadata` all qualify today, which is why they're serialized/deserialized directly with no mapping layer in between (mapping code that does nothing but rename fields 1:1 is not "clean," it's noise). Introduce a distinct `adapter.in.web.dto` type only when the boundary genuinely needs something the domain type doesn't - the one case that exists today is `CommentRequestDto`, which carries Bean Validation annotations (`@NotBlank`, `@PositiveOrZero`) that are a transport concern and don't belong on the domain `NewComment` command.
+
+**Security posture:**
+- All inbound web DTOs are validated with Jakarta Bean Validation (`@Valid` in the controller); `GlobalExceptionHandler` (`@RestControllerAdvice`) turns validation failures into a clean `400 {"error": "..."}` body and any unexpected exception into a generic `500` - internal detail (stack traces, file paths) is logged server-side via SLF4J and never sent to the client.
+- `GET /calls?limit=` is clamped server-side to `[1, CallsService.MAX_LIMIT]` regardless of what's requested, so a request can't force an unbounded read.
+- `DELETE /comments/{id}` returns `404` when the id doesn't exist and `204` when it does - use the boolean a port already returns instead of always answering `200`.
+- CORS origins come from `alfred.cors.allowed-origins` (env `ALFRED_CORS_ALLOWED_ORIGINS`), not a hardcoded `"*"` - defaults permissive for the current single-team deployment, but tightening for a real deployment is a one-line env change, not a code change.
+- Adapters never swallow failures silently: malformed call-log lines and comments-file read/write errors are logged via SLF4J (WARN/ERROR) instead of silently disappearing. `JsonFileCommentsStoreAdapter` also checks its storage directory is writable at startup (`@PostConstruct`) so a misconfigured volume fails loudly immediately instead of confusingly on the first `POST /comments`.
+
+**Testing convention:** application services are unit-tested against fake/mocked ports (`CallsServiceTest`, `CommentsServiceTest`, `ExportMetadataServiceTest`) - no Spring context, no filesystem, because the ports interface is exactly what makes that possible. Adapters get focused tests against a real temp directory (`@TempDir`) rather than mocks, since their whole job is file I/O (`FileCallLogAdapterTest`, `JsonFileCommentsStoreAdapterTest`). Controllers get thin `@WebMvcTest` coverage for HTTP-level concerns only - status codes, validation - with the use cases mocked (`CommentsControllerTest`).
 
 ## manor (frontend) architecture notes
 

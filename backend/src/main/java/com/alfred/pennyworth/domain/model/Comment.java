@@ -1,7 +1,7 @@
-package com.alfred.pennyworth;
+package com.alfred.pennyworth.domain.model;
 
 /** A flagged issue on one line of a call's request/response, for the support-team export workflow. */
-public record CommentDto(
+public record Comment(
         String id,
         String callId,
         String block,

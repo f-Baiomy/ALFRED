@@ -1,29 +1,30 @@
-package com.alfred.pennyworth;
+package com.alfred.pennyworth.application.service;
 
+import com.alfred.pennyworth.application.port.in.ExtractExportMetadataUseCase;
+import com.alfred.pennyworth.domain.model.CallRecord;
+import com.alfred.pennyworth.domain.model.ExportMetadata;
+import com.alfred.pennyworth.domain.model.RequestData;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
 /**
- * Extracts export metadata (supplier name, credentials selector, API key)
- * from a logged call's request body/headers, so the frontend's
- * export-as-Markdown dialog can pre-fill those fields without parsing call
- * internals itself.
+ * Extracts export metadata (supplier name, credentials selector, API key) from a logged call's
+ * request body/headers, so the frontend's export-as-Markdown dialog can pre-fill those fields
+ * without parsing call internals itself. Pure logic, no I/O.
  */
-@RestController
-public class ExportController {
+@Service
+public class ExportMetadataService implements ExtractExportMetadataUseCase {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @PostMapping("/calls/export-metadata")
-    public ExportMetadataDto exportMetadata(@RequestBody CallRecordDto call) {
+    @Override
+    public ExportMetadata extract(CallRecord call) {
         JsonNode bodyJson = parseBody(call.request());
 
-        return new ExportMetadataDto(
+        return new ExportMetadata(
                 textOrNull(bodyJson, "supplier"),
                 textOrNull(bodyJson, "credentialsSelector"),
                 findHeaderIgnoreCase(call.request(), "x-api-key"),
@@ -31,7 +32,7 @@ public class ExportController {
         );
     }
 
-    private JsonNode parseBody(RequestDataDto request) {
+    private JsonNode parseBody(RequestData request) {
         if (request == null || request.body() == null || request.body().isBlank()) {
             return null;
         }
@@ -52,7 +53,7 @@ public class ExportController {
         return (value == null || value.isNull()) ? null : value.asText();
     }
 
-    private String findHeaderIgnoreCase(RequestDataDto request, String headerName) {
+    private String findHeaderIgnoreCase(RequestData request, String headerName) {
         if (request == null || request.headers() == null) {
             return null;
         }
