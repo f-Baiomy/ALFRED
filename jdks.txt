@@ -1,0 +1,9 @@
+# List every JDK install that needs to trust Alfred's certificate, one
+# JAVA_HOME path per line (the folder that contains bin/ and lib/ or
+# jre/lib/). Lines starting with # are ignored.
+#
+# Only needed if your app(s) run under a JDK - skip this file entirely
+# if you're only testing with tools like Postman/curl.
+
+C:\Program Files\Java\jdk1.8.0_191
+C:\work\java-upgrade\jdk-11.0.0.2

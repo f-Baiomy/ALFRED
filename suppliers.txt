@@ -1,0 +1,6 @@
+# One supplier domain per line (the real domain, WITHOUT "-proxy").
+# Lines starting with # are ignored.
+# Example:
+# ndc-integration-stg-ne-3.azurewebsites.net
+
+ndc-integration-stg-ne-3.azurewebsites.net

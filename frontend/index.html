@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Manor - Alfred Dashboard</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background: #111; color: #eee; }
+    h1 { font-weight: 600; }
+    .call { border: 1px solid #333; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    .call pre { white-space: pre-wrap; word-break: break-word; background: #1a1a1a; padding: 0.75rem; border-radius: 6px; }
+    .status-2xx { color: #4ade80; }
+    .status-4xx, .status-5xx { color: #f87171; }
+    .meta { color: #999; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>Manor</h1>
+  <p class="meta">Placeholder dashboard - pulls the latest logged calls from pennyworth.</p>
+  <div id="calls">Loading...</div>
+
+  <script>
+    const BACKEND_URL = window.BACKEND_URL || "http://localhost:5000";
+
+    async function loadCalls() {
+      const container = document.getElementById("calls");
+      try {
+        const res = await fetch(`${BACKEND_URL}/calls?limit=20`);
+        const calls = await res.json();
+
+        if (calls.length === 0) {
+          container.innerHTML = "<p>No calls logged yet.</p>";
+          return;
+        }
+
+        container.innerHTML = calls.map(c => {
+          const status = c.response ? c.response.status : "?";
+          const statusClass = status >= 500 ? "status-5xx" : status >= 400 ? "status-4xx" : "status-2xx";
+          return `
+            <div class="call">
+              <div class="meta">${c.timestamp || ""} - ${c.duration_ms || "?"}ms</div>
+              <strong>${c.method} ${c.url}</strong>
+              <span class="${statusClass}"> -> ${status}</span>
+              <pre>${JSON.stringify(c, null, 2)}</pre>
+            </div>`;
+        }).join("");
+      } catch (err) {
+        container.innerHTML = `<p>Could not reach backend: ${err}</p>`;
+      }
+    }
+
+    loadCalls();
+    setInterval(loadCalls, 5000);
+  </script>
+</body>
+</html>

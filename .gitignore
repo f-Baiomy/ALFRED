@@ -1,0 +1,19 @@
+# Generated at runtime - CA cert, keys, mitmproxy state
+proxy/certs/
+
+# Generated at runtime - captured request/response logs
+proxy/logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Docker / editor / OS noise
+.env
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
