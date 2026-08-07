@@ -395,7 +395,32 @@ details.block summary:hover { color: var(--text); }
   color: var(--text-faint);
 }
 
-pre.json {
+.block-view-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.block-view-tab {
+  background: var(--bg-2);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+}
+.block-view-tab:last-child { border-right: none; }
+.block-view-tab:hover { color: var(--text-dim); }
+.block-view-tab.active {
+  background: rgba(139,92,246,0.22);
+  color: var(--purple-light);
+}
+
+.scrollable {
   margin: 0;
   padding: 0.75rem;
   background: #070a24;
@@ -404,27 +429,52 @@ pre.json {
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
   font-size: 0.78rem;
   line-height: 1.5;
-  overflow-x: auto;
-  white-space: pre;
-  color: var(--text);
+  overflow: auto;
   max-height: 380px;
 }
 
+pre.json {
+  white-space: pre;
+  color: var(--text);
+}
+
 pre.plain {
-  margin: 0;
-  padding: 0.75rem;
-  background: #070a24;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
-  font-size: 0.78rem;
-  line-height: 1.5;
-  overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text-dim);
-  max-height: 380px;
 }
+
+.json-tree {
+  color: var(--text);
+  white-space: normal;
+}
+
+.tree-node summary {
+  cursor: pointer;
+  list-style: none;
+}
+.tree-node summary::-webkit-details-marker { display: none; }
+.tree-node summary::before {
+  content: '▾';
+  color: var(--purple);
+  display: inline-block;
+  width: 1em;
+  margin-left: -1em;
+}
+.tree-node:not([open]) summary::before { content: '▸'; }
+
+.tree-body {
+  padding-left: 1.1em;
+}
+
+.tree-count {
+  color: var(--text-faint);
+  font-size: 0.85em;
+  font-style: italic;
+  margin-left: 0.35em;
+}
+
+.punct { color: var(--json-punct); }
 
 .copy-btn {
   flex: 0 0 auto;

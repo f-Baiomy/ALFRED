@@ -7,6 +7,7 @@ const scrollState = new Map(); // pre id -> scrollTop the user last left it at
 const blockSearchState = new Map(); // content div id -> { query, matches: [], index }
 const blockOriginalHtml = new Map(); // content div id -> pristine (unhighlighted) innerHTML
 const blockFilterMode = new Map(); // content div id -> whether "lines only" mode is on
+const blockViewMode = new Map(); // content div id -> "flat" | "tree"
 
 function isBlockOpen(id) {
   return openState.has(id) ? openState.get(id) : expanded;
@@ -48,29 +49,114 @@ function tryParseJson(text) {
   }
 }
 
+function renderTreeLeaf(value) {
+  if (value === null) return `<span class="z">null</span>`;
+  if (typeof value === "boolean") return `<span class="b">${value}</span>`;
+  if (typeof value === "number") return `<span class="n">${value}</span>`;
+  if (typeof value === "string") return `<span class="s">${escapeHtml(JSON.stringify(value))}</span>`;
+  return escapeHtml(String(value));
+}
+
+// Renders a list of {key, value} entries as collapsible tree rows. `key` is
+// null for array items and the implicit root wrapper (renderTree below).
+function renderTreeEntries(entries) {
+  return entries
+    .map(({ key, value }, i) => {
+      const comma = i < entries.length - 1 ? `<span class="punct">,</span>` : "";
+      const keyHtml = key !== null ? `<span class="k">${escapeHtml(JSON.stringify(String(key)))}</span><span class="punct">: </span>` : "";
+
+      if (value !== null && typeof value === "object") {
+        const isArray = Array.isArray(value);
+        const childEntries = isArray
+          ? value.map((v) => ({ key: null, value: v }))
+          : Object.entries(value).map(([k, v]) => ({ key: k, value: v }));
+        const openBrace = isArray ? "[" : "{";
+        const closeBrace = isArray ? "]" : "}";
+
+        if (childEntries.length === 0) {
+          return `<div class="tree-row">${keyHtml}<span class="punct">${openBrace}${closeBrace}</span>${comma}</div>`;
+        }
+
+        const count = childEntries.length;
+        const noun = isArray ? "item" : "key";
+        return `
+          <details class="tree-node" open>
+            <summary>${keyHtml}<span class="punct">${openBrace}</span><span class="tree-count">${count} ${noun}${count === 1 ? "" : "s"}</span></summary>
+            <div class="tree-body">${renderTreeEntries(childEntries)}</div>
+            <div class="tree-close"><span class="punct">${closeBrace}</span>${comma}</div>
+          </details>`;
+      }
+
+      return `<div class="tree-row">${keyHtml}${renderTreeLeaf(value)}${comma}</div>`;
+    })
+    .join("");
+}
+
+function renderTree(rootValue) {
+  if (rootValue !== null && typeof rootValue === "object") {
+    return renderTreeEntries([{ key: null, value: rootValue }]);
+  }
+  return `<div class="tree-row">${renderTreeLeaf(rootValue)}</div>`;
+}
+
 function renderJsonBlock(id, label, value, rawTextFallback) {
-  let inner;
+  let jsonValue;
+  let plainText;
   if (value !== undefined && value !== null && typeof value === "object") {
-    inner = `<pre class="json">${syntaxHighlight(value)}</pre>`;
+    jsonValue = value;
   } else if (typeof rawTextFallback === "string" && rawTextFallback.length) {
     const parsed = tryParseJson(rawTextFallback);
-    inner = parsed.ok
-      ? `<pre class="json">${syntaxHighlight(parsed.value)}</pre>`
-      : `<pre class="plain">${escapeHtml(rawTextFallback)}</pre>`;
-  } else {
-    inner = `<pre class="plain">(empty)</pre>`;
+    if (parsed.ok) {
+      jsonValue = parsed.value;
+    } else {
+      plainText = rawTextFallback;
+    }
   }
-  const preId = `${id}-pre`;
-  inner = inner.replace(/^<pre class="(json|plain)">/, `<pre id="${preId}" class="$1">`);
+
+  const hasJson = jsonValue !== undefined;
+  const mode = hasJson ? blockViewMode.get(id) || "flat" : "flat";
+  const scrollId = `${id}-pre`;
+
+  let inner;
+  if (mode === "tree") {
+    inner = `<div id="${scrollId}" class="scrollable json-tree">${renderTree(jsonValue)}</div>`;
+  } else if (hasJson) {
+    inner = `<pre id="${scrollId}" class="scrollable json">${syntaxHighlight(jsonValue)}</pre>`;
+  } else if (plainText !== undefined) {
+    inner = `<pre id="${scrollId}" class="scrollable plain">${escapeHtml(plainText)}</pre>`;
+  } else {
+    inner = `<pre id="${scrollId}" class="scrollable plain">(empty)</pre>`;
+  }
 
   const savedQuery = blockSearchState.get(id)?.query || "";
   const filterOn = blockFilterMode.get(id) || false;
+
+  const viewTabs = hasJson
+    ? `
+          <div class="block-view-tabs">
+            <button class="block-view-tab${mode === "flat" ? " active" : ""}" data-target="${id}" data-mode="flat">Flat</button>
+            <button class="block-view-tab${mode === "tree" ? " active" : ""}" data-target="${id}" data-mode="tree">Tree</button>
+          </div>`
+    : "";
+
+  const filterToggle =
+    mode === "flat"
+      ? `
+          <button
+            class="block-search-mode${filterOn ? " active" : ""}"
+            id="${id}-mode"
+            data-target="${id}"
+            title="Toggle: show only matching lines"
+            aria-pressed="${filterOn}"
+          >Lines only</button>`
+      : "";
 
   return `
     <details class="block" id="${id}-details"${isBlockOpen(`${id}-details`) ? " open" : ""}>
       <summary>${label}</summary>
       <div class="json-wrap">
         <div class="block-toolbar">
+          ${viewTabs}
           <input
             type="text"
             class="block-search"
@@ -81,13 +167,7 @@ function renderJsonBlock(id, label, value, rawTextFallback) {
           <span class="block-search-count" id="${id}-search-count"></span>
           <button class="block-search-nav" data-dir="-1" data-target="${id}" title="Previous match">&lsaquo;</button>
           <button class="block-search-nav" data-dir="1" data-target="${id}" title="Next match">&rsaquo;</button>
-          <button
-            class="block-search-mode${filterOn ? " active" : ""}"
-            id="${id}-mode"
-            data-target="${id}"
-            title="Toggle: show only matching lines"
-            aria-pressed="${filterOn}"
-          >Lines only</button>
+          ${filterToggle}
           <button class="copy-btn" data-copy-target="${id}">Copy</button>
         </div>
         <div id="${id}">${inner}</div>
@@ -132,22 +212,22 @@ function setActiveBlockMatch(blockId, newIndex) {
     openState.set(details.id, true);
   }
 
-  const pre = mark.closest("pre");
-  if (pre) {
-    const target = mark.offsetTop - pre.clientHeight / 2 + mark.offsetHeight / 2;
-    pre.scrollTop = Math.max(0, target);
-    scrollState.set(pre.id, pre.scrollTop);
+  const scrollRoot = mark.closest(".scrollable");
+  if (scrollRoot) {
+    const target = mark.offsetTop - scrollRoot.clientHeight / 2 + mark.offsetHeight / 2;
+    scrollRoot.scrollTop = Math.max(0, target);
+    scrollState.set(scrollRoot.id, scrollRoot.scrollTop);
   }
 }
 
-// Wraps every occurrence of `q` inside pre's text nodes in <mark class="hl">,
-// without disturbing existing syntax-highlight <span> elements. Returns the
-// marks in document order.
-function highlightMatchesInPre(pre, q) {
+// Wraps every occurrence of `q` inside root's text nodes in <mark class="hl">,
+// without disturbing existing syntax-highlight <span> elements. Works on
+// either a flat <pre> or a tree <div> root. Returns the marks in document order.
+function highlightMatchesInRoot(root, q) {
   const matches = [];
-  if (!pre) return matches;
+  if (!root) return matches;
 
-  const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const textNodes = [];
   let node;
   while ((node = walker.nextNode())) textNodes.push(node);
@@ -210,7 +290,7 @@ function applyLineFilter(container, blockId, q) {
   const hiddenCount = lines.length - keptLines.length;
 
   pre.innerHTML = keptLines.join("\n");
-  const matches = highlightMatchesInPre(pre, q);
+  const matches = highlightMatchesInRoot(pre, q);
 
   blockSearchState.set(blockId, { query: q, matches, index: matches.length ? 0 : -1 });
 
@@ -238,10 +318,10 @@ function applyBlockSearch(blockId, query) {
 
   const q = query.toLowerCase();
 
-  if (blockFilterMode.get(blockId)) {
+  if (blockFilterMode.get(blockId) && container.querySelector("pre")) {
     applyLineFilter(container, blockId, q);
   } else {
-    const matches = highlightMatchesInPre(container.querySelector("pre"), q);
+    const matches = highlightMatchesInRoot(container.querySelector(".scrollable"), q);
     blockSearchState.set(blockId, { query, matches, index: matches.length ? 0 : -1 });
   }
 
@@ -383,9 +463,9 @@ function matchesFilter(c, query) {
 }
 
 function restoreScrollPositions(container) {
-  container.querySelectorAll("pre[id]").forEach(pre => {
-    if (scrollState.has(pre.id)) {
-      pre.scrollTop = scrollState.get(pre.id);
+  container.querySelectorAll(".scrollable[id]").forEach(root => {
+    if (scrollState.has(root.id)) {
+      root.scrollTop = scrollState.get(root.id);
     }
   });
 }
@@ -448,14 +528,14 @@ el("#calls").addEventListener(
 );
 
 // "scroll" is likewise captured on the container rather than relying on
-// bubbling, so a scroll position inside any JSON <pre> survives the next
-// auto-refresh re-render instead of jumping back to the top.
+// bubbling, so a scroll position inside any JSON block (flat or tree)
+// survives the next auto-refresh re-render instead of jumping back to the top.
 el("#calls").addEventListener(
   "scroll",
   (e) => {
-    const pre = e.target.closest && e.target.closest("pre[id]");
-    if (pre) {
-      scrollState.set(pre.id, pre.scrollTop);
+    const root = e.target.closest && e.target.closest(".scrollable[id]");
+    if (root) {
+      scrollState.set(root.id, root.scrollTop);
     }
   },
   true
@@ -469,6 +549,17 @@ el("#calls").addEventListener("input", (e) => {
 });
 
 el("#calls").addEventListener("click", (e) => {
+  const viewTab = e.target.closest(".block-view-tab");
+  if (viewTab) {
+    const blockId = viewTab.dataset.target;
+    const newMode = viewTab.dataset.mode;
+    if (blockViewMode.get(blockId) !== newMode) {
+      blockViewMode.set(blockId, newMode);
+      renderAll();
+    }
+    return;
+  }
+
   const modeBtn = e.target.closest(".block-search-mode");
   if (modeBtn) {
     const blockId = modeBtn.dataset.target;
