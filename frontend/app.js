@@ -173,11 +173,20 @@ function renderStats(calls) {
 function matchesFilter(c, query) {
   if (!query) return true;
   const q = query.toLowerCase();
-  const haystack = [
+  const parts = [
     c.method, c.original_url, c.url,
     c.response ? String(c.response.status) : "",
     c.error || ""
-  ].join(" ").toLowerCase();
+  ];
+  if (c.request) {
+    parts.push(JSON.stringify(c.request.headers || {}));
+    parts.push(c.request.body || "");
+  }
+  if (c.response) {
+    parts.push(JSON.stringify(c.response.headers || {}));
+    parts.push(c.response.body || "");
+  }
+  const haystack = parts.join(" ").toLowerCase();
   return haystack.includes(q);
 }
 
