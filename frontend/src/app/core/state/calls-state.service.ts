@@ -1,11 +1,13 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Subject, merge, of, timer } from 'rxjs';
-import { catchError, switchMap, tap } from 'rxjs/operators';
+import { webSocket } from 'rxjs/webSocket';
+import { catchError, retry, switchMap, tap } from 'rxjs/operators';
 import { CallRecord, SortMode } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
 import { PinService } from '../services/pin.service';
-import { callKey, matchesSearch, sortCalls, supplierOf } from '../../shared/utils/call-utils';
+import { AppConfigService } from '../services/app-config.service';
+import { callKey, matchesSearch, mergeLiveCalls, sortCalls, supplierOf, unconfirmedLiveCalls } from '../../shared/utils/call-utils';
 
 const POLL_INTERVAL_MS = 5000;
 const PAGE_SIZE = 20;
@@ -37,6 +39,7 @@ export interface SupplierGroup {
 export class CallsStateService {
   private readonly api = inject(CallsApiService);
   private readonly pinService = inject(PinService);
+  private readonly config = inject(AppConfigService);
 
   readonly limit = signal(50);
   readonly sortMode = signal<SortMode>('newest');
@@ -68,8 +71,48 @@ export class CallsStateService {
     )
   );
 
-  readonly calls = toSignal(this.polled$, { initialValue: [] as CallRecord[] });
+  private readonly polledCalls = toSignal(this.polled$, { initialValue: [] as CallRecord[] });
+
+  /** Calls pushed live over WebSocket that the next poll hasn't confirmed yet - see the constructor's prune effect(). */
+  private readonly liveCalls = signal<readonly CallRecord[]>([]);
+
+  /** Live-pushed calls first (so they render the instant they arrive), then the polled list - deduped by callKey so a call never renders twice while both copies exist. */
+  readonly calls = computed(() => mergeLiveCalls(this.liveCalls(), this.polledCalls()));
+
   readonly pinned = this.pinService.pinned;
+
+  constructor() {
+    // Once a poll confirms a live-pushed call is in calls.log, drop it from liveCalls - the
+    // dedupe in `calls` above already prevents a double-render even before this runs, but
+    // without pruning, liveCalls would grow forever.
+    effect(
+      () => {
+        const pruned = unconfirmedLiveCalls(this.liveCalls(), this.polledCalls());
+        if (pruned.length !== this.liveCalls().length) {
+          this.liveCalls.set(pruned);
+        }
+      },
+      { allowSignalWrites: true }
+    );
+
+    this.connectLiveUpdates();
+  }
+
+  /**
+   * Pushes a new CallRecord onto the dashboard the instant the proxy's webhook reaches
+   * pennyworth, instead of waiting for the next 5s poll. Falls back to a fixed retry delay on
+   * disconnect - polling keeps the dashboard eventually-correct even if the socket never
+   * reconnects, so this is a latency improvement, not a hard dependency.
+   */
+  private connectLiveUpdates(): void {
+    const wsUrl = this.config.backendUrl.replace(/^http/, 'ws') + '/ws/calls';
+    webSocket<CallRecord>(wsUrl)
+      .pipe(retry({ delay: () => timer(3000) }))
+      .subscribe((call) => {
+        const key = callKey(call);
+        this.liveCalls.set([call, ...this.liveCalls().filter((c) => callKey(c) !== key)]);
+      });
+  }
 
   readonly supplierOptions = computed<SupplierOption[]>(() => {
     const counts = new Map<string, number>();

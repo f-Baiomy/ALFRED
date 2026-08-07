@@ -21,7 +21,10 @@ defaults to ./calls.log
 
 import json
 import os
+import queue
+import threading
 import time
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +38,44 @@ LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 # the BODY_LIMIT env var if you ever want to cap it again, e.g. for very
 # large/binary responses.
 BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
+
+# Optional real-time push: if set, every finished call is also POSTed here
+# (pennyworth relays it to the dashboard over WebSocket) in addition to the
+# file write above, which stays the durable source of truth. Left unset,
+# this feature is simply off - nothing else changes.
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
+WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
+WEBHOOK_TIMEOUT_SECONDS = 2
+
+# mitmproxy's request()/response()/error() hooks run inline on its asyncio
+# event loop - a blocking HTTP call inside one of them would stall every
+# concurrent connection being proxied. So the webhook POST happens on a
+# single background thread pulling off a queue, never inline in a hook.
+_webhook_queue = queue.Queue()
+
+
+def _webhook_worker():
+    while True:
+        data = _webhook_queue.get()
+        try:
+            request = urllib.request.Request(
+                WEBHOOK_URL,
+                data=json.dumps(data).encode('utf-8'),
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-Webhook-Secret': WEBHOOK_SECRET,
+                },
+                method='POST',
+            )
+            urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS)
+        except Exception as e:
+            # Best-effort only - a webhook failure must never affect
+            # proxying or the calls.log write that already happened.
+            print(f"[webhook] failed to notify {WEBHOOK_URL}: {e}")
+
+
+if WEBHOOK_URL:
+    threading.Thread(target=_webhook_worker, daemon=True).start()
 
 
 class RouteAndLog:
@@ -130,6 +171,8 @@ class RouteAndLog:
     def _write(self, data):
         with open(LOG_FILE, 'a') as f:
             f.write(json.dumps(data) + '\n')
+        if WEBHOOK_URL:
+            _webhook_queue.put_nowait(data)
 
 
 addons = [RouteAndLog()]

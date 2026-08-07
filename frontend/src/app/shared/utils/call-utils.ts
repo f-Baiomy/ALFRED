@@ -54,6 +54,17 @@ export function matchesSearch(call: CallRecord, query: string): boolean {
   return parts.join(' ').toLowerCase().includes(q);
 }
 
+/** Calls pushed live over WebSocket that the next poll hasn't confirmed yet, ahead of the polled list - deduped by callKey so a call never renders twice while both copies exist. */
+export function mergeLiveCalls(live: readonly CallRecord[], polled: readonly CallRecord[]): CallRecord[] {
+  return [...unconfirmedLiveCalls(live, polled), ...polled];
+}
+
+/** The subset of `live` not yet present in `polled` - once a poll confirms a live-pushed call, it drops out of the live buffer instead of accumulating forever. */
+export function unconfirmedLiveCalls(live: readonly CallRecord[], polled: readonly CallRecord[]): CallRecord[] {
+  const known = new Set(polled.map(callKey));
+  return live.filter((c) => !known.has(callKey(c)));
+}
+
 export function supplierOf(call: CallRecord): string {
   try {
     return new URL(call.url).hostname;

@@ -1,5 +1,16 @@
 import { CallRecord } from '../../core/models/call.model';
-import { callKey, durationClass, matchesSearch, methodClass, sortCalls, statusClass, statusRank, supplierOf } from './call-utils';
+import {
+  callKey,
+  durationClass,
+  matchesSearch,
+  mergeLiveCalls,
+  methodClass,
+  sortCalls,
+  statusClass,
+  statusRank,
+  supplierOf,
+  unconfirmedLiveCalls,
+} from './call-utils';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -131,5 +142,54 @@ describe('methodClass', () => {
     expect(methodClass('POST')).toBe('method-POST');
     expect(methodClass('post')).toBe('method-POST');
     expect(methodClass('TRACE')).toBe('method-DEFAULT');
+  });
+});
+
+describe('mergeLiveCalls', () => {
+  it('puts live-only calls ahead of the polled list', () => {
+    const polled = [makeCall({ timestamp: 'polled-1' })];
+    const live = [makeCall({ timestamp: 'live-1' })];
+
+    const result = mergeLiveCalls(live, polled);
+
+    expect(result.map((c) => c.timestamp)).toEqual(['live-1', 'polled-1']);
+  });
+
+  it('does not duplicate a call that is both live-pushed and already polled', () => {
+    const shared = makeCall({ timestamp: 'shared' });
+
+    const result = mergeLiveCalls([shared], [shared]);
+
+    expect(result.length).toBe(1);
+  });
+
+  it('returns just the polled list when there are no live calls', () => {
+    const polled = [makeCall({ timestamp: 'a' }), makeCall({ timestamp: 'b' })];
+
+    expect(mergeLiveCalls([], polled)).toEqual(polled);
+  });
+});
+
+describe('unconfirmedLiveCalls', () => {
+  it('keeps live calls the polled list has not caught up to yet', () => {
+    const live = [makeCall({ timestamp: 'still-live' })];
+    const polled = [makeCall({ timestamp: 'unrelated' })];
+
+    expect(unconfirmedLiveCalls(live, polled)).toEqual(live);
+  });
+
+  it('drops a live call once the same call appears in the polled list', () => {
+    const confirmed = makeCall({ timestamp: 'now-polled' });
+    const live = [confirmed, makeCall({ timestamp: 'still-live' })];
+
+    const result = unconfirmedLiveCalls(live, [confirmed]);
+
+    expect(result.map((c) => c.timestamp)).toEqual(['still-live']);
+  });
+
+  it('returns an empty array once every live call has been confirmed', () => {
+    const confirmed = makeCall({ timestamp: 'now-polled' });
+
+    expect(unconfirmedLiveCalls([confirmed], [confirmed])).toEqual([]);
   });
 });

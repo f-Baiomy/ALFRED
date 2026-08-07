@@ -9,6 +9,12 @@ services:
       - "8444:8080"
     environment:
       - LOG_FILE=/home/mitmproxy/logs/calls.log
+      # Real-time push: every finished call is POSTed here in addition to the file write above
+      # (pennyworth relays it to the dashboard over WebSocket). Container-name DNS works because
+      # both services share alfred-net. WEBHOOK_SECRET is a placeholder - use a real secret for
+      # any deployment reachable outside a trusted docker network.
+      - WEBHOOK_URL=http://pennyworth:5000/calls/webhook
+      - WEBHOOK_SECRET=change-me-in-production
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
       - ./proxy/logs:/home/mitmproxy/logs
@@ -30,6 +36,8 @@ services:
     environment:
       - LOG_FILE=/data/calls.log
       - COMMENTS_FILE=/appdata/comments.json
+      # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
+      - WEBHOOK_SECRET=change-me-in-production
     volumes:
       - ./proxy/logs:/data:ro
       - ./backend/data:/appdata

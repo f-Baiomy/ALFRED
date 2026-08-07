@@ -1,6 +1,7 @@
 package com.alfred.pennyworth.calls.application.service;
 
 import com.alfred.pennyworth.calls.application.port.out.CallLogPort;
+import com.alfred.pennyworth.calls.application.port.out.CallNotificationPort;
 import com.alfred.pennyworth.calls.domain.model.CallRecord;
 import org.junit.jupiter.api.Test;
 
@@ -8,6 +9,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CallsServiceTest {
@@ -16,11 +18,15 @@ class CallsServiceTest {
         return new CallRecord(url, url, "GET", null, "t", 1.0, null, null);
     }
 
+    private static CallsService serviceWith(CallLogPort port) {
+        return new CallsService(port, mock(CallNotificationPort.class));
+    }
+
     @Test
     void returnsNewestFirst() {
         CallLogPort port = mock(CallLogPort.class);
         when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
-        CallsService service = new CallsService(port);
+        CallsService service = serviceWith(port);
 
         List<CallRecord> result = service.getCalls(50);
 
@@ -31,7 +37,7 @@ class CallsServiceTest {
     void limitsToTheRequestedCount() {
         CallLogPort port = mock(CallLogPort.class);
         when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
-        CallsService service = new CallsService(port);
+        CallsService service = serviceWith(port);
 
         List<CallRecord> result = service.getCalls(2);
 
@@ -42,7 +48,7 @@ class CallsServiceTest {
     void clampsALimitBelowOneUpToOne() {
         CallLogPort port = mock(CallLogPort.class);
         when(port.readAll()).thenReturn(List.of(call("a"), call("b")));
-        CallsService service = new CallsService(port);
+        CallsService service = serviceWith(port);
 
         assertThat(service.getCalls(0)).hasSize(1);
         assertThat(service.getCalls(-5)).hasSize(1);
@@ -55,10 +61,22 @@ class CallsServiceTest {
                 .mapToObj(i -> call("call-" + i))
                 .toList();
         when(port.readAll()).thenReturn(many);
-        CallsService service = new CallsService(port);
+        CallsService service = serviceWith(port);
 
         List<CallRecord> result = service.getCalls(CallsService.MAX_LIMIT + 50);
 
         assertThat(result).hasSize(CallsService.MAX_LIMIT);
+    }
+
+    @Test
+    void receiveNewCallForwardsToTheNotificationPort() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        CallsService service = new CallsService(port, notificationPort);
+        CallRecord call = call("https://example.com/api/x");
+
+        service.receiveNewCall(call);
+
+        verify(notificationPort).notifyNewCall(call);
     }
 }
