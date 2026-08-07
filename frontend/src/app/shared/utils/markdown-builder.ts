@@ -176,6 +176,15 @@ function shortPath(url: string): string {
   }
 }
 
+/** Bare last-two-segments path, with no ".../" prefix - for the call heading, where "Call N `METHOD path`" already reads as truncated without needing the ellipsis. */
+function pathOnly(url: string): string {
+  try {
+    return new URL(url).pathname.split('/').filter(Boolean).slice(-2).join('/');
+  } catch {
+    return url;
+  }
+}
+
 function statusCell(call: CallRecord): string {
   if (call.error) return `❌ ${call.error}`;
   if (!call.response) return '❔ ?';
@@ -235,8 +244,14 @@ export function buildBulkExportMarkdown(
 
     lines.push(`<a id="call-${n}"></a>`);
     lines.push('<details open>');
-    lines.push(`<summary><b>Call ${n}</b> &nbsp; <code>${call.method} ${call.url}</code> &nbsp; ${statusCell(call)}</summary>`, '');
+    lines.push(
+      `<summary><b>Call ${n}</b> &nbsp; <code>${call.method} ${pathOnly(call.url)}</code> &nbsp; ${statusCell(call)}</summary>`,
+      ''
+    );
 
+    lines.push(`- **Method:** \`${call.method}\``);
+    lines.push(`- **URL:** ${call.url}`);
+    lines.push(`- **Status:** ${call.response ? `\`${call.response.status}\`` : call.error ? `⚠️ ${call.error}` : '`?`'}`);
     lines.push(`- **Timestamp:** ${call.timestamp}`);
     if (call.duration_ms != null) {
       lines.push(`- **Duration:** ${formatMs(call.duration_ms)}`);

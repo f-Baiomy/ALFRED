@@ -256,11 +256,29 @@ describe('buildBulkExportMarkdown', () => {
     expect(closeCount).toBe(anyDetailsCount);
   });
 
-  it('shows the call\'s method and URL next to its heading', () => {
-    const call = makeCall({ method: 'POST', url: 'https://example.com/api/x' });
+  it('shows the call\'s method and a short path (not the full URL) next to its heading', () => {
+    const call = makeCall({ method: 'POST', url: 'https://ndc-supplier.example.com/api/V2/FlightSearch/Search' });
     const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
 
-    expect(md).toContain('<summary><b>Call 1</b> &nbsp; <code>POST https://example.com/api/x</code>');
+    expect(md).toContain('<summary><b>Call 1</b> &nbsp; <code>POST FlightSearch/Search</code> &nbsp; ✅ 200</summary>');
+    expect(md).not.toContain('<summary><b>Call 1</b> &nbsp; <code>POST https://');
+  });
+
+  it('repeats the full URL, method, status, and duration in the call\'s description, not just the heading', () => {
+    const call = makeCall({ method: 'POST', url: 'https://example.com/api/V2/FlightSearch/Search', duration_ms: 3381.7 });
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(md).toContain('- **Method:** `POST`');
+    expect(md).toContain('- **URL:** https://example.com/api/V2/FlightSearch/Search');
+    expect(md).toContain('- **Status:** `200`');
+    expect(md).toContain('- **Duration:** 3,381.70 ms');
+  });
+
+  it('shows the error as the description Status when there is no response', () => {
+    const call = makeCall({ response: undefined, error: 'boom' });
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(md).toContain('- **Status:** ⚠️ boom');
   });
 });
 
