@@ -373,12 +373,53 @@ function callKey(c) {
   return "c_" + raw.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
+const callDataById = new Map(); // call id -> the call object, for cURL/download actions
+
+function shQuote(str) {
+  return `'${String(str).replace(/'/g, `'\\''`)}'`;
+}
+
+function buildCurlCommand(c) {
+  const method = (c.method || "GET").toUpperCase();
+  const url = c.url || c.original_url || "";
+  const parts = [`curl -X ${method} ${shQuote(url)}`];
+
+  Object.entries(c.request?.headers || {}).forEach(([k, v]) => {
+    parts.push(`-H ${shQuote(`${k}: ${v}`)}`);
+  });
+
+  if (c.request?.body) {
+    parts.push(`--data-raw ${shQuote(c.request.body)}`);
+  }
+
+  return parts.join(" \\\n  ");
+}
+
+function downloadCallJson(c, id) {
+  const blob = new Blob([JSON.stringify(c, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${id}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function flashButtonText(btn, text, ms = 1200) {
+  const original = btn.textContent;
+  btn.textContent = text;
+  setTimeout(() => (btn.textContent = original), ms);
+}
+
 function renderCall(c) {
   const method = c.method || "?";
   const status = c.response ? c.response.status : null;
   const duration = c.duration_ms;
   const ts = c.timestamp ? new Date(c.timestamp).toLocaleString() : "";
   const idBase = callKey(c);
+  callDataById.set(idBase, c);
 
   const errorBanner = c.error
     ? `<div class="error-banner">⚠ ${escapeHtml(c.error)}</div>`
@@ -410,6 +451,10 @@ function renderCall(c) {
         <span class="badge ${methodClass(method)}">${escapeHtml(method)}</span>
         ${statusBadge}
         ${duration != null ? `<span class="duration ${durationClass(duration)}">${duration} ms</span>` : ""}
+        <div class="call-actions">
+          <button class="action-btn" data-action="curl" data-call-id="${idBase}" title="Copy as cURL">cURL</button>
+          <button class="action-btn" data-action="download" data-call-id="${idBase}" title="Download raw call as JSON">JSON &darr;</button>
+        </div>
         <span class="call-time">${ts}</span>
       </div>
       <div class="call-urls">
@@ -538,15 +583,23 @@ async function loadCalls() {
 }
 
 document.addEventListener("click", (e) => {
+  const actionBtn = e.target.closest(".action-btn");
+  if (actionBtn) {
+    const c = callDataById.get(actionBtn.dataset.callId);
+    if (!c) return;
+    if (actionBtn.dataset.action === "curl") {
+      navigator.clipboard.writeText(buildCurlCommand(c)).then(() => flashButtonText(actionBtn, "Copied!"));
+    } else if (actionBtn.dataset.action === "download") {
+      downloadCallJson(c, actionBtn.dataset.callId);
+    }
+    return;
+  }
+
   const btn = e.target.closest(".copy-btn");
   if (!btn) return;
   const target = document.getElementById(btn.dataset.copyTarget);
   if (!target) return;
-  navigator.clipboard.writeText(target.innerText).then(() => {
-    const original = btn.textContent;
-    btn.textContent = "Copied!";
-    setTimeout(() => (btn.textContent = original), 1200);
-  });
+  navigator.clipboard.writeText(target.innerText).then(() => flashButtonText(btn, "Copied!"));
 });
 
 // "toggle" does not bubble, so listen on the container in the capture

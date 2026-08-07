@@ -241,10 +241,32 @@ main {
 .duration.mid  { color: var(--amber); }
 .duration.slow { color: var(--red); }
 
+.call-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.action-btn {
+  background: rgba(139,92,246,0.12);
+  border: 1px solid var(--border);
+  color: var(--purple-light);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.22rem 0.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
+}
+.action-btn:hover {
+  border-color: var(--border-strong);
+  background: rgba(139,92,246,0.22);
+}
+
 .call-time {
   color: var(--text-faint);
   font-size: 0.75rem;
-  margin-left: auto;
   white-space: nowrap;
 }
 
