@@ -8,4 +8,7 @@
   >{{ isPinned() ? '★ Pinned' : '☆ Pin' }}</button>
   <button type="button" class="action-btn" title="Copy as cURL" (click)="copyAsCurl()">{{ curlCopyFeedback() ? 'Copied!' : 'cURL' }}</button>
   <button type="button" class="action-btn" title="Download raw call as JSON" (click)="downloadAsJson()">JSON &darr;</button>
+  <button type="button" class="action-btn" title="Export as Markdown" [disabled]="exportLoading()" (click)="exportAsMarkdown()">
+    {{ exportLoading() ? 'Loading...' : 'Export .md' }}
+  </button>
 </div>
