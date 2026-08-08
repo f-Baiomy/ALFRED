@@ -1,0 +1,10 @@
+node_modules
+dist
+.angular
+.vscode
+.git
+.editorconfig
+*.md
+coverage
+.sass-cache
+npm-debug.log
