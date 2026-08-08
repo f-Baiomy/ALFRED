@@ -1,0 +1,11 @@
+@if (state(); as current) {
+  <div class="dialog-backdrop" (click)="cancel()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <p class="dialog-sub">{{ current.message }}</p>
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="cancel()">Cancel</button>
+        <button type="button" class="dialog-btn danger" (click)="confirm()">{{ current.confirmLabel }}</button>
+      </div>
+    </div>
+  </div>
+}

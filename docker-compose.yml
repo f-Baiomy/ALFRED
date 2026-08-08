@@ -35,7 +35,14 @@ services:
       # Recent calls now live here, written by pennyworth itself after each webhook call from
       # the proxy - not read from the proxy's filesystem at all anymore.
       - RECENT_CALLS_FILE=/appdata/RECENT_CALLS.log
+      # RECENT_CALLS.log is a ring buffer capped at this many calls - both the file's own
+      # trimming and the GET /calls?limit= clamp read this same value.
+      - RECENT_CALLS_MAX_LIMIT=200
       - COMMENTS_FILE=/appdata/comments.json
+      # Session-cycle metadata (one shared file) and per-cycle captured-call files (one per
+      # cycle, in this directory) - both inside the same /appdata volume as the two files above.
+      - SESSION_CYCLES_FILE=/appdata/session-cycles/session-cycles.json
+      - SESSION_CYCLES_DIR=/appdata/session-cycles
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
     volumes:

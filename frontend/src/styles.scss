@@ -38,6 +38,34 @@ body {
   color: var(--text);
 }
 
+// ---------- Tab nav (Live Calls / Session Cycles) ----------
+
+.tab-nav {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0 2rem;
+  background: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  border-bottom: 1px solid var(--border-strong);
+
+  a {
+    padding: 0.75rem 1rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-bottom: 2px solid transparent;
+
+    &:hover {
+      color: var(--text);
+    }
+
+    &.active {
+      color: var(--purple-light);
+      border-bottom-color: var(--purple);
+    }
+  }
+}
+
 // ---------- Header ----------
 
 header {
@@ -387,6 +415,111 @@ main {
   background: rgba(148, 163, 194, 0.15);
   color: var(--text-dim);
   border: 1px solid var(--border);
+}
+
+.cycle-status-recording {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--red);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+.cycle-status-paused {
+  background: rgba(148, 163, 194, 0.15);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.page-title {
+  margin-bottom: 1.25rem;
+
+  h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.2rem;
+  }
+}
+
+.new-cycle-form {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+
+  input[type='text'] {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.55rem 0.8rem;
+    color: var(--text);
+    font-size: 0.85rem;
+    min-width: 220px;
+  }
+}
+
+.cycles-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+
+  th {
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+}
+
+.cycle-row {
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(139, 92, 246, 0.08);
+  }
+}
+
+.cycle-row-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.cycle-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.6rem 2rem;
+  background: rgba(20, 26, 69, 0.6);
+  border-bottom: 1px solid var(--border);
+}
+
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--purple-light);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: var(--border-strong);
+    background: rgba(139, 92, 246, 0.12);
+  }
 }
 
 .status-2xx {
@@ -1201,6 +1334,15 @@ mark.hl.active {
     color: var(--purple-light);
     &:hover {
       background: rgba(139, 92, 246, 0.35);
+    }
+  }
+
+  &.danger {
+    background: rgba(248, 113, 113, 0.18);
+    border-color: rgba(248, 113, 113, 0.45);
+    color: var(--red);
+    &:hover {
+      background: rgba(248, 113, 113, 0.3);
     }
   }
 }

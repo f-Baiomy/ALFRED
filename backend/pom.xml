@@ -37,6 +37,7 @@
     <module>pennyworth-calls</module>
     <module>pennyworth-comments</module>
     <module>pennyworth-export</module>
+    <module>pennyworth-session-cycles</module>
     <module>pennyworth-app</module>
     <module>pennyworth-architecture-test</module>
   </modules>

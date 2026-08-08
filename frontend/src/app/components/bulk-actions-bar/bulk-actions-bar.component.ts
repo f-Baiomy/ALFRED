@@ -3,7 +3,7 @@ import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { CallRecord } from '../../core/models/call.model';
 import { Comment } from '../../core/models/comment.model';
-import { CallsStateService } from '../../core/state/calls-state.service';
+import { BULK_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
@@ -30,7 +30,7 @@ export class BulkActionsBarComponent {
   private readonly exportApi = inject(ExportApiService);
   private readonly exportDialog = inject(ExportDialogService);
   private readonly commentsApi = inject(CommentsApiService);
-  readonly state = inject(CallsStateService);
+  readonly state = inject(BULK_SELECTION_STATE);
 
   readonly curlLoading = signal(false);
   readonly mdLoading = signal(false);

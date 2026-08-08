@@ -1,15 +1,17 @@
-import { CallRecord } from '../../core/models/call.model';
+import { CallRecord, CapturedCall } from '../../core/models/call.model';
 import {
   callKey,
   durationClass,
   matchesSearch,
   mergeLiveCalls,
+  mergeLiveCapturedCalls,
   methodClass,
   sortCalls,
   statusClass,
   statusRank,
   supplierOf,
   unconfirmedLiveCalls,
+  unconfirmedLiveCapturedCalls,
 } from './call-utils';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
@@ -191,5 +193,63 @@ describe('unconfirmedLiveCalls', () => {
     const confirmed = makeCall({ timestamp: 'now-polled' });
 
     expect(unconfirmedLiveCalls([confirmed], [confirmed])).toEqual([]);
+  });
+});
+
+// Identity for merge/unconfirmed is derived from callKey(c.call), not CapturedCall.id (a
+// live-pushed captured call doesn't have its real backend id yet) - so distinctness in these
+// tests comes from varying the underlying call's timestamp, not the wrapper id.
+function makeCapturedCall(id: string, callOverrides: Partial<CallRecord> = {}): CapturedCall {
+  return {
+    id,
+    capturedAt: '2026-01-01T00:00:00.000000+00:00',
+    call: makeCall({ timestamp: id, ...callOverrides }),
+  };
+}
+
+describe('mergeLiveCapturedCalls', () => {
+  it('puts live-only captured calls ahead of the polled list', () => {
+    const polled = [makeCapturedCall('polled-1')];
+    const live = [makeCapturedCall('live-1')];
+
+    const result = mergeLiveCapturedCalls(live, polled);
+
+    expect(result.map((c) => c.id)).toEqual(['live-1', 'polled-1']);
+  });
+
+  it('does not duplicate a captured call that is both live-pushed and already polled', () => {
+    const shared = makeCapturedCall('shared');
+
+    expect(mergeLiveCapturedCalls([shared], [shared]).length).toBe(1);
+  });
+
+  it('returns just the polled list when there are no live captured calls', () => {
+    const polled = [makeCapturedCall('a'), makeCapturedCall('b')];
+
+    expect(mergeLiveCapturedCalls([], polled)).toEqual(polled);
+  });
+});
+
+describe('unconfirmedLiveCapturedCalls', () => {
+  it('keeps live captured calls the polled list has not caught up to yet', () => {
+    const live = [makeCapturedCall('still-live')];
+    const polled = [makeCapturedCall('unrelated')];
+
+    expect(unconfirmedLiveCapturedCalls(live, polled)).toEqual(live);
+  });
+
+  it('drops a live captured call once the same underlying call appears in the polled list', () => {
+    const confirmed = makeCapturedCall('now-polled');
+    const live = [confirmed, makeCapturedCall('still-live')];
+
+    const result = unconfirmedLiveCapturedCalls(live, [confirmed]);
+
+    expect(result.map((c) => c.id)).toEqual(['still-live']);
+  });
+
+  it('returns an empty array once every live captured call has been confirmed', () => {
+    const confirmed = makeCapturedCall('now-polled');
+
+    expect(unconfirmedLiveCapturedCalls([confirmed], [confirmed])).toEqual([]);
   });
 });

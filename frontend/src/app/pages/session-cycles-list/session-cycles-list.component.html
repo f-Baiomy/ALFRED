@@ -1,0 +1,71 @@
+<main>
+  <div class="page-title">
+    <h2>Session Cycles</h2>
+    <p class="sub">Named groups of calls you can start/pause recording on, alongside the always-on Live Calls feed.</p>
+  </div>
+
+  <form class="new-cycle-form" (submit)="$event.preventDefault(); createCycle()">
+    <input
+      type="text"
+      placeholder="Cycle name (e.g. Repro flight bug)"
+      [value]="newName()"
+      (input)="newName.set($any($event.target).value)"
+    />
+    <input
+      type="text"
+      placeholder="Assigned to (optional profile id)"
+      [value]="newAssignedTo()"
+      (input)="newAssignedTo.set($any($event.target).value)"
+    />
+    <button type="submit" class="bulk-btn" [disabled]="creating() || !newName().trim()">
+      {{ creating() ? 'Creating...' : '+ New Cycle' }}
+    </button>
+  </form>
+
+  @if (state.cycles().length === 0) {
+    <div class="empty">No session cycles yet - create one above.</div>
+  } @else {
+    <table class="cycles-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Assigned to</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (cycle of state.cycles(); track cycle.id) {
+          <tr class="cycle-row" (click)="open(cycle)">
+            <td>{{ cycle.name }}</td>
+            <td>
+              <span class="badge" [class]="statusClass(cycle)">{{ statusLabel(cycle) }}</span>
+            </td>
+            <td>{{ cycle.assignedTo ?? '—' }}</td>
+            <td>{{ cycle.createdAt | date: 'medium' }}</td>
+            <td class="cycle-row-actions" (click)="$event.stopPropagation()">
+              <button type="button" class="action-btn" (click)="toggleRecording(cycle)">
+                {{ cycle.status === 'RECORDING' ? 'Pause' : 'Record' }}
+              </button>
+              <button type="button" class="action-btn" (click)="edit(cycle)">Edit</button>
+              <button type="button" class="action-btn" title="Open in a new tab" (click)="openInNewTab(cycle, $event)">Open in new tab</button>
+              <button
+                type="button"
+                class="action-btn"
+                [disabled]="cycle.status === 'RECORDING'"
+                [title]="cycle.status === 'RECORDING' ? 'Pause recording before deleting' : 'Delete'"
+                (click)="deleteCycle(cycle)"
+              >
+                Delete
+              </button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</main>
+
+<app-confirm-dialog />
+<app-edit-cycle-dialog />

@@ -1,0 +1,27 @@
+<div class="cycle-detail-toolbar">
+  <a routerLink="/cycles" class="btn-back">&larr; Back to Session Cycles</a>
+  @if (cycle(); as c) {
+    <div class="cycle-row-actions">
+      <span class="badge" [class]="c.status === 'RECORDING' ? 'cycle-status-recording' : 'cycle-status-paused'">
+        {{ c.status === 'RECORDING' ? 'Recording' : 'Paused' }}
+      </span>
+      <button type="button" class="action-btn" (click)="toggleRecording()">
+        {{ c.status === 'RECORDING' ? 'Pause' : 'Record' }}
+      </button>
+      <button type="button" class="action-btn" (click)="edit()">Edit</button>
+    </div>
+  }
+</div>
+
+<app-header [title]="cycle()?.name ?? 'Session Cycle'" subtitle="Captured calls for this session cycle" />
+
+<main>
+  <app-bulk-actions-bar />
+  <app-stats-bar [stats]="state.stats()" />
+  <div class="call-list">
+    <app-call-list />
+  </div>
+</main>
+
+<app-export-dialog />
+<app-edit-cycle-dialog />

@@ -67,18 +67,29 @@ class HexagonalArchitectureTest {
     @Test
     void callsSliceMustNotDependOnOtherSlices() {
         noClasses().that().resideInAPackage("..pennyworth.calls..")
-                .should().dependOnClassesThat().resideInAnyPackage("..pennyworth.comments..", "..pennyworth.export..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..pennyworth.comments..", "..pennyworth.export..", "..pennyworth.sessioncycles..")
                 .check(classes);
     }
 
     @Test
     void commentsSliceMustNotDependOnOtherSlices() {
         noClasses().that().resideInAPackage("..pennyworth.comments..")
-                .should().dependOnClassesThat().resideInAnyPackage("..pennyworth.calls..", "..pennyworth.export..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..pennyworth.calls..", "..pennyworth.export..", "..pennyworth.sessioncycles..")
                 .check(classes);
     }
 
-    // export -> calls is the one allowed cross-slice dependency (export receives a full logged
-    // call and extracts metadata from it), so there is deliberately no
-    // "exportSliceMustNotDependOnOtherSlices" test here.
+    // export -> calls and sessioncycles -> calls are the two allowed cross-slice dependencies
+    // (each receives a full logged call and does something with it - extracts metadata, or
+    // captures it into a recording cycle), so there is deliberately no
+    // "exportSliceMustNotDependOnOtherSlices" test, and sessionCyclesSliceMustNotDependOnOtherSlices
+    // below permits calls specifically while still forbidding comments/export.
+
+    @Test
+    void sessionCyclesSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..pennyworth.sessioncycles..")
+                .should().dependOnClassesThat().resideInAnyPackage("..pennyworth.comments..", "..pennyworth.export..")
+                .check(classes);
+    }
 }

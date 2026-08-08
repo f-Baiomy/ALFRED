@@ -37,6 +37,10 @@ public class FileCallLogAdapter implements CallLogPort {
     @Value("${RECENT_CALLS_FILE:/appdata/RECENT_CALLS.log}")
     private String recentCallsFile;
 
+    /** Same property CallsService clamps GET /calls with - kept in sync by construction since both read the one property. */
+    @Value("${alfred.calls.max-limit:200}")
+    private int maxLimit;
+
     /** Fail fast with a clear message if the directory isn't writable, rather than only discovering it on the first webhook call. */
     @PostConstruct
     void checkStorageIsWritable() {
@@ -84,17 +88,30 @@ public class FileCallLogAdapter implements CallLogPort {
         return calls;
     }
 
+    /**
+     * RECENT_CALLS.log is a ring buffer, not an unbounded append log: once it holds maxLimit
+     * calls, adding one more drops the oldest line first. That means every save is a full
+     * read-modify-write rather than a cheap append - fine at maxLimit's scale (default 200) -
+     * and synchronized so concurrent webhook calls can't interleave their read-modify-write and
+     * lose an entry.
+     */
     @Override
-    public void save(CallRecord call) {
+    public synchronized void save(CallRecord call) {
         Path path = Path.of(recentCallsFile);
         try {
             if (path.getParent() != null) {
                 Files.createDirectories(path.getParent());
             }
-            String line = objectMapper.writeValueAsString(call) + System.lineSeparator();
-            Files.writeString(path, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            List<String> lines = Files.exists(path) ? new ArrayList<>(Files.readAllLines(path)) : new ArrayList<>();
+            lines.removeIf(String::isBlank);
+            lines.add(objectMapper.writeValueAsString(call));
+            if (lines.size() > maxLimit) {
+                lines = lines.subList(lines.size() - maxLimit, lines.size());
+            }
+            String content = String.join(System.lineSeparator(), lines) + System.lineSeparator();
+            Files.writeString(path, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
         } catch (IOException e) {
-            log.error("Failed to append to {}: {}", recentCallsFile, e.getMessage());
+            log.error("Failed to save to {}: {}", recentCallsFile, e.getMessage());
             throw new UncheckedIOException(e);
         }
     }

@@ -16,12 +16,23 @@ class FileCallLogAdapterTest {
     @TempDir
     Path tempDir;
 
+    private static final int TEST_MAX_LIMIT = 500;
+
     private FileCallLogAdapter adapterFor(Path recentCallsFile) throws Exception {
+        return adapterFor(recentCallsFile, TEST_MAX_LIMIT);
+    }
+
+    private FileCallLogAdapter adapterFor(Path recentCallsFile, int maxLimit) throws Exception {
         FileCallLogAdapter adapter = new FileCallLogAdapter();
-        Field field = FileCallLogAdapter.class.getDeclaredField("recentCallsFile");
-        field.setAccessible(true);
-        field.set(adapter, recentCallsFile.toString());
+        setField(adapter, "recentCallsFile", recentCallsFile.toString());
+        setField(adapter, "maxLimit", maxLimit);
         return adapter;
+    }
+
+    private static void setField(FileCallLogAdapter adapter, String name, Object value) throws Exception {
+        Field field = FileCallLogAdapter.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(adapter, value);
     }
 
     private static CallRecord call(String method) {
@@ -95,5 +106,32 @@ class FileCallLogAdapterTest {
         FileCallLogAdapter secondInstance = adapterFor(file);
 
         assertThat(secondInstance.readAll()).extracting(CallRecord::method).containsExactly("GET");
+    }
+
+    @Test
+    void dropsTheOldestLineOnceMaxLimitIsExceeded() throws Exception {
+        Path file = tempDir.resolve("RECENT_CALLS.log");
+        FileCallLogAdapter adapter = adapterFor(file, 3);
+
+        adapter.save(call("1"));
+        adapter.save(call("2"));
+        adapter.save(call("3"));
+        adapter.save(call("4"));
+
+        assertThat(adapter.readAll()).extracting(CallRecord::method).containsExactly("2", "3", "4");
+    }
+
+    @Test
+    void neverGrowsPastMaxLimitAcrossManySaves() throws Exception {
+        Path file = tempDir.resolve("RECENT_CALLS.log");
+        FileCallLogAdapter adapter = adapterFor(file, 5);
+
+        for (int i = 0; i < 20; i++) {
+            adapter.save(call("call-" + i));
+        }
+
+        List<CallRecord> calls = adapter.readAll();
+        assertThat(calls).hasSize(5);
+        assertThat(calls).extracting(CallRecord::method).containsExactly("call-15", "call-16", "call-17", "call-18", "call-19");
     }
 }

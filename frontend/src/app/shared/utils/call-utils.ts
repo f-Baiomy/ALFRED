@@ -1,4 +1,4 @@
-import { CallRecord, SortMode } from '../../core/models/call.model';
+import { CallRecord, CapturedCall, SortMode } from '../../core/models/call.model';
 
 /**
  * Stable identity for a call, independent of its position in the list.
@@ -63,6 +63,22 @@ export function mergeLiveCalls(live: readonly CallRecord[], polled: readonly Cal
 export function unconfirmedLiveCalls(live: readonly CallRecord[], polled: readonly CallRecord[]): CallRecord[] {
   const known = new Set(polled.map(callKey));
   return live.filter((c) => !known.has(callKey(c)));
+}
+
+/**
+ * CapturedCall counterpart of mergeLiveCalls. Keyed by callKey(c.call), not CapturedCall.id - a
+ * live-pushed captured call doesn't have its real backend-assigned id yet (the broadcast only
+ * carries the raw CallRecord), so identity has to come from the call's own content, exactly like
+ * the dashboard's live/polled merge already does.
+ */
+export function mergeLiveCapturedCalls(live: readonly CapturedCall[], polled: readonly CapturedCall[]): CapturedCall[] {
+  return [...unconfirmedLiveCapturedCalls(live, polled), ...polled];
+}
+
+/** The subset of `live` not yet present in `polled`, keyed by callKey(c.call). */
+export function unconfirmedLiveCapturedCalls(live: readonly CapturedCall[], polled: readonly CapturedCall[]): CapturedCall[] {
+  const known = new Set(polled.map((c) => callKey(c.call)));
+  return live.filter((c) => !known.has(callKey(c.call)));
 }
 
 export function supplierOf(call: CallRecord): string {

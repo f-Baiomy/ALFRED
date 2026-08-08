@@ -1,0 +1,22 @@
+@if (state()) {
+  <div class="dialog-backdrop" (click)="cancel()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <h2>Edit cycle</h2>
+
+      <label class="dialog-field">
+        <span>Name</span>
+        <input type="text" [value]="name()" (input)="name.set($any($event.target).value)" placeholder="Cycle name" />
+      </label>
+
+      <label class="dialog-field">
+        <span>Assigned to <em>(optional profile id)</em></span>
+        <input type="text" [value]="assignedTo()" (input)="assignedTo.set($any($event.target).value)" placeholder="Not assigned" />
+      </label>
+
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="cancel()">Cancel</button>
+        <button type="button" class="dialog-btn primary" [disabled]="!name().trim()" (click)="save()">Save</button>
+      </div>
+    </div>
+  </div>
+}

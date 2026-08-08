@@ -10,6 +10,7 @@ COPY pennyworth-platform/pom.xml pennyworth-platform/pom.xml
 COPY pennyworth-calls/pom.xml pennyworth-calls/pom.xml
 COPY pennyworth-comments/pom.xml pennyworth-comments/pom.xml
 COPY pennyworth-export/pom.xml pennyworth-export/pom.xml
+COPY pennyworth-session-cycles/pom.xml pennyworth-session-cycles/pom.xml
 COPY pennyworth-app/pom.xml pennyworth-app/pom.xml
 COPY pennyworth-architecture-test/pom.xml pennyworth-architecture-test/pom.xml
 RUN mvn -B dependency:go-offline

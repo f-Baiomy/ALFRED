@@ -1,7 +1,7 @@
 import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, signal, viewChild } from '@angular/core';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTreeComponent } from '../json-tree/json-tree.component';
-import { CallsStateService } from '../../core/state/calls-state.service';
+import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { HighlightToken, highlightTokens, prettyJsonText, tokenizeJsonText, tryParseJson } from '../../shared/utils/json-tokenizer';
 import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
 import { JsonViewMode } from '../../core/models/call.model';
@@ -30,7 +30,7 @@ type ParsedValue = { hasJson: true; value: unknown } | { hasJson: false; plainTe
   templateUrl: './json-panel.component.html',
 })
 export class JsonPanelComponent {
-  private readonly state = inject(CallsStateService);
+  private readonly state = inject(CALL_LIST_CONTROLS_STATE);
   private readonly injector = inject(Injector);
   private readonly commentsStore = inject(CommentsStore);
   private readonly panelViewLauncher = inject(PanelViewLauncherService);

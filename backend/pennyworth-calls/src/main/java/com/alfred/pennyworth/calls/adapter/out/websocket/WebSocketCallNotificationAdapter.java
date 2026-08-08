@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
 public class WebSocketCallNotificationAdapter implements CallNotificationPort {
 
@@ -21,11 +23,11 @@ public class WebSocketCallNotificationAdapter implements CallNotificationPort {
     }
 
     @Override
-    public void notifyNewCall(CallRecord call) {
+    public void notifyNewCall(CallRecord call, List<String> capturedByCycleIds) {
         try {
-            handler.broadcast(objectMapper.writeValueAsString(call));
+            handler.broadcast(objectMapper.writeValueAsString(new CallEvent(call, capturedByCycleIds)));
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize call for WebSocket broadcast: {}", e.getMessage());
+            log.error("Failed to serialize call event for WebSocket broadcast: {}", e.getMessage());
         }
     }
 }

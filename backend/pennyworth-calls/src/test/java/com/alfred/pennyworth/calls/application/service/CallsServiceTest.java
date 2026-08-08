@@ -2,9 +2,11 @@ package com.alfred.pennyworth.calls.application.service;
 
 import com.alfred.pennyworth.calls.application.port.out.CallLogPort;
 import com.alfred.pennyworth.calls.application.port.out.CallNotificationPort;
+import com.alfred.pennyworth.calls.application.port.out.NewCallObserverPort;
 import com.alfred.pennyworth.calls.domain.model.CallRecord;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,12 +16,31 @@ import static org.mockito.Mockito.when;
 
 class CallsServiceTest {
 
+    private static final int TEST_MAX_LIMIT = 500;
+
     private static CallRecord call(String url) {
         return new CallRecord(url, url, "GET", null, "t", 1.0, null, null);
     }
 
     private static CallsService serviceWith(CallLogPort port) {
-        return new CallsService(port, mock(CallNotificationPort.class));
+        return serviceWith(port, mock(CallNotificationPort.class), List.of());
+    }
+
+    private static CallsService serviceWith(CallLogPort port, CallNotificationPort notificationPort, List<NewCallObserverPort> observers) {
+        CallsService service = new CallsService(port, notificationPort, observers);
+        setMaxLimit(service, TEST_MAX_LIMIT);
+        return service;
+    }
+
+    /** maxLimit is @Value-injected by Spring in production; unit tests construct CallsService directly, so it's set the same way FileCallLogAdapterTest sets its own @Value fields. */
+    private static void setMaxLimit(CallsService service, int maxLimit) {
+        try {
+            Field field = CallsService.class.getDeclaredField("maxLimit");
+            field.setAccessible(true);
+            field.setInt(service, maxLimit);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
@@ -57,28 +78,46 @@ class CallsServiceTest {
     @Test
     void clampsALimitAboveTheMaximum() {
         CallLogPort port = mock(CallLogPort.class);
-        List<CallRecord> many = java.util.stream.IntStream.range(0, CallsService.MAX_LIMIT + 50)
+        List<CallRecord> many = java.util.stream.IntStream.range(0, TEST_MAX_LIMIT + 50)
                 .mapToObj(i -> call("call-" + i))
                 .toList();
         when(port.readAll()).thenReturn(many);
         CallsService service = serviceWith(port);
 
-        List<CallRecord> result = service.getCalls(CallsService.MAX_LIMIT + 50);
+        List<CallRecord> result = service.getCalls(TEST_MAX_LIMIT + 50);
 
-        assertThat(result).hasSize(CallsService.MAX_LIMIT);
+        assertThat(result).hasSize(TEST_MAX_LIMIT);
     }
 
     @Test
-    void receiveNewCallSavesBeforeBroadcasting() {
+    void receiveNewCallSavesThenFansOutToObserversThenBroadcastsWithTheirIds() {
         CallLogPort port = mock(CallLogPort.class);
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);
-        CallsService service = new CallsService(port, notificationPort);
+        NewCallObserverPort observerA = mock(NewCallObserverPort.class);
+        NewCallObserverPort observerB = mock(NewCallObserverPort.class);
         CallRecord call = call("https://example.com/api/x");
+        when(observerA.onNewCall(call)).thenReturn(List.of("cycle-1"));
+        when(observerB.onNewCall(call)).thenReturn(List.of("cycle-2"));
+        CallsService service = serviceWith(port, notificationPort, List.of(observerA, observerB));
 
         service.receiveNewCall(call);
 
-        var order = inOrder(port, notificationPort);
+        var order = inOrder(port, observerA, observerB, notificationPort);
         order.verify(port).save(call);
-        order.verify(notificationPort).notifyNewCall(call);
+        order.verify(observerA).onNewCall(call);
+        order.verify(observerB).onNewCall(call);
+        order.verify(notificationPort).notifyNewCall(call, List.of("cycle-1", "cycle-2"));
+    }
+
+    @Test
+    void receiveNewCallBroadcastsAnEmptyListWhenThereAreNoObservers() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        CallRecord call = call("https://example.com/api/x");
+        CallsService service = serviceWith(port, notificationPort, List.of());
+
+        service.receiveNewCall(call);
+
+        inOrder(port, notificationPort).verify(notificationPort).notifyNewCall(call, List.of());
     }
 }
