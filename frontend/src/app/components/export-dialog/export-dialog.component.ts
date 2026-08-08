@@ -1,7 +1,8 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
-import { ExportDialogService } from '../../core/services/export-dialog.service';
+import { ExportDialogService, ExportFormat } from '../../core/services/export-dialog.service';
 import { Environment } from '../../core/models/export-metadata.model';
 import { buildExportMarkdown, buildBulkExportMarkdown, exportFilename, bulkExportFilename } from '../../shared/utils/markdown-builder';
+import { buildExportHtml, buildBulkExportHtml, exportHtmlFilename, bulkExportHtmlFilename } from '../../shared/utils/html-builder';
 import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
 import { downloadText, downloadJson } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
@@ -32,7 +33,12 @@ export class ExportDialogComponent {
 
   readonly copyFeedback = signal(false);
 
+  private static readonly FORMAT_LABELS: Record<ExportFormat, string> = { markdown: 'Markdown', json: 'JSON', html: 'HTML' };
+  private static readonly FORMAT_EXTENSIONS: Record<ExportFormat, string> = { markdown: '.md', json: '.json', html: '.html' };
+
   readonly isBulk = computed(() => (this.state()?.calls.length ?? 0) > 1);
+  readonly formatLabel = computed(() => ExportDialogComponent.FORMAT_LABELS[this.state()?.format ?? 'markdown']);
+  readonly formatExtension = computed(() => ExportDialogComponent.FORMAT_EXTENSIONS[this.state()?.format ?? 'markdown']);
   readonly totalFlaggedCount = computed(() => {
     const current = this.state();
     if (!current) return 0;
@@ -71,7 +77,7 @@ export class ExportDialogComponent {
     if (built.isJson) {
       downloadJson(built.payload, built.filename);
     } else {
-      downloadText(built.content, built.filename);
+      downloadText(built.content, built.filename, built.mimeType);
     }
 
     this.close();
@@ -91,7 +97,7 @@ export class ExportDialogComponent {
   /** Shared by confirmExport/copyToClipboard so "what gets copied" always matches "what gets downloaded". */
   private buildContent():
     | { isJson: true; payload: unknown; filename: string }
-    | { isJson: false; content: string; filename: string }
+    | { isJson: false; content: string; filename: string; mimeType: string }
     | null {
     const current = this.state();
     if (!current) return null;
@@ -112,13 +118,23 @@ export class ExportDialogComponent {
       return { isJson: true, payload, filename: bulkExportFilename(calls, 'json') };
     }
 
+    if (format === 'html') {
+      if (calls.length === 1) {
+        const call = calls[0];
+        const html = buildExportHtml(call, form, commentsByCallId.get(callKey(call)) ?? []);
+        return { isJson: false, content: html, filename: exportHtmlFilename(call), mimeType: 'text/html' };
+      }
+      const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString());
+      return { isJson: false, content: html, filename: bulkExportHtmlFilename(calls), mimeType: 'text/html' };
+    }
+
     if (calls.length === 1) {
       const call = calls[0];
       const markdown = buildExportMarkdown(call, form, commentsByCallId.get(callKey(call)) ?? []);
-      return { isJson: false, content: markdown, filename: exportFilename(call) };
+      return { isJson: false, content: markdown, filename: exportFilename(call), mimeType: 'text/markdown' };
     }
 
     const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString());
-    return { isJson: false, content: markdown, filename: bulkExportFilename(calls, 'md') };
+    return { isJson: false, content: markdown, filename: bulkExportFilename(calls, 'md'), mimeType: 'text/markdown' };
   }
 }

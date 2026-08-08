@@ -17,6 +17,9 @@
       <button type="button" class="bulk-btn" [disabled]="jsonLoading()" (click)="exportAsJson()">
         {{ jsonLoading() ? 'Loading...' : 'Export .json' }}
       </button>
+      <button type="button" class="bulk-btn" [disabled]="htmlLoading()" (click)="exportAsHtml()">
+        {{ htmlLoading() ? 'Loading...' : 'Export .html' }}
+      </button>
       <button type="button" class="bulk-btn" [disabled]="curlLoading()" (click)="exportAsCurl()">
         {{ curlLoading() ? 'Loading...' : 'Export cURL' }}
       </button>

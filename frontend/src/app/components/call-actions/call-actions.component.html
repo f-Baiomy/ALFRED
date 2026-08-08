@@ -13,4 +13,7 @@
   <button type="button" class="action-btn" title="Export as Markdown" [disabled]="exportLoading()" (click)="exportAsMarkdown()">
     {{ exportLoading() ? 'Loading...' : 'Export .md' }}
   </button>
+  <button type="button" class="action-btn" title="Export as HTML" [disabled]="htmlExportLoading()" (click)="exportAsHtml()">
+    {{ htmlExportLoading() ? 'Loading...' : 'Export .html' }}
+  </button>
 </div>

@@ -37,6 +37,7 @@ export class BulkActionsBarComponent {
   readonly curlLoading = signal(false);
   readonly mdLoading = signal(false);
   readonly jsonLoading = signal(false);
+  readonly htmlLoading = signal(false);
 
   selectAll(): void {
     this.state.selectAll();
@@ -52,6 +53,10 @@ export class BulkActionsBarComponent {
 
   exportAsJson(): void {
     this.openDialog(this.jsonLoading, 'json');
+  }
+
+  exportAsHtml(): void {
+    this.openDialog(this.htmlLoading, 'html');
   }
 
   exportAsCurl(): void {
@@ -74,7 +79,7 @@ export class BulkActionsBarComponent {
     this.copyToCyclesDialog.open(calls);
   }
 
-  private openDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'json'): void {
+  private openDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'json' | 'html'): void {
     const calls = this.state.selectedCalls();
     if (calls.length === 0) return;
     loading.set(true);

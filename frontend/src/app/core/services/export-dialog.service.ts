@@ -3,7 +3,7 @@ import { CallRecord } from '../models/call.model';
 import { ExportMetadata } from '../models/export-metadata.model';
 import { Comment } from '../models/comment.model';
 
-export type ExportFormat = 'markdown' | 'json';
+export type ExportFormat = 'markdown' | 'json' | 'html';
 
 export interface ExportDialogState {
   readonly calls: readonly CallRecord[];

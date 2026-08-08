@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, WritableSignal, computed, inject, input, signal } from '@angular/core';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { CallRecord } from '../../core/models/call.model';
@@ -26,6 +26,7 @@ export class CallActionsComponent {
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
   readonly exportLoading = signal(false);
+  readonly htmlExportLoading = signal(false);
   readonly downloadLoading = signal(false);
 
   readonly isPinned = computed(() => this.pinService.isPinned(this.call()));
@@ -52,14 +53,22 @@ export class CallActionsComponent {
   }
 
   exportAsMarkdown(): void {
+    this.openExportDialog(this.exportLoading, 'markdown');
+  }
+
+  exportAsHtml(): void {
+    this.openExportDialog(this.htmlExportLoading, 'html');
+  }
+
+  private openExportDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'html'): void {
     const call = this.call();
-    this.exportLoading.set(true);
+    loading.set(true);
     forkJoin({
       metadata: this.exportApi.fetchMetadata(call).pipe(catchError(() => of(null))),
       comments: this.fetchComments(call),
     }).subscribe(({ metadata, comments }) => {
-      this.exportLoading.set(false);
-      this.exportDialog.open([call], metadata, new Map([[callKey(call), comments]]), 'markdown');
+      loading.set(false);
+      this.exportDialog.open([call], metadata, new Map([[callKey(call), comments]]), format);
     });
   }
 

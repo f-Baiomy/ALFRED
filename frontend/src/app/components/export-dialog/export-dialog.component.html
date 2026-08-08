@@ -3,9 +3,9 @@
     <div class="dialog-card" (click)="$event.stopPropagation()">
       <h2>
         @if (isBulk()) {
-          Export {{ current.calls.length }} calls as {{ current.format === 'json' ? 'JSON' : 'Markdown' }}
+          Export {{ current.calls.length }} calls as {{ formatLabel() }}
         } @else {
-          Export call as {{ current.format === 'json' ? 'JSON' : 'Markdown' }}
+          Export call as {{ formatLabel() }}
         }
       </h2>
       <p class="dialog-sub">Pre-filled where possible - review and edit before exporting. Nothing here is required.</p>
@@ -58,7 +58,7 @@
         <button type="button" class="dialog-btn secondary" (click)="copyToClipboard()">
           {{ copyFeedback() ? 'Copied!' : 'Copy to Clipboard' }}
         </button>
-        <button type="button" class="dialog-btn primary" (click)="confirmExport()">Export {{ current.format === 'json' ? '.json' : '.md' }}</button>
+        <button type="button" class="dialog-btn primary" (click)="confirmExport()">Export {{ formatExtension() }}</button>
       </div>
     </div>
   </div>
