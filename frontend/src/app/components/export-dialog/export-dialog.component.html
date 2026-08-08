@@ -55,6 +55,9 @@
 
       <div class="dialog-actions">
         <button type="button" class="dialog-btn secondary" (click)="close()">Cancel</button>
+        <button type="button" class="dialog-btn secondary" (click)="copyToClipboard()">
+          {{ copyFeedback() ? 'Copied!' : 'Copy to Clipboard' }}
+        </button>
         <button type="button" class="dialog-btn primary" (click)="confirmExport()">Export {{ current.format === 'json' ? '.json' : '.md' }}</button>
       </div>
     </div>

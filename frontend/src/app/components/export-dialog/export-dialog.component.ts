@@ -30,6 +30,8 @@ export class ExportDialogComponent {
   readonly environment = signal<Environment>('Staging');
   readonly description = signal('');
 
+  readonly copyFeedback = signal(false);
+
   readonly isBulk = computed(() => (this.state()?.calls.length ?? 0) > 1);
   readonly totalFlaggedCount = computed(() => {
     const current = this.state();
@@ -63,8 +65,36 @@ export class ExportDialogComponent {
   }
 
   confirmExport(): void {
+    const built = this.buildContent();
+    if (!built) return;
+
+    if (built.isJson) {
+      downloadJson(built.payload, built.filename);
+    } else {
+      downloadText(built.content, built.filename);
+    }
+
+    this.close();
+  }
+
+  copyToClipboard(): void {
+    const built = this.buildContent();
+    if (!built) return;
+
+    const text = built.isJson ? JSON.stringify(built.payload, null, 2) : built.content;
+    navigator.clipboard.writeText(text).then(() => {
+      this.copyFeedback.set(true);
+      setTimeout(() => this.copyFeedback.set(false), 1200);
+    });
+  }
+
+  /** Shared by confirmExport/copyToClipboard so "what gets copied" always matches "what gets downloaded". */
+  private buildContent():
+    | { isJson: true; payload: unknown; filename: string }
+    | { isJson: false; content: string; filename: string }
+    | null {
     const current = this.state();
-    if (!current) return;
+    if (!current) return null;
 
     const form = {
       supplierName: this.supplierName(),
@@ -79,16 +109,16 @@ export class ExportDialogComponent {
 
     if (format === 'json') {
       const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString());
-      downloadJson(payload, bulkExportFilename(calls, 'json'));
-    } else if (calls.length === 1) {
-      const call = calls[0];
-      const markdown = buildExportMarkdown(call, form, commentsByCallId.get(callKey(call)) ?? []);
-      downloadText(markdown, exportFilename(call));
-    } else {
-      const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString());
-      downloadText(markdown, bulkExportFilename(calls, 'md'));
+      return { isJson: true, payload, filename: bulkExportFilename(calls, 'json') };
     }
 
-    this.close();
+    if (calls.length === 1) {
+      const call = calls[0];
+      const markdown = buildExportMarkdown(call, form, commentsByCallId.get(callKey(call)) ?? []);
+      return { isJson: false, content: markdown, filename: exportFilename(call) };
+    }
+
+    const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString());
+    return { isJson: false, content: markdown, filename: bulkExportFilename(calls, 'md') };
   }
 }
