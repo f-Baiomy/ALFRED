@@ -9,6 +9,7 @@ import {
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { JsonPanelComponent } from '../json-panel/json-panel.component';
 import { CALL_REMOVAL_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
+import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
@@ -23,6 +24,7 @@ const SELECTION_EXEMPT_SELECTOR =
 })
 export class CallCardComponent {
   private readonly state = inject(CALL_SELECTION_STATE);
+  private readonly confirmDialog = inject(ConfirmDialogService);
   /** Non-null only where something binds CALL_REMOVAL_STATE (a session-cycle detail view) - drives whether the "Remove" button renders at all. */
   readonly removalState = inject(CALL_REMOVAL_STATE, { optional: true });
 
@@ -46,8 +48,11 @@ export class CallCardComponent {
     this.state.toggleSelected(this.call());
   }
 
-  remove(): void {
-    this.removalState?.remove(this.call());
+  async remove(): Promise<void> {
+    if (!this.removalState) return;
+    const confirmed = await this.confirmDialog.confirm('Remove this call from the cycle?', 'Remove');
+    if (!confirmed) return;
+    this.removalState.remove(this.call());
   }
 
   /**

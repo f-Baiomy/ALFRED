@@ -2,6 +2,8 @@ import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { BulkActionsBarComponent } from '../../components/bulk-actions-bar/bulk-actions-bar.component';
 import { CallListComponent } from '../../components/call-list/call-list.component';
+import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
+import { CopyToCyclesDialogComponent } from '../../components/copy-to-cycles-dialog/copy-to-cycles-dialog.component';
 import { EditCycleDialogComponent } from '../../components/edit-cycle-dialog/edit-cycle-dialog.component';
 import { ExportDialogComponent } from '../../components/export-dialog/export-dialog.component';
 import { HeaderComponent } from '../../components/header/header.component';
@@ -27,7 +29,7 @@ import { SessionCyclesStateService } from '../../core/state/session-cycles-state
 @Component({
   selector: 'app-session-cycle-detail',
   standalone: true,
-  imports: [RouterLink, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, EditCycleDialogComponent],
+  imports: [RouterLink, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },

@@ -1,8 +1,10 @@
 package com.alfred.pennyworth.sessioncycles.application.service;
 
+import com.alfred.pennyworth.calls.domain.model.CallRecord;
 import com.alfred.pennyworth.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.alfred.pennyworth.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.alfred.pennyworth.sessioncycles.domain.model.CapturedCall;
+import com.alfred.pennyworth.sessioncycles.domain.model.CopyCallsResult;
 import com.alfred.pennyworth.sessioncycles.domain.model.DeleteOutcome;
 import com.alfred.pennyworth.sessioncycles.domain.model.NewSessionCycle;
 import com.alfred.pennyworth.sessioncycles.domain.model.SessionCycle;
@@ -165,5 +167,73 @@ class SessionCyclesServiceTest {
 
         assertThat(service.removeCall("c1", "call-1")).isTrue();
         verify(capturedCallsStore).removeById(eq("c1"), eq("call-1"));
+    }
+
+    private static CallRecord call(String timestamp) {
+        return new CallRecord("https://a.com-proxy/x", "https://a.com/x", "GET", null, timestamp, 1.0, null, null);
+    }
+
+    private static CapturedCall captured(CallRecord call) {
+        return new CapturedCall("captured-" + call.timestamp(), "2026-01-01T00:00:00Z", call);
+    }
+
+    @Test
+    void copyIntoReturnsEmptyWhenTheCycleDoesNotExist() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.copyInto("missing", List.of(call("t1")))).isEmpty();
+        verify(capturedCallsStore, never()).append(any(), any());
+    }
+
+    @Test
+    void copyIntoAppendsNewCallsAndCountsThem() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+
+        CallRecord a = call("t1");
+        CallRecord b = call("t2");
+        Optional<CopyCallsResult> result = service.copyInto("c1", List.of(a, b));
+
+        assertThat(result).contains(new CopyCallsResult(2, 0));
+        verify(capturedCallsStore).append("c1", a);
+        verify(capturedCallsStore).append("c1", b);
+    }
+
+    @Test
+    void copyIntoSkipsCallsAlreadyPresentByContent() {
+        CallRecord existingContent = call("t1");
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(existingContent)));
+
+        CallRecord duplicate = call("t1");
+        CallRecord fresh = call("t2");
+        Optional<CopyCallsResult> result = service.copyInto("c1", List.of(duplicate, fresh));
+
+        assertThat(result).contains(new CopyCallsResult(1, 1));
+        verify(capturedCallsStore, never()).append("c1", duplicate);
+        verify(capturedCallsStore).append("c1", fresh);
+    }
+
+    @Test
+    void copyIntoSkipsDuplicatesWithinTheSameBatchToo() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+
+        CallRecord a = call("t1");
+        CallRecord sameContent = call("t1");
+        Optional<CopyCallsResult> result = service.copyInto("c1", List.of(a, sameContent));
+
+        assertThat(result).contains(new CopyCallsResult(1, 1));
+        verify(capturedCallsStore, org.mockito.Mockito.times(1)).append(eq("c1"), any());
+    }
+
+    @Test
+    void copyIntoWorksRegardlessOfRecordingStatus() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.RECORDING)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+
+        Optional<CopyCallsResult> result = service.copyInto("c1", List.of(call("t1")));
+
+        assertThat(result).contains(new CopyCallsResult(1, 0));
     }
 }

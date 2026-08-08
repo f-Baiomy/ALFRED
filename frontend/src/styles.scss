@@ -1274,6 +1274,34 @@ mark.hl.active {
   }
 }
 
+.copy-cycle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 0.9rem;
+}
+
+.copy-cycle-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+
+  span:nth-child(2) {
+    flex: 1;
+  }
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+}
+
 .dialog-radio-group {
   border: 1px solid var(--border);
   border-radius: 8px;

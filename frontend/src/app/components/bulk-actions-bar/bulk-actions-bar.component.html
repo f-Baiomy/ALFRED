@@ -10,6 +10,7 @@
 
     @if (state.selectedCalls().length > 0) {
       <button type="button" class="bulk-btn secondary" (click)="clearSelection()">Deselect all</button>
+      <button type="button" class="bulk-btn" (click)="duplicateToCycles()">Duplicate to cycles</button>
       <button type="button" class="bulk-btn" [disabled]="mdLoading()" (click)="exportAsMarkdown()">
         {{ mdLoading() ? 'Loading...' : 'Export .md' }}
       </button>

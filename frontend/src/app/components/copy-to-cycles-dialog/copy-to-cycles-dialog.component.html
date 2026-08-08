@@ -1,0 +1,35 @@
+@if (calls(); as selectedCalls) {
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <h2>Duplicate {{ selectedCalls.length }} call{{ selectedCalls.length === 1 ? '' : 's' }} to cycles</h2>
+      <p class="dialog-sub">Pick one or more session cycles - the selected calls are appended to each, skipping any already there.</p>
+
+      @if (resultMessage(); as message) {
+        <p class="dialog-sub dialog-flagged-note">{{ message }}</p>
+      }
+
+      @if (cycles().length === 0) {
+        <p class="dialog-sub">No session cycles yet - create one from the Session Cycles tab first.</p>
+      } @else {
+        <div class="copy-cycle-list">
+          @for (cycle of cycles(); track cycle.id) {
+            <label class="copy-cycle-option">
+              <input type="checkbox" [checked]="isSelected(cycle)" (change)="toggle(cycle)" />
+              <span>{{ cycle.name }}</span>
+              <span class="badge" [class]="cycle.status === 'RECORDING' ? 'cycle-status-recording' : 'cycle-status-paused'">
+                {{ cycle.status === 'RECORDING' ? 'Recording' : 'Paused' }}
+              </span>
+            </label>
+          }
+        </div>
+      }
+
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="close()">Close</button>
+        <button type="button" class="dialog-btn primary" [disabled]="copying() || selectedCycleIds().size === 0" (click)="copy()">
+          {{ copying() ? 'Copying...' : 'Copy' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

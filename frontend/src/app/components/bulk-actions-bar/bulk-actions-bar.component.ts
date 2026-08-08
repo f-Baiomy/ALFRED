@@ -6,6 +6,7 @@ import { Comment } from '../../core/models/comment.model';
 import { BULK_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
+import { CopyToCyclesDialogService } from '../../core/services/copy-to-cycles-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { buildBulkCurlScript, bulkCurlFilename } from '../../shared/utils/curl-builder';
 import { downloadText } from '../../shared/utils/download';
@@ -29,6 +30,7 @@ import { callKey } from '../../shared/utils/call-utils';
 export class BulkActionsBarComponent {
   private readonly exportApi = inject(ExportApiService);
   private readonly exportDialog = inject(ExportDialogService);
+  private readonly copyToCyclesDialog = inject(CopyToCyclesDialogService);
   private readonly commentsApi = inject(CommentsApiService);
   readonly state = inject(BULK_SELECTION_STATE);
 
@@ -64,6 +66,12 @@ export class BulkActionsBarComponent {
       });
       downloadText(script, bulkCurlFilename(calls), 'text/x-sh');
     });
+  }
+
+  duplicateToCycles(): void {
+    const calls = this.state.selectedCalls();
+    if (calls.length === 0) return;
+    this.copyToCyclesDialog.open(calls);
   }
 
   private openDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'json'): void {

@@ -1,5 +1,7 @@
 package com.alfred.pennyworth.sessioncycles.adapter.in.web;
 
+import com.alfred.pennyworth.calls.domain.model.CallRecord;
+import com.alfred.pennyworth.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.GetSessionCycleUseCase;
@@ -9,6 +11,7 @@ import com.alfred.pennyworth.sessioncycles.application.port.in.PauseRecordingUse
 import com.alfred.pennyworth.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
+import com.alfred.pennyworth.sessioncycles.domain.model.CopyCallsResult;
 import com.alfred.pennyworth.sessioncycles.domain.model.DeleteOutcome;
 import com.alfred.pennyworth.sessioncycles.domain.model.NewSessionCycle;
 import com.alfred.pennyworth.sessioncycles.domain.model.SessionCycle;
@@ -59,6 +62,8 @@ class SessionCyclesControllerTest {
     private ListCapturedCallsUseCase listCapturedCallsUseCase;
     @MockBean
     private RemoveCapturedCallUseCase removeCapturedCallUseCase;
+    @MockBean
+    private CopyCallsToCycleUseCase copyCallsToCycleUseCase;
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "2026-01-01T00:00:00Z", null, status);
@@ -191,5 +196,50 @@ class SessionCyclesControllerTest {
         when(removeCapturedCallUseCase.removeCall("c1", "missing")).thenReturn(false);
 
         mockMvc.perform(delete("/session-cycles/c1/calls/missing")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void copyCallsRejectsAnEmptyCallsList() throws Exception {
+        mockMvc.perform(post("/session-cycles/c1/calls/copy")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"calls":[]}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void copyCallsReturnsNotFoundWhenTheCycleDoesNotExist() throws Exception {
+        when(copyCallsToCycleUseCase.copyInto(eq("missing"), any())).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/session-cycles/missing/calls/copy")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"calls":[{"original_url":"https://a.com-proxy/x","url":"https://a.com/x","method":"GET","timestamp":"t1"}]}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void copyCallsReturnsTheAddedAndSkippedCounts() throws Exception {
+        when(copyCallsToCycleUseCase.copyInto(eq("c1"), any())).thenReturn(Optional.of(new CopyCallsResult(1, 1)));
+
+        mockMvc.perform(post("/session-cycles/c1/calls/copy")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"calls":[
+                                  {"original_url":"https://a.com-proxy/x","url":"https://a.com/x","method":"GET","timestamp":"t1"},
+                                  {"original_url":"https://b.com-proxy/x","url":"https://b.com/x","method":"POST","timestamp":"t2"}
+                                ]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.added").value(1))
+                .andExpect(jsonPath("$.skipped").value(1));
+
+        verify(copyCallsToCycleUseCase).copyInto(eq("c1"), org.mockito.ArgumentMatchers.argThat(calls ->
+                calls.size() == 2
+                        && ((List<CallRecord>) calls).get(0).method().equals("GET")
+                        && ((List<CallRecord>) calls).get(1).method().equals("POST")
+        ));
     }
 }

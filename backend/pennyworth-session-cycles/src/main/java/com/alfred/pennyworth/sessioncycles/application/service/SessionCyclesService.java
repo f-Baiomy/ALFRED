@@ -1,5 +1,7 @@
 package com.alfred.pennyworth.sessioncycles.application.service;
 
+import com.alfred.pennyworth.calls.domain.model.CallRecord;
+import com.alfred.pennyworth.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.GetSessionCycleUseCase;
@@ -12,6 +14,7 @@ import com.alfred.pennyworth.sessioncycles.application.port.in.UpdateSessionCycl
 import com.alfred.pennyworth.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.alfred.pennyworth.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.alfred.pennyworth.sessioncycles.domain.model.CapturedCall;
+import com.alfred.pennyworth.sessioncycles.domain.model.CopyCallsResult;
 import com.alfred.pennyworth.sessioncycles.domain.model.DeleteOutcome;
 import com.alfred.pennyworth.sessioncycles.domain.model.NewSessionCycle;
 import com.alfred.pennyworth.sessioncycles.domain.model.SessionCycle;
@@ -22,8 +25,11 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -36,7 +42,8 @@ public class SessionCyclesService implements
         PauseRecordingUseCase,
         DeleteSessionCycleUseCase,
         ListCapturedCallsUseCase,
-        RemoveCapturedCallUseCase {
+        RemoveCapturedCallUseCase,
+        CopyCallsToCycleUseCase {
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
@@ -131,5 +138,39 @@ public class SessionCyclesService implements
     @Override
     public boolean removeCall(String cycleId, String callId) {
         return capturedCallsStore.removeById(cycleId, callId);
+    }
+
+    /**
+     * Manual duplication, not the recording fan-out - works regardless of RECORDING/PAUSED.
+     * "Already present" is judged by content (timestamp+method+originalUrl, same identity the
+     * frontend's callKey() uses), not by CapturedCall id, since a call copied in has no
+     * relationship to any id it might already have elsewhere. Skips within the same batch too,
+     * so copying a selection containing the same call twice doesn't add it twice either.
+     */
+    @Override
+    public Optional<CopyCallsResult> copyInto(String cycleId, List<CallRecord> calls) {
+        return metadataStore.findById(cycleId).map(cycle -> {
+            Set<String> existingKeys = new HashSet<>();
+            for (CapturedCall captured : capturedCallsStore.findAllByCycle(cycleId)) {
+                existingKeys.add(contentKey(captured.call()));
+            }
+
+            int added = 0;
+            int skipped = 0;
+            for (CallRecord call : calls) {
+                String key = contentKey(call);
+                if (!existingKeys.add(key)) {
+                    skipped++;
+                    continue;
+                }
+                capturedCallsStore.append(cycleId, call);
+                added++;
+            }
+            return new CopyCallsResult(added, skipped);
+        });
+    }
+
+    private static String contentKey(CallRecord call) {
+        return Objects.toString(call.timestamp(), "") + "|" + Objects.toString(call.method(), "") + "|" + Objects.toString(call.originalUrl(), "");
     }
 }

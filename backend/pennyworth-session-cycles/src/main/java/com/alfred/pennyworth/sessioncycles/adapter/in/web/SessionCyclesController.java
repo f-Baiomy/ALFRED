@@ -1,7 +1,9 @@
 package com.alfred.pennyworth.sessioncycles.adapter.in.web;
 
+import com.alfred.pennyworth.sessioncycles.adapter.in.web.dto.CopyCallsRequestDto;
 import com.alfred.pennyworth.sessioncycles.adapter.in.web.dto.CreateSessionCycleRequestDto;
 import com.alfred.pennyworth.sessioncycles.adapter.in.web.dto.UpdateSessionCycleRequestDto;
+import com.alfred.pennyworth.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.GetSessionCycleUseCase;
@@ -12,6 +14,7 @@ import com.alfred.pennyworth.sessioncycles.application.port.in.RemoveCapturedCal
 import com.alfred.pennyworth.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.alfred.pennyworth.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.alfred.pennyworth.sessioncycles.domain.model.CapturedCall;
+import com.alfred.pennyworth.sessioncycles.domain.model.CopyCallsResult;
 import com.alfred.pennyworth.sessioncycles.domain.model.DeleteOutcome;
 import com.alfred.pennyworth.sessioncycles.domain.model.NewSessionCycle;
 import com.alfred.pennyworth.sessioncycles.domain.model.SessionCycle;
@@ -43,6 +46,7 @@ public class SessionCyclesController {
     private final DeleteSessionCycleUseCase deleteSessionCycleUseCase;
     private final ListCapturedCallsUseCase listCapturedCallsUseCase;
     private final RemoveCapturedCallUseCase removeCapturedCallUseCase;
+    private final CopyCallsToCycleUseCase copyCallsToCycleUseCase;
 
     public SessionCyclesController(
             CreateSessionCycleUseCase createSessionCycleUseCase,
@@ -53,7 +57,8 @@ public class SessionCyclesController {
             PauseRecordingUseCase pauseRecordingUseCase,
             DeleteSessionCycleUseCase deleteSessionCycleUseCase,
             ListCapturedCallsUseCase listCapturedCallsUseCase,
-            RemoveCapturedCallUseCase removeCapturedCallUseCase
+            RemoveCapturedCallUseCase removeCapturedCallUseCase,
+            CopyCallsToCycleUseCase copyCallsToCycleUseCase
     ) {
         this.createSessionCycleUseCase = createSessionCycleUseCase;
         this.listSessionCyclesUseCase = listSessionCyclesUseCase;
@@ -64,6 +69,7 @@ public class SessionCyclesController {
         this.deleteSessionCycleUseCase = deleteSessionCycleUseCase;
         this.listCapturedCallsUseCase = listCapturedCallsUseCase;
         this.removeCapturedCallUseCase = removeCapturedCallUseCase;
+        this.copyCallsToCycleUseCase = copyCallsToCycleUseCase;
     }
 
     @PostMapping
@@ -126,5 +132,12 @@ public class SessionCyclesController {
     public ResponseEntity<Void> removeCall(@PathVariable String id, @PathVariable String callId) {
         boolean removed = removeCapturedCallUseCase.removeCall(id, callId);
         return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/{id}/calls/copy")
+    public ResponseEntity<CopyCallsResult> copyCalls(@PathVariable String id, @Valid @RequestBody CopyCallsRequestDto request) {
+        return copyCallsToCycleUseCase.copyInto(id, request.calls())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 }

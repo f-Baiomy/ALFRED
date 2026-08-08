@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { CapturedCall, SessionCycle } from '../models/call.model';
+import { CallRecord, CapturedCall, SessionCycle } from '../models/call.model';
 import { AppConfigService } from './app-config.service';
 
 export interface NewSessionCycleRequest {
@@ -12,6 +12,11 @@ export interface NewSessionCycleRequest {
 export interface SessionCycleUpdateRequest {
   readonly name?: string;
   readonly assignedTo?: string | null;
+}
+
+export interface CopyCallsResult {
+  readonly added: number;
+  readonly skipped: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -53,5 +58,9 @@ export class SessionCyclesApiService {
 
   removeCall(id: string, callId: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/calls/${callId}`);
+  }
+
+  copyCallsInto(id: string, calls: readonly CallRecord[]): Observable<CopyCallsResult> {
+    return this.http.post<CopyCallsResult>(`${this.baseUrl}/${id}/calls/copy`, { calls });
   }
 }
