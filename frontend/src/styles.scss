@@ -19,6 +19,9 @@
   --green: #34d399;
   --amber: #fbbf24;
   --red: #f87171;
+  // Set precisely by HeaderComponent via ResizeObserver once it renders - this fallback only
+  // matters for the brief instant before that first measurement lands.
+  --header-height: 96px;
 }
 
 * {
@@ -191,9 +194,30 @@ main {
 }
 
 .bulk-actions-bar {
-  position: sticky;
-  top: 0;
+  // Only sticky while something is actually selected (.active) - with nothing selected it's just
+  // a slim reminder that scrolls away with the rest of the page like any other content; once a
+  // selection exists it needs to follow scroll so the export/duplicate/remove actions stay
+  // reachable while reviewing the selected calls further down the list.
+  position: static;
   z-index: 5;
+
+  &.active {
+    position: sticky;
+    // Defaults to sticking at the very top - correct for the Session Cycles list page, which has
+    // no sticky <app-header> above it. The reused BulkActionsBarComponent (dashboard/cycle-detail,
+    // both of which DO render <app-header>) opts into the header-aware offset via the
+    // .below-sticky-header modifier class instead, so it sticks just below the (also-sticky,
+    // higher z-index) header rather than underneath it - two sticky siblings pinned to the same
+    // offset would have this one end up stuck behind the header once scrolled, not visibly below
+    // it. --header-height is measured live (see HeaderComponent) since the header's height isn't
+    // a fixed constant.
+    top: 0;
+
+    &.below-sticky-header {
+      top: var(--header-height);
+    }
+  }
+
   display: flex;
   align-items: center;
   justify-content: space-between;

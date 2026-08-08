@@ -1,4 +1,4 @@
-<div class="bulk-actions-bar" [class.active]="state.selectedCalls().length > 0">
+<div class="bulk-actions-bar below-sticky-header" [class.active]="state.selectedCalls().length > 0">
   @if (state.selectedCalls().length > 0) {
     <span class="bulk-count"><b>{{ state.selectedCalls().length }}</b> selected</span>
   } @else {
