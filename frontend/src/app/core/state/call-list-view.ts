@@ -53,14 +53,23 @@ export interface CallListView {
   loadMore(): void;
 }
 
+export interface CallListViewOptions {
+  /** Defaults to 'newest' (the dashboard's convention) - a session-cycle detail view opts into 'oldest-call' instead, since a repro's calls read better sorted by when they actually happened (call.timestamp), not capture/received order. */
+  readonly defaultSortMode?: SortMode;
+}
+
 /**
  * @param calls Raw calls in newest-first order, already merged with any live-pushed entries.
  * @param pinnedIds Content-keyed ids (callKey) of pinned calls - excluded from the main list/grouping since they render in their own always-visible section instead.
  */
-export function createCallListView(calls: Signal<readonly CallRecord[]>, pinnedIds: Signal<ReadonlySet<string>>): CallListView {
+export function createCallListView(
+  calls: Signal<readonly CallRecord[]>,
+  pinnedIds: Signal<ReadonlySet<string>>,
+  options: CallListViewOptions = {}
+): CallListView {
   const searchQuery = signal('');
   const limit = signal(50);
-  const sortMode = signal<SortMode>('newest');
+  const sortMode = signal<SortMode>(options.defaultSortMode ?? 'newest');
   const supplierFilter = signal('');
   const groupBySupplier = signal(false);
   const expanded = signal(true);

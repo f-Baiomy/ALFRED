@@ -16,12 +16,22 @@ export function statusRank(call: CallRecord): number {
   return call.response?.status ?? -1;
 }
 
+/** Parses call.timestamp for the two call-timestamp sort modes - an unparseable/missing timestamp sorts as if it were epoch 0 rather than throwing or silently reordering unpredictably. */
+function callTime(call: CallRecord): number {
+  const ms = new Date(call.timestamp).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
 export function sortCalls(calls: readonly CallRecord[], mode: SortMode): CallRecord[] {
   const arr = [...calls];
   switch (mode) {
     case 'oldest':
-      // The backend returns newest-first.
+      // The backend returns newest-first (received/capture order, not necessarily call.timestamp order).
       return arr.reverse();
+    case 'oldest-call':
+      return arr.sort((a, b) => callTime(a) - callTime(b));
+    case 'newest-call':
+      return arr.sort((a, b) => callTime(b) - callTime(a));
     case 'slowest':
       return arr.sort((a, b) => (b.duration_ms ?? -1) - (a.duration_ms ?? -1));
     case 'fastest':

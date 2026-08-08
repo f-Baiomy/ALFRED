@@ -19,7 +19,7 @@ export interface CallRecord {
   readonly error?: string;
 }
 
-export type SortMode = 'newest' | 'oldest' | 'slowest' | 'fastest' | 'status';
+export type SortMode = 'newest' | 'oldest' | 'newest-call' | 'oldest-call' | 'slowest' | 'fastest' | 'status';
 
 export type JsonViewMode = 'flat' | 'tree';
 

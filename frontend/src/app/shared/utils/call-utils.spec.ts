@@ -82,6 +82,32 @@ describe('sortCalls', () => {
     expect(sortCalls(calls, 'oldest')).toEqual([...calls].reverse());
   });
 
+  it('sorts by the call\'s own timestamp for oldest-call/newest-call, independent of list order', () => {
+    const outOfOrder = [
+      makeCall({ timestamp: '2026-01-01T00:00:03.000Z', duration_ms: 1 }),
+      makeCall({ timestamp: '2026-01-01T00:00:01.000Z', duration_ms: 2 }),
+      makeCall({ timestamp: '2026-01-01T00:00:02.000Z', duration_ms: 3 }),
+    ];
+
+    expect(sortCalls(outOfOrder, 'oldest-call').map((c) => c.timestamp)).toEqual([
+      '2026-01-01T00:00:01.000Z',
+      '2026-01-01T00:00:02.000Z',
+      '2026-01-01T00:00:03.000Z',
+    ]);
+    expect(sortCalls(outOfOrder, 'newest-call').map((c) => c.timestamp)).toEqual([
+      '2026-01-01T00:00:03.000Z',
+      '2026-01-01T00:00:02.000Z',
+      '2026-01-01T00:00:01.000Z',
+    ]);
+  });
+
+  it('treats an unparseable timestamp as epoch 0 rather than throwing', () => {
+    const calls = [makeCall({ timestamp: '2026-01-01T00:00:01.000Z' }), makeCall({ timestamp: 'not-a-date' })];
+
+    expect(() => sortCalls(calls, 'oldest-call')).not.toThrow();
+    expect(sortCalls(calls, 'oldest-call').map((c) => c.timestamp)).toEqual(['not-a-date', '2026-01-01T00:00:01.000Z']);
+  });
+
   it('leaves order untouched for newest', () => {
     expect(sortCalls(calls, 'newest')).toEqual(calls);
   });

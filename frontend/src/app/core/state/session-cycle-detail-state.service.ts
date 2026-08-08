@@ -65,7 +65,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   private dragSelectValue: boolean | null = null;
 
   constructor() {
-    this.view = createCallListView(this.calls, computed(() => new Set(this.pinService.pinned().keys())));
+    this.view = createCallListView(this.calls, computed(() => new Set(this.pinService.pinned().keys())), {
+      defaultSortMode: 'oldest-call',
+    });
 
     effect(
       () => {

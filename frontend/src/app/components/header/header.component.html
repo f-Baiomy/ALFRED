@@ -25,6 +25,8 @@
     <select [value]="state.sortMode()" (change)="onSortChange($any($event.target).value)">
       <option value="newest">Newest first</option>
       <option value="oldest">Oldest first</option>
+      <option value="newest-call">Newest call first</option>
+      <option value="oldest-call">Oldest call first</option>
       <option value="slowest">Slowest first</option>
       <option value="fastest">Fastest first</option>
       <option value="status">Status (worst first)</option>

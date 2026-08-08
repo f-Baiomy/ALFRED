@@ -22,12 +22,53 @@
     </button>
   </form>
 
+  <div class="controls">
+    <input
+      type="text"
+      placeholder="Search name or assigned to..."
+      [value]="state.searchQuery()"
+      (input)="onSearchInput($any($event.target).value)"
+    />
+    <select [value]="state.sortMode()" (change)="onSortChange($any($event.target).value)">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="status">Recording first</option>
+    </select>
+  </div>
+
+  <div class="bulk-actions-bar" [class.active]="state.selectedCycles().length > 0">
+    @if (state.selectedCycles().length > 0) {
+      <span class="bulk-count"><b>{{ state.selectedCycles().length }}</b> selected</span>
+    } @else {
+      <span class="bulk-count muted">No cycles selected</span>
+    }
+
+    <div class="bulk-actions">
+      <button type="button" class="bulk-btn secondary" (click)="selectAll()">Select all</button>
+
+      @if (state.selectedCycles().length > 0) {
+        <button type="button" class="bulk-btn secondary" (click)="clearSelection()">Deselect all</button>
+        <button type="button" class="bulk-btn" (click)="bulkRecord()">Record</button>
+        <button type="button" class="bulk-btn" (click)="bulkPause()">Pause</button>
+        <button type="button" class="bulk-btn" (click)="bulkReassign()">Change assigned to</button>
+        <button type="button" class="bulk-btn danger" (click)="bulkDelete()">Remove</button>
+      }
+    </div>
+  </div>
+
+  @if (bulkActionMessage(); as message) {
+    <div class="bulk-action-message">{{ message }}</div>
+  }
+
   @if (state.cycles().length === 0) {
     <div class="empty">No session cycles yet - create one above.</div>
+  } @else if (state.sortedCycles().length === 0) {
+    <div class="empty">No cycles match "{{ state.searchQuery() }}".</div>
   } @else {
     <table class="cycles-table">
       <thead>
         <tr>
+          <th></th>
           <th>Name</th>
           <th>Status</th>
           <th>Assigned to</th>
@@ -36,8 +77,11 @@
         </tr>
       </thead>
       <tbody>
-        @for (cycle of state.cycles(); track cycle.id) {
+        @for (cycle of state.visibleCycles(); track cycle.id) {
           <tr class="cycle-row" (click)="open(cycle)">
+            <td (click)="toggleSelected(cycle, $event)">
+              <input type="checkbox" [checked]="state.isSelected(cycle)" (change)="toggleSelected(cycle, $event)" />
+            </td>
             <td>{{ cycle.name }}</td>
             <td>
               <span class="badge" [class]="statusClass(cycle)">{{ statusLabel(cycle) }}</span>
@@ -64,8 +108,16 @@
         }
       </tbody>
     </table>
+
+    @if (state.remainingCount() > 0) {
+      <button type="button" class="load-more-btn" (click)="loadMore()">
+        Load {{ state.loadMorePageSize < state.remainingCount() ? state.loadMorePageSize : state.remainingCount() }} more
+        (showing {{ state.visibleCycles().length }} of {{ state.sortedCycles().length }})
+      </button>
+    }
   }
 </main>
 
 <app-confirm-dialog />
 <app-edit-cycle-dialog />
+<app-bulk-reassign-dialog />

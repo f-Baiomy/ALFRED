@@ -261,6 +261,15 @@ main {
       color: var(--text);
     }
   }
+
+  &.danger {
+    background: rgba(248, 113, 113, 0.18);
+    border-color: rgba(248, 113, 113, 0.45);
+    color: var(--red);
+    &:hover {
+      background: rgba(248, 113, 113, 0.3);
+    }
+  }
 }
 
 .stat-pill {
@@ -1084,6 +1093,16 @@ mark.hl.active {
   background: var(--purple);
   color: #fff;
   box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.5);
+}
+
+.bulk-action-message {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1.25rem;
+  color: var(--purple-light);
+  font-size: 0.85rem;
 }
 
 // ---------- Pagination / pinned / grouping ----------
