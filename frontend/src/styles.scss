@@ -1979,6 +1979,26 @@ mark.hl.active {
   flex-direction: column;
 }
 
+.select-picker-panel {
+  // Same fixed-positioning rationale as .emoji-picker-panel above - replaces a native <select>'s
+  // OS-drawn dropdown list, which only inconsistently respects page theming across browsers.
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  width: max-content;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  .filter-option-item {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 .emoji-picker-toolbar {
   display: flex;
   gap: 0.5rem;

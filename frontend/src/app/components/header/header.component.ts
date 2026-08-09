@@ -1,6 +1,24 @@
-import { AfterViewInit, Component, ElementRef, OnDestroy, inject, input, viewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, input, viewChild } from '@angular/core';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { SortMode } from '../../core/models/call.model';
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
+
+const LIMIT_OPTIONS: readonly SelectOption[] = [
+  { value: '20', label: 'Last 20' },
+  { value: '50', label: 'Last 50' },
+  { value: '100', label: 'Last 100' },
+  { value: '200', label: 'Last 200' },
+];
+
+const SORT_OPTIONS: readonly SelectOption[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'newest-call', label: 'Newest call first' },
+  { value: 'oldest-call', label: 'Oldest call first' },
+  { value: 'slowest', label: 'Slowest first' },
+  { value: 'fastest', label: 'Fastest first' },
+  { value: 'status', label: 'Status (worst first)' },
+];
 
 /**
  * Search/limit/sort/supplier-filter/group/collapse/refresh controls, reused verbatim on both the
@@ -17,6 +35,7 @@ import { SortMode } from '../../core/models/call.model';
 @Component({
   selector: 'app-header',
   standalone: true,
+  imports: [SelectPickerComponent],
   templateUrl: './header.component.html',
 })
 export class HeaderComponent implements AfterViewInit, OnDestroy {
@@ -24,6 +43,14 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
 
   readonly title = input('Manor');
   readonly subtitle = input('Live feed of every call Alfred intercepted, via pennyworth');
+
+  readonly limitOptions = LIMIT_OPTIONS;
+  readonly sortOptions = SORT_OPTIONS;
+
+  readonly supplierOptions = computed<SelectOption[]>(() => [
+    { value: '', label: `All suppliers (${this.state.calls().length})` },
+    ...this.state.supplierOptions().map((s) => ({ value: s.name, label: `${s.name} (${s.count})` })),
+  ]);
 
   private readonly headerEl = viewChild.required<ElementRef<HTMLElement>>('headerEl');
   private resizeObserver: ResizeObserver | undefined;

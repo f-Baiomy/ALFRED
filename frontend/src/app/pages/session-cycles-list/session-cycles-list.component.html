@@ -24,11 +24,7 @@
       [value]="state.searchQuery()"
       (input)="onSearchInput($any($event.target).value)"
     />
-    <select [value]="state.sortMode()" (change)="onSortChange($any($event.target).value)">
-      <option value="newest">Newest first</option>
-      <option value="oldest">Oldest first</option>
-      <option value="status">Recording first</option>
-    </select>
+    <app-select-picker [options]="sortOptions" [value]="state.sortMode()" (valueChange)="onSortChange($event)" />
     <app-assigned-to-filter />
   </div>
 

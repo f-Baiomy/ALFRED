@@ -6,12 +6,19 @@ import { BulkReassignDialogComponent } from '../../components/bulk-reassign-dial
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 import { EditCycleDialogComponent } from '../../components/edit-cycle-dialog/edit-cycle-dialog.component';
 import { ProfilePickerComponent } from '../../components/profile-picker/profile-picker.component';
+import { SelectOption, SelectPickerComponent } from '../../components/select-picker/select-picker.component';
 import { SessionCycle } from '../../core/models/call.model';
 import { BulkReassignDialogService } from '../../core/services/bulk-reassign-dialog.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.service';
 import { CycleSortMode, SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { ProfilesStateService } from '../../core/state/profiles-state.service';
+
+const SORT_OPTIONS: readonly SelectOption[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'status', label: 'Recording first' },
+];
 
 @Component({
   selector: 'app-session-cycles-list',
@@ -23,11 +30,13 @@ import { ProfilesStateService } from '../../core/state/profiles-state.service';
     BulkReassignDialogComponent,
     AssignedToFilterComponent,
     ProfilePickerComponent,
+    SelectPickerComponent,
   ],
   templateUrl: './session-cycles-list.component.html',
 })
 export class SessionCyclesListComponent {
   private readonly router = inject(Router);
+  readonly sortOptions = SORT_OPTIONS;
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly editDialog = inject(EditCycleDialogService);
   private readonly bulkReassignDialog = inject(BulkReassignDialogService);

@@ -15,29 +15,11 @@
       (input)="onSearchInput($any($event.target).value)"
     />
 
-    <select [value]="state.limit()" (change)="onLimitChange($any($event.target).value)">
-      <option value="20">Last 20</option>
-      <option value="50">Last 50</option>
-      <option value="100">Last 100</option>
-      <option value="200">Last 200</option>
-    </select>
+    <app-select-picker [options]="limitOptions" [value]="state.limit().toString()" (valueChange)="onLimitChange($event)" />
 
-    <select [value]="state.sortMode()" (change)="onSortChange($any($event.target).value)">
-      <option value="newest">Newest first</option>
-      <option value="oldest">Oldest first</option>
-      <option value="newest-call">Newest call first</option>
-      <option value="oldest-call">Oldest call first</option>
-      <option value="slowest">Slowest first</option>
-      <option value="fastest">Fastest first</option>
-      <option value="status">Status (worst first)</option>
-    </select>
+    <app-select-picker [options]="sortOptions" [value]="state.sortMode()" (valueChange)="onSortChange($event)" />
 
-    <select [value]="state.supplierFilter()" (change)="onSupplierChange($any($event.target).value)">
-      <option value="">All suppliers ({{ state.calls().length }})</option>
-      @for (supplier of state.supplierOptions(); track supplier.name) {
-        <option [value]="supplier.name">{{ supplier.name }} ({{ supplier.count }})</option>
-      }
-    </select>
+    <app-select-picker [options]="supplierOptions()" [value]="state.supplierFilter()" (valueChange)="onSupplierChange($event)" />
 
     <button type="button" [class.active]="state.groupBySupplier()" (click)="toggleGroupBySupplier()">
       {{ state.groupBySupplier() ? 'Ungroup' : 'Group by supplier' }}

@@ -1,5 +1,6 @@
 import { Component, ElementRef, HostListener, computed, inject, input, output, signal } from '@angular/core';
 import { AVATAR_EMOJIS, randomAvatarEmoji } from '../../core/models/avatar-emojis';
+import { computeFixedPanelPosition } from '../../shared/utils/popover-position';
 
 const PANEL_WIDTH = 280;
 const PANEL_GAP = 8;
@@ -10,12 +11,12 @@ const PANEL_GAP = 8;
  * search box (the list is too long to scan by eye) and a "Randomize" shortcut (the same picker
  * used for both "give me a fresh avatar" and "let me choose exactly").
  *
- * The panel is `position: fixed`, positioned from the trigger button's own
- * `getBoundingClientRect()` rather than plain CSS `position: absolute` - this picker is used
- * inside `.dialog-card`, which has `overflow-y: auto` for dialogs long enough to need it, and an
- * absolutely-positioned descendant gets clipped/mispositioned by that ancestor's scroll box.
- * Fixed positioning computed in JS escapes that entirely and always renders relative to the
- * viewport, right below the button, regardless of what scrollable container it's opened inside.
+ * The panel is `position: fixed`, positioned via `computeFixedPanelPosition` rather than plain CSS
+ * `position: absolute` - this picker is used inside `.dialog-card`, which has `overflow-y: auto`
+ * for dialogs long enough to need it, and an absolutely-positioned descendant gets clipped by that
+ * ancestor's scroll box. Fixed positioning escapes that; `computeFixedPanelPosition` additionally
+ * corrects for any ancestor (e.g. `.dialog-backdrop`'s `backdrop-filter`) that would otherwise
+ * become the *containing block* for a fixed descendant instead of the viewport - see that file.
  */
 @Component({
   selector: 'app-emoji-picker',
@@ -42,7 +43,9 @@ export class EmojiPickerComponent {
   togglePanel(): void {
     const opening = !this.panelOpen();
     if (opening) {
-      this.panelPosition.set(this.computePanelPosition());
+      this.panelPosition.set(
+        computeFixedPanelPosition(this.elementRef.nativeElement, { width: PANEL_WIDTH, gap: PANEL_GAP })
+      );
     }
     this.panelOpen.set(opening);
     this.searchQuery.set('');
@@ -55,13 +58,6 @@ export class EmojiPickerComponent {
 
   randomize(): void {
     this.valueChange.emit(randomAvatarEmoji().char);
-  }
-
-  /** Clamped to the viewport so the 280px-wide panel never renders partly off-screen for a trigger near the right edge. */
-  private computePanelPosition(): { top: number; left: number } {
-    const rect = this.elementRef.nativeElement.getBoundingClientRect();
-    const left = Math.min(rect.left, window.innerWidth - PANEL_WIDTH - PANEL_GAP);
-    return { top: rect.bottom + PANEL_GAP, left: Math.max(PANEL_GAP, left) };
   }
 
   /** Closes the panel on any click outside this component - same pattern as ThemePickerComponent. */
