@@ -2,7 +2,7 @@ import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { tryParseJson } from './json-tokenizer';
-import { callKey, supplierOf } from './call-utils';
+import { callKey, supplierOf, uriPath } from './call-utils';
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -332,15 +332,6 @@ ${SCRIPT}
 `;
 }
 
-/** Bare last-two-segments path, matching markdown-builder's pathOnly() - the call heading reads as "Call N METHOD path" so the full URL would be redundant with the field-list below it. */
-function pathOnly(url: string): string {
-  try {
-    return new URL(url).pathname.split('/').filter(Boolean).slice(-2).join('/');
-  } catch {
-    return url;
-  }
-}
-
 function statusHtml(call: CallRecord): string {
   if (call.error) return `<span class="status-err">⚠️ ${escapeHtml(call.error)}</span>`;
   if (!call.response) return '<span class="status-err">?</span>';
@@ -430,7 +421,7 @@ export function buildBulkExportHtml(
     callSections.push(
       `<a id="call-${n}"></a><details class="json-block" open><summary class="call-summary"><b>Call ${n}</b> &nbsp; <code>${escapeHtml(
         call.method
-      )} ${escapeHtml(pathOnly(call.url))}</code> &nbsp; ${statusHtml(call)}</summary><div class="call-summary-body">${flaggedIssuesHtml(comments)}${sectionHtml}</div></details>`
+      )} ${escapeHtml(uriPath(call.url))}</code> &nbsp; ${statusHtml(call)}</summary><div class="call-summary-body">${flaggedIssuesHtml(comments)}${sectionHtml}</div></details>`
     );
   });
 

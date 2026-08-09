@@ -99,6 +99,15 @@ export function supplierOf(call: CallRecord): string {
   }
 }
 
+/** The URI - everything after the host, e.g. "api/V2/bundles/GetOfferBundles" for "https://host/api/V2/bundles/GetOfferBundles". No leading slash, no query string. Falls back to the raw url when it can't be parsed. */
+export function uriPath(url: string): string {
+  try {
+    return new URL(url).pathname.replace(/^\//, '');
+  } catch {
+    return url;
+  }
+}
+
 export function durationClass(ms: number | undefined | null): '' | 'fast' | 'mid' | 'slow' {
   if (ms == null) return '';
   if (ms < 300) return 'fast';

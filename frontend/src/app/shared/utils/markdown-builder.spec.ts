@@ -236,9 +236,6 @@ describe('buildBulkExportMarkdown', () => {
     const call = makeCall({ response: { status: 200, headers: {}, body: JSON.stringify(bigArray) } });
     const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
 
-    // The summary table legitimately shortens the URL column with a
-    // ".../" prefix, so scope the "no truncation" check to content after
-    // the Response heading rather than the whole document.
     const responseSection = md.slice(md.indexOf('📥 Response'));
     expect(responseSection).toContain('"index": 199');
     expect(responseSection).not.toContain('...');
@@ -256,11 +253,11 @@ describe('buildBulkExportMarkdown', () => {
     expect(closeCount).toBe(anyDetailsCount);
   });
 
-  it('shows the call\'s method and a short path (not the full URL) next to its heading', () => {
+  it('shows the call\'s method and its URI - everything after the host, not the full URL - next to its heading', () => {
     const call = makeCall({ method: 'POST', url: 'https://ndc-supplier.example.com/api/V2/FlightSearch/Search' });
     const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
 
-    expect(md).toContain('<summary><b>Call 1</b> &nbsp; <code>POST FlightSearch/Search</code> &nbsp; ✅ 200</summary>');
+    expect(md).toContain('<summary><b>Call 1</b> &nbsp; <code>POST api/V2/FlightSearch/Search</code> &nbsp; ✅ 200</summary>');
     expect(md).not.toContain('<summary><b>Call 1</b> &nbsp; <code>POST https://');
   });
 

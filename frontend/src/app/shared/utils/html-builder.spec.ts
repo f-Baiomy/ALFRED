@@ -241,11 +241,11 @@ describe('buildBulkExportHtml', () => {
     expect(html).toContain('200');
   });
 
-  it("shows a short path (last two URL segments) next to the call's heading, not the full URL", () => {
+  it("shows the call's URI - everything after the host - next to its heading, not the full URL", () => {
     const call = makeCall({ method: 'POST', url: 'https://ndc-supplier.example.com/api/V2/FlightSearch/Search' });
     const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT);
 
-    expect(html).toContain('<code>POST FlightSearch/Search</code>');
+    expect(html).toContain('<code>POST api/V2/FlightSearch/Search</code>');
     expect(html).not.toContain('<code>POST https://');
   });
 

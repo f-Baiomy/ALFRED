@@ -2,7 +2,7 @@ import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { tryParseJson } from './json-tokenizer';
-import { callKey, supplierOf } from './call-utils';
+import { callKey, supplierOf, uriPath } from './call-utils';
 
 function metadataValue(value: string): string {
   return value && value.trim().length > 0 ? value : '_(none provided)_';
@@ -168,23 +168,6 @@ export function exportFilename(call: CallRecord): string {
   return `${supplier}-${callKey(call)}.md`;
 }
 
-function shortPath(url: string): string {
-  try {
-    return `.../${new URL(url).pathname.split('/').filter(Boolean).slice(-2).join('/')}`;
-  } catch {
-    return url;
-  }
-}
-
-/** Bare last-two-segments path, with no ".../" prefix - for the call heading, where "Call N `METHOD path`" already reads as truncated without needing the ellipsis. */
-function pathOnly(url: string): string {
-  try {
-    return new URL(url).pathname.split('/').filter(Boolean).slice(-2).join('/');
-  } catch {
-    return url;
-  }
-}
-
 function statusCell(call: CallRecord): string {
   if (call.error) return `❌ ${call.error}`;
   if (!call.response) return '❔ ?';
@@ -231,7 +214,7 @@ export function buildBulkExportMarkdown(
     const duration = call.duration_ms != null ? formatMs(call.duration_ms) : '—';
     const flaggedCell = flaggedCount > 0 ? `🚩 ${flaggedCount} issue${flaggedCount === 1 ? '' : 's'}` : '—';
     lines.push(
-      `| [${n}](#call-${n}) | \`${call.method}\` | \`${shortPath(call.url)}\` | ${statusCell(call)} | ${duration} | ${flaggedCell} |`
+      `| [${n}](#call-${n}) | \`${call.method}\` | \`${uriPath(call.url)}\` | ${statusCell(call)} | ${duration} | ${flaggedCell} |`
     );
   });
   lines.push('', '---', '');
@@ -245,7 +228,7 @@ export function buildBulkExportMarkdown(
     lines.push(`<a id="call-${n}"></a>`);
     lines.push('<details open>');
     lines.push(
-      `<summary><b>Call ${n}</b> &nbsp; <code>${call.method} ${pathOnly(call.url)}</code> &nbsp; ${statusCell(call)}</summary>`,
+      `<summary><b>Call ${n}</b> &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${statusCell(call)}</summary>`,
       ''
     );
 
