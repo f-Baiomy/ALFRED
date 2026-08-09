@@ -15,6 +15,14 @@ venv/
 backend/**/target/
 *.class
 
+# Node / Angular - already covered by frontend/.gitignore, repeated here as a
+# safety net so `node_modules`/build output never gets committed even if that
+# nested .gitignore is ever missing (e.g. a fresh clone before npm install)
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+npm-debug.log*
+
 # Generated at runtime - persisted call comments
 backend/data/
 

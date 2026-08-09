@@ -13,6 +13,13 @@ Three Docker services (see `docker-compose.yml`):
 
 ## Commands
 
+First-time only, if Docker or Python aren't already installed (safe to re-run - already-installed prerequisites are skipped):
+
+```bash
+setup.bat          # Windows, run as Administrator
+sudo ./setup.sh    # Linux/macOS
+```
+
 Cross-platform entry point (run from an Administrator/root terminal):
 
 ```bash
@@ -23,7 +30,7 @@ This does all of the following, safe to re-run any time (already-done steps are 
 1. Adds missing `*-proxy` hosts entries from `suppliers.txt`
 2. Runs `docker compose up -d --build` (generates the CA cert on first run)
 3. Re-syncs the CA cert into the OS certificate store
-4. Re-syncs the CA cert into every JDK listed in `jdks.txt`
+4. Re-syncs the CA cert into every JDK listed in `jdks.txt`, plus the current `JAVA_HOME` environment variable if set
 
 It detects the OS and delegates to `start.ps1` (Windows, via `certutil`) or `start.sh` (Linux/macOS, via `update-ca-certificates`/Keychain, run with `sudo`).
 
@@ -65,6 +72,8 @@ npm run build       # ng build - production build, output in dist/manor/browser
 - **Suppliers and JDKs are config, not code**: `suppliers.txt` lists real domains (no `-proxy` suffix — scripts add it), `jdks.txt` lists `JAVA_HOME` paths needing cert trust. Both support `#` comments and are re-read/re-applied idempotently on every `start.py` run.
 - **Per-folder CA identity**: `proxy/certs/` holds a CA generated fresh on first container start, unique to that project folder. Only one Alfred folder's CA can be trusted under the "mitmproxy" friendly name at a time per OS/JDK truststore — running `start.py` from a different Alfred folder re-syncs trust to that folder's CA.
 - **Docker cannot touch the host** (hosts file, OS cert store): this is why `start.py`/`start.sh`/`start.ps1` exist as host-side wrappers run outside any container, before/alongside `docker compose`.
+- **`setup.bat`/`setup.sh` are a separate, one-time step from `start.py`** - they install the prerequisites (Docker, Python) that `start.py` itself needs to even run, so they can't be part of `start.py`. `setup.bat` (Windows, run as Administrator) and `setup.sh` (Linux/macOS, run with `sudo ./setup.sh`) both check `docker`/`python`(`3`) on PATH first and skip anything already installed. `setup.bat` installs via `winget` (`Docker.DockerDesktop`, `Python.Python.3.12`) since that's the standard trusted package source on modern Windows; `setup.sh` installs via each distro's own package manager (`apt`/`dnf`/`yum`, or Homebrew on macOS) rather than a piped `curl | bash` install script, so nothing here downloads and executes a remote script directly. Neither script touches hosts/certs/Docker containers - that's still entirely `start.py`'s job.
+- **JDK cert trust checks `JAVA_HOME` from the environment in addition to `jdks.txt`**, in both `start.ps1` and `start.sh`. `jdks.txt` remains for JDKs that aren't the *current* environment's default (e.g. a server running under a different `JAVA_HOME` than the interactive shell doing the setup); `JAVA_HOME` itself (if set, and not already listed) is appended to the same trust loop automatically, so the common single-JDK case needs zero config-file entries. Deduplicated by exact path match so listing a JDK in both places doesn't double-import it.
 - **JVM truststore caching**: a running JVM does not pick up truststore changes live — restart the Java app/server after its JDK's cert import.
 - **`frontend/.dockerignore` and `backend/.dockerignore` exist specifically to stop rebuild bloat** - without them, `COPY . .` in each Dockerfile's build stage sends `node_modules` (frontend) or every module's `target/` (backend) into the build context on *every* `docker compose up --build`, which both slows the build and bakes a new, mostly-redundant layer into the local BuildKit cache each time (this is what silently grew the Docker Desktop WSL2 virtual disk past 40GB during heavy same-session rebuilding). `frontend/.dockerignore` excludes `node_modules`/`dist`/`.angular`/`.git`; `backend/.dockerignore` excludes `**/target`/`.git`/`data` (the bind-mounted runtime data dir - never something the image itself should contain). If a rebuild ever again sends a suspiciously large "load build context" size (check `docker compose build <service>` output), the `.dockerignore` for that side is the first thing to check. Since Docker Desktop on Windows never shrinks its WSL2 disk file back down on its own even after `docker builder prune`/`docker image prune` reclaim space internally, an occasional `wsl --shutdown` + `Optimize-VHD -Path <docker_data.vhdx> -Mode Full` (from an admin PowerShell) is the only way to reclaim that space on the actual `C:` drive.
 - Payload shape the proxy sends (see README for the full example) always includes both `original_url` (the `-proxy` URL the app called) and `url` (the real forwarded URL), plus method, headers, body, timestamp, duration_ms, and response - identical to the `CallRecord` domain type `pennyworth-calls` persists.

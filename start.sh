@@ -111,20 +111,43 @@ else
     echo "  [warn]  unrecognized OS - trust the cert manually: $CERT_FILE"
 fi
 
-# ---- Step 4: trust the cert in every JDK listed in jdks.txt (idempotent) ----
+# ---- Step 4: trust the cert in every JDK from jdks.txt plus JAVA_HOME (idempotent) ----
+#
+# jdks.txt is for JDKs that aren't the current environment's default (e.g. a
+# server running under a different JAVA_HOME than this interactive shell) -
+# JAVA_HOME itself is trusted automatically so the common single-JDK case
+# needs no config file entry at all.
 
 echo ""
 echo "=== Step 4: JDK certificate trust ==="
 
-if [ ! -f "$JDKS_FILE" ]; then
-    echo "  jdks.txt not found - skipping JDK trust step"
-else
-    any_jdk=0
+JDK_HOMES=()
+
+if [ -f "$JDKS_FILE" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
         jdk_home="$(echo "$line" | sed 's/#.*//' | xargs)"
         [ -z "$jdk_home" ] && continue
-        any_jdk=1
+        JDK_HOMES+=("$jdk_home")
+    done < "$JDKS_FILE"
+else
+    echo "  jdks.txt not found - only JAVA_HOME (if set) will be trusted"
+fi
 
+if [ -n "${JAVA_HOME:-}" ]; then
+    already_listed=0
+    for h in "${JDK_HOMES[@]:-}"; do
+        [ "$h" = "$JAVA_HOME" ] && already_listed=1
+    done
+    if [ "$already_listed" -eq 0 ]; then
+        echo "  [detected] JAVA_HOME environment variable -> $JAVA_HOME"
+        JDK_HOMES+=("$JAVA_HOME")
+    fi
+fi
+
+if [ "${#JDK_HOMES[@]}" -eq 0 ]; then
+    echo "  No JDKs found - add a path to jdks.txt or set JAVA_HOME if your app needs cert trust"
+else
+    for jdk_home in "${JDK_HOMES[@]}"; do
         keytool="$jdk_home/bin/keytool"
         if [ ! -x "$keytool" ]; then
             echo "  [error] keytool not found under $jdk_home - check the path in jdks.txt"
@@ -152,11 +175,7 @@ else
         else
             echo "  [error] failed to import into $jdk_home - check storepass/permissions"
         fi
-    done < "$JDKS_FILE"
-
-    if [ "$any_jdk" -eq 0 ]; then
-        echo "  jdks.txt is empty - add JAVA_HOME paths there if your app needs cert trust"
-    fi
+    done
 fi
 
 echo ""

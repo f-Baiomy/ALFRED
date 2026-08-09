@@ -111,20 +111,38 @@ Write-Host "  [synced] Windows Root store now trusts this project's CA"
 
 $ErrorActionPreference = $previousEAP
 
-# ---- Step 4: trust the cert in every JDK listed in jdks.txt (idempotent) ----
+# ---- Step 4: trust the cert in every JDK from jdks.txt plus JAVA_HOME (idempotent) ----
+#
+# jdks.txt is for JDKs that aren't the current environment's default (e.g. a
+# server running under a different JAVA_HOME than this interactive shell) -
+# JAVA_HOME itself is trusted automatically so the common single-JDK case
+# needs no config file entry at all.
 
 Write-Host ""
 Write-Host "=== Step 4: JDK certificate trust ==="
 
-if (-not (Test-Path $jdksFile)) {
-    Write-Host "  jdks.txt not found - skipping JDK trust step"
-} else {
-    $anyJdk = $false
+$jdkHomes = New-Object System.Collections.Generic.List[string]
+
+if (Test-Path $jdksFile) {
     foreach ($line in Get-Content $jdksFile) {
         $jdkHome = ($line -replace '#.*', '').Trim()
-        if ([string]::IsNullOrWhiteSpace($jdkHome)) { continue }
-        $anyJdk = $true
+        if (-not [string]::IsNullOrWhiteSpace($jdkHome)) {
+            $jdkHomes.Add($jdkHome)
+        }
+    }
+} else {
+    Write-Host "  jdks.txt not found - only JAVA_HOME (if set) will be trusted"
+}
 
+if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME) -and -not ($jdkHomes -contains $env:JAVA_HOME)) {
+    Write-Host "  [detected] JAVA_HOME environment variable -> $env:JAVA_HOME"
+    $jdkHomes.Add($env:JAVA_HOME)
+}
+
+if ($jdkHomes.Count -eq 0) {
+    Write-Host "  No JDKs found - add a path to jdks.txt or set JAVA_HOME if your app needs cert trust"
+} else {
+    foreach ($jdkHome in $jdkHomes) {
         $keytool = Join-Path $jdkHome "bin\keytool.exe"
         if (-not (Test-Path $keytool)) {
             Write-Host "  [error] keytool not found under $jdkHome - check the path in jdks.txt"
@@ -164,9 +182,6 @@ if (-not (Test-Path $jdksFile)) {
         }
 
         $ErrorActionPreference = $previousEAP
-    }
-    if (-not $anyJdk) {
-        Write-Host "  jdks.txt is empty - add JAVA_HOME paths there if your app needs cert trust"
     }
 }
 
