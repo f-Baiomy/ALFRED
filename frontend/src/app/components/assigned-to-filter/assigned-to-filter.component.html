@@ -1,0 +1,22 @@
+<div class="assigned-to-filter">
+  <button type="button" class="theme-picker-btn" (click)="togglePanel()">
+    Assigned to: {{ buttonLabel() }}
+  </button>
+
+  @if (panelOpen()) {
+    <div class="theme-picker-panel assigned-to-filter-panel">
+      <div class="theme-picker-panel-label">Filter by assigned to</div>
+      <button type="button" class="filter-option-all" [class.active]="selected().size === 0" (click)="selectAll()">
+        All
+      </button>
+      <div class="filter-option-list">
+        @for (option of options(); track option.key) {
+          <label class="filter-option">
+            <input type="checkbox" [checked]="isChecked(option.key)" (change)="toggleOption(option.key)" />
+            <span>{{ option.label }}</span>
+          </label>
+        }
+      </div>
+    </div>
+  }
+</div>

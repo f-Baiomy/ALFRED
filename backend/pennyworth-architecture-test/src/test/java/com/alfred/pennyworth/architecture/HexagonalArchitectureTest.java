@@ -68,7 +68,8 @@ class HexagonalArchitectureTest {
     void callsSliceMustNotDependOnOtherSlices() {
         noClasses().that().resideInAPackage("..pennyworth.calls..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "..pennyworth.comments..", "..pennyworth.export..", "..pennyworth.sessioncycles..")
+                        "..pennyworth.comments..", "..pennyworth.export..", "..pennyworth.sessioncycles..",
+                        "..pennyworth.profiles..")
                 .check(classes);
     }
 
@@ -76,7 +77,8 @@ class HexagonalArchitectureTest {
     void commentsSliceMustNotDependOnOtherSlices() {
         noClasses().that().resideInAPackage("..pennyworth.comments..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "..pennyworth.calls..", "..pennyworth.export..", "..pennyworth.sessioncycles..")
+                        "..pennyworth.calls..", "..pennyworth.export..", "..pennyworth.sessioncycles..",
+                        "..pennyworth.profiles..")
                 .check(classes);
     }
 
@@ -84,12 +86,25 @@ class HexagonalArchitectureTest {
     // (each receives a full logged call and does something with it - extracts metadata, or
     // captures it into a recording cycle), so there is deliberately no
     // "exportSliceMustNotDependOnOtherSlices" test, and sessionCyclesSliceMustNotDependOnOtherSlices
-    // below permits calls specifically while still forbidding comments/export.
+    // below permits calls specifically while still forbidding comments/export/profiles.
 
     @Test
     void sessionCyclesSliceMustNotDependOnOtherSlices() {
         noClasses().that().resideInAPackage("..pennyworth.sessioncycles..")
-                .should().dependOnClassesThat().resideInAnyPackage("..pennyworth.comments..", "..pennyworth.export..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..pennyworth.comments..", "..pennyworth.export..", "..pennyworth.profiles..")
+                .check(classes);
+    }
+
+    // profiles is a leaf slice: session-cycles' assignedTo only ever stores a profile's id as a
+    // plain string, so there is no compile-time coupling in either direction - profiles depends on
+    // nothing else, and nothing else depends on profiles.
+    @Test
+    void profilesSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..pennyworth.profiles..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..pennyworth.calls..", "..pennyworth.comments..", "..pennyworth.export..",
+                        "..pennyworth.sessioncycles..")
                 .check(classes);
     }
 }

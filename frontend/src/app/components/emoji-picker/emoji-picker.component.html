@@ -1,0 +1,37 @@
+<div class="assigned-to-filter emoji-picker">
+  <button type="button" class="theme-picker-btn emoji-picker-trigger" (click)="togglePanel()">
+    <span class="emoji-picker-current">{{ value() || '❓' }}</span>
+  </button>
+
+  @if (panelOpen()) {
+    <div
+      class="theme-picker-panel emoji-picker-panel"
+      [style.top.px]="panelPosition().top"
+      [style.left.px]="panelPosition().left"
+    >
+      <div class="emoji-picker-toolbar">
+        <input
+          type="text"
+          placeholder="Search avatars..."
+          [value]="searchQuery()"
+          (input)="searchQuery.set($any($event.target).value)"
+        />
+        <button type="button" class="bulk-btn secondary" (click)="randomize()">🎲 Random</button>
+      </div>
+
+      <div class="emoji-picker-grid">
+        @for (emoji of filteredEmojis(); track emoji.char) {
+          <button
+            type="button"
+            class="emoji-picker-option"
+            [class.active]="emoji.char === value()"
+            [title]="emoji.name"
+            (click)="select(emoji.char)"
+          >
+            {{ emoji.char }}
+          </button>
+        }
+      </div>
+    </div>
+  }
+</div>

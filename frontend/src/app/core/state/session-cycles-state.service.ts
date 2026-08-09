@@ -8,6 +8,9 @@ import { NewSessionCycleRequest, SessionCycleUpdateRequest, SessionCyclesApiServ
 const POLL_INTERVAL_MS = 5000;
 const PAGE_SIZE = 10;
 
+/** Filter-set key standing in for "assignedTo is null" - safe from collision since it's not a valid profile id (a UUID). */
+export const UNASSIGNED_FILTER_KEY = '__unassigned__';
+
 export type CycleSortMode = 'newest' | 'oldest' | 'status';
 
 export interface BulkDeleteResult {
@@ -40,13 +43,18 @@ export class SessionCyclesStateService {
 
   readonly selectedIds = signal<ReadonlySet<string>>(new Set());
 
-  /** Matches against name or assignedTo, case-insensitively. */
+  /** Empty set means "all assigned-to values" (the default) - not "match nothing". */
+  readonly assignedToFilter = signal<ReadonlySet<string>>(new Set());
+
+  /** Matches against name or assignedTo, case-insensitively, and against the assigned-to filter (if any is set). */
   readonly matchingCycles = computed(() => {
     const query = this.searchQuery().trim().toLowerCase();
-    if (!query) return this.cycles();
-    return this.cycles().filter(
-      (c) => c.name.toLowerCase().includes(query) || (c.assignedTo ?? '').toLowerCase().includes(query)
-    );
+    const filter = this.assignedToFilter();
+    return this.cycles().filter((c) => {
+      const matchesQuery = !query || c.name.toLowerCase().includes(query) || (c.assignedTo ?? '').toLowerCase().includes(query);
+      const matchesFilter = filter.size === 0 || filter.has(c.assignedTo ?? UNASSIGNED_FILTER_KEY);
+      return matchesQuery && matchesFilter;
+    });
   });
 
   readonly sortedCycles = computed(() => sortCycles(this.matchingCycles(), this.sortMode()));
@@ -72,6 +80,11 @@ export class SessionCyclesStateService {
 
   setSortMode(mode: CycleSortMode): void {
     this.sortMode.set(mode);
+    this.visibleCount.set(PAGE_SIZE);
+  }
+
+  setAssignedToFilter(keys: ReadonlySet<string>): void {
+    this.assignedToFilter.set(keys);
     this.visibleCount.set(PAGE_SIZE);
   }
 

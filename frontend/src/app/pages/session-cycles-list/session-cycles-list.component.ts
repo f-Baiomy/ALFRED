@@ -1,19 +1,29 @@
 import { DatePipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { AssignedToFilterComponent } from '../../components/assigned-to-filter/assigned-to-filter.component';
 import { BulkReassignDialogComponent } from '../../components/bulk-reassign-dialog/bulk-reassign-dialog.component';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 import { EditCycleDialogComponent } from '../../components/edit-cycle-dialog/edit-cycle-dialog.component';
+import { ProfilePickerComponent } from '../../components/profile-picker/profile-picker.component';
 import { SessionCycle } from '../../core/models/call.model';
 import { BulkReassignDialogService } from '../../core/services/bulk-reassign-dialog.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.service';
 import { CycleSortMode, SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
+import { ProfilesStateService } from '../../core/state/profiles-state.service';
 
 @Component({
   selector: 'app-session-cycles-list',
   standalone: true,
-  imports: [DatePipe, ConfirmDialogComponent, EditCycleDialogComponent, BulkReassignDialogComponent],
+  imports: [
+    DatePipe,
+    ConfirmDialogComponent,
+    EditCycleDialogComponent,
+    BulkReassignDialogComponent,
+    AssignedToFilterComponent,
+    ProfilePickerComponent,
+  ],
   templateUrl: './session-cycles-list.component.html',
 })
 export class SessionCyclesListComponent {
@@ -22,9 +32,10 @@ export class SessionCyclesListComponent {
   private readonly editDialog = inject(EditCycleDialogService);
   private readonly bulkReassignDialog = inject(BulkReassignDialogService);
   readonly state = inject(SessionCyclesStateService);
+  readonly profilesState = inject(ProfilesStateService);
 
   readonly newName = signal('');
-  readonly newAssignedTo = signal('');
+  readonly newAssignedTo = signal<string | null>(null);
   readonly creating = signal(false);
   readonly bulkActionMessage = signal<string | null>(null);
 
@@ -35,6 +46,11 @@ export class SessionCyclesListComponent {
 
   statusClass(cycle: SessionCycle): string {
     return cycle.status === 'RECORDING' ? 'cycle-status-recording' : 'cycle-status-paused';
+  }
+
+  /** Resolves assignedTo (a profile id) to that profile's name - falls back to the raw id if the profile was since deleted. */
+  assignedToLabel(cycle: SessionCycle): string {
+    return this.profilesState.labelFor(cycle.assignedTo) ?? '—';
   }
 
   onSearchInput(value: string): void {
@@ -53,10 +69,10 @@ export class SessionCyclesListComponent {
     const name = this.newName().trim();
     if (!name) return;
     this.creating.set(true);
-    this.state.create({ name, assignedTo: this.newAssignedTo().trim() || null }).subscribe(() => {
+    this.state.create({ name, assignedTo: this.newAssignedTo() }).subscribe(() => {
       this.creating.set(false);
       this.newName.set('');
-      this.newAssignedTo.set('');
+      this.newAssignedTo.set(null);
     });
   }
 

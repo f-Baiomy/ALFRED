@@ -16,6 +16,13 @@
 // --amber/--red) so the two stay easy to keep in sync by eye, even though they're separate files
 // with separate concerns (a live themeable app vs. a static exported document).
 :root {
+  // Hints the browser to render native controls - <select> dropdown popups, scrollbars, date
+  // pickers - in its own dark palette instead of defaulting to a jarring white popup on a dark
+  // page. The three light-ish themes below override this back to `light`; every dark theme
+  // inherits this value unchanged (color-scheme isn't a custom property, but since none of the
+  // dark [data-theme] blocks redeclare it, this :root declaration is what actually applies to
+  // them - only light/light-glass/easy need their own override).
+  color-scheme: dark;
   --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); // page background (solid or gradient)
   --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%); // header / tab-nav
   --card: #141a45; // flat surface (stat pill, table, load-more button)
@@ -47,6 +54,14 @@
 
 * {
   box-sizing: border-box;
+}
+
+// Chromium respects background-color/color set directly on <option> for the dropdown popup list
+// (Firefox/Safari rely on `color-scheme` above instead) - without this, every themed <select>
+// still opens an unstyled, browser-default white popup regardless of the active theme.
+select option {
+  background-color: var(--card);
+  color: var(--text);
 }
 
 html,
@@ -505,6 +520,7 @@ main {
   gap: 0.6rem;
   margin-bottom: 1.5rem;
   flex-wrap: wrap;
+  align-items: center;
 
   input[type='text'] {
     background: var(--bg-2);
@@ -514,6 +530,25 @@ main {
     color: var(--text);
     font-size: 0.85rem;
     min-width: 220px;
+  }
+
+  input[type='color'] {
+    width: 40px;
+    height: 36px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-2);
+    cursor: pointer;
+  }
+
+  select {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.55rem 0.8rem;
+    color: var(--text);
+    font-size: 0.85rem;
   }
 }
 
@@ -553,6 +588,18 @@ main {
 .cycle-row-actions {
   display: flex;
   gap: 0.4rem;
+}
+
+.profile-avatar {
+  display: inline-block;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.profile-id {
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--text-faint);
 }
 
 .cycle-detail-toolbar {
@@ -1345,6 +1392,28 @@ mark.hl.active {
       color: var(--text-faint);
     }
   }
+
+  input[type='color'] {
+    width: 44px;
+    height: 36px;
+    padding: 2px;
+    cursor: pointer;
+  }
+
+  select {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.5rem 0.65rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+
+    &:focus {
+      border-color: var(--purple);
+    }
+  }
 }
 
 .copy-cycle-list {
@@ -1524,6 +1593,7 @@ mark.hl.active {
 // needs to know which theme is active.
 
 [data-theme='light'] {
+  color-scheme: light;
   --bg: #eef1f6;
   --nav-bg: #ffffff;
   --card: #ffffff;
@@ -1551,6 +1621,7 @@ mark.hl.active {
 }
 
 [data-theme='light-glass'] {
+  color-scheme: light;
   --bg: linear-gradient(135deg, #7dd3fc, #c4b5fd);
   --nav-bg: rgba(255, 255, 255, 0.35);
   --card: rgba(255, 255, 255, 0.35);
@@ -1578,6 +1649,7 @@ mark.hl.active {
 }
 
 [data-theme='easy'] {
+  color-scheme: light;
   --bg: #ffffff;
   --nav-bg: #ffffff;
   --card: #ffffff;
@@ -1744,6 +1816,12 @@ mark.hl.active {
   right: 0;
   z-index: 20;
   background: var(--card-elevated);
+  // Glass themes' --card-elevated is deliberately translucent for inline cards sitting on the
+  // page background, but that same translucency makes a *floating* popover hard to read against
+  // whatever it happens to open over (e.g. a table row) - blurring what's behind it fixes
+  // legibility without needing a separate, more-opaque variable just for popovers. Harmless on
+  // opaque themes since blur has no visible effect there.
+  backdrop-filter: blur(16px);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 0.85rem;
@@ -1782,5 +1860,169 @@ mark.hl.active {
   &.selected {
     border-color: var(--purple);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--purple) 40%, transparent);
+  }
+}
+
+// ---------- Assigned-to filter (Session Cycles list) ----------
+//
+// Same popover shape as the theme picker above (button + absolutely positioned panel, closed via
+// click-outside), but with checkboxes instead of single-select swatches since any number of
+// assignees can be filtered on at once.
+
+.assigned-to-filter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.assigned-to-filter-panel {
+  left: 0;
+  right: auto;
+  min-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.filter-option-all {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: var(--purple);
+    color: var(--text);
+  }
+
+  &.active {
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
+    border-color: var(--border-strong);
+    color: var(--purple-light);
+  }
+}
+
+.filter-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+
+  input {
+    cursor: pointer;
+  }
+}
+
+// Single-select variant (ProfilePickerComponent) - a plain themed button per option instead of a
+// checkbox, since only one can be chosen at a time.
+.filter-option-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 12%, transparent);
+  }
+
+  &.active {
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
+    color: var(--purple-light);
+  }
+}
+
+// ---------- Emoji picker (profile avatars) ----------
+
+.emoji-picker-trigger {
+  padding: 0.35rem 0.55rem;
+}
+
+.emoji-picker-current {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.emoji-picker-panel {
+  // Overrides .theme-picker-panel's `position: absolute; right: 0` - this panel's top/left are
+  // computed in JS from the trigger's getBoundingClientRect() (see EmojiPickerComponent) and
+  // bound directly as inline styles, so it always renders relative to the viewport instead of
+  // being clipped/mispositioned by a scrollable ancestor like .dialog-card's `overflow-y: auto`.
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  width: 280px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+}
+
+.emoji-picker-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+
+  input[type='text'] {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+    color: var(--text);
+    font-size: 0.8rem;
+
+    &::placeholder {
+      color: var(--text-faint);
+    }
+  }
+}
+
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.3rem;
+  overflow-y: auto;
+}
+
+.emoji-picker-option {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 1.25rem;
+  line-height: 1.4;
+  padding: 0.2rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 12%, transparent);
+  }
+
+  &.active {
+    border-color: var(--purple);
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
   }
 }

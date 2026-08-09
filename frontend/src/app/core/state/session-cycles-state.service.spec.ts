@@ -1,6 +1,6 @@
 import { TestBed, fakeAsync, tick, discardPeriodicTasks } from '@angular/core/testing';
 import { of } from 'rxjs';
-import { SessionCyclesStateService } from './session-cycles-state.service';
+import { SessionCyclesStateService, UNASSIGNED_FILTER_KEY } from './session-cycles-state.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { SessionCycle } from '../models/call.model';
 
@@ -47,6 +47,48 @@ describe('SessionCyclesStateService', () => {
     state.setSearchQuery('PROFILE-42');
     expect(state.matchingCycles()).toEqual([b]);
 
+    discardPeriodicTasks();
+  }));
+
+  it('assignedToFilter defaults to matching everything', fakeAsync(() => {
+    const a = makeCycle({ id: 'a', assignedTo: null });
+    const b = makeCycle({ id: 'b', assignedTo: 'profile-42' });
+    const state = setup([a, b]);
+    tick();
+
+    expect(state.matchingCycles()).toEqual([a, b]);
+    discardPeriodicTasks();
+  }));
+
+  it('assignedToFilter narrows to only the selected keys, including the unassigned sentinel', fakeAsync(() => {
+    const a = makeCycle({ id: 'a', assignedTo: null });
+    const b = makeCycle({ id: 'b', assignedTo: 'profile-42' });
+    const c = makeCycle({ id: 'c', assignedTo: 'profile-99' });
+    const state = setup([a, b, c]);
+    tick();
+
+    state.setAssignedToFilter(new Set([UNASSIGNED_FILTER_KEY]));
+    expect(state.matchingCycles()).toEqual([a]);
+
+    state.setAssignedToFilter(new Set(['profile-42', 'profile-99']));
+    expect(state.matchingCycles()).toEqual([b, c]);
+
+    state.setAssignedToFilter(new Set());
+    expect(state.matchingCycles()).toEqual([a, b, c]);
+
+    discardPeriodicTasks();
+  }));
+
+  it('combines the assignedToFilter with the search query', fakeAsync(() => {
+    const a = makeCycle({ id: 'a', name: 'Flight booking', assignedTo: 'profile-42' });
+    const b = makeCycle({ id: 'b', name: 'Flight refund', assignedTo: 'profile-99' });
+    const state = setup([a, b]);
+    tick();
+
+    state.setSearchQuery('flight');
+    state.setAssignedToFilter(new Set(['profile-99']));
+
+    expect(state.matchingCycles()).toEqual([b]);
     discardPeriodicTasks();
   }));
 

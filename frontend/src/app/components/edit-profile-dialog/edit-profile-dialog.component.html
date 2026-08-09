@@ -1,0 +1,22 @@
+@if (state()) {
+  <div class="dialog-backdrop" (click)="cancel()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <h2>Edit profile</h2>
+
+      <label class="dialog-field">
+        <span>Name</span>
+        <input type="text" [value]="name()" (input)="name.set($any($event.target).value)" placeholder="Profile name" />
+      </label>
+
+      <label class="dialog-field">
+        <span>Avatar</span>
+        <app-emoji-picker [value]="avatar()" (valueChange)="avatar.set($event)" />
+      </label>
+
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="cancel()">Cancel</button>
+        <button type="button" class="dialog-btn primary" [disabled]="!name().trim()" (click)="save()">Save</button>
+      </div>
+    </div>
+  </div>
+}

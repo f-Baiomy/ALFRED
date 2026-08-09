@@ -9,8 +9,8 @@
       </label>
 
       <label class="dialog-field">
-        <span>Assigned to <em>(optional profile id)</em></span>
-        <input type="text" [value]="assignedTo()" (input)="assignedTo.set($any($event.target).value)" placeholder="Not assigned" />
+        <span>Assigned to</span>
+        <app-profile-picker [value]="assignedTo()" (valueChange)="assignedTo.set($event)" />
       </label>
 
       <div class="dialog-actions">

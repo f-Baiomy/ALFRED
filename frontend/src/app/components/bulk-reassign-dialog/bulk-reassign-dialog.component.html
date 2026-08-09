@@ -2,11 +2,11 @@
   <div class="dialog-backdrop" (click)="cancel()">
     <div class="dialog-card" (click)="$event.stopPropagation()">
       <h2>Change assigned to for {{ current.count }} cycle{{ current.count === 1 ? '' : 's' }}</h2>
-      <p class="dialog-sub">This value overwrites "Assigned to" on every selected cycle - leave it blank to unassign them all.</p>
+      <p class="dialog-sub">This value overwrites "Assigned to" on every selected cycle - choose "Unassigned" to clear it on them all.</p>
 
       <label class="dialog-field">
-        <span>Assigned to <em>(optional profile id)</em></span>
-        <input type="text" [value]="assignedTo()" (input)="assignedTo.set($any($event.target).value)" placeholder="Not assigned" />
+        <span>Assigned to</span>
+        <app-profile-picker [value]="assignedTo()" (valueChange)="assignedTo.set($event)" />
       </label>
 
       <div class="dialog-actions">

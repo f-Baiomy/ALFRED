@@ -11,12 +11,7 @@
       [value]="newName()"
       (input)="newName.set($any($event.target).value)"
     />
-    <input
-      type="text"
-      placeholder="Assigned to (optional profile id)"
-      [value]="newAssignedTo()"
-      (input)="newAssignedTo.set($any($event.target).value)"
-    />
+    <app-profile-picker [value]="newAssignedTo()" (valueChange)="newAssignedTo.set($event)" />
     <button type="submit" class="bulk-btn" [disabled]="creating() || !newName().trim()">
       {{ creating() ? 'Creating...' : '+ New Cycle' }}
     </button>
@@ -34,6 +29,7 @@
       <option value="oldest">Oldest first</option>
       <option value="status">Recording first</option>
     </select>
+    <app-assigned-to-filter />
   </div>
 
   <div class="bulk-actions-bar" [class.active]="state.selectedCycles().length > 0">
@@ -86,7 +82,7 @@
             <td>
               <span class="badge" [class]="statusClass(cycle)">{{ statusLabel(cycle) }}</span>
             </td>
-            <td>{{ cycle.assignedTo ?? '—' }}</td>
+            <td>{{ assignedToLabel(cycle) }}</td>
             <td>{{ cycle.createdAt | date: 'medium' }}</td>
             <td class="cycle-row-actions" (click)="$event.stopPropagation()">
               <button type="button" class="action-btn" (click)="toggleRecording(cycle)">

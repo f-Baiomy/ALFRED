@@ -43,6 +43,7 @@ services:
       # cycle, in this directory) - both inside the same /appdata volume as the two files above.
       - SESSION_CYCLES_FILE=/appdata/session-cycles/session-cycles.json
       - SESSION_CYCLES_DIR=/appdata/session-cycles
+      - PROFILES_FILE=/appdata/profiles.json
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
     volumes:

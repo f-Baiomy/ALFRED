@@ -1,0 +1,20 @@
+<div class="assigned-to-filter profile-picker">
+  <button type="button" class="theme-picker-btn" (click)="togglePanel()">
+    {{ buttonLabel() }}
+  </button>
+
+  @if (panelOpen()) {
+    <div class="theme-picker-panel assigned-to-filter-panel">
+      <button type="button" class="filter-option-all" [class.active]="value() === null" (click)="select(null)">
+        Unassigned
+      </button>
+      <div class="filter-option-list">
+        @for (profile of profiles(); track profile.id) {
+          <button type="button" class="filter-option-item" [class.active]="value() === profile.id" (click)="select(profile.id)">
+            {{ profile.name }}
+          </button>
+        }
+      </div>
+    </div>
+  }
+</div>

@@ -1,0 +1,52 @@
+<main>
+  <div class="page-title">
+    <h2>Profiles</h2>
+    <p class="sub">People session-cycles can be assigned to.</p>
+  </div>
+
+  <form class="new-cycle-form" (submit)="$event.preventDefault(); createProfile()">
+    <input
+      type="text"
+      placeholder="Profile name (e.g. Ada Lovelace)"
+      [value]="newName()"
+      (input)="newName.set($any($event.target).value)"
+    />
+    <app-emoji-picker [value]="newAvatar()" (valueChange)="newAvatar.set($event)" />
+    <button type="submit" class="bulk-btn" [disabled]="creating() || !newName().trim()">
+      {{ creating() ? 'Creating...' : '+ New Profile' }}
+    </button>
+  </form>
+
+  @if (state.profiles().length === 0) {
+    <div class="empty">No profiles yet - create one above.</div>
+  } @else {
+    <table class="cycles-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Name</th>
+          <th>Id</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (profile of state.profiles(); track profile.id) {
+          <tr>
+            <td><span class="profile-avatar">{{ profile.avatar }}</span></td>
+            <td>{{ profile.name }}</td>
+            <td class="profile-id">{{ profile.id }}</td>
+            <td>{{ profile.createdAt | date: 'medium' }}</td>
+            <td class="cycle-row-actions">
+              <button type="button" class="action-btn" (click)="edit(profile)">Edit</button>
+              <button type="button" class="action-btn" (click)="deleteProfile(profile)">Delete</button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</main>
+
+<app-confirm-dialog />
+<app-edit-profile-dialog />

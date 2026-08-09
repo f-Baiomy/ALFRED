@@ -31,7 +31,7 @@ export interface CallEvent {
 
 export type SessionCycleStatus = 'RECORDING' | 'PAUSED';
 
-/** A named, recordable/pausable group of calls, as served by GET /session-cycles. assignedTo is a free-form profile id reserved for a future profiles feature. */
+/** A named, recordable/pausable group of calls, as served by GET /session-cycles. assignedTo is a Profile's id (see profile.model.ts) - resolved to a display name via ProfilesStateService.labelFor, not shown raw. */
 export interface SessionCycle {
   readonly id: string;
   readonly name: string;

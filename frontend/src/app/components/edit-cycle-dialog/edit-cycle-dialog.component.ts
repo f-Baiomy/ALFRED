@@ -1,10 +1,12 @@
 import { Component, effect, inject, signal } from '@angular/core';
+import { ProfilePickerComponent } from '../profile-picker/profile-picker.component';
 import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.service';
 
-/** Styled name + assignedTo edit form, replacing the previous window.prompt()-based rename (which had no assignedTo field at all). */
+/** Styled name + assignedTo edit form, replacing the previous window.prompt()-based rename (which had no assignedTo field at all). assignedTo is a profile picker, not free text. */
 @Component({
   selector: 'app-edit-cycle-dialog',
   standalone: true,
+  imports: [ProfilePickerComponent],
   templateUrl: './edit-cycle-dialog.component.html',
 })
 export class EditCycleDialogComponent {
@@ -12,7 +14,7 @@ export class EditCycleDialogComponent {
   readonly state = this.service.state;
 
   readonly name = signal('');
-  readonly assignedTo = signal('');
+  readonly assignedTo = signal<string | null>(null);
 
   constructor() {
     effect(
@@ -20,7 +22,7 @@ export class EditCycleDialogComponent {
         const cycle = this.state();
         if (!cycle) return;
         this.name.set(cycle.name);
-        this.assignedTo.set(cycle.assignedTo ?? '');
+        this.assignedTo.set(cycle.assignedTo);
       },
       { allowSignalWrites: true }
     );
@@ -33,6 +35,6 @@ export class EditCycleDialogComponent {
   save(): void {
     const name = this.name().trim();
     if (!name) return;
-    this.service.submit({ name, assignedTo: this.assignedTo().trim() || null });
+    this.service.submit({ name, assignedTo: this.assignedTo() });
   }
 }
