@@ -1,0 +1,24 @@
+<div class="theme-picker">
+  <button type="button" class="theme-picker-btn" (click)="togglePanel()">
+    <span aria-hidden="true">🎨</span> Theme
+  </button>
+
+  @if (panelOpen()) {
+    <div class="theme-picker-panel">
+      <div class="theme-picker-panel-label">Choose a theme</div>
+      <div class="theme-picker-grid">
+        @for (theme of themes; track theme.id) {
+          <button
+            type="button"
+            class="theme-swatch"
+            [class.selected]="theme.id === currentTheme()"
+            [style.background]="theme.swatch"
+            [title]="theme.label"
+            [attr.aria-label]="theme.label"
+            (click)="selectTheme(theme.id)"
+          ></button>
+        }
+      </div>
+    </div>
+  }
+</div>

@@ -4,10 +4,25 @@
 // more maintainable here than fragmenting the same rules across a dozen
 // component style files.
 
+// ---------- Theming ----------
+//
+// Every color/surface in this file reads one of the variables below rather than a literal value,
+// so a theme is nothing more than one `[data-theme="..."]` block overriding these same names -
+// see the bottom of this file for the other seven. `ThemeService` sets `data-theme` on <html>;
+// nothing else in the app needs to know a theme switch happened.
+//
+// Naming deliberately mirrors `shared/utils/html-builder.ts`'s exported-document palette
+// (--card, --card-inner, --tok-key/string/number/bool/null, --purple-light, --text*, --green/
+// --amber/--red) so the two stay easy to keep in sync by eye, even though they're separate files
+// with separate concerns (a live themeable app vs. a static exported document).
 :root {
-  --bg: #0a0e2a;
-  --bg-2: #0f1438;
-  --card: #141a45;
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); // page background (solid or gradient)
+  --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%); // header / tab-nav
+  --card: #141a45; // flat surface (stat pill, table, load-more button)
+  --card-elevated: linear-gradient(160deg, #141a45 0%, #101636 100%); // emphasized surface (call card, dialog, active bulk-actions-bar)
+  --card-inner: #070a24; // sunken code block background
+  --panel-bg: rgba(10, 14, 42, 0.55); // translucent nested panel (request/response panel, cycle-detail toolbar)
+  --bg-2: #0f1438; // input / secondary control background
   --border: rgba(139, 92, 246, 0.22);
   --border-strong: rgba(139, 92, 246, 0.45);
   --purple: #8b5cf6;
@@ -19,6 +34,12 @@
   --green: #34d399;
   --amber: #fbbf24;
   --red: #f87171;
+  --tok-key: #c4b5fd; // JSON syntax highlighting - keys
+  --tok-string: #6ee7d8;
+  --tok-number: #fb923c;
+  --tok-bool: #f472b6;
+  --tok-null: #6b7394;
+  --card-blur: 0px; // glass themes set this above 0 for a frosted backdrop-filter
   // Set precisely by HeaderComponent via ResizeObserver once it renders - this fallback only
   // matters for the brief instant before that first measurement lands.
   --header-height: 96px;
@@ -37,17 +58,25 @@ body {
 
 body {
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: radial-gradient(ellipse at top, #131a4a 0%, var(--bg) 55%);
+  background: var(--bg);
   color: var(--text);
 }
 
 // ---------- Tab nav (Live Calls / Session Cycles) ----------
 
 .tab-nav {
+  // `backdrop-filter` establishes a new stacking context, which would otherwise trap the theme
+  // picker's popover (rendered inside this nav) below `header`'s explicit z-index - an explicit
+  // z-index here, higher than header's, keeps this whole bar (and anything absolutely positioned
+  // inside it) on top regardless.
+  position: relative;
+  z-index: 11;
   display: flex;
+  align-items: center;
   gap: 0.25rem;
   padding: 0 2rem;
-  background: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  background: var(--nav-bg);
+  backdrop-filter: blur(var(--card-blur));
   border-bottom: 1px solid var(--border-strong);
 
   a {
@@ -75,7 +104,8 @@ header {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  background: var(--nav-bg);
+  backdrop-filter: blur(var(--card-blur));
   border-bottom: 1px solid var(--border-strong);
   padding: 1.1rem 2rem;
   display: flex;
@@ -83,7 +113,7 @@ header {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 1rem;
-  box-shadow: 0 4px 24px rgba(80, 40, 180, 0.25);
+  box-shadow: 0 4px 24px color-mix(in srgb, var(--purple) 25%, transparent);
 }
 
 .brand {
@@ -96,20 +126,20 @@ header {
     height: 11px;
     border-radius: 50%;
     background: var(--purple);
-    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.7);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 70%, transparent);
     animation: pulse 2s infinite;
   }
 }
 
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.55);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 55%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(139, 92, 246, 0);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--purple) 0%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 0%, transparent);
   }
 }
 
@@ -171,7 +201,7 @@ header h1 {
       color: var(--text);
     }
     &.active {
-      background: rgba(139, 92, 246, 0.22);
+      background: color-mix(in srgb, var(--purple) 22%, transparent);
       border-color: var(--border-strong);
       color: var(--purple-light);
     }
@@ -233,7 +263,7 @@ main {
   &.active {
     border-color: var(--border-strong);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-    background: linear-gradient(160deg, var(--card) 0%, #101636 100%);
+    background: var(--card-elevated);
   }
 }
 
@@ -264,13 +294,13 @@ main {
   font-weight: 600;
   cursor: pointer;
   border: 1px solid var(--border);
-  background: rgba(139, 92, 246, 0.22);
+  background: color-mix(in srgb, var(--purple) 22%, transparent);
   border-color: var(--border-strong);
   color: var(--purple-light);
   transition: background 0.15s;
 
   &:hover {
-    background: rgba(139, 92, 246, 0.35);
+    background: color-mix(in srgb, var(--purple) 35%, transparent);
   }
   &:disabled {
     opacity: 0.6;
@@ -287,11 +317,11 @@ main {
   }
 
   &.danger {
-    background: rgba(248, 113, 113, 0.18);
-    border-color: rgba(248, 113, 113, 0.45);
+    background: color-mix(in srgb, var(--red) 18%, transparent);
+    border-color: color-mix(in srgb, var(--red) 45%, transparent);
     color: var(--red);
     &:hover {
-      background: rgba(248, 113, 113, 0.3);
+      background: color-mix(in srgb, var(--red) 30%, transparent);
     }
   }
 }
@@ -338,13 +368,13 @@ main {
 }
 .error-box {
   color: var(--red);
-  border-color: rgba(248, 113, 113, 0.35);
+  border-color: color-mix(in srgb, var(--red) 35%, transparent);
 }
 
 // ---------- Call card ----------
 
 .call {
-  background: linear-gradient(160deg, var(--card) 0%, #101636 100%);
+  background: var(--card-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 1rem 1.15rem;
@@ -356,11 +386,11 @@ main {
     border-color: var(--border-strong);
   }
   &.pinned {
-    border-color: rgba(251, 191, 36, 0.4);
+    border-color: color-mix(in srgb, var(--amber) 40%, transparent);
   }
   &.selected {
     border-color: var(--purple);
-    box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.4);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--purple) 40%, transparent);
   }
 }
 
@@ -383,7 +413,7 @@ main {
   transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;
 
   &:hover {
-    background: rgba(139, 92, 246, 0.16);
+    background: color-mix(in srgb, var(--purple) 16%, transparent);
   }
 }
 
@@ -420,14 +450,14 @@ main {
 }
 
 .method-GET {
-  background: rgba(34, 211, 238, 0.15);
+  background: color-mix(in srgb, var(--cyan) 15%, transparent);
   color: var(--cyan);
-  border: 1px solid rgba(34, 211, 238, 0.35);
+  border: 1px solid color-mix(in srgb, var(--cyan) 35%, transparent);
 }
 .method-POST {
-  background: rgba(139, 92, 246, 0.18);
+  background: color-mix(in srgb, var(--purple) 18%, transparent);
   color: var(--purple-light);
-  border: 1px solid rgba(139, 92, 246, 0.4);
+  border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent);
 }
 .method-PUT {
   background: rgba(59, 130, 246, 0.15);
@@ -440,9 +470,9 @@ main {
   border: 1px solid rgba(251, 146, 60, 0.35);
 }
 .method-DELETE {
-  background: rgba(248, 113, 113, 0.15);
+  background: color-mix(in srgb, var(--red) 15%, transparent);
   color: #fca5a5;
-  border: 1px solid rgba(248, 113, 113, 0.35);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
 }
 .method-DEFAULT {
   background: rgba(148, 163, 194, 0.15);
@@ -451,9 +481,9 @@ main {
 }
 
 .cycle-status-recording {
-  background: rgba(248, 113, 113, 0.15);
+  background: color-mix(in srgb, var(--red) 15%, transparent);
   color: var(--red);
-  border: 1px solid rgba(248, 113, 113, 0.35);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
 }
 .cycle-status-paused {
   background: rgba(148, 163, 194, 0.15);
@@ -516,7 +546,7 @@ main {
   cursor: pointer;
 
   &:hover {
-    background: rgba(139, 92, 246, 0.08);
+    background: color-mix(in srgb, var(--purple) 8%, transparent);
   }
 }
 
@@ -532,7 +562,7 @@ main {
   flex-wrap: wrap;
   gap: 1rem;
   padding: 0.6rem 2rem;
-  background: rgba(20, 26, 69, 0.6);
+  background: var(--panel-bg);
   border-bottom: 1px solid var(--border);
 }
 
@@ -551,14 +581,14 @@ main {
 
   &:hover {
     border-color: var(--border-strong);
-    background: rgba(139, 92, 246, 0.12);
+    background: color-mix(in srgb, var(--purple) 12%, transparent);
   }
 }
 
 .status-2xx {
-  background: rgba(52, 211, 153, 0.15);
+  background: color-mix(in srgb, var(--green) 15%, transparent);
   color: var(--green);
-  border: 1px solid rgba(52, 211, 153, 0.35);
+  border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
 }
 .status-3xx {
   background: rgba(96, 165, 250, 0.15);
@@ -566,19 +596,19 @@ main {
   border: 1px solid rgba(96, 165, 250, 0.35);
 }
 .status-4xx {
-  background: rgba(251, 191, 36, 0.15);
+  background: color-mix(in srgb, var(--amber) 15%, transparent);
   color: var(--amber);
-  border: 1px solid rgba(251, 191, 36, 0.35);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
 }
 .status-5xx {
-  background: rgba(248, 113, 113, 0.15);
+  background: color-mix(in srgb, var(--red) 15%, transparent);
   color: var(--red);
-  border: 1px solid rgba(248, 113, 113, 0.35);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
 }
 .status-err {
-  background: rgba(248, 113, 113, 0.22);
+  background: color-mix(in srgb, var(--red) 22%, transparent);
   color: var(--red);
-  border: 1px solid rgba(248, 113, 113, 0.5);
+  border: 1px solid color-mix(in srgb, var(--red) 50%, transparent);
 }
 
 .duration {
@@ -607,7 +637,7 @@ main {
 }
 
 .action-btn {
-  background: rgba(139, 92, 246, 0.12);
+  background: color-mix(in srgb, var(--purple) 12%, transparent);
   border: 1px solid var(--border);
   color: var(--purple-light);
   font-size: 0.68rem;
@@ -620,11 +650,11 @@ main {
 
   &:hover {
     border-color: var(--border-strong);
-    background: rgba(139, 92, 246, 0.22);
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
   }
   &.pin-btn.active {
-    background: rgba(251, 191, 36, 0.18);
-    border-color: rgba(251, 191, 36, 0.5);
+    background: color-mix(in srgb, var(--amber) 18%, transparent);
+    border-color: color-mix(in srgb, var(--amber) 50%, transparent);
     color: var(--amber);
   }
 }
@@ -664,13 +694,13 @@ main {
 
   &.from {
     color: var(--purple-light);
-    background: rgba(139, 92, 246, 0.12);
-    border: 1px solid rgba(139, 92, 246, 0.3);
+    background: color-mix(in srgb, var(--purple) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--purple) 30%, transparent);
   }
   &.to {
     color: var(--cyan);
-    background: rgba(34, 211, 238, 0.1);
-    border: 1px solid rgba(34, 211, 238, 0.28);
+    background: color-mix(in srgb, var(--cyan) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cyan) 28%, transparent);
   }
 }
 
@@ -691,8 +721,8 @@ app-json-panel {
 }
 
 .error-banner {
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
   color: #fca5a5;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
@@ -714,7 +744,7 @@ app-json-panel {
 }
 
 .panel {
-  background: rgba(10, 14, 42, 0.55);
+  background: var(--panel-bg);
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
@@ -727,7 +757,7 @@ app-json-panel {
   text-transform: uppercase;
   color: var(--purple-light);
   padding: 0.55rem 0.75rem;
-  background: rgba(139, 92, 246, 0.08);
+  background: color-mix(in srgb, var(--purple) 8%, transparent);
   border-bottom: 1px solid var(--border);
 }
 
@@ -805,7 +835,7 @@ details.block {
     color: var(--text-dim);
   }
   &.active {
-    background: rgba(139, 92, 246, 0.22);
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
     color: var(--purple-light);
   }
 }
@@ -839,7 +869,7 @@ details.block {
 }
 
 .block-search-nav {
-  background: rgba(139, 92, 246, 0.12);
+  background: color-mix(in srgb, var(--purple) 12%, transparent);
   border: 1px solid var(--border);
   color: var(--purple-light);
   font-size: 0.75rem;
@@ -850,7 +880,7 @@ details.block {
 
   &:hover {
     border-color: var(--border-strong);
-    background: rgba(139, 92, 246, 0.22);
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
   }
 }
 
@@ -872,7 +902,7 @@ details.block {
     color: var(--text-dim);
   }
   &.active {
-    background: rgba(139, 92, 246, 0.22);
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
     border-color: var(--border-strong);
     color: var(--purple-light);
   }
@@ -888,7 +918,7 @@ details.block {
 
 .copy-btn {
   flex: 0 0 auto;
-  background: rgba(139, 92, 246, 0.18);
+  background: color-mix(in srgb, var(--purple) 18%, transparent);
   border: 1px solid var(--border-strong);
   color: var(--purple-light);
   font-size: 0.68rem;
@@ -900,7 +930,7 @@ details.block {
 
   &:hover {
     opacity: 1;
-    background: rgba(139, 92, 246, 0.3);
+    background: color-mix(in srgb, var(--purple) 30%, transparent);
   }
 }
 
@@ -909,7 +939,7 @@ details.block {
 .scrollable {
   margin: 0;
   padding: 0.75rem;
-  background: #070a24;
+  background: var(--card-inner);
   border: 1px solid var(--border);
   border-radius: 8px;
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
@@ -948,11 +978,11 @@ details.block {
   padding: 0 0.25rem;
 
   &:hover {
-    background: rgba(139, 92, 246, 0.08);
+    background: color-mix(in srgb, var(--purple) 8%, transparent);
   }
   &.has-comment {
-    background: rgba(251, 191, 36, 0.07);
-    border-left: 2px solid rgba(251, 191, 36, 0.5);
+    background: color-mix(in srgb, var(--amber) 7%, transparent);
+    border-left: 2px solid color-mix(in srgb, var(--amber) 50%, transparent);
   }
 }
 
@@ -971,7 +1001,7 @@ details.block {
   line-height: 1;
   border-radius: 4px;
   border: 1px solid var(--border);
-  background: rgba(139, 92, 246, 0.15);
+  background: color-mix(in srgb, var(--purple) 15%, transparent);
   color: var(--purple-light);
   font-size: 0.75rem;
   cursor: pointer;
@@ -984,7 +1014,7 @@ details.block {
     opacity: 1;
   }
   &:hover {
-    background: rgba(139, 92, 246, 0.3);
+    background: color-mix(in srgb, var(--purple) 30%, transparent);
   }
 }
 
@@ -1031,8 +1061,8 @@ details.block {
   justify-content: space-between;
   gap: 0.5rem;
   margin: 0.15rem 2.5rem 0.5rem 2.7em;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
   border-radius: 8px;
   padding: 0.45rem 0.6rem;
   font-size: 0.8rem;
@@ -1087,20 +1117,20 @@ details.block {
 }
 
 .k {
-  color: #c4b5fd;
+  color: var(--tok-key);
 }
 .s {
-  color: #6ee7d8;
+  color: var(--tok-string);
 }
 .n {
-  color: #fb923c;
+  color: var(--tok-number);
 }
 .b {
-  color: #f472b6;
+  color: var(--tok-bool);
   font-weight: 600;
 }
 .z {
-  color: #6b7394;
+  color: var(--tok-null);
   font-style: italic;
 }
 .punct {
@@ -1108,7 +1138,7 @@ details.block {
 }
 
 mark.hl {
-  background: rgba(251, 191, 36, 0.85);
+  background: color-mix(in srgb, var(--amber) 85%, transparent);
   color: #1a1247;
   border-radius: 3px;
   padding: 0 1px;
@@ -1116,7 +1146,7 @@ mark.hl {
 mark.hl.active {
   background: var(--purple);
   color: #fff;
-  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.5);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--purple) 50%, transparent);
 }
 
 .bulk-action-message {
@@ -1145,7 +1175,7 @@ mark.hl.active {
 
   &:hover {
     border-color: var(--border-strong);
-    background: rgba(139, 92, 246, 0.15);
+    background: color-mix(in srgb, var(--purple) 15%, transparent);
   }
 }
 
@@ -1176,7 +1206,7 @@ mark.hl.active {
 .supplier-group {
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(20, 26, 69, 0.4);
+  background: var(--panel-bg);
   overflow: hidden;
 
   summary {
@@ -1247,7 +1277,7 @@ mark.hl.active {
 }
 
 .dialog-card {
-  background: linear-gradient(160deg, var(--card) 0%, #101636 100%);
+  background: var(--card-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 14px;
   padding: 1.5rem;
@@ -1266,8 +1296,8 @@ mark.hl.active {
 
 .dialog-flagged-note {
   color: var(--amber);
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent);
   border-radius: 8px;
   padding: 0.5rem 0.7rem;
 }
@@ -1400,20 +1430,20 @@ mark.hl.active {
   }
 
   &.primary {
-    background: rgba(139, 92, 246, 0.22);
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
     border-color: var(--border-strong);
     color: var(--purple-light);
     &:hover {
-      background: rgba(139, 92, 246, 0.35);
+      background: color-mix(in srgb, var(--purple) 35%, transparent);
     }
   }
 
   &.danger {
-    background: rgba(248, 113, 113, 0.18);
-    border-color: rgba(248, 113, 113, 0.45);
+    background: color-mix(in srgb, var(--red) 18%, transparent);
+    border-color: color-mix(in srgb, var(--red) 45%, transparent);
     color: var(--red);
     &:hover {
-      background: rgba(248, 113, 113, 0.3);
+      background: color-mix(in srgb, var(--red) 30%, transparent);
     }
   }
 }
@@ -1432,7 +1462,8 @@ mark.hl.active {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.85rem 1.25rem;
-  background: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  background: var(--nav-bg);
+  backdrop-filter: blur(var(--card-blur));
   border-bottom: 1px solid var(--border-strong);
   flex: 0 0 auto;
 }
@@ -1483,5 +1514,273 @@ mark.hl.active {
   h1 {
     color: var(--text);
     font-size: 1.2rem;
+  }
+}
+
+// ---------- Themes ----------
+//
+// Dark (:root, above) is the default/original look. Every other theme is just an override of the
+// same variable names for `html[data-theme="..."]` - nothing else in this file, and no component,
+// needs to know which theme is active.
+
+[data-theme='light'] {
+  --bg: #eef1f6;
+  --nav-bg: #ffffff;
+  --card: #ffffff;
+  --card-elevated: #ffffff;
+  --card-inner: #f5f6f9;
+  --panel-bg: rgba(245, 246, 249, 0.9);
+  --bg-2: #f5f6f9;
+  --border: #dde1e8;
+  --border-strong: #c7cdd9;
+  --purple: #7c3aed;
+  --purple-light: #6d28d9;
+  --cyan: #0891b2;
+  --text: #1f2430;
+  --text-dim: #5b6577;
+  --text-faint: #8b93a3;
+  --green: #15803d;
+  --amber: #b45309;
+  --red: #dc2626;
+  --tok-key: #6d28d9;
+  --tok-string: #0e7490;
+  --tok-number: #c2410c;
+  --tok-bool: #be185d;
+  --tok-null: #6b7280;
+  --card-blur: 0px;
+}
+
+[data-theme='light-glass'] {
+  --bg: linear-gradient(135deg, #7dd3fc, #c4b5fd);
+  --nav-bg: rgba(255, 255, 255, 0.35);
+  --card: rgba(255, 255, 255, 0.35);
+  --card-elevated: rgba(255, 255, 255, 0.45);
+  --card-inner: rgba(255, 255, 255, 0.2);
+  --panel-bg: rgba(255, 255, 255, 0.25);
+  --bg-2: rgba(255, 255, 255, 0.3);
+  --border: rgba(255, 255, 255, 0.5);
+  --border-strong: rgba(255, 255, 255, 0.7);
+  --purple: #7c3aed;
+  --purple-light: #4c1d95;
+  --cyan: #075985;
+  --text: #1e2a4a;
+  --text-dim: #334155;
+  --text-faint: #64748b;
+  --green: #065f46;
+  --amber: #92400e;
+  --red: #9f1239;
+  --tok-key: #4c1d95;
+  --tok-string: #0e5f52;
+  --tok-number: #9a4a10;
+  --tok-bool: #9f1239;
+  --tok-null: #475569;
+  --card-blur: 10px;
+}
+
+[data-theme='easy'] {
+  --bg: #ffffff;
+  --nav-bg: #ffffff;
+  --card: #ffffff;
+  --card-elevated: #ffffff;
+  --card-inner: #f0f0f0;
+  --panel-bg: #f0f0f0;
+  --bg-2: #f0f0f0;
+  --border: #000000;
+  --border-strong: #000000;
+  --purple: #000000;
+  --purple-light: #000000;
+  --cyan: #000000;
+  --text: #000000;
+  --text-dim: #000000;
+  --text-faint: #333333;
+  --green: #0a6e2f;
+  --amber: #7a5b00;
+  --red: #b00020;
+  --tok-key: #000000;
+  --tok-string: #000000;
+  --tok-number: #000000;
+  --tok-bool: #000000;
+  --tok-null: #333333;
+  --card-blur: 0px;
+}
+
+[data-theme='dracula'] {
+  --bg: #282a36;
+  --nav-bg: #282a36;
+  --card: #343746;
+  --card-elevated: linear-gradient(160deg, #343746 0%, #282a36 100%);
+  --card-inner: #21222c;
+  --panel-bg: rgba(33, 34, 44, 0.7);
+  --bg-2: #21222c;
+  --border: #44475a;
+  --border-strong: #6272a4;
+  --purple: #bd93f9;
+  --purple-light: #ff79c6;
+  --cyan: #8be9fd;
+  --text: #f8f8f2;
+  --text-dim: #a9b1d6;
+  --text-faint: #6272a4;
+  --green: #50fa7b;
+  --amber: #f1fa8c;
+  --red: #ff5555;
+  --tok-key: #ff79c6;
+  --tok-string: #8be9fd;
+  --tok-number: #bd93f9;
+  --tok-bool: #50fa7b;
+  --tok-null: #6272a4;
+  --card-blur: 0px;
+}
+
+[data-theme='midnight'] {
+  --bg: #000000;
+  --nav-bg: #000000;
+  --card: #0a0a0a;
+  --card-elevated: #0a0a0a;
+  --card-inner: #000000;
+  --panel-bg: rgba(0, 0, 0, 0.6);
+  --bg-2: #000000;
+  --border: #262626;
+  --border-strong: #3d3d3d;
+  --purple: #8b5cf6;
+  --purple-light: #a78bfa;
+  --cyan: #22d3ee;
+  --text: #e5e5e5;
+  --text-dim: #a3a3a3;
+  --text-faint: #525252;
+  --green: #4ade80;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --tok-key: #a78bfa;
+  --tok-string: #4ade80;
+  --tok-number: #fb923c;
+  --tok-bool: #f472b6;
+  --tok-null: #6b6b6b;
+  --card-blur: 0px;
+}
+
+[data-theme='dark-glass'] {
+  --bg: linear-gradient(160deg, #241f3d, #141220 60%);
+  --nav-bg: rgba(255, 255, 255, 0.05);
+  --card: rgba(255, 255, 255, 0.05);
+  --card-elevated: rgba(255, 255, 255, 0.07);
+  --card-inner: rgba(0, 0, 0, 0.3);
+  --panel-bg: rgba(0, 0, 0, 0.25);
+  --bg-2: rgba(0, 0, 0, 0.2);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --purple: #8b95c9;
+  --purple-light: #b9c3e8;
+  --cyan: #7fd8f0;
+  --text: #f0f0f4;
+  --text-dim: #9797a8;
+  --text-faint: #6b6b7a;
+  --green: #9fdcb8;
+  --amber: #f0d78a;
+  --red: #e29a9a;
+  --tok-key: #b9c3e8;
+  --tok-string: #9fdcb8;
+  --tok-number: #e0b98a;
+  --tok-bool: #e0a8cc;
+  --tok-null: #6b6b7a;
+  --card-blur: 6px;
+}
+
+[data-theme='slate'] {
+  --bg: #141416;
+  --nav-bg: #141416;
+  --card: rgba(255, 255, 255, 0.035);
+  --card-elevated: rgba(255, 255, 255, 0.05);
+  --card-inner: rgba(0, 0, 0, 0.3);
+  --panel-bg: rgba(0, 0, 0, 0.2);
+  --bg-2: rgba(255, 255, 255, 0.02);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --purple: #5b8def;
+  --purple-light: #8fb2f7;
+  --cyan: #7ee3d8;
+  --text: #f2f2f5;
+  --text-dim: #8b8b93;
+  --text-faint: #5b5b63;
+  --green: #7ee3a0;
+  --amber: #e3a24a;
+  --red: #e36a6a;
+  --tok-key: #8fb2f7;
+  --tok-string: #7ee3a0;
+  --tok-number: #e3a24a;
+  --tok-bool: #e37ec4;
+  --tok-null: #6b6b73;
+  --card-blur: 3px;
+}
+
+// ---------- Theme picker (in the tab-nav bar, top right) ----------
+
+.theme-picker {
+  position: relative;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+.theme-picker-btn {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+
+  &:hover {
+    border-color: var(--purple);
+    color: var(--text);
+  }
+}
+
+.theme-picker-panel {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 20;
+  background: var(--card-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 0.85rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  min-width: 200px;
+}
+
+.theme-picker-panel-label {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.6rem;
+}
+
+.theme-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+.theme-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.15s, transform 0.1s;
+
+  &:hover {
+    border-color: var(--purple-light);
+  }
+
+  &.selected {
+    border-color: var(--purple);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--purple) 40%, transparent);
   }
 }
