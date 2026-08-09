@@ -47,7 +47,20 @@ class SessionCyclesServiceTest {
     }
 
     @Test
-    void updateAppliesOnlyNonNullFields() {
+    void updateWithANullNameLeavesTheExistingNameAlone() {
+        SessionCycle existing = new SessionCycle("c1", "Old name", "t", "old-assignee", SessionCycleStatus.PAUSED);
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(existing));
+        when(metadataStore.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Optional<SessionCycle> result = service.update("c1", new SessionCycleUpdate(null, "new-assignee"));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().name()).isEqualTo("Old name");
+        assertThat(result.get().assignedTo()).isEqualTo("new-assignee");
+    }
+
+    @Test
+    void updateWithANullAssignedToClearsItBackToUnassigned() {
         SessionCycle existing = new SessionCycle("c1", "Old name", "t", "old-assignee", SessionCycleStatus.PAUSED);
         when(metadataStore.findById("c1")).thenReturn(Optional.of(existing));
         when(metadataStore.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -56,7 +69,7 @@ class SessionCyclesServiceTest {
 
         assertThat(result).isPresent();
         assertThat(result.get().name()).isEqualTo("New name");
-        assertThat(result.get().assignedTo()).isEqualTo("old-assignee");
+        assertThat(result.get().assignedTo()).isNull();
     }
 
     @Test

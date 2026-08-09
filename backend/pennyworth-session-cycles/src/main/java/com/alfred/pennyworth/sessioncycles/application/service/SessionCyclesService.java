@@ -82,7 +82,12 @@ public class SessionCyclesService implements
                     existing.id(),
                     update.name() != null ? update.name() : existing.name(),
                     existing.createdAt(),
-                    update.assignedTo() != null ? update.assignedTo() : existing.assignedTo(),
+                    // Unlike name, assignedTo is always applied exactly as given rather than
+                    // "null means leave alone" - every caller (the edit dialog, bulk reassign)
+                    // always sends the assignedTo it wants, including null to explicitly clear
+                    // it back to unassigned, so treating null as "unchanged" here silently
+                    // dropped that clear.
+                    update.assignedTo(),
                     existing.status()
             );
             return metadataStore.save(updated);
