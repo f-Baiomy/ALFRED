@@ -6,7 +6,11 @@ services:
     container_name: alfred
     restart: unless-stopped
     ports:
-      - "8444:8080"
+      # Bound to 127.0.0.2 (not .1) on 443 (the HTTPS default, so "-proxy" URLs never need an
+      # explicit port) so this doesn't conflict with anything already using 127.0.0.1:443 -
+      # 127.0.0.0/8 is entirely loopback, so any 127.x.x.x address behaves the same. hosts file
+      # entries for "-proxy" hostnames (written by start.ps1/start.sh) point here, not at .1.
+      - "127.0.0.2:443:8080"
     environment:
       # The proxy only calls the webhook now - pennyworth owns persistence (RECENT_CALLS.log).
       # Container-name DNS works because both services share alfred-net. WEBHOOK_SECRET is a

@@ -33,6 +33,11 @@ if (-not $isAdmin) {
 }
 
 # ---- Step 1: hosts file entries from suppliers.txt ----
+#
+# 127.0.0.2 (not .1) so Alfred can bind port 443 (the HTTPS default, so
+# "-proxy" URLs never need an explicit port) without conflicting with
+# anything already using 127.0.0.1:443 on this machine - the whole
+# 127.0.0.0/8 range is loopback, so any 127.x.x.x address works the same.
 
 if (-not (Test-Path $suppliersFile)) {
     Write-Host "suppliers.txt not found at $suppliersFile"
@@ -41,19 +46,27 @@ if (-not (Test-Path $suppliersFile)) {
 
 Write-Host "=== Step 1: hosts file ==="
 $hostsContent = Get-Content $hostsFile
+$targetIp = "127.0.0.2"
 
 foreach ($line in Get-Content $suppliersFile) {
     $domain = ($line -replace '#.*', '').Trim()
     if ([string]::IsNullOrWhiteSpace($domain)) { continue }
 
     $proxyHost = "$domain-proxy"
-    $alreadyPresent = $hostsContent | Where-Object { $_ -match "\s$([regex]::Escape($proxyHost))(\s|$)" }
+    $existingLine = $hostsContent | Where-Object { $_ -match "\s$([regex]::Escape($proxyHost))(\s|$)" } | Select-Object -First 1
 
-    if ($alreadyPresent) {
+    if ($existingLine -and $existingLine -match "^\s*$([regex]::Escape($targetIp))\s") {
         Write-Host "  [skip]  $proxyHost already present"
+    } elseif ($existingLine) {
+        # A stale entry from before this project switched to $targetIp (or a manual edit) - fix
+        # the IP in place rather than leaving a second, shadowing line for the same hostname.
+        (Get-Content $hostsFile) -replace [regex]::Escape($existingLine), "$targetIp   $proxyHost" | Set-Content $hostsFile
+        $hostsContent = Get-Content $hostsFile
+        Write-Host "  [fixed] $proxyHost was pointing elsewhere - now $targetIp"
     } else {
-        Add-Content -Path $hostsFile -Value "127.0.0.1   $proxyHost"
-        Write-Host "  [added] 127.0.0.1   $proxyHost"
+        Add-Content -Path $hostsFile -Value "$targetIp   $proxyHost"
+        $hostsContent = Get-Content $hostsFile
+        Write-Host "  [added] $targetIp   $proxyHost"
     }
 }
 

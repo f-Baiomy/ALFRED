@@ -36,20 +36,32 @@ if [ ! -f "$SUPPLIERS_FILE" ]; then
 fi
 
 # ---- Step 1: hosts file entries from suppliers.txt ----
+#
+# 127.0.0.2 (not .1) so Alfred can bind port 443 (the HTTPS default, so
+# "-proxy" URLs never need an explicit port) without conflicting with
+# anything already using 127.0.0.1:443 on this machine - the whole
+# 127.0.0.0/8 range is loopback, so any 127.x.x.x address works the same.
 
 echo "=== Step 1: hosts file ==="
+TARGET_IP="127.0.0.2"
 
 while IFS= read -r line || [ -n "$line" ]; do
     domain="$(echo "$line" | sed 's/#.*//' | xargs)"
     [ -z "$domain" ] && continue
 
     proxy_host="${domain}-proxy"
+    existing_line="$(grep -E "[[:space:]]${proxy_host}([[:space:]]|$)" "$HOSTS_FILE" | head -n1)"
 
-    if grep -qE "[[:space:]]${proxy_host}([[:space:]]|$)" "$HOSTS_FILE"; then
+    if [ -n "$existing_line" ] && echo "$existing_line" | grep -qE "^[[:space:]]*${TARGET_IP}[[:space:]]"; then
         echo "  [skip]  ${proxy_host} already present"
+    elif [ -n "$existing_line" ]; then
+        # A stale entry from before this project switched to $TARGET_IP (or a manual edit) - fix
+        # the IP in place rather than leaving a second, shadowing line for the same hostname.
+        sed -i "s|^.*[[:space:]]${proxy_host}\([[:space:]]\|\$\)|${TARGET_IP}   ${proxy_host}|" "$HOSTS_FILE"
+        echo "  [fixed] ${proxy_host} was pointing elsewhere - now ${TARGET_IP}"
     else
-        echo "127.0.0.1   ${proxy_host}" >> "$HOSTS_FILE"
-        echo "  [added] 127.0.0.1   ${proxy_host}"
+        echo "${TARGET_IP}   ${proxy_host}" >> "$HOSTS_FILE"
+        echo "  [added] ${TARGET_IP}   ${proxy_host}"
     fi
 done < "$SUPPLIERS_FILE"
 

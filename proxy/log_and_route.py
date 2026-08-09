@@ -30,6 +30,8 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
+from mitmproxy import ctx
+
 SUFFIX = "-proxy"
 
 # Max characters to log per body. 0 (the default) means no truncation -
@@ -146,8 +148,12 @@ class RouteAndLog:
         }
         self._write(data)
 
-        print(f"[{data['timestamp']}] {data['method']} {data['original_url']} "
-              f"-> {data['url']} -> {data['response']['status']} ({duration_ms}ms)")
+        # Ties this addon's own per-call line to mitmdump's own -q/-v flags
+        # (flow_detail 0 = -q) instead of a separate toggle - `mitmdump -q`
+        # (the default in docker-compose.yml) is silent end to end.
+        if ctx.options.flow_detail > 0:
+            print(f"[{data['timestamp']}] {data['method']} {data['original_url']} "
+                  f"-> {data['url']} -> {data['response']['status']} ({duration_ms}ms)")
 
     def error(self, flow):
         if 'call_log' not in flow.metadata:

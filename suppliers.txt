@@ -4,3 +4,5 @@
 # ndc-integration-stg-ne-3.azurewebsites.net
 
 ndc-integration-stg-ne-3.azurewebsites.net
+ndc-supplier-integration.azurewebsites.net
+ndc-supplier-integration-staging.azurewebsites.net

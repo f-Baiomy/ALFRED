@@ -107,10 +107,10 @@ python3 start.py builds and starts all three (docker compose up -d --build).
 ## How it works
 
     Your Java app calls (per its own supplier config):
-      https://ndc-integration-stg-ne-3.azurewebsites.net-proxy:8444/...
-      https://another-supplier.com-proxy:8444/...
+      https://ndc-integration-stg-ne-3.azurewebsites.net-proxy/...
+      https://another-supplier.com-proxy/...
             |
-            v  (hosts file redirects "*-proxy" hostnames to 127.0.0.1)
+            v  (hosts file redirects "*-proxy" hostnames to 127.0.0.2)
       mitmproxy receives the direct HTTPS connection, terminates TLS
       using its own trusted CA, strips the "-proxy" suffix from the host
             |
@@ -173,18 +173,18 @@ You never need to manually edit the hosts file yourself.
 ## Configure your suppliers
 
 Wherever each supplier's base URL is configured/stored as credentials in
-your app, append "-proxy" plus the proxy's port to the hostname:
+your app, append "-proxy" to the hostname:
 
-    https://ndc-integration-stg-ne-3.azurewebsites.net-proxy:8444/
-    https://supplier-two.example.com-proxy:8444/
-    https://supplier-three.example.com-proxy:8444/
+    https://ndc-integration-stg-ne-3.azurewebsites.net-proxy/
+    https://supplier-two.example.com-proxy/
+    https://supplier-three.example.com-proxy/
 
 Your Java app itself needs no other changes - no proxy settings, no code
-changes. It just calls these URLs like any normal HTTPS endpoint.
-
-(If you'd rather have no port in the URL, change the port mapping in
-docker-compose.yml to "443:8080" instead of "8444:8080" - check nothing
-else on your machine is already using port 443 first.)
+changes, no port to add. It just calls these URLs like any normal HTTPS
+endpoint - Alfred listens on 443 (the HTTPS default) bound to 127.0.0.2
+specifically so no port is ever needed and nothing already using
+127.0.0.1:443 on your machine gets in the way. (See "Change the port"
+below if you need something different.)
 
 ## Watch the logs live
 
@@ -223,11 +223,16 @@ editing backend or frontend code):
 
 ## Change the port
 
-Edit the left side of the ports mapping in docker-compose.yml (host port),
-then update the port used in each supplier's "-proxy" URL to match:
+Alfred listens on 127.0.0.2:443 by default, so no port is needed in
+supplier URLs. If you need a different port or address (e.g. 127.0.0.2
+is somehow unavailable too), edit the ports mapping in docker-compose.yml,
+then add that port to each supplier's "-proxy" URL to match:
 
     ports:
-      - "8444:8080"
+      - "127.0.0.2:443:8080"
+
+If you change the IP here, also update start.ps1/start.sh so the hosts
+entries they write for "-proxy" hostnames point at the same address.
 
 ## Change the log file name/location
 
