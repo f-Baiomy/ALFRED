@@ -15,7 +15,9 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -25,6 +27,17 @@ import java.util.List;
  * implementation with its own {@code havingValue}, not touching CallsService or anything
  * upstream of the port. {@code matchIfMissing = true} keeps this the default so existing
  * deployments (no {@code alfred.storage.calls.type} set) behave exactly as before.
+ *
+ * <p><b>Reads are served from an in-memory cache rather than re-parsing the file.</b> Every
+ * {@code GET /calls} used to re-read and re-Jackson-parse the whole file (up to
+ * {@code alfred.calls.max-limit} records, each carrying full request/response bodies), and every
+ * open dashboard tab polls that endpoint on a 5s timer - so the same parse repeated forever even
+ * when nothing had changed. This adapter is the sole writer of the file (see CLAUDE.md), so it
+ * keeps the parsed result in memory and updates it in place on each save. The cache is still
+ * validated against the file's size and last-modified-time on every read, so a file modified or
+ * replaced out-of-band (a manual edit, a restored volume) is re-read rather than silently
+ * ignored - the guarantee is "never serve stale data", not "trust memory blindly". Per-instance,
+ * never static, so a fresh adapter pointed at an existing file always reads it first.
  */
 @Component
 @ConditionalOnProperty(prefix = "alfred.storage.calls", name = "type", havingValue = "file", matchIfMissing = true)
@@ -40,6 +53,19 @@ public class FileCallLogAdapter implements CallLogPort {
     /** Same property CallsService clamps GET /calls with - kept in sync by construction since both read the one property. */
     @Value("${alfred.calls.max-limit:200}")
     private int maxLimit;
+
+    /**
+     * One line of the file together with its parsed form ({@code null} when that line failed to
+     * parse). Caching both keeps save() able to rewrite the file from the original line text,
+     * preserving the existing behaviour exactly: a malformed line stays on disk and still counts
+     * toward the ring buffer's size, while {@link #readAll()} keeps skipping it.
+     */
+    private record CachedLine(String text, CallRecord record) {}
+
+    /** Null until the first read/write populates it. Replaced wholesale, never mutated in place. */
+    private List<CachedLine> cachedLines;
+    private long cachedFileSize = -1;
+    private long cachedModifiedMillis = -1;
 
     /** Fail fast with a clear message if the directory isn't writable, rather than only discovering it on the first webhook call. */
     @PostConstruct
@@ -60,40 +86,24 @@ public class FileCallLogAdapter implements CallLogPort {
     }
 
     @Override
-    public List<CallRecord> readAll() {
-        Path path = Path.of(recentCallsFile);
-        if (!Files.exists(path)) {
-            return List.of();
-        }
-
-        List<String> lines;
-        try {
-            lines = Files.readAllLines(path);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to read " + path, e);
-        }
-
-        List<CallRecord> calls = new ArrayList<>();
-        for (String line : lines) {
-            String trimmed = line.strip();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            try {
-                calls.add(objectMapper.readValue(trimmed, CallRecord.class));
-            } catch (IOException e) {
-                log.warn("Skipping malformed line in {}: {}", path, e.getMessage());
+    public synchronized List<CallRecord> readAll() {
+        List<CachedLine> lines = loadLines();
+        List<CallRecord> calls = new ArrayList<>(lines.size());
+        for (CachedLine line : lines) {
+            if (line.record() != null) {
+                calls.add(line.record());
             }
         }
-        return calls;
+        return Collections.unmodifiableList(calls);
     }
 
     /**
      * RECENT_CALLS.log is a ring buffer, not an unbounded append log: once it holds maxLimit
-     * calls, adding one more drops the oldest line first. That means every save is a full
-     * read-modify-write rather than a cheap append - fine at maxLimit's scale (default 200) -
-     * and synchronized so concurrent webhook calls can't interleave their read-modify-write and
-     * lose an entry.
+     * calls, adding one more drops the oldest line first. That still rewrites the whole file -
+     * fine at maxLimit's scale (default 200) - but it no longer re-reads and re-parses it first:
+     * the cache already holds every existing line, so a save costs one serialization (of the new
+     * call) plus the write. Synchronized so concurrent webhook calls can't interleave their
+     * read-modify-write and lose an entry.
      */
     @Override
     public synchronized void save(CallRecord call) {
@@ -102,17 +112,93 @@ public class FileCallLogAdapter implements CallLogPort {
             if (path.getParent() != null) {
                 Files.createDirectories(path.getParent());
             }
-            List<String> lines = Files.exists(path) ? new ArrayList<>(Files.readAllLines(path)) : new ArrayList<>();
-            lines.removeIf(String::isBlank);
-            lines.add(objectMapper.writeValueAsString(call));
-            if (lines.size() > maxLimit) {
-                lines = lines.subList(lines.size() - maxLimit, lines.size());
+
+            List<CachedLine> next = new ArrayList<>(loadLines());
+            next.add(new CachedLine(objectMapper.writeValueAsString(call), call));
+            if (next.size() > maxLimit) {
+                next = new ArrayList<>(next.subList(next.size() - maxLimit, next.size()));
             }
-            String content = String.join(System.lineSeparator(), lines) + System.lineSeparator();
-            Files.writeString(path, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+
+            StringBuilder content = new StringBuilder();
+            for (CachedLine line : next) {
+                content.append(line.text()).append(System.lineSeparator());
+            }
+            Files.writeString(path, content.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+
+            rememberCache(path, next);
         } catch (IOException e) {
+            invalidateCache();
             log.error("Failed to save to {}: {}", recentCallsFile, e.getMessage());
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Returns the cached lines, re-reading and re-parsing only when the file's size/mtime no longer match what was cached. */
+    private List<CachedLine> loadLines() {
+        Path path = Path.of(recentCallsFile);
+        if (!Files.exists(path)) {
+            cachedLines = List.of();
+            cachedFileSize = -1;
+            cachedModifiedMillis = -1;
+            return cachedLines;
+        }
+
+        BasicFileAttributes attributes = readAttributes(path);
+        if (cachedLines != null && attributes != null
+                && attributes.size() == cachedFileSize
+                && attributes.lastModifiedTime().toMillis() == cachedModifiedMillis) {
+            return cachedLines;
+        }
+
+        List<String> rawLines;
+        try {
+            rawLines = Files.readAllLines(path);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read " + path, e);
+        }
+
+        List<CachedLine> parsed = new ArrayList<>(rawLines.size());
+        for (String rawLine : rawLines) {
+            String trimmed = rawLine.strip();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            CallRecord record = null;
+            try {
+                record = objectMapper.readValue(trimmed, CallRecord.class);
+            } catch (IOException e) {
+                log.warn("Skipping malformed line in {}: {}", path, e.getMessage());
+            }
+            parsed.add(new CachedLine(trimmed, record));
+        }
+
+        rememberCache(path, parsed);
+        return cachedLines != null ? cachedLines : List.copyOf(parsed);
+    }
+
+    /** Stores {@code lines} as the cache, stamped with the file's current size/mtime - or invalidates instead if the file can't be stat'd, so the next read re-parses rather than trusting an unverifiable snapshot. */
+    private void rememberCache(Path path, List<CachedLine> lines) {
+        BasicFileAttributes attributes = readAttributes(path);
+        if (attributes == null) {
+            invalidateCache();
+            return;
+        }
+        cachedLines = List.copyOf(lines);
+        cachedFileSize = attributes.size();
+        cachedModifiedMillis = attributes.lastModifiedTime().toMillis();
+    }
+
+    private void invalidateCache() {
+        cachedLines = null;
+        cachedFileSize = -1;
+        cachedModifiedMillis = -1;
+    }
+
+    private BasicFileAttributes readAttributes(Path path) {
+        try {
+            return Files.readAttributes(path, BasicFileAttributes.class);
+        } catch (IOException e) {
+            return null;
         }
     }
 }

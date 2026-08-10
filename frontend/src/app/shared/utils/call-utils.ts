@@ -1,14 +1,37 @@
 import { CallRecord, CapturedCall, SortMode } from '../../core/models/call.model';
 
 /**
+ * Per-CallRecord memo caches, keyed by object identity.
+ *
+ * A CallRecord is immutable (every field is `readonly`) and each poll parses fresh objects from
+ * JSON, so a value derived from one is valid for that object's whole lifetime - and a WeakMap lets
+ * the browser reclaim the entry as soon as the poll that produced the call drops it, with no
+ * eviction logic to get wrong. Both derivations below are pure functions of the record, so
+ * memoizing them cannot change any result; it only stops the same work being redone.
+ */
+const callKeyCache = new WeakMap<CallRecord, string>();
+const searchHaystackCache = new WeakMap<CallRecord, string>();
+const supplierCache = new WeakMap<CallRecord, string>();
+const callTimeCache = new WeakMap<CallRecord, number>();
+
+/**
  * Stable identity for a call, independent of its position in the list.
  * Deliberately NOT index-based: the backend returns newest-first and new
  * calls prepend, which would otherwise shift every existing call's index
  * on every poll.
+ *
+ * Memoized because this is one of the hottest functions in the app: it runs per call in every
+ * `trackBy`, in the sort comparators, in the live/polled merge and prune, and in `isSelected()` -
+ * which a template calls for every rendered card on every change-detection pass.
  */
 export function callKey(call: CallRecord): string {
+  const cached = callKeyCache.get(call);
+  if (cached !== undefined) return cached;
+
   const raw = `${call.timestamp || ''}|${call.method || ''}|${call.original_url || ''}`;
-  return 'c_' + raw.replace(/[^a-zA-Z0-9]/g, '_');
+  const key = 'c_' + raw.replace(/[^a-zA-Z0-9]/g, '_');
+  callKeyCache.set(call, key);
+  return key;
 }
 
 export function statusRank(call: CallRecord): number {
@@ -16,10 +39,21 @@ export function statusRank(call: CallRecord): number {
   return call.response?.status ?? -1;
 }
 
-/** Parses call.timestamp for the two call-timestamp sort modes - an unparseable/missing timestamp sorts as if it were epoch 0 rather than throwing or silently reordering unpredictably. */
+/**
+ * Parses call.timestamp for the two call-timestamp sort modes - an unparseable/missing timestamp
+ * sorts as if it were epoch 0 rather than throwing or silently reordering unpredictably.
+ *
+ * Memoized because a comparator runs it O(n log n) times per sort, re-parsing the same handful of
+ * timestamp strings over and over.
+ */
 function callTime(call: CallRecord): number {
-  const ms = new Date(call.timestamp).getTime();
-  return Number.isNaN(ms) ? 0 : ms;
+  const cached = callTimeCache.get(call);
+  if (cached !== undefined) return cached;
+
+  const parsed = new Date(call.timestamp).getTime();
+  const ms = Number.isNaN(parsed) ? 0 : parsed;
+  callTimeCache.set(call, ms);
+  return ms;
 }
 
 /**
@@ -54,9 +88,20 @@ export function sortCalls(calls: readonly CallRecord[], mode: SortMode, customOr
   }
 }
 
-export function matchesSearch(call: CallRecord, query: string): boolean {
-  if (!query) return true;
-  const q = query.toLowerCase();
+/**
+ * The full lowercased text of a call that a search query is tested against - built once per call
+ * and memoized, since it's expensive (it stringifies both header maps and concatenates the full
+ * request/response bodies, which routinely run to hundreds of KB) and every input of it is
+ * immutable.
+ *
+ * Without the memo this ran per call on every keystroke *and* on every 5s poll (the poll hands
+ * `matchingCalls` a new array identity, so the computed re-evaluates), i.e. re-lowercasing tens of
+ * megabytes of body text just to answer the same question again.
+ */
+function searchHaystack(call: CallRecord): string {
+  const cached = searchHaystackCache.get(call);
+  if (cached !== undefined) return cached;
+
   const parts = [
     call.method,
     call.original_url,
@@ -72,7 +117,14 @@ export function matchesSearch(call: CallRecord, query: string): boolean {
     parts.push(JSON.stringify(call.response.headers || {}));
     parts.push(call.response.body || '');
   }
-  return parts.join(' ').toLowerCase().includes(q);
+  const haystack = parts.join(' ').toLowerCase();
+  searchHaystackCache.set(call, haystack);
+  return haystack;
+}
+
+export function matchesSearch(call: CallRecord, query: string): boolean {
+  if (!query) return true;
+  return searchHaystack(call).includes(query.toLowerCase());
 }
 
 /** Calls pushed live over WebSocket that the next poll hasn't confirmed yet, ahead of the polled list - deduped by callKey so a call never renders twice while both copies exist. */
@@ -102,12 +154,19 @@ export function unconfirmedLiveCapturedCalls(live: readonly CapturedCall[], poll
   return live.filter((c) => !known.has(callKey(c.call)));
 }
 
+/** Memoized for the same reason as callKey: `new URL()` is comparatively expensive and this runs per call in the supplier-options tally, the supplier filter, and the group-by-supplier bucketing - all of which re-run on every poll. */
 export function supplierOf(call: CallRecord): string {
+  const cached = supplierCache.get(call);
+  if (cached !== undefined) return cached;
+
+  let supplier: string;
   try {
-    return new URL(call.url).hostname;
+    supplier = new URL(call.url).hostname;
   } catch {
-    return call.url || call.original_url || 'unknown';
+    supplier = call.url || call.original_url || 'unknown';
   }
+  supplierCache.set(call, supplier);
+  return supplier;
 }
 
 /** The URI - everything after the host, e.g. "api/V2/bundles/GetOfferBundles" for "https://host/api/V2/bundles/GetOfferBundles". No leading slash, no query string. Falls back to the raw url when it can't be parsed. */

@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,6 +26,11 @@ import java.util.List;
  * implementation with its own {@code havingValue} (e.g. "redis"), not touching CommentsService or
  * anything upstream of the port. {@code matchIfMissing = true} keeps this the default so existing
  * deployments (no {@code alfred.storage.comments.type} set) behave exactly as before.
+ *
+ * <p>Parsed contents are cached in memory and validated against the file's size/last-modified-time
+ * on every read (same approach and rationale as FileCallLogAdapter). {@code GET /comments?callId=}
+ * filters over findAll(), so every visible call card's comment lookup used to re-parse the whole
+ * file.
  */
 @Component
 @ConditionalOnProperty(prefix = "alfred.storage.comments", name = "type", havingValue = "file", matchIfMissing = true)
@@ -36,6 +42,11 @@ public class JsonFileCommentsStoreAdapter implements CommentsStorePort {
 
     @Value("${COMMENTS_FILE:/appdata/comments.json}")
     private String commentsFile;
+
+    /** Null until the first read/write populates it. Immutable - replaced wholesale, never mutated in place. */
+    private List<Comment> cachedComments;
+    private long cachedFileSize = -1;
+    private long cachedModifiedMillis = -1;
 
     /** Fail fast with a clear message if the comments directory isn't writable, rather than only discovering it on the first POST. */
     @PostConstruct
@@ -78,15 +89,28 @@ public class JsonFileCommentsStoreAdapter implements CommentsStorePort {
         return removed;
     }
 
+    /** Returns a fresh mutable copy - save/deleteById mutate what they get back, and the cached snapshot itself must stay immutable. */
     private List<Comment> readAll() {
         Path path = Path.of(commentsFile);
         if (!Files.exists(path)) {
+            invalidateCache();
             return new ArrayList<>();
         }
+
+        BasicFileAttributes attributes = readAttributes(path);
+        if (cachedComments != null && attributes != null
+                && attributes.size() == cachedFileSize
+                && attributes.lastModifiedTime().toMillis() == cachedModifiedMillis) {
+            return new ArrayList<>(cachedComments);
+        }
+
         try {
             Comment[] parsed = objectMapper.readValue(Files.readString(path), Comment[].class);
-            return new ArrayList<>(List.of(parsed));
+            List<Comment> comments = List.of(parsed);
+            rememberCache(path, comments);
+            return new ArrayList<>(comments);
         } catch (IOException e) {
+            invalidateCache();
             log.warn("Could not read comments file {}, treating as empty: {}", path, e.getMessage());
             return new ArrayList<>();
         }
@@ -99,9 +123,37 @@ public class JsonFileCommentsStoreAdapter implements CommentsStorePort {
                 Files.createDirectories(path.getParent());
             }
             Files.writeString(path, objectMapper.writeValueAsString(comments));
+            rememberCache(path, comments);
         } catch (IOException e) {
+            invalidateCache();
             log.error("Failed to write comments file {}: {}", commentsFile, e.getMessage());
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Caches an immutable snapshot stamped with the file's current size/mtime - or invalidates instead if the file can't be stat'd, so the next read re-parses rather than trusting an unverifiable snapshot. */
+    private void rememberCache(Path path, List<Comment> comments) {
+        BasicFileAttributes attributes = readAttributes(path);
+        if (attributes == null) {
+            invalidateCache();
+            return;
+        }
+        cachedComments = List.copyOf(comments);
+        cachedFileSize = attributes.size();
+        cachedModifiedMillis = attributes.lastModifiedTime().toMillis();
+    }
+
+    private void invalidateCache() {
+        cachedComments = null;
+        cachedFileSize = -1;
+        cachedModifiedMillis = -1;
+    }
+
+    private BasicFileAttributes readAttributes(Path path) {
+        try {
+            return Files.readAttributes(path, BasicFileAttributes.class);
+        } catch (IOException e) {
+            return null;
         }
     }
 }

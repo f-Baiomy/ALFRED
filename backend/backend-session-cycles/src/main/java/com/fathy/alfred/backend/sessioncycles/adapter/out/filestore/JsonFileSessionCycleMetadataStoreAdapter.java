@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -23,6 +24,11 @@ import java.util.Optional;
  * full-read/mutate/full-rewrite shape JsonFileCommentsStoreAdapter already establishes for
  * comments.json. Swapping to Redis/MySQL later means a new SessionCycleMetadataStorePort
  * implementation with its own havingValue, not touching SessionCyclesService.
+ *
+ * <p>Parsed contents are cached in memory and validated against the file's size/last-modified-time
+ * on every read (same approach and rationale as FileCallLogAdapter). findAll() is on a hot path
+ * twice over: SessionCycleCaptureAdapter calls it for every single webhook call to find which
+ * cycles are RECORDING, and the Session Cycles page polls it every 5s.
  */
 @Component
 @ConditionalOnProperty(prefix = "alfred.storage.session-cycles", name = "type", havingValue = "file", matchIfMissing = true)
@@ -34,6 +40,11 @@ public class JsonFileSessionCycleMetadataStoreAdapter implements SessionCycleMet
 
     @Value("${SESSION_CYCLES_FILE:/appdata/session-cycles/session-cycles.json}")
     private String sessionCyclesFile;
+
+    /** Null until the first read/write populates it. Immutable - replaced wholesale, never mutated in place. */
+    private List<SessionCycle> cachedCycles;
+    private long cachedFileSize = -1;
+    private long cachedModifiedMillis = -1;
 
     @PostConstruct
     void checkStorageIsWritable() {
@@ -81,15 +92,28 @@ public class JsonFileSessionCycleMetadataStoreAdapter implements SessionCycleMet
         return removed;
     }
 
+    /** Returns a fresh mutable copy - save/deleteById mutate what they get back, and the cached snapshot itself must stay immutable. */
     private List<SessionCycle> readAll() {
         Path path = Path.of(sessionCyclesFile);
         if (!Files.exists(path)) {
+            invalidateCache();
             return new ArrayList<>();
         }
+
+        BasicFileAttributes attributes = readAttributes(path);
+        if (cachedCycles != null && attributes != null
+                && attributes.size() == cachedFileSize
+                && attributes.lastModifiedTime().toMillis() == cachedModifiedMillis) {
+            return new ArrayList<>(cachedCycles);
+        }
+
         try {
             SessionCycle[] parsed = objectMapper.readValue(Files.readString(path), SessionCycle[].class);
-            return new ArrayList<>(List.of(parsed));
+            List<SessionCycle> cycles = List.of(parsed);
+            rememberCache(path, cycles);
+            return new ArrayList<>(cycles);
         } catch (IOException e) {
+            invalidateCache();
             log.warn("Could not read session-cycles file {}, treating as empty: {}", path, e.getMessage());
             return new ArrayList<>();
         }
@@ -102,9 +126,37 @@ public class JsonFileSessionCycleMetadataStoreAdapter implements SessionCycleMet
                 Files.createDirectories(path.getParent());
             }
             Files.writeString(path, objectMapper.writeValueAsString(cycles));
+            rememberCache(path, cycles);
         } catch (IOException e) {
+            invalidateCache();
             log.error("Failed to write session-cycles file {}: {}", sessionCyclesFile, e.getMessage());
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Caches an immutable snapshot stamped with the file's current size/mtime - or invalidates instead if the file can't be stat'd, so the next read re-parses rather than trusting an unverifiable snapshot. */
+    private void rememberCache(Path path, List<SessionCycle> cycles) {
+        BasicFileAttributes attributes = readAttributes(path);
+        if (attributes == null) {
+            invalidateCache();
+            return;
+        }
+        cachedCycles = List.copyOf(cycles);
+        cachedFileSize = attributes.size();
+        cachedModifiedMillis = attributes.lastModifiedTime().toMillis();
+    }
+
+    private void invalidateCache() {
+        cachedCycles = null;
+        cachedFileSize = -1;
+        cachedModifiedMillis = -1;
+    }
+
+    private BasicFileAttributes readAttributes(Path path) {
+        try {
+            return Files.readAttributes(path, BasicFileAttributes.class);
+        } catch (IOException e) {
+            return null;
         }
     }
 }

@@ -15,9 +15,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -25,6 +28,13 @@ import java.util.UUID;
  * full-rewrite shape as JsonFileCommentsStoreAdapter - chosen (over a JSON-lines log) specifically
  * because captured calls support removing a single entry by id, which needs a full rewrite either
  * way.
+ *
+ * <p>Parsed contents are cached in memory per cycle, keyed by cycle id and validated against each
+ * file's size/last-modified-time on every read (same approach and rationale as
+ * FileCallLogAdapter). This file is read on two hot paths that both used to re-parse it in full:
+ * every webhook call fans out to each RECORDING cycle via SessionCycleCaptureAdapter (read + write
+ * per cycle, per call), and an open cycle-detail page polls its captured calls every 5s - with
+ * whole request/response bodies in every entry.
  */
 @Component
 @ConditionalOnProperty(prefix = "alfred.storage.session-cycles", name = "type", havingValue = "file", matchIfMissing = true)
@@ -36,6 +46,12 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
 
     @Value("${SESSION_CYCLES_DIR:/appdata/session-cycles}")
     private String sessionCyclesDir;
+
+    /** An immutable snapshot of one cycle's file, stamped with the size/mtime it was parsed at. */
+    private record CacheEntry(List<CapturedCall> calls, long size, long modifiedMillis) {}
+
+    /** Per-cycle, since each cycle is its own file. Only ever touched from synchronized methods. */
+    private final Map<String, CacheEntry> cacheByCycle = new HashMap<>();
 
     @PostConstruct
     void checkStorageIsWritable() {
@@ -78,7 +94,9 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
     public synchronized void deleteAllForCycle(String cycleId) {
         try {
             Files.deleteIfExists(fileFor(cycleId));
+            cacheByCycle.remove(cycleId);
         } catch (IOException e) {
+            cacheByCycle.remove(cycleId);
             log.error("Failed to delete captured-calls file for cycle {}: {}", cycleId, e.getMessage());
             throw new UncheckedIOException(e);
         }
@@ -88,15 +106,29 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
         return Path.of(sessionCyclesDir, cycleId + ".json");
     }
 
+    /** Returns a fresh mutable copy - append/removeById mutate what they get back, and the cached snapshot itself must stay immutable. */
     private List<CapturedCall> readAll(String cycleId) {
         Path path = fileFor(cycleId);
         if (!Files.exists(path)) {
+            cacheByCycle.remove(cycleId);
             return new ArrayList<>();
         }
+
+        BasicFileAttributes attributes = readAttributes(path);
+        CacheEntry cached = cacheByCycle.get(cycleId);
+        if (cached != null && attributes != null
+                && attributes.size() == cached.size()
+                && attributes.lastModifiedTime().toMillis() == cached.modifiedMillis()) {
+            return new ArrayList<>(cached.calls());
+        }
+
         try {
             CapturedCall[] parsed = objectMapper.readValue(Files.readString(path), CapturedCall[].class);
-            return new ArrayList<>(List.of(parsed));
+            List<CapturedCall> calls = List.of(parsed);
+            rememberCache(cycleId, path, calls);
+            return new ArrayList<>(calls);
         } catch (IOException e) {
+            cacheByCycle.remove(cycleId);
             log.warn("Could not read captured-calls file {}, treating as empty: {}", path, e.getMessage());
             return new ArrayList<>();
         }
@@ -109,9 +141,29 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
                 Files.createDirectories(path.getParent());
             }
             Files.writeString(path, objectMapper.writeValueAsString(calls));
+            rememberCache(cycleId, path, calls);
         } catch (IOException e) {
+            cacheByCycle.remove(cycleId);
             log.error("Failed to write captured-calls file for cycle {}: {}", cycleId, e.getMessage());
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Caches an immutable snapshot stamped with the file's current size/mtime - or drops the entry entirely if the file can't be stat'd, so the next read re-parses rather than trusting an unverifiable snapshot. */
+    private void rememberCache(String cycleId, Path path, List<CapturedCall> calls) {
+        BasicFileAttributes attributes = readAttributes(path);
+        if (attributes == null) {
+            cacheByCycle.remove(cycleId);
+            return;
+        }
+        cacheByCycle.put(cycleId, new CacheEntry(List.copyOf(calls), attributes.size(), attributes.lastModifiedTime().toMillis()));
+    }
+
+    private BasicFileAttributes readAttributes(Path path) {
+        try {
+            return Files.readAttributes(path, BasicFileAttributes.class);
+        } catch (IOException e) {
+            return null;
         }
     }
 }
