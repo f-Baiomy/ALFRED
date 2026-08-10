@@ -85,6 +85,7 @@ truststore changes live.
       start.sh                  <- Linux/macOS: hosts + compose + cert trust
       start.ps1                   <- Windows: hosts + compose + cert trust
       restart.py                    <- rebuild/restart the stack (or one service)
+      deploy.py                       <- pull latest master, then restart.py
       README.md
 
 ## The three services
@@ -220,6 +221,12 @@ editing backend or frontend code):
     python3 restart.py                 restart every service
     python3 restart.py backend      restart/rebuild just one service
     python3 restart.py frontend backend  restart/rebuild multiple named services
+
+On a server that's already set up (hosts/certs done, just needs the latest
+code), pull and restart in one command:
+
+    python3 deploy.py                 pull latest master, restart every service
+    python3 deploy.py backend      pull latest master, restart/rebuild just one service
 
 ## Change the port
 
