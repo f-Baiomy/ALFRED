@@ -34,7 +34,12 @@ services:
     container_name: backend
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      # BACKEND_PORT lets a deployment whose default 5000 is already taken by something else
+      # (confirmed live: gunicorn already listening on stg-app-210) pick a different host port via
+      # a .env file next to this docker-compose.yml, with zero code changes - the frontend service
+      # below reads the same variable so both stay in sync from this one place. Only the HOST-side
+      # port changes; the container still listens on 5000 internally regardless.
+      - "${BACKEND_PORT:-5000}:5000"
     environment:
       # Recent calls now live here, written by backend itself after each webhook call from
       # the proxy - not read from the proxy's filesystem at all anymore.
@@ -65,6 +70,11 @@ services:
     restart: unless-stopped
     ports:
       - "3000:80"
+    environment:
+      # Read by docker-entrypoint.d/10-generate-env.sh at container start to generate env.js,
+      # which tells the browser which port to reach the backend on - see the backend service's
+      # BACKEND_PORT comment above for why this needs to be configurable at all.
+      - BACKEND_PORT=${BACKEND_PORT:-5000}
     depends_on:
       - backend
     networks:
