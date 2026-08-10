@@ -8,8 +8,21 @@
         <p class="dialog-sub dialog-flagged-note">{{ message }}</p>
       }
 
+      <form class="new-cycle-form" (submit)="$event.preventDefault(); createCycle()">
+        <input
+          type="text"
+          placeholder="New cycle name (e.g. Repro flight bug)"
+          [value]="newCycleName()"
+          (input)="newCycleName.set($any($event.target).value)"
+        />
+        <app-profile-picker [value]="newCycleAssignedTo()" (valueChange)="newCycleAssignedTo.set($event)" />
+        <button type="submit" class="bulk-btn" [disabled]="creatingCycle() || !newCycleName().trim()">
+          {{ creatingCycle() ? 'Creating...' : '+ New Cycle' }}
+        </button>
+      </form>
+
       @if (cycles().length === 0) {
-        <p class="dialog-sub">No session cycles yet - create one from the Session Cycles tab first.</p>
+        <p class="dialog-sub">No other session cycles yet - create one above.</p>
       } @else {
         <div class="copy-cycle-list">
           @for (cycle of cycles(); track cycle.id) {
