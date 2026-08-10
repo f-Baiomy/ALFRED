@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.profiles.application.port.in.DeleteProfileUseCas
 import com.fathy.alfred.backend.profiles.application.port.in.GetProfileUseCase;
 import com.fathy.alfred.backend.profiles.application.port.in.ListProfilesUseCase;
 import com.fathy.alfred.backend.profiles.application.port.in.UpdateProfileUseCase;
+import com.fathy.alfred.backend.profiles.application.port.out.ProfileNotificationPort;
 import com.fathy.alfred.backend.profiles.application.port.out.ProfileStorePort;
 import com.fathy.alfred.backend.profiles.domain.model.NewProfile;
 import com.fathy.alfred.backend.profiles.domain.model.Profile;
@@ -33,9 +34,11 @@ public class ProfilesService implements ListProfilesUseCase, GetProfileUseCase, 
     );
 
     private final ProfileStorePort store;
+    private final ProfileNotificationPort notificationPort;
 
-    public ProfilesService(ProfileStorePort store) {
+    public ProfilesService(ProfileStorePort store, ProfileNotificationPort notificationPort) {
         this.store = store;
+        this.notificationPort = notificationPort;
     }
 
     @Override
@@ -55,7 +58,9 @@ public class ProfilesService implements ListProfilesUseCase, GetProfileUseCase, 
                 ? newProfile.avatar()
                 : randomDefaultAvatar();
         Profile profile = new Profile(id, newProfile.name(), Instant.now().toString(), avatar);
-        return store.save(profile);
+        Profile saved = store.save(profile);
+        notificationPort.notifyProfilesChanged();
+        return saved;
     }
 
     @Override
@@ -67,13 +72,19 @@ public class ProfilesService implements ListProfilesUseCase, GetProfileUseCase, 
                     existing.createdAt(),
                     update.avatar() != null ? update.avatar() : existing.avatar()
             );
-            return store.save(updated);
+            Profile saved = store.save(updated);
+            notificationPort.notifyProfilesChanged();
+            return saved;
         });
     }
 
     @Override
     public boolean deleteById(String id) {
-        return store.deleteById(id);
+        boolean deleted = store.deleteById(id);
+        if (deleted) {
+            notificationPort.notifyProfilesChanged();
+        }
+        return deleted;
     }
 
     /** A genuinely random pick each time, not derived from the id - two profiles created back to back can land on the same or different avatars either way. */

@@ -30,6 +30,11 @@ public final class CallListSupport {
     /**
      * @param source Calls in oldest-first (natural/insertion) order - "oldest"/"newest" are
      *               relative to this order, not to any field on CallRecord.
+     * @param paginationEnabled When false, {@code offset} is ignored and every filtered/sorted
+     *                          item up to {@code limit} is returned in one page (still filtered
+     *                          and sorted) - reproduces the pre-pagination "just give me
+     *                          everything up to the cap" behavior, driven by
+     *                          {@code alfred.calls.pagination-enabled}.
      */
     public static <T> Page<T> apply(
             List<T> source,
@@ -38,7 +43,8 @@ public final class CallListSupport {
             String supplier,
             String sort,
             int offset,
-            int limit
+            int limit,
+            boolean paginationEnabled
     ) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         String supplierFilter = supplier == null ? "" : supplier.trim();
@@ -51,7 +57,7 @@ public final class CallListSupport {
         List<T> ordered = sorted(filtered, sort, toCall);
 
         int total = ordered.size();
-        int from = Math.max(0, Math.min(offset, total));
+        int from = paginationEnabled ? Math.max(0, Math.min(offset, total)) : 0;
         int to = Math.max(from, Math.min(from + Math.max(limit, 0), total));
         return new Page<>(ordered.subList(from, to), total);
     }

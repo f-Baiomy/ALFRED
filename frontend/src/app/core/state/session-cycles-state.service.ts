@@ -1,11 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Observable, Subject, forkJoin, merge, of, timer } from 'rxjs';
-import { catchError, map, switchMap, tap } from 'rxjs/operators';
+import { catchError, map, retry, switchMap, tap } from 'rxjs/operators';
+import { webSocket } from 'rxjs/webSocket';
 import { SessionCycle } from '../models/call.model';
+import { AppConfigService } from '../services/app-config.service';
 import { NewSessionCycleRequest, SessionCycleUpdateRequest, SessionCyclesApiService } from '../services/session-cycles-api.service';
 
-const POLL_INTERVAL_MS = 5000;
 const PAGE_SIZE = 10;
 
 /** Filter-set key standing in for "assignedTo is null" - safe from collision since it's not a valid profile id (a UUID). */
@@ -19,19 +20,27 @@ export interface BulkDeleteResult {
 }
 
 /**
- * Facade for the Session Cycles list tab - polls GET /session-cycles (same 5s pattern
- * CallsStateService uses), derives the search/sort/paginated view of the list, and owns a bulk
- * selection over cycle ids with batch pause/record/delete/reassign actions. Each bulk action fans
- * out to the existing single-cycle endpoints via forkJoin (same pattern the copy-to-cycles dialog
- * already uses) rather than needing a dedicated bulk endpoint on the backend.
+ * Facade for the Session Cycles list tab - fetches GET /session-cycles once on load, again on any
+ * local mutation (create/update/record/pause/delete, via refreshNow()), and again whenever the
+ * backend's /ws/session-cycles socket signals a change from any client - no polling. Derives the
+ * search/sort/paginated view of the list, and owns a bulk selection over cycle ids with batch
+ * pause/record/delete/reassign actions. Each bulk action fans out to the existing single-cycle
+ * endpoints via forkJoin (same pattern the copy-to-cycles dialog already uses) rather than needing
+ * a dedicated bulk endpoint on the backend.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionCyclesStateService {
   private readonly api = inject(SessionCyclesApiService);
+  private readonly config = inject(AppConfigService);
 
   private readonly manualRefresh = new Subject<void>();
 
-  private readonly polled$ = merge(timer(0, POLL_INTERVAL_MS), this.manualRefresh).pipe(
+  /** Emits (with no meaningful payload) whenever any client's cycle create/update/record/pause/delete happened - the trigger for a re-fetch, not the data itself. */
+  private readonly changed$ = webSocket<unknown>(this.config.backendUrl.replace(/^http/, 'ws') + '/ws/session-cycles').pipe(
+    retry({ delay: () => timer(3000) })
+  );
+
+  private readonly polled$ = merge(timer(0), this.manualRefresh, this.changed$).pipe(
     switchMap(() => this.api.list().pipe(catchError(() => of<SessionCycle[]>([]))))
   );
 

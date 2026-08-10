@@ -25,6 +25,10 @@ public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
     @Value("${alfred.calls.max-limit:200}")
     private int maxLimit;
 
+    /** See CallListSupport.apply's paginationEnabled param - disabling reproduces the pre-pagination "everything up to maxLimit in one response" behavior. */
+    @Value("${alfred.calls.pagination-enabled:true}")
+    private boolean paginationEnabled;
+
     public CallsService(CallLogPort callLogPort, CallNotificationPort notificationPort, List<NewCallObserverPort> observers) {
         this.callLogPort = callLogPort;
         this.notificationPort = notificationPort;
@@ -34,11 +38,15 @@ public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
     @Override
     public CallsPage getCalls(CallsQuery query) {
         int clampedOffset = Math.max(0, query.offset());
-        int clampedLimit = Math.max(1, Math.min(query.limit(), maxLimit));
+        // Disabled pagination means "everything up to maxLimit in one response", not "whatever
+        // small page size the frontend's Load-more happens to be requesting right now" - using
+        // query.limit() here would make every Load-more click re-fetch and re-append the exact
+        // same first N items forever, since offset is also ignored below.
+        int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
         CallListSupport.Page<CallRecord> page = CallListSupport.apply(
                 callLogPort.readAll(), Function.identity(),
-                query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit);
+                query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
         return new CallsPage(page.items(), page.total());
     }
 

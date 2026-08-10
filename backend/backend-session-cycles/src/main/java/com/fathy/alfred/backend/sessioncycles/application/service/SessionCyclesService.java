@@ -15,6 +15,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecording
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
@@ -49,14 +50,20 @@ public class SessionCyclesService implements
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
+    private final SessionCycleNotificationPort notificationPort;
 
     /** Same property + same clamp CallsService applies to GET /calls, reused here so a page of captured calls can't be forced unbounded either. */
     @Value("${alfred.calls.max-limit:200}")
     private int maxLimit;
 
-    public SessionCyclesService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore) {
+    /** See CallListSupport.apply's paginationEnabled param. */
+    @Value("${alfred.calls.pagination-enabled:true}")
+    private boolean paginationEnabled;
+
+    public SessionCyclesService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore, SessionCycleNotificationPort notificationPort) {
         this.metadataStore = metadataStore;
         this.capturedCallsStore = capturedCallsStore;
+        this.notificationPort = notificationPort;
     }
 
     @Override
@@ -68,7 +75,9 @@ public class SessionCyclesService implements
                 newSessionCycle.assignedTo(),
                 SessionCycleStatus.PAUSED
         );
-        return metadataStore.save(cycle);
+        SessionCycle saved = metadataStore.save(cycle);
+        notificationPort.notifySessionCyclesChanged();
+        return saved;
     }
 
     @Override
@@ -96,7 +105,9 @@ public class SessionCyclesService implements
                     update.assignedTo(),
                     existing.status()
             );
-            return metadataStore.save(updated);
+            SessionCycle saved = metadataStore.save(updated);
+            notificationPort.notifySessionCyclesChanged();
+            return saved;
         });
     }
 
@@ -118,7 +129,9 @@ public class SessionCyclesService implements
             SessionCycle updated = new SessionCycle(
                     existing.id(), existing.name(), existing.createdAt(), existing.assignedTo(), status
             );
-            return metadataStore.save(updated);
+            SessionCycle saved = metadataStore.save(updated);
+            notificationPort.notifySessionCyclesChanged();
+            return saved;
         });
     }
 
@@ -133,6 +146,7 @@ public class SessionCyclesService implements
         }
         metadataStore.deleteById(id);
         capturedCallsStore.deleteAllForCycle(id);
+        notificationPort.notifySessionCyclesChanged();
         return DeleteOutcome.DELETED;
     }
 
@@ -141,11 +155,13 @@ public class SessionCyclesService implements
     public Optional<CapturedCallsPage> listCalls(String cycleId, CallsQuery query) {
         return metadataStore.findById(cycleId).map(cycle -> {
             int clampedOffset = Math.max(0, query.offset());
-            int clampedLimit = Math.max(1, Math.min(query.limit(), maxLimit));
+            // Disabled pagination means "everything up to maxLimit in one response" - see
+            // CallsService.getCalls for why query.limit() must not be used here in that case.
+            int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
             CallListSupport.Page<CapturedCall> page = CallListSupport.apply(
                     capturedCallsStore.findAllByCycle(cycleId), CapturedCall::call,
-                    query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit);
+                    query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
             return new CapturedCallsPage(page.items(), page.total());
         });
     }

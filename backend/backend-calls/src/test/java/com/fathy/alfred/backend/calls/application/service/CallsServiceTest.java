@@ -35,15 +35,26 @@ class CallsServiceTest {
     private static CallsService serviceWith(CallLogPort port, CallNotificationPort notificationPort, List<NewCallObserverPort> observers) {
         CallsService service = new CallsService(port, notificationPort, observers);
         setMaxLimit(service, TEST_MAX_LIMIT);
+        setPaginationEnabled(service, true);
         return service;
     }
 
-    /** maxLimit is @Value-injected by Spring in production; unit tests construct CallsService directly, so it's set the same way FileCallLogAdapterTest sets its own @Value fields. */
+    /** maxLimit/paginationEnabled are @Value-injected by Spring in production; unit tests construct CallsService directly, so they're set the same way FileCallLogAdapterTest sets its own @Value fields. */
     private static void setMaxLimit(CallsService service, int maxLimit) {
         try {
             Field field = CallsService.class.getDeclaredField("maxLimit");
             field.setAccessible(true);
             field.setInt(service, maxLimit);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void setPaginationEnabled(CallsService service, boolean paginationEnabled) {
+        try {
+            Field field = CallsService.class.getDeclaredField("paginationEnabled");
+            field.setAccessible(true);
+            field.setBoolean(service, paginationEnabled);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
         }
@@ -108,6 +119,19 @@ class CallsServiceTest {
 
         assertThat(result.calls()).hasSize(TEST_MAX_LIMIT);
         assertThat(result.total()).isEqualTo(TEST_MAX_LIMIT + 50);
+    }
+
+    @Test
+    void disabledPaginationIgnoresOffsetAndReturnsEverythingUpToTheLimit() {
+        CallLogPort port = mock(CallLogPort.class);
+        when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
+        CallsService service = serviceWith(port);
+        setPaginationEnabled(service, false);
+
+        CallsPage result = service.getCalls(query(2, 50));
+
+        assertThat(result.calls()).extracting(CallRecord::url).containsExactly("c", "b", "a");
+        assertThat(result.total()).isEqualTo(3);
     }
 
     @Test

@@ -21,12 +21,14 @@ cd frontend && npm test && npm run build   # Karma/Jasmine; ng build
 - **`backend` is a hexagonal-per-vertical-slice Maven reactor** — one module per feature, enforced by Maven module boundaries (compile error) and an ArchUnit suite (`backend-architecture-test`). New features must follow this shape — see docs/architecture.md first.
 - **Persistence is flat files, deliberately swappable** per slice via `@ConditionalOnProperty`, all in `/appdata`, each with an in-memory cache validated by file size+mtime — don't bypass the cache helpers when editing an adapter.
 - **The proxy persists nothing**; backend is the sole system of record. Routing correctness (SNI vs. Host header) lives in `proxy/log_and_route.py` — see docs/supplier-integrations.md before touching it.
-- **Frontend is standalone Angular + signals, no NgModules/NgRx.** Several components are shared between Live Calls and Session Cycles via DI tokens, not forked — check docs/architecture.md before duplicating one.
+- **Frontend is standalone Angular + signals, no NgModules/NgRx.** Several components are shared via DI tokens, not forked — check docs/frontend-architecture.md before duplicating one.
 - **Exports never truncate/summarize call data** (.md/.json/.html/cURL) — hard requirement, guarded by tests.
-- **`RECENT_CALLS.log` is a capped ring buffer; session-cycle captured-calls files are not** — don't assume the same eviction applies to both.
+- **`RECENT_CALLS.log` is a capped ring buffer; session-cycle captured-calls files are not.**
+- **No polling anywhere** — every list is fetch-on-demand, driven by a WebSocket signaling "something changed." New list features follow this shape, not a `timer()`.
 - Docker cannot touch the host — hosts-file/cert-store changes only happen via `start.py`/`start.sh`/`start.ps1`, never in-container.
 
 ## Detailed docs (read only when relevant)
-- docs/architecture.md — backend module/slice design, persistence/caching, frontend state & component-sharing patterns
+- docs/architecture.md — backend module/slice design, persistence/caching, pagination
+- docs/frontend-architecture.md — frontend state, WebSocket-driven fetch-on-demand, component-sharing patterns
 - docs/supplier-integrations.md — proxy routing, cert trust, host-side setup scripts
 - docs/testing.md — test strategy per layer, ArchUnit enforcement, no-truncation guard tests

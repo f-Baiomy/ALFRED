@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
@@ -29,17 +30,22 @@ class SessionCyclesServiceTest {
 
     private final SessionCycleMetadataStorePort metadataStore = mock(SessionCycleMetadataStorePort.class);
     private final CapturedCallsStorePort capturedCallsStore = mock(CapturedCallsStorePort.class);
-    private final SessionCyclesService service = newService(metadataStore, capturedCallsStore);
+    private final SessionCycleNotificationPort notificationPort = mock(SessionCycleNotificationPort.class);
+    private final SessionCyclesService service = newService(metadataStore, capturedCallsStore, notificationPort);
 
     private static final CallsQuery DEFAULT_QUERY = new CallsQuery("", "", "oldest", 0, 10);
 
-    /** maxLimit is @Value-injected by Spring in production; unit tests construct SessionCyclesService directly, so it's set the same way CallsServiceTest sets its own @Value field. */
-    private static SessionCyclesService newService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore) {
-        SessionCyclesService service = new SessionCyclesService(metadataStore, capturedCallsStore);
+    /** maxLimit/paginationEnabled are @Value-injected by Spring in production; unit tests construct SessionCyclesService directly, so they're set the same way CallsServiceTest sets its own @Value fields. */
+    private static SessionCyclesService newService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore, SessionCycleNotificationPort notificationPort) {
+        SessionCyclesService service = new SessionCyclesService(metadataStore, capturedCallsStore, notificationPort);
         try {
-            Field field = SessionCyclesService.class.getDeclaredField("maxLimit");
-            field.setAccessible(true);
-            field.setInt(service, 200);
+            Field maxLimitField = SessionCyclesService.class.getDeclaredField("maxLimit");
+            maxLimitField.setAccessible(true);
+            maxLimitField.setInt(service, 200);
+
+            Field paginationEnabledField = SessionCyclesService.class.getDeclaredField("paginationEnabled");
+            paginationEnabledField.setAccessible(true);
+            paginationEnabledField.setBoolean(service, true);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
         }
@@ -61,6 +67,7 @@ class SessionCyclesServiceTest {
         assertThat(created.assignedTo()).isEqualTo("profile-1");
         assertThat(created.status()).isEqualTo(SessionCycleStatus.PAUSED);
         verify(metadataStore).save(created);
+        verify(notificationPort).notifySessionCyclesChanged();
     }
 
     @Test
@@ -74,6 +81,7 @@ class SessionCyclesServiceTest {
         assertThat(result).isPresent();
         assertThat(result.get().name()).isEqualTo("Old name");
         assertThat(result.get().assignedTo()).isEqualTo("new-assignee");
+        verify(notificationPort).notifySessionCyclesChanged();
     }
 
     @Test
@@ -94,6 +102,7 @@ class SessionCyclesServiceTest {
         when(metadataStore.findById("missing")).thenReturn(Optional.empty());
 
         assertThat(service.update("missing", new SessionCycleUpdate("x", null))).isEmpty();
+        verify(notificationPort, never()).notifySessionCyclesChanged();
     }
 
     @Test
@@ -104,6 +113,7 @@ class SessionCyclesServiceTest {
         Optional<SessionCycle> result = service.startRecording("c1");
 
         assertThat(result).get().extracting(SessionCycle::status).isEqualTo(SessionCycleStatus.RECORDING);
+        verify(notificationPort).notifySessionCyclesChanged();
     }
 
     @Test
@@ -114,6 +124,7 @@ class SessionCyclesServiceTest {
 
         assertThat(result).get().extracting(SessionCycle::status).isEqualTo(SessionCycleStatus.RECORDING);
         verify(metadataStore, never()).save(any());
+        verify(notificationPort, never()).notifySessionCyclesChanged();
     }
 
     @Test
@@ -124,6 +135,7 @@ class SessionCyclesServiceTest {
         Optional<SessionCycle> result = service.pauseRecording("c1");
 
         assertThat(result).get().extracting(SessionCycle::status).isEqualTo(SessionCycleStatus.PAUSED);
+        verify(notificationPort).notifySessionCyclesChanged();
     }
 
     @Test
@@ -157,6 +169,7 @@ class SessionCyclesServiceTest {
         assertThat(service.delete("c1")).isEqualTo(DeleteOutcome.DELETED);
         verify(metadataStore).deleteById("c1");
         verify(capturedCallsStore).deleteAllForCycle("c1");
+        verify(notificationPort).notifySessionCyclesChanged();
     }
 
     @Test
@@ -190,6 +203,24 @@ class SessionCyclesServiceTest {
 
         assertThat(result).isPresent();
         assertThat(result.get().calls()).containsExactly(second, first);
+    }
+
+    @Test
+    void disabledPaginationIgnoresOffsetAndReturnsEverythingUpToTheLimit() throws ReflectiveOperationException {
+        Field paginationEnabledField = SessionCyclesService.class.getDeclaredField("paginationEnabled");
+        paginationEnabledField.setAccessible(true);
+        paginationEnabledField.setBoolean(service, false);
+
+        CapturedCall first = captured(call("t1"));
+        CapturedCall second = captured(call("t2"));
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(first, second));
+
+        var result = service.listCalls("c1", new CallsQuery("", "", "oldest", 1, 10));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().calls()).containsExactly(first, second);
+        assertThat(result.get().total()).isEqualTo(2);
     }
 
     @Test
