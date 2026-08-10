@@ -25,9 +25,11 @@
   } @else if (state.mainListCalls().length === 0) {
     <div class="empty">No calls match "{{ state.searchQuery() }}".</div>
   } @else {
-    @for (call of state.visibleCalls(); track trackByCallKey(call)) {
-      <app-call-card [call]="call" />
-    }
+    <div cdkDropList [cdkDropListDisabled]="!dragEnabled()" (cdkDropListDropped)="onDrop($event)">
+      @for (call of state.visibleCalls(); track trackByCallKey(call)) {
+        <app-call-card [call]="call" [dragHandle]="dragEnabled()" cdkDrag [cdkDragDisabled]="!dragEnabled()" />
+      }
+    </div>
     @if (state.remainingCount() > 0) {
       <button type="button" class="load-more-btn" (click)="loadMore()">
         Load {{ state.loadMorePageSize < state.remainingCount() ? state.loadMorePageSize : state.remainingCount() }} more

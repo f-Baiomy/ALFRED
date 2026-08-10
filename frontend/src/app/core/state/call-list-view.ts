@@ -56,6 +56,9 @@ export interface CallListView {
 export interface CallListViewOptions {
   /** Defaults to 'newest' (the dashboard's convention) - a session-cycle detail view opts into 'oldest-call' instead, since a repro's calls read better sorted by when they actually happened (call.timestamp), not capture/received order. */
   readonly defaultSortMode?: SortMode;
+  /** Only a session-cycle detail view ever passes this (see CALL_REORDER_STATE) - the dashboard
+   * never reaches sortMode 'custom' at all, so this being absent there is harmless. */
+  readonly customOrder?: Signal<readonly string[]>;
 }
 
 /**
@@ -111,7 +114,7 @@ export function createCallListView(
   const mainListCalls = computed(() => {
     const pinned = pinnedIds();
     const withoutPinned = matchingCalls().filter((c) => !pinned.has(callKey(c)));
-    return sortCalls(withoutPinned, sortMode());
+    return sortCalls(withoutPinned, sortMode(), options.customOrder?.() ?? []);
   });
 
   const effectiveVisibleCount = computed(() => Math.max(PAGE_SIZE, Math.min(visibleCount(), mainListCalls().length)));

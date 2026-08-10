@@ -1,5 +1,8 @@
 <div class="call" [class.pinned]="pinned()" [class.selected]="isSelected()">
   <div class="call-top">
+    @if (dragHandle()) {
+      <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-label="Drag to reorder">&#9776;</span>
+    }
     <label class="call-select-wrap" title="Select for bulk export">
       <input
         type="checkbox"

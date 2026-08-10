@@ -23,7 +23,7 @@
 
     <app-select-picker [options]="limitOptions" [value]="state.limit().toString()" (valueChange)="onLimitChange($event)" />
 
-    <app-select-picker [options]="sortOptions" [value]="state.sortMode()" (valueChange)="onSortChange($event)" />
+    <app-select-picker [options]="sortOptions()" [value]="state.sortMode()" (valueChange)="onSortChange($event)" />
 
     <app-select-picker [options]="supplierOptions()" [value]="state.supplierFilter()" (valueChange)="onSupplierChange($event)" />
 

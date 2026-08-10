@@ -111,6 +111,34 @@ describe('sortCalls', () => {
   it('leaves order untouched for newest', () => {
     expect(sortCalls(calls, 'newest')).toEqual(calls);
   });
+
+  // callKey is derived from timestamp+method+original_url (not duration/status), so these two
+  // tests need distinct timestamps per call - the shared `calls` fixture above deliberately
+  // varies only duration_ms/response to test those sort modes, so all three share one callKey.
+  const distinctCalls = [
+    makeCall({ timestamp: '2026-01-01T00:00:01.000Z' }),
+    makeCall({ timestamp: '2026-01-01T00:00:02.000Z' }),
+    makeCall({ timestamp: '2026-01-01T00:00:03.000Z' }),
+  ];
+
+  it('orders calls by a custom callKey arrangement, ignoring their list order', () => {
+    const [a, b, c] = distinctCalls;
+    const customOrder = [callKey(c), callKey(a), callKey(b)];
+
+    expect(sortCalls(distinctCalls, 'custom', customOrder)).toEqual([c, a, b]);
+  });
+
+  it('places a call not present in the custom order after every ranked call, in its prior relative order', () => {
+    const [a, b, c] = distinctCalls;
+    const customOrder = [callKey(b)];
+
+    expect(sortCalls(distinctCalls, 'custom', customOrder)).toEqual([b, a, c]);
+  });
+
+  it('leaves order untouched for custom with no arrangement saved yet', () => {
+    expect(sortCalls(distinctCalls, 'custom')).toEqual(distinctCalls);
+    expect(sortCalls(distinctCalls, 'custom', [])).toEqual(distinctCalls);
+  });
 });
 
 describe('matchesSearch', () => {

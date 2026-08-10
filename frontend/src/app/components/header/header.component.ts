@@ -1,5 +1,5 @@
 import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, input, viewChild } from '@angular/core';
-import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
+import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/call-selection.tokens';
 import { SortMode } from '../../core/models/call.model';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 
@@ -40,12 +40,17 @@ const SORT_OPTIONS: readonly SelectOption[] = [
 })
 export class HeaderComponent implements AfterViewInit, OnDestroy {
   readonly state = inject(CALL_LIST_CONTROLS_STATE);
+  /** Non-null only on a session-cycle detail page - drives whether "Custom order" appears in the
+   * sort dropdown at all. The dashboard never binds this token, so it never sees that option. */
+  private readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
 
   readonly title = input('ALFRED');
   readonly subtitle = input('Live feed of every call Alfred intercepted, via backend');
 
   readonly limitOptions = LIMIT_OPTIONS;
-  readonly sortOptions = SORT_OPTIONS;
+  readonly sortOptions = computed<readonly SelectOption[]>(() =>
+    this.reorderState ? [...SORT_OPTIONS, { value: 'custom', label: 'Custom order' }] : SORT_OPTIONS
+  );
 
   readonly supplierOptions = computed<SelectOption[]>(() => [
     { value: '', label: `All suppliers (${this.state.calls().length})` },

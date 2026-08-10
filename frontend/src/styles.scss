@@ -479,6 +479,55 @@ main {
   margin-bottom: 0.5rem;
 }
 
+// ---------- Drag-and-drop reordering (session-cycle detail only - see CALL_REORDER_STATE) ----------
+
+.drag-handle {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--text-faint);
+  font-size: 0.95rem;
+  cursor: grab;
+  transition: color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    color: var(--purple-light);
+    background: color-mix(in srgb, var(--purple) 14%, transparent);
+  }
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+// The card actively being dragged - CDK moves the real element with the pointer, so this just
+// needs to look "picked up" (elevated, slightly tilted) rather than blending into the rest of
+// the list.
+.cdk-drag-preview {
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+  border-radius: 12px;
+  opacity: 0.95;
+  transform: rotate(-1deg);
+}
+
+// Where the dragged card will land - a translucent outline in place of the card's own content
+// (CDK renders this with the same box's dimensions automatically), rather than a hard gap.
+.cdk-drag-placeholder {
+  opacity: 0.25;
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  transition: none;
+}
+
+// Every other card sliding into its new position once the drop settles.
+.cdk-drop-list-dragging .call:not(.cdk-drag-placeholder) {
+  transition: transform 0.2s cubic-bezier(0, 0, 0.2, 1);
+}
+
 .badge {
   font-size: 0.72rem;
   font-weight: 700;

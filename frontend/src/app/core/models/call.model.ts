@@ -19,7 +19,9 @@ export interface CallRecord {
   readonly error?: string;
 }
 
-export type SortMode = 'newest' | 'oldest' | 'newest-call' | 'oldest-call' | 'slowest' | 'fastest' | 'status';
+/** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle
+ * detail page (see CALL_REORDER_STATE), never on the main dashboard. */
+export type SortMode = 'newest' | 'oldest' | 'newest-call' | 'oldest-call' | 'slowest' | 'fastest' | 'status' | 'custom';
 
 export type JsonViewMode = 'flat' | 'tree';
 

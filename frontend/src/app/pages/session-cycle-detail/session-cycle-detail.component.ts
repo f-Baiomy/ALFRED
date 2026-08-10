@@ -13,6 +13,7 @@ import {
   BULK_SELECTION_STATE,
   CALL_LIST_CONTROLS_STATE,
   CALL_REMOVAL_STATE,
+  CALL_REORDER_STATE,
   CALL_SELECTION_STATE,
 } from '../../core/state/call-selection.tokens';
 import { SessionCycleDetailStateService } from '../../core/state/session-cycle-detail-state.service';
@@ -36,6 +37,7 @@ import { SessionCyclesStateService } from '../../core/state/session-cycles-state
     { provide: BULK_SELECTION_STATE, useExisting: SessionCycleDetailStateService },
     { provide: CALL_LIST_CONTROLS_STATE, useExisting: SessionCycleDetailStateService },
     { provide: CALL_REMOVAL_STATE, useExisting: SessionCycleDetailStateService },
+    { provide: CALL_REORDER_STATE, useExisting: SessionCycleDetailStateService },
   ],
   templateUrl: './session-cycle-detail.component.html',
 })

@@ -8,7 +8,7 @@ import { CallEvent, CallRecord, CapturedCall, SortMode } from '../models/call.mo
 import { AppConfigService } from '../services/app-config.service';
 import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
-import { BulkSelectionState, CallListControlsState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
+import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, createCallListView } from './call-list-view';
 import { callKey, mergeLiveCapturedCalls, sortCalls, unconfirmedLiveCapturedCalls } from '../../shared/utils/call-utils';
 
@@ -22,7 +22,7 @@ const POLL_INTERVAL_MS = 5000;
  * createCallListView factory), scoped to one cycle's captured calls.
  */
 @Injectable()
-export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState {
+export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState, CallReorderState {
   private readonly api = inject(SessionCyclesApiService);
   private readonly config = inject(AppConfigService);
   private readonly route = inject(ActivatedRoute);
@@ -64,9 +64,17 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   private dragSelectValue: boolean | null = null;
 
+  /** Manually drag-and-drop arranged order (callKeys), persisted to localStorage per cycle so it
+   * survives a reload - see CALL_REORDER_STATE. Only ever populated on this page; the dashboard
+   * has no equivalent. */
+  readonly customOrder = signal<readonly string[]>([]);
+
+  readonly dragEnabled = computed(() => !this.groupBySupplier());
+
   constructor() {
     this.view = createCallListView(this.calls, computed(() => new Set(this.pinService.pinned().keys())), {
       defaultSortMode: 'oldest-call',
+      customOrder: this.customOrder,
     });
 
     effect(
@@ -79,7 +87,64 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       { allowSignalWrites: true }
     );
 
+    // Reloads the saved arrangement (if any) whenever the open cycle changes, including the
+    // first time it resolves from '' - a different cycle's custom order must never leak into
+    // this one, and switching back to a cycle visited earlier this session should restore it.
+    // Also switches sortMode to 'custom' when a saved arrangement exists, or the reload just
+    // silently drops back to the default sort with the arrangement never visibly reapplying
+    // until the user manually reselects "Custom order" (confirmed live).
+    effect(
+      () => {
+        const id = this.cycleId();
+        const saved = id ? this.loadCustomOrder(id) : [];
+        this.customOrder.set(saved);
+        if (saved.length > 0) {
+          this.setSortMode('custom');
+        }
+      },
+      { allowSignalWrites: true }
+    );
+
     this.connectLiveUpdates();
+  }
+
+  private customOrderStorageKey(cycleId: string): string {
+    return `alfred-custom-order-cycle-${cycleId}`;
+  }
+
+  private loadCustomOrder(cycleId: string): readonly string[] {
+    try {
+      const raw = localStorage.getItem(this.customOrderStorageKey(cycleId));
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  // ---- CallReorderState ----
+
+  /** CDK's drop handler already produces the visible list's new order (via moveItemInArray) -
+   * this just also carries forward any call not currently visible (paginated out, or filtered by
+   * search/supplier) after whatever's now-ordered, so a "Load more"/filter change afterward
+   * doesn't lose track of calls that were never part of this particular drag. */
+  reorder(orderedCalls: readonly CallRecord[]): void {
+    const id = this.cycleId();
+    if (!id) return;
+
+    const orderedKeys = orderedCalls.map(callKey);
+    const orderedSet = new Set(orderedKeys);
+    const rest = this.view.mainListCalls().map(callKey).filter((key) => !orderedSet.has(key));
+    const nextOrder = [...orderedKeys, ...rest];
+
+    this.customOrder.set(nextOrder);
+    this.setSortMode('custom');
+    try {
+      localStorage.setItem(this.customOrderStorageKey(id), JSON.stringify(nextOrder));
+    } catch {
+      // Storage can fail (quota, private browsing) - the arrangement still applies for this
+      // session via the signal, it just won't survive a reload. Not worth surfacing an error for.
+    }
   }
 
   private connectLiveUpdates(): void {
@@ -235,7 +300,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   selectedCalls(): readonly CallRecord[] {
     const ids = this.selectedIds();
     if (ids.size === 0) return [];
-    return sortCalls(this.calls(), this.view.sortMode()).filter((call) => ids.has(callKey(call)));
+    return sortCalls(this.calls(), this.view.sortMode(), this.customOrder()).filter((call) => ids.has(callKey(call)));
   }
 
   selectAll(): void {

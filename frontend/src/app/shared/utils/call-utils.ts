@@ -22,7 +22,13 @@ function callTime(call: CallRecord): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-export function sortCalls(calls: readonly CallRecord[], mode: SortMode): CallRecord[] {
+/**
+ * @param customOrder Only meaningful for mode 'custom' - callKeys in the manually drag-and-drop
+ * arranged order (see CALL_REORDER_STATE). A call not present in it (e.g. one that arrived after
+ * the arrangement was last saved) sorts after every ranked call, in its otherwise-current relative
+ * order - new arrivals show up at the end rather than disrupting what's already been arranged.
+ */
+export function sortCalls(calls: readonly CallRecord[], mode: SortMode, customOrder: readonly string[] = []): CallRecord[] {
   const arr = [...calls];
   switch (mode) {
     case 'oldest':
@@ -38,6 +44,11 @@ export function sortCalls(calls: readonly CallRecord[], mode: SortMode): CallRec
       return arr.sort((a, b) => (a.duration_ms ?? Infinity) - (b.duration_ms ?? Infinity));
     case 'status':
       return arr.sort((a, b) => statusRank(b) - statusRank(a));
+    case 'custom': {
+      if (customOrder.length === 0) return arr;
+      const rank = new Map(customOrder.map((key, i) => [key, i]));
+      return arr.sort((a, b) => (rank.get(callKey(a)) ?? Infinity) - (rank.get(callKey(b)) ?? Infinity));
+    }
     default:
       return arr;
   }

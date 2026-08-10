@@ -1,4 +1,5 @@
 import { Component, HostListener, computed, inject, input } from '@angular/core';
+import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { CallRecord } from '../../core/models/call.model';
 import {
   callKey,
@@ -13,13 +14,13 @@ import { ConfirmDialogService } from '../../core/services/confirm-dialog.service
 
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
-  'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel';
+  'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel, .drag-handle';
 
 /** One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the four Headers/Body panels. */
 @Component({
   selector: 'app-call-card',
   standalone: true,
-  imports: [CallActionsComponent, JsonPanelComponent],
+  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle],
   templateUrl: './call-card.component.html',
 })
 export class CallCardComponent {
@@ -30,6 +31,10 @@ export class CallCardComponent {
 
   readonly call = input.required<CallRecord>();
   readonly pinned = input<boolean>(false);
+  /** True only when the parent CallListComponent has cdkDrag enabled on this card's host element
+   * (a session-cycle detail page, ungrouped, with CALL_REORDER_STATE bound) - drives whether the
+   * drag-handle grip icon renders at all. The dashboard never sets this. */
+  readonly dragHandle = input<boolean>(false);
 
   readonly idBase = computed(() => callKey(this.call()));
   readonly methodClass = computed(() => methodClassOf(this.call().method));

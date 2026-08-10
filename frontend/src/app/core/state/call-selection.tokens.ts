@@ -39,6 +39,21 @@ export interface CallRemovalState {
 export const CALL_REMOVAL_STATE = new InjectionToken<CallRemovalState>('CALL_REMOVAL_STATE');
 
 /**
+ * Optional per-list drag-and-drop reordering surface, same "only some pages provide it" shape as
+ * CallRemovalState above. Only SessionCycleDetailComponent binds this token - the dashboard never
+ * does, so CallListComponent/CallCardComponent never render a drag handle or enable CDK's
+ * cdkDropList/cdkDrag there, and HeaderComponent never offers the "Custom order" sort option
+ * there either. `dragEnabled` is false while grouped by supplier, since reordering across group
+ * boundaries has no defined meaning.
+ */
+export interface CallReorderState {
+  readonly dragEnabled: Signal<boolean>;
+  reorder(orderedCalls: readonly CallRecord[]): void;
+}
+
+export const CALL_REORDER_STATE = new InjectionToken<CallReorderState>('CALL_REORDER_STATE');
+
+/**
  * The search/sort/filter/group/paginate/stats surface HeaderComponent, StatsBarComponent, and
  * CallListComponent need - the entire `CallListView` shape plus `error`/`refreshNow`, which are
  * specific to how each concrete state fetches its raw calls rather than derived from them.
