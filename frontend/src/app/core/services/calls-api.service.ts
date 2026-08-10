@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { CallRecord } from '../models/call.model';
 import { AppConfigService } from './app-config.service';
 
-/** Thin HTTP wrapper around pennyworth's GET /calls - no state, no polling, just the request. */
+/** Thin HTTP wrapper around backend's GET /calls - no state, no polling, just the request. */
 @Injectable({ providedIn: 'root' })
 export class CallsApiService {
   private readonly http = inject(HttpClient);

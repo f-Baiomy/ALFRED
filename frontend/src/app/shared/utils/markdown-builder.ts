@@ -158,7 +158,7 @@ export function buildExportMarkdown(call: CallRecord, form: ExportFormData, comm
     lines.push(codeBlock('Body', call.response.body, commentsForBlock(comments, 'response-body')));
   }
   lines.push('', '---', '');
-  lines.push(`*Exported from Alfred/Manor*`);
+  lines.push(`*Exported from Alfred/Frontend*`);
 
   return lines.join('\n');
 }
@@ -267,7 +267,7 @@ export function buildBulkExportMarkdown(
 
   lines.push('---', '');
   lines.push(
-    `*Exported from Alfred/Manor — ${calls.length} call${calls.length === 1 ? '' : 's'}, ${totalFlagged} flagged issue${totalFlagged === 1 ? '' : 's'} total*`
+    `*Exported from Alfred/Frontend — ${calls.length} call${calls.length === 1 ? '' : 's'}, ${totalFlagged} flagged issue${totalFlagged === 1 ? '' : 's'} total*`
   );
 
   return lines.join('\n');

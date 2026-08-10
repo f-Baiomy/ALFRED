@@ -73,7 +73,7 @@ foreach ($line in Get-Content $suppliersFile) {
 # ---- Step 2: start all services (proxy, backend, frontend) ----
 
 Write-Host ""
-Write-Host "=== Step 2: docker compose up (alfred, pennyworth, manor) ==="
+Write-Host "=== Step 2: docker compose up (proxy, backend, frontend) ==="
 Set-Location $scriptDir
 docker compose up -d --build
 
@@ -86,7 +86,7 @@ while (-not (Test-Path $certFile) -and $attempts -lt 15) {
 }
 
 if (-not (Test-Path $certFile)) {
-    Write-Host "Certificate not found at $certFile after waiting - check 'docker compose logs alfred'."
+    Write-Host "Certificate not found at $certFile after waiting - check 'docker compose logs proxy'."
     exit 1
 }
 

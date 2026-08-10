@@ -11,19 +11,19 @@
     <relativePath/>
   </parent>
 
-  <groupId>com.alfred</groupId>
-  <artifactId>pennyworth-parent</artifactId>
+  <groupId>com.fathy.alfred</groupId>
+  <artifactId>backend-parent</artifactId>
   <version>1.0.0</version>
   <packaging>pom</packaging>
-  <name>pennyworth-parent</name>
+  <name>backend-parent</name>
   <description>
     Alfred's backend - serves proxy/logs/calls.log over a small HTTP API.
-    One Maven module per vertical slice (pennyworth-calls, pennyworth-comments,
-    pennyworth-export), each internally hexagonal (domain/application/adapter
+    One Maven module per vertical slice (backend-calls, backend-comments,
+    backend-export), each internally hexagonal (domain/application/adapter
     packages). A slice can only be reached through its own module boundary -
     there is no way to accidentally import another slice's internals, since
     Maven simply won't put it on the classpath unless declared as a
-    dependency. pennyworth-architecture-test enforces the domain/application/
+    dependency. backend-architecture-test enforces the domain/application/
     adapter dependency direction within each slice via ArchUnit.
   </description>
 
@@ -33,14 +33,14 @@
   </properties>
 
   <modules>
-    <module>pennyworth-platform</module>
-    <module>pennyworth-calls</module>
-    <module>pennyworth-comments</module>
-    <module>pennyworth-export</module>
-    <module>pennyworth-session-cycles</module>
-    <module>pennyworth-profiles</module>
-    <module>pennyworth-app</module>
-    <module>pennyworth-architecture-test</module>
+    <module>backend-platform</module>
+    <module>backend-calls</module>
+    <module>backend-comments</module>
+    <module>backend-export</module>
+    <module>backend-session-cycles</module>
+    <module>backend-profiles</module>
+    <module>backend-app</module>
+    <module>backend-architecture-test</module>
   </modules>
 
 </project>

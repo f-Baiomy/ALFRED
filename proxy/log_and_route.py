@@ -2,7 +2,7 @@
 mitmproxy addon: dynamically routes ANY hostname ending in "-proxy" to its
 real backend (by stripping the "-proxy" suffix), and POSTs every finished
 request/response (url, method, headers, body, status, timing) to
-pennyworth's webhook.
+backend's webhook.
 
 Works for unlimited suppliers with zero per-supplier configuration:
   https://ndc-integration-stg-ne-3.azurewebsites.net-proxy/...
@@ -16,7 +16,7 @@ Runs in mitmproxy's reverse mode (see docker-compose.yml), so your client
 entry, and this addon dynamically rewrites the destination per request
 based on whatever hostname the client actually connected to.
 
-This addon does not persist anything itself - pennyworth owns storage
+This addon does not persist anything itself - backend owns storage
 (RECENT_CALLS.log, written after a successful webhook call). That means
 WEBHOOK_URL is not really optional: if it's unset, calls are proxied
 correctly but never recorded anywhere.
@@ -40,7 +40,7 @@ SUFFIX = "-proxy"
 # large/binary responses.
 BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
 
-# Every finished call is POSTed here for pennyworth to persist and relay to
+# Every finished call is POSTed here for backend to persist and relay to
 # the dashboard over WebSocket - see the module docstring above.
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
@@ -69,7 +69,7 @@ def _webhook_worker():
             urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS)
         except Exception as e:
             # A webhook failure must never affect proxying - it just means
-            # this particular call never reaches pennyworth (nothing else
+            # this particular call never reaches backend (nothing else
             # in this addon persists it as a fallback, see module docstring).
             print(f"[webhook] failed to notify {WEBHOOK_URL}: {e}")
 

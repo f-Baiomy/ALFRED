@@ -5,7 +5,7 @@ import { CallRecord } from '../models/call.model';
 import { ExportMetadata } from '../models/export-metadata.model';
 import { AppConfigService } from './app-config.service';
 
-/** Asks pennyworth to dig the supplier/credentials/API key out of a call, rather than parsing call internals in the frontend. */
+/** Asks backend to dig the supplier/credentials/API key out of a call, rather than parsing call internals in the frontend. */
 @Injectable({ providedIn: 'root' })
 export class ExportApiService {
   private readonly http = inject(HttpClient);

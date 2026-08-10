@@ -1,8 +1,12 @@
-// Global design system for Manor. Deliberately global (not per-component
+// Global design system for Frontend. Deliberately global (not per-component
 // scoped styles): many component templates share the same cross-cutting
 // class names (badge, panel, tree-node, ...), so one readable stylesheet is
 // more maintainable here than fragmenting the same rules across a dozen
 // component style files.
+
+// Montserrat is the wordmark font for the "ALFRED" brand heading only - everywhere else keeps
+// the default Segoe UI/system-ui stack, so this is scoped to header h1 (see below), not :root.
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@800&display=swap');
 
 // ---------- Theming ----------
 //
@@ -134,11 +138,31 @@ header {
 .brand {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.75rem;
+
+  // The butler's bow tie - Alfred Pennyworth's signature, standing in for a literal Alfred
+  // portrait. Rendered as a knocked-out shape (fill: var(--nav-bg)) over a purple->cyan gradient
+  // badge so it reads correctly against every theme without a separate icon per theme.
+  .logo-badge {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+
+    svg {
+      width: 22px;
+      height: 22px;
+      fill: #fff;
+    }
+  }
 
   .dot {
-    width: 11px;
-    height: 11px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
     background: var(--purple);
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 70%, transparent);
@@ -159,10 +183,11 @@ header {
 }
 
 header h1 {
-  font-weight: 700;
+  font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
+  font-weight: 800;
   font-size: 1.4rem;
   margin: 0;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.05em;
   background: linear-gradient(90deg, var(--purple-light), var(--cyan));
   -webkit-background-clip: text;
   background-clip: text;

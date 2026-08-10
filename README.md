@@ -71,11 +71,11 @@ truststore changes live.
         log_and_route.py       <- routing + logging addon
         logs/                     <- calls.log appears here after first run
         certs/                     <- CA certificate appears here after first run
-      backend/                  <- pennyworth: serves the logged data over an API
+      backend/                  <- backend: serves the logged data over an API
         Dockerfile
         pom.xml
-        src/main/java/com/alfred/pennyworth/
-      frontend/                  <- manor: Angular dashboard that queries pennyworth
+        src/main/java/com/fathy/alfred/backend/
+      frontend/                  <- frontend: Angular dashboard that queries backend
         Dockerfile
         angular.json
         src/app/
@@ -89,14 +89,14 @@ truststore changes live.
 
 ## The three services
 
-  - alfred (mitmproxy)   - intercepts and logs supplier calls, as before
-  - pennyworth (backend) - Spring Boot app that reads proxy/logs/calls.log
+  - proxy (mitmproxy)   - intercepts and logs supplier calls, as before
+  - backend - Spring Boot app that reads proxy/logs/calls.log
                             and serves it over a small API
                             (http://localhost:5000). Minimal for now
                             (GET /calls, GET /health) - scope to be
                             expanded once discussed further.
-  - manor (frontend)     - Angular dashboard at http://localhost:3000 that
-                            polls pennyworth every 5s and displays recent
+  - frontend     - Angular dashboard at http://localhost:3000 that
+                            polls backend every 5s and displays recent
                             calls with syntax-highlighted flat/tree JSON
                             views, per-block search, sort/pagination,
                             pinning, supplier grouping, and cURL/JSON
@@ -194,7 +194,7 @@ Pretty-printed with jq (if installed):
 
     Get-Content .\proxy\logs\calls.log -Wait -Tail 20 | jq .
 
-Or view them in the browser via the manor dashboard: http://localhost:3000
+Or view them in the browser via the frontend dashboard: http://localhost:3000
 
 Each entry includes both the URL your app called and the real URL it was
 forwarded to:
@@ -218,8 +218,8 @@ To rebuild and restart without touching hosts/cert setup (e.g. after
 editing backend or frontend code):
 
     python3 restart.py                 restart every service
-    python3 restart.py pennyworth      restart/rebuild just one service
-    python3 restart.py manor pennyworth  restart/rebuild multiple named services
+    python3 restart.py backend      restart/rebuild just one service
+    python3 restart.py frontend backend  restart/rebuild multiple named services
 
 ## Change the port
 

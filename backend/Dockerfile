@@ -6,14 +6,14 @@ WORKDIR /app
 # gets its own Docker layer - it only re-runs when a pom.xml actually changes, not on
 # every source edit.
 COPY pom.xml .
-COPY pennyworth-platform/pom.xml pennyworth-platform/pom.xml
-COPY pennyworth-calls/pom.xml pennyworth-calls/pom.xml
-COPY pennyworth-comments/pom.xml pennyworth-comments/pom.xml
-COPY pennyworth-export/pom.xml pennyworth-export/pom.xml
-COPY pennyworth-session-cycles/pom.xml pennyworth-session-cycles/pom.xml
-COPY pennyworth-profiles/pom.xml pennyworth-profiles/pom.xml
-COPY pennyworth-app/pom.xml pennyworth-app/pom.xml
-COPY pennyworth-architecture-test/pom.xml pennyworth-architecture-test/pom.xml
+COPY backend-platform/pom.xml backend-platform/pom.xml
+COPY backend-calls/pom.xml backend-calls/pom.xml
+COPY backend-comments/pom.xml backend-comments/pom.xml
+COPY backend-export/pom.xml backend-export/pom.xml
+COPY backend-session-cycles/pom.xml backend-session-cycles/pom.xml
+COPY backend-profiles/pom.xml backend-profiles/pom.xml
+COPY backend-app/pom.xml backend-app/pom.xml
+COPY backend-architecture-test/pom.xml backend-architecture-test/pom.xml
 RUN mvn -B dependency:go-offline
 
 COPY . .
@@ -23,7 +23,7 @@ FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
-COPY --from=build /app/pennyworth-app/target/pennyworth.jar app.jar
+COPY --from=build /app/backend-app/target/backend.jar app.jar
 
 EXPOSE 5000
 

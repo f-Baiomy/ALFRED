@@ -28,9 +28,9 @@ describe('AppComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('should render the Manor header at the root route', async () => {
+  it('should render the ALFRED header at the root route', async () => {
     const harness = await RouterTestingHarness.create('/');
     const compiled = harness.routeNativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Manor');
+    expect(compiled.querySelector('h1')?.textContent).toContain('ALFRED');
   });
 });

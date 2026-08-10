@@ -41,8 +41,8 @@ const SORT_OPTIONS: readonly SelectOption[] = [
 export class HeaderComponent implements AfterViewInit, OnDestroy {
   readonly state = inject(CALL_LIST_CONTROLS_STATE);
 
-  readonly title = input('Manor');
-  readonly subtitle = input('Live feed of every call Alfred intercepted, via pennyworth');
+  readonly title = input('ALFRED');
+  readonly subtitle = input('Live feed of every call Alfred intercepted, via backend');
 
   readonly limitOptions = LIMIT_OPTIONS;
   readonly sortOptions = SORT_OPTIONS;

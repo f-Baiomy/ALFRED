@@ -1,9 +1,9 @@
 services:
 
   # The mitmproxy interceptor - logs every supplier request/response
-  alfred:
+  proxy:
     image: mitmproxy/mitmproxy:latest
-    container_name: alfred
+    container_name: proxy
     restart: unless-stopped
     ports:
       # Bound to 127.0.0.2 (not .1) on 443 (the HTTPS default, so "-proxy" URLs never need an
@@ -12,11 +12,11 @@ services:
       # entries for "-proxy" hostnames (written by start.ps1/start.sh) point here, not at .1.
       - "127.0.0.2:443:8080"
     environment:
-      # The proxy only calls the webhook now - pennyworth owns persistence (RECENT_CALLS.log).
+      # The proxy only calls the webhook now - backend owns persistence (RECENT_CALLS.log).
       # Container-name DNS works because both services share alfred-net. WEBHOOK_SECRET is a
       # placeholder - use a real secret for any deployment reachable outside a trusted docker
       # network.
-      - WEBHOOK_URL=http://pennyworth:5000/calls/webhook
+      - WEBHOOK_URL=http://backend:5000/calls/webhook
       - WEBHOOK_SECRET=change-me-in-production
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
@@ -28,15 +28,15 @@ services:
 
   # Backend - persists calls the proxy's webhook sends it (RECENT_CALLS.log) and serves them
   # over an API, plus a WebSocket push to the dashboard for each new one.
-  pennyworth:
+  backend:
     build:
       context: ./backend
-    container_name: pennyworth
+    container_name: backend
     restart: unless-stopped
     ports:
       - "5000:5000"
     environment:
-      # Recent calls now live here, written by pennyworth itself after each webhook call from
+      # Recent calls now live here, written by backend itself after each webhook call from
       # the proxy - not read from the proxy's filesystem at all anymore.
       - RECENT_CALLS_FILE=/appdata/RECENT_CALLS.log
       # RECENT_CALLS.log is a ring buffer capped at this many calls - both the file's own
@@ -53,20 +53,20 @@ services:
     volumes:
       - ./backend/data:/appdata
     depends_on:
-      - alfred
+      - proxy
     networks:
       - alfred-net
 
-  # Frontend - dashboard that queries pennyworth to display captured calls.
-  manor:
+  # Frontend - dashboard that queries backend to display captured calls.
+  frontend:
     build:
       context: ./frontend
-    container_name: manor
+    container_name: frontend
     restart: unless-stopped
     ports:
       - "3000:80"
     depends_on:
-      - pennyworth
+      - backend
     networks:
       - alfred-net
 

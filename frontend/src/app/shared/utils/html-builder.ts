@@ -377,13 +377,13 @@ export function buildExportHtml(call: CallRecord, form: ExportFormData, comments
 
   const body = [
     '<h1>📄 API Call Export</h1>',
-    `<div class="exported-line">Exported from Alfred/Manor</div>`,
+    `<div class="exported-line">Exported from Alfred/Frontend</div>`,
     '<h2>🧾 Metadata</h2>',
     metadataTableHtml(form),
     flaggedIssuesHtml(comments),
     sectionHtml,
     '<hr />',
-    '<footer>Exported from Alfred/Manor</footer>',
+    '<footer>Exported from Alfred/Frontend</footer>',
   ].join('');
 
   return documentShell('API Call Export', body, blocks);
@@ -435,7 +435,7 @@ export function buildBulkExportHtml(
     '<h2>🔗 Calls</h2>',
     callSections.join(''),
     '<hr />',
-    `<footer>Exported from Alfred/Manor — ${calls.length} call${calls.length === 1 ? '' : 's'}, ${totalFlagged} flagged issue${totalFlagged === 1 ? '' : 's'} total</footer>`,
+    `<footer>Exported from Alfred/Frontend — ${calls.length} call${calls.length === 1 ? '' : 's'}, ${totalFlagged} flagged issue${totalFlagged === 1 ? '' : 's'} total</footer>`,
   ].join('');
 
   return documentShell(`API Calls Export - ${calls.length} ${callWord}`, body, allBlocks);

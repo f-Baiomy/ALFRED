@@ -81,7 +81,7 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   /**
    * Pushes a new CallRecord onto the dashboard the instant the proxy's webhook reaches
-   * pennyworth, instead of waiting for the next 5s poll. Falls back to a fixed retry delay on
+   * backend, instead of waiting for the next 5s poll. Falls back to a fixed retry delay on
    * disconnect - polling keeps the dashboard eventually-correct even if the socket never
    * reconnects, so this is a latency improvement, not a hard dependency.
    */

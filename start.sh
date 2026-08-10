@@ -68,7 +68,7 @@ done < "$SUPPLIERS_FILE"
 # ---- Step 2: start all services (proxy, backend, frontend) ----
 
 echo ""
-echo "=== Step 2: docker compose up (alfred, pennyworth, manor) ==="
+echo "=== Step 2: docker compose up (proxy, backend, frontend) ==="
 cd "$SCRIPT_DIR"
 docker compose up -d --build
 
@@ -80,7 +80,7 @@ while [ ! -f "$CERT_FILE" ] && [ "$attempts" -lt 15 ]; do
 done
 
 if [ ! -f "$CERT_FILE" ]; then
-    echo "Certificate not found at $CERT_FILE after waiting - check 'docker compose logs alfred'."
+    echo "Certificate not found at $CERT_FILE after waiting - check 'docker compose logs proxy'."
     exit 1
 fi
 

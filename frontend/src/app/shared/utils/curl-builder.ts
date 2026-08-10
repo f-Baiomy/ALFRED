@@ -35,7 +35,7 @@ export interface BulkCurlMetadataHint {
 export function buildBulkCurlScript(calls: readonly CallRecord[], exportedAt: string, hint?: BulkCurlMetadataHint | null): string {
   const lines: string[] = [
     '#!/bin/sh',
-    `# Alfred/Manor bulk export - ${calls.length} call${calls.length === 1 ? '' : 's'}`,
+    `# Alfred/Frontend bulk export - ${calls.length} call${calls.length === 1 ? '' : 's'}`,
     `# Exported: ${exportedAt}`,
   ];
 
