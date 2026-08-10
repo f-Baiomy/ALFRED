@@ -219,8 +219,21 @@ export class JsonPanelComponent {
     // would also pick up the line-number gutter and the per-line "+" comment buttons (confirmed
     // live - user-select: none on those elements only blocks mouse drag-selection, not
     // .innerText), and always copies the full untruncated content regardless of "Lines only"
-    // filtering, matching the project's never-truncate-an-export rule.
-    navigator.clipboard.writeText(this.baseText()).then(() => {
+    // filtering, matching the project's never-truncate-an-export rule. Flagged lines still get
+    // the same inline "// ⚠ FLAGGED: ..." marker the markdown/HTML exports use (codeBlock() in
+    // markdown-builder.ts) - the old innerText-based version accidentally preserved comment text
+    // by scraping the DOM wholesale, so this reconstructs that intentionally instead.
+    const byLine = this.commentsByLine();
+    const annotated = this.baseText()
+      .split('\n')
+      .map((line, i) => {
+        const onThisLine = byLine.get(i);
+        if (!onThisLine || onThisLine.length === 0) return line;
+        const notes = onThisLine.map((c) => `FLAGGED: ${c.comment}`).join(' | ');
+        return `${line}  // ⚠ ${notes}`;
+      })
+      .join('\n');
+    navigator.clipboard.writeText(annotated).then(() => {
       this.copyFeedback.set(true);
       setTimeout(() => this.copyFeedback.set(false), 1200);
     });
