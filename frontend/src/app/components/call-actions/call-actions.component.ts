@@ -11,6 +11,7 @@ import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
 import { downloadJson } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 /**
  * Pin / copy-as-cURL / download-as-JSON / export-report actions for a single call - cURL/JSON/
@@ -42,7 +43,7 @@ export class CallActionsComponent {
   }
 
   copyAsCurl(): void {
-    navigator.clipboard.writeText(buildCurlCommand(this.call())).then(() => {
+    copyToClipboard(buildCurlCommand(this.call())).then(() => {
       this.curlCopyFeedback.set(true);
       setTimeout(() => this.curlCopyFeedback.set(false), 1200);
     });

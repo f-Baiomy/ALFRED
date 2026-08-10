@@ -8,6 +8,7 @@ import { JsonViewMode } from '../../core/models/call.model';
 import { Comment, CommentBlock } from '../../core/models/comment.model';
 import { CommentsStore } from '../../core/state/comments-store.service';
 import { PanelViewLauncherService } from '../../core/services/panel-view-launcher.service';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 type ParsedValue = { hasJson: true; value: unknown } | { hasJson: false; plainText: string };
 
@@ -233,7 +234,7 @@ export class JsonPanelComponent {
         return `${line}  // ⚠ ${notes}`;
       })
       .join('\n');
-    navigator.clipboard.writeText(annotated).then(() => {
+    copyToClipboard(annotated).then(() => {
       this.copyFeedback.set(true);
       setTimeout(() => this.copyFeedback.set(false), 1200);
     });

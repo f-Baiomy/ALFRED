@@ -7,6 +7,7 @@ import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
 import { buildDiscordReport } from '../../shared/utils/discord-report-builder';
 import { downloadText, downloadJson } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
+import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
 
 /** The two report formats a user can toggle between inside the dialog - distinct from
  * ExportFormat, which also includes 'json' (a separate, non-toggleable export the dialog still
@@ -116,7 +117,7 @@ export class ExportDialogComponent {
     if (!built) return;
 
     const text = built.isJson ? JSON.stringify(built.payload, null, 2) : built.content;
-    navigator.clipboard.writeText(text).then(() => {
+    writeTextToClipboard(text).then(() => {
       this.copyFeedback.set(true);
       setTimeout(() => this.copyFeedback.set(false), 1200);
     });
@@ -126,7 +127,7 @@ export class ExportDialogComponent {
    * dialog - it's a different arrangement of data the user already filled in, not a second form. */
   copyAsDiscordReport(): void {
     const report = buildDiscordReport(this.currentFormData());
-    navigator.clipboard.writeText(report).then(() => {
+    writeTextToClipboard(report).then(() => {
       this.discordCopyFeedback.set(true);
       setTimeout(() => this.discordCopyFeedback.set(false), 1200);
     });
