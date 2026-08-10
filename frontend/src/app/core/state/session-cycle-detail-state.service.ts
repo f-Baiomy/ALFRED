@@ -10,7 +10,7 @@ import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { BulkSelectionState, CallListControlsState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, createCallListView } from './call-list-view';
-import { callKey, mergeLiveCapturedCalls, unconfirmedLiveCapturedCalls } from '../../shared/utils/call-utils';
+import { callKey, mergeLiveCapturedCalls, sortCalls, unconfirmedLiveCapturedCalls } from '../../shared/utils/call-utils';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -227,10 +227,15 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   // ---- BulkSelectionState ----
 
+  /** In current-sort-order, not capture/insertion order - matches CallsStateService.selectedCalls
+   * (dashboard). Without this, a bulk export's call order came from this.calls()'s raw insertion
+   * order into the cycle's file, not the on-screen sorted order (default oldest-call-first) - a
+   * call captured later but that happened earlier would sort first on screen but export last
+   * (confirmed live). */
   selectedCalls(): readonly CallRecord[] {
     const ids = this.selectedIds();
     if (ids.size === 0) return [];
-    return this.calls().filter((call) => ids.has(callKey(call)));
+    return sortCalls(this.calls(), this.view.sortMode()).filter((call) => ids.has(callKey(call)));
   }
 
   selectAll(): void {
