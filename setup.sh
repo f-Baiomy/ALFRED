@@ -42,23 +42,62 @@ install_redhat() {
     fi
 }
 
-if command -v docker >/dev/null 2>&1; then
-    echo "[ok] Docker already installed"
+# docker-compose.yml, start.sh, start.ps1, and restart.py all invoke `docker compose` (the v2 CLI
+# plugin, no dash) - never the older standalone `docker-compose` binary. That v2 plugin only ships
+# from Docker's own apt/dnf repo, not the distros' default archives (Ubuntu/Debian/RHEL universe
+# only carries the legacy standalone package under a different name) - installing just "docker.io"/
+# "docker" leaves `docker compose ...` unrecognized, which makes the base `docker` CLI try to parse
+# "compose"'s own arguments as its own flags (confirmed live: "unknown shorthand flag: 'd' in -d").
+# So Docker itself has to come from Docker's official repo, not the distro's - this adds that repo's
+# signing key via `curl` (a plain file download for signature verification, not a piped install
+# script) and its apt/dnf source list entry, exactly per Docker's own documented install steps.
+docker_compose_ready() {
+    command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
+}
+
+install_docker_debian_official() {
+    . /etc/os-release
+    # Remove any distro-packaged Docker (e.g. "docker.io" from an earlier run of this script,
+    # before this official-repo approach existed) - it conflicts with docker-ce on shared files
+    # (dockerd, the docker systemd unit) rather than upgrading cleanly alongside it.
+    apt-get remove -y docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc 2>/dev/null || true
+    apt-get update
+    apt-get install -y ca-certificates curl
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL "https://download.docker.com/linux/${ID}/gpg" -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${ID} ${VERSION_CODENAME} stable" \
+        > /etc/apt/sources.list.d/docker.list
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+install_docker_redhat_official() {
+    . /etc/os-release
+    local repo_os="centos"
+    [ "$ID" = "fedora" ] && repo_os="fedora"
+    if command -v dnf >/dev/null 2>&1; then
+        dnf -y install dnf-plugins-core
+        dnf config-manager --add-repo "https://download.docker.com/linux/${repo_os}/docker-ce.repo"
+        dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    else
+        yum install -y yum-utils
+        yum-config-manager --add-repo "https://download.docker.com/linux/${repo_os}/docker-ce.repo"
+        yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    fi
+}
+
+if docker_compose_ready; then
+    echo "[ok] Docker + docker compose already installed"
 else
-    echo "Docker not found - installing..."
+    echo "Docker / docker compose not found (or incomplete) - installing Docker CE from Docker's official repo..."
     case "$PKG_FAMILY" in
-        debian)
-            install_debian docker.io
-            systemctl enable --now docker 2>/dev/null || service docker start || true
-            ;;
-        redhat)
-            install_redhat docker
-            systemctl enable --now docker 2>/dev/null || service docker start || true
-            ;;
+        debian) install_docker_debian_official ;;
+        redhat) install_docker_redhat_official ;;
         macos)
             if command -v brew >/dev/null 2>&1; then
                 brew install --cask docker
-                echo "  Open Docker.app once from Applications to finish setup and start the daemon."
+                echo "  Open Docker.app once from Applications to finish setup and start the daemon - it bundles docker compose."
             else
                 echo "Homebrew not found - install Docker Desktop manually: https://www.docker.com/products/docker-desktop"
                 exit 1
@@ -69,29 +108,13 @@ else
             exit 1
             ;;
     esac
-    echo "[installed] Docker"
-fi
-
-# "docker compose" (the v2 CLI plugin, docker-compose-plugin) only ships from Docker's own apt/dnf
-# repo, not the distros' default archives - Ubuntu/Debian/RHEL universe repos only carry the older
-# standalone "docker-compose" (v1, python-based) under a different package name. Try the plugin
-# first since docker-compose.yml here uses `docker compose` (no space is the old v1 syntax); fall
-# back to the standalone package so this doesn't hard-fail when the plugin isn't packaged.
-if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
-    echo "[ok] docker compose already available"
-else
-    echo "docker compose not found - installing..."
-    case "$PKG_FAMILY" in
-        debian) install_debian docker-compose-plugin || install_debian docker-compose || true ;;
-        redhat) install_redhat docker-compose-plugin || install_redhat docker-compose || true ;;
-        macos) : ;; # bundled with Docker Desktop
-    esac
-    if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
-        echo "[installed] docker compose"
+    if [ "$PKG_FAMILY" != "macos" ]; then
+        systemctl enable --now docker 2>/dev/null || service docker start || true
+    fi
+    if docker_compose_ready; then
+        echo "[installed] Docker + docker compose"
     else
-        echo "  [warn] docker compose plugin isn't packaged for this distro's default repos -"
-        echo "         add Docker's own apt/dnf repo and retry, or install manually:"
-        echo "         https://docs.docker.com/compose/install/linux/"
+        echo "  [warn] Docker installed but 'docker compose version' still fails - check it manually."
     fi
 fi
 
