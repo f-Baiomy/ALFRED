@@ -53,8 +53,25 @@
         <textarea rows="3" [value]="description()" (input)="description.set($any($event.target).value)" placeholder="Any context worth noting..."></textarea>
       </label>
 
+      @if (!isJsonMode()) {
+        <fieldset class="dialog-radio-group">
+          <legend>Format</legend>
+          <label>
+            <input type="radio" name="reportFormat" [checked]="reportFormat() === 'markdown'" (change)="setReportFormat('markdown')" />
+            Markdown
+          </label>
+          <label>
+            <input type="radio" name="reportFormat" [checked]="reportFormat() === 'html'" (change)="setReportFormat('html')" />
+            HTML
+          </label>
+        </fieldset>
+      }
+
       <div class="dialog-actions">
         <button type="button" class="dialog-btn secondary" (click)="close()">Cancel</button>
+        <button type="button" class="dialog-btn secondary" (click)="copyAsDiscordReport()">
+          {{ discordCopyFeedback() ? 'Copied!' : 'Copy Discord Report' }}
+        </button>
         <button type="button" class="dialog-btn secondary" (click)="copyToClipboard()">
           {{ copyFeedback() ? 'Copied!' : 'Copy to Clipboard' }}
         </button>

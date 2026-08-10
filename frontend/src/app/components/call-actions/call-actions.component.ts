@@ -1,4 +1,4 @@
-import { Component, WritableSignal, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { CallRecord } from '../../core/models/call.model';
@@ -7,14 +7,21 @@ import { PinService } from '../../core/services/pin.service';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
+import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
 import { downloadJson } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
 
-/** Pin / copy-as-cURL / download-as-JSON / export-as-Markdown actions for a single call. */
+/**
+ * Pin / copy-as-cURL / download-as-JSON / export-report actions for a single call - cURL/JSON/
+ * export-report are grouped behind one "Export" menu (ActionMenuComponent) rather than three
+ * separate toolbar buttons; Markdown vs. HTML is chosen inside the export dialog itself now, not
+ * by which button opened it, so there's only one "Export report..." entry, not two.
+ */
 @Component({
   selector: 'app-call-actions',
   standalone: true,
+  imports: [ActionMenuComponent],
   templateUrl: './call-actions.component.html',
 })
 export class CallActionsComponent {
@@ -26,7 +33,6 @@ export class CallActionsComponent {
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
   readonly exportLoading = signal(false);
-  readonly htmlExportLoading = signal(false);
   readonly downloadLoading = signal(false);
 
   readonly isPinned = computed(() => this.pinService.isPinned(this.call()));
@@ -52,23 +58,18 @@ export class CallActionsComponent {
     });
   }
 
-  exportAsMarkdown(): void {
-    this.openExportDialog(this.exportLoading, 'markdown');
-  }
-
-  exportAsHtml(): void {
-    this.openExportDialog(this.htmlExportLoading, 'html');
-  }
-
-  private openExportDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'html'): void {
+  /** Always opens with 'markdown' as the dialog's initial toggle state - the user picks Markdown
+   * vs. HTML inside the dialog itself (see ExportDialogComponent.reportFormat), so there's no
+   * separate "export as HTML" entry point anymore. */
+  openExportReport(): void {
     const call = this.call();
-    loading.set(true);
+    this.exportLoading.set(true);
     forkJoin({
       metadata: this.exportApi.fetchMetadata(call).pipe(catchError(() => of(null))),
       comments: this.fetchComments(call),
     }).subscribe(({ metadata, comments }) => {
-      loading.set(false);
-      this.exportDialog.open([call], metadata, new Map([[callKey(call), comments]]), format);
+      this.exportLoading.set(false);
+      this.exportDialog.open([call], metadata, new Map([[callKey(call), comments]]), 'markdown');
     });
   }
 

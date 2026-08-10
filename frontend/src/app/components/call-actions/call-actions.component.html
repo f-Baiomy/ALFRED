@@ -6,14 +6,15 @@
     [title]="isPinned() ? 'Unpin this call' : 'Pin this call'"
     (click)="togglePin()"
   >{{ isPinned() ? '★ Pinned' : '☆ Pin' }}</button>
-  <button type="button" class="action-btn" title="Copy as cURL" (click)="copyAsCurl()">{{ curlCopyFeedback() ? 'Copied!' : 'cURL' }}</button>
-  <button type="button" class="action-btn" title="Download raw call as JSON" [disabled]="downloadLoading()" (click)="downloadAsJson()">
-    {{ downloadLoading() ? 'Loading...' : 'JSON ↓' }}
-  </button>
-  <button type="button" class="action-btn" title="Export as Markdown" [disabled]="exportLoading()" (click)="exportAsMarkdown()">
-    {{ exportLoading() ? 'Loading...' : 'Export .md' }}
-  </button>
-  <button type="button" class="action-btn" title="Export as HTML" [disabled]="htmlExportLoading()" (click)="exportAsHtml()">
-    {{ htmlExportLoading() ? 'Loading...' : 'Export .html' }}
-  </button>
+  <app-action-menu label="Export">
+    <button type="button" class="filter-option-item" title="Copy as cURL" (click)="copyAsCurl()">
+      {{ curlCopyFeedback() ? 'Copied!' : 'Copy as cURL' }}
+    </button>
+    <button type="button" class="filter-option-item" title="Download raw call as JSON" [disabled]="downloadLoading()" (click)="downloadAsJson()">
+      {{ downloadLoading() ? 'Loading...' : 'Download as JSON' }}
+    </button>
+    <button type="button" class="filter-option-item" title="Export as Markdown or HTML" [disabled]="exportLoading()" (click)="openExportReport()">
+      {{ exportLoading() ? 'Loading...' : 'Export report...' }}
+    </button>
+  </app-action-menu>
 </div>

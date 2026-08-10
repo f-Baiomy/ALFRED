@@ -1,0 +1,14 @@
+<div class="action-menu">
+  <button type="button" class="action-btn" (click)="togglePanel()">{{ label() }} &#9662;</button>
+
+  @if (panelOpen()) {
+    <div
+      class="action-menu-panel"
+      [style.top.px]="panelPosition().top"
+      [style.left.px]="panelPosition().left"
+      (click)="onPanelClick()"
+    >
+      <ng-content></ng-content>
+    </div>
+  }
+</div>

@@ -8,6 +8,7 @@ import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { CopyToCyclesDialogService } from '../../core/services/copy-to-cycles-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
+import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { buildBulkCurlScript, bulkCurlFilename } from '../../shared/utils/curl-builder';
 import { downloadText } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
@@ -15,16 +16,20 @@ import { callKey } from '../../shared/utils/call-utils';
 /**
  * Sticky bar always present above the list so "Select all" is reachable
  * even before anything is selected; it grows to show export actions once
- * `selectedCalls().length > 0`. Markdown/JSON export both go through the
+ * `selectedCalls().length > 0`. Every export action (report/JSON/cURL) is
+ * grouped behind one "Export" menu (ActionMenuComponent) rather than one
+ * toolbar button per format. Markdown/JSON export both go through the
  * (now-generalized) export dialog so the user can review/edit metadata
  * first - pre-filled from the FIRST selected call in current list order,
- * same rule the user asked for. cURL export skips the dialog entirely
- * since it's a replay script, not a report: metadata is only used for a
- * header comment, not a form the user needs to see.
+ * same rule the user asked for; Markdown vs. HTML is chosen inside that
+ * dialog now, not by which menu item opened it. cURL export skips the
+ * dialog entirely since it's a replay script, not a report: metadata is
+ * only used for a header comment, not a form the user needs to see.
  */
 @Component({
   selector: 'app-bulk-actions-bar',
   standalone: true,
+  imports: [ActionMenuComponent],
   templateUrl: './bulk-actions-bar.component.html',
 })
 export class BulkActionsBarComponent {
@@ -37,7 +42,6 @@ export class BulkActionsBarComponent {
   readonly curlLoading = signal(false);
   readonly mdLoading = signal(false);
   readonly jsonLoading = signal(false);
-  readonly htmlLoading = signal(false);
 
   selectAll(): void {
     this.state.selectAll();
@@ -47,16 +51,14 @@ export class BulkActionsBarComponent {
     this.state.clearSelection();
   }
 
-  exportAsMarkdown(): void {
+  /** Always opens with 'markdown' as the dialog's initial toggle state - see
+   * CallActionsComponent.openExportReport for why there's no separate "as HTML" entry. */
+  exportReport(): void {
     this.openDialog(this.mdLoading, 'markdown');
   }
 
   exportAsJson(): void {
     this.openDialog(this.jsonLoading, 'json');
-  }
-
-  exportAsHtml(): void {
-    this.openDialog(this.htmlLoading, 'html');
   }
 
   exportAsCurl(): void {

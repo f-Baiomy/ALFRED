@@ -2024,6 +2024,31 @@ mark.hl.active {
   }
 }
 
+// ---------- Action menu (grouped export actions on a call card / bulk actions bar) ----------
+
+.action-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.action-menu-panel {
+  // Same fixed-positioning rationale as .select-picker-panel/.emoji-picker-panel above.
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  background: var(--card-elevated);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 0.4rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .emoji-picker-toolbar {
   display: flex;
   gap: 0.5rem;
