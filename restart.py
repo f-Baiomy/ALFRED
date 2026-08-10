@@ -21,6 +21,7 @@ Usage:
 
 import os
 import re
+import socket
 import subprocess
 import sys
 
@@ -30,6 +31,49 @@ SUPPLIERS_FILE = os.path.join(SCRIPT_DIR, "suppliers.txt")
 HOSTS_FILE = (
     r"C:\Windows\System32\drivers\etc\hosts" if os.name == "nt" else "/etc/hosts"
 )
+
+
+def _port_is_free(port):
+    # Deliberately no SO_REUSEADDR - on Windows that lets a socket bind right over another one
+    # that's actively listening (unlike Linux, where it only allows reusing a TIME_WAIT socket),
+    # which would make this always report "free" even with a real conflict (confirmed live).
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("0.0.0.0", port))
+            return True
+        except OSError:
+            return False
+
+
+def _backend_container_running():
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "ps", "-q", "backend"],
+            cwd=SCRIPT_DIR, capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return False
+    return bool(result.stdout.strip())
+
+
+def ensure_backend_port():
+    """Same self-healing check as start.py - see its docstring. Also needed here (not just in
+    start.py) since restart.py is a valid entry point on its own for rebuilding an already-running
+    stack, and may run before start.py ever has on a fresh host."""
+    env_file = os.path.join(SCRIPT_DIR, ".env")
+    if os.path.exists(env_file) or _backend_container_running() or _port_is_free(5000):
+        return
+
+    port = 5000
+    while not _port_is_free(port):
+        port += 50
+        if port > 5500:
+            print("Port 5000 is in use and no free port was found nearby - set BACKEND_PORT manually in a .env file.")
+            return
+
+    with open(env_file, "w", encoding="utf-8") as f:
+        f.write(f"BACKEND_PORT={port}\n")
+    print(f"Port 5000 is already in use on this host - wrote .env with BACKEND_PORT={port}.")
 
 
 def run(cmd):
@@ -95,6 +139,7 @@ def warn_if_hosts_entries_are_stale():
 
 
 def main():
+    ensure_backend_port()
     services = sys.argv[1:]
 
     if services:
