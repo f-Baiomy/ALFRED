@@ -48,11 +48,11 @@ else
     echo "Docker not found - installing..."
     case "$PKG_FAMILY" in
         debian)
-            install_debian docker.io docker-compose-plugin
+            install_debian docker.io
             systemctl enable --now docker 2>/dev/null || service docker start || true
             ;;
         redhat)
-            install_redhat docker docker-compose-plugin
+            install_redhat docker
             systemctl enable --now docker 2>/dev/null || service docker start || true
             ;;
         macos)
@@ -70,6 +70,29 @@ else
             ;;
     esac
     echo "[installed] Docker"
+fi
+
+# "docker compose" (the v2 CLI plugin, docker-compose-plugin) only ships from Docker's own apt/dnf
+# repo, not the distros' default archives - Ubuntu/Debian/RHEL universe repos only carry the older
+# standalone "docker-compose" (v1, python-based) under a different package name. Try the plugin
+# first since docker-compose.yml here uses `docker compose` (no space is the old v1 syntax); fall
+# back to the standalone package so this doesn't hard-fail when the plugin isn't packaged.
+if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
+    echo "[ok] docker compose already available"
+else
+    echo "docker compose not found - installing..."
+    case "$PKG_FAMILY" in
+        debian) install_debian docker-compose-plugin || install_debian docker-compose || true ;;
+        redhat) install_redhat docker-compose-plugin || install_redhat docker-compose || true ;;
+        macos) : ;; # bundled with Docker Desktop
+    esac
+    if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
+        echo "[installed] docker compose"
+    else
+        echo "  [warn] docker compose plugin isn't packaged for this distro's default repos -"
+        echo "         add Docker's own apt/dnf repo and retry, or install manually:"
+        echo "         https://docs.docker.com/compose/install/linux/"
+    fi
 fi
 
 if command -v python3 >/dev/null 2>&1; then
