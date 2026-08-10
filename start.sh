@@ -50,7 +50,10 @@ while IFS= read -r line || [ -n "$line" ]; do
     [ -z "$domain" ] && continue
 
     proxy_host="${domain}-proxy"
-    existing_line="$(grep -E "[[:space:]]${proxy_host}([[:space:]]|$)" "$HOSTS_FILE" | head -n1)"
+    # grep exiting 1 (no match - the normal case for a brand-new entry) would otherwise abort the
+    # whole script here: with pipefail on, that failure propagates through "| head -n1" even though
+    # head itself succeeds, and set -e then kills the script mid-loop with no further output.
+    existing_line="$(grep -E "[[:space:]]${proxy_host}([[:space:]]|$)" "$HOSTS_FILE" | head -n1 || true)"
 
     if [ -n "$existing_line" ] && echo "$existing_line" | grep -qE "^[[:space:]]*${TARGET_IP}[[:space:]]"; then
         echo "  [skip]  ${proxy_host} already present"
