@@ -1,4 +1,4 @@
-import { CallRecord, CapturedCall, SortMode } from '../../core/models/call.model';
+import { CallRecord, SortMode } from '../../core/models/call.model';
 
 /**
  * Per-CallRecord memo caches, keyed by object identity.
@@ -10,7 +10,6 @@ import { CallRecord, CapturedCall, SortMode } from '../../core/models/call.model
  * memoizing them cannot change any result; it only stops the same work being redone.
  */
 const callKeyCache = new WeakMap<CallRecord, string>();
-const searchHaystackCache = new WeakMap<CallRecord, string>();
 const supplierCache = new WeakMap<CallRecord, string>();
 const callTimeCache = new WeakMap<CallRecord, number>();
 
@@ -86,72 +85,6 @@ export function sortCalls(calls: readonly CallRecord[], mode: SortMode, customOr
     default:
       return arr;
   }
-}
-
-/**
- * The full lowercased text of a call that a search query is tested against - built once per call
- * and memoized, since it's expensive (it stringifies both header maps and concatenates the full
- * request/response bodies, which routinely run to hundreds of KB) and every input of it is
- * immutable.
- *
- * Without the memo this ran per call on every keystroke *and* on every 5s poll (the poll hands
- * `matchingCalls` a new array identity, so the computed re-evaluates), i.e. re-lowercasing tens of
- * megabytes of body text just to answer the same question again.
- */
-function searchHaystack(call: CallRecord): string {
-  const cached = searchHaystackCache.get(call);
-  if (cached !== undefined) return cached;
-
-  const parts = [
-    call.method,
-    call.original_url,
-    call.url,
-    call.response ? String(call.response.status) : '',
-    call.error || '',
-  ];
-  if (call.request) {
-    parts.push(JSON.stringify(call.request.headers || {}));
-    parts.push(call.request.body || '');
-  }
-  if (call.response) {
-    parts.push(JSON.stringify(call.response.headers || {}));
-    parts.push(call.response.body || '');
-  }
-  const haystack = parts.join(' ').toLowerCase();
-  searchHaystackCache.set(call, haystack);
-  return haystack;
-}
-
-export function matchesSearch(call: CallRecord, query: string): boolean {
-  if (!query) return true;
-  return searchHaystack(call).includes(query.toLowerCase());
-}
-
-/** Calls pushed live over WebSocket that the next poll hasn't confirmed yet, ahead of the polled list - deduped by callKey so a call never renders twice while both copies exist. */
-export function mergeLiveCalls(live: readonly CallRecord[], polled: readonly CallRecord[]): CallRecord[] {
-  return [...unconfirmedLiveCalls(live, polled), ...polled];
-}
-
-/** The subset of `live` not yet present in `polled` - once a poll confirms a live-pushed call, it drops out of the live buffer instead of accumulating forever. */
-export function unconfirmedLiveCalls(live: readonly CallRecord[], polled: readonly CallRecord[]): CallRecord[] {
-  const known = new Set(polled.map(callKey));
-  return live.filter((c) => !known.has(callKey(c)));
-}
-
-/**
- * CapturedCall counterpart of mergeLiveCalls. Keyed by callKey(c.call), not CapturedCall.id - a
- * live-pushed captured call doesn't have its real backend-assigned id yet (the broadcast only
- * carries the raw CallRecord), so identity has to come from the call's own content, exactly like
- * the dashboard's live/polled merge already does.
- */
-export function mergeLiveCapturedCalls(live: readonly CapturedCall[], polled: readonly CapturedCall[]): CapturedCall[] {
-  return [...unconfirmedLiveCapturedCalls(live, polled), ...polled];
-}
-
-/** The subset of `live` not yet present in `polled`, keyed by callKey(c.call). */
-export function unconfirmedLiveCapturedCalls(live: readonly CapturedCall[], polled: readonly CapturedCall[]): CapturedCall[] {
-  const known = new Set(polled.map((c) => callKey(c.call)));
-  return live.filter((c) => !known.has(callKey(c.call)));
 }
 
 /** Memoized for the same reason as callKey: `new URL()` is comparatively expensive and this runs per call in the supplier-options tally, the supplier filter, and the group-by-supplier bucketing - all of which re-run on every poll. */

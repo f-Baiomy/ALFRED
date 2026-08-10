@@ -3,6 +3,7 @@ import { of } from 'rxjs';
 import { CallsStateService } from './calls-state.service';
 import { CallsApiService } from '../services/calls-api.service';
 import { CallRecord } from '../models/call.model';
+import { CallsQuery } from './call-list-view';
 
 const PIN_STORAGE_KEY = 'alfred_pinned_calls';
 
@@ -20,80 +21,104 @@ function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
 }
 
 /**
- * Injects a CallsStateService whose polling resolves immediately to `calls`
- * (via a stubbed CallsApiService). The service polls on a periodic timer,
- * so every test that calls this must run inside fakeAsync, call tick() once
- * before reading signals, and call discardPeriodicTasks() before finishing
- * (otherwise fakeAsync fails the test over the still-pending interval).
+ * Search/sort/supplier-filter/pagination are backend query params now (see call-list-view.ts) -
+ * CallsStateService's own job is just wiring those query changes through to CallsApiService and
+ * exposing whatever page comes back, so these tests stub the API to return a fixed page and
+ * assert on both the exposed result and the query CallsStateService actually sent. The
+ * WebSocket connection attempted in the constructor fails to connect in this test environment and
+ * retries on a 3s timer - every test must run inside fakeAsync, tick() once, and
+ * discardPeriodicTasks() before finishing, exactly as when this service used to poll.
  */
-function setup(calls: CallRecord[]): CallsStateService {
-  const apiStub: Pick<CallsApiService, 'getCalls'> = { getCalls: () => of(calls) };
+function setup(calls: CallRecord[], total = calls.length): { state: CallsStateService; queries: CallsQuery[] } {
+  const queries: CallsQuery[] = [];
+  const apiStub: Pick<CallsApiService, 'getCalls'> = {
+    getCalls: (query) => {
+      queries.push(query);
+      return of({ calls, total });
+    },
+  };
   TestBed.configureTestingModule({
     providers: [{ provide: CallsApiService, useValue: apiStub }],
   });
-  return TestBed.inject(CallsStateService);
+  return { state: TestBed.inject(CallsStateService), queries };
 }
 
 describe('CallsStateService', () => {
   afterEach(() => localStorage.removeItem(PIN_STORAGE_KEY));
 
-  it('exposes the polled calls', fakeAsync(() => {
+  it('exposes the fetched page', fakeAsync(() => {
     const calls = [makeCall()];
-    const state = setup(calls);
+    const { state } = setup(calls);
     tick();
 
     expect(state.calls()).toEqual(calls);
     discardPeriodicTasks();
   }));
 
-  it('filters by search query across headers and body, not just top-level fields', fakeAsync(() => {
-    const matching = makeCall({ request: { headers: {}, body: 'special-term' } });
-    const other = makeCall({ timestamp: 't2' });
-    const state = setup([matching, other]);
+  it('defaults to newest sort and a 10-item page on the first fetch', fakeAsync(() => {
+    const { queries } = setup([makeCall()]);
     tick();
 
-    state.setSearchQuery('special-term');
-
-    expect(state.matchingCalls()).toEqual([matching]);
+    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 10 });
     discardPeriodicTasks();
   }));
 
-  it('filters by supplier hostname', fakeAsync(() => {
-    const a = makeCall({ url: 'https://a.example/x' });
-    const b = makeCall({ url: 'https://b.example/x', timestamp: 't2' });
-    const state = setup([a, b]);
+  it('setSearchQuery re-fetches from offset 0 with the trimmed query', fakeAsync(() => {
+    const { state, queries } = setup([makeCall()]);
+    tick();
+
+    state.setSearchQuery('  special-term  ');
+    tick();
+
+    expect(queries[1].search).toBe('special-term');
+    expect(queries[1].offset).toBe(0);
+    discardPeriodicTasks();
+  }));
+
+  it('setSupplierFilter re-fetches with the supplier param set', fakeAsync(() => {
+    const { state, queries } = setup([makeCall()]);
     tick();
 
     state.setSupplierFilter('a.example');
+    tick();
 
-    expect(state.matchingCalls()).toEqual([a]);
+    expect(queries[1].supplier).toBe('a.example');
     discardPeriodicTasks();
   }));
 
-  it('sorts the main list by the selected mode', fakeAsync(() => {
-    const slow = makeCall({ duration_ms: 500 });
-    const fast = makeCall({ duration_ms: 10, timestamp: 't2' });
-    const state = setup([slow, fast]);
+  it('setSortMode re-fetches with the new sort', fakeAsync(() => {
+    const { state, queries } = setup([makeCall()]);
     tick();
 
     state.setSortMode('slowest');
+    tick();
 
-    expect(state.mainListCalls()).toEqual([slow, fast]);
+    expect(queries[1].sort).toBe('slowest');
     discardPeriodicTasks();
   }));
 
-  it('paginates the main list and grows on loadMore', fakeAsync(() => {
-    const calls = Array.from({ length: 25 }, (_, i) => makeCall({ timestamp: `t${i}` }));
-    const state = setup(calls);
+  it('loadMore fetches the next page at the current offset', fakeAsync(() => {
+    const calls = Array.from({ length: 10 }, (_, i) => makeCall({ timestamp: `t${i}` }));
+    const { state, queries } = setup(calls, 25);
     tick();
 
-    expect(state.visibleCalls().length).toBe(20);
-    expect(state.remainingCount()).toBe(5);
-
     state.loadMore();
+    tick();
 
-    expect(state.visibleCalls().length).toBe(25);
-    expect(state.remainingCount()).toBe(0);
+    expect(queries[1].offset).toBe(10);
+    // The stub returns the same 10-item page for every request, so after loadMore appends a
+    // second page, 20 are loaded against a reported total of 25.
+    expect(state.remainingCount()).toBe(5);
+    discardPeriodicTasks();
+  }));
+
+  it('reports remainingCount from the backend total, not just what is loaded', fakeAsync(() => {
+    const calls = Array.from({ length: 10 }, (_, i) => makeCall({ timestamp: `t${i}` }));
+    const { state } = setup(calls, 25);
+    tick();
+
+    expect(state.visibleCalls().length).toBe(10);
+    expect(state.remainingCount()).toBe(15);
     discardPeriodicTasks();
   }));
 
@@ -101,7 +126,7 @@ describe('CallsStateService', () => {
     const a1 = makeCall({ url: 'https://a.example/1' });
     const a2 = makeCall({ url: 'https://a.example/2', timestamp: 't2' });
     const b1 = makeCall({ url: 'https://b.example/1', timestamp: 't3' });
-    const state = setup([a1, a2, b1]);
+    const { state } = setup([a1, a2, b1]);
     tick();
 
     expect(state.groupedCalls()).toEqual([
@@ -111,11 +136,11 @@ describe('CallsStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('computes stats over the search-matching set', fakeAsync(() => {
+  it('computes stats over the loaded set', fakeAsync(() => {
     const ok = makeCall({ response: { status: 200, headers: {}, body: '' } });
     const clientErr = makeCall({ response: { status: 404, headers: {}, body: '' }, timestamp: 't2' });
     const serverErr = makeCall({ response: { status: 500, headers: {}, body: '' }, timestamp: 't3' });
-    const state = setup([ok, clientErr, serverErr]);
+    const { state } = setup([ok, clientErr, serverErr]);
     tick();
 
     expect(state.stats()).toEqual({ total: 3, ok: 1, client: 1, failed: 1 });
@@ -125,17 +150,13 @@ describe('CallsStateService', () => {
   it('excludes pinned calls from the main list to avoid rendering them twice', fakeAsync(() => {
     const pinned = makeCall();
     const other = makeCall({ timestamp: 't2' });
-    setup([pinned, other]);
-    tick();
-    discardPeriodicTasks();
 
     // Simulate a pin via the same localStorage contract PinService uses.
     localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify([pinned]));
-    TestBed.resetTestingModule();
-    const reloaded = setup([pinned, other]);
+    const { state } = setup([pinned, other]);
     tick();
 
-    expect(reloaded.mainListCalls()).toEqual([other]);
+    expect(state.mainListCalls()).toEqual([other]);
     discardPeriodicTasks();
   }));
 });

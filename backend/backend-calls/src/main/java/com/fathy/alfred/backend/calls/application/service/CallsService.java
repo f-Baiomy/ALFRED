@@ -6,12 +6,13 @@ import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallsPage;
+import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 
 @Service
 public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
@@ -20,7 +21,7 @@ public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
     private final CallNotificationPort notificationPort;
     private final List<NewCallObserverPort> observers;
 
-    /** Upper bound on /calls?limit= regardless of what the caller asks for, so a request can't force an unbounded read/response. Same property FileCallLogAdapter uses to ring-buffer RECENT_CALLS.log, so the two stay in sync by construction. */
+    /** Upper bound on a single page's size regardless of what the caller asks for, so a request can't force an unbounded read/response. Same property FileCallLogAdapter uses to ring-buffer RECENT_CALLS.log, so the two stay in sync by construction. */
     @Value("${alfred.calls.max-limit:200}")
     private int maxLimit;
 
@@ -31,16 +32,14 @@ public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
     }
 
     @Override
-    public List<CallRecord> getCalls(int limit) {
-        int clampedLimit = Math.max(1, Math.min(limit, maxLimit));
+    public CallsPage getCalls(CallsQuery query) {
+        int clampedOffset = Math.max(0, query.offset());
+        int clampedLimit = Math.max(1, Math.min(query.limit(), maxLimit));
 
-        List<CallRecord> all = callLogPort.readAll();
-        int fromIndex = Math.max(0, all.size() - clampedLimit);
-        List<CallRecord> recent = all.subList(fromIndex, all.size());
-
-        List<CallRecord> newestFirst = new ArrayList<>(recent);
-        Collections.reverse(newestFirst);
-        return newestFirst;
+        CallListSupport.Page<CallRecord> page = CallListSupport.apply(
+                callLogPort.readAll(), Function.identity(),
+                query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit);
+        return new CallsPage(page.items(), page.total());
     }
 
     /**

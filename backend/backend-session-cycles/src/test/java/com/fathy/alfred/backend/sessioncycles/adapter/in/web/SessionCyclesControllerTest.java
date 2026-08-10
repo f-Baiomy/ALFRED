@@ -11,6 +11,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecording
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
@@ -172,14 +173,14 @@ class SessionCyclesControllerTest {
 
     @Test
     void listCallsReturnsNotFoundWhenTheCycleDoesNotExist() throws Exception {
-        when(listCapturedCallsUseCase.listCalls("missing")).thenReturn(Optional.empty());
+        when(listCapturedCallsUseCase.listCalls(eq("missing"), any())).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/session-cycles/missing/calls")).andExpect(status().isNotFound());
     }
 
     @Test
     void listCallsReturnsTheCapturedCalls() throws Exception {
-        when(listCapturedCallsUseCase.listCalls("c1")).thenReturn(Optional.of(List.of()));
+        when(listCapturedCallsUseCase.listCalls(eq("c1"), any())).thenReturn(Optional.of(new CapturedCallsPage(List.of(), 0)));
 
         mockMvc.perform(get("/session-cycles/c1/calls")).andExpect(status().isOk());
     }

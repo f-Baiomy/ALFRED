@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.sessioncycles.adapter.in.web;
 
+import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CopyCallsRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CreateSessionCycleRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.UpdateSessionCycleRequestDto;
@@ -13,7 +14,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecording
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
-import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -121,9 +123,17 @@ public class SessionCyclesController {
         };
     }
 
+    /** Server-side filtered/sorted/paginated, same contract as GET /calls. */
     @GetMapping("/{id}/calls")
-    public ResponseEntity<List<CapturedCall>> listCalls(@PathVariable String id) {
-        return listCapturedCallsUseCase.listCalls(id)
+    public ResponseEntity<CapturedCallsPage> listCalls(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "") String search,
+            @RequestParam(defaultValue = "") String supplier,
+            @RequestParam(defaultValue = "oldest-call") String sort,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        return listCapturedCallsUseCase.listCalls(id, new CallsQuery(search, supplier, sort, offset, limit))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

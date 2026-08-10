@@ -1,8 +1,7 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { Subject, merge, of, timer } from 'rxjs';
-import { catchError, map, retry, switchMap, tap } from 'rxjs/operators';
+import { map, retry, timer } from 'rxjs';
 import { webSocket } from 'rxjs/webSocket';
 import { CallEvent, CallRecord, CapturedCall, SortMode } from '../models/call.model';
 import { AppConfigService } from '../services/app-config.service';
@@ -10,16 +9,14 @@ import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, createCallListView } from './call-list-view';
-import { callKey, mergeLiveCapturedCalls, sortCalls, unconfirmedLiveCapturedCalls } from '../../shared/utils/call-utils';
-
-const POLL_INTERVAL_MS = 5000;
+import { callKey, sortCalls } from '../../shared/utils/call-utils';
 
 /**
  * Per-open-cycle state for the session-cycle detail page - component-provided (see
  * SessionCycleDetailComponent), NOT root, so navigating between two different cycles gets a fresh
  * instance instead of leaking selection/live state from the previous one. Mirrors
- * CallsStateService's poll+live-merge+selection+search/sort/group/stats shape (via the same
- * createCallListView factory), scoped to one cycle's captured calls.
+ * CallsStateService's fetch-on-demand+live-merge+selection+search/sort/group/stats shape (via the
+ * same createCallListView factory), scoped to one cycle's captured calls.
  */
 @Injectable()
 export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState, CallReorderState {
@@ -32,33 +29,13 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   readonly error = signal<string | null>(null);
 
-  private readonly manualRefresh = new Subject<void>();
-
   private readonly view: CallListView;
 
-  private readonly polled$ = merge(timer(0, POLL_INTERVAL_MS), this.manualRefresh).pipe(
-    switchMap(() => {
-      const id = this.cycleId();
-      if (!id) return of<CapturedCall[]>([]);
-      return this.api.listCalls(id).pipe(
-        tap(() => this.error.set(null)),
-        catchError((err: unknown) => {
-          this.error.set(err instanceof Error ? err.message : String(err));
-          return of<CapturedCall[]>([]);
-        })
-      );
-    })
-  );
+  /** The real CapturedCall (with its backend id) behind every CallRecord seen so far this cycle - since a live WebSocket push only carries the bare CallRecord, and removal needs the wrapper's id. Never shrinks except on cycleId change; a page reload of the same window just overwrites entries. */
+  private readonly capturedByKey = new Map<string, CapturedCall>();
 
-  private readonly polledCalls = toSignal(this.polled$, { initialValue: [] as CapturedCall[] });
-
-  /** Captured calls pushed live over WebSocket that the next poll hasn't confirmed (with their real backend id) yet. */
-  private readonly liveCalls = signal<readonly CapturedCall[]>([]);
-
-  readonly capturedCalls = computed(() => mergeLiveCapturedCalls(this.liveCalls(), this.polledCalls()));
-
-  /** Just the underlying CallRecords, in the same newest-first order - what CallListControlsState/CallListView operate on. */
-  readonly calls = computed(() => this.capturedCalls().map((c) => c.call));
+  /** Captured calls pushed live over WebSocket that the next refresh() hasn't confirmed (with their real backend id) yet. */
+  private readonly liveCalls = signal<readonly CallRecord[]>([]);
 
   readonly selectedIds = signal<ReadonlySet<string>>(new Set());
 
@@ -72,17 +49,33 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   readonly dragEnabled = computed(() => !this.groupBySupplier());
 
   constructor() {
-    this.view = createCallListView(this.calls, computed(() => new Set(this.pinService.pinned().keys())), {
+    this.view = createCallListView(computed(() => new Set(this.pinService.pinned().keys())), {
       defaultSortMode: 'oldest-call',
       customOrder: this.customOrder,
+      liveCalls: this.liveCalls,
+      onError: (message) => this.error.set(message),
+      fetchPage: (query) => {
+        const id = this.cycleId();
+        return this.api.listCalls(id, query).pipe(
+          map((page) => {
+            for (const c of page.calls) {
+              this.capturedByKey.set(callKey(c.call), c);
+            }
+            return { calls: page.calls.map((c) => c.call), total: page.total };
+          })
+        );
+      },
     });
 
+    // A different cycle is an entirely different data source, not just a query change - clears
+    // everything loaded so far (including the id lookup) and refetches page one, rather than
+    // e.g. appending cycle B's calls onto cycle A's leftover window.
     effect(
       () => {
-        const pruned = unconfirmedLiveCapturedCalls(this.liveCalls(), this.polledCalls());
-        if (pruned.length !== this.liveCalls().length) {
-          this.liveCalls.set(pruned);
-        }
+        this.cycleId();
+        this.capturedByKey.clear();
+        this.liveCalls.set([]);
+        this.view.resetSource();
       },
       { allowSignalWrites: true }
     );
@@ -147,6 +140,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     }
   }
 
+  /**
+   * Pushes a captured call onto the page the instant it's recorded, and immediately triggers a
+   * refresh() for the authoritative page - there's no 5s poll to eventually pick it up otherwise.
+   */
   private connectLiveUpdates(): void {
     const wsUrl = this.config.backendUrl.replace(/^http/, 'ws') + '/ws/calls';
     webSocket<CallEvent>(wsUrl)
@@ -155,15 +152,14 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         const id = this.cycleId();
         if (!id || !capturedByCycleIds.includes(id)) return;
         const key = callKey(call);
-        const placeholder: CapturedCall = { id: key, capturedAt: call.timestamp, call };
-        this.liveCalls.set([placeholder, ...this.liveCalls().filter((c) => callKey(c.call) !== key)]);
+        this.liveCalls.set([call, ...this.liveCalls().filter((c) => callKey(c) !== key)]);
+        this.view.refresh();
       });
   }
 
   /** CallRemovalState - looks up the captured call's own backend id from the underlying CallRecord, since CallCardComponent only has the CallRecord, not the CapturedCall wrapper. */
   remove(call: CallRecord): void {
-    const key = callKey(call);
-    const captured = this.capturedCalls().find((c) => callKey(c.call) === key);
+    const captured = this.capturedByKey.get(callKey(call));
     if (captured) {
       this.removeCall(captured.id);
     }
@@ -172,11 +168,11 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   removeCall(callId: string): void {
     const id = this.cycleId();
     if (!id) return;
-    this.api.removeCall(id, callId).subscribe(() => this.refreshNow());
+    this.api.removeCall(id, callId).subscribe(() => this.view.refresh());
   }
 
   refreshNow(): void {
-    this.manualRefresh.next();
+    this.view.refresh();
   }
 
   // ---- CallListControlsState (delegates to the shared view) ----
@@ -205,6 +201,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get supplierOptions() {
     return this.view.supplierOptions;
   }
+  get calls() {
+    return this.view.matchingCalls;
+  }
   get matchingCalls() {
     return this.view.matchingCalls;
   }
@@ -225,6 +224,17 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   }
   get loadMorePageSize() {
     return this.view.loadMorePageSize;
+  }
+  get loading() {
+    return this.view.loading;
+  }
+
+  refresh(): void {
+    this.view.refresh();
+  }
+
+  resetSource(): void {
+    this.view.resetSource();
   }
 
   setSearchQuery(query: string): void {
@@ -293,14 +303,11 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   // ---- BulkSelectionState ----
 
   /** In current-sort-order, not capture/insertion order - matches CallsStateService.selectedCalls
-   * (dashboard). Without this, a bulk export's call order came from this.calls()'s raw insertion
-   * order into the cycle's file, not the on-screen sorted order (default oldest-call-first) - a
-   * call captured later but that happened earlier would sort first on screen but export last
-   * (confirmed live). */
+   * (dashboard). Scoped to what's currently loaded - see call-list-view.ts's doc comment. */
   selectedCalls(): readonly CallRecord[] {
     const ids = this.selectedIds();
     if (ids.size === 0) return [];
-    return sortCalls(this.calls(), this.view.sortMode(), this.customOrder()).filter((call) => ids.has(callKey(call)));
+    return sortCalls(this.view.matchingCalls(), this.view.sortMode(), this.customOrder()).filter((call) => ids.has(callKey(call)));
   }
 
   selectAll(): void {

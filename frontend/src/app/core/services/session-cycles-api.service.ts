@@ -1,8 +1,9 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { CallRecord, CapturedCall, SessionCycle } from '../models/call.model';
 import { AppConfigService } from './app-config.service';
+import { CallsQuery } from '../state/call-list-view';
 
 export interface NewSessionCycleRequest {
   readonly name: string;
@@ -17,6 +18,12 @@ export interface SessionCycleUpdateRequest {
 export interface CopyCallsResult {
   readonly added: number;
   readonly skipped: number;
+}
+
+/** GET /session-cycles/{id}/calls' paged response shape - CapturedCall items, not bare CallRecord. */
+export interface CapturedCallsPageResult {
+  readonly calls: readonly CapturedCall[];
+  readonly total: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -52,8 +59,14 @@ export class SessionCyclesApiService {
     return this.http.delete<void>(`${this.baseUrl}/${id}`);
   }
 
-  listCalls(id: string): Observable<CapturedCall[]> {
-    return this.http.get<CapturedCall[]>(`${this.baseUrl}/${id}/calls`);
+  listCalls(id: string, query: CallsQuery): Observable<CapturedCallsPageResult> {
+    const params = new HttpParams()
+      .set('search', query.search)
+      .set('supplier', query.supplier)
+      .set('sort', query.sort)
+      .set('offset', query.offset)
+      .set('limit', query.limit);
+    return this.http.get<CapturedCallsPageResult>(`${this.baseUrl}/${id}/calls`, { params });
   }
 
   removeCall(id: string, callId: string): Observable<void> {

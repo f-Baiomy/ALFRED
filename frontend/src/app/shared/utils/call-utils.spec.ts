@@ -1,17 +1,12 @@
-import { CallRecord, CapturedCall } from '../../core/models/call.model';
+import { CallRecord } from '../../core/models/call.model';
 import {
   callKey,
   durationClass,
-  matchesSearch,
-  mergeLiveCalls,
-  mergeLiveCapturedCalls,
   methodClass,
   sortCalls,
   statusClass,
   statusRank,
   supplierOf,
-  unconfirmedLiveCalls,
-  unconfirmedLiveCapturedCalls,
 } from './call-utils';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
@@ -141,29 +136,6 @@ describe('sortCalls', () => {
   });
 });
 
-describe('matchesSearch', () => {
-  it('matches an empty query against anything', () => {
-    expect(matchesSearch(makeCall(), '')).toBe(true);
-  });
-
-  it('matches against the method, url, and status', () => {
-    const call = makeCall({ method: 'POST', url: 'https://supplier.example/x' });
-    expect(matchesSearch(call, 'post')).toBe(true);
-    expect(matchesSearch(call, 'supplier.example')).toBe(true);
-    expect(matchesSearch(call, '200')).toBe(true);
-  });
-
-  it('matches inside request/response headers and bodies, not just top-level fields', () => {
-    const call = makeCall({
-      request: { headers: { 'x-api-key': 'secret-value' }, body: '{"supplier":"FlyNas"}' },
-      response: { status: 200, headers: { 'content-type': 'application/json' }, body: '{"ok":true}' },
-    });
-    expect(matchesSearch(call, 'flynas')).toBe(true);
-    expect(matchesSearch(call, 'secret-value')).toBe(true);
-    expect(matchesSearch(call, 'nonexistent-term')).toBe(false);
-  });
-});
-
 describe('supplierOf', () => {
   it('extracts the hostname from a valid url', () => {
     expect(supplierOf(makeCall({ url: 'https://supplier.example.com/api/x' }))).toBe('supplier.example.com');
@@ -201,109 +173,3 @@ describe('methodClass', () => {
   });
 });
 
-describe('mergeLiveCalls', () => {
-  it('puts live-only calls ahead of the polled list', () => {
-    const polled = [makeCall({ timestamp: 'polled-1' })];
-    const live = [makeCall({ timestamp: 'live-1' })];
-
-    const result = mergeLiveCalls(live, polled);
-
-    expect(result.map((c) => c.timestamp)).toEqual(['live-1', 'polled-1']);
-  });
-
-  it('does not duplicate a call that is both live-pushed and already polled', () => {
-    const shared = makeCall({ timestamp: 'shared' });
-
-    const result = mergeLiveCalls([shared], [shared]);
-
-    expect(result.length).toBe(1);
-  });
-
-  it('returns just the polled list when there are no live calls', () => {
-    const polled = [makeCall({ timestamp: 'a' }), makeCall({ timestamp: 'b' })];
-
-    expect(mergeLiveCalls([], polled)).toEqual(polled);
-  });
-});
-
-describe('unconfirmedLiveCalls', () => {
-  it('keeps live calls the polled list has not caught up to yet', () => {
-    const live = [makeCall({ timestamp: 'still-live' })];
-    const polled = [makeCall({ timestamp: 'unrelated' })];
-
-    expect(unconfirmedLiveCalls(live, polled)).toEqual(live);
-  });
-
-  it('drops a live call once the same call appears in the polled list', () => {
-    const confirmed = makeCall({ timestamp: 'now-polled' });
-    const live = [confirmed, makeCall({ timestamp: 'still-live' })];
-
-    const result = unconfirmedLiveCalls(live, [confirmed]);
-
-    expect(result.map((c) => c.timestamp)).toEqual(['still-live']);
-  });
-
-  it('returns an empty array once every live call has been confirmed', () => {
-    const confirmed = makeCall({ timestamp: 'now-polled' });
-
-    expect(unconfirmedLiveCalls([confirmed], [confirmed])).toEqual([]);
-  });
-});
-
-// Identity for merge/unconfirmed is derived from callKey(c.call), not CapturedCall.id (a
-// live-pushed captured call doesn't have its real backend id yet) - so distinctness in these
-// tests comes from varying the underlying call's timestamp, not the wrapper id.
-function makeCapturedCall(id: string, callOverrides: Partial<CallRecord> = {}): CapturedCall {
-  return {
-    id,
-    capturedAt: '2026-01-01T00:00:00.000000+00:00',
-    call: makeCall({ timestamp: id, ...callOverrides }),
-  };
-}
-
-describe('mergeLiveCapturedCalls', () => {
-  it('puts live-only captured calls ahead of the polled list', () => {
-    const polled = [makeCapturedCall('polled-1')];
-    const live = [makeCapturedCall('live-1')];
-
-    const result = mergeLiveCapturedCalls(live, polled);
-
-    expect(result.map((c) => c.id)).toEqual(['live-1', 'polled-1']);
-  });
-
-  it('does not duplicate a captured call that is both live-pushed and already polled', () => {
-    const shared = makeCapturedCall('shared');
-
-    expect(mergeLiveCapturedCalls([shared], [shared]).length).toBe(1);
-  });
-
-  it('returns just the polled list when there are no live captured calls', () => {
-    const polled = [makeCapturedCall('a'), makeCapturedCall('b')];
-
-    expect(mergeLiveCapturedCalls([], polled)).toEqual(polled);
-  });
-});
-
-describe('unconfirmedLiveCapturedCalls', () => {
-  it('keeps live captured calls the polled list has not caught up to yet', () => {
-    const live = [makeCapturedCall('still-live')];
-    const polled = [makeCapturedCall('unrelated')];
-
-    expect(unconfirmedLiveCapturedCalls(live, polled)).toEqual(live);
-  });
-
-  it('drops a live captured call once the same underlying call appears in the polled list', () => {
-    const confirmed = makeCapturedCall('now-polled');
-    const live = [confirmed, makeCapturedCall('still-live')];
-
-    const result = unconfirmedLiveCapturedCalls(live, [confirmed]);
-
-    expect(result.map((c) => c.id)).toEqual(['still-live']);
-  });
-
-  it('returns an empty array once every live captured call has been confirmed', () => {
-    const confirmed = makeCapturedCall('now-polled');
-
-    expect(unconfirmedLiveCapturedCalls([confirmed], [confirmed])).toEqual([]);
-  });
-});

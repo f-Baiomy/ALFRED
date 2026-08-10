@@ -4,10 +4,10 @@ import { SortMode } from '../../core/models/call.model';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 
 const LIMIT_OPTIONS: readonly SelectOption[] = [
-  { value: '20', label: 'Last 20' },
-  { value: '50', label: 'Last 50' },
-  { value: '100', label: 'Last 100' },
-  { value: '200', label: 'Last 200' },
+  { value: '10', label: '10 per page' },
+  { value: '25', label: '25 per page' },
+  { value: '50', label: '50 per page' },
+  { value: '100', label: '100 per page' },
 ];
 
 const SORT_OPTIONS: readonly SelectOption[] = [

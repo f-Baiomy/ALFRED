@@ -1,6 +1,8 @@
 package com.fathy.alfred.backend.sessioncycles.application.service;
 
+import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
@@ -14,17 +16,17 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionC
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleUpdate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -47,6 +49,10 @@ public class SessionCyclesService implements
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
+
+    /** Same property + same clamp CallsService applies to GET /calls, reused here so a page of captured calls can't be forced unbounded either. */
+    @Value("${alfred.calls.max-limit:200}")
+    private int maxLimit;
 
     public SessionCyclesService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore) {
         this.metadataStore = metadataStore;
@@ -130,13 +136,17 @@ public class SessionCyclesService implements
         return DeleteOutcome.DELETED;
     }
 
-    /** Captured-calls files are stored oldest-first (append order); reversed here to match GET /calls' newest-first convention, which the frontend's sort/live-merge logic assumes. */
+    /** Filters/sorts/paginates server-side via the same CallListSupport GET /calls uses - captured-calls files are stored oldest-first (append order), which is exactly the "oldest"/"newest" baseline CallListSupport expects. */
     @Override
-    public Optional<List<CapturedCall>> listCalls(String cycleId) {
+    public Optional<CapturedCallsPage> listCalls(String cycleId, CallsQuery query) {
         return metadataStore.findById(cycleId).map(cycle -> {
-            List<CapturedCall> calls = new ArrayList<>(capturedCallsStore.findAllByCycle(cycleId));
-            Collections.reverse(calls);
-            return calls;
+            int clampedOffset = Math.max(0, query.offset());
+            int clampedLimit = Math.max(1, Math.min(query.limit(), maxLimit));
+
+            CallListSupport.Page<CapturedCall> page = CallListSupport.apply(
+                    capturedCallsStore.findAllByCycle(cycleId), CapturedCall::call,
+                    query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit);
+            return new CapturedCallsPage(page.items(), page.total());
         });
     }
 

@@ -4,6 +4,8 @@ import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallsPage;
+import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -20,6 +22,10 @@ class CallsServiceTest {
 
     private static CallRecord call(String url) {
         return new CallRecord(url, url, "GET", null, "t", 1.0, null, null);
+    }
+
+    private static CallsQuery query(int offset, int limit) {
+        return new CallsQuery("", "", "newest", offset, limit);
     }
 
     private static CallsService serviceWith(CallLogPort port) {
@@ -49,9 +55,10 @@ class CallsServiceTest {
         when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
         CallsService service = serviceWith(port);
 
-        List<CallRecord> result = service.getCalls(50);
+        CallsPage result = service.getCalls(query(0, 50));
 
-        assertThat(result).extracting(CallRecord::url).containsExactly("c", "b", "a");
+        assertThat(result.calls()).extracting(CallRecord::url).containsExactly("c", "b", "a");
+        assertThat(result.total()).isEqualTo(3);
     }
 
     @Test
@@ -60,9 +67,22 @@ class CallsServiceTest {
         when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
         CallsService service = serviceWith(port);
 
-        List<CallRecord> result = service.getCalls(2);
+        CallsPage result = service.getCalls(query(0, 2));
 
-        assertThat(result).extracting(CallRecord::url).containsExactly("c", "b");
+        assertThat(result.calls()).extracting(CallRecord::url).containsExactly("c", "b");
+        assertThat(result.total()).isEqualTo(3);
+    }
+
+    @Test
+    void offsetsPastAlreadyLoadedCalls() {
+        CallLogPort port = mock(CallLogPort.class);
+        when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
+        CallsService service = serviceWith(port);
+
+        CallsPage result = service.getCalls(query(2, 2));
+
+        assertThat(result.calls()).extracting(CallRecord::url).containsExactly("a");
+        assertThat(result.total()).isEqualTo(3);
     }
 
     @Test
@@ -71,8 +91,8 @@ class CallsServiceTest {
         when(port.readAll()).thenReturn(List.of(call("a"), call("b")));
         CallsService service = serviceWith(port);
 
-        assertThat(service.getCalls(0)).hasSize(1);
-        assertThat(service.getCalls(-5)).hasSize(1);
+        assertThat(service.getCalls(query(0, 0)).calls()).hasSize(1);
+        assertThat(service.getCalls(query(0, -5)).calls()).hasSize(1);
     }
 
     @Test
@@ -84,9 +104,10 @@ class CallsServiceTest {
         when(port.readAll()).thenReturn(many);
         CallsService service = serviceWith(port);
 
-        List<CallRecord> result = service.getCalls(TEST_MAX_LIMIT + 50);
+        CallsPage result = service.getCalls(query(0, TEST_MAX_LIMIT + 50));
 
-        assertThat(result).hasSize(TEST_MAX_LIMIT);
+        assertThat(result.calls()).hasSize(TEST_MAX_LIMIT);
+        assertThat(result.total()).isEqualTo(TEST_MAX_LIMIT + 50);
     }
 
     @Test

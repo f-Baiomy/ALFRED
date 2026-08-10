@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.sessioncycles.application.service;
 
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
@@ -12,6 +13,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleUpdate;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,7 +29,22 @@ class SessionCyclesServiceTest {
 
     private final SessionCycleMetadataStorePort metadataStore = mock(SessionCycleMetadataStorePort.class);
     private final CapturedCallsStorePort capturedCallsStore = mock(CapturedCallsStorePort.class);
-    private final SessionCyclesService service = new SessionCyclesService(metadataStore, capturedCallsStore);
+    private final SessionCyclesService service = newService(metadataStore, capturedCallsStore);
+
+    private static final CallsQuery DEFAULT_QUERY = new CallsQuery("", "", "oldest", 0, 10);
+
+    /** maxLimit is @Value-injected by Spring in production; unit tests construct SessionCyclesService directly, so it's set the same way CallsServiceTest sets its own @Value field. */
+    private static SessionCyclesService newService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore) {
+        SessionCyclesService service = new SessionCyclesService(metadataStore, capturedCallsStore);
+        try {
+            Field field = SessionCyclesService.class.getDeclaredField("maxLimit");
+            field.setAccessible(true);
+            field.setInt(service, 200);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+        return service;
+    }
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "2026-01-01T00:00:00Z", null, status);
@@ -146,32 +163,33 @@ class SessionCyclesServiceTest {
     void listCallsReturnsEmptyOptionalWhenTheCycleDoesNotExist() {
         when(metadataStore.findById("missing")).thenReturn(Optional.empty());
 
-        assertThat(service.listCalls("missing")).isEmpty();
+        assertThat(service.listCalls("missing", DEFAULT_QUERY)).isEmpty();
         verify(capturedCallsStore, never()).findAllByCycle(any());
     }
 
     @Test
     void listCallsReturnsThePossiblyEmptyCapturedList() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(mock(CapturedCall.class)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(call("t1"))));
 
-        Optional<List<CapturedCall>> result = service.listCalls("c1");
+        var result = service.listCalls("c1", DEFAULT_QUERY);
 
         assertThat(result).isPresent();
-        assertThat(result.get()).hasSize(1);
+        assertThat(result.get().calls()).hasSize(1);
+        assertThat(result.get().total()).isEqualTo(1);
     }
 
     @Test
-    void listCallsReversesStoreOrderToNewestFirst() {
-        CapturedCall first = mock(CapturedCall.class);
-        CapturedCall second = mock(CapturedCall.class);
+    void listCallsSortsNewestFirstWhenAsked() {
+        CapturedCall first = captured(call("t1"));
+        CapturedCall second = captured(call("t2"));
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(first, second));
 
-        Optional<List<CapturedCall>> result = service.listCalls("c1");
+        var result = service.listCalls("c1", new CallsQuery("", "", "newest", 0, 10));
 
         assertThat(result).isPresent();
-        assertThat(result.get()).containsExactly(second, first);
+        assertThat(result.get().calls()).containsExactly(second, first);
     }
 
     @Test
