@@ -214,9 +214,13 @@ export class JsonPanelComponent {
   }
 
   copyContent(): void {
-    const root = this.contentRoot()?.nativeElement;
-    if (!root) return;
-    navigator.clipboard.writeText(root.innerText).then(() => {
+    // baseText() is the exact clean pretty-printed text this panel renders from - copying it
+    // directly, rather than reading the DOM's innerText, is both simpler and correct: innerText
+    // would also pick up the line-number gutter and the per-line "+" comment buttons (confirmed
+    // live - user-select: none on those elements only blocks mouse drag-selection, not
+    // .innerText), and always copies the full untruncated content regardless of "Lines only"
+    // filtering, matching the project's never-truncate-an-export rule.
+    navigator.clipboard.writeText(this.baseText()).then(() => {
       this.copyFeedback.set(true);
       setTimeout(() => this.copyFeedback.set(false), 1200);
     });
