@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.export.application.service;
 
 import com.fathy.alfred.backend.export.application.port.in.ExtractExportMetadataUseCase;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.export.domain.model.ExportMetadata;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -25,7 +26,7 @@ public class ExportMetadataService implements ExtractExportMetadataUseCase {
         JsonNode bodyJson = parseBody(call.request());
 
         return new ExportMetadata(
-                textOrNull(bodyJson, "supplier"),
+                CallSummary.supplierNameOf(call),
                 textOrNull(bodyJson, "credentialsSelector"),
                 findHeaderIgnoreCase(call.request(), "x-api-key"),
                 call.url()

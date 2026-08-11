@@ -26,6 +26,8 @@ export interface CallRecord {
   readonly duration_ms: number;
   readonly response?: CallResponse;
   readonly error?: string;
+  /** Best-effort supplier name parsed server-side from the request body's "supplier" JSON field (see backend's CallSummary.supplierNameOf) - null/undefined when it couldn't be determined. Part of the summary, not the detail, so it shows on a collapsed card with no extra fetch. */
+  readonly supplierName?: string | null;
 }
 
 /** The full request/response for one call - GET /calls/{id}/detail's response shape. */
@@ -44,6 +46,7 @@ export interface CallSummaryDto {
   readonly duration_ms: number;
   readonly status: number | null;
   readonly error?: string;
+  readonly supplierName?: string | null;
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle

@@ -11,6 +11,7 @@ export function toCallRecord(dto: CallSummaryDto): CallRecord {
     duration_ms: dto.duration_ms,
     response: dto.status != null ? { status: dto.status } : undefined,
     error: dto.error,
+    supplierName: dto.supplierName,
   };
 }
 

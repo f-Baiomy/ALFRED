@@ -569,6 +569,18 @@ main {
   border: 1px solid var(--border);
 }
 
+// Deliberately solid (not the color-mix tint every other badge uses) - this one's meant to draw
+// the eye first among the row's badges, since it's the one piece of business context (which
+// supplier a call belongs to) sitting next to purely technical ones (method/status/duration).
+.supplier-badge {
+  background: var(--amber);
+  color: #1a1247;
+  border: 1px solid var(--amber);
+  // Supplier names are case-sensitive (e.g. "FlyNas") - unlike every other badge here, this one
+  // must render exactly as the backend sent it, not force-uppercased by the shared .badge rule.
+  text-transform: none;
+}
+
 .cycle-status-recording {
   background: color-mix(in srgb, var(--red) 15%, transparent);
   color: var(--red);

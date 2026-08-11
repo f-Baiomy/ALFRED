@@ -125,6 +125,20 @@ describe('CallCardComponent', () => {
     expect(secondHost.textContent).toContain('req-body-2');
   });
 
+  it('shows the supplier name badge when the summary carries one', () => {
+    const fixture = createCard(makeCall({ supplierName: 'FlyNas' }));
+    const host: HTMLElement = fixture.nativeElement;
+
+    expect(host.querySelector('.supplier-badge')?.textContent).toContain('FlyNas');
+  });
+
+  it('renders no supplier badge when the summary has none', () => {
+    const fixture = createCard(makeCall({ supplierName: null }));
+    const host: HTMLElement = fixture.nativeElement;
+
+    expect(host.querySelector('.supplier-badge')).toBeFalsy();
+  });
+
   it('does not fetch detail just because the card scrolls into view while still collapsed', () => {
     // Regression test: a card becoming visible must never by itself promote it out of
     // 'collapsed' - only an explicit expand (individual click or bulk "Expand all") does that.

@@ -20,6 +20,9 @@
     @if (call().duration_ms != null) {
       <span class="duration" [class]="durationClass()">{{ call().duration_ms }} ms</span>
     }
+    @if (call().supplierName) {
+      <span class="badge supplier-badge">{{ call().supplierName }}</span>
+    }
     <app-call-actions [call]="call()" />
     @if (removalState) {
       <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
