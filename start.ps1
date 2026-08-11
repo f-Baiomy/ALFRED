@@ -48,6 +48,11 @@ Write-Host "=== Step 1: hosts file ==="
 $hostsContent = Get-Content $hostsFile
 $targetIp = "127.0.0.2"
 
+# Figure out what needs to change before touching the file, so that if a write fails partway
+# through (e.g. antivirus/endpoint protection blocking direct hosts edits) we know exactly which
+# remaining lines still need to be added manually, without re-listing ones already written.
+$pending = New-Object System.Collections.Generic.List[object]
+
 foreach ($line in Get-Content $suppliersFile) {
     $domain = ($line -replace '#.*', '').Trim()
     if ([string]::IsNullOrWhiteSpace($domain)) { continue }
@@ -60,13 +65,51 @@ foreach ($line in Get-Content $suppliersFile) {
     } elseif ($existingLine) {
         # A stale entry from before this project switched to $targetIp (or a manual edit) - fix
         # the IP in place rather than leaving a second, shadowing line for the same hostname.
-        (Get-Content $hostsFile) -replace [regex]::Escape($existingLine), "$targetIp   $proxyHost" | Set-Content $hostsFile
-        $hostsContent = Get-Content $hostsFile
-        Write-Host "  [fixed] $proxyHost was pointing elsewhere - now $targetIp"
+        $pending.Add([PSCustomObject]@{ Type = "fix"; ProxyHost = $proxyHost; OldLine = $existingLine; NewLine = "$targetIp   $proxyHost" })
     } else {
-        Add-Content -Path $hostsFile -Value "$targetIp   $proxyHost"
-        $hostsContent = Get-Content $hostsFile
-        Write-Host "  [added] $targetIp   $proxyHost"
+        $pending.Add([PSCustomObject]@{ Type = "add"; ProxyHost = $proxyHost; OldLine = $null; NewLine = "$targetIp   $proxyHost" })
+    }
+}
+
+if ($pending.Count -gt 0) {
+    try {
+        for ($i = 0; $i -lt $pending.Count; $i++) {
+            $item = $pending[$i]
+            if ($item.Type -eq "fix") {
+                (Get-Content $hostsFile) -replace [regex]::Escape($item.OldLine), $item.NewLine | Set-Content $hostsFile
+                $hostsContent = Get-Content $hostsFile
+                Write-Host "  [fixed] $($item.ProxyHost) was pointing elsewhere - now $targetIp"
+            } else {
+                Add-Content -Path $hostsFile -Value $item.NewLine
+                $hostsContent = Get-Content $hostsFile
+                Write-Host "  [added] $($item.NewLine)"
+            }
+        }
+    } catch {
+        # $i still points at the entry that failed (PowerShell try/catch shares the enclosing
+        # scope) - everything from $i onward was never written, so only list those, not the
+        # ones that already succeeded above.
+        Write-Host ""
+        Write-Host "  [error] Could not write to the hosts file: $($_.Exception.Message)"
+        Write-Host "  This is usually antivirus/endpoint protection (e.g. Kaspersky Self-Defense,"
+        Write-Host "  Windows Defender Controlled Folder Access) blocking direct edits to the hosts file."
+        Write-Host ""
+        Write-Host "  Add these line(s) yourself, then re-run this script to pick up where it left off:"
+        Write-Host ""
+        for ($j = $i; $j -lt $pending.Count; $j++) {
+            Write-Host "    $($pending[$j].NewLine)"
+        }
+        Write-Host ""
+        Write-Host "  Hosts file path:"
+        Write-Host "    Windows       C:\Windows\System32\drivers\etc\hosts   (this machine: $hostsFile)"
+        Write-Host "    Linux/macOS   /etc/hosts"
+        Write-Host ""
+        $response = Read-Host "  Continue with docker compose anyway? Those hostnames won't resolve until the lines above are added. [y/N]"
+        if ($response -notmatch '^[Yy]') {
+            Write-Host "Stopped."
+            exit 1
+        }
+        Write-Host "  Continuing without finishing the hosts file changes ..."
     }
 }
 
