@@ -90,6 +90,12 @@ describe('buildExportHtml', () => {
     expect(html).toContain('not json at all');
   });
 
+  it('renders every collapsible section closed, so opening the file shows a scannable page instead of everything expanded', () => {
+    const html = buildExportHtml(makeCall(), makeForm());
+    expect(html).not.toContain('<details open');
+    expect(html).not.toContain('<details class="json-block" open');
+  });
+
   it('creates one json-block per Headers/Body section', () => {
     const html = buildExportHtml(makeCall(), makeForm());
     const blockCount = html.match(/data-block-id="call-[a-z-]+"/g)?.length ?? 0;
@@ -247,6 +253,14 @@ describe('buildBulkExportHtml', () => {
 
     expect(html).toContain('<code>POST api/V2/FlightSearch/Search</code>');
     expect(html).not.toContain('<code>POST https://');
+  });
+
+  it('renders every call section and every Headers/Body block closed, not just the first call', () => {
+    const calls = [makeCall(), makeCall({ id: 'call-2', timestamp: 't2' })];
+    const html = buildBulkExportHtml(calls, makeForm(), new Map(), EXPORTED_AT);
+
+    expect(html).not.toContain('<details open');
+    expect(html).not.toContain('<details class="json-block" open');
   });
 
   it('shows the error status when there is no response', () => {

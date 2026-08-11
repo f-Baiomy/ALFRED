@@ -28,4 +28,6 @@ Angular, standalone components + signals, no NgModules/NgRx.
 
 **No export path (`.md`/`.json`/`.html`/cURL) ever truncates or summarizes call data** — a hard correctness requirement; test coverage in `*-builder.spec.ts` asserts on large generated bodies specifically to guard this.
 
+**Every `<details>` in an HTML export (`html-builder.ts`) renders closed, never `open`** — the per-call wrapper in a bulk export and all four Headers/Body blocks in both single and bulk export - so opening the file shows a scannable list first, not every call and every block already expanded. Markdown's per-call `<details open>` wrapper is unaffected (a different, additive design: Markdown's collapsible sections are for de-cluttering a long scroll, not the reader's first view of the doc), only HTML's is collapsed by default.
+
 **Every clipboard copy goes through `shared/utils/clipboard.ts`'s `copyToClipboard()`**, not `navigator.clipboard.writeText` directly — that API requires a secure context, which a plain-HTTP LAN deployment isn't; it falls back to `document.execCommand('copy')`.

@@ -355,7 +355,7 @@ function callSectionHtml(call: CallRecord, comments: readonly Comment[], idPrefi
   if (call.duration_ms != null) parts.push(`<li><b>Duration:</b> ${formatMs(call.duration_ms)}</li>`);
   parts.push('</ul>');
   parts.push(jsonBlockHtml(reqHeaders, 'Headers', false));
-  parts.push(jsonBlockHtml(reqBody, 'Body', true));
+  parts.push(jsonBlockHtml(reqBody, 'Body', false));
 
   parts.push('<hr />');
   parts.push('<h2>📥 Response</h2>');
@@ -365,8 +365,8 @@ function callSectionHtml(call: CallRecord, comments: readonly Comment[], idPrefi
   }
   if (call.response) {
     parts.push(`<ul class="field-list"><li><b>Status:</b> ${statusHtml(call)}</li></ul>`);
-    parts.push(jsonBlockHtml(resHeaders, 'Headers', true));
-    parts.push(jsonBlockHtml(resBody, 'Body', true));
+    parts.push(jsonBlockHtml(resHeaders, 'Headers', false));
+    parts.push(jsonBlockHtml(resBody, 'Body', false));
   }
 
   return { html: parts.join(''), blocks: [reqHeaders, reqBody, resHeaders, resBody] };
@@ -419,7 +419,7 @@ export function buildBulkExportHtml(
     const { html: sectionHtml, blocks } = callSectionHtml(call, comments, `call-${n}`);
     allBlocks.push(...blocks);
     callSections.push(
-      `<a id="call-${n}"></a><details class="json-block" open><summary class="call-summary"><b>Call ${n}</b> &nbsp; <code>${escapeHtml(
+      `<a id="call-${n}"></a><details class="json-block"><summary class="call-summary"><b>Call ${n}</b> &nbsp; <code>${escapeHtml(
         call.method
       )} ${escapeHtml(uriPath(call.url))}</code> &nbsp; ${statusHtml(call)}</summary><div class="call-summary-body">${flaggedIssuesHtml(comments)}${sectionHtml}</div></details>`
     );
