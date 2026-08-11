@@ -11,7 +11,6 @@ import { CommentsApiService } from '../../core/services/comments-api.service';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { buildBulkCurlScript, bulkCurlFilename } from '../../shared/utils/curl-builder';
 import { downloadText } from '../../shared/utils/download';
-import { callKey } from '../../shared/utils/call-utils';
 
 /**
  * Sticky bar always present above the list so "Select all" is reachable
@@ -114,23 +113,18 @@ export class BulkActionsBarComponent {
       });
   }
 
-  /** No-op (network-wise) for any call already fully hydrated - e.g. previously expanded, or included in an earlier bulk action this session. */
+  /** Always a real fetch per call, even if it was hydrated by an earlier bulk action this session - detail is never served from a cache. */
   private hydrateAll(calls: readonly CallRecord[]): Observable<CallRecord[]> {
-    const requests = calls.map((call) => {
-      if (call.request && call.response?.body !== undefined) {
-        return of(call);
-      }
-      return this.controlsState.getCallDetail(call.id).pipe(map((detail) => ({ ...call, ...detail })));
-    });
+    const requests = calls.map((call) => this.controlsState.getCallDetail(call.id).pipe(map((detail) => ({ ...call, ...detail }))));
     return forkJoin(requests);
   }
 
   private fetchAllComments(calls: readonly CallRecord[]): Observable<ReadonlyMap<string, readonly Comment[]>> {
     const perCall = calls.map((call) =>
-      this.commentsApi.listForCall(callKey(call)).pipe(catchError(() => of<Comment[]>([])))
+      this.commentsApi.listForCall(call.id).pipe(catchError(() => of<Comment[]>([])))
     );
     return forkJoin(perCall).pipe(
-      map((results) => new Map(calls.map((call, i) => [callKey(call), results[i]] as const)))
+      map((results) => new Map(calls.map((call, i) => [call.id, results[i]] as const)))
     );
   }
 }

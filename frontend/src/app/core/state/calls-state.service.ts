@@ -3,7 +3,6 @@ import { webSocket } from 'rxjs/webSocket';
 import { Observable, retry, timer } from 'rxjs';
 import { CallDetail, CallEvent, CallRecord, SortMode } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
-import { CallDetailCacheService } from '../services/call-detail-cache.service';
 import { PinService } from '../services/pin.service';
 import { AppConfigService } from '../services/app-config.service';
 import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils';
@@ -25,7 +24,6 @@ export type { CallStats, SupplierGroup, SupplierOption } from './call-list-view'
 @Injectable({ providedIn: 'root' })
 export class CallsStateService implements CallSelectionState, BulkSelectionState, CallListControlsState {
   private readonly api = inject(CallsApiService);
-  private readonly detailCache = inject(CallDetailCacheService);
   private readonly pinService = inject(PinService);
   private readonly config = inject(AppConfigService);
 
@@ -167,8 +165,9 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     this.view.refresh();
   }
 
+  /** Always a real network call - never served from a cache, so a call's detail is refetched every time it's expanded, even if it was already loaded before (this session or otherwise). */
   getCallDetail(callId: string): Observable<CallDetail> {
-    return this.detailCache.fetch(callId, () => this.api.getDetail(callId));
+    return this.api.getDetail(callId);
   }
 
   /** In current-sort-order, not click order - deterministic regardless of which one you happened to check first. Scoped to what's currently loaded - see call-list-view.ts's doc comment. */

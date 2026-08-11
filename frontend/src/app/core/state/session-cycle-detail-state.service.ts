@@ -5,7 +5,6 @@ import { Observable, map, retry, timer } from 'rxjs';
 import { webSocket } from 'rxjs/webSocket';
 import { CallDetail, CallEvent, CallRecord, CapturedCall, SortMode } from '../models/call.model';
 import { AppConfigService } from '../services/app-config.service';
-import { CallDetailCacheService } from '../services/call-detail-cache.service';
 import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
@@ -22,7 +21,6 @@ import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils'
 @Injectable()
 export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState, CallReorderState {
   private readonly api = inject(SessionCyclesApiService);
-  private readonly detailCache = inject(CallDetailCacheService);
   private readonly config = inject(AppConfigService);
   private readonly route = inject(ActivatedRoute);
   private readonly pinService = inject(PinService);
@@ -160,9 +158,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       });
   }
 
+  /** Always a real network call - never served from a cache, so a call's detail is refetched every time it's expanded, even if it was already loaded before (this session or otherwise). */
   getCallDetail(callId: string): Observable<CallDetail> {
     const cycleId = this.cycleId();
-    return this.detailCache.fetch(callId, () => this.api.getDetail(cycleId, callId));
+    return this.api.getDetail(cycleId, callId);
   }
 
   /** CallRemovalState - looks up the captured call's own backend id from the underlying CallRecord, since CallCardComponent only has the CallRecord, not the CapturedCall wrapper. */

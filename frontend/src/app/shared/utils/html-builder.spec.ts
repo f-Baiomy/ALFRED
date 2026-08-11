@@ -2,7 +2,6 @@ import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { buildBulkExportHtml, buildExportHtml, bulkExportHtmlFilename, exportHtmlFilename } from './html-builder';
-import { callKey } from './call-utils';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -200,11 +199,11 @@ describe('buildBulkExportHtml', () => {
   });
 
   it("includes each call's own flagged issues under its own section, not mixed with another call's", () => {
-    const callA = makeCall({ timestamp: 't-a' });
-    const callB = makeCall({ timestamp: 't-b' });
+    const callA = makeCall({ id: 'call-a', timestamp: 't-a' });
+    const callB = makeCall({ id: 'call-b', timestamp: 't-b' });
     const commentsByCallId = new Map<string, Comment[]>([
-      [callKey(callA), [makeComment({ comment: 'issue on call A' })]],
-      [callKey(callB), [makeComment({ comment: 'issue on call B' })]],
+      [callA.id, [makeComment({ comment: 'issue on call A' })]],
+      [callB.id, [makeComment({ comment: 'issue on call B' })]],
     ]);
 
     const html = buildBulkExportHtml([callA, callB], makeForm(), commentsByCallId, EXPORTED_AT);

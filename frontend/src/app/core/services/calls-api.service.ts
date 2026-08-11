@@ -29,7 +29,7 @@ export class CallsApiService {
     );
   }
 
-  /** The full request/response for one call - fetched only once it's actually expanded, see CallDetailCacheService. */
+  /** The full request/response for one call - fetched only once it's actually expanded, always over the network (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail). */
   getDetail(callId: string): Observable<CallDetail> {
     return this.http.get<CallDetail>(`${this.config.backendUrl}/calls/${callId}/detail`);
   }

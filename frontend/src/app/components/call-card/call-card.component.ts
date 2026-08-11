@@ -11,7 +11,6 @@ import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { JsonPanelComponent } from '../json-panel/json-panel.component';
 import { CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
-import { CallDetailCacheService } from '../../core/services/call-detail-cache.service';
 
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
@@ -39,7 +38,6 @@ type DetailState = 'collapsed' | 'pending' | 'loading' | 'loaded' | 'error';
 export class CallCardComponent {
   private readonly state = inject(CALL_SELECTION_STATE);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
-  private readonly detailCache = inject(CallDetailCacheService);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly hostRef = inject(ElementRef<HTMLElement>);
   private readonly destroyRef = inject(DestroyRef);
@@ -86,25 +84,6 @@ export class CallCardComponent {
     );
     this.observer.observe(this.hostRef.nativeElement);
     this.destroyRef.onDestroy(() => this.observer?.disconnect());
-
-    // Reads the input() signal inside an effect rather than the constructor body directly -
-    // Angular doesn't guarantee a required input's value is set yet at construction time. Runs
-    // once: `call()` never changes identity for a given card instance in practice (trackByCallKey
-    // keeps the same component instance alive for the same call across re-fetches).
-    let checkedCache = false;
-    effect(
-      () => {
-        const call = this.call();
-        if (checkedCache) return;
-        checkedCache = true;
-        const cached = this.detailCache.get(call.id);
-        if (cached) {
-          this.detail.set(cached);
-          this.detailState.set('loaded');
-        }
-      },
-      { allowSignalWrites: true }
-    );
 
     // A bulk "Expand all" marks every card 'pending' (so the placeholder already reads
     // "loading soon" instead of "click to expand") without fetching anything for cards that

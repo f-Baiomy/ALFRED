@@ -63,16 +63,16 @@
         @if (displayCall().request) {
           <div class="panel">
             <div class="panel-title">Request</div>
-            <app-json-panel label="Headers" [rawValue]="displayCall().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="idBase()" block="request-headers" />
-            <app-json-panel label="Body" [rawValue]="displayCall().request!.body" [panelId]="idBase() + '-req-body'" [callId]="idBase()" block="request-body" />
+            <app-json-panel label="Headers" [rawValue]="displayCall().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="call().id" block="request-headers" />
+            <app-json-panel label="Body" [rawValue]="displayCall().request!.body" [panelId]="idBase() + '-req-body'" [callId]="call().id" block="request-body" />
           </div>
         }
 
         @if (displayCall().response) {
           <div class="panel">
             <div class="panel-title">Response</div>
-            <app-json-panel label="Headers" [rawValue]="displayCall().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="idBase()" block="response-headers" />
-            <app-json-panel label="Body" [rawValue]="displayCall().response!.body" [panelId]="idBase() + '-res-body'" [callId]="idBase()" block="response-body" />
+            <app-json-panel label="Headers" [rawValue]="displayCall().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="call().id" block="response-headers" />
+            <app-json-panel label="Body" [rawValue]="displayCall().response!.body" [panelId]="idBase() + '-res-body'" [callId]="call().id" block="response-body" />
           </div>
         }
       </div>

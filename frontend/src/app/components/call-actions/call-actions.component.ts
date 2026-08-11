@@ -23,7 +23,8 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
  * These actions need the full request/response regardless of whether the card's panels have been
  * expanded (see CallCardComponent) - `call()` may only be a summary, and no-truncation is a hard
  * requirement for every export path - so each one hydrates via CALL_LIST_CONTROLS_STATE's
- * getCallDetail() first (a no-op network-wise if already cached from an expand or a prior action).
+ * getCallDetail() first, which always makes a real request (no client-side cache), even if this
+ * same call was hydrated by an earlier action.
  */
 @Component({
   selector: 'app-call-actions',
@@ -89,19 +90,16 @@ export class CallActionsComponent {
       )
       .subscribe(({ call, metadata, comments }) => {
         this.exportLoading.set(false);
-        this.exportDialog.open([call], metadata, new Map([[callKey(call), comments]]), 'markdown');
+        this.exportDialog.open([call], metadata, new Map([[call.id, comments]]), 'markdown');
       });
   }
 
-  /** Resolves to a fully-hydrated CallRecord (request/response headers+bodies present) - cheap and immediate if already cached from an expand or a prior action on this same call. */
+  /** Resolves to a fully-hydrated CallRecord (request/response headers+bodies present) - always a real fetch, even if this same call was hydrated by an earlier action, so detail is never served stale. */
   private hydrated(call: CallRecord): Observable<CallRecord> {
-    if (call.request && call.response?.body !== undefined) {
-      return of(call);
-    }
     return this.controlsState.getCallDetail(call.id).pipe(map((detail) => ({ ...call, ...detail })));
   }
 
   private fetchComments(call: CallRecord) {
-    return this.commentsApi.listForCall(callKey(call)).pipe(catchError(() => of<Comment[]>([])));
+    return this.commentsApi.listForCall(call.id).pipe(catchError(() => of<Comment[]>([])));
   }
 }

@@ -210,7 +210,7 @@ export function buildBulkExportMarkdown(
   lines.push('| # | Method | Path | Status | Duration | Flagged |', '|---|--------|------|--------|----------|---------|');
   calls.forEach((call, i) => {
     const n = i + 1;
-    const flaggedCount = commentsByCallId.get(callKey(call))?.length ?? 0;
+    const flaggedCount = commentsByCallId.get(call.id)?.length ?? 0;
     const duration = call.duration_ms != null ? formatMs(call.duration_ms) : '—';
     const flaggedCell = flaggedCount > 0 ? `🚩 ${flaggedCount} issue${flaggedCount === 1 ? '' : 's'}` : '—';
     lines.push(
@@ -223,7 +223,7 @@ export function buildBulkExportMarkdown(
 
   calls.forEach((call, i) => {
     const n = i + 1;
-    const comments = commentsByCallId.get(callKey(call)) ?? [];
+    const comments = commentsByCallId.get(call.id) ?? [];
 
     lines.push(`<a id="call-${n}"></a>`);
     lines.push('<details open>');

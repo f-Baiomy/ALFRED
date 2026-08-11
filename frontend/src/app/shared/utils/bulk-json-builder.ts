@@ -1,7 +1,6 @@
 import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
-import { callKey } from './call-utils';
 
 export interface BulkExportPayload {
   readonly metadata: ExportFormData;
@@ -38,6 +37,6 @@ export function buildBulkExportPayload(
       failed: calls.length - succeeded,
       totalDurationMs: calls.reduce((sum, c) => sum + (c.duration_ms ?? 0), 0),
     },
-    calls: calls.map((call) => ({ ...call, comments: commentsByCallId.get(callKey(call)) ?? [] })),
+    calls: calls.map((call) => ({ ...call, comments: commentsByCallId.get(call.id) ?? [] })),
   };
 }

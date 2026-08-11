@@ -2,7 +2,6 @@ import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { buildBulkExportPayload } from './bulk-json-builder';
-import { callKey } from './call-utils';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -61,9 +60,9 @@ describe('buildBulkExportPayload', () => {
   });
 
   it('attaches each call\'s own comments, not another call\'s', () => {
-    const callA = makeCall({ timestamp: 't-a' });
-    const callB = makeCall({ timestamp: 't-b' });
-    const commentsByCallId = new Map<string, Comment[]>([[callKey(callA), [makeComment({ comment: 'on A' })]]]);
+    const callA = makeCall({ id: 'call-a', timestamp: 't-a' });
+    const callB = makeCall({ id: 'call-b', timestamp: 't-b' });
+    const commentsByCallId = new Map<string, Comment[]>([[callA.id, [makeComment({ comment: 'on A' })]]]);
 
     const payload = buildBulkExportPayload([callA, callB], makeForm(), commentsByCallId, '2026-08-07T18:00:00Z');
 

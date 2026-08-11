@@ -99,7 +99,7 @@ describe('CallCardComponent', () => {
     expect(host.textContent).toContain('resp-body');
   });
 
-  it('does not re-fetch on a second card for the same call id - shares the cache', () => {
+  it('re-fetches for a second card of the same call id instead of reusing an earlier result - detail is never cached client-side', () => {
     const first = createCard();
     (first.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.expand-toggle')!.click();
     first.detectChanges();
@@ -109,14 +109,20 @@ describe('CallCardComponent', () => {
     });
     first.detectChanges();
 
-    // A second card instance for the same call id should find it already cached.
+    // A second card instance for the same call id must still hit the network - nothing from the
+    // first card's fetch is reused.
     const second = createCard();
     const secondHost: HTMLElement = second.nativeElement;
     (secondHost.querySelector('.expand-toggle') as HTMLButtonElement).click();
     second.detectChanges();
 
-    httpMock.expectNone((r) => r.url.includes('/calls/call-1/detail'));
-    expect(secondHost.textContent).toContain('req-body');
+    httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({
+      request: { headers: {}, body: 'req-body-2' },
+      response: { status: 200, headers: {}, body: 'resp-body-2' },
+    });
+    second.detectChanges();
+
+    expect(secondHost.textContent).toContain('req-body-2');
   });
 
   it('does not fetch detail just because the card scrolls into view while still collapsed', () => {

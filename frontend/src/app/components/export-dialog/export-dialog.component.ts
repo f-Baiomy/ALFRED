@@ -6,7 +6,6 @@ import { buildExportHtml, buildBulkExportHtml, exportHtmlFilename, bulkExportHtm
 import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
 import { buildDiscordReport } from '../../shared/utils/discord-report-builder';
 import { downloadText, downloadJson } from '../../shared/utils/download';
-import { callKey } from '../../shared/utils/call-utils';
 import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
 
 /** The two report formats a user can toggle between inside the dialog - distinct from
@@ -165,7 +164,7 @@ export class ExportDialogComponent {
     if (format === 'html') {
       if (calls.length === 1) {
         const call = calls[0];
-        const html = buildExportHtml(call, form, commentsByCallId.get(callKey(call)) ?? []);
+        const html = buildExportHtml(call, form, commentsByCallId.get(call.id) ?? []);
         return { isJson: false, content: html, filename: exportHtmlFilename(call), mimeType: 'text/html' };
       }
       const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString());
@@ -174,7 +173,7 @@ export class ExportDialogComponent {
 
     if (calls.length === 1) {
       const call = calls[0];
-      const markdown = buildExportMarkdown(call, form, commentsByCallId.get(callKey(call)) ?? []);
+      const markdown = buildExportMarkdown(call, form, commentsByCallId.get(call.id) ?? []);
       return { isJson: false, content: markdown, filename: exportFilename(call), mimeType: 'text/markdown' };
     }
 

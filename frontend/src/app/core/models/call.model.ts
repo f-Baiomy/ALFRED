@@ -13,7 +13,8 @@ export interface CallResponse extends HttpMessageData {
  * (id, both urls, method, timestamp, duration_ms, response.status, error), since headers/bodies
  * routinely dominate a call's size and most calls in a list are scanned, never opened. The rest is
  * fetched only once a call is actually expanded, via GET /calls/{id}/detail (or the session-cycles
- * equivalent) - see CallDetailCacheService.
+ * equivalent) - always a real network call, never cached client-side, even if this same call's
+ * detail was already fetched before.
  */
 export interface CallRecord {
   readonly id: string;

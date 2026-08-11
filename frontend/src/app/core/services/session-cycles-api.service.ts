@@ -86,7 +86,7 @@ export class SessionCyclesApiService {
     );
   }
 
-  /** The full request/response for one captured call - fetched only once it's actually expanded, see CallDetailCacheService. */
+  /** The full request/response for one captured call - fetched only once it's actually expanded, always over the network (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail). */
   getDetail(cycleId: string, callId: string): Observable<CallDetail> {
     return this.http.get<CallDetail>(`${this.baseUrl}/${cycleId}/calls/${callId}/detail`);
   }
@@ -95,7 +95,7 @@ export class SessionCyclesApiService {
     return this.http.delete<void>(`${this.baseUrl}/${id}/calls/${callId}`);
   }
 
-  /** {@code calls} must already be fully hydrated (request/response present) - copying stores the complete CallRecord, not a summary. Callers hydrate the selection first (see CallDetailCacheService.hydrateAll). */
+  /** {@code calls} must already be fully hydrated (request/response present) - copying stores the complete CallRecord, not a summary. Callers hydrate the selection first (see BulkActionsBarComponent.hydrateAll). */
   copyCallsInto(id: string, calls: readonly CallRecord[]): Observable<CopyCallsResult> {
     return this.http.post<CopyCallsResult>(`${this.baseUrl}/${id}/calls/copy`, { calls });
   }

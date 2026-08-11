@@ -407,7 +407,7 @@ export function buildBulkExportHtml(
 
   calls.forEach((call, i) => {
     const n = i + 1;
-    const comments = commentsByCallId.get(callKey(call)) ?? [];
+    const comments = commentsByCallId.get(call.id) ?? [];
     const flaggedCount = comments.length;
     const duration = call.duration_ms != null ? formatMs(call.duration_ms) : '—';
     summaryRows.push(

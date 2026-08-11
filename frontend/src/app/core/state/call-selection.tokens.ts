@@ -67,10 +67,13 @@ export interface CallListControlsState extends CallListView {
   readonly calls: Signal<readonly CallRecord[]>;
   refreshNow(): void;
   /**
-   * The full request/response for one call, fetched (and cached - see CallDetailCacheService)
-   * only once it's actually expanded. Each concrete state knows which endpoint to hit - the
-   * dashboard's GET /calls/{id}/detail, or a session-cycle's GET /session-cycles/{id}/calls/{callId}/detail
-   * - so CallCardComponent doesn't need to know or care which context it's rendering in.
+   * The full request/response for one call, fetched only once it's actually expanded - and always
+   * via a real network call, never from a cache, even if this same call's detail was already
+   * fetched earlier (this session or otherwise), so it's never possible for a stale/leftover
+   * hydration (e.g. from exporting or duplicating-to-cycles) to make a later expand skip the
+   * request. Each concrete state knows which endpoint to hit - the dashboard's GET
+   * /calls/{id}/detail, or a session-cycle's GET /session-cycles/{id}/calls/{callId}/detail - so
+   * CallCardComponent doesn't need to know or care which context it's rendering in.
    */
   getCallDetail(callId: string): Observable<CallDetail>;
 }
