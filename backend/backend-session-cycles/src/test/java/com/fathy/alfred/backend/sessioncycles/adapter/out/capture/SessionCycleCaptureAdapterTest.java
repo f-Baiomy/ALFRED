@@ -26,7 +26,7 @@ class SessionCycleCaptureAdapterTest {
     }
 
     private static CallRecord call() {
-        return new CallRecord("https://a.com-proxy/x", "https://a.com/x", "GET", null, "t", 1.0, null, null);
+        return new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "GET", null, "t", 1.0, null, null);
     }
 
     @Test

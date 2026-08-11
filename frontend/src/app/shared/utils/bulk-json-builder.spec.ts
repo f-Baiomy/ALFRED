@@ -6,6 +6,7 @@ import { callKey } from './call-utils';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
+    id: 'call-1',
     original_url: 'https://example.com-proxy/api/x',
     url: 'https://example.com/api/x',
     method: 'POST',
@@ -75,6 +76,6 @@ describe('buildBulkExportPayload', () => {
     const call = makeCall({ response: { status: 200, headers: {}, body: JSON.stringify(bigArray) } });
     const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z');
 
-    expect(JSON.parse(payload.calls[0].response!.body).length).toBe(200);
+    expect(JSON.parse(payload.calls[0].response!.body!).length).toBe(200);
   });
 });

@@ -1,12 +1,13 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
-import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { Observable, forkJoin, of } from 'rxjs';
+import { catchError, map, switchMap } from 'rxjs/operators';
 import { CallRecord } from '../../core/models/call.model';
 import { Comment } from '../../core/models/comment.model';
 import { PinService } from '../../core/services/pin.service';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
+import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
 import { downloadJson } from '../../shared/utils/download';
@@ -18,6 +19,11 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
  * export-report are grouped behind one "Export" menu (ActionMenuComponent) rather than three
  * separate toolbar buttons; Markdown vs. HTML is chosen inside the export dialog itself now, not
  * by which button opened it, so there's only one "Export report..." entry, not two.
+ *
+ * These actions need the full request/response regardless of whether the card's panels have been
+ * expanded (see CallCardComponent) - `call()` may only be a summary, and no-truncation is a hard
+ * requirement for every export path - so each one hydrates via CALL_LIST_CONTROLS_STATE's
+ * getCallDetail() first (a no-op network-wise if already cached from an expand or a prior action).
  */
 @Component({
   selector: 'app-call-actions',
@@ -30,9 +36,11 @@ export class CallActionsComponent {
   private readonly exportApi = inject(ExportApiService);
   private readonly exportDialog = inject(ExportDialogService);
   private readonly commentsApi = inject(CommentsApiService);
+  private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
 
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
+  readonly curlLoading = signal(false);
   readonly exportLoading = signal(false);
   readonly downloadLoading = signal(false);
 
@@ -43,35 +51,54 @@ export class CallActionsComponent {
   }
 
   copyAsCurl(): void {
-    copyToClipboard(buildCurlCommand(this.call())).then(() => {
-      this.curlCopyFeedback.set(true);
-      setTimeout(() => this.curlCopyFeedback.set(false), 1200);
+    this.curlLoading.set(true);
+    this.hydrated(this.call()).subscribe((call) => {
+      this.curlLoading.set(false);
+      copyToClipboard(buildCurlCommand(call)).then(() => {
+        this.curlCopyFeedback.set(true);
+        setTimeout(() => this.curlCopyFeedback.set(false), 1200);
+      });
     });
   }
 
   /** The JSON download is meant for reprocessing, so flagged issues ride along as a plain `comments` array rather than inline markers that would make the file invalid JSON. */
   downloadAsJson(): void {
-    const call = this.call();
     this.downloadLoading.set(true);
-    this.fetchComments(call).subscribe((comments) => {
-      this.downloadLoading.set(false);
-      downloadJson({ ...call, comments }, `${callKey(call)}.json`);
-    });
+    this.hydrated(this.call())
+      .pipe(switchMap((call) => forkJoin({ call: of(call), comments: this.fetchComments(call) })))
+      .subscribe(({ call, comments }) => {
+        this.downloadLoading.set(false);
+        downloadJson({ ...call, comments }, `${callKey(call)}.json`);
+      });
   }
 
   /** Always opens with 'markdown' as the dialog's initial toggle state - the user picks Markdown
    * vs. HTML inside the dialog itself (see ExportDialogComponent.reportFormat), so there's no
    * separate "export as HTML" entry point anymore. */
   openExportReport(): void {
-    const call = this.call();
     this.exportLoading.set(true);
-    forkJoin({
-      metadata: this.exportApi.fetchMetadata(call).pipe(catchError(() => of(null))),
-      comments: this.fetchComments(call),
-    }).subscribe(({ metadata, comments }) => {
-      this.exportLoading.set(false);
-      this.exportDialog.open([call], metadata, new Map([[callKey(call), comments]]), 'markdown');
-    });
+    this.hydrated(this.call())
+      .pipe(
+        switchMap((call) =>
+          forkJoin({
+            call: of(call),
+            metadata: this.exportApi.fetchMetadata(call).pipe(catchError(() => of(null))),
+            comments: this.fetchComments(call),
+          })
+        )
+      )
+      .subscribe(({ call, metadata, comments }) => {
+        this.exportLoading.set(false);
+        this.exportDialog.open([call], metadata, new Map([[callKey(call), comments]]), 'markdown');
+      });
+  }
+
+  /** Resolves to a fully-hydrated CallRecord (request/response headers+bodies present) - cheap and immediate if already cached from an expand or a prior action on this same call. */
+  private hydrated(call: CallRecord): Observable<CallRecord> {
+    if (call.request && call.response?.body !== undefined) {
+      return of(call);
+    }
+    return this.controlsState.getCallDetail(call.id).pipe(map((detail) => ({ ...call, ...detail })));
   }
 
   private fetchComments(call: CallRecord) {

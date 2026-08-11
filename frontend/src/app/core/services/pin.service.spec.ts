@@ -7,6 +7,7 @@ const STORAGE_KEY = 'alfred_pinned_calls';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
+    id: 'call-1',
     original_url: 'https://example.com-proxy/api/x',
     url: 'https://example.com/api/x',
     method: 'GET',

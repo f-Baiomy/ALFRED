@@ -849,6 +849,37 @@ app-json-panel {
   border-radius: 8px;
   font-size: 0.82rem;
   margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+// A call's request/response is fetched only once expanded (see CallCardComponent) - this is
+// what a not-yet-expanded or still-loading card shows in place of the panels.
+.expand-toggle {
+  background: color-mix(in srgb, var(--purple) 8%, transparent);
+  border: 1px dashed var(--border-strong);
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+
+  &:hover {
+    border-color: var(--purple-light);
+    color: var(--purple-light);
+    background: color-mix(in srgb, var(--purple) 14%, transparent);
+  }
+}
+
+.detail-placeholder {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  padding: 0.5rem 0.75rem;
+  font-style: italic;
 }
 
 // ---------- Request/response panels ----------

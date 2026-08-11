@@ -13,4 +13,7 @@ public interface CommentsStorePort {
 
     /** @return true if a comment with this id existed and was deleted. */
     boolean deleteById(String id);
+
+    /** Full overwrite - used by the one-time startup migration (backend-app) that remaps comments' callId from the legacy content-hash to a call's real id, not by any regular request-handling path. */
+    void replaceAll(List<Comment> comments);
 }

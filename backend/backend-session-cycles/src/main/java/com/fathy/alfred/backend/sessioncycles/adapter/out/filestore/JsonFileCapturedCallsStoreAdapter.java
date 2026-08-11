@@ -124,14 +124,37 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
 
         try {
             CapturedCall[] parsed = objectMapper.readValue(Files.readString(path), CapturedCall[].class);
-            List<CapturedCall> calls = List.of(parsed);
-            rememberCache(cycleId, path, calls);
+            List<CapturedCall> calls = new ArrayList<>(List.of(parsed));
+
+            // Written before CallRecord had an id - backfilled once here rather than left to
+            // regenerate a different id on every read, which would make comments' migration to
+            // real call ids (see the one-time startup migration in backend-app) permanently
+            // unable to keep matching this call.
+            boolean needsBackfill = false;
+            for (int i = 0; i < calls.size(); i++) {
+                CapturedCall captured = calls.get(i);
+                if (captured.call().id() == null) {
+                    calls.set(i, new CapturedCall(captured.id(), captured.capturedAt(), withGeneratedId(captured.call())));
+                    needsBackfill = true;
+                }
+            }
+
+            if (needsBackfill) {
+                writeAll(cycleId, calls);
+            } else {
+                rememberCache(cycleId, path, calls);
+            }
             return new ArrayList<>(calls);
         } catch (IOException e) {
             cacheByCycle.remove(cycleId);
             log.warn("Could not read captured-calls file {}, treating as empty: {}", path, e.getMessage());
             return new ArrayList<>();
         }
+    }
+
+    private static CallRecord withGeneratedId(CallRecord call) {
+        return new CallRecord(UUID.randomUUID().toString(), call.originalUrl(), call.url(), call.method(),
+                call.request(), call.timestamp(), call.durationMs(), call.response(), call.error());
     }
 
     private void writeAll(String cycleId, List<CapturedCall> calls) {

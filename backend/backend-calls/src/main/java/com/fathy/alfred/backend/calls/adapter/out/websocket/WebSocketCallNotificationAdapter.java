@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.calls.adapter.out.websocket;
 
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -25,7 +26,7 @@ public class WebSocketCallNotificationAdapter implements CallNotificationPort {
     @Override
     public void notifyNewCall(CallRecord call, List<String> capturedByCycleIds) {
         try {
-            handler.broadcast(objectMapper.writeValueAsString(new CallEvent(call, capturedByCycleIds)));
+            handler.broadcast(objectMapper.writeValueAsString(new CallEvent(CallSummary.of(call), capturedByCycleIds)));
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize call event for WebSocket broadcast: {}", e.getMessage());
         }

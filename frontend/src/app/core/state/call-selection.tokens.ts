@@ -1,5 +1,6 @@
 import { InjectionToken, Signal } from '@angular/core';
-import { CallRecord } from '../models/call.model';
+import { Observable } from 'rxjs';
+import { CallDetail, CallRecord } from '../models/call.model';
 import { CallListView } from './call-list-view';
 
 /**
@@ -65,6 +66,13 @@ export interface CallListControlsState extends CallListView {
   /** Every call in scope, before search/supplier filtering - used for the "All suppliers (N)" option's count. */
   readonly calls: Signal<readonly CallRecord[]>;
   refreshNow(): void;
+  /**
+   * The full request/response for one call, fetched (and cached - see CallDetailCacheService)
+   * only once it's actually expanded. Each concrete state knows which endpoint to hit - the
+   * dashboard's GET /calls/{id}/detail, or a session-cycle's GET /session-cycles/{id}/calls/{callId}/detail
+   * - so CallCardComponent doesn't need to know or care which context it's rendering in.
+   */
+  getCallDetail(callId: string): Observable<CallDetail>;
 }
 
 export const CALL_LIST_CONTROLS_STATE = new InjectionToken<CallListControlsState>('CALL_LIST_CONTROLS_STATE');

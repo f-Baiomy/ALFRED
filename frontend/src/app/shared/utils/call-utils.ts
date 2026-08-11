@@ -1,4 +1,18 @@
-import { CallRecord, SortMode } from '../../core/models/call.model';
+import { CallRecord, CallSummaryDto, SortMode } from '../../core/models/call.model';
+
+/** Converts a wire-format summary into the frontend's CallRecord shape (nested `response.status`, matching what a hydrated call looks like) - `request`/`response.headers`/`response.body` stay undefined until GET /calls/{id}/detail fills them in. */
+export function toCallRecord(dto: CallSummaryDto): CallRecord {
+  return {
+    id: dto.id,
+    original_url: dto.original_url,
+    url: dto.url,
+    method: dto.method,
+    timestamp: dto.timestamp,
+    duration_ms: dto.duration_ms,
+    response: dto.status != null ? { status: dto.status } : undefined,
+    error: dto.error,
+  };
+}
 
 /**
  * Per-CallRecord memo caches, keyed by object identity.

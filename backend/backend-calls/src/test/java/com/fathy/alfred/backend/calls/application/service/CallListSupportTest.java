@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CallListSupportTest {
 
     private static CallRecord call(String url, String timestamp, Double durationMs, Integer status, String error) {
-        return new CallRecord(url, url, "GET", new RequestData(null, null), timestamp, durationMs,
+        return new CallRecord(url, url, url, "GET", new RequestData(null, null), timestamp, durationMs,
                 status == null ? null : new ResponseData(status, null, null), error);
     }
 

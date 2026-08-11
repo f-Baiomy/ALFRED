@@ -1,11 +1,13 @@
 package com.fathy.alfred.backend.sessioncycles.application.service;
 
+import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
@@ -202,7 +204,7 @@ class SessionCyclesServiceTest {
         var result = service.listCalls("c1", new CallsQuery("", "", "newest", 0, 10));
 
         assertThat(result).isPresent();
-        assertThat(result.get().calls()).containsExactly(second, first);
+        assertThat(result.get().calls()).containsExactly(CapturedCallSummary.of(second), CapturedCallSummary.of(first));
     }
 
     @Test
@@ -219,8 +221,38 @@ class SessionCyclesServiceTest {
         var result = service.listCalls("c1", new CallsQuery("", "", "oldest", 1, 10));
 
         assertThat(result).isPresent();
-        assertThat(result.get().calls()).containsExactly(first, second);
+        assertThat(result.get().calls()).containsExactly(CapturedCallSummary.of(first), CapturedCallSummary.of(second));
         assertThat(result.get().total()).isEqualTo(2);
+    }
+
+    @Test
+    void getDetailReturnsEmptyWhenTheCycleDoesNotExist() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.getDetail("missing", "id-t1")).isEmpty();
+    }
+
+    @Test
+    void getDetailReturnsEmptyWhenTheCallIdDoesNotMatchAnyCapturedCall() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(call("t1"))));
+
+        assertThat(service.getDetail("c1", "missing-id")).isEmpty();
+    }
+
+    @Test
+    void getDetailLooksUpByTheUnderlyingCallRecordIdNotTheCapturedCallWrapperId() {
+        CallRecord underlying = call("t1");
+        CapturedCall captured = captured(underlying);
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured));
+
+        Optional<CallDetail> result = service.getDetail("c1", underlying.id());
+
+        assertThat(result).contains(CallDetail.of(underlying));
+        // The wrapper's own id (captured.id()) is a different, unrelated identifier - looking it
+        // up as if it were the call id must not match.
+        assertThat(service.getDetail("c1", captured.id())).isEmpty();
     }
 
     @Test
@@ -232,7 +264,7 @@ class SessionCyclesServiceTest {
     }
 
     private static CallRecord call(String timestamp) {
-        return new CallRecord("https://a.com-proxy/x", "https://a.com/x", "GET", null, timestamp, 1.0, null, null);
+        return new CallRecord("id-" + timestamp, "https://a.com-proxy/x", "https://a.com/x", "GET", null, timestamp, 1.0, null, null);
     }
 
     private static CapturedCall captured(CallRecord call) {

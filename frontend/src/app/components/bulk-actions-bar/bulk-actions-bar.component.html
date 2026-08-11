@@ -10,7 +10,9 @@
 
     @if (state.selectedCalls().length > 0) {
       <button type="button" class="bulk-btn secondary" (click)="clearSelection()">Deselect all</button>
-      <button type="button" class="bulk-btn" (click)="duplicateToCycles()">Duplicate to cycles</button>
+      <button type="button" class="bulk-btn" [disabled]="duplicateLoading()" (click)="duplicateToCycles()">
+        {{ duplicateLoading() ? 'Loading...' : 'Duplicate to cycles' }}
+      </button>
       <app-action-menu label="Export">
         <button type="button" class="filter-option-item" [disabled]="mdLoading()" (click)="exportReport()">
           {{ mdLoading() ? 'Loading...' : 'Export report...' }}

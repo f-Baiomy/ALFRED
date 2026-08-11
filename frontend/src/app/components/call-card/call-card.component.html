@@ -42,21 +42,40 @@
     <div class="error-banner">&#9888; {{ call().error }}</div>
   }
 
-  <div class="panels">
-    @if (call().request) {
-      <div class="panel">
-        <div class="panel-title">Request</div>
-        <app-json-panel label="Headers" [rawValue]="call().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="idBase()" block="request-headers" />
-        <app-json-panel label="Body" [rawValue]="call().request!.body" [panelId]="idBase() + '-req-body'" [callId]="idBase()" block="request-body" />
+  @switch (detailState()) {
+    @case ('collapsed') {
+      <button type="button" class="expand-toggle" (click)="onExpandClick()">&#9656; Show request / response</button>
+    }
+    @case ('pending') {
+      <div class="detail-placeholder">Loading request / response&hellip;</div>
+    }
+    @case ('loading') {
+      <div class="detail-placeholder">Loading request / response&hellip;</div>
+    }
+    @case ('error') {
+      <div class="error-banner">
+        Failed to load request / response.
+        <button type="button" class="action-btn" (click)="onExpandClick()">Retry</button>
       </div>
     }
+    @case ('loaded') {
+      <div class="panels">
+        @if (displayCall().request) {
+          <div class="panel">
+            <div class="panel-title">Request</div>
+            <app-json-panel label="Headers" [rawValue]="displayCall().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="idBase()" block="request-headers" />
+            <app-json-panel label="Body" [rawValue]="displayCall().request!.body" [panelId]="idBase() + '-req-body'" [callId]="idBase()" block="request-body" />
+          </div>
+        }
 
-    @if (call().response) {
-      <div class="panel">
-        <div class="panel-title">Response</div>
-        <app-json-panel label="Headers" [rawValue]="call().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="idBase()" block="response-headers" />
-        <app-json-panel label="Body" [rawValue]="call().response!.body" [panelId]="idBase() + '-res-body'" [callId]="idBase()" block="response-body" />
+        @if (displayCall().response) {
+          <div class="panel">
+            <div class="panel-title">Response</div>
+            <app-json-panel label="Headers" [rawValue]="displayCall().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="idBase()" block="response-headers" />
+            <app-json-panel label="Body" [rawValue]="displayCall().response!.body" [panelId]="idBase() + '-res-body'" [callId]="idBase()" block="response-body" />
+          </div>
+        }
       </div>
     }
-  </div>
+  }
 </div>

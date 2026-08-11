@@ -15,7 +15,7 @@ class WebSocketCallNotificationAdapterTest {
     void serializesTheCallEventAndBroadcastsIt() {
         CallEventsWebSocketHandler handler = mock(CallEventsWebSocketHandler.class);
         WebSocketCallNotificationAdapter adapter = new WebSocketCallNotificationAdapter(handler);
-        CallRecord call = new CallRecord("https://a.com-proxy/x", "https://a.com/x", "GET", null, "t", 1.0, null, null);
+        CallRecord call = new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "GET", null, "t", 1.0, null, null);
 
         adapter.notifyNewCall(call, List.of("cycle-1", "cycle-2"));
 
@@ -27,7 +27,7 @@ class WebSocketCallNotificationAdapterTest {
     void broadcastsAnEmptyCapturedByListWhenNoCycleCapturedTheCall() {
         CallEventsWebSocketHandler handler = mock(CallEventsWebSocketHandler.class);
         WebSocketCallNotificationAdapter adapter = new WebSocketCallNotificationAdapter(handler);
-        CallRecord call = new CallRecord("https://a.com-proxy/x", "https://a.com/x", "GET", null, "t", 1.0, null, null);
+        CallRecord call = new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "GET", null, "t", 1.0, null, null);
 
         adapter.notifyNewCall(call, List.of());
 

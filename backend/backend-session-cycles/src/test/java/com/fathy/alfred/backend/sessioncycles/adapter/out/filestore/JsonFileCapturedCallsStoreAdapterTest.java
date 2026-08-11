@@ -25,7 +25,7 @@ class JsonFileCapturedCallsStoreAdapterTest {
     }
 
     private static CallRecord call(String method) {
-        return new CallRecord("https://a.com-proxy/x", "https://a.com/x", method, null, "t", 1.0, null, null);
+        return new CallRecord("id-" + method, "https://a.com-proxy/x", "https://a.com/x", method, null, "t", 1.0, null, null);
     }
 
     @Test
@@ -105,5 +105,20 @@ class JsonFileCapturedCallsStoreAdapterTest {
         JsonFileCapturedCallsStoreAdapter adapter = adapterFor(tempDir);
 
         adapter.deleteAllForCycle("never-existed");
+    }
+
+    @Test
+    void backfillsAMissingIdOnTheEmbeddedCallAndPersistsIt() throws Exception {
+        Files.writeString(tempDir.resolve("cycle-1.json"), """
+                [{"id":"captured-1","capturedAt":"2026-01-01T00:00:00Z","call":{"original_url":"https://a.com-proxy/x","url":"https://a.com/x","method":"GET","timestamp":"t1"}}]
+                """);
+        JsonFileCapturedCallsStoreAdapter adapter = adapterFor(tempDir);
+
+        String firstReadId = adapter.findAllByCycle("cycle-1").get(0).call().id();
+        assertThat(firstReadId).isNotBlank();
+
+        JsonFileCapturedCallsStoreAdapter freshAdapter = adapterFor(tempDir);
+        String secondReadId = freshAdapter.findAllByCycle("cycle-1").get(0).call().id();
+        assertThat(secondReadId).isEqualTo(firstReadId);
     }
 }

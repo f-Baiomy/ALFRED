@@ -19,6 +19,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Owns RECENT_CALLS.log end to end - the proxy only calls the webhook now, it no longer writes
@@ -158,6 +159,7 @@ public class FileCallLogAdapter implements CallLogPort {
         }
 
         List<CachedLine> parsed = new ArrayList<>(rawLines.size());
+        boolean needsBackfill = false;
         for (String rawLine : rawLines) {
             String trimmed = rawLine.strip();
             if (trimmed.isEmpty()) {
@@ -166,14 +168,47 @@ public class FileCallLogAdapter implements CallLogPort {
             CallRecord record = null;
             try {
                 record = objectMapper.readValue(trimmed, CallRecord.class);
+                if (record.id() == null) {
+                    // Written before CallRecord had an id - backfilled once here rather than left
+                    // to regenerate a different id on every read, which would make comments'
+                    // migration to real call ids (see the one-time startup migration in
+                    // backend-app) permanently unable to keep matching this call.
+                    record = withGeneratedId(record);
+                    trimmed = objectMapper.writeValueAsString(record);
+                    needsBackfill = true;
+                }
             } catch (IOException e) {
                 log.warn("Skipping malformed line in {}: {}", path, e.getMessage());
             }
             parsed.add(new CachedLine(trimmed, record));
         }
 
-        rememberCache(path, parsed);
+        if (needsBackfill) {
+            persistBackfilledLines(path, parsed);
+        } else {
+            rememberCache(path, parsed);
+        }
         return cachedLines != null ? cachedLines : List.copyOf(parsed);
+    }
+
+    /** Rewrites the whole file with backfilled ids in place - the same shape as save()'s write, just triggered by a read that found missing ids instead of a new call arriving. */
+    private void persistBackfilledLines(Path path, List<CachedLine> lines) {
+        try {
+            StringBuilder content = new StringBuilder();
+            for (CachedLine line : lines) {
+                content.append(line.text()).append(System.lineSeparator());
+            }
+            Files.writeString(path, content.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            rememberCache(path, lines);
+        } catch (IOException e) {
+            invalidateCache();
+            log.error("Failed to persist backfilled ids to {}: {}", recentCallsFile, e.getMessage());
+        }
+    }
+
+    private static CallRecord withGeneratedId(CallRecord call) {
+        return new CallRecord(UUID.randomUUID().toString(), call.originalUrl(), call.url(), call.method(),
+                call.request(), call.timestamp(), call.durationMs(), call.response(), call.error());
     }
 
     /** Stores {@code lines} as the cache, stamped with the file's current size/mtime - or invalidates instead if the file can't be stat'd, so the next read re-parses rather than trusting an unverifiable snapshot. */

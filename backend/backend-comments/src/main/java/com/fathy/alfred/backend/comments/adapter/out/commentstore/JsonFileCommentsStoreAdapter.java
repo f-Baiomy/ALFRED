@@ -89,6 +89,11 @@ public class JsonFileCommentsStoreAdapter implements CommentsStorePort {
         return removed;
     }
 
+    @Override
+    public synchronized void replaceAll(List<Comment> comments) {
+        writeAll(new ArrayList<>(comments));
+    }
+
     /** Returns a fresh mutable copy - save/deleteById mutate what they get back, and the cached snapshot itself must stay immutable. */
     private List<Comment> readAll() {
         Path path = Path.of(commentsFile);

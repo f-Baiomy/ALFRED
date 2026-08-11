@@ -1,6 +1,6 @@
-import { Component, HostListener, computed, inject, input } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, signal } from '@angular/core';
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
-import { CallRecord } from '../../core/models/call.model';
+import { CallDetail, CallRecord } from '../../core/models/call.model';
 import {
   callKey,
   durationClass as durationClassOf,
@@ -9,14 +9,27 @@ import {
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { JsonPanelComponent } from '../json-panel/json-panel.component';
-import { CALL_REMOVAL_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
+import { CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { CallDetailCacheService } from '../../core/services/call-detail-cache.service';
 
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
   'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel, .drag-handle';
 
-/** One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the four Headers/Body panels. */
+type DetailState = 'collapsed' | 'pending' | 'loading' | 'loaded' | 'error';
+
+/**
+ * One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the
+ * four Headers/Body panels.
+ *
+ * Request/response bodies aren't part of the list data at all (see CallRecord's doc comment) -
+ * they're fetched only once this card is actually expanded, via the CALL_LIST_CONTROLS_STATE
+ * token's getCallDetail() (each context - dashboard vs. a session-cycle - knows which endpoint to
+ * hit). Expanding one card individually fetches immediately; a bulk "Expand all" instead sets
+ * every card to 'pending' and lets an IntersectionObserver trigger each one's fetch only once it
+ * actually scrolls into view, so expanding a 150-call list doesn't fire 150 requests at once.
+ */
 @Component({
   selector: 'app-call-card',
   standalone: true,
@@ -25,7 +38,11 @@ const SELECTION_EXEMPT_SELECTOR =
 })
 export class CallCardComponent {
   private readonly state = inject(CALL_SELECTION_STATE);
+  private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
+  private readonly detailCache = inject(CallDetailCacheService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly hostRef = inject(ElementRef<HTMLElement>);
+  private readonly destroyRef = inject(DestroyRef);
   /** Non-null only where something binds CALL_REMOVAL_STATE (a session-cycle detail view) - drives whether the "Remove" button renders at all. */
   readonly removalState = inject(CALL_REMOVAL_STATE, { optional: true });
 
@@ -44,6 +61,114 @@ export class CallCardComponent {
     const ts = this.call().timestamp;
     return ts ? new Date(ts).toLocaleString() : '';
   });
+
+  readonly detailState = signal<DetailState>('collapsed');
+  private readonly detail = signal<CallDetail | null>(null);
+  private isIntersecting = false;
+  private observer?: IntersectionObserver;
+
+  /** call() merged with its hydrated detail (if loaded) - what the template's panels actually render from. Falls back to call() itself (request/response undefined) before hydration. */
+  readonly displayCall = computed<CallRecord>(() => {
+    const detail = this.detail();
+    return detail ? { ...this.call(), ...detail } : this.call();
+  });
+
+  constructor() {
+    this.observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          this.isIntersecting = true;
+          this.maybeLoadDetail();
+          this.observer?.disconnect();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    this.observer.observe(this.hostRef.nativeElement);
+    this.destroyRef.onDestroy(() => this.observer?.disconnect());
+
+    // Reads the input() signal inside an effect rather than the constructor body directly -
+    // Angular doesn't guarantee a required input's value is set yet at construction time. Runs
+    // once: `call()` never changes identity for a given card instance in practice (trackByCallKey
+    // keeps the same component instance alive for the same call across re-fetches).
+    let checkedCache = false;
+    effect(
+      () => {
+        const call = this.call();
+        if (checkedCache) return;
+        checkedCache = true;
+        const cached = this.detailCache.get(call.id);
+        if (cached) {
+          this.detail.set(cached);
+          this.detailState.set('loaded');
+        }
+      },
+      { allowSignalWrites: true }
+    );
+
+    // A bulk "Expand all" marks every card 'pending' (so the placeholder already reads
+    // "loading soon" instead of "click to expand") without fetching anything for cards that
+    // aren't visible yet - maybeLoadDetail only actually fetches once isIntersecting is also
+    // true, whether that happened before or after this fires.
+    let lastSeenCollapseAllVersion = -1;
+    effect(
+      () => {
+        const version = this.controlsState.collapseAllVersion();
+        if (lastSeenCollapseAllVersion === -1) {
+          lastSeenCollapseAllVersion = version;
+          return;
+        }
+        if (version === lastSeenCollapseAllVersion) return;
+        lastSeenCollapseAllVersion = version;
+
+        if (this.controlsState.expanded()) {
+          if (this.detailState() === 'collapsed') {
+            this.detailState.set('pending');
+            this.maybeLoadDetail();
+          }
+        } else if (this.detailState() !== 'loaded') {
+          // Collapsing doesn't drop already-hydrated data (still cached, cheap to keep showing
+          // if re-expanded), it just hides it - only a still-pending/loading card resets.
+          this.detailState.set('collapsed');
+        }
+      },
+      { allowSignalWrites: true }
+    );
+  }
+
+  /**
+   * Only fires when something has already asked for this card's detail ('pending') AND it's
+   * visible - never for a plain 'collapsed' card. The IntersectionObserver's role is purely to
+   * gate *when* a pending fetch actually happens, not to promote a collapsed card into a pending
+   * one by itself, or every card that merely scrolls into view would silently fetch its detail
+   * with no click at all (confirmed live: this exact bug fetched a visible card's detail on
+   * first page load, before this check was narrowed to 'pending' only).
+   */
+  private maybeLoadDetail(): void {
+    if (!this.isIntersecting) return;
+    if (this.detailState() !== 'pending') return;
+    this.detailState.set('loading');
+    this.controlsState.getCallDetail(this.call().id).subscribe({
+      next: (detail) => {
+        this.detail.set(detail);
+        this.detailState.set('loaded');
+      },
+      error: () => {
+        this.detailState.set('error');
+      },
+    });
+  }
+
+  /**
+   * Individual "Show request/response" click - the card is visible by definition (the user just
+   * clicked it), so this fetches immediately without waiting on the IntersectionObserver, which
+   * may not have fired its (async) callback yet even for an already-visible element.
+   */
+  onExpandClick(): void {
+    this.isIntersecting = true;
+    this.detailState.set('pending');
+    this.maybeLoadDetail();
+  }
 
   isSelected(): boolean {
     return this.state.isSelected(this.call());

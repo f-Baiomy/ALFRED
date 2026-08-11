@@ -1,11 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { webSocket } from 'rxjs/webSocket';
-import { retry, timer } from 'rxjs';
-import { CallEvent, CallRecord, SortMode } from '../models/call.model';
+import { Observable, retry, timer } from 'rxjs';
+import { CallDetail, CallEvent, CallRecord, SortMode } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
+import { CallDetailCacheService } from '../services/call-detail-cache.service';
 import { PinService } from '../services/pin.service';
 import { AppConfigService } from '../services/app-config.service';
-import { callKey, sortCalls } from '../../shared/utils/call-utils';
+import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, createCallListView } from './call-list-view';
 
@@ -24,6 +25,7 @@ export type { CallStats, SupplierGroup, SupplierOption } from './call-list-view'
 @Injectable({ providedIn: 'root' })
 export class CallsStateService implements CallSelectionState, BulkSelectionState, CallListControlsState {
   private readonly api = inject(CallsApiService);
+  private readonly detailCache = inject(CallDetailCacheService);
   private readonly pinService = inject(PinService);
   private readonly config = inject(AppConfigService);
 
@@ -63,7 +65,8 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     const wsUrl = this.config.backendUrl.replace(/^http/, 'ws') + '/ws/calls';
     webSocket<CallEvent>(wsUrl)
       .pipe(retry({ delay: () => timer(3000) }))
-      .subscribe(({ call }) => {
+      .subscribe(({ call: summary }) => {
+        const call = toCallRecord(summary);
         const key = callKey(call);
         this.liveCalls.set([call, ...this.liveCalls().filter((c) => callKey(c) !== key)]);
         this.view.refresh();
@@ -162,6 +165,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   refreshNow(): void {
     this.view.refresh();
+  }
+
+  getCallDetail(callId: string): Observable<CallDetail> {
+    return this.detailCache.fetch(callId, () => this.api.getDetail(callId));
   }
 
   /** In current-sort-order, not click order - deterministic regardless of which one you happened to check first. Scoped to what's currently loaded - see call-list-view.ts's doc comment. */

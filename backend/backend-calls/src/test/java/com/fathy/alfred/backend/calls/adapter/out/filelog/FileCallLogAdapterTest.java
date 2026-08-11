@@ -36,7 +36,7 @@ class FileCallLogAdapterTest {
     }
 
     private static CallRecord call(String method) {
-        return new CallRecord("https://a.com-proxy/x", "https://a.com/x", method, null, "t", 1.0, null, null);
+        return new CallRecord("id-" + method, "https://a.com-proxy/x", "https://a.com/x", method, null, "t", 1.0, null, null);
     }
 
     @Test
@@ -133,5 +133,50 @@ class FileCallLogAdapterTest {
         List<CallRecord> calls = adapter.readAll();
         assertThat(calls).hasSize(5);
         assertThat(calls).extracting(CallRecord::method).containsExactly("call-15", "call-16", "call-17", "call-18", "call-19");
+    }
+
+    @Test
+    void backfillsAMissingIdOnALineWrittenBeforeIdExisted() throws Exception {
+        Path file = tempDir.resolve("RECENT_CALLS.log");
+        Files.writeString(file, """
+                {"original_url":"https://a.com-proxy/x","url":"https://a.com/x","method":"GET","timestamp":"t1"}
+                """);
+
+        List<CallRecord> calls = adapterFor(file).readAll();
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).id()).isNotBlank();
+    }
+
+    @Test
+    void backfilledIdIsStableAcrossReadsOncePersisted() throws Exception {
+        Path file = tempDir.resolve("RECENT_CALLS.log");
+        Files.writeString(file, """
+                {"original_url":"https://a.com-proxy/x","url":"https://a.com/x","method":"GET","timestamp":"t1"}
+                """);
+
+        String firstReadId = adapterFor(file).readAll().get(0).id();
+        // A fresh adapter instance forces a real re-read from disk, not the first adapter's cache -
+        // proving the backfilled id was actually written back, not just held in memory.
+        String secondReadId = adapterFor(file).readAll().get(0).id();
+
+        assertThat(secondReadId).isEqualTo(firstReadId);
+    }
+
+    @Test
+    void backfillPreservesEveryOtherFieldOnTheLine() throws Exception {
+        Path file = tempDir.resolve("RECENT_CALLS.log");
+        Files.writeString(file, """
+                {"original_url":"https://a.com-proxy/x","url":"https://a.com/x","method":"GET","timestamp":"t1","duration_ms":42.0,"error":"boom"}
+                """);
+
+        CallRecord call = adapterFor(file).readAll().get(0);
+
+        assertThat(call.originalUrl()).isEqualTo("https://a.com-proxy/x");
+        assertThat(call.url()).isEqualTo("https://a.com/x");
+        assertThat(call.method()).isEqualTo("GET");
+        assertThat(call.timestamp()).isEqualTo("t1");
+        assertThat(call.durationMs()).isEqualTo(42.0);
+        assertThat(call.error()).isEqualTo("boom");
     }
 }

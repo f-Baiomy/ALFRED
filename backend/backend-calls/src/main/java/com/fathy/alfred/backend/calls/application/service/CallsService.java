@@ -1,21 +1,26 @@
 package com.fathy.alfred.backend.calls.application.service;
 
+import com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
+import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.CallsPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Function;
 
 @Service
-public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
+public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, ReceiveNewCallUseCase {
 
     private final CallLogPort callLogPort;
     private final CallNotificationPort notificationPort;
@@ -47,7 +52,17 @@ public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
         CallListSupport.Page<CallRecord> page = CallListSupport.apply(
                 callLogPort.readAll(), Function.identity(),
                 query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
-        return new CallsPage(page.items(), page.total());
+        List<CallSummary> summaries = page.items().stream().map(CallSummary::of).toList();
+        return new CallsPage(summaries, page.total());
+    }
+
+    /** Linear scan over the (maxLimit-capped) log - no index needed at this scale, and readAll() is already served from FileCallLogAdapter's in-memory cache. */
+    @Override
+    public Optional<CallDetail> getDetail(String callId) {
+        return callLogPort.readAll().stream()
+                .filter(call -> callId.equals(call.id()))
+                .findFirst()
+                .map(CallDetail::of);
     }
 
     /**
@@ -59,10 +74,19 @@ public class CallsService implements GetCallsUseCase, ReceiveNewCallUseCase {
      */
     @Override
     public void receiveNewCall(CallRecord call) {
-        callLogPort.save(call);
+        // The proxy's webhook payload has no "id" property, so Jackson deserializes call.id() as
+        // null - assigned here, once, at the point the call becomes durable, rather than asking
+        // every caller of receiveNewCall to know to do this.
+        CallRecord withId = call.id() != null ? call : withGeneratedId(call);
+        callLogPort.save(withId);
         List<String> capturedByCycleIds = observers.stream()
-                .flatMap(observer -> observer.onNewCall(call).stream())
+                .flatMap(observer -> observer.onNewCall(withId).stream())
                 .toList();
-        notificationPort.notifyNewCall(call, capturedByCycleIds);
+        notificationPort.notifyNewCall(withId, capturedByCycleIds);
+    }
+
+    private static CallRecord withGeneratedId(CallRecord call) {
+        return new CallRecord(UUID.randomUUID().toString(), call.originalUrl(), call.url(), call.method(),
+                call.request(), call.timestamp(), call.durationMs(), call.response(), call.error());
     }
 }

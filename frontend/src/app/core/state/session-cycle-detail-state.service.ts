@@ -1,15 +1,16 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { map, retry, timer } from 'rxjs';
+import { Observable, map, retry, timer } from 'rxjs';
 import { webSocket } from 'rxjs/webSocket';
-import { CallEvent, CallRecord, CapturedCall, SortMode } from '../models/call.model';
+import { CallDetail, CallEvent, CallRecord, CapturedCall, SortMode } from '../models/call.model';
 import { AppConfigService } from '../services/app-config.service';
+import { CallDetailCacheService } from '../services/call-detail-cache.service';
 import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, createCallListView } from './call-list-view';
-import { callKey, sortCalls } from '../../shared/utils/call-utils';
+import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils';
 
 /**
  * Per-open-cycle state for the session-cycle detail page - component-provided (see
@@ -21,6 +22,7 @@ import { callKey, sortCalls } from '../../shared/utils/call-utils';
 @Injectable()
 export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState, CallReorderState {
   private readonly api = inject(SessionCyclesApiService);
+  private readonly detailCache = inject(CallDetailCacheService);
   private readonly config = inject(AppConfigService);
   private readonly route = inject(ActivatedRoute);
   private readonly pinService = inject(PinService);
@@ -148,13 +150,19 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     const wsUrl = this.config.backendUrl.replace(/^http/, 'ws') + '/ws/calls';
     webSocket<CallEvent>(wsUrl)
       .pipe(retry({ delay: () => timer(3000) }))
-      .subscribe(({ call, capturedByCycleIds }) => {
+      .subscribe(({ call: summary, capturedByCycleIds }) => {
         const id = this.cycleId();
         if (!id || !capturedByCycleIds.includes(id)) return;
+        const call = toCallRecord(summary);
         const key = callKey(call);
         this.liveCalls.set([call, ...this.liveCalls().filter((c) => callKey(c) !== key)]);
         this.view.refresh();
       });
+  }
+
+  getCallDetail(callId: string): Observable<CallDetail> {
+    const cycleId = this.cycleId();
+    return this.detailCache.fetch(callId, () => this.api.getDetail(cycleId, callId));
   }
 
   /** CallRemovalState - looks up the captured call's own backend id from the underlying CallRecord, since CallCardComponent only has the CallRecord, not the CapturedCall wrapper. */

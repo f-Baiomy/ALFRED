@@ -1,9 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
-import { CallRecord, CapturedCall, SessionCycle } from '../models/call.model';
+import { Observable, map } from 'rxjs';
+import { CallDetail, CallRecord, CallSummaryDto, CapturedCall, SessionCycle } from '../models/call.model';
 import { AppConfigService } from './app-config.service';
 import { CallsQuery } from '../state/call-list-view';
+import { toCallRecord } from '../../shared/utils/call-utils';
 
 export interface NewSessionCycleRequest {
   readonly name: string;
@@ -18,6 +19,17 @@ export interface SessionCycleUpdateRequest {
 export interface CopyCallsResult {
   readonly added: number;
   readonly skipped: number;
+}
+
+interface CapturedCallSummaryDto {
+  readonly id: string;
+  readonly capturedAt: string;
+  readonly call: CallSummaryDto;
+}
+
+interface CapturedCallsPageDto {
+  readonly calls: readonly CapturedCallSummaryDto[];
+  readonly total: number;
 }
 
 /** GET /session-cycles/{id}/calls' paged response shape - CapturedCall items, not bare CallRecord. */
@@ -66,13 +78,24 @@ export class SessionCyclesApiService {
       .set('sort', query.sort)
       .set('offset', query.offset)
       .set('limit', query.limit);
-    return this.http.get<CapturedCallsPageResult>(`${this.baseUrl}/${id}/calls`, { params });
+    return this.http.get<CapturedCallsPageDto>(`${this.baseUrl}/${id}/calls`, { params }).pipe(
+      map((page) => ({
+        calls: page.calls.map((c) => ({ id: c.id, capturedAt: c.capturedAt, call: toCallRecord(c.call) })),
+        total: page.total,
+      }))
+    );
+  }
+
+  /** The full request/response for one captured call - fetched only once it's actually expanded, see CallDetailCacheService. */
+  getDetail(cycleId: string, callId: string): Observable<CallDetail> {
+    return this.http.get<CallDetail>(`${this.baseUrl}/${cycleId}/calls/${callId}/detail`);
   }
 
   removeCall(id: string, callId: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/calls/${callId}`);
   }
 
+  /** {@code calls} must already be fully hydrated (request/response present) - copying stores the complete CallRecord, not a summary. Callers hydrate the selection first (see CallDetailCacheService.hydrateAll). */
   copyCallsInto(id: string, calls: readonly CallRecord[]): Observable<CopyCallsResult> {
     return this.http.post<CopyCallsResult>(`${this.baseUrl}/${id}/calls/copy`, { calls });
   }

@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
@@ -61,6 +62,8 @@ class SessionCyclesControllerTest {
     private DeleteSessionCycleUseCase deleteSessionCycleUseCase;
     @MockBean
     private ListCapturedCallsUseCase listCapturedCallsUseCase;
+    @MockBean
+    private GetCapturedCallDetailUseCase getCapturedCallDetailUseCase;
     @MockBean
     private RemoveCapturedCallUseCase removeCapturedCallUseCase;
     @MockBean
@@ -183,6 +186,27 @@ class SessionCyclesControllerTest {
         when(listCapturedCallsUseCase.listCalls(eq("c1"), any())).thenReturn(Optional.of(new CapturedCallsPage(List.of(), 0)));
 
         mockMvc.perform(get("/session-cycles/c1/calls")).andExpect(status().isOk());
+    }
+
+    @Test
+    void getDetailReturnsTheRequestAndResponse() throws Exception {
+        CallRecord call = new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "GET",
+                new com.fathy.alfred.backend.calls.domain.model.RequestData(java.util.Map.of(), "req-body"), "t",
+                1.0, new com.fathy.alfred.backend.calls.domain.model.ResponseData(200, java.util.Map.of(), "resp-body"), null);
+        when(getCapturedCallDetailUseCase.getDetail("c1", "call-1"))
+                .thenReturn(Optional.of(com.fathy.alfred.backend.calls.domain.model.CallDetail.of(call)));
+
+        mockMvc.perform(get("/session-cycles/c1/calls/call-1/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.request.body").value("req-body"))
+                .andExpect(jsonPath("$.response.body").value("resp-body"));
+    }
+
+    @Test
+    void getDetailReturnsNotFoundWhenMissing() throws Exception {
+        when(getCapturedCallDetailUseCase.getDetail("c1", "missing")).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/session-cycles/c1/calls/missing/detail")).andExpect(status().isNotFound());
     }
 
     @Test

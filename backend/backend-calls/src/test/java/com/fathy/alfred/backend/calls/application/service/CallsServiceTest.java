@@ -4,9 +4,11 @@ import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.CallsPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -14,6 +16,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CallsServiceTest {
@@ -21,7 +24,7 @@ class CallsServiceTest {
     private static final int TEST_MAX_LIMIT = 500;
 
     private static CallRecord call(String url) {
-        return new CallRecord(url, url, "GET", null, "t", 1.0, null, null);
+        return new CallRecord("id-" + url, url, url, "GET", null, "t", 1.0, null, null);
     }
 
     private static CallsQuery query(int offset, int limit) {
@@ -68,7 +71,7 @@ class CallsServiceTest {
 
         CallsPage result = service.getCalls(query(0, 50));
 
-        assertThat(result.calls()).extracting(CallRecord::url).containsExactly("c", "b", "a");
+        assertThat(result.calls()).extracting(CallSummary::url).containsExactly("c", "b", "a");
         assertThat(result.total()).isEqualTo(3);
     }
 
@@ -80,7 +83,7 @@ class CallsServiceTest {
 
         CallsPage result = service.getCalls(query(0, 2));
 
-        assertThat(result.calls()).extracting(CallRecord::url).containsExactly("c", "b");
+        assertThat(result.calls()).extracting(CallSummary::url).containsExactly("c", "b");
         assertThat(result.total()).isEqualTo(3);
     }
 
@@ -92,7 +95,7 @@ class CallsServiceTest {
 
         CallsPage result = service.getCalls(query(2, 2));
 
-        assertThat(result.calls()).extracting(CallRecord::url).containsExactly("a");
+        assertThat(result.calls()).extracting(CallSummary::url).containsExactly("a");
         assertThat(result.total()).isEqualTo(3);
     }
 
@@ -130,7 +133,7 @@ class CallsServiceTest {
 
         CallsPage result = service.getCalls(query(2, 50));
 
-        assertThat(result.calls()).extracting(CallRecord::url).containsExactly("c", "b", "a");
+        assertThat(result.calls()).extracting(CallSummary::url).containsExactly("c", "b", "a");
         assertThat(result.total()).isEqualTo(3);
     }
 
@@ -152,6 +155,35 @@ class CallsServiceTest {
         order.verify(observerA).onNewCall(call);
         order.verify(observerB).onNewCall(call);
         order.verify(notificationPort).notifyNewCall(call, List.of("cycle-1", "cycle-2"));
+    }
+
+    @Test
+    void receiveNewCallAssignsAnIdWhenTheIncomingCallHasNone() {
+        // The proxy's webhook payload has no "id" property, so Jackson deserializes it as null -
+        // this is what that looks like once it reaches the service.
+        CallRecord callWithoutId = new CallRecord(null, "https://example.com-proxy/x", "https://example.com/x", "GET", null, "t", 1.0, null, null);
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        CallsService service = serviceWith(port, notificationPort, List.of());
+
+        service.receiveNewCall(callWithoutId);
+
+        ArgumentCaptor<CallRecord> saved = ArgumentCaptor.forClass(CallRecord.class);
+        verify(port).save(saved.capture());
+        assertThat(saved.getValue().id()).isNotBlank();
+        assertThat(saved.getValue().url()).isEqualTo("https://example.com/x");
+    }
+
+    @Test
+    void receiveNewCallKeepsAnExistingIdUnchanged() {
+        CallRecord callWithId = call("https://example.com/api/x");
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        CallsService service = serviceWith(port, notificationPort, List.of());
+
+        service.receiveNewCall(callWithId);
+
+        verify(port).save(callWithId);
     }
 
     @Test

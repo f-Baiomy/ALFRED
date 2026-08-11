@@ -76,6 +76,18 @@ class JsonFileCommentsStoreAdapterTest {
     }
 
     @Test
+    void replaceAllOverwritesEveryComment() throws Exception {
+        JsonFileCommentsStoreAdapter adapter = adapterFor(tempDir.resolve("comments.json"));
+        adapter.save(comment("c1"));
+        adapter.save(comment("c2"));
+
+        Comment migrated = new Comment("c1", "new-call-id", "request-body", 0, "{", "note", "2026-01-01T00:00:00Z");
+        adapter.replaceAll(List.of(migrated));
+
+        assertThat(adapter.findAll()).containsExactly(migrated);
+    }
+
+    @Test
     void createsMissingParentDirectoriesOnStartupCheck() throws Exception {
         Path nested = tempDir.resolve("nested/dir/comments.json");
         JsonFileCommentsStoreAdapter adapter = adapterFor(nested);

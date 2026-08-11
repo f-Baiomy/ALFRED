@@ -1,11 +1,13 @@
 package com.fathy.alfred.backend.sessioncycles.application.service;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
@@ -17,6 +19,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCalls
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
@@ -45,6 +48,7 @@ public class SessionCyclesService implements
         PauseRecordingUseCase,
         DeleteSessionCycleUseCase,
         ListCapturedCallsUseCase,
+        GetCapturedCallDetailUseCase,
         RemoveCapturedCallUseCase,
         CopyCallsToCycleUseCase {
 
@@ -162,8 +166,29 @@ public class SessionCyclesService implements
             CallListSupport.Page<CapturedCall> page = CallListSupport.apply(
                     capturedCallsStore.findAllByCycle(cycleId), CapturedCall::call,
                     query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
-            return new CapturedCallsPage(page.items(), page.total());
+            List<CapturedCallSummary> summaries = page.items().stream().map(CapturedCallSummary::of).toList();
+            return new CapturedCallsPage(summaries, page.total());
         });
+    }
+
+    /**
+     * Scoped to this cycle's own captured-calls file, not the main log - a captured call's body
+     * can outlive its presence in RECENT_CALLS.log (a capped ring buffer), since this file has no
+     * such cap. {@code callId} here is the underlying CallRecord's id (CapturedCallSummary.call.id
+     * in the list response), not the CapturedCall wrapper's own id - matching what GET /calls'
+     * list uses, so the frontend's expand-to-fetch flow keys on one consistent "call id" concept
+     * whether it's looking at the dashboard or a cycle detail page. removeCall (below) is the one
+     * place the wrapper id is still the right key, since removal is scoped to this cycle's file.
+     */
+    @Override
+    public Optional<CallDetail> getDetail(String cycleId, String callId) {
+        if (metadataStore.findById(cycleId).isEmpty()) {
+            return Optional.empty();
+        }
+        return capturedCallsStore.findAllByCycle(cycleId).stream()
+                .filter(captured -> callId.equals(captured.call().id()))
+                .findFirst()
+                .map(captured -> CallDetail.of(captured.call()));
     }
 
     @Override

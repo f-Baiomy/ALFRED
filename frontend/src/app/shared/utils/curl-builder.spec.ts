@@ -3,6 +3,7 @@ import { buildBulkCurlScript, buildCurlCommand, bulkCurlFilename } from './curl-
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
+    id: 'call-1',
     original_url: 'https://example.com-proxy/api/x',
     url: 'https://example.com/api/x',
     method: 'GET',

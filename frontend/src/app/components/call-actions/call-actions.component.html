@@ -7,8 +7,8 @@
     (click)="togglePin()"
   >{{ isPinned() ? '★ Pinned' : '☆ Pin' }}</button>
   <app-action-menu label="Export">
-    <button type="button" class="filter-option-item" title="Copy as cURL" (click)="copyAsCurl()">
-      {{ curlCopyFeedback() ? 'Copied!' : 'Copy as cURL' }}
+    <button type="button" class="filter-option-item" title="Copy as cURL" [disabled]="curlLoading()" (click)="copyAsCurl()">
+      {{ curlCopyFeedback() ? 'Copied!' : curlLoading() ? 'Loading...' : 'Copy as cURL' }}
     </button>
     <button type="button" class="filter-option-item" title="Download raw call as JSON" [disabled]="downloadLoading()" (click)="downloadAsJson()">
       {{ downloadLoading() ? 'Loading...' : 'Download as JSON' }}

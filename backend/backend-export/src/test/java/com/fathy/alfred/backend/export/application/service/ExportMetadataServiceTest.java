@@ -14,7 +14,7 @@ class ExportMetadataServiceTest {
     private final ExportMetadataService service = new ExportMetadataService();
 
     private static CallRecord callWith(RequestData request, String url) {
-        return new CallRecord(url, url, "POST", request, "t", 1.0, null, null);
+        return new CallRecord("id-" + url, url, url, "POST", request, "t", 1.0, null, null);
     }
 
     @Test

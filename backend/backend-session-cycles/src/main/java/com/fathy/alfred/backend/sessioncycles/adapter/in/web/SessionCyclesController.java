@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.sessioncycles.adapter.in.web;
 
+import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CopyCallsRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CreateSessionCycleRequestDto;
@@ -7,6 +8,7 @@ import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.UpdateSessionCy
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
@@ -47,6 +49,7 @@ public class SessionCyclesController {
     private final PauseRecordingUseCase pauseRecordingUseCase;
     private final DeleteSessionCycleUseCase deleteSessionCycleUseCase;
     private final ListCapturedCallsUseCase listCapturedCallsUseCase;
+    private final GetCapturedCallDetailUseCase getCapturedCallDetailUseCase;
     private final RemoveCapturedCallUseCase removeCapturedCallUseCase;
     private final CopyCallsToCycleUseCase copyCallsToCycleUseCase;
 
@@ -59,6 +62,7 @@ public class SessionCyclesController {
             PauseRecordingUseCase pauseRecordingUseCase,
             DeleteSessionCycleUseCase deleteSessionCycleUseCase,
             ListCapturedCallsUseCase listCapturedCallsUseCase,
+            GetCapturedCallDetailUseCase getCapturedCallDetailUseCase,
             RemoveCapturedCallUseCase removeCapturedCallUseCase,
             CopyCallsToCycleUseCase copyCallsToCycleUseCase
     ) {
@@ -70,6 +74,7 @@ public class SessionCyclesController {
         this.pauseRecordingUseCase = pauseRecordingUseCase;
         this.deleteSessionCycleUseCase = deleteSessionCycleUseCase;
         this.listCapturedCallsUseCase = listCapturedCallsUseCase;
+        this.getCapturedCallDetailUseCase = getCapturedCallDetailUseCase;
         this.removeCapturedCallUseCase = removeCapturedCallUseCase;
         this.copyCallsToCycleUseCase = copyCallsToCycleUseCase;
     }
@@ -134,6 +139,14 @@ public class SessionCyclesController {
             @RequestParam(defaultValue = "10") int limit
     ) {
         return listCapturedCallsUseCase.listCalls(id, new CallsQuery(search, supplier, sort, offset, limit))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** The full request/response (headers+bodies) for one captured call - fetched only once it's actually expanded. */
+    @GetMapping("/{id}/calls/{callId}/detail")
+    public ResponseEntity<CallDetail> getDetail(@PathVariable String id, @PathVariable String callId) {
+        return getCapturedCallDetailUseCase.getDetail(id, callId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
