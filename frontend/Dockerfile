@@ -17,6 +17,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # deployment whose default backend port is already taken by something else just needs a .env
 # file, no image rebuild.
 COPY docker-entrypoint.d/10-generate-env.sh /docker-entrypoint.d/10-generate-env.sh
-RUN chmod +x /docker-entrypoint.d/10-generate-env.sh
+# Strip any \r regardless of the checkout's line endings - a CRLF shebang ("#!/bin/sh\r") makes
+# the kernel look for a nonexistent "/bin/sh\r" interpreter and this script silently fails to run
+# (confirmed live on a Windows checkout where core.autocrlf re-introduced CRLF at build time).
+RUN sed -i 's/\r$//' /docker-entrypoint.d/10-generate-env.sh && chmod +x /docker-entrypoint.d/10-generate-env.sh
 
 EXPOSE 80
