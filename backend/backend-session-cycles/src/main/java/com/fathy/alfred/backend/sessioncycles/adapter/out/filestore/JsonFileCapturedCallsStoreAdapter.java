@@ -18,7 +18,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -50,8 +50,22 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
     /** An immutable snapshot of one cycle's file, stamped with the size/mtime it was parsed at. */
     private record CacheEntry(List<CapturedCall> calls, long size, long modifiedMillis) {}
 
-    /** Per-cycle, since each cycle is its own file. Only ever touched from synchronized methods. */
-    private final Map<String, CacheEntry> cacheByCycle = new HashMap<>();
+    /** Caps how many cycles' captured-call bodies (potentially large XML/JSON, per cycle) stay warm
+     * in memory at once - without this, a long-running server accumulates one entry per session-cycle
+     * ever created (evicted only by explicit deletion, never by inactivity), growing without bound
+     * over the process lifetime even though each entry's own file is capped by nothing. Well above
+     * any realistic number of cycles someone has open across tabs at once, so eviction only ever
+     * affects cycles nobody's actively looking at - the next read just re-parses from disk. */
+    private static final int MAX_CACHED_CYCLES = 20;
+
+    /** Per-cycle, since each cycle is its own file. Only ever touched from synchronized methods.
+     * Access-ordered so removeEldestEntry evicts the least-recently-touched cycle, not an arbitrary one. */
+    private final Map<String, CacheEntry> cacheByCycle = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, CacheEntry> eldest) {
+            return size() > MAX_CACHED_CYCLES;
+        }
+    };
 
     @PostConstruct
     void checkStorageIsWritable() {

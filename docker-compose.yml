@@ -23,6 +23,9 @@ services:
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
     working_dir: /home/mitmproxy
     command: mitmdump -q -s log_and_route.py --mode reverse:https://placeholder.invalid -p 8080 --set upstream_cert=false --set connection_strategy=lazy
+    # Guardrail, not a tuned limit - normal usage sits well under this (observed ~65MB); caps a
+    # runaway connection/large-body burst from taking down the rest of the host.
+    mem_limit: 256m
     networks:
       - alfred-net
 
@@ -59,6 +62,10 @@ services:
       - ./backend/data:/appdata
     depends_on:
       - proxy
+    # Gives the JVM's -XX:MaxRAMPercentage (see backend/Dockerfile) a real ceiling to be a
+    # percentage OF, instead of the whole host - without this, the container has no cgroup memory
+    # limit at all and the JVM sizes its heap off the host's total RAM.
+    mem_limit: 512m
     networks:
       - alfred-net
 
@@ -77,6 +84,8 @@ services:
       - BACKEND_PORT=${BACKEND_PORT:-5000}
     depends_on:
       - backend
+    # Guardrail, not a tuned limit - nginx serving a static bundle observed at ~9MB.
+    mem_limit: 128m
     networks:
       - alfred-net
 

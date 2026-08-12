@@ -27,4 +27,9 @@ COPY --from=build /app/backend-app/target/backend.jar app.jar
 
 EXPOSE 5000
 
-CMD ["java", "-jar", "app.jar"]
+# Without an explicit cap, the JVM sizes its default heap as a percentage of whatever memory it can
+# see - the whole host, unless the container itself has a memory limit (set in docker-compose.yml) -
+# and a JVM heap that's grown under load generally isn't returned to the OS afterward, which reads
+# as "this container uses a lot of memory" even with nothing actually leaking. Capping it relative to
+# the container's own limit keeps that bounded and predictable regardless of the host's size.
+CMD ["java", "-XX:MaxRAMPercentage=50", "-XX:InitialRAMPercentage=25", "-jar", "app.jar"]

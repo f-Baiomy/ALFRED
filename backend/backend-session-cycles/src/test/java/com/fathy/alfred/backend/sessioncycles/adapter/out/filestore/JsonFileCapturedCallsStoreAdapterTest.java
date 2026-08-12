@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -105,6 +106,33 @@ class JsonFileCapturedCallsStoreAdapterTest {
         JsonFileCapturedCallsStoreAdapter adapter = adapterFor(tempDir);
 
         adapter.deleteAllForCycle("never-existed");
+    }
+
+    @Test
+    void cacheByCycleNeverGrowsPastItsMaxSizeNoMatterHowManyCyclesAreTouched() throws Exception {
+        JsonFileCapturedCallsStoreAdapter adapter = adapterFor(tempDir);
+        int max = maxCachedCycles();
+
+        for (int i = 0; i < max + 5; i++) {
+            adapter.append("cycle-" + i, call("GET"));
+        }
+
+        assertThat(cacheSize(adapter)).isLessThanOrEqualTo(max);
+        // Evicting a cycle from the cache must not lose data - the next read just re-parses its
+        // file from disk instead of trusting a cached snapshot.
+        assertThat(adapter.findAllByCycle("cycle-0")).extracting(c -> c.call().method()).containsExactly("GET");
+    }
+
+    private static int maxCachedCycles() throws Exception {
+        Field field = JsonFileCapturedCallsStoreAdapter.class.getDeclaredField("MAX_CACHED_CYCLES");
+        field.setAccessible(true);
+        return field.getInt(null);
+    }
+
+    private static int cacheSize(JsonFileCapturedCallsStoreAdapter adapter) throws Exception {
+        Field field = JsonFileCapturedCallsStoreAdapter.class.getDeclaredField("cacheByCycle");
+        field.setAccessible(true);
+        return ((Map<?, ?>) field.get(adapter)).size();
     }
 
     @Test
