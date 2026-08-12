@@ -60,6 +60,7 @@ services:
       - SESSION_CYCLES_FILE=/appdata/session-cycles/session-cycles.json
       - SESSION_CYCLES_DIR=/appdata/session-cycles
       - PROFILES_FILE=/appdata/profiles.json
+      - FILTER_SETTINGS_FILE=/appdata/filter-settings.json
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
     volumes:

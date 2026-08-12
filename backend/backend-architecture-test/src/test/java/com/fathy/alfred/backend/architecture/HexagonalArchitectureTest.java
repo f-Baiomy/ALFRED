@@ -69,7 +69,7 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.calls..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
-                        "..backend.profiles..")
+                        "..backend.profiles..", "..backend.settings..")
                 .check(classes);
     }
 
@@ -78,7 +78,7 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.comments..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.export..", "..backend.sessioncycles..",
-                        "..backend.profiles..")
+                        "..backend.profiles..", "..backend.settings..")
                 .check(classes);
     }
 
@@ -92,7 +92,8 @@ class HexagonalArchitectureTest {
     void sessionCyclesSliceMustNotDependOnOtherSlices() {
         noClasses().that().resideInAPackage("..backend.sessioncycles..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "..backend.comments..", "..backend.export..", "..backend.profiles..")
+                        "..backend.comments..", "..backend.export..", "..backend.profiles..",
+                        "..backend.settings..")
                 .check(classes);
     }
 
@@ -104,7 +105,20 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.profiles..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
-                        "..backend.sessioncycles..")
+                        "..backend.sessioncycles..", "..backend.settings..")
+                .check(classes);
+    }
+
+    // settings is a leaf slice like profiles: CallFilterPort is defined inside backend.calls
+    // itself as an outbound port, and the adapter implementing it (bridging calls -> settings)
+    // lives in backend-app, the composition root - so settings depends on nothing else, and
+    // nothing else depends on settings.
+    @Test
+    void settingsSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.settings..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..")
                 .check(classes);
     }
 }

@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.calls.application.service;
 
+import com.fathy.alfred.backend.calls.application.port.out.CallFilterPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
@@ -12,11 +13,14 @@ import org.mockito.ArgumentCaptor;
 
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class CallsServiceTest {
@@ -36,7 +40,12 @@ class CallsServiceTest {
     }
 
     private static CallsService serviceWith(CallLogPort port, CallNotificationPort notificationPort, List<NewCallObserverPort> observers) {
-        CallsService service = new CallsService(port, notificationPort, observers);
+        return serviceWith(port, notificationPort, observers, Optional.empty());
+    }
+
+    private static CallsService serviceWith(CallLogPort port, CallNotificationPort notificationPort,
+                                              List<NewCallObserverPort> observers, Optional<CallFilterPort> callFilterPort) {
+        CallsService service = new CallsService(port, notificationPort, observers, callFilterPort);
         setMaxLimit(service, TEST_MAX_LIMIT);
         setPaginationEnabled(service, true);
         return service;
@@ -196,5 +205,36 @@ class CallsServiceTest {
         service.receiveNewCall(call);
 
         inOrder(port, notificationPort).verify(notificationPort).notifyNewCall(call, List.of());
+    }
+
+    @Test
+    void receiveNewCallSkipsPersistenceAndBroadcastWhenTheFilterPortRejectsTheCall() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        NewCallObserverPort observer = mock(NewCallObserverPort.class);
+        CallFilterPort filterPort = mock(CallFilterPort.class);
+        CallRecord call = call("https://blocked.com/api/x");
+        when(filterPort.isAllowed(call)).thenReturn(false);
+        CallsService service = serviceWith(port, notificationPort, List.of(observer), Optional.of(filterPort));
+
+        service.receiveNewCall(call);
+
+        verify(port, never()).save(call);
+        verifyNoInteractions(observer, notificationPort);
+    }
+
+    @Test
+    void receiveNewCallProceedsAsUsualWhenTheFilterPortAllowsTheCall() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        CallFilterPort filterPort = mock(CallFilterPort.class);
+        CallRecord call = call("https://allowed.com/api/x");
+        when(filterPort.isAllowed(call)).thenReturn(true);
+        CallsService service = serviceWith(port, notificationPort, List.of(), Optional.of(filterPort));
+
+        service.receiveNewCall(call);
+
+        verify(port).save(call);
+        verify(notificationPort).notifyNewCall(call, List.of());
     }
 }

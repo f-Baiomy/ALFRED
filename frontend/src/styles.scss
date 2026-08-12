@@ -2188,3 +2188,144 @@ mark.hl.active {
     background: color-mix(in srgb, var(--purple) 22%, transparent);
   }
 }
+
+// ---------- Settings page ----------
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 1.25rem;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.settings-nav-item {
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 10%, transparent);
+    color: var(--text);
+  }
+
+  &.active {
+    background: color-mix(in srgb, var(--purple) 18%, transparent);
+    border-color: color-mix(in srgb, var(--purple) 40%, transparent);
+    color: var(--purple-light);
+  }
+}
+
+.settings-panel {
+  padding: 1.25rem 1.5rem;
+
+  h3 {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+  }
+
+  h4 {
+    margin: 0 0 0.25rem;
+    font-size: 0.9rem;
+    color: var(--text);
+  }
+}
+
+.mode-picker {
+  display: flex;
+  gap: 0.75rem;
+  margin: 1rem 0 1.5rem;
+  flex-wrap: wrap;
+}
+
+.mode-option {
+  flex: 1;
+  min-width: 200px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  &.active {
+    border-color: var(--purple);
+    background: color-mix(in srgb, var(--purple) 15%, transparent);
+  }
+}
+
+.mode-option-title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.mode-option-desc {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.url-rule-group {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.url-rule-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.url-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+}
+
+.url-rule-host {
+  flex: 1;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.url-rule-actions {
+  display: flex;
+  gap: 0.4rem;
+}

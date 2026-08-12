@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.application.service;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
+import com.fathy.alfred.backend.calls.application.port.out.CallFilterPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
@@ -25,6 +26,7 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
     private final CallLogPort callLogPort;
     private final CallNotificationPort notificationPort;
     private final List<NewCallObserverPort> observers;
+    private final Optional<CallFilterPort> callFilterPort;
 
     /** Upper bound on a single page's size regardless of what the caller asks for, so a request can't force an unbounded read/response. Same property FileCallLogAdapter uses to ring-buffer RECENT_CALLS.log, so the two stay in sync by construction. */
     @Value("${alfred.calls.max-limit:200}")
@@ -34,10 +36,12 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
     @Value("${alfred.calls.pagination-enabled:true}")
     private boolean paginationEnabled;
 
-    public CallsService(CallLogPort callLogPort, CallNotificationPort notificationPort, List<NewCallObserverPort> observers) {
+    public CallsService(CallLogPort callLogPort, CallNotificationPort notificationPort, List<NewCallObserverPort> observers,
+                         Optional<CallFilterPort> callFilterPort) {
         this.callLogPort = callLogPort;
         this.notificationPort = notificationPort;
         this.observers = observers;
+        this.callFilterPort = callFilterPort;
     }
 
     @Override
@@ -78,6 +82,9 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
         // null - assigned here, once, at the point the call becomes durable, rather than asking
         // every caller of receiveNewCall to know to do this.
         CallRecord withId = call.id() != null ? call : withGeneratedId(call);
+        if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(withId)) {
+            return;
+        }
         callLogPort.save(withId);
         List<String> capturedByCycleIds = observers.stream()
                 .flatMap(observer -> observer.onNewCall(withId).stream())

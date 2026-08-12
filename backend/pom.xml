@@ -39,6 +39,7 @@
     <module>backend-export</module>
     <module>backend-session-cycles</module>
     <module>backend-profiles</module>
+    <module>backend-settings</module>
     <module>backend-app</module>
     <module>backend-architecture-test</module>
   </modules>

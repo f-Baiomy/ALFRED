@@ -53,6 +53,11 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
+      <groupId>com.fathy.alfred</groupId>
+      <artifactId>backend-settings</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>com.tngtech.archunit</groupId>
       <artifactId>archunit-junit5</artifactId>
       <version>${archunit.version}</version>

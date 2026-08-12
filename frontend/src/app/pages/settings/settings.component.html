@@ -1,0 +1,112 @@
+<main class="settings-layout">
+  <div class="page-title">
+    <h2>Settings</h2>
+    <p class="sub">Configure how Alfred behaves.</p>
+  </div>
+
+  <div class="settings-shell">
+    <nav class="settings-nav">
+      <button type="button" class="settings-nav-item" [class.active]="activePartition() === 'call-filtering'">
+        Call filtering
+      </button>
+    </nav>
+
+    <div class="settings-content">
+      <section class="panel settings-panel">
+        <h3>Call filtering</h3>
+        <p class="sub">Decide which incoming calls from the proxy get logged.</p>
+
+        <div class="mode-picker">
+          <button
+            type="button"
+            class="mode-option"
+            [class.active]="isAcceptAll()"
+            [disabled]="savingMode()"
+            (click)="setMode('ACCEPT_ALL')"
+          >
+            <span class="mode-option-title">Accept all</span>
+            <span class="mode-option-desc">Log every call from any supplier.</span>
+          </button>
+          <button
+            type="button"
+            class="mode-option"
+            [class.active]="isAcceptOnly()"
+            [disabled]="savingMode()"
+            (click)="setMode('ACCEPT_ONLY')"
+          >
+            <span class="mode-option-title">Accept only</span>
+            <span class="mode-option-desc">Log only calls whose host matches an enabled entry below.</span>
+          </button>
+        </div>
+
+        @if (isAcceptOnly()) {
+          <div class="url-rule-group">
+            <h4>Whitelist</h4>
+            <p class="sub">Only hosts listed and enabled here are logged. Disable an entry to temporarily exclude it without deleting it.</p>
+
+            <form class="new-cycle-form" (submit)="$event.preventDefault(); addWhitelistUrl()">
+              <input
+                type="text"
+                placeholder="e.g. https://supplier.example.com/api"
+                [value]="newWhitelistHost()"
+                (input)="newWhitelistHost.set($any($event.target).value)"
+              />
+              <button type="submit" class="bulk-btn" [disabled]="!newWhitelistHost().trim()">+ Add</button>
+            </form>
+
+            @if (state.settings().whitelist.length === 0) {
+              <div class="empty">No whitelisted hosts yet - add one above.</div>
+            } @else {
+              <ul class="url-rule-list">
+                @for (rule of state.settings().whitelist; track rule.id) {
+                  <li class="url-rule-row">
+                    <span class="badge" [class.method-GET]="rule.enabled" [class.method-DEFAULT]="!rule.enabled">
+                      {{ rule.enabled ? 'Enabled' : 'Disabled' }}
+                    </span>
+                    <span class="url-rule-host">{{ rule.host }}</span>
+                    <span class="url-rule-actions">
+                      <button type="button" class="action-btn" (click)="toggleWhitelistUrl(rule.id, !rule.enabled)">
+                        {{ rule.enabled ? 'Disable' : 'Enable' }}
+                      </button>
+                      <button type="button" class="action-btn" (click)="removeWhitelistUrl(rule.id)">Remove</button>
+                    </span>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        }
+
+        <div class="url-rule-group">
+          <h4>Blacklist</h4>
+          <p class="sub">These hosts are never logged, regardless of the mode above.</p>
+
+          <form class="new-cycle-form" (submit)="$event.preventDefault(); addBlacklistUrl()">
+            <input
+              type="text"
+              placeholder="e.g. https://blocked.example.com/api"
+              [value]="newBlacklistHost()"
+              (input)="newBlacklistHost.set($any($event.target).value)"
+            />
+            <button type="submit" class="bulk-btn danger" [disabled]="!newBlacklistHost().trim()">+ Block</button>
+          </form>
+
+          @if (state.settings().blacklist.length === 0) {
+            <div class="empty">No blacklisted hosts.</div>
+          } @else {
+            <ul class="url-rule-list">
+              @for (rule of state.settings().blacklist; track rule.id) {
+                <li class="url-rule-row">
+                  <span class="url-rule-host">{{ rule.host }}</span>
+                  <span class="url-rule-actions">
+                    <button type="button" class="action-btn" (click)="removeBlacklistUrl(rule.id)">Remove</button>
+                  </span>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
