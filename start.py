@@ -10,10 +10,11 @@ Usage (same command on any OS):
     python3 start.py       (Linux/macOS - will re-exec itself with sudo if needed)
     python start.py        (Windows - run from an Administrator terminal)
     python3 start.py --wildfly-proxy [on|off]   (also toggle an already-running WildFly
-                                                  JVM's proxy - defaults to "on" if the
-                                                  on|off value is omitted; auto-detects the
-                                                  running WildFly instance, no WILDFLY_HOME
-                                                  needed; see wildfly-proxy-toggle/README.md)
+                                                  JVM's proxy via the Java Attach API - defaults
+                                                  to "on" if the on|off value is omitted;
+                                                  auto-detects the running WildFly instance,
+                                                  needs JAVA_HOME set to a JDK 8 install; see
+                                                  wildfly-proxy-toggle/README.md)
 """
 
 import os
@@ -93,9 +94,10 @@ def _parse_wildfly_proxy_arg(args):
 def toggle_wildfly_proxy(action):
     """Invokes wildfly-proxy-toggle's proxy-on/proxy-off script for this OS (see its README) -
     this is a thin wrapper, not a reimplementation: it auto-detects the running WildFly instance
-    itself (no WILDFLY_HOME needed), prompting interactively if more than one is found. Any of
-    WILDFLY_PID/WILDFLY_HOME/CONTROLLER/PROXY_HOST/PROXY_PORT already set in the environment this
-    script itself runs in are picked up automatically too, since subprocess.run inherits it."""
+    itself via the Java Attach API, prompting interactively if more than one is found. Requires
+    JAVA_HOME to point at a JDK 8 install (needs tools.jar) in the environment this script itself
+    runs in; WILDFLY_PID/PROXY_HOST/PROXY_PORT are picked up the same way if set, since
+    subprocess.run inherits the environment automatically."""
     toggle_dir = os.path.join(SCRIPT_DIR, "wildfly-proxy-toggle")
     if platform.system() == "Windows":
         cmd = [os.path.join(toggle_dir, f"proxy-{action}.bat")]
