@@ -5,28 +5,33 @@
 # from the detected WildFly instance via the Attach API. Safe to run even if the proxy was never
 # turned on.
 #
-# Requires JAVA_HOME set to a JDK 8 install (needs tools.jar for the Attach API).
+# A JDK 8 install is needed (tools.jar, for the Attach API) - auto-detected via FindJdk8.java
+# regardless of what JAVA_HOME currently points at, unless JDK8_HOME is set explicitly.
 
 set -eo pipefail
 
-if [ -z "${JAVA_HOME:-}" ]; then
-    echo "Set JAVA_HOME to a JDK 8 install first (needed for tools.jar / the Attach API), e.g.:"
-    echo "  JAVA_HOME=/opt/jdk1.8.0_XXX ./proxy-off.sh"
-    exit 1
-fi
-
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-JAVAC="$JAVA_HOME/bin/javac"
-JAVA="$JAVA_HOME/bin/java"
-JAR_TOOL="$JAVA_HOME/bin/jar"
-TOOLS_JAR="$JAVA_HOME/lib/tools.jar"
+BOOT_JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+BOOT_JAVAC="${JAVA_HOME:+$JAVA_HOME/bin/}javac"
 
-if [ ! -f "$TOOLS_JAR" ]; then
-    echo "Could not find $TOOLS_JAR - is JAVA_HOME a JDK 8 install, not a JRE?"
+mkdir -p "$DIR/out"
+"$BOOT_JAVAC" -d "$DIR/out" "$DIR/FindJdk8.java"
+JDK8_HOME="$("$BOOT_JAVA" -cp "$DIR/out" FindJdk8)"
+
+if [ -z "$JDK8_HOME" ]; then
+    echo "JAVA_HOME is not set, or is not a JDK 8 install (needed for tools.jar / the"
+    echo "Attach API). Set JDK8_HOME explicitly, e.g.:"
+    echo "  JDK8_HOME=/usr/lib/jvm/java-8-openjdk ./proxy-off.sh"
     exit 1
 fi
+echo "Using JDK 8 at $JDK8_HOME"
 
-mkdir -p "$DIR/out" "$DIR/agent-out"
+JAVAC="$JDK8_HOME/bin/javac"
+JAVA="$JDK8_HOME/bin/java"
+JAR_TOOL="$JDK8_HOME/bin/jar"
+TOOLS_JAR="$JDK8_HOME/lib/tools.jar"
+
+mkdir -p "$DIR/agent-out"
 "$JAVAC" -d "$DIR/agent-out" "$DIR/WildFlyProxyAgent.java"
 
 # Same reasoning as proxy-on.sh - a unique filename avoids colliding with a jar some

@@ -1,5 +1,5 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
 rem proxy-on.bat - thin wrapper: compiles (if needed) and runs WildFlyProxyController.java,
 rem which does the actual work - detects the running WildFly instance via the Java Attach API
@@ -8,26 +8,42 @@ rem https.proxyHost/https.proxyPort system properties. No restart, no standalone
 rem even transiently, no launch-config change. Run proxy-off.bat to reverse. See
 rem WildFlyProxyController.java/WildFlyProxyAgent.java and README.md for details.
 rem
-rem Requires JAVA_HOME set to a JDK 8 install (needs tools.jar for the Attach API).
-
-if "%JAVA_HOME%"=="" (
-    echo Set JAVA_HOME to a JDK 8 install first ^(needed for tools.jar / the Attach API^), e.g.:
-    echo   set JAVA_HOME=C:\Program Files\Java\jdk1.8.0_XXX
-    exit /b 1
-)
+rem A JDK 8 install is needed (tools.jar, for the Attach API) - auto-detected via FindJdk8.java
+rem regardless of what JAVA_HOME currently points at (a machine's default JAVA_HOME is commonly
+rem a newer JDK for everything else - confirmed live), unless JDK8_HOME is set explicitly.
 
 set "DIR=%~dp0"
-set "JAVAC=%JAVA_HOME%\bin\javac.exe"
-set "JAVA=%JAVA_HOME%\bin\java.exe"
-set "JAR=%JAVA_HOME%\bin\jar.exe"
-set "TOOLS_JAR=%JAVA_HOME%\lib\tools.jar"
-
-if not exist "%TOOLS_JAR%" (
-    echo Could not find %TOOLS_JAR% - is JAVA_HOME a JDK 8 install, not a JRE?
-    exit /b 1
+set "BOOT_JAVA=java"
+set "BOOT_JAVAC=javac"
+if not "%JAVA_HOME%"=="" (
+    set "BOOT_JAVA=%JAVA_HOME%\bin\java.exe"
+    set "BOOT_JAVAC=%JAVA_HOME%\bin\javac.exe"
 )
 
 if not exist "%DIR%out" mkdir "%DIR%out"
+"%BOOT_JAVAC%" -d "%DIR%out" "%DIR%FindJdk8.java"
+if errorlevel 1 exit /b 1
+
+rem for /f with backticks mangles quoted paths containing spaces (e.g. "C:\Program Files\...") -
+rem a redirect-to-temp-file avoids that class of quoting bug entirely.
+set "TMP_JDK8=%TEMP%\alfred-jdk8-%RANDOM%.txt"
+"%BOOT_JAVA%" -cp "%DIR%out" FindJdk8 > "%TMP_JDK8%"
+set /p JDK8_HOME=<"%TMP_JDK8%"
+del "%TMP_JDK8%" >nul 2>&1
+
+if "%JDK8_HOME%"=="" (
+    echo JAVA_HOME is not set, or is not a JDK 8 install ^(needed for tools.jar / the
+    echo Attach API^). Set JDK8_HOME explicitly, e.g.:
+    echo   set JDK8_HOME=C:\Program Files\Java\jdk1.8.0_XXX
+    exit /b 1
+)
+echo Using JDK 8 at %JDK8_HOME%
+
+set "JAVAC=%JDK8_HOME%\bin\javac.exe"
+set "JAVA=%JDK8_HOME%\bin\java.exe"
+set "JAR=%JDK8_HOME%\bin\jar.exe"
+set "TOOLS_JAR=%JDK8_HOME%\lib\tools.jar"
+
 if not exist "%DIR%agent-out" mkdir "%DIR%agent-out"
 
 "%JAVAC%" -d "%DIR%agent-out" "%DIR%WildFlyProxyAgent.java"

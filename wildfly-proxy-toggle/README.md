@@ -15,7 +15,7 @@ Unlike a jboss-cli/management-CLI-based approach, this **never needs to locate W
 
 ## Prerequisites
 
-- **`JAVA_HOME` must point at a JDK 8 install** (needs `tools.jar`, which only JDK 8 ships — this is the only JDK available in this environment; a `tools.jar`-free JDK 9+ Attach API story would need `ProcessHandle`-based detection instead, ask if that's ever needed). This is independent of whatever JDK WildFly itself runs on.
+- **A JDK 8 install somewhere on this machine** (needs `tools.jar`, which only JDK 8 ships — the only JDK available in this environment; a `tools.jar`-free JDK 9+ Attach API story would need `ProcessHandle`-based detection instead, ask if that's ever needed). This is independent of whatever JDK WildFly itself runs on. `FindJdk8.java` checks `JAVA_HOME` first and uses it if it happens to already be JDK 8 - confirmed live that a machine's default `JAVA_HOME` is commonly a newer JDK used for everything else, so if it isn't (or isn't set), you're told to set `JDK8_HOME` explicitly instead, e.g. `set JDK8_HOME=C:\Program Files\Java\jdk1.8.0_XXX`. Deliberately doesn't guess by scanning other install locations - a clear ask is better than silently picking a possibly-unexpected JDK.
 - Whatever HTTP client your app actually uses needs to read `https.proxyHost`/`https.proxyPort` dynamically to begin with. Plain `HttpURLConnection`-based clients (including a default, unconfigured `RestTemplate`) do. Apache HttpClient only does if it was explicitly built with `.useSystemProperties()`/`SystemDefaultRoutePlanner` — if you're not sure, turn the proxy on and make one test call to confirm it shows up in Alfred's dashboard before relying on this for real debugging.
 - The JDK this WildFly instance runs under needs to already trust Alfred's CA (`proxy/certs/mitmproxy-ca-cert.pem`) **before** you use this toggle — a running JVM doesn't pick up a trust-store change live, so if that JDK isn't already in this repo's `jdks.txt` and synced via `start.py`, you'll need one restart to pick up the cert trust before this toggle is useful going forward.
 
@@ -23,7 +23,6 @@ Unlike a jboss-cli/management-CLI-based approach, this **never needs to locate W
 
 **Windows:**
 ```bat
-set JAVA_HOME=C:\Program Files\Java\jdk1.8.0_XXX
 wildfly-proxy-toggle\proxy-on.bat
 wildfly-proxy-toggle\proxy-status.bat
 :: ... test your HTTPS calls, check Alfred's dashboard ...
@@ -32,12 +31,13 @@ wildfly-proxy-toggle\proxy-off.bat
 
 **Linux/macOS:**
 ```bash
-export JAVA_HOME=/opt/jdk1.8.0_XXX
 ./wildfly-proxy-toggle/proxy-on.sh
 ./wildfly-proxy-toggle/proxy-status.sh
 # ... test your HTTPS calls, check Alfred's dashboard ...
 ./wildfly-proxy-toggle/proxy-off.sh
 ```
+
+If `JAVA_HOME` already points at a JDK 8 install, no further setup is needed. Otherwise you'll be told to set `JDK8_HOME` explicitly (see Prerequisites).
 
 Both `on`/`off` are idempotent — safe to run `proxy-on` twice in a row, or `proxy-off` when the proxy was never on. `agentmain`'s own confirmation prints into the *target* JVM's console (e.g. IntelliJ's WildFly run window), not the terminal you ran the script from — the controller prints its own independent confirmation either way.
 
@@ -54,7 +54,7 @@ None of these are required for the common case (one WildFly instance running, vi
 
 | Variable | Meaning |
 |---|---|
-| `JAVA_HOME` | **Required** — a JDK 8 install (needs `tools.jar`) |
+| `JDK8_HOME` | Only needed if `JAVA_HOME` doesn't already point at a JDK 8 install — points at one explicitly (needs `tools.jar`) |
 | `WILDFLY_PID` | Skip the interactive prompt and pick this specific detected PID (also needed for non-interactive/scripted use when more than one instance is running — the controller refuses to guess rather than hang waiting on a prompt that'll never come) |
 | `PROXY_HOST` | Alfred's forward-proxy listener address (default `127.0.0.2`) |
 | `PROXY_PORT` | Alfred's forward-proxy listener port (default `443`) |
