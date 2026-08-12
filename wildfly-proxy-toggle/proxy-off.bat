@@ -19,29 +19,33 @@ if "%CONTROLLER%"=="" set CONTROLLER=localhost:9990
 set "CLI=%WILDFLY_HOME%\bin\jboss-cli.bat"
 set "TMP_OUT=%TEMP%\alfred-proxy-toggle-%RANDOM%.log"
 
+if not exist "%CLI%" (
+    echo Could not find %CLI% - is WILDFLY_HOME set correctly?
+    exit /b 1
+)
+
 "%CLI%" --connect --controller=%CONTROLLER% --commands="/system-property=https.proxyHost:remove(),/system-property=https.proxyPort:remove()" >"%TMP_OUT%" 2>&1
+set RC=%ERRORLEVEL%
 type "%TMP_OUT%"
 
-rem "not recognized"/"cannot find the path" means jboss-cli.bat itself never ran (wrong
-rem WILDFLY_HOME) - a real failure, not the benign "already off" case below.
-findstr /C:"is not recognized" /C:"cannot find the path" "%TMP_OUT%" >nul
-if not errorlevel 1 (
+if "%RC%"=="0" goto :success
+
+rem A "not found" error just means the proxy was already off (nothing to remove) - the desired
+rem end state either way. Anything else - connection refused, auth failure, a CLI/server
+rem management-protocol version mismatch, ... - is a real failure and must not be reported as
+rem success just because it wasn't one of the two specific failures start.py/restart.py's
+rem callers might otherwise expect.
+findstr /I /C:"not found" "%TMP_OUT%" >nul
+if errorlevel 1 (
     echo.
-    echo Could not run jboss-cli.bat - is WILDFLY_HOME set correctly?
+    echo Failed to disable the proxy - see output above. Is WildFly running, and does this
+    echo jboss-cli's version match it closely enough to talk to its management interface?
     del "%TMP_OUT%" >nul 2>&1
     exit /b 1
 )
 
-findstr /C:"Failed to connect" "%TMP_OUT%" >nul
-if not errorlevel 1 (
-    echo.
-    echo Could not reach WildFly's management interface at %CONTROLLER% - is WildFly running?
-    del "%TMP_OUT%" >nul 2>&1
-    exit /b 1
-)
+:success
 del "%TMP_OUT%" >nul 2>&1
-
-rem Anything else - including a "not found" error, which just means the proxy was already
-rem off - is the desired end state either way, unlike the two hard failures checked above.
 echo.
 echo Proxy OFF - HTTPS traffic in this WildFly JVM goes direct again.
+pause

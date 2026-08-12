@@ -26,16 +26,20 @@ fi
 
 OUTPUT="$("$CLI" --connect --controller="$CONTROLLER" \
     --commands="/system-property=https.proxyHost:remove(),/system-property=https.proxyPort:remove()" 2>&1)"
+RC=$?
 
 echo "$OUTPUT"
 
-if echo "$OUTPUT" | grep -q "Failed to connect"; then
+# A "not found" error just means the proxy was already off (nothing to remove) - the desired
+# end state either way. Anything else - connection refused, auth failure, a CLI/server
+# management-protocol version mismatch, ... - is a real failure and must not be reported as
+# success just because it didn't match one specific expected error message.
+if [ "$RC" -ne 0 ] && ! echo "$OUTPUT" | grep -qi "not found"; then
     echo
-    echo "Could not reach WildFly's management interface at $CONTROLLER - is WildFly running?"
+    echo "Failed to disable the proxy - see output above. Is WildFly running, and does this"
+    echo "jboss-cli's version match it closely enough to talk to its management interface?"
     exit 1
 fi
 
-# Anything else - including a "not found" error, which just means the proxy was already off -
-# is the desired end state either way, unlike the two hard failures checked above.
 echo
 echo "Proxy OFF - HTTPS traffic in this WildFly JVM goes direct again."
