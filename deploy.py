@@ -4,8 +4,8 @@ deploy.py - pulls the latest master and restarts the stack.
 
 Runs "git checkout master", "git pull origin master", then delegates to
 restart.py (rebuild + restart every service, or just the ones named).
-Does NOT touch the hosts file or certificate trust - use start.py for
-that (only needed once per machine, not on every deploy).
+Does NOT touch certificate trust - use start.py for that (only needed
+once per machine, not on every deploy).
 
 Usage:
     python3 deploy.py                 pull latest, restart every service

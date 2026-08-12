@@ -3,8 +3,8 @@
 start.py - cross-platform entry point.
 
 Detects the OS and runs the matching script (start.sh on Linux/macOS,
-start.ps1 on Windows), which updates the hosts file from suppliers.txt
-and then runs "docker compose up -d".
+start.ps1 on Windows), which runs "docker compose up -d" and syncs the
+proxy's CA cert into the OS/JDK trust stores.
 
 Usage (same command on any OS):
     python3 start.py       (Linux/macOS - will re-exec itself with sudo if needed)
@@ -128,7 +128,7 @@ def main():
         print(f"Detected {system} -> running {script}")
 
         if os.geteuid() != 0:
-            print("Root is required to edit /etc/hosts - re-running with sudo ...")
+            print("Root is required for the OS certificate store - re-running with sudo ...")
             result = subprocess.run(["sudo", "bash", script])
         else:
             result = subprocess.run(["bash", script])

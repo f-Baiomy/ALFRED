@@ -1,12 +1,11 @@
 # start.ps1 - Windows entry point.
 #
 # Idempotent - safe to run every time. On each run it:
-#   1. Adds any missing "-proxy" hosts entries from suppliers.txt
-#   2. Starts the proxy with "docker compose up -d" (generates the CA
+#   1. Starts the proxy with "docker compose up -d" (generates the CA
 #      cert on first run)
-#   3. Trusts that CA cert in the Windows Root store, if not already
+#   2. Trusts that CA cert in the Windows Root store, if not already
 #      trusted
-#   4. Trusts that CA cert in every JDK listed in jdks.txt, if not
+#   3. Trusts that CA cert in every JDK listed in jdks.txt, if not
 #      already trusted there
 #
 # Run this INSTEAD OF "docker compose up" directly, from an Administrator
@@ -16,107 +15,23 @@
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$suppliersFile = Join-Path $scriptDir "suppliers.txt"
 $jdksFile = Join-Path $scriptDir "jdks.txt"
 $certFile = Join-Path $scriptDir "proxy\certs\mitmproxy-ca-cert.pem"
-$hostsFile = "$env:windir\System32\drivers\etc\hosts"
 
-# ---- Admin check (needed for hosts file + Windows cert store) ----
+# ---- Admin check (needed for the Windows cert store) ----
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 $isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $isAdmin) {
-    Write-Host "This needs Administrator rights (hosts file + certificate store)."
+    Write-Host "This needs Administrator rights (certificate store)."
     Write-Host "Re-run this script from an Administrator PowerShell window."
     exit 1
 }
 
-# ---- Step 1: hosts file entries from suppliers.txt ----
-#
-# 127.0.0.2 (not .1) so Alfred can bind port 443 (the HTTPS default, so
-# "-proxy" URLs never need an explicit port) without conflicting with
-# anything already using 127.0.0.1:443 on this machine - the whole
-# 127.0.0.0/8 range is loopback, so any 127.x.x.x address works the same.
+# ---- Step 1: start all services (proxy, backend, frontend) ----
 
-if (-not (Test-Path $suppliersFile)) {
-    Write-Host "suppliers.txt not found at $suppliersFile"
-    exit 1
-}
-
-Write-Host "=== Step 1: hosts file ==="
-$hostsContent = Get-Content $hostsFile
-$targetIp = "127.0.0.2"
-
-# Figure out what needs to change before touching the file, so that if a write fails partway
-# through (e.g. antivirus/endpoint protection blocking direct hosts edits) we know exactly which
-# remaining lines still need to be added manually, without re-listing ones already written.
-$pending = New-Object System.Collections.Generic.List[object]
-
-foreach ($line in Get-Content $suppliersFile) {
-    $domain = ($line -replace '#.*', '').Trim()
-    if ([string]::IsNullOrWhiteSpace($domain)) { continue }
-
-    $proxyHost = "$domain-proxy"
-    $existingLine = $hostsContent | Where-Object { $_ -match "\s$([regex]::Escape($proxyHost))(\s|$)" } | Select-Object -First 1
-
-    if ($existingLine -and $existingLine -match "^\s*$([regex]::Escape($targetIp))\s") {
-        Write-Host "  [skip]  $proxyHost already present"
-    } elseif ($existingLine) {
-        # A stale entry from before this project switched to $targetIp (or a manual edit) - fix
-        # the IP in place rather than leaving a second, shadowing line for the same hostname.
-        $pending.Add([PSCustomObject]@{ Type = "fix"; ProxyHost = $proxyHost; OldLine = $existingLine; NewLine = "$targetIp   $proxyHost" })
-    } else {
-        $pending.Add([PSCustomObject]@{ Type = "add"; ProxyHost = $proxyHost; OldLine = $null; NewLine = "$targetIp   $proxyHost" })
-    }
-}
-
-if ($pending.Count -gt 0) {
-    try {
-        for ($i = 0; $i -lt $pending.Count; $i++) {
-            $item = $pending[$i]
-            if ($item.Type -eq "fix") {
-                (Get-Content $hostsFile) -replace [regex]::Escape($item.OldLine), $item.NewLine | Set-Content $hostsFile
-                $hostsContent = Get-Content $hostsFile
-                Write-Host "  [fixed] $($item.ProxyHost) was pointing elsewhere - now $targetIp"
-            } else {
-                Add-Content -Path $hostsFile -Value $item.NewLine
-                $hostsContent = Get-Content $hostsFile
-                Write-Host "  [added] $($item.NewLine)"
-            }
-        }
-    } catch {
-        # $i still points at the entry that failed (PowerShell try/catch shares the enclosing
-        # scope) - everything from $i onward was never written, so only list those, not the
-        # ones that already succeeded above.
-        Write-Host ""
-        Write-Host "  [error] Could not write to the hosts file: $($_.Exception.Message)"
-        Write-Host "  This is usually antivirus/endpoint protection (e.g. Kaspersky Self-Defense,"
-        Write-Host "  Windows Defender Controlled Folder Access) blocking direct edits to the hosts file."
-        Write-Host ""
-        Write-Host "  Add these line(s) yourself, then re-run this script to pick up where it left off:"
-        Write-Host ""
-        for ($j = $i; $j -lt $pending.Count; $j++) {
-            Write-Host "    $($pending[$j].NewLine)"
-        }
-        Write-Host ""
-        Write-Host "  Hosts file path:"
-        Write-Host "    Windows       C:\Windows\System32\drivers\etc\hosts   (this machine: $hostsFile)"
-        Write-Host "    Linux/macOS   /etc/hosts"
-        Write-Host ""
-        $response = Read-Host "  Continue with docker compose anyway? Those hostnames won't resolve until the lines above are added. [y/N]"
-        if ($response -notmatch '^[Yy]') {
-            Write-Host "Stopped."
-            exit 1
-        }
-        Write-Host "  Continuing without finishing the hosts file changes ..."
-    }
-}
-
-# ---- Step 2: start all services (proxy, backend, frontend) ----
-
-Write-Host ""
-Write-Host "=== Step 2: docker compose up (proxy, backend, frontend) ==="
+Write-Host "=== Step 1: docker compose up (proxy, backend, frontend) ==="
 Set-Location $scriptDir
 docker compose up -d --build
 
@@ -133,10 +48,10 @@ if (-not (Test-Path $certFile)) {
     exit 1
 }
 
-# ---- Step 3: trust the cert in the Windows Root store ----
+# ---- Step 2: trust the cert in the Windows Root store ----
 
 Write-Host ""
-Write-Host "=== Step 3: Windows certificate trust ==="
+Write-Host "=== Step 2: Windows certificate trust ==="
 
 $previousEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
@@ -154,7 +69,7 @@ Write-Host "  [synced] Windows Root store now trusts this project's CA"
 
 $ErrorActionPreference = $previousEAP
 
-# ---- Step 4: trust the cert in every JDK from jdks.txt plus JAVA_HOME (idempotent) ----
+# ---- Step 3: trust the cert in every JDK from jdks.txt plus JAVA_HOME (idempotent) ----
 #
 # jdks.txt is for JDKs that aren't the current environment's default (e.g. a
 # server running under a different JAVA_HOME than this interactive shell) -
@@ -162,7 +77,7 @@ $ErrorActionPreference = $previousEAP
 # needs no config file entry at all.
 
 Write-Host ""
-Write-Host "=== Step 4: JDK certificate trust ==="
+Write-Host "=== Step 3: JDK certificate trust ==="
 
 $jdkHomes = New-Object System.Collections.Generic.List[string]
 

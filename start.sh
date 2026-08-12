@@ -3,124 +3,33 @@
 # start.sh - Linux/macOS entry point.
 #
 # Idempotent - safe to run every time. On each run it:
-#   1. Adds any missing "-proxy" hosts entries from suppliers.txt
-#   2. Starts the proxy with "docker compose up -d" (generates the CA
+#   1. Starts the proxy with "docker compose up -d" (generates the CA
 #      cert on first run)
-#   3. Trusts that CA cert in the OS certificate store, if not already
+#   2. Trusts that CA cert in the OS certificate store, if not already
 #      trusted
-#   4. Trusts that CA cert in every JDK listed in jdks.txt, if not
+#   3. Trusts that CA cert in every JDK listed in jdks.txt, if not
 #      already trusted there
 #
 # Run this INSTEAD OF "docker compose up" directly:
 #   sudo ./start.sh
 #
-# Needs sudo for /etc/hosts and the OS certificate store.
+# Needs sudo for the OS certificate store.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SUPPLIERS_FILE="$SCRIPT_DIR/suppliers.txt"
 JDKS_FILE="$SCRIPT_DIR/jdks.txt"
 CERT_FILE="$SCRIPT_DIR/proxy/certs/mitmproxy-ca-cert.pem"
-HOSTS_FILE="/etc/hosts"
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "This needs root (hosts file + certificate store)."
+    echo "This needs root (certificate store)."
     echo "Re-run as: sudo ./start.sh"
     exit 1
 fi
 
-if [ ! -f "$SUPPLIERS_FILE" ]; then
-    echo "suppliers.txt not found at $SUPPLIERS_FILE"
-    exit 1
-fi
+# ---- Step 1: start all services (proxy, backend, frontend) ----
 
-# ---- Step 1: hosts file entries from suppliers.txt ----
-#
-# 127.0.0.2 (not .1) so Alfred can bind port 443 (the HTTPS default, so
-# "-proxy" URLs never need an explicit port) without conflicting with
-# anything already using 127.0.0.1:443 on this machine - the whole
-# 127.0.0.0/8 range is loopback, so any 127.x.x.x address works the same.
-
-echo "=== Step 1: hosts file ==="
-TARGET_IP="127.0.0.2"
-
-# Figure out what needs to change before touching the file, so that if a write fails partway
-# through (e.g. antivirus/endpoint protection blocking direct hosts edits) we know exactly which
-# remaining lines still need to be added manually, without re-listing ones already written.
-PENDING_TYPES=()
-PENDING_LINES=()
-
-while IFS= read -r line || [ -n "$line" ]; do
-    domain="$(echo "$line" | sed 's/#.*//' | xargs)"
-    [ -z "$domain" ] && continue
-
-    proxy_host="${domain}-proxy"
-    # grep exiting 1 (no match - the normal case for a brand-new entry) would otherwise abort the
-    # whole script here: with pipefail on, that failure propagates through "| head -n1" even though
-    # head itself succeeds, and set -e then kills the script mid-loop with no further output.
-    existing_line="$(grep -E "[[:space:]]${proxy_host}([[:space:]]|$)" "$HOSTS_FILE" | head -n1 || true)"
-
-    if [ -n "$existing_line" ] && echo "$existing_line" | grep -qE "^[[:space:]]*${TARGET_IP}[[:space:]]"; then
-        echo "  [skip]  ${proxy_host} already present"
-    elif [ -n "$existing_line" ]; then
-        PENDING_TYPES+=("fix")
-        PENDING_LINES+=("${proxy_host}")
-    else
-        PENDING_TYPES+=("add")
-        PENDING_LINES+=("${proxy_host}")
-    fi
-done < "$SUPPLIERS_FILE"
-
-HOSTS_WRITE_FAILED=0
-FAILED_AT=-1
-for i in "${!PENDING_LINES[@]}"; do
-    proxy_host="${PENDING_LINES[$i]}"
-    if [ "${PENDING_TYPES[$i]}" = "fix" ]; then
-        # A stale entry from before this project switched to $TARGET_IP (or a manual edit) - fix
-        # the IP in place rather than leaving a second, shadowing line for the same hostname.
-        if sed -i "s|^.*[[:space:]]${proxy_host}\([[:space:]]\|\$\)|${TARGET_IP}   ${proxy_host}|" "$HOSTS_FILE" 2>/dev/null; then
-            echo "  [fixed] ${proxy_host} was pointing elsewhere - now ${TARGET_IP}"
-            continue
-        fi
-    else
-        if echo "${TARGET_IP}   ${proxy_host}" >> "$HOSTS_FILE" 2>/dev/null; then
-            echo "  [added] ${TARGET_IP}   ${proxy_host}"
-            continue
-        fi
-    fi
-    HOSTS_WRITE_FAILED=1
-    FAILED_AT=$i
-    break
-done
-
-if [ "$HOSTS_WRITE_FAILED" -eq 1 ]; then
-    echo ""
-    echo "  [error] Could not write to the hosts file - permission denied."
-    echo "  This is usually antivirus/endpoint protection (e.g. a security suite's hosts-file"
-    echo "  protection) or a locked/immutable file attribute blocking direct edits."
-    echo ""
-    echo "  Add these line(s) yourself, then re-run this script to pick up where it left off:"
-    echo ""
-    for ((i=FAILED_AT; i<${#PENDING_LINES[@]}; i++)); do
-        echo "    ${TARGET_IP}   ${PENDING_LINES[$i]}"
-    done
-    echo ""
-    echo "  Hosts file path:"
-    echo "    Linux/macOS   /etc/hosts   (this machine: $HOSTS_FILE)"
-    echo "    Windows       C:\\Windows\\System32\\drivers\\etc\\hosts"
-    echo ""
-    read -rp "  Continue with docker compose anyway? Those hostnames won't resolve until the lines above are added. [y/N] " REPLY
-    case "$REPLY" in
-        [Yy]*) echo "  Continuing without finishing the hosts file changes ..." ;;
-        *) echo "Stopped."; exit 1 ;;
-    esac
-fi
-
-# ---- Step 2: start all services (proxy, backend, frontend) ----
-
-echo ""
-echo "=== Step 2: docker compose up (proxy, backend, frontend) ==="
+echo "=== Step 1: docker compose up (proxy, backend, frontend) ==="
 cd "$SCRIPT_DIR"
 docker compose up -d --build
 
@@ -136,10 +45,10 @@ if [ ! -f "$CERT_FILE" ]; then
     exit 1
 fi
 
-# ---- Step 3: trust the cert in the OS certificate store (idempotent) ----
+# ---- Step 2: trust the cert in the OS certificate store (idempotent) ----
 
 echo ""
-echo "=== Step 3: OS certificate trust ==="
+echo "=== Step 2: OS certificate trust ==="
 
 if [ -f /etc/os-release ] && grep -qi 'ubuntu\|debian' /etc/os-release; then
     DEST="/usr/local/share/ca-certificates/mitmproxy.crt"
@@ -163,7 +72,7 @@ else
     echo "  [warn]  unrecognized OS - trust the cert manually: $CERT_FILE"
 fi
 
-# ---- Step 4: trust the cert in every JDK from jdks.txt plus JAVA_HOME (idempotent) ----
+# ---- Step 3: trust the cert in every JDK from jdks.txt plus JAVA_HOME (idempotent) ----
 #
 # jdks.txt is for JDKs that aren't the current environment's default (e.g. a
 # server running under a different JAVA_HOME than this interactive shell) -
@@ -171,7 +80,7 @@ fi
 # needs no config file entry at all.
 
 echo ""
-echo "=== Step 4: JDK certificate trust ==="
+echo "=== Step 3: JDK certificate trust ==="
 
 JDK_HOMES=()
 
