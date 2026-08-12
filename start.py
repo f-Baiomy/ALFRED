@@ -9,9 +9,11 @@ and then runs "docker compose up -d".
 Usage (same command on any OS):
     python3 start.py       (Linux/macOS - will re-exec itself with sudo if needed)
     python start.py        (Windows - run from an Administrator terminal)
-    python3 start.py --wildfly-proxy on|off   (also toggle an already-running WildFly
-                                                JVM's proxy - see wildfly-proxy-toggle/README.md;
-                                                requires WILDFLY_HOME set in the environment)
+    python3 start.py --wildfly-proxy [on|off]   (also toggle an already-running WildFly
+                                                  JVM's proxy - defaults to "on" if the
+                                                  on|off value is omitted; see
+                                                  wildfly-proxy-toggle/README.md; requires
+                                                  WILDFLY_HOME set in the environment)
 """
 
 import os
@@ -70,13 +72,21 @@ def ensure_backend_port():
 
 
 def _parse_wildfly_proxy_arg(args):
-    """Only argument this script accepts, so a strict two-token match is enough - anything else
-    is a usage error rather than something worth a full argparse setup for."""
+    """Only argument this script accepts, so a strict token match is enough - anything else is
+    a usage error rather than something worth a full argparse setup for. The on|off value is
+    itself optional - bare "--wildfly-proxy" defaults to "on", matching common CLI convention
+    for a flag that also accepts an explicit value ("--verbose" implies true, "--verbose=false"
+    to disable)."""
     if not args:
         return None
-    if len(args) == 2 and args[0] == "--wildfly-proxy" and args[1] in ("on", "off"):
+    if args[0] != "--wildfly-proxy":
+        print("Usage: python3 start.py [--wildfly-proxy [on|off]]")
+        sys.exit(1)
+    if len(args) == 1:
+        return "on"
+    if len(args) == 2 and args[1] in ("on", "off"):
         return args[1]
-    print("Usage: python3 start.py [--wildfly-proxy on|off]")
+    print("Usage: python3 start.py [--wildfly-proxy [on|off]]")
     sys.exit(1)
 
 

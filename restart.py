@@ -17,10 +17,11 @@ Usage:
     python3 restart.py                 restart every service (proxy, backend, frontend)
     python3 restart.py backend      restart/rebuild just one service
     python3 restart.py frontend backend  restart/rebuild multiple named services
-    python3 restart.py --wildfly-proxy on|off   also toggle an already-running WildFly JVM's
-                                                 proxy - see wildfly-proxy-toggle/README.md;
-                                                 requires WILDFLY_HOME set in the environment.
-                                                 Combinable with the above, e.g.:
+    python3 restart.py --wildfly-proxy [on|off]   also toggle an already-running WildFly JVM's
+                                                   proxy - defaults to "on" if the on|off value
+                                                   is omitted; see wildfly-proxy-toggle/README.md;
+                                                   requires WILDFLY_HOME set in the environment.
+                                                   Combinable with the above, e.g.:
                                                  python3 restart.py backend --wildfly-proxy on
 """
 
@@ -145,19 +146,23 @@ def warn_if_hosts_entries_are_stale():
 
 
 def _parse_args(argv):
-    """Splits service names (positional) from the optional --wildfly-proxy on|off flag - a
+    """Splits service names (positional) from the optional --wildfly-proxy [on|off] flag - a
     small hand-rolled parser rather than argparse, matching this script's existing plain
-    sys.argv[1:] handling for service names."""
+    sys.argv[1:] handling for service names. The on|off value is itself optional - bare
+    "--wildfly-proxy" defaults to "on" - so a following token is only consumed as that value
+    when it's actually "on"/"off"; anything else (e.g. a service name) is left for the
+    positional branch below."""
     services = []
     wildfly_action = None
     i = 0
     while i < len(argv):
         if argv[i] == "--wildfly-proxy":
-            if i + 1 >= len(argv) or argv[i + 1] not in ("on", "off"):
-                print("--wildfly-proxy requires an argument: on or off")
-                sys.exit(1)
-            wildfly_action = argv[i + 1]
-            i += 2
+            if i + 1 < len(argv) and argv[i + 1] in ("on", "off"):
+                wildfly_action = argv[i + 1]
+                i += 2
+            else:
+                wildfly_action = "on"
+                i += 1
         else:
             services.append(argv[i])
             i += 1
