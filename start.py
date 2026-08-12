@@ -11,9 +11,9 @@ Usage (same command on any OS):
     python start.py        (Windows - run from an Administrator terminal)
     python3 start.py --wildfly-proxy [on|off]   (also toggle an already-running WildFly
                                                   JVM's proxy - defaults to "on" if the
-                                                  on|off value is omitted; see
-                                                  wildfly-proxy-toggle/README.md; requires
-                                                  WILDFLY_HOME set in the environment)
+                                                  on|off value is omitted; auto-detects the
+                                                  running WildFly instance, no WILDFLY_HOME
+                                                  needed; see wildfly-proxy-toggle/README.md)
 """
 
 import os
@@ -92,10 +92,10 @@ def _parse_wildfly_proxy_arg(args):
 
 def toggle_wildfly_proxy(action):
     """Invokes wildfly-proxy-toggle's proxy-on/proxy-off script for this OS (see its README) -
-    this is a thin wrapper, not a reimplementation: WILDFLY_HOME (and optional CONTROLLER/
-    PROXY_HOST/PROXY_PORT) must already be set in the environment this script itself runs in,
-    since subprocess.run inherits it automatically; the underlying script validates and reports
-    a clear error if it's missing rather than this wrapper duplicating that check."""
+    this is a thin wrapper, not a reimplementation: it auto-detects the running WildFly instance
+    itself (no WILDFLY_HOME needed), prompting interactively if more than one is found. Any of
+    WILDFLY_PID/WILDFLY_HOME/CONTROLLER/PROXY_HOST/PROXY_PORT already set in the environment this
+    script itself runs in are picked up automatically too, since subprocess.run inherits it."""
     toggle_dir = os.path.join(SCRIPT_DIR, "wildfly-proxy-toggle")
     if platform.system() == "Windows":
         cmd = [os.path.join(toggle_dir, f"proxy-{action}.bat")]
