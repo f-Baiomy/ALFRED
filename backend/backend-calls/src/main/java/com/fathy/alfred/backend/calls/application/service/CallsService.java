@@ -18,7 +18,6 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Function;
 
 @Service
 public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, ReceiveNewCallUseCase {
@@ -53,20 +52,16 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
         // same first N items forever, since offset is also ignored below.
         int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
-        CallListSupport.Page<CallRecord> page = CallListSupport.apply(
-                callLogPort.readAll(), Function.identity(),
+        CallListSupport.Page<CallRecord> page = callLogPort.query(
                 query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
         List<CallSummary> summaries = page.items().stream().map(CallSummary::of).toList();
         return new CallsPage(summaries, page.total());
     }
 
-    /** Linear scan over the (maxLimit-capped) log - no index needed at this scale, and readAll() is already served from FileCallLogAdapter's in-memory cache. */
+    /** Delegates to the port - an indexed lookup for the SQLite adapter, a linear scan over the in-memory cache for the file adapter. */
     @Override
     public Optional<CallDetail> getDetail(String callId) {
-        return callLogPort.readAll().stream()
-                .filter(call -> callId.equals(call.id()))
-                .findFirst()
-                .map(CallDetail::of);
+        return callLogPort.findById(callId).map(CallDetail::of);
     }
 
     /**

@@ -157,7 +157,7 @@ public class SessionCyclesService implements
         return DeleteOutcome.DELETED;
     }
 
-    /** Filters/sorts/paginates server-side via the same CallListSupport GET /calls uses - captured-calls files are stored oldest-first (append order), which is exactly the "oldest"/"newest" baseline CallListSupport expects. */
+    /** Filters/sorts/paginates via whichever CapturedCallsStorePort adapter is active (CallListSupport for the file adapter, SQL for the SQLite adapter) - same delegation shape as CallsService.getCalls. */
     @Override
     public Optional<CapturedCallsPage> listCalls(String cycleId, CallsQuery query) {
         return metadataStore.findById(cycleId).map(cycle -> {
@@ -166,9 +166,8 @@ public class SessionCyclesService implements
             // CallsService.getCalls for why query.limit() must not be used here in that case.
             int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
-            CallListSupport.Page<CapturedCall> page = CallListSupport.apply(
-                    capturedCallsStore.findAllByCycle(cycleId), CapturedCall::call,
-                    query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
+            CallListSupport.Page<CapturedCall> page = capturedCallsStore.query(
+                    cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
             List<CapturedCallSummary> summaries = page.items().stream().map(CapturedCallSummary::of).toList();
             return new CapturedCallsPage(summaries, page.total());
         });
@@ -188,10 +187,7 @@ public class SessionCyclesService implements
         if (metadataStore.findById(cycleId).isEmpty()) {
             return Optional.empty();
         }
-        return capturedCallsStore.findAllByCycle(cycleId).stream()
-                .filter(captured -> callId.equals(captured.call().id()))
-                .findFirst()
-                .map(captured -> CallDetail.of(captured.call()));
+        return capturedCallsStore.findByCallId(cycleId, callId).map(captured -> CallDetail.of(captured.call()));
     }
 
     @Override

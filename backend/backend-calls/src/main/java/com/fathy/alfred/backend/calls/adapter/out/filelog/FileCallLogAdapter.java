@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.adapter.out.filelog;
 
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
+import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -19,6 +20,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -26,8 +28,10 @@ import java.util.UUID;
  * any file itself; this is the only place in the app that knows calls live in a flat file -
  * swapping to a different storage (Redis, MySQL, ...) later means writing a new CallLogPort
  * implementation with its own {@code havingValue}, not touching CallsService or anything
- * upstream of the port. {@code matchIfMissing = true} keeps this the default so existing
- * deployments (no {@code alfred.storage.calls.type} set) behave exactly as before.
+ * upstream of the port. SqliteCallLogAdapter is the default now (holding the whole log in memory
+ * doesn't scale) - set {@code alfred.storage.calls.type=file} to opt back into this adapter, e.g.
+ * for a small deployment where inspecting RECENT_CALLS.log with a text editor matters more than
+ * scale.
  *
  * <p><b>Reads are served from an in-memory cache rather than re-parsing the file.</b> Every
  * {@code GET /calls} used to re-read and re-Jackson-parse the whole file (up to
@@ -41,7 +45,7 @@ import java.util.UUID;
  * never static, so a fresh adapter pointed at an existing file always reads it first.
  */
 @Component
-@ConditionalOnProperty(prefix = "alfred.storage.calls", name = "type", havingValue = "file", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "alfred.storage.calls", name = "type", havingValue = "file")
 public class FileCallLogAdapter implements CallLogPort {
 
     private static final Logger log = LoggerFactory.getLogger(FileCallLogAdapter.class);
@@ -204,6 +208,17 @@ public class FileCallLogAdapter implements CallLogPort {
             invalidateCache();
             log.error("Failed to persist backfilled ids to {}: {}", recentCallsFile, e.getMessage());
         }
+    }
+
+    /** Filters/sorts/paginates over the full in-memory list - CallsService's old logic, moved down here unchanged so behavior is identical to before this adapter also had a query() method. */
+    @Override
+    public CallListSupport.Page<CallRecord> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
+        return CallListSupport.apply(readAll(), java.util.function.Function.identity(), search, supplier, sort, offset, limit, paginationEnabled);
+    }
+
+    @Override
+    public Optional<CallRecord> findById(String id) {
+        return readAll().stream().filter(call -> id.equals(call.id())).findFirst();
     }
 
     private static CallRecord withGeneratedId(CallRecord call) {

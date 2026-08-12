@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.sessioncycles.adapter.out.filestore;
 
+import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
@@ -22,6 +23,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -39,7 +41,7 @@ import java.util.UUID;
  * whole request/response bodies in every entry.
  */
 @Component
-@ConditionalOnProperty(prefix = "alfred.storage.session-cycles", name = "type", havingValue = "file", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "alfred.storage.session-cycles", name = "type", havingValue = "file")
 public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(JsonFileCapturedCallsStoreAdapter.class);
@@ -129,6 +131,17 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
             log.error("Failed to delete captured-calls file for cycle {}: {}", cycleId, e.getMessage());
             throw new UncheckedIOException(e);
         }
+    }
+
+    /** Filters/sorts/paginates over the full in-memory list for this cycle - SessionCyclesService's old logic, moved down here unchanged. */
+    @Override
+    public synchronized CallListSupport.Page<CapturedCall> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
+        return CallListSupport.apply(findAllByCycle(cycleId), CapturedCall::call, search, supplier, sort, offset, limit, paginationEnabled);
+    }
+
+    @Override
+    public synchronized Optional<CapturedCall> findByCallId(String cycleId, String callId) {
+        return findAllByCycle(cycleId).stream().filter(c -> callId.equals(c.call().id())).findFirst();
     }
 
     private Path fileFor(String cycleId) {

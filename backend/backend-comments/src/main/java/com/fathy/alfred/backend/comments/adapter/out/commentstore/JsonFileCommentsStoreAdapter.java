@@ -24,8 +24,8 @@ import java.util.List;
  * has no database anywhere else either, and comment volume is small (one team, ad-hoc
  * annotations). Swapping to Redis/MySQL/etc. later means writing a new CommentsStorePort
  * implementation with its own {@code havingValue} (e.g. "redis"), not touching CommentsService or
- * anything upstream of the port. {@code matchIfMissing = true} keeps this the default so existing
- * deployments (no {@code alfred.storage.comments.type} set) behave exactly as before.
+ * anything upstream of the port. SqliteCommentsStoreAdapter is the default now (see the migration
+ * plan); set {@code alfred.storage.comments.type=file} to opt back into this adapter.
  *
  * <p>Parsed contents are cached in memory and validated against the file's size/last-modified-time
  * on every read (same approach and rationale as FileCallLogAdapter). {@code GET /comments?callId=}
@@ -33,7 +33,7 @@ import java.util.List;
  * file.
  */
 @Component
-@ConditionalOnProperty(prefix = "alfred.storage.comments", name = "type", havingValue = "file", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "alfred.storage.comments", name = "type", havingValue = "file")
 public class JsonFileCommentsStoreAdapter implements CommentsStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(JsonFileCommentsStoreAdapter.class);

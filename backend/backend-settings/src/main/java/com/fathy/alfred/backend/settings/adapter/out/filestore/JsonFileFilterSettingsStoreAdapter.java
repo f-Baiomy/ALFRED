@@ -26,7 +26,7 @@ import java.nio.file.attribute.BasicFileAttributes;
  * unchanged.
  */
 @Component
-@ConditionalOnProperty(prefix = "alfred.storage.filter-settings", name = "type", havingValue = "file", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "alfred.storage.filter-settings", name = "type", havingValue = "file")
 public class JsonFileFilterSettingsStoreAdapter implements FilterSettingsStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(JsonFileFilterSettingsStoreAdapter.class);

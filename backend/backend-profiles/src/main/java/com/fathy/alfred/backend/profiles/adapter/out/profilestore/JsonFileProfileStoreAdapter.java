@@ -23,11 +23,11 @@ import java.util.Optional;
  * this app has no database anywhere else, and profile volume is small (one team's worth of
  * people). Swapping to Redis/MySQL/etc. later means writing a new ProfileStorePort implementation
  * with its own {@code havingValue} (e.g. "redis"), not touching ProfilesService or anything
- * upstream of the port. {@code matchIfMissing = true} keeps this the default so existing
- * deployments (no {@code alfred.storage.profiles.type} set) behave exactly as before.
+ * upstream of the port. SqliteProfileStoreAdapter is the default now (see the migration plan);
+ * set {@code alfred.storage.profiles.type=file} to opt back into this adapter.
  */
 @Component
-@ConditionalOnProperty(prefix = "alfred.storage.profiles", name = "type", havingValue = "file", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "alfred.storage.profiles", name = "type", havingValue = "file")
 public class JsonFileProfileStoreAdapter implements ProfileStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(JsonFileProfileStoreAdapter.class);

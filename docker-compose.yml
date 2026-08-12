@@ -50,17 +50,31 @@ services:
     environment:
       # Recent calls now live here, written by backend itself after each webhook call from
       # the proxy - not read from the proxy's filesystem at all anymore.
+      # RECENT_CALLS_FILE/COMMENTS_FILE/SESSION_CYCLES_FILE/SESSION_CYCLES_DIR/PROFILES_FILE/
+      # FILTER_SETTINGS_FILE are the legacy flat-file locations - each SQLite adapter checks these
+      # on startup and migrates any data found there into its *_DB_FILE below exactly once (see
+      # each slice's SqliteXxxMigration/migrateLegacyFileIfPresent), then renames the legacy file
+      # to *.migrated. Still set so that migration (and the type=file fallback) keeps working.
       - RECENT_CALLS_FILE=/appdata/RECENT_CALLS.log
-      # RECENT_CALLS.log is a ring buffer capped at this many calls - both the file's own
-      # trimming and the GET /calls?limit= clamp read this same value.
+      # RECENT_CALLS.log is a ring buffer capped at this many calls - only relevant if
+      # alfred.storage.calls.type is switched back to "file"; the SQLite adapter's retention is
+      # size-based instead (ALFRED_CALLS_MAX_SIZE_BYTES below).
       - RECENT_CALLS_MAX_LIMIT=200
       - COMMENTS_FILE=/appdata/comments.json
-      # Session-cycle metadata (one shared file) and per-cycle captured-call files (one per
-      # cycle, in this directory) - both inside the same /appdata volume as the two files above.
       - SESSION_CYCLES_FILE=/appdata/session-cycles/session-cycles.json
       - SESSION_CYCLES_DIR=/appdata/session-cycles
       - PROFILES_FILE=/appdata/profiles.json
       - FILTER_SETTINGS_FILE=/appdata/filter-settings.json
+      # SQLite database files - one per slice, the new default storage (see application.properties'
+      # alfred.storage.*.type=sqlite). All inside the same /appdata volume as the legacy files above.
+      - CALLS_DB_FILE=/appdata/calls.db
+      - SESSION_CYCLES_DB_FILE=/appdata/session-cycles.db
+      - PROFILES_DB_FILE=/appdata/profiles.db
+      - COMMENTS_DB_FILE=/appdata/comments.db
+      - FILTER_SETTINGS_DB_FILE=/appdata/settings.db
+      # Retention target for calls.db - once it exceeds this many bytes, the oldest calls are
+      # dropped until back under it. Default 100GB; override for a smaller/larger deployment.
+      - ALFRED_CALLS_MAX_SIZE_BYTES=107374182400
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
     volumes:
@@ -69,8 +83,11 @@ services:
       - proxy
     # Gives the JVM's -XX:MaxRAMPercentage (see backend/Dockerfile) a real ceiling to be a
     # percentage OF, instead of the whole host - without this, the container has no cgroup memory
-    # limit at all and the JVM sizes its heap off the host's total RAM.
-    mem_limit: 512m
+    # limit at all and the JVM sizes its heap off the host's total RAM. Raised from 512m: nothing
+    # loads a whole dataset into memory anymore (every adapter is SQLite-backed and paginated), but
+    # the JDBC driver/connection pools/WAL page cache across five databases need real headroom,
+    # and the one-time legacy-file migration still streams through memory once at startup.
+    mem_limit: 1g
     networks:
       - alfred-net
 

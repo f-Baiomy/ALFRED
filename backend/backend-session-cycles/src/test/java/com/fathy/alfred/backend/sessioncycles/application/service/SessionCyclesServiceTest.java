@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.sessioncycles.application.service;
 
+import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
@@ -183,10 +184,16 @@ class SessionCyclesServiceTest {
         verify(capturedCallsStore, never()).findAllByCycle(any());
     }
 
+    // Filtering/sorting/pagination itself now lives in whichever CapturedCallsStorePort adapter is
+    // active (CallListSupport for the file adapter, SQL for the SQLite adapter - see their own
+    // tests), so these stub query(...) directly rather than findAllByCycle - mirrors the same
+    // change made to CallsServiceTest.
+
     @Test
     void listCallsReturnsThePossiblyEmptyCapturedList() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(call("t1"))));
+        when(capturedCallsStore.query("c1", "", "", "oldest", 0, 10, true))
+                .thenReturn(new CallListSupport.Page<>(List.of(captured(call("t1"))), 1));
 
         var result = service.listCalls("c1", DEFAULT_QUERY);
 
@@ -196,11 +203,12 @@ class SessionCyclesServiceTest {
     }
 
     @Test
-    void listCallsSortsNewestFirstWhenAsked() {
+    void listCallsPassesTheSortModeThrough() {
         CapturedCall first = captured(call("t1"));
         CapturedCall second = captured(call("t2"));
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(first, second));
+        when(capturedCallsStore.query("c1", "", "", "newest", 0, 10, true))
+                .thenReturn(new CallListSupport.Page<>(List.of(second, first), 2));
 
         var result = service.listCalls("c1", new CallsQuery("", "", "newest", 0, 10));
 
@@ -209,7 +217,7 @@ class SessionCyclesServiceTest {
     }
 
     @Test
-    void disabledPaginationIgnoresOffsetAndReturnsEverythingUpToTheLimit() throws ReflectiveOperationException {
+    void disabledPaginationIgnoresTheRequestedLimitAndUsesMaxLimitInstead() throws ReflectiveOperationException {
         Field paginationEnabledField = SessionCyclesService.class.getDeclaredField("paginationEnabled");
         paginationEnabledField.setAccessible(true);
         paginationEnabledField.setBoolean(service, false);
@@ -217,7 +225,8 @@ class SessionCyclesServiceTest {
         CapturedCall first = captured(call("t1"));
         CapturedCall second = captured(call("t2"));
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(first, second));
+        when(capturedCallsStore.query("c1", "", "", "oldest", 1, 200, false))
+                .thenReturn(new CallListSupport.Page<>(List.of(first, second), 2));
 
         var result = service.listCalls("c1", new CallsQuery("", "", "oldest", 1, 10));
 
@@ -236,7 +245,7 @@ class SessionCyclesServiceTest {
     @Test
     void getDetailReturnsEmptyWhenTheCallIdDoesNotMatchAnyCapturedCall() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(call("t1"))));
+        when(capturedCallsStore.findByCallId("c1", "missing-id")).thenReturn(Optional.empty());
 
         assertThat(service.getDetail("c1", "missing-id")).isEmpty();
     }
@@ -246,7 +255,8 @@ class SessionCyclesServiceTest {
         CallRecord underlying = call("t1");
         CapturedCall captured = captured(underlying);
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured));
+        when(capturedCallsStore.findByCallId("c1", underlying.id())).thenReturn(Optional.of(captured));
+        when(capturedCallsStore.findByCallId("c1", captured.id())).thenReturn(Optional.empty());
 
         Optional<CallDetail> result = service.getDetail("c1", underlying.id());
 

@@ -31,7 +31,7 @@ import java.util.Optional;
  * cycles are RECORDING, and the Session Cycles page polls it every 5s.
  */
 @Component
-@ConditionalOnProperty(prefix = "alfred.storage.session-cycles", name = "type", havingValue = "file", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "alfred.storage.session-cycles", name = "type", havingValue = "file")
 public class JsonFileSessionCycleMetadataStoreAdapter implements SessionCycleMetadataStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(JsonFileSessionCycleMetadataStoreAdapter.class);

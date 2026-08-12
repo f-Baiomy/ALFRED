@@ -16,6 +16,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -72,78 +75,95 @@ class CallsServiceTest {
         }
     }
 
+    // Filtering/sorting/pagination itself now lives in whichever CallLogPort adapter is active
+    // (CallListSupport for the file adapter, SQL for the SQLite adapter - see their own tests);
+    // CallsService's job here is just clamping offset/limit and mapping the returned Page<CallRecord>
+    // to CallsPage<CallSummary>, so these tests stub port.query(...) directly rather than readAll().
+
     @Test
-    void returnsNewestFirst() {
+    void mapsThePortsPageOfCallRecordsToCallSummaries() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
+        when(port.query("", "", "newest", 0, 50, true))
+                .thenReturn(new CallListSupport.Page<>(List.of(call("c"), call("b")), 3));
         CallsService service = serviceWith(port);
 
         CallsPage result = service.getCalls(query(0, 50));
-
-        assertThat(result.calls()).extracting(CallSummary::url).containsExactly("c", "b", "a");
-        assertThat(result.total()).isEqualTo(3);
-    }
-
-    @Test
-    void limitsToTheRequestedCount() {
-        CallLogPort port = mock(CallLogPort.class);
-        when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
-        CallsService service = serviceWith(port);
-
-        CallsPage result = service.getCalls(query(0, 2));
 
         assertThat(result.calls()).extracting(CallSummary::url).containsExactly("c", "b");
         assertThat(result.total()).isEqualTo(3);
     }
 
     @Test
-    void offsetsPastAlreadyLoadedCalls() {
+    void passesOffsetAndLimitThroughUnchangedWhenWithinBounds() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
 
-        CallsPage result = service.getCalls(query(2, 2));
+        service.getCalls(query(2, 2));
 
-        assertThat(result.calls()).extracting(CallSummary::url).containsExactly("a");
-        assertThat(result.total()).isEqualTo(3);
+        verify(port).query("", "", "newest", 2, 2, true);
+    }
+
+    @Test
+    void clampsANegativeOffsetUpToZero() {
+        CallLogPort port = mock(CallLogPort.class);
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(new CallListSupport.Page<>(List.of(), 0));
+        CallsService service = serviceWith(port);
+
+        service.getCalls(query(-5, 2));
+
+        verify(port).query("", "", "newest", 0, 2, true);
     }
 
     @Test
     void clampsALimitBelowOneUpToOne() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.readAll()).thenReturn(List.of(call("a"), call("b")));
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
 
-        assertThat(service.getCalls(query(0, 0)).calls()).hasSize(1);
-        assertThat(service.getCalls(query(0, -5)).calls()).hasSize(1);
+        service.getCalls(query(0, 0));
+        service.getCalls(query(0, -5));
+
+        verify(port, org.mockito.Mockito.times(2)).query("", "", "newest", 0, 1, true);
     }
 
     @Test
     void clampsALimitAboveTheMaximum() {
         CallLogPort port = mock(CallLogPort.class);
-        List<CallRecord> many = java.util.stream.IntStream.range(0, TEST_MAX_LIMIT + 50)
-                .mapToObj(i -> call("call-" + i))
-                .toList();
-        when(port.readAll()).thenReturn(many);
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
 
-        CallsPage result = service.getCalls(query(0, TEST_MAX_LIMIT + 50));
+        service.getCalls(query(0, TEST_MAX_LIMIT + 50));
 
-        assertThat(result.calls()).hasSize(TEST_MAX_LIMIT);
-        assertThat(result.total()).isEqualTo(TEST_MAX_LIMIT + 50);
+        verify(port).query("", "", "newest", 0, TEST_MAX_LIMIT, true);
     }
 
     @Test
-    void disabledPaginationIgnoresOffsetAndReturnsEverythingUpToTheLimit() {
+    void disabledPaginationIgnoresTheRequestedLimitAndUsesMaxLimitInstead() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.readAll()).thenReturn(List.of(call("a"), call("b"), call("c")));
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
         setPaginationEnabled(service, false);
 
-        CallsPage result = service.getCalls(query(2, 50));
+        service.getCalls(query(2, 50));
 
-        assertThat(result.calls()).extracting(CallSummary::url).containsExactly("c", "b", "a");
-        assertThat(result.total()).isEqualTo(3);
+        verify(port).query("", "", "newest", 2, TEST_MAX_LIMIT, false);
+    }
+
+    @Test
+    void getDetailDelegatesToFindById() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallRecord found = call("https://example.com/api/x");
+        when(port.findById("id-https://example.com/api/x")).thenReturn(Optional.of(found));
+        CallsService service = serviceWith(port);
+
+        assertThat(service.getDetail("id-https://example.com/api/x")).isPresent();
+        assertThat(service.getDetail("missing")).isEmpty();
     }
 
     @Test
