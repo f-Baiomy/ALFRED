@@ -18,9 +18,11 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -102,6 +104,19 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
             writeAll(cycleId, all);
         }
         return removed;
+    }
+
+    @Override
+    public synchronized int removeByIds(String cycleId, List<String> callIds) {
+        Set<String> idSet = new HashSet<>(callIds);
+        List<CapturedCall> all = readAll(cycleId);
+        int before = all.size();
+        all.removeIf(c -> idSet.contains(c.id()));
+        int removedCount = before - all.size();
+        if (removedCount > 0) {
+            writeAll(cycleId, all);
+        }
+        return removedCount;
     }
 
     @Override

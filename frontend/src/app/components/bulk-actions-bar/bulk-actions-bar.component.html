@@ -13,6 +13,9 @@
       <button type="button" class="bulk-btn" [disabled]="duplicateLoading()" (click)="duplicateToCycles()">
         {{ duplicateLoading() ? 'Loading...' : 'Duplicate to cycles' }}
       </button>
+      @if (removalState) {
+        <button type="button" class="bulk-btn danger" (click)="removeSelected()">Remove selected</button>
+      }
       <app-action-menu label="Export">
         <button type="button" class="filter-option-item" [disabled]="mdLoading()" (click)="exportReport()">
           {{ mdLoading() ? 'Loading...' : 'Export report...' }}

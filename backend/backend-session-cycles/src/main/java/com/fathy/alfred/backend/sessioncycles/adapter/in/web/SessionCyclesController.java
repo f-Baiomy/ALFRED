@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CopyCallsRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CreateSessionCycleRequestDto;
+import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.RemoveCallsRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.UpdateSessionCycleRequestDto;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
@@ -14,12 +15,14 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCa
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
+import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleUpdate;
 import jakarta.validation.Valid;
@@ -51,6 +54,7 @@ public class SessionCyclesController {
     private final ListCapturedCallsUseCase listCapturedCallsUseCase;
     private final GetCapturedCallDetailUseCase getCapturedCallDetailUseCase;
     private final RemoveCapturedCallUseCase removeCapturedCallUseCase;
+    private final RemoveCapturedCallsUseCase removeCapturedCallsUseCase;
     private final CopyCallsToCycleUseCase copyCallsToCycleUseCase;
 
     public SessionCyclesController(
@@ -64,6 +68,7 @@ public class SessionCyclesController {
             ListCapturedCallsUseCase listCapturedCallsUseCase,
             GetCapturedCallDetailUseCase getCapturedCallDetailUseCase,
             RemoveCapturedCallUseCase removeCapturedCallUseCase,
+            RemoveCapturedCallsUseCase removeCapturedCallsUseCase,
             CopyCallsToCycleUseCase copyCallsToCycleUseCase
     ) {
         this.createSessionCycleUseCase = createSessionCycleUseCase;
@@ -76,6 +81,7 @@ public class SessionCyclesController {
         this.listCapturedCallsUseCase = listCapturedCallsUseCase;
         this.getCapturedCallDetailUseCase = getCapturedCallDetailUseCase;
         this.removeCapturedCallUseCase = removeCapturedCallUseCase;
+        this.removeCapturedCallsUseCase = removeCapturedCallsUseCase;
         this.copyCallsToCycleUseCase = copyCallsToCycleUseCase;
     }
 
@@ -155,6 +161,13 @@ public class SessionCyclesController {
     public ResponseEntity<Void> removeCall(@PathVariable String id, @PathVariable String callId) {
         boolean removed = removeCapturedCallUseCase.removeCall(id, callId);
         return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/{id}/calls/remove")
+    public ResponseEntity<RemoveCallsResult> removeCalls(@PathVariable String id, @Valid @RequestBody RemoveCallsRequestDto request) {
+        return removeCapturedCallsUseCase.removeCalls(id, request.callIds())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping("/{id}/calls/copy")

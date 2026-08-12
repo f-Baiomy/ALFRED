@@ -10,12 +10,14 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCa
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
+import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleUpdate;
@@ -66,6 +68,8 @@ class SessionCyclesControllerTest {
     private GetCapturedCallDetailUseCase getCapturedCallDetailUseCase;
     @MockBean
     private RemoveCapturedCallUseCase removeCapturedCallUseCase;
+    @MockBean
+    private RemoveCapturedCallsUseCase removeCapturedCallsUseCase;
     @MockBean
     private CopyCallsToCycleUseCase copyCallsToCycleUseCase;
 
@@ -221,6 +225,44 @@ class SessionCyclesControllerTest {
         when(removeCapturedCallUseCase.removeCall("c1", "missing")).thenReturn(false);
 
         mockMvc.perform(delete("/session-cycles/c1/calls/missing")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void removeCallsRejectsAnEmptyCallIdsList() throws Exception {
+        mockMvc.perform(post("/session-cycles/c1/calls/remove")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"callIds":[]}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void removeCallsReturnsNotFoundWhenTheCycleDoesNotExist() throws Exception {
+        when(removeCapturedCallsUseCase.removeCalls(eq("missing"), any())).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/session-cycles/missing/calls/remove")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"callIds":["call-1"]}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void removeCallsReturnsTheRemovedAndNotFoundCounts() throws Exception {
+        when(removeCapturedCallsUseCase.removeCalls(eq("c1"), any())).thenReturn(Optional.of(new RemoveCallsResult(2, 1)));
+
+        mockMvc.perform(post("/session-cycles/c1/calls/remove")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"callIds":["call-1","call-2","missing"]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.removed").value(2))
+                .andExpect(jsonPath("$.notFound").value(1));
+
+        verify(removeCapturedCallsUseCase).removeCalls(eq("c1"), eq(List.of("call-1", "call-2", "missing")));
     }
 
     @Test

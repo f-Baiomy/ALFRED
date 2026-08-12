@@ -21,6 +21,11 @@ export interface CopyCallsResult {
   readonly skipped: number;
 }
 
+export interface RemoveCallsResult {
+  readonly removed: number;
+  readonly notFound: number;
+}
+
 interface CapturedCallSummaryDto {
   readonly id: string;
   readonly capturedAt: string;
@@ -93,6 +98,11 @@ export class SessionCyclesApiService {
 
   removeCall(id: string, callId: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/calls/${callId}`);
+  }
+
+  /** Bulk counterpart to removeCall - one request instead of one DELETE per selected call. */
+  removeCalls(id: string, callIds: readonly string[]): Observable<RemoveCallsResult> {
+    return this.http.post<RemoveCallsResult>(`${this.baseUrl}/${id}/calls/remove`, { callIds });
   }
 
   /** {@code calls} must already be fully hydrated (request/response present) - copying stores the complete CallRecord, not a summary. Callers hydrate the selection first (see BulkActionsBarComponent.hydrateAll). */

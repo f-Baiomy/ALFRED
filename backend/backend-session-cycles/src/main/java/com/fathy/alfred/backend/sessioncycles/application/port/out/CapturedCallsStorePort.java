@@ -15,6 +15,9 @@ public interface CapturedCallsStorePort {
     /** @return true if a captured call with this id existed in this cycle and was removed. */
     boolean removeById(String cycleId, String callId);
 
+    /** @return how many of the given ids existed in this cycle and were removed - a single read+rewrite of the cycle's file, not one removeById call per id. */
+    int removeByIds(String cycleId, List<String> callIds);
+
     /** Deletes this cycle's entire captured-calls file - called when the cycle itself is deleted. */
     void deleteAllForCycle(String cycleId);
 }

@@ -91,6 +91,28 @@ class JsonFileCapturedCallsStoreAdapterTest {
     }
 
     @Test
+    void removeByIdsRemovesOnlyTheMatchingCallsAndCountsThem() throws Exception {
+        JsonFileCapturedCallsStoreAdapter adapter = adapterFor(tempDir);
+        CapturedCall first = adapter.append("cycle-1", call("GET"));
+        CapturedCall second = adapter.append("cycle-1", call("POST"));
+        adapter.append("cycle-1", call("DELETE"));
+
+        int removed = adapter.removeByIds("cycle-1", java.util.List.of(first.id(), second.id(), "missing"));
+
+        assertThat(removed).isEqualTo(2);
+        assertThat(adapter.findAllByCycle("cycle-1")).extracting(c -> c.call().method()).containsExactly("DELETE");
+    }
+
+    @Test
+    void removeByIdsReturnsZeroWhenNoneOfTheIdsMatch() throws Exception {
+        JsonFileCapturedCallsStoreAdapter adapter = adapterFor(tempDir);
+        adapter.append("cycle-1", call("GET"));
+
+        assertThat(adapter.removeByIds("cycle-1", java.util.List.of("missing-1", "missing-2"))).isEqualTo(0);
+        assertThat(adapter.findAllByCycle("cycle-1")).hasSize(1);
+    }
+
+    @Test
     void deleteAllForCycleDeletesTheFile() throws Exception {
         JsonFileCapturedCallsStoreAdapter adapter = adapterFor(tempDir);
         adapter.append("cycle-1", call("GET"));

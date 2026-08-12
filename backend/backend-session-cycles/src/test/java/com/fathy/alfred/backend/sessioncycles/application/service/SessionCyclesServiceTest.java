@@ -11,6 +11,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
+import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleUpdate;
@@ -261,6 +262,24 @@ class SessionCyclesServiceTest {
 
         assertThat(service.removeCall("c1", "call-1")).isTrue();
         verify(capturedCallsStore).removeById(eq("c1"), eq("call-1"));
+    }
+
+    @Test
+    void removeCallsReturnsEmptyWhenTheCycleDoesNotExist() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.removeCalls("missing", List.of("call-1"))).isEmpty();
+        verify(capturedCallsStore, never()).removeByIds(any(), any());
+    }
+
+    @Test
+    void removeCallsReturnsTheRemovedAndNotFoundCounts() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.removeByIds("c1", List.of("call-1", "call-2", "missing"))).thenReturn(2);
+
+        Optional<RemoveCallsResult> result = service.removeCalls("c1", List.of("call-1", "call-2", "missing"));
+
+        assertThat(result).contains(new RemoveCallsResult(2, 1));
     }
 
     private static CallRecord call(String timestamp) {

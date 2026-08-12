@@ -178,6 +178,23 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     this.api.removeCall(id, callId).subscribe(() => this.view.refresh());
   }
 
+  /** CallRemovalState - bulk counterpart to remove(), one request instead of one per call.
+   * Clears the selection along with refreshing, since every id just removed would otherwise
+   * stay "selected" against calls that no longer exist. */
+  removeMany(calls: readonly CallRecord[]): void {
+    const id = this.cycleId();
+    if (!id) return;
+    const callIds = calls
+      .map((call) => this.capturedByKey.get(callKey(call))?.id)
+      .filter((callId): callId is string => callId !== undefined);
+    if (callIds.length === 0) return;
+
+    this.api.removeCalls(id, callIds).subscribe(() => {
+      this.clearSelection();
+      this.view.refresh();
+    });
+  }
+
   refreshNow(): void {
     this.view.refresh();
   }

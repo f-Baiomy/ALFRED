@@ -3,11 +3,12 @@ import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
 import { CallRecord } from '../../core/models/call.model';
 import { Comment } from '../../core/models/comment.model';
-import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
+import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE } from '../../core/state/call-selection.tokens';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { CopyToCyclesDialogService } from '../../core/services/copy-to-cycles-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
+import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { buildBulkCurlScript, bulkCurlFilename } from '../../shared/utils/curl-builder';
 import { downloadText } from '../../shared/utils/download';
@@ -42,7 +43,10 @@ export class BulkActionsBarComponent {
   private readonly copyToCyclesDialog = inject(CopyToCyclesDialogService);
   private readonly commentsApi = inject(CommentsApiService);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
+  private readonly confirmDialog = inject(ConfirmDialogService);
   readonly state = inject(BULK_SELECTION_STATE);
+  /** Non-null only where something binds CALL_REMOVAL_STATE (a session-cycle detail view) - drives whether "Remove selected" renders at all, same optional-injection shape CallCardComponent uses for its own per-call "Remove". */
+  readonly removalState = inject(CALL_REMOVAL_STATE, { optional: true });
 
   readonly curlLoading = signal(false);
   readonly mdLoading = signal(false);
@@ -91,6 +95,17 @@ export class BulkActionsBarComponent {
       this.duplicateLoading.set(false);
       this.copyToCyclesDialog.open(calls);
     });
+  }
+
+  async removeSelected(): Promise<void> {
+    const selected = this.state.selectedCalls();
+    if (!this.removalState || selected.length === 0) return;
+    const confirmed = await this.confirmDialog.confirm(
+      `Remove ${selected.length} selected call${selected.length === 1 ? '' : 's'} from this cycle?`,
+      'Remove'
+    );
+    if (!confirmed) return;
+    this.removalState.removeMany(selected);
   }
 
   private openDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'json' | 'html'): void {

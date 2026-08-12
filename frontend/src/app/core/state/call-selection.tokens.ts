@@ -35,6 +35,8 @@ export const BULK_SELECTION_STATE = new InjectionToken<BulkSelectionState>('BULK
  */
 export interface CallRemovalState {
   remove(call: CallRecord): void;
+  /** Bulk counterpart to remove() - one request instead of one per call, for BulkActionsBarComponent's "Remove selected". */
+  removeMany(calls: readonly CallRecord[]): void;
 }
 
 export const CALL_REMOVAL_STATE = new InjectionToken<CallRemovalState>('CALL_REMOVAL_STATE');

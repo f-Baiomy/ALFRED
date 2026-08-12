@@ -13,6 +13,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCa
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
@@ -24,6 +25,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
+import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleUpdate;
@@ -50,6 +52,7 @@ public class SessionCyclesService implements
         ListCapturedCallsUseCase,
         GetCapturedCallDetailUseCase,
         RemoveCapturedCallUseCase,
+        RemoveCapturedCallsUseCase,
         CopyCallsToCycleUseCase {
 
     private final SessionCycleMetadataStorePort metadataStore;
@@ -194,6 +197,14 @@ public class SessionCyclesService implements
     @Override
     public boolean removeCall(String cycleId, String callId) {
         return capturedCallsStore.removeById(cycleId, callId);
+    }
+
+    @Override
+    public Optional<RemoveCallsResult> removeCalls(String cycleId, List<String> callIds) {
+        return metadataStore.findById(cycleId).map(cycle -> {
+            int removed = capturedCallsStore.removeByIds(cycleId, callIds);
+            return new RemoveCallsResult(removed, callIds.size() - removed);
+        });
     }
 
     /**
