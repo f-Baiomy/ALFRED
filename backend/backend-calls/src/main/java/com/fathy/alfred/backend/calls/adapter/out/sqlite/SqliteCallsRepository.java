@@ -22,6 +22,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -56,6 +60,7 @@ public class SqliteCallsRepository {
     private HikariDataSource dataSource;
     private JdbcTemplate jdbcTemplate;
     private volatile boolean ftsAvailable;
+    private BatchWriter<CallRecord> batchWriter;
 
     /** How often (in saves) to check the file size against maxSizeBytes - stat'ing the file on every single insert would itself be wasteful at high write volume. */
     private static final int SIZE_CHECK_EVERY_N_SAVES = 50;
@@ -74,13 +79,25 @@ public class SqliteCallsRepository {
 
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl("jdbc:sqlite:" + path);
-        config.setMaximumPoolSize(4);
+        config.setMaximumPoolSize(20);
         config.setPoolName("calls-sqlite-pool");
+        // journal_mode/synchronous/busy_timeout are per-CONNECTION settings in SQLite, not
+        // persisted in the database file - running them once via jdbcTemplate.execute() only
+        // applied to whichever single pooled connection happened to be grabbed at startup, so the
+        // rest of the pool kept SQLite's default busy_timeout=0 (fail immediately instead of
+        // waiting) and synchronous=FULL. That's what caused SQLITE_BUSY / "database is locked" to
+        // intermittently drop an incoming call whenever two webhook requests wrote at the same
+        // time. connectionInitSql runs on every physical connection Hikari opens, so all of them
+        // get the same settings - a 10s busy_timeout means a second concurrent writer waits for
+        // the first to finish instead of failing outright. Pool size 20 (not the original 4) gives
+        // concurrent GET /calls reads enough headroom that a burst of writes funneled through
+        // BatchWriter's single writer thread doesn't starve them of a pooled connection.
+        config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;");
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
 
-        jdbcTemplate.execute("PRAGMA journal_mode=WAL");
-        jdbcTemplate.execute("PRAGMA synchronous=NORMAL");
+        // auto_vacuum is a database-level (not per-connection) setting, persisted in the file
+        // itself - fine to set once here.
         jdbcTemplate.execute("PRAGMA auto_vacuum=INCREMENTAL");
 
         jdbcTemplate.execute("""
@@ -109,6 +126,12 @@ public class SqliteCallsRepository {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_duration ON calls(duration_ms)");
 
         initFts();
+
+        // Group-commit writer: exactly one thread ever opens a write transaction against
+        // calls.db, so concurrent webhook calls never contend for SQLite's single write lock with
+        // each other, and a burst that arrives while a commit is in flight gets folded into the
+        // next transaction instead of each paying for its own commit. See BatchWriter's own doc.
+        this.batchWriter = new BatchWriter<>("calls-sqlite-writer", dataSource, this::insertBatch);
     }
 
     /** FTS5 with the trigram tokenizer mirrors CallListSupport.matchesSearch's `.contains(query)` substring semantics far more closely than the default whole-token tokenizer. Falls back to a plain `LIKE` scan over the haystack column if this SQLite build lacks FTS5/trigram, rather than failing startup. */
@@ -144,6 +167,9 @@ public class SqliteCallsRepository {
 
     @PreDestroy
     public void close() {
+        if (batchWriter != null) {
+            batchWriter.close();
+        }
         if (dataSource != null) {
             try {
                 // Merges -wal/-shm back into the main file and drops them, rather than leaving
@@ -158,26 +184,56 @@ public class SqliteCallsRepository {
         }
     }
 
+    /** Blocks until the call is actually committed - see BatchWriter's class doc for why this is still synchronous (and safe under concurrency) despite writes now being batched. */
     public void save(CallRecord call) {
-        String haystack = buildHaystack(call);
-        Integer status = call.response() != null ? call.response().status() : null;
-        jdbcTemplate.update("""
-                        INSERT INTO calls (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
-                                           status, status_rank, supplier, error, request_headers, request_body,
-                                           response_headers, response_body, haystack)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), callTimeMillis(call),
-                call.durationMs(), status, statusRank(call), CallListSupport.supplierOf(call), call.error(),
-                toJson(call.request() != null ? call.request().headers() : null),
-                call.request() != null ? call.request().body() : null,
-                toJson(call.response() != null ? call.response().headers() : null),
-                call.response() != null ? call.response().body() : null,
-                haystack);
+        batchWriter.submit(call);
 
         if (++savesSinceLastSizeCheck >= SIZE_CHECK_EVERY_N_SAVES) {
             savesSinceLastSizeCheck = 0;
             enforceRetention();
+        }
+    }
+
+    private static final String INSERT_SQL = """
+            INSERT INTO calls (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
+                               status, status_rank, supplier, error, request_headers, request_body,
+                               response_headers, response_body, haystack)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """;
+
+    /** Runs on BatchWriter's single dedicated thread - executes every call in the batch as one JDBC batch, committed once by the caller. */
+    private void insertBatch(Connection connection, List<CallRecord> batch) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(INSERT_SQL)) {
+            for (CallRecord call : batch) {
+                String haystack = buildHaystack(call);
+                Integer status = call.response() != null ? call.response().status() : null;
+                ps.setString(1, call.id());
+                ps.setString(2, call.originalUrl());
+                ps.setString(3, call.url());
+                ps.setString(4, call.method());
+                ps.setString(5, call.timestamp());
+                ps.setLong(6, callTimeMillis(call));
+                if (call.durationMs() != null) {
+                    ps.setDouble(7, call.durationMs());
+                } else {
+                    ps.setNull(7, Types.DOUBLE);
+                }
+                if (status != null) {
+                    ps.setInt(8, status);
+                } else {
+                    ps.setNull(8, Types.INTEGER);
+                }
+                ps.setInt(9, statusRank(call));
+                ps.setString(10, CallListSupport.supplierOf(call));
+                ps.setString(11, call.error());
+                ps.setString(12, toJson(call.request() != null ? call.request().headers() : null));
+                ps.setString(13, call.request() != null ? call.request().body() : null);
+                ps.setString(14, toJson(call.response() != null ? call.response().headers() : null));
+                ps.setString(15, call.response() != null ? call.response().body() : null);
+                ps.setString(16, haystack);
+                ps.addBatch();
+            }
+            ps.executeBatch();
         }
     }
 
@@ -303,7 +359,17 @@ public class SqliteCallsRepository {
         }
     }
 
-    /** Mirrors CallListSupport.matchesSearch's haystack construction exactly, precomputed once at write time instead of on every search. */
+    /**
+     * Trigram-tokenizing the full haystack is O(text length) with a real constant factor -
+     * indexing a 300-600KB body synchronously on the webhook request thread measurably slows
+     * down every single incoming call. Capped so indexing cost stays bounded regardless of how
+     * large a response body gets; the full, untruncated body is still stored in response_body and
+     * used for detail view and the LIKE-based fallback search - only the FTS index itself is
+     * capped, so most real search terms (short strings near the start of headers/body) still hit.
+     */
+    private static final int MAX_HAYSTACK_LENGTH = 20_000;
+
+    /** Mirrors CallListSupport.matchesSearch's haystack construction (method/urls/status/headers/error/bodies, lowercased), truncated to MAX_HAYSTACK_LENGTH before indexing. */
     private static String buildHaystack(CallRecord call) {
         StringBuilder sb = new StringBuilder();
         append(sb, call.method());
@@ -323,7 +389,8 @@ public class SqliteCallsRepository {
             }
             append(sb, call.request().body());
         }
-        return sb.toString().toLowerCase(Locale.ROOT);
+        String haystack = sb.toString().toLowerCase(Locale.ROOT);
+        return haystack.length() > MAX_HAYSTACK_LENGTH ? haystack.substring(0, MAX_HAYSTACK_LENGTH) : haystack;
     }
 
     private static void append(StringBuilder sb, String value) {

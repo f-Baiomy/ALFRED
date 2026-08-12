@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 
+import com.fathy.alfred.backend.calls.adapter.out.sqlite.BatchWriter;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
@@ -25,6 +26,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -55,6 +60,10 @@ public class SqliteSessionCyclesRepository {
     private HikariDataSource dataSource;
     private JdbcTemplate jdbcTemplate;
     private volatile boolean ftsAvailable;
+    private BatchWriter<PendingCapturedCall> batchWriter;
+
+    /** cycleId travels alongside the CapturedCall since captured_calls' INSERT needs it bound too - BatchWriter is generic over one item type, so this pairs them for the batch. */
+    private record PendingCapturedCall(String cycleId, CapturedCall captured) {}
 
     @PostConstruct
     void init() {
@@ -69,13 +78,17 @@ public class SqliteSessionCyclesRepository {
 
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl("jdbc:sqlite:" + path);
-        config.setMaximumPoolSize(4);
+        config.setMaximumPoolSize(20);
         config.setPoolName("session-cycles-sqlite-pool");
+        // See SqliteCallsRepository's identical comment: journal_mode/synchronous/busy_timeout are
+        // per-connection in SQLite, so they must be applied via connectionInitSql (runs on every
+        // pooled connection) rather than a one-off jdbcTemplate.execute() - otherwise most of the
+        // pool keeps busy_timeout=0 and a concurrent write fails with SQLITE_BUSY instead of
+        // waiting, silently dropping a captured call.
+        config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;");
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
 
-        jdbcTemplate.execute("PRAGMA journal_mode=WAL");
-        jdbcTemplate.execute("PRAGMA synchronous=NORMAL");
         jdbcTemplate.execute("PRAGMA auto_vacuum=INCREMENTAL");
 
         jdbcTemplate.execute("""
@@ -115,6 +128,10 @@ public class SqliteSessionCyclesRepository {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_calls_timestamp ON captured_calls(cycle_id, timestamp_millis)");
 
         initFts();
+
+        // Group-commit writer for captured_calls - see SqliteCallsRepository's identical field for
+        // why this eliminates cross-request lock contention on session-cycles.db.
+        this.batchWriter = new BatchWriter<>("session-cycles-sqlite-writer", dataSource, this::insertBatch);
     }
 
     private void initFts() {
@@ -149,6 +166,9 @@ public class SqliteSessionCyclesRepository {
 
     @PreDestroy
     public void close() {
+        if (batchWriter != null) {
+            batchWriter.close();
+        }
         if (dataSource != null) {
             try {
                 jdbcTemplate.execute("PRAGMA wal_checkpoint(TRUNCATE)");
@@ -201,25 +221,59 @@ public class SqliteSessionCyclesRepository {
         return captured;
     }
 
+    /** Blocks until actually committed - see BatchWriter's class doc. */
     void insert(String cycleId, CapturedCall captured) {
-        CallRecord call = captured.call();
-        String haystack = buildHaystack(call);
-        Integer status = call.response() != null ? call.response().status() : null;
-        jdbcTemplate.update("""
-                        INSERT INTO captured_calls (id, cycle_id, captured_at, call_id, original_url, url, method,
-                                                     timestamp, timestamp_millis, duration_ms, status, status_rank,
-                                                     supplier, error, request_headers, request_body,
-                                                     response_headers, response_body, haystack)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                captured.id(), cycleId, captured.capturedAt(), call.id(), call.originalUrl(), call.url(), call.method(),
-                call.timestamp(), callTimeMillis(call), call.durationMs(), status, statusRank(call),
-                CallListSupport.supplierOf(call), call.error(),
-                toJson(call.request() != null ? call.request().headers() : null),
-                call.request() != null ? call.request().body() : null,
-                toJson(call.response() != null ? call.response().headers() : null),
-                call.response() != null ? call.response().body() : null,
-                haystack);
+        batchWriter.submit(new PendingCapturedCall(cycleId, captured));
+    }
+
+    private static final String INSERT_SQL = """
+            INSERT INTO captured_calls (id, cycle_id, captured_at, call_id, original_url, url, method,
+                                         timestamp, timestamp_millis, duration_ms, status, status_rank,
+                                         supplier, error, request_headers, request_body,
+                                         response_headers, response_body, haystack)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """;
+
+    /** Runs on BatchWriter's single dedicated thread - executes every pending captured call as one JDBC batch, committed once by the caller. */
+    private void insertBatch(Connection connection, List<PendingCapturedCall> batch) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(INSERT_SQL)) {
+            for (PendingCapturedCall pending : batch) {
+                String cycleId = pending.cycleId();
+                CapturedCall captured = pending.captured();
+                CallRecord call = captured.call();
+                String haystack = buildHaystack(call);
+                Integer status = call.response() != null ? call.response().status() : null;
+                ps.setString(1, captured.id());
+                ps.setString(2, cycleId);
+                ps.setString(3, captured.capturedAt());
+                ps.setString(4, call.id());
+                ps.setString(5, call.originalUrl());
+                ps.setString(6, call.url());
+                ps.setString(7, call.method());
+                ps.setString(8, call.timestamp());
+                ps.setLong(9, callTimeMillis(call));
+                if (call.durationMs() != null) {
+                    ps.setDouble(10, call.durationMs());
+                } else {
+                    ps.setNull(10, Types.DOUBLE);
+                }
+                if (status != null) {
+                    ps.setInt(11, status);
+                } else {
+                    ps.setNull(11, Types.INTEGER);
+                }
+                ps.setInt(12, statusRank(call));
+                ps.setString(13, CallListSupport.supplierOf(call));
+                ps.setString(14, call.error());
+                ps.setString(15, toJson(call.request() != null ? call.request().headers() : null));
+                ps.setString(16, call.request() != null ? call.request().body() : null);
+                ps.setString(17, toJson(call.response() != null ? call.response().headers() : null));
+                ps.setString(18, call.response() != null ? call.response().body() : null);
+                ps.setString(19, haystack);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
     }
 
     public boolean removeById(String cycleId, String capturedCallId) {
@@ -331,6 +385,9 @@ public class SqliteSessionCyclesRepository {
         }
     }
 
+    /** See SqliteCallsRepository.MAX_HAYSTACK_LENGTH's comment - caps FTS indexing cost for large captured-call bodies on the capture-fan-out hot path. */
+    private static final int MAX_HAYSTACK_LENGTH = 20_000;
+
     private static String buildHaystack(CallRecord call) {
         StringBuilder sb = new StringBuilder();
         append(sb, call.method());
@@ -350,7 +407,8 @@ public class SqliteSessionCyclesRepository {
             }
             append(sb, call.request().body());
         }
-        return sb.toString().toLowerCase(Locale.ROOT);
+        String haystack = sb.toString().toLowerCase(Locale.ROOT);
+        return haystack.length() > MAX_HAYSTACK_LENGTH ? haystack.substring(0, MAX_HAYSTACK_LENGTH) : haystack;
     }
 
     private static void append(StringBuilder sb, String value) {

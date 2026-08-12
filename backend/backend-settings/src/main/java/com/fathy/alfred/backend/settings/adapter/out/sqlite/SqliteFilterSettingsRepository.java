@@ -49,13 +49,15 @@ public class SqliteFilterSettingsRepository {
 
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl("jdbc:sqlite:" + path);
-        config.setMaximumPoolSize(4);
+        config.setMaximumPoolSize(10);
         config.setPoolName("settings-sqlite-pool");
+        // See SqliteCallsRepository's identical comment - connectionInitSql applies these to
+        // every pooled connection, not just one, which is what busy_timeout requires to actually
+        // prevent SQLITE_BUSY under concurrent writes.
+        config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;");
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
 
-        jdbcTemplate.execute("PRAGMA journal_mode=WAL");
-        jdbcTemplate.execute("PRAGMA synchronous=NORMAL");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS filter_mode (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS whitelist_rules (id TEXT PRIMARY KEY, host TEXT NOT NULL, enabled INTEGER NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS blacklist_rules (id TEXT PRIMARY KEY, host TEXT NOT NULL, enabled INTEGER NOT NULL)");

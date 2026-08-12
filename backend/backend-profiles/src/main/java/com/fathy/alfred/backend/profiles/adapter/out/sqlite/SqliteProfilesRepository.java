@@ -47,13 +47,16 @@ public class SqliteProfilesRepository {
 
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl("jdbc:sqlite:" + path);
-        config.setMaximumPoolSize(4);
+        config.setMaximumPoolSize(10);
         config.setPoolName("profiles-sqlite-pool");
+        // journal_mode/synchronous/busy_timeout are per-connection in SQLite - connectionInitSql
+        // applies them to every pooled connection Hikari opens, not just one (see
+        // SqliteCallsRepository's identical comment for why a one-off jdbcTemplate.execute() left
+        // most of the pool at busy_timeout=0, causing SQLITE_BUSY under concurrent writes).
+        config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;");
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
 
-        jdbcTemplate.execute("PRAGMA journal_mode=WAL");
-        jdbcTemplate.execute("PRAGMA synchronous=NORMAL");
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS profiles (
                   id TEXT PRIMARY KEY,

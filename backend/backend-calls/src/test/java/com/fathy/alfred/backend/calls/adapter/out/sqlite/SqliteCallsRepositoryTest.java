@@ -15,6 +15,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -169,7 +173,10 @@ class SqliteCallsRepositoryTest {
     @Test
     void searchMatchesInsideALargeResponseBody() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
-        String bigBody = "x".repeat(50_000) + "needle-in-haystack" + "y".repeat(50_000);
+        // Needle placed well before MAX_HAYSTACK_LENGTH (20,000) - the body itself is still huge
+        // (150KB, stored and returned in full via the response_body column) but the FTS index only
+        // covers a bounded prefix, so search must still find text within that prefix.
+        String bigBody = "x".repeat(5_000) + "needle-in-haystack" + "y".repeat(150_000);
         CallRecord withNeedle = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "GET",
                 null, "t", 1.0, new ResponseData(200, null, bigBody), null);
         repo.save(withNeedle);
@@ -178,6 +185,22 @@ class SqliteCallsRepositoryTest {
         var page = repo.query("needle-in-haystack", "", "newest", 0, 10, true);
 
         assertThat(page.items()).extracting(CallRecord::id).containsExactly(withNeedle.id());
+        assertThat(repo.findById(withNeedle.id())).get().extracting(c -> c.response().body()).isEqualTo(bigBody);
+    }
+
+    @Test
+    void searchDoesNotMatchTextBeyondTheHaystackTruncationCap() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String bigBody = "x".repeat(30_000) + "needle-too-far-in";
+        CallRecord withNeedle = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "GET",
+                null, "t", 1.0, new ResponseData(200, null, bigBody), null);
+        repo.save(withNeedle);
+
+        var page = repo.query("needle-too-far-in", "", "newest", 0, 10, true);
+
+        // Documents the deliberate trade-off: capping FTS indexing cost means a match past the
+        // cap isn't found by search - the full body is still available via GET /calls/{id}/detail.
+        assertThat(page.items()).isEmpty();
     }
 
     @Test
@@ -219,6 +242,34 @@ class SqliteCallsRepositoryTest {
 
         assertThat(page.items()).extracting(CallRecord::url).containsExactly("a", "b", "c", "d");
         assertThat(page.total()).isEqualTo(4);
+    }
+
+    @Test
+    void concurrentWritesFromManyThreadsAllSucceedWithoutBeingDropped() throws Exception {
+        // Regression test for the real bug this fixes: without busy_timeout applied to every
+        // pooled connection (not just one), a second thread writing while another holds the
+        // SQLite write lock got SQLITE_BUSY immediately instead of waiting - the exception
+        // propagated up through CallsService.receiveNewCall and the incoming call was silently
+        // dropped. All of these concurrent saves must succeed.
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        int threadCount = 16;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        try {
+            List<CallRecord> calls = IntStream.range(0, threadCount)
+                    .mapToObj(i -> call("https://concurrent.example.com/api/" + i, "t" + i, 1.0, 200, null))
+                    .toList();
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (CallRecord call : calls) {
+                futures.add(executor.submit(() -> repo.save(call)));
+            }
+            for (var future : futures) {
+                future.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            executor.shutdown();
+        }
+
+        assertThat(repo.readAll()).hasSize(threadCount);
     }
 
     @Test
