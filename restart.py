@@ -6,18 +6,19 @@ Runs "docker compose down" followed by "docker compose up -d --build" from
 this project's folder. Does NOT touch certificate trust - use start.py for
 that. Safe to run any time containers are running or stopped.
 
+Also runs wildfly-proxy-toggle's proxy-on step automatically (on either OS)
+- routes an already-running WildFly JVM's HTTPS traffic through the proxy
+via the Java Attach API, auto-detecting the running instance. Non-fatal if
+it fails (e.g. no WildFly running) - a convenience step, not required for
+the restart itself to succeed. See wildfly-proxy-toggle/README.md.
+
 Usage:
     python3 restart.py                 restart every service (proxy, backend, frontend)
     python3 restart.py backend      restart/rebuild just one service
     python3 restart.py frontend backend  restart/rebuild multiple named services
-    python3 restart.py --wildfly-proxy [on|off]   also toggle an already-running WildFly JVM's
-                                                   proxy via the Java Attach API - defaults to
-                                                   "on" if the on|off value is omitted;
-                                                   auto-detects the running WildFly instance,
-                                                   needs JAVA_HOME set to a JDK 8 install; see
-                                                   wildfly-proxy-toggle/README.md. Combinable
-                                                   with the above, e.g.:
-                                                 python3 restart.py backend --wildfly-proxy on
+    python3 restart.py --wildfly-proxy off   turn the WildFly proxy off instead of on -
+                                              combinable with the above, e.g.:
+                                              python3 restart.py backend --wildfly-proxy off
 """
 
 import os
@@ -82,12 +83,12 @@ def run(cmd):
 def _parse_args(argv):
     """Splits service names (positional) from the optional --wildfly-proxy [on|off] flag - a
     small hand-rolled parser rather than argparse, matching this script's existing plain
-    sys.argv[1:] handling for service names. The on|off value is itself optional - bare
-    "--wildfly-proxy" defaults to "on" - so a following token is only consumed as that value
-    when it's actually "on"/"off"; anything else (e.g. a service name) is left for the
-    positional branch below."""
+    sys.argv[1:] handling for service names. The WildFly proxy toggle now runs automatically as
+    a step on every restart - defaults to "on" even with no flag at all. A following token is
+    only consumed as the on|off value when it's actually "on"/"off"; anything else (e.g. a
+    service name) is left for the positional branch below."""
     services = []
-    wildfly_action = None
+    wildfly_action = "on"
     i = 0
     while i < len(argv):
         if argv[i] == "--wildfly-proxy":
@@ -109,7 +110,11 @@ def toggle_wildfly_proxy(action):
     itself via the Java Attach API, prompting interactively if more than one is found. Requires
     JAVA_HOME to point at a JDK 8 install (needs tools.jar) in the environment this script itself
     runs in; WILDFLY_PID/PROXY_HOST/PROXY_PORT are picked up the same way if set, since
-    subprocess.run inherits the environment automatically."""
+    subprocess.run inherits the environment automatically.
+
+    Deliberately non-fatal - this is a convenience step layered onto restart.py's main job of
+    getting the stack back up, not something that should block it (e.g. a machine with no
+    WildFly running at all shouldn't fail an otherwise-successful restart.py run)."""
     toggle_dir = os.path.join(SCRIPT_DIR, "wildfly-proxy-toggle")
     if platform.system() == "Windows":
         cmd = [os.path.join(toggle_dir, f"proxy-{action}.bat")]
@@ -119,7 +124,8 @@ def toggle_wildfly_proxy(action):
     print(f"$ {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=toggle_dir)
     if result.returncode != 0:
-        sys.exit(result.returncode)
+        print("WildFly proxy toggle failed (see above) - continuing anyway, since this is a")
+        print("convenience step, not required for the restart itself to succeed.")
 
 
 def main():
@@ -134,8 +140,9 @@ def main():
         run(["docker", "compose", "down"])
         run(["docker", "compose", "up", "-d", "--build"])
 
-    if wildfly_action:
-        toggle_wildfly_proxy(wildfly_action)
+    print()
+    print("=== Step: WildFly proxy ===")
+    toggle_wildfly_proxy(wildfly_action)
 
     print("Done.")
 

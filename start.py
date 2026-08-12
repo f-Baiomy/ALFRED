@@ -6,15 +6,16 @@ Detects the OS and runs the matching script (start.sh on Linux/macOS,
 start.ps1 on Windows), which runs "docker compose up -d" and syncs the
 proxy's CA cert into the OS/JDK trust stores.
 
+Also runs wildfly-proxy-toggle's proxy-on step automatically (on either OS)
+- routes an already-running WildFly JVM's HTTPS traffic through the proxy
+via the Java Attach API, auto-detecting the running instance. Non-fatal if
+it fails (e.g. no WildFly running) - a convenience step, not required for
+Alfred's own stack to be up. See wildfly-proxy-toggle/README.md.
+
 Usage (same command on any OS):
     python3 start.py       (Linux/macOS - will re-exec itself with sudo if needed)
     python start.py        (Windows - run from an Administrator terminal)
-    python3 start.py --wildfly-proxy [on|off]   (also toggle an already-running WildFly
-                                                  JVM's proxy via the Java Attach API - defaults
-                                                  to "on" if the on|off value is omitted;
-                                                  auto-detects the running WildFly instance,
-                                                  needs JAVA_HOME set to a JDK 8 install; see
-                                                  wildfly-proxy-toggle/README.md)
+    python3 start.py --wildfly-proxy off   (turn the WildFly proxy off instead of on)
 """
 
 import os
@@ -73,13 +74,11 @@ def ensure_backend_port():
 
 
 def _parse_wildfly_proxy_arg(args):
-    """Only argument this script accepts, so a strict token match is enough - anything else is
-    a usage error rather than something worth a full argparse setup for. The on|off value is
-    itself optional - bare "--wildfly-proxy" defaults to "on", matching common CLI convention
-    for a flag that also accepts an explicit value ("--verbose" implies true, "--verbose=false"
-    to disable)."""
+    """The WildFly proxy toggle now runs automatically as a step on every start - defaults to
+    "on" even with no flag at all. Pass --wildfly-proxy off to turn it off instead (e.g. once
+    you're done debugging); --wildfly-proxy [on] says so explicitly, same as the default."""
     if not args:
-        return None
+        return "on"
     if args[0] != "--wildfly-proxy":
         print("Usage: python3 start.py [--wildfly-proxy [on|off]]")
         sys.exit(1)
@@ -97,7 +96,11 @@ def toggle_wildfly_proxy(action):
     itself via the Java Attach API, prompting interactively if more than one is found. Requires
     JAVA_HOME to point at a JDK 8 install (needs tools.jar) in the environment this script itself
     runs in; WILDFLY_PID/PROXY_HOST/PROXY_PORT are picked up the same way if set, since
-    subprocess.run inherits the environment automatically."""
+    subprocess.run inherits the environment automatically.
+
+    Deliberately non-fatal - this is a convenience step layered onto start.py's main job of
+    bringing Alfred's own stack up, not something that should block it (e.g. a machine with no
+    WildFly running at all shouldn't fail an otherwise-successful start.py run)."""
     toggle_dir = os.path.join(SCRIPT_DIR, "wildfly-proxy-toggle")
     if platform.system() == "Windows":
         cmd = [os.path.join(toggle_dir, f"proxy-{action}.bat")]
@@ -107,7 +110,8 @@ def toggle_wildfly_proxy(action):
     print(f"$ {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=toggle_dir)
     if result.returncode != 0:
-        sys.exit(result.returncode)
+        print("WildFly proxy toggle failed (see above) - continuing anyway, since this is a")
+        print("convenience step, not required for Alfred's own stack to be up.")
 
 
 def main():
@@ -140,8 +144,9 @@ def main():
     if result.returncode != 0:
         sys.exit(result.returncode)
 
-    if wildfly_action:
-        toggle_wildfly_proxy(wildfly_action)
+    print()
+    print("=== Step: WildFly proxy ===")
+    toggle_wildfly_proxy(wildfly_action)
 
     sys.exit(0)
 
