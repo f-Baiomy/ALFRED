@@ -17,9 +17,15 @@ Usage:
     python3 restart.py                 restart every service (proxy, backend, frontend)
     python3 restart.py backend      restart/rebuild just one service
     python3 restart.py frontend backend  restart/rebuild multiple named services
+    python3 restart.py --wildfly-proxy on|off   also toggle an already-running WildFly JVM's
+                                                 proxy - see wildfly-proxy-toggle/README.md;
+                                                 requires WILDFLY_HOME set in the environment.
+                                                 Combinable with the above, e.g.:
+                                                 python3 restart.py backend --wildfly-proxy on
 """
 
 import os
+import platform
 import re
 import socket
 import subprocess
@@ -138,9 +144,47 @@ def warn_if_hosts_entries_are_stale():
         print()
 
 
+def _parse_args(argv):
+    """Splits service names (positional) from the optional --wildfly-proxy on|off flag - a
+    small hand-rolled parser rather than argparse, matching this script's existing plain
+    sys.argv[1:] handling for service names."""
+    services = []
+    wildfly_action = None
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--wildfly-proxy":
+            if i + 1 >= len(argv) or argv[i + 1] not in ("on", "off"):
+                print("--wildfly-proxy requires an argument: on or off")
+                sys.exit(1)
+            wildfly_action = argv[i + 1]
+            i += 2
+        else:
+            services.append(argv[i])
+            i += 1
+    return services, wildfly_action
+
+
+def toggle_wildfly_proxy(action):
+    """Invokes wildfly-proxy-toggle's proxy-on/proxy-off script for this OS (see its README) -
+    this is a thin wrapper, not a reimplementation: WILDFLY_HOME (and optional CONTROLLER/
+    PROXY_HOST/PROXY_PORT) must already be set in the environment this script itself runs in,
+    since subprocess.run inherits it automatically; the underlying script validates and reports
+    a clear error if it's missing rather than this wrapper duplicating that check."""
+    toggle_dir = os.path.join(SCRIPT_DIR, "wildfly-proxy-toggle")
+    if platform.system() == "Windows":
+        cmd = [os.path.join(toggle_dir, f"proxy-{action}.bat")]
+    else:
+        cmd = ["bash", os.path.join(toggle_dir, f"proxy-{action}.sh")]
+
+    print(f"$ {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=toggle_dir)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
 def main():
     ensure_backend_port()
-    services = sys.argv[1:]
+    services, wildfly_action = _parse_args(sys.argv[1:])
 
     if services:
         print(f"Restarting: {', '.join(services)}")
@@ -151,6 +195,10 @@ def main():
         run(["docker", "compose", "up", "-d", "--build"])
 
     warn_if_hosts_entries_are_stale()
+
+    if wildfly_action:
+        toggle_wildfly_proxy(wildfly_action)
+
     print("Done.")
 
 

@@ -9,6 +9,9 @@ and then runs "docker compose up -d".
 Usage (same command on any OS):
     python3 start.py       (Linux/macOS - will re-exec itself with sudo if needed)
     python start.py        (Windows - run from an Administrator terminal)
+    python3 start.py --wildfly-proxy on|off   (also toggle an already-running WildFly
+                                                JVM's proxy - see wildfly-proxy-toggle/README.md;
+                                                requires WILDFLY_HOME set in the environment)
 """
 
 import os
@@ -66,8 +69,38 @@ def ensure_backend_port():
     print(f"Port 5000 is already in use on this host - wrote .env with BACKEND_PORT={port}.")
 
 
+def _parse_wildfly_proxy_arg(args):
+    """Only argument this script accepts, so a strict two-token match is enough - anything else
+    is a usage error rather than something worth a full argparse setup for."""
+    if not args:
+        return None
+    if len(args) == 2 and args[0] == "--wildfly-proxy" and args[1] in ("on", "off"):
+        return args[1]
+    print("Usage: python3 start.py [--wildfly-proxy on|off]")
+    sys.exit(1)
+
+
+def toggle_wildfly_proxy(action):
+    """Invokes wildfly-proxy-toggle's proxy-on/proxy-off script for this OS (see its README) -
+    this is a thin wrapper, not a reimplementation: WILDFLY_HOME (and optional CONTROLLER/
+    PROXY_HOST/PROXY_PORT) must already be set in the environment this script itself runs in,
+    since subprocess.run inherits it automatically; the underlying script validates and reports
+    a clear error if it's missing rather than this wrapper duplicating that check."""
+    toggle_dir = os.path.join(SCRIPT_DIR, "wildfly-proxy-toggle")
+    if platform.system() == "Windows":
+        cmd = [os.path.join(toggle_dir, f"proxy-{action}.bat")]
+    else:
+        cmd = ["bash", os.path.join(toggle_dir, f"proxy-{action}.sh")]
+
+    print(f"$ {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=toggle_dir)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
 def main():
     ensure_backend_port()
+    wildfly_action = _parse_wildfly_proxy_arg(sys.argv[1:])
     system = platform.system()
 
     if system == "Windows":
@@ -77,7 +110,6 @@ def main():
         result = subprocess.run(
             ["powershell", "-ExecutionPolicy", "Bypass", "-File", script]
         )
-        sys.exit(result.returncode)
 
     elif system in ("Linux", "Darwin"):
         script = os.path.join(SCRIPT_DIR, "start.sh")
@@ -88,11 +120,18 @@ def main():
             result = subprocess.run(["sudo", "bash", script])
         else:
             result = subprocess.run(["bash", script])
-        sys.exit(result.returncode)
 
     else:
         print(f"Unsupported OS: {system}")
         sys.exit(1)
+
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+    if wildfly_action:
+        toggle_wildfly_proxy(wildfly_action)
+
+    sys.exit(0)
 
 
 if __name__ == "__main__":

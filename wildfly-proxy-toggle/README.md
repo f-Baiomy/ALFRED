@@ -34,6 +34,13 @@ export WILDFLY_HOME=/opt/wildfly
 
 Both scripts are idempotent - safe to run `proxy-on` twice in a row, or `proxy-off` when the proxy was never on.
 
+**Via `start.py`/`restart.py`** (repo root) instead of calling these directly - same environment variables apply:
+```bash
+python3 start.py --wildfly-proxy on
+python3 restart.py --wildfly-proxy off
+python3 restart.py backend --wildfly-proxy on   # combinable with restart.py's service-name args
+```
+
 ## Optional overrides (env vars)
 
 | Variable | Default | Meaning |
