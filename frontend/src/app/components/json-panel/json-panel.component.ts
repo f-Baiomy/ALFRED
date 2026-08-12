@@ -3,6 +3,7 @@ import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-v
 import { JsonTreeComponent } from '../json-tree/json-tree.component';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { HighlightToken, highlightTokens, prettyJsonText, tokenizeJsonText, tryParseJson } from '../../shared/utils/json-tokenizer';
+import { tokenizeXmlText, tryParseXml } from '../../shared/utils/xml-tokenizer';
 import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
 import { JsonViewMode } from '../../core/models/call.model';
 import { Comment, CommentBlock } from '../../core/models/comment.model';
@@ -10,7 +11,10 @@ import { CommentsStore } from '../../core/state/comments-store.service';
 import { PanelViewLauncherService } from '../../core/services/panel-view-launcher.service';
 import { copyToClipboard } from '../../shared/utils/clipboard';
 
-type ParsedValue = { hasJson: true; value: unknown } | { hasJson: false; plainText: string };
+type ParsedValue =
+  | { kind: 'json'; value: unknown }
+  | { kind: 'xml'; text: string }
+  | { kind: 'text'; plainText: string };
 
 /**
  * One Headers/Body block: owns its own search/filter/view-mode state.
@@ -54,26 +58,31 @@ export class JsonPanelComponent {
   readonly parsed = computed<ParsedValue>(() => {
     const value = this.rawValue();
     if (value !== null && value !== undefined && typeof value === 'object') {
-      return { hasJson: true, value };
+      return { kind: 'json', value };
     }
     if (typeof value === 'string' && value.length > 0) {
-      const result = tryParseJson(value);
-      return result.ok ? { hasJson: true, value: result.value } : { hasJson: false, plainText: value };
+      const asJson = tryParseJson(value);
+      if (asJson.ok) return { kind: 'json', value: asJson.value };
+      const asXml = tryParseXml(value);
+      if (asXml.ok) return { kind: 'xml', text: asXml.pretty };
+      return { kind: 'text', plainText: value };
     }
-    return { hasJson: false, plainText: '' };
+    return { kind: 'text', plainText: '' };
   });
 
-  readonly effectiveViewMode = computed<JsonViewMode>(() => (this.parsed().hasJson ? this.viewMode() : 'flat'));
+  readonly effectiveViewMode = computed<JsonViewMode>(() => (this.parsed().kind === 'json' ? this.viewMode() : 'flat'));
 
   /** Angular template expressions can't do TS type casts, so this exists purely to give the tree view an untyped value when we already know (via effectiveViewMode) that parsed() is the JSON branch. */
   readonly treeValue = computed<unknown>(() => {
     const p = this.parsed();
-    return p.hasJson ? p.value : undefined;
+    return p.kind === 'json' ? p.value : undefined;
   });
 
   private readonly baseText = computed(() => {
     const p = this.parsed();
-    return p.hasJson ? prettyJsonText(p.value) : p.plainText || '(empty)';
+    if (p.kind === 'json') return prettyJsonText(p.value);
+    if (p.kind === 'xml') return p.text;
+    return p.plainText || '(empty)';
   });
 
   // Every line of the full (unfiltered) text, highlighted, in original line
@@ -82,7 +91,8 @@ export class JsonPanelComponent {
   // never renumber them, or a comment would silently jump to the wrong line
   // the next time the filter is toggled off.
   private readonly allLines = computed<HighlightToken[][]>(() => {
-    const tokens = highlightTokens(tokenizeJsonText(this.baseText()), this.searchQuery()).tokens;
+    const tokenize = this.parsed().kind === 'xml' ? tokenizeXmlText : tokenizeJsonText;
+    const tokens = highlightTokens(tokenize(this.baseText()), this.searchQuery()).tokens;
     return splitTokensIntoLines(tokens);
   });
 

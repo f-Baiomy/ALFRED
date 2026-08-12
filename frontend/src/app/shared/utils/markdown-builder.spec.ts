@@ -51,6 +51,12 @@ describe('buildExportMarkdown', () => {
     expect(md).toContain('"Accept": "application/json"');
   });
 
+  it('pretty-prints XML bodies in an "xml" fenced code block', () => {
+    const call = makeCall({ request: { headers: {}, body: '<a><b>1</b></a>' } });
+    const md = buildExportMarkdown(call, makeForm());
+    expect(md).toContain('```xml\n<a>\n  <b>1</b>\n</a>\n```');
+  });
+
   it('never truncates the body, however large', () => {
     const bigArray = Array.from({ length: 500 }, (_, i) => ({ index: i, value: `item-${i}` }));
     const call = makeCall({ response: { status: 200, headers: {}, body: JSON.stringify(bigArray) } });

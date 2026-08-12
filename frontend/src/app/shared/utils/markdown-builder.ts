@@ -1,7 +1,7 @@
 import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
-import { tryParseJson } from './json-tokenizer';
+import { detectAndFormatBody } from './body-format';
 import { callKey, supplierOf, uriPath } from './call-utils';
 
 function metadataValue(value: string): string {
@@ -46,10 +46,10 @@ function collapsibleSection(label: string, fenced: string): string {
 }
 
 /**
- * Pretty-prints if the text is valid JSON, otherwise embeds it verbatim.
- * Deliberately never truncates or summarizes - this file gets handed to
- * another team to diagnose a bug, so partial data would be worse than no
- * export at all. The whole fenced block is wrapped in a collapsible
+ * Pretty-prints if the text is valid JSON or XML, otherwise embeds it
+ * verbatim. Deliberately never truncates or summarizes - this file gets
+ * handed to another team to diagnose a bug, so partial data would be worse
+ * than no export at all. The whole fenced block is wrapped in a collapsible
  * `<details>` so a large payload doesn't force the reader to scroll past it
  * to reach the next section.
  *
@@ -61,9 +61,7 @@ function collapsibleSection(label: string, fenced: string): string {
 function codeBlock(label: string, text: string | undefined, lineComments: readonly Comment[] = []): string {
   if (!text) return collapsibleSection(label, '```\n(empty)\n```');
 
-  const parsed = tryParseJson(text);
-  const lang = parsed.ok ? 'json' : '';
-  const body = parsed.ok ? JSON.stringify(parsed.value, null, 2) : text;
+  const { lang, body } = detectAndFormatBody(text);
 
   if (lineComments.length === 0) {
     return collapsibleSection(label, `\`\`\`${lang}\n${body}\n\`\`\``);

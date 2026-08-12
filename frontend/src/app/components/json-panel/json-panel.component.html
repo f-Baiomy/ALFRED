@@ -2,7 +2,7 @@
   <summary>{{ label() }}</summary>
   <div class="json-wrap">
     <div class="block-toolbar">
-      @if (parsed().hasJson) {
+      @if (parsed().kind === 'json') {
         <div class="block-view-tabs">
           <button
             type="button"
@@ -70,7 +70,7 @@
       } @else {
         <app-json-flat-view
           [lines]="displayLines()"
-          [variant]="parsed().hasJson ? 'json' : 'plain'"
+          [variant]="parsed().kind === 'text' ? 'plain' : 'json'"
           [activeMatchIndex]="activeMatchIndex()"
           [scrollId]="panelId()"
           [commentsByLine]="commentsByLine()"

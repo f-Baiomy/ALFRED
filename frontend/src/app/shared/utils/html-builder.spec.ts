@@ -90,6 +90,13 @@ describe('buildExportHtml', () => {
     expect(html).toContain('not json at all');
   });
 
+  it('pretty-prints XML bodies', () => {
+    const call = makeCall({ request: { headers: {}, body: '<a><b>1</b></a>' } });
+    const html = buildExportHtml(call, makeForm());
+    const blocksJson = html.slice(html.indexOf('var JSON_BLOCKS'), html.indexOf('function makeTokenRegex'));
+    expect(blocksJson).toContain('<a>\\n  <b>1<\\/b>\\n<\\/a>');
+  });
+
   it('renders every collapsible section closed, so opening the file shows a scannable page instead of everything expanded', () => {
     const html = buildExportHtml(makeCall(), makeForm());
     expect(html).not.toContain('<details open');

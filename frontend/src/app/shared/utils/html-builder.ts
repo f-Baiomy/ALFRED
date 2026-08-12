@@ -1,7 +1,7 @@
 import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
-import { tryParseJson } from './json-tokenizer';
+import { detectAndFormatBody } from './body-format';
 import { callKey, supplierOf, uriPath } from './call-utils';
 
 function escapeHtml(text: string): string {
@@ -55,11 +55,10 @@ function flaggedIssuesHtml(comments: readonly Comment[]): string {
   return `<div class="flagged"><h3>🚩 Flagged Issues (${comments.length})</h3>${notes.join('')}</div>`;
 }
 
-/** Pretty-prints if valid JSON, otherwise the raw text verbatim - same never-truncate rule every other export format follows. */
+/** Pretty-prints if the text is valid JSON or XML, otherwise the raw text verbatim - same never-truncate rule every other export format follows. */
 function prettyText(text: string | undefined): string {
   if (!text) return '(empty)';
-  const parsed = tryParseJson(text);
-  return parsed.ok ? JSON.stringify(parsed.value, null, 2) : text;
+  return detectAndFormatBody(text).body;
 }
 
 interface JsonBlockConfig {
