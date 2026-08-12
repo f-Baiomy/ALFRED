@@ -1,20 +1,15 @@
 """
-mitmproxy addon: dynamically routes ANY hostname ending in "-proxy" to its
-real backend (by stripping the "-proxy" suffix), and POSTs every finished
-request/response (url, method, headers, body, status, timing) to
-backend's webhook.
+mitmproxy addon: runs as a standard HTTP/HTTPS forward proxy, and POSTs
+every finished request/response (url, method, headers, body, status,
+timing) to backend's webhook.
 
-Works for unlimited suppliers with zero per-supplier configuration:
-  https://ndc-integration-stg-ne-3.azurewebsites.net-proxy/...
-    -> forwarded to https://ndc-integration-stg-ne-3.azurewebsites.net/...
-  https://another-supplier.com-proxy/...
-    -> forwarded to https://another-supplier.com/...
-
-Runs in mitmproxy's reverse mode (see docker-compose.yml), so your client
-(Java app) needs NO proxy configuration at all. Instead, each supplier's
-"-proxy" hostname is pointed at this container via a Windows hosts file
-entry, and this addon dynamically rewrites the destination per request
-based on whatever hostname the client actually connected to.
+Any HTTP/HTTPS-aware client that's been pointed at this proxy (e.g. via
+http.proxyHost/https.proxyHost JVM system properties) gets every call it
+makes logged automatically, for whatever real hostname it actually calls -
+mitmproxy's regular (forward) mode (see docker-compose.yml's mitmdump
+command) already resolves flow.request.host/pretty_url to the real
+destination from the client's CONNECT request (HTTPS) or absolute-URI
+(plain HTTP), so there's no hostname rewriting to do here.
 
 This addon does not persist anything itself - backend owns storage
 (RECENT_CALLS.log, written after a successful webhook call). That means
@@ -31,8 +26,6 @@ import urllib.request
 from datetime import datetime, timezone
 
 from mitmproxy import ctx
-
-SUFFIX = "-proxy"
 
 # Max characters to log per body. 0 (the default) means no truncation -
 # full request/response bodies are always logged in full. Override with
@@ -80,49 +73,10 @@ if WEBHOOK_URL:
 
 class RouteAndLog:
 
-    def server_connect(self, data):
-        """
-        This is the hook that actually controls where mitmproxy dials out to.
-        In reverse mode, changing flow.request.host in request() only affects
-        the logical HTTP layer (Host header, logging) - NOT the real TCP/TLS
-        connection target, which stays pinned to the static reverse-mode
-        placeholder unless we override it here.
-
-        We use the client's TLS SNI (the hostname it used to connect to us,
-        e.g. "ndc-supplier-integration.azurewebsites.net-proxy") since that's
-        known at connection time, before the HTTP request is even parsed.
-        """
-        sni = data.client.sni
-        if sni and sni.endswith(SUFFIX):
-            real_host = sni[: -len(SUFFIX)]
-            data.server.address = (real_host, 443)
-            # Without this, mitmproxy still sends the original "-proxy"
-            # hostname as SNI in its own outbound TLS handshake to the real
-            # backend, which fails certificate verification since the real
-            # cert is issued for the real hostname, not "...-proxy".
-            data.server.sni = real_host
-
     def request(self, flow):
-        # In reverse mode, flow.request.host starts out as the static
-        # placeholder target, NOT what the client actually asked for - so we
-        # read the real intended hostname from the client's TLS SNI instead
-        # (same source used in server_connect above).
-        sni = flow.client_conn.sni
-        original_host = sni if sni else flow.request.host
-
-        if original_host.endswith(SUFFIX):
-            real_host = original_host[: -len(SUFFIX)]
-
-            # Keep the HTTP-layer view (Host header, logging) consistent
-            # with the real backend. The actual connection target is
-            # handled separately in server_connect above.
-            flow.request.host = real_host
-            flow.request.port = 443
-            flow.request.headers["Host"] = real_host
-
         flow.metadata['start_time'] = time.time()
         flow.metadata['call_log'] = {
-            'original_url': f"{flow.request.scheme}://{original_host}{flow.request.path}",
+            'original_url': flow.request.pretty_url,
             'url': flow.request.pretty_url,
             'method': flow.request.method,
             'request': {
@@ -152,8 +106,8 @@ class RouteAndLog:
         # (flow_detail 0 = -q) instead of a separate toggle - `mitmdump -q`
         # (the default in docker-compose.yml) is silent end to end.
         if ctx.options.flow_detail > 0:
-            print(f"[{data['timestamp']}] {data['method']} {data['original_url']} "
-                  f"-> {data['url']} -> {data['response']['status']} ({duration_ms}ms)")
+            print(f"[{data['timestamp']}] {data['method']} {data['url']} "
+                  f"-> {data['response']['status']} ({duration_ms}ms)")
 
     def error(self, flow):
         if 'call_log' not in flow.metadata:

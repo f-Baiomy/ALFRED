@@ -1,15 +1,19 @@
 services:
 
-  # The mitmproxy interceptor - logs every supplier request/response
+  # The mitmproxy interceptor - a standard HTTP/HTTPS forward proxy. Any client that's been made
+  # proxy-aware (e.g. via http.proxyHost/https.proxyHost JVM system properties, injected into an
+  # already-running JVM or set normally) gets every call it makes logged, for whatever real
+  # hostname it actually calls - no hosts-file redirect or hostname convention needed on this
+  # end. See proxy/log_and_route.py for the logging/webhook side.
   proxy:
     image: mitmproxy/mitmproxy:latest
     container_name: proxy
     restart: unless-stopped
     ports:
-      # Bound to 127.0.0.2 (not .1) on 443 (the HTTPS default, so "-proxy" URLs never need an
-      # explicit port) so this doesn't conflict with anything already using 127.0.0.1:443 -
-      # 127.0.0.0/8 is entirely loopback, so any 127.x.x.x address behaves the same. hosts file
-      # entries for "-proxy" hostnames (written by start.ps1/start.sh) point here, not at .1.
+      # Bound to 127.0.0.2 (not .1) on 443 (the HTTPS default, so a client's https.proxyPort can
+      # just be 443) so this doesn't conflict with anything already using 127.0.0.1:443 (e.g. a
+      # locally-running app server) - 127.0.0.0/8 is entirely loopback, so any 127.x.x.x address
+      # behaves the same.
       - "127.0.0.2:443:8080"
     environment:
       # The proxy only calls the webhook now - backend owns persistence (RECENT_CALLS.log).
@@ -22,7 +26,7 @@ services:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
     working_dir: /home/mitmproxy
-    command: mitmdump -q -s log_and_route.py --mode reverse:https://placeholder.invalid -p 8080 --set upstream_cert=false --set connection_strategy=lazy
+    command: mitmdump -q -s log_and_route.py --mode regular -p 8080 --set connection_strategy=lazy
     # Guardrail, not a tuned limit - normal usage sits well under this (observed ~65MB); caps a
     # runaway connection/large-body burst from taking down the rest of the host.
     mem_limit: 256m
