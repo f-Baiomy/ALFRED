@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -92,7 +93,7 @@ public class SqliteCallLogAdapter implements CallLogPort {
     }
 
     @Override
-    public CallListSupport.Page<CallRecord> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
+    public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return repository.query(search, supplier, sort, offset, limit, paginationEnabled);
     }
 

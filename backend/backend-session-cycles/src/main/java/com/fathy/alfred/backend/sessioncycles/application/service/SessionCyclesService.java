@@ -166,10 +166,9 @@ public class SessionCyclesService implements
             // CallsService.getCalls for why query.limit() must not be used here in that case.
             int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
-            CallListSupport.Page<CapturedCall> page = capturedCallsStore.query(
+            CallListSupport.Page<CapturedCallSummary> page = capturedCallsStore.query(
                     cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
-            List<CapturedCallSummary> summaries = page.items().stream().map(CapturedCallSummary::of).toList();
-            return new CapturedCallsPage(summaries, page.total());
+            return new CapturedCallsPage(page.items(), page.total());
         });
     }
 

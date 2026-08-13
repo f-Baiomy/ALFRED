@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -133,10 +134,12 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
         }
     }
 
-    /** Filters/sorts/paginates over the full in-memory list for this cycle - SessionCyclesService's old logic, moved down here unchanged. */
+    /** Filters/sorts/paginates over the full in-memory list for this cycle - SessionCyclesService's old logic, moved down here unchanged - then maps to CapturedCallSummary as the final step, matching CapturedCallsStorePort's summary-only contract. */
     @Override
-    public synchronized CallListSupport.Page<CapturedCall> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
-        return CallListSupport.apply(findAllByCycle(cycleId), CapturedCall::call, search, supplier, sort, offset, limit, paginationEnabled);
+    public synchronized CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
+        CallListSupport.Page<CapturedCall> page = CallListSupport.apply(
+                findAllByCycle(cycleId), CapturedCall::call, search, supplier, sort, offset, limit, paginationEnabled);
+        return new CallListSupport.Page<>(page.items().stream().map(CapturedCallSummary::of).toList(), page.total());
     }
 
     @Override

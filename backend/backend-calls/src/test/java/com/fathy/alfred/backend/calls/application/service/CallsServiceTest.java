@@ -34,6 +34,10 @@ class CallsServiceTest {
         return new CallRecord("id-" + url, url, url, "GET", null, "t", 1.0, null, null);
     }
 
+    private static CallSummary summary(String url) {
+        return new CallSummary("id-" + url, url, url, "GET", "t", 1.0, null, null, null);
+    }
+
     private static CallsQuery query(int offset, int limit) {
         return new CallsQuery("", "", "newest", offset, limit);
     }
@@ -77,14 +81,15 @@ class CallsServiceTest {
 
     // Filtering/sorting/pagination itself now lives in whichever CallLogPort adapter is active
     // (CallListSupport for the file adapter, SQL for the SQLite adapter - see their own tests);
-    // CallsService's job here is just clamping offset/limit and mapping the returned Page<CallRecord>
-    // to CallsPage<CallSummary>, so these tests stub port.query(...) directly rather than readAll().
+    // CallsService's job here is just clamping offset/limit and passing the port's
+    // Page<CallSummary> straight through to CallsPage, so these tests stub port.query(...)
+    // directly rather than readAll().
 
     @Test
-    void mapsThePortsPageOfCallRecordsToCallSummaries() {
+    void passesThePortsPageOfCallSummariesThroughUnchanged() {
         CallLogPort port = mock(CallLogPort.class);
         when(port.query("", "", "newest", 0, 50, true))
-                .thenReturn(new CallListSupport.Page<>(List.of(call("c"), call("b")), 3));
+                .thenReturn(new CallListSupport.Page<>(List.of(summary("c"), summary("b")), 3));
         CallsService service = serviceWith(port);
 
         CallsPage result = service.getCalls(query(0, 50));

@@ -177,4 +177,69 @@ class SqliteSessionCyclesRepositoryTest {
 
         assertThat(page.items()).extracting(c -> c.call().id()).containsExactly(withNeedle.id());
     }
+
+    @Test
+    void querySummariesCarryThePrecomputedSupplierNameWithoutFetchingTheRequestBody() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new com.fathy.alfred.backend.calls.domain.model.RequestData(null, "{\"supplier\":\"FlyNas\"}"),
+                "t", 1.0, null, null);
+        repo.append("c1", call);
+
+        var page = repo.query("c1", "", "", "newest", 0, 10, true);
+
+        assertThat(page.items()).extracting(c -> c.call().supplierName()).containsExactly("FlyNas");
+    }
+
+    @Test
+    void aBodyWithNoSupplierFieldReadsBackAsNullNotAnEmptyString() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new com.fathy.alfred.backend.calls.domain.model.RequestData(null, "{\"no-supplier-here\":true}"),
+                "t", 1.0, null, null);
+        repo.append("c1", call);
+
+        var page = repo.query("c1", "", "", "newest", 0, 10, true);
+
+        assertThat(page.items()).extracting(c -> c.call().supplierName()).containsExactly((String) null);
+    }
+
+    @Test
+    void aCapturedCallWithNoSupplierFieldIsNeverRescannedByTheBackfillOnANewRepositoryInstance() throws Exception {
+        // See SqliteCallsRepositoryTest's identical regression test - "" (not SQL NULL) is what
+        // marks a row as already processed with no supplier field found.
+        Path dbFile = tempDir.resolve("session-cycles.db");
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new com.fathy.alfred.backend.calls.domain.model.RequestData(null, "{\"no-supplier-here\":true}"),
+                "t", 1.0, null, null);
+        repositoryFor(dbFile).append("c1", call);
+
+        repositoryFor(dbFile);
+
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement();
+             var rs = statement.executeQuery("SELECT COUNT(*) AS c FROM captured_calls WHERE supplier_name IS NULL AND request_body IS NOT NULL")) {
+            rs.next();
+            assertThat(rs.getInt("c")).isZero();
+        }
+    }
+
+    @Test
+    void backfillsSupplierNameForCapturedCallsWrittenBeforeTheColumnWasPopulated() throws Exception {
+        Path dbFile = tempDir.resolve("session-cycles.db");
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new com.fathy.alfred.backend.calls.domain.model.RequestData(null, "{\"supplier\":\"Galileo\"}"),
+                "t", 1.0, null, null);
+        SqliteSessionCyclesRepository firstInstance = repositoryFor(dbFile);
+        firstInstance.append("c1", call);
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            statement.execute("UPDATE captured_calls SET supplier_name = NULL");
+        }
+
+        SqliteSessionCyclesRepository secondInstance = repositoryFor(dbFile);
+
+        var page = secondInstance.query("c1", "", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(c -> c.call().supplierName()).containsExactly("Galileo");
+    }
 }

@@ -52,10 +52,9 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
         // same first N items forever, since offset is also ignored below.
         int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
-        CallListSupport.Page<CallRecord> page = callLogPort.query(
+        CallListSupport.Page<CallSummary> page = callLogPort.query(
                 query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
-        List<CallSummary> summaries = page.items().stream().map(CallSummary::of).toList();
-        return new CallsPage(summaries, page.total());
+        return new CallsPage(page.items(), page.total());
     }
 
     /** Delegates to the port - an indexed lookup for the SQLite adapter, a linear scan over the in-memory cache for the file adapter. */

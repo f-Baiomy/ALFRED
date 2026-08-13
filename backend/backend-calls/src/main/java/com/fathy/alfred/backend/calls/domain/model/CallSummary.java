@@ -42,11 +42,21 @@ public record CallSummary(
      */
     public static String supplierNameOf(CallRecord call) {
         RequestData request = call.request();
-        if (request == null || request.body() == null || request.body().isBlank()) {
+        return request == null ? null : supplierNameOfBody(request.body());
+    }
+
+    /**
+     * Same extraction as {@link #supplierNameOf}, taking just the request body string - lets a
+     * SQL-backed adapter precompute and store this at write time (in a dedicated column) so list
+     * queries can read it back directly instead of fetching the full request body just to derive
+     * it again on every read.
+     */
+    public static String supplierNameOfBody(String requestBody) {
+        if (requestBody == null || requestBody.isBlank()) {
             return null;
         }
         try {
-            JsonNode node = OBJECT_MAPPER.readTree(request.body());
+            JsonNode node = OBJECT_MAPPER.readTree(requestBody);
             JsonNode value = node.get("supplier");
             return (value == null || value.isNull()) ? null : value.asText();
         } catch (Exception e) {

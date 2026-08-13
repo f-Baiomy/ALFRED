@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -111,6 +112,7 @@ public class SqliteCallsRepository {
                   status INTEGER,
                   status_rank INTEGER,
                   supplier TEXT,
+                  supplier_name TEXT,
                   error TEXT,
                   request_headers TEXT,
                   request_body TEXT,
@@ -119,12 +121,14 @@ public class SqliteCallsRepository {
                   haystack TEXT
                 )
                 """);
+        addSupplierNameColumnIfMissing();
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_timestamp_millis ON calls(timestamp_millis)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_supplier ON calls(supplier)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_status_rank ON calls(status_rank)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_duration ON calls(duration_ms)");
 
         initFts();
+        backfillSupplierNameIfNeeded();
 
         // Group-commit writer: exactly one thread ever opens a write transaction against
         // calls.db, so concurrent webhook calls never contend for SQLite's single write lock with
@@ -166,6 +170,55 @@ public class SqliteCallsRepository {
         }
     }
 
+    /**
+     * {@code supplier_name} was added after calls.db was already in use in some deployments -
+     * {@code CREATE TABLE IF NOT EXISTS} is a no-op against an existing table, so the column has
+     * to be added explicitly via {@code ALTER TABLE} for those. SQLite has no
+     * {@code ADD COLUMN IF NOT EXISTS}, so check {@code PRAGMA table_info} first.
+     */
+    private void addSupplierNameColumnIfMissing() {
+        boolean alreadyPresent = jdbcTemplate.query("PRAGMA table_info(calls)",
+                        (rs, rowNum) -> rs.getString("name"))
+                .stream().anyMatch("supplier_name"::equals);
+        if (!alreadyPresent) {
+            jdbcTemplate.execute("ALTER TABLE calls ADD COLUMN supplier_name TEXT");
+        }
+    }
+
+    /**
+     * supplier_name is normally precomputed at write time (see bindCall) so list queries never
+     * need to touch request_body to get it - but rows written before this column existed have it
+     * NULL. One-time, streamed (not loaded all at once) backfill from each such row's already-
+     * stored request_body, so existing calls don't silently lose their supplier name in list view.
+     *
+     * <p>Every row this touches (and every row bindCall writes from now on) gets a definite,
+     * non-null value: the real supplier name, or {@code ""} if the body genuinely has none - never
+     * SQL NULL. That's what makes "already processed" distinguishable from "not yet processed": if
+     * a plain body-with-no-supplier-field row were left NULL, this backfill would re-select and
+     * re-process it (harmlessly, but pointlessly) on every single restart forever, since nothing
+     * would ever change its NULL-ness. {@code ""} round-trips back to {@code null} on read
+     * (see ROW_MAPPER/SUMMARY_ROW_MAPPER) so this is purely an internal storage detail - external
+     * behavior (CallSummary.supplierName() being null when there's no supplier) is unchanged.
+     */
+    private void backfillSupplierNameIfNeeded() {
+        Integer pending = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM calls WHERE supplier_name IS NULL AND request_body IS NOT NULL", Integer.class);
+        if (pending == null || pending == 0) {
+            return;
+        }
+        log.info("Backfilling supplier_name for {} existing call(s)", pending);
+        jdbcTemplate.query("SELECT id, request_body FROM calls WHERE supplier_name IS NULL AND request_body IS NOT NULL",
+                rs -> {
+                    String id = rs.getString("id");
+                    String supplierName = CallSummary.supplierNameOfBody(rs.getString("request_body"));
+                    jdbcTemplate.update("UPDATE calls SET supplier_name = ? WHERE id = ?", supplierName == null ? "" : supplierName, id);
+                });
+        // Rows with a NULL (not empty-body, genuinely absent) request_body never match the WHERE
+        // clause above and so are never touched - they're allowed to keep supplier_name NULL
+        // forever, since there's nothing to derive it from either way and no rescan risk (a NULL
+        // request_body can't newly appear on an existing row).
+    }
+
     @PreDestroy
     public void close() {
         if (batchWriter != null) {
@@ -197,9 +250,9 @@ public class SqliteCallsRepository {
 
     private static final String INSERT_SQL = """
             INSERT INTO calls (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
-                               status, status_rank, supplier, error, request_headers, request_body,
+                               status, status_rank, supplier, supplier_name, error, request_headers, request_body,
                                response_headers, response_body, haystack)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     /** Binds one call's columns onto BatchWriter's persistent, reused PreparedStatement - runs on its single dedicated thread. */
@@ -224,12 +277,18 @@ public class SqliteCallsRepository {
         }
         ps.setInt(9, statusRank(call));
         ps.setString(10, CallListSupport.supplierOf(call));
-        ps.setString(11, call.error());
-        ps.setString(12, toJson(call.request() != null ? call.request().headers() : null));
-        ps.setString(13, call.request() != null ? call.request().body() : null);
-        ps.setString(14, toJson(call.response() != null ? call.response().headers() : null));
-        ps.setString(15, call.response() != null ? call.response().body() : null);
-        ps.setString(16, haystack);
+        // Precomputed here (not derived from request_body on every read) so list/search queries
+        // can skip fetching request_body entirely - see query()'s SUMMARY_SQL. Stored as "" rather
+        // than SQL NULL when there's genuinely no supplier field - see backfillSupplierNameIfNeeded's
+        // doc for why NULL must mean "not yet processed", never "processed, no value".
+        String supplierName = CallSummary.supplierNameOf(call);
+        ps.setString(11, supplierName == null ? "" : supplierName);
+        ps.setString(12, call.error());
+        ps.setString(13, toJson(call.request() != null ? call.request().headers() : null));
+        ps.setString(14, call.request() != null ? call.request().body() : null);
+        ps.setString(15, toJson(call.response() != null ? call.response().headers() : null));
+        ps.setString(16, call.response() != null ? call.response().body() : null);
+        ps.setString(17, haystack);
     }
 
     /** Deletes the oldest rows (by the call's own timestamp) until the on-disk file is back under maxSizeBytes, then reclaims the freed pages - this is the actual "up to 100GB" mechanism. */
@@ -257,7 +316,18 @@ public class SqliteCallsRepository {
         }
     }
 
-    public CallListSupport.Page<CallRecord> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
+    /**
+     * List/search columns only - deliberately excludes request_headers/request_body/
+     * response_headers/response_body/haystack. Those are large TEXT values SQLite stores in
+     * overflow pages; selecting them here (as {@code SELECT calls.*} used to) forced every list
+     * page to pull every matching row's full bodies off disk only for CallsService to immediately
+     * discard them building CallSummary. Detail view (findById) still needs the full row and still
+     * selects everything.
+     */
+    private static final String SUMMARY_SQL =
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name FROM ";
+
+    public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         String supplierFilter = supplier == null ? "" : supplier.trim();
 
@@ -289,9 +359,9 @@ public class SqliteCallsRepository {
         pageParams.add(effectiveLimit);
         pageParams.add(effectiveOffset);
 
-        List<CallRecord> items = jdbcTemplate.query(
-                "SELECT calls.* FROM " + fromClause + where + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?",
-                ROW_MAPPER, pageParams.toArray());
+        List<CallSummary> items = jdbcTemplate.query(
+                SUMMARY_SQL + fromClause + where + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?",
+                SUMMARY_ROW_MAPPER, pageParams.toArray());
 
         return new CallListSupport.Page<>(items, total);
     }
@@ -440,6 +510,29 @@ public class SqliteCallsRepository {
                 response,
                 rs.getString("error"));
     };
+
+    private static final RowMapper<CallSummary> SUMMARY_ROW_MAPPER = (rs, rowNum) -> {
+        Object statusObj = rs.getObject("status");
+        Integer status = statusObj == null ? null : rs.getInt("status");
+        Object durationObj = rs.getObject("duration_ms");
+        Double durationMs = durationObj == null ? null : rs.getDouble("duration_ms");
+
+        return new CallSummary(
+                rs.getString("id"),
+                rs.getString("original_url"),
+                rs.getString("url"),
+                rs.getString("method"),
+                rs.getString("timestamp"),
+                durationMs,
+                status,
+                rs.getString("error"),
+                nullIfEmpty(rs.getString("supplier_name")));
+    };
+
+    /** Undoes the ""-instead-of-NULL storage trick from bindCall/backfillSupplierNameIfNeeded - external behavior stays "null when there's no supplier name", exactly as CallSummary.of() always returned. */
+    private static String nullIfEmpty(String value) {
+        return (value == null || value.isEmpty()) ? null : value;
+    }
 
     /** Used only by the startup migrator so it never has to know a legacy line without an id needs one generated - same rule FileCallLogAdapter applies while it's still the active adapter. */
     public static CallRecord withGeneratedIdIfMissing(CallRecord call) {

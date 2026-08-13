@@ -193,7 +193,7 @@ class SessionCyclesServiceTest {
     void listCallsReturnsThePossiblyEmptyCapturedList() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedCallsStore.query("c1", "", "", "oldest", 0, 10, true))
-                .thenReturn(new CallListSupport.Page<>(List.of(captured(call("t1"))), 1));
+                .thenReturn(new CallListSupport.Page<>(List.of(CapturedCallSummary.of(captured(call("t1")))), 1));
 
         var result = service.listCalls("c1", DEFAULT_QUERY);
 
@@ -208,7 +208,7 @@ class SessionCyclesServiceTest {
         CapturedCall second = captured(call("t2"));
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedCallsStore.query("c1", "", "", "newest", 0, 10, true))
-                .thenReturn(new CallListSupport.Page<>(List.of(second, first), 2));
+                .thenReturn(new CallListSupport.Page<>(List.of(CapturedCallSummary.of(second), CapturedCallSummary.of(first)), 2));
 
         var result = service.listCalls("c1", new CallsQuery("", "", "newest", 0, 10));
 
@@ -226,7 +226,7 @@ class SessionCyclesServiceTest {
         CapturedCall second = captured(call("t2"));
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedCallsStore.query("c1", "", "", "oldest", 1, 200, false))
-                .thenReturn(new CallListSupport.Page<>(List.of(first, second), 2));
+                .thenReturn(new CallListSupport.Page<>(List.of(CapturedCallSummary.of(first), CapturedCallSummary.of(second)), 2));
 
         var result = service.listCalls("c1", new CallsQuery("", "", "oldest", 1, 10));
 

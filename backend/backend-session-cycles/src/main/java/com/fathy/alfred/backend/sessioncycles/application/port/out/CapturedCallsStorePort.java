@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.sessioncycles.application.port.out;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 
 import java.util.List;
 import java.util.Optional;
@@ -23,8 +24,13 @@ public interface CapturedCallsStorePort {
     /** Deletes this cycle's entire captured-calls file - called when the cycle itself is deleted. */
     void deleteAllForCycle(String cycleId);
 
-    /** Filtered/searched/sorted/paginated captured calls for one cycle - same contract as CallLogPort.query, so every adapter behaves identically from SessionCyclesService's point of view. */
-    CallListSupport.Page<CapturedCall> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled);
+    /**
+     * Filtered/searched/sorted/paginated captured call summaries for one cycle - returns
+     * {@link CapturedCallSummary} (not the full {@link CapturedCall}) for the same reason
+     * CallLogPort.query returns CallSummary: list views never need request/response bodies, so a
+     * SQL-backed adapter can skip fetching those large columns entirely.
+     */
+    CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled);
 
     /** Looks up a captured call by the underlying CallRecord's id (not the CapturedCall wrapper's own id) - what GET /session-cycles/{id}/calls/{callId}/detail keys on. */
     Optional<CapturedCall> findByCallId(String cycleId, String callId);

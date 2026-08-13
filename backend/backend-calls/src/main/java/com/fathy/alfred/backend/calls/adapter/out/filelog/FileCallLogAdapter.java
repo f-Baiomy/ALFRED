@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.adapter.out.filelog;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -210,10 +211,12 @@ public class FileCallLogAdapter implements CallLogPort {
         }
     }
 
-    /** Filters/sorts/paginates over the full in-memory list - CallsService's old logic, moved down here unchanged so behavior is identical to before this adapter also had a query() method. */
+    /** Filters/sorts/paginates over the full in-memory list - CallsService's old logic, moved down here unchanged so behavior is identical to before this adapter also had a query() method - then maps to CallSummary as the final step, matching CallLogPort's summary-only contract. */
     @Override
-    public CallListSupport.Page<CallRecord> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
-        return CallListSupport.apply(readAll(), java.util.function.Function.identity(), search, supplier, sort, offset, limit, paginationEnabled);
+    public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
+        CallListSupport.Page<CallRecord> page = CallListSupport.apply(
+                readAll(), java.util.function.Function.identity(), search, supplier, sort, offset, limit, paginationEnabled);
+        return new CallListSupport.Page<>(page.items().stream().map(CallSummary::of).toList(), page.total());
     }
 
     @Override

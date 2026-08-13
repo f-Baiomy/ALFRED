@@ -3,9 +3,11 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 import com.fathy.alfred.backend.calls.adapter.out.sqlite.BatchWriter;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -115,6 +117,7 @@ public class SqliteSessionCyclesRepository {
                   status INTEGER,
                   status_rank INTEGER,
                   supplier TEXT,
+                  supplier_name TEXT,
                   error TEXT,
                   request_headers TEXT,
                   request_body TEXT,
@@ -123,14 +126,47 @@ public class SqliteSessionCyclesRepository {
                   haystack TEXT
                 )
                 """);
+        addSupplierNameColumnIfMissing();
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_calls_cycle ON captured_calls(cycle_id)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_calls_timestamp ON captured_calls(cycle_id, timestamp_millis)");
 
         initFts();
+        backfillSupplierNameIfNeeded();
 
         // Group-commit writer for captured_calls - see SqliteCallsRepository's identical field for
         // why this eliminates cross-request lock contention on session-cycles.db.
         this.batchWriter = new BatchWriter<>("session-cycles-sqlite-writer", dataSource, INSERT_SQL, this::bindCapturedCall, 1000);
+    }
+
+    /** See SqliteCallsRepository's identical method - captured_calls.supplier_name was added after some deployments already had data. */
+    private void addSupplierNameColumnIfMissing() {
+        boolean alreadyPresent = jdbcTemplate.query("PRAGMA table_info(captured_calls)",
+                        (rs, rowNum) -> rs.getString("name"))
+                .stream().anyMatch("supplier_name"::equals);
+        if (!alreadyPresent) {
+            jdbcTemplate.execute("ALTER TABLE captured_calls ADD COLUMN supplier_name TEXT");
+        }
+    }
+
+    /**
+     * See SqliteCallsRepository's identical method (and its doc for why NULL vs "" matters) -
+     * one-time backfill for rows captured before supplier_name was populated. Every row touched
+     * here (and every row bindCapturedCall writes from now on) gets "" instead of NULL when there's
+     * genuinely no supplier field, so it's never re-selected as "still pending" on a later restart.
+     */
+    private void backfillSupplierNameIfNeeded() {
+        Integer pending = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM captured_calls WHERE supplier_name IS NULL AND request_body IS NOT NULL", Integer.class);
+        if (pending == null || pending == 0) {
+            return;
+        }
+        log.info("Backfilling supplier_name for {} existing captured call(s)", pending);
+        jdbcTemplate.query("SELECT id, request_body FROM captured_calls WHERE supplier_name IS NULL AND request_body IS NOT NULL",
+                rs -> {
+                    String id = rs.getString("id");
+                    String supplierName = CallSummary.supplierNameOfBody(rs.getString("request_body"));
+                    jdbcTemplate.update("UPDATE captured_calls SET supplier_name = ? WHERE id = ?", supplierName == null ? "" : supplierName, id);
+                });
     }
 
     private void initFts() {
@@ -228,9 +264,9 @@ public class SqliteSessionCyclesRepository {
     private static final String INSERT_SQL = """
             INSERT INTO captured_calls (id, cycle_id, captured_at, call_id, original_url, url, method,
                                          timestamp, timestamp_millis, duration_ms, status, status_rank,
-                                         supplier, error, request_headers, request_body,
+                                         supplier, supplier_name, error, request_headers, request_body,
                                          response_headers, response_body, haystack)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     /** Binds one pending captured call's columns onto BatchWriter's persistent, reused PreparedStatement - runs on its single dedicated thread. */
@@ -261,12 +297,17 @@ public class SqliteSessionCyclesRepository {
         }
         ps.setInt(12, statusRank(call));
         ps.setString(13, CallListSupport.supplierOf(call));
-        ps.setString(14, call.error());
-        ps.setString(15, toJson(call.request() != null ? call.request().headers() : null));
-        ps.setString(16, call.request() != null ? call.request().body() : null);
-        ps.setString(17, toJson(call.response() != null ? call.response().headers() : null));
-        ps.setString(18, call.response() != null ? call.response().body() : null);
-        ps.setString(19, haystack);
+        // Precomputed here (not derived from request_body on every read) so list/search queries
+        // can skip fetching request_body entirely - see query()'s SUMMARY_SQL. Stored as "" rather
+        // than SQL NULL when there's genuinely no supplier field - see backfillSupplierNameIfNeeded.
+        String supplierName = CallSummary.supplierNameOf(call);
+        ps.setString(14, supplierName == null ? "" : supplierName);
+        ps.setString(15, call.error());
+        ps.setString(16, toJson(call.request() != null ? call.request().headers() : null));
+        ps.setString(17, call.request() != null ? call.request().body() : null);
+        ps.setString(18, toJson(call.response() != null ? call.response().headers() : null));
+        ps.setString(19, call.response() != null ? call.response().body() : null);
+        ps.setString(20, haystack);
     }
 
     public boolean removeById(String cycleId, String capturedCallId) {
@@ -298,7 +339,11 @@ public class SqliteSessionCyclesRepository {
         return result != null && result > 0;
     }
 
-    public CallListSupport.Page<CapturedCall> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
+    /** See SqliteCallsRepository.SUMMARY_SQL's identical comment - list/search views never need request/response bodies. */
+    private static final String SUMMARY_SQL =
+            "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name FROM ";
+
+    public CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         String supplierFilter = supplier == null ? "" : supplier.trim();
 
@@ -330,9 +375,9 @@ public class SqliteSessionCyclesRepository {
         pageParams.add(effectiveLimit);
         pageParams.add(effectiveOffset);
 
-        List<CapturedCall> items = jdbcTemplate.query(
-                "SELECT captured_calls.* FROM " + fromClause + where + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?",
-                CAPTURED_ROW_MAPPER, pageParams.toArray());
+        List<CapturedCallSummary> items = jdbcTemplate.query(
+                SUMMARY_SQL + fromClause + where + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?",
+                SUMMARY_ROW_MAPPER, pageParams.toArray());
 
         return new CallListSupport.Page<>(items, total);
     }
@@ -455,6 +500,31 @@ public class SqliteSessionCyclesRepository {
 
         return new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
     };
+
+    private static final RowMapper<CapturedCallSummary> SUMMARY_ROW_MAPPER = (rs, rowNum) -> {
+        Object statusObj = rs.getObject("status");
+        Integer status = statusObj == null ? null : rs.getInt("status");
+        Object durationObj = rs.getObject("duration_ms");
+        Double durationMs = durationObj == null ? null : rs.getDouble("duration_ms");
+
+        CallSummary callSummary = new CallSummary(
+                rs.getString("call_id"),
+                rs.getString("original_url"),
+                rs.getString("url"),
+                rs.getString("method"),
+                rs.getString("timestamp"),
+                durationMs,
+                status,
+                rs.getString("error"),
+                nullIfEmpty(rs.getString("supplier_name")));
+
+        return new CapturedCallSummary(rs.getString("id"), rs.getString("captured_at"), callSummary);
+    };
+
+    /** See SqliteCallsRepository's identical method - undoes the ""-instead-of-NULL storage trick so external behavior is unchanged. */
+    private static String nullIfEmpty(String value) {
+        return (value == null || value.isEmpty()) ? null : value;
+    }
 
     /** Used only by the startup migrator, mirroring FileCallLogAdapter/JsonFileCapturedCallsStoreAdapter's own id-backfill rule. */
     public static CallRecord withGeneratedIdIfMissing(CallRecord call) {

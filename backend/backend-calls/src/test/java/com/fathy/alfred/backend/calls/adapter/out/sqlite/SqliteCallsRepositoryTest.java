@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import org.junit.jupiter.api.AfterEach;
@@ -106,7 +107,7 @@ class SqliteCallsRepositoryTest {
 
         var page = repo.query("", "", "oldest", 0, 10, true);
 
-        assertThat(page.items()).extracting(CallRecord::url).containsExactly("a", "b");
+        assertThat(page.items()).extracting(CallSummary::url).containsExactly("a", "b");
     }
 
     @Test
@@ -117,7 +118,7 @@ class SqliteCallsRepositoryTest {
 
         var page = repo.query("", "", "newest", 0, 10, true);
 
-        assertThat(page.items()).extracting(CallRecord::url).containsExactly("b", "a");
+        assertThat(page.items()).extracting(CallSummary::url).containsExactly("b", "a");
     }
 
     @Test
@@ -128,10 +129,10 @@ class SqliteCallsRepositoryTest {
         repo.save(call("unparseable", "not-a-date", 1.0, 200, null));
 
         var oldest = repo.query("", "", "oldest-call", 0, 10, true);
-        assertThat(oldest.items()).extracting(CallRecord::url).containsExactly("unparseable", "early", "late");
+        assertThat(oldest.items()).extracting(CallSummary::url).containsExactly("unparseable", "early", "late");
 
         var newest = repo.query("", "", "newest-call", 0, 10, true);
-        assertThat(newest.items()).extracting(CallRecord::url).containsExactly("late", "early", "unparseable");
+        assertThat(newest.items()).extracting(CallSummary::url).containsExactly("late", "early", "unparseable");
     }
 
     @Test
@@ -141,10 +142,10 @@ class SqliteCallsRepositoryTest {
         repo.save(call("fast", "t", 10.0, 200, null));
 
         var slowest = repo.query("", "", "slowest", 0, 10, true);
-        assertThat(slowest.items()).extracting(CallRecord::url).containsExactly("slow", "fast");
+        assertThat(slowest.items()).extracting(CallSummary::url).containsExactly("slow", "fast");
 
         var fastest = repo.query("", "", "fastest", 0, 10, true);
-        assertThat(fastest.items()).extracting(CallRecord::url).containsExactly("fast", "slow");
+        assertThat(fastest.items()).extracting(CallSummary::url).containsExactly("fast", "slow");
     }
 
     @Test
@@ -156,7 +157,7 @@ class SqliteCallsRepositoryTest {
 
         var page = repo.query("", "", "status", 0, 10, true);
 
-        assertThat(page.items()).extracting(CallRecord::url).containsExactly("errored", "serverError", "ok");
+        assertThat(page.items()).extracting(CallSummary::url).containsExactly("errored", "serverError", "ok");
     }
 
     @Test
@@ -167,7 +168,7 @@ class SqliteCallsRepositoryTest {
 
         var page = repo.query("api.example", "", "newest", 0, 10, true);
 
-        assertThat(page.items()).extracting(CallRecord::url).containsExactly("https://Api.Example.com/x");
+        assertThat(page.items()).extracting(CallSummary::url).containsExactly("https://Api.Example.com/x");
     }
 
     @Test
@@ -184,7 +185,7 @@ class SqliteCallsRepositoryTest {
 
         var page = repo.query("needle-in-haystack", "", "newest", 0, 10, true);
 
-        assertThat(page.items()).extracting(CallRecord::id).containsExactly(withNeedle.id());
+        assertThat(page.items()).extracting(CallSummary::id).containsExactly(withNeedle.id());
         assertThat(repo.findById(withNeedle.id())).get().extracting(c -> c.response().body()).isEqualTo(bigBody);
     }
 
@@ -211,7 +212,7 @@ class SqliteCallsRepositoryTest {
 
         var page = repo.query("", "a.com", "newest", 0, 10, true);
 
-        assertThat(page.items()).extracting(CallRecord::url).containsExactly("https://a.com/x");
+        assertThat(page.items()).extracting(CallSummary::url).containsExactly("https://a.com/x");
     }
 
     @Test
@@ -223,11 +224,11 @@ class SqliteCallsRepositoryTest {
         repo.save(call("d", "t", 1.0, 200, null));
 
         var page1 = repo.query("", "", "oldest", 0, 2, true);
-        assertThat(page1.items()).extracting(CallRecord::url).containsExactly("a", "b");
+        assertThat(page1.items()).extracting(CallSummary::url).containsExactly("a", "b");
         assertThat(page1.total()).isEqualTo(4);
 
         var page2 = repo.query("", "", "oldest", 2, 2, true);
-        assertThat(page2.items()).extracting(CallRecord::url).containsExactly("c", "d");
+        assertThat(page2.items()).extracting(CallSummary::url).containsExactly("c", "d");
     }
 
     @Test
@@ -240,8 +241,82 @@ class SqliteCallsRepositoryTest {
 
         var page = repo.query("", "", "oldest", 2, 200, false);
 
-        assertThat(page.items()).extracting(CallRecord::url).containsExactly("a", "b", "c", "d");
+        assertThat(page.items()).extracting(CallSummary::url).containsExactly("a", "b", "c", "d");
         assertThat(page.total()).isEqualTo(4);
+    }
+
+    @Test
+    void querySummariesCarryThePrecomputedSupplierNameWithoutFetchingTheRequestBody() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new RequestData(null, "{\"supplier\":\"FlyNas\"}"), "t", 1.0, new ResponseData(200, null, null), null);
+
+        repo.save(call);
+
+        var page = repo.query("", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(CallSummary::supplierName).containsExactly("FlyNas");
+    }
+
+    @Test
+    void aBodyWithNoSupplierFieldReadsBackAsNullNotAnEmptyString() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new RequestData(null, "{\"no-supplier-here\":true}"), "t", 1.0, null, null);
+
+        repo.save(call);
+
+        var page = repo.query("", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(CallSummary::supplierName).containsExactly((String) null);
+    }
+
+    @Test
+    void aRowWithNoSupplierFieldIsNeverRescannedByTheBackfillOnANewRepositoryInstance() throws Exception {
+        // Regression test: bindCall must store "" (an internal sentinel meaning "processed, no
+        // supplier field"), not SQL NULL, when the body has no supplier field - otherwise this row
+        // would look identical to "never processed" and the backfill would keep re-selecting and
+        // re-updating it (a no-op, but pointlessly, and on a real 400+ row database this alone
+        // added well over a minute to every single restart).
+        Path dbFile = tempDir.resolve("calls.db");
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new RequestData(null, "{\"no-supplier-here\":true}"), "t", 1.0, null, null);
+        repositoryFor(dbFile).save(call);
+
+        // init() (called by repositoryFor) already runs the backfill on this new instance - if the
+        // row above were left NULL, this second instance's own backfill would still see it as
+        // pending. Check the on-disk state directly rather than re-invoking backfill again.
+        repositoryFor(dbFile);
+
+        assertThat(countPendingBackfill(dbFile)).isZero();
+    }
+
+    private static int countPendingBackfill(Path dbFile) throws Exception {
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement();
+             var rs = statement.executeQuery("SELECT COUNT(*) AS c FROM calls WHERE supplier_name IS NULL AND request_body IS NOT NULL")) {
+            rs.next();
+            return rs.getInt("c");
+        }
+    }
+
+    @Test
+    void backfillsSupplierNameForRowsWrittenBeforeTheColumnWasPopulated() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new RequestData(null, "{\"supplier\":\"Galileo\"}"), "t", 1.0, null, null);
+        SqliteCallsRepository firstInstance = repositoryFor(dbFile);
+        firstInstance.save(call);
+        // Simulate a row written before supplier_name existed/was populated - clear it directly,
+        // bypassing the normal insert path bindCall() already covers.
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            statement.execute("UPDATE calls SET supplier_name = NULL");
+        }
+
+        // A fresh instance's init() runs the backfill.
+        SqliteCallsRepository secondInstance = repositoryFor(dbFile);
+
+        var page = secondInstance.query("", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(CallSummary::supplierName).containsExactly("Galileo");
     }
 
     @Test
