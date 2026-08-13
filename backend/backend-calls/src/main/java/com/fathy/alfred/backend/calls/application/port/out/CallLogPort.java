@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +17,21 @@ public interface CallLogPort {
 
     /** Persists one newly-received call (appended, not upserted - each call is its own record). */
     void save(CallRecord call);
+
+    /**
+     * First half of two-phase logging: persists {@code call} with {@code state == IN_PROGRESS}
+     * (response/error/durationMs all null) the moment the proxy intercepts a request, before the
+     * upstream has responded. {@code call.id()} is already assigned by the caller.
+     */
+    void prepare(CallRecord call);
+
+    /**
+     * Second half: fills in the outcome of a previously-{@link #prepare}d call - either
+     * {@code response} (a real HTTP reply, any status code) or {@code error} (the proxy never got
+     * one), never both. @return true if a call with this id was found and updated, false if not
+     * (already trimmed by retention, or never prepared - the caller should treat this as a 404).
+     */
+    boolean complete(String id, ResponseData response, String error, Double durationMs);
 
     /**
      * Filtered/searched/sorted/paginated call summaries, plus the total count matching before

@@ -1,6 +1,9 @@
 package com.fathy.alfred.backend.calls.adapter.out.filelog;
 
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.RequestData;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -8,6 +11,7 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -178,5 +182,61 @@ class FileCallLogAdapterTest {
         assertThat(call.timestamp()).isEqualTo("t1");
         assertThat(call.durationMs()).isEqualTo(42.0);
         assertThat(call.error()).isEqualTo("boom");
+    }
+
+    @Test
+    void prepareWritesNothingToDiskUntilCompleteIsCalled() throws Exception {
+        FileCallLogAdapter adapter = adapterFor(tempDir.resolve("RECENT_CALLS.log"));
+        String id = UUID.randomUUID().toString();
+
+        adapter.prepare(new CallRecord(id, "https://a.com-proxy/x", "https://a.com/x", "GET",
+                new RequestData(null, null), "t", null, null, null, CallLifecycleStatus.IN_PROGRESS));
+
+        // SQLite-only two-phase logging (see the class doc on pendingById) - file mode keeps its
+        // pre-existing single-shot-on-disk behavior, so nothing is written yet.
+        assertThat(adapter.readAll()).isEmpty();
+    }
+
+    @Test
+    void completeMergesTheOutcomeIntoThePreparedCallAndWritesItExactlyOnce() throws Exception {
+        FileCallLogAdapter adapter = adapterFor(tempDir.resolve("RECENT_CALLS.log"));
+        String id = UUID.randomUUID().toString();
+        adapter.prepare(new CallRecord(id, "https://a.com-proxy/x", "https://a.com/x", "GET",
+                new RequestData(null, null), "t", null, null, null, CallLifecycleStatus.IN_PROGRESS));
+
+        boolean wasPending = adapter.complete(id, new ResponseData(200, null, "ok"), null, 42.0);
+
+        assertThat(wasPending).isTrue();
+        assertThat(adapter.readAll()).hasSize(1);
+        CallRecord saved = adapter.readAll().get(0);
+        assertThat(saved.id()).isEqualTo(id);
+        assertThat(saved.originalUrl()).isEqualTo("https://a.com-proxy/x");
+        assertThat(saved.response().status()).isEqualTo(200);
+        assertThat(saved.durationMs()).isEqualTo(42.0);
+    }
+
+    @Test
+    void completeWithoutAMatchingPrepareStillPersistsWhateverThePayloadAloneOffers() throws Exception {
+        FileCallLogAdapter adapter = adapterFor(tempDir.resolve("RECENT_CALLS.log"));
+
+        boolean wasPending = adapter.complete("never-prepared", new ResponseData(500, null, "oops"), null, 1.0);
+
+        assertThat(wasPending).isFalse();
+        assertThat(adapter.readAll()).hasSize(1);
+        assertThat(adapter.readAll().get(0).response().status()).isEqualTo(500);
+    }
+
+    @Test
+    void completeWithAnErrorRecordsErrorStateOnTheSavedCall() throws Exception {
+        FileCallLogAdapter adapter = adapterFor(tempDir.resolve("RECENT_CALLS.log"));
+        String id = UUID.randomUUID().toString();
+        adapter.prepare(new CallRecord(id, "https://a.com-proxy/x", "https://a.com/x", "GET",
+                null, "t", null, null, null, CallLifecycleStatus.IN_PROGRESS));
+
+        adapter.complete(id, null, "connection refused", null);
+
+        CallRecord saved = adapter.readAll().get(0);
+        assertThat(saved.error()).isEqualTo("connection refused");
+        assertThat(saved.response()).isNull();
     }
 }

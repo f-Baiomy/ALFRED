@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.adapter.out.sqlite.BatchWriter;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
@@ -61,10 +62,14 @@ public class SqliteSessionCyclesRepository {
     private HikariDataSource dataSource;
     private JdbcTemplate jdbcTemplate;
     private volatile boolean ftsAvailable;
-    private BatchWriter<PendingCapturedCall> batchWriter;
+    private BatchWriter<PendingCapturedCall> insertWriter;
+    private BatchWriter<PendingCapturedCallCompletion> completionWriter;
 
     /** cycleId travels alongside the CapturedCall since captured_calls' INSERT needs it bound too - BatchWriter is generic over one item type, so this pairs them for the batch. */
     private record PendingCapturedCall(String cycleId, CapturedCall captured) {}
+
+    /** The outcome half of a two-phase captured call, awaiting write via {@link #completionWriter} - see {@link #completeCapturedCall}. */
+    private record PendingCapturedCallCompletion(String cycleId, String callId, ResponseData response, String error, Double durationMs) {}
 
     @PostConstruct
     void init() {
@@ -127,15 +132,20 @@ public class SqliteSessionCyclesRepository {
                 )
                 """);
         addSupplierNameColumnIfMissing();
+        addLifecycleColumnsIfMissing();
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_calls_cycle ON captured_calls(cycle_id)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_calls_timestamp ON captured_calls(cycle_id, timestamp_millis)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_calls_call_id ON captured_calls(call_id)");
 
         initFts();
         backfillSupplierNameIfNeeded();
 
         // Group-commit writer for captured_calls - see SqliteCallsRepository's identical field for
         // why this eliminates cross-request lock contention on session-cycles.db.
-        this.batchWriter = new BatchWriter<>("session-cycles-sqlite-writer", dataSource, INSERT_SQL, this::bindCapturedCall, 1000);
+        this.insertWriter = new BatchWriter<>("session-cycles-sqlite-writer", dataSource, INSERT_SQL, this::bindCapturedCall, 1000);
+        // A second, independent writer for the two-phase "complete" UPDATE - same rationale as
+        // insertWriter, mirroring SqliteCallsRepository's own completionWriter.
+        this.completionWriter = new BatchWriter<>("session-cycles-sqlite-completion-writer", dataSource, UPDATE_SQL, this::bindCompletion, 1000);
     }
 
     /** See SqliteCallsRepository's identical method - captured_calls.supplier_name was added after some deployments already had data. */
@@ -145,6 +155,18 @@ public class SqliteSessionCyclesRepository {
                 .stream().anyMatch("supplier_name"::equals);
         if (!alreadyPresent) {
             jdbcTemplate.execute("ALTER TABLE captured_calls ADD COLUMN supplier_name TEXT");
+        }
+    }
+
+    /** See SqliteCallsRepository's identical method - status_state/request_haystack support two-phase capture (a call captured while still IN_PROGRESS, completed later). Every row written before this existed is a completed capture - backfilled to COMPLETED, or ERROR for rows that already have an error recorded. */
+    private void addLifecycleColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(captured_calls)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("status_state")) {
+            jdbcTemplate.execute("ALTER TABLE captured_calls ADD COLUMN status_state TEXT NOT NULL DEFAULT 'COMPLETED'");
+            jdbcTemplate.update("UPDATE captured_calls SET status_state = 'ERROR' WHERE error IS NOT NULL AND error != ''");
+        }
+        if (!columns.contains("request_haystack")) {
+            jdbcTemplate.execute("ALTER TABLE captured_calls ADD COLUMN request_haystack TEXT");
         }
     }
 
@@ -201,8 +223,11 @@ public class SqliteSessionCyclesRepository {
 
     @PreDestroy
     public void close() {
-        if (batchWriter != null) {
-            batchWriter.close();
+        if (insertWriter != null) {
+            insertWriter.close();
+        }
+        if (completionWriter != null) {
+            completionWriter.close();
         }
         if (dataSource != null) {
             try {
@@ -274,6 +299,7 @@ public class SqliteSessionCyclesRepository {
         return jdbcTemplate.query("SELECT * FROM captured_calls WHERE cycle_id = ? ORDER BY rowid ASC", CAPTURED_ROW_MAPPER, cycleId);
     }
 
+    /** Inserts a captured call - used both for an already-resolved call (legacy/file-parity path) and for the first half of two-phase capture (call.state() == IN_PROGRESS, response/error/durationMs null). */
     public CapturedCall append(String cycleId, CallRecord call) {
         CapturedCall captured = new CapturedCall(UUID.randomUUID().toString(), Instant.now().toString(), call);
         insert(cycleId, captured);
@@ -282,23 +308,24 @@ public class SqliteSessionCyclesRepository {
 
     /** Blocks until actually committed - see BatchWriter's class doc. */
     void insert(String cycleId, CapturedCall captured) {
-        batchWriter.submit(new PendingCapturedCall(cycleId, captured));
+        insertWriter.submit(new PendingCapturedCall(cycleId, captured));
     }
 
     private static final String INSERT_SQL = """
             INSERT INTO captured_calls (id, cycle_id, captured_at, call_id, original_url, url, method,
                                          timestamp, timestamp_millis, duration_ms, status, status_rank,
                                          supplier, supplier_name, error, request_headers, request_body,
-                                         response_headers, response_body, haystack)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                         response_headers, response_body, haystack, status_state, request_haystack)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     /** Binds one pending captured call's columns onto BatchWriter's persistent, reused PreparedStatement - runs on its single dedicated thread. */
     private void bindCapturedCall(PreparedStatement ps, PendingCapturedCall pending) throws SQLException {
         String cycleId = pending.cycleId();
         CapturedCall captured = pending.captured();
-        CallRecord call = captured.call();
-        String haystack = buildHaystack(call);
+        CallRecord call = CallRecord.withDerivedStateIfMissing(captured.call());
+        String requestHaystack = buildRequestHaystack(call);
+        String haystack = buildHaystack(call, requestHaystack);
         Integer status = call.response() != null ? call.response().status() : null;
         ps.setString(1, captured.id());
         ps.setString(2, cycleId);
@@ -319,7 +346,7 @@ public class SqliteSessionCyclesRepository {
         } else {
             ps.setNull(11, Types.INTEGER);
         }
-        ps.setInt(12, statusRank(call));
+        ps.setInt(12, statusRank(call.response(), call.error()));
         ps.setString(13, CallListSupport.supplierOf(call));
         // Precomputed here (not derived from request_body on every read) so list/search queries
         // can skip fetching request_body entirely - see query()'s SUMMARY_SQL. Stored as "" rather
@@ -332,6 +359,54 @@ public class SqliteSessionCyclesRepository {
         ps.setString(18, toJson(call.response() != null ? call.response().headers() : null));
         ps.setString(19, call.response() != null ? call.response().body() : null);
         ps.setString(20, haystack);
+        ps.setString(21, call.state().name());
+        ps.setString(22, requestHaystack);
+    }
+
+    private static final String UPDATE_SQL = """
+            UPDATE captured_calls SET
+              status = ?, status_rank = ?, error = ?, response_headers = ?, response_body = ?,
+              duration_ms = ?, status_state = ?, haystack = substr(COALESCE(request_haystack, '') || ' ' || ?, 1, ?)
+            WHERE cycle_id = ? AND call_id = ?
+            """;
+
+    /** Second half of two-phase capture - fills in a previously-{@link #append}ed captured call's outcome, scoped to one cycle (SessionCycleCaptureAdapter calls this once per cycle it captured the call into at prepare time). @return true if a matching row existed. */
+    public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs) {
+        Integer existing = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM captured_calls WHERE cycle_id = ? AND call_id = ?", Integer.class, cycleId, callId);
+        if (existing == null || existing == 0) {
+            return false;
+        }
+        completionWriter.submit(new PendingCapturedCallCompletion(cycleId, callId, response, error, durationMs));
+        return true;
+    }
+
+    private void bindCompletion(PreparedStatement ps, PendingCapturedCallCompletion pending) throws SQLException {
+        ResponseData response = pending.response();
+        String error = pending.error();
+        boolean hasError = error != null && !error.isBlank();
+        CallLifecycleStatus state = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
+        Integer status = response != null ? response.status() : null;
+
+        if (status != null) {
+            ps.setInt(1, status);
+        } else {
+            ps.setNull(1, Types.INTEGER);
+        }
+        ps.setInt(2, statusRank(response, error));
+        ps.setString(3, error);
+        ps.setString(4, toJson(response != null ? response.headers() : null));
+        ps.setString(5, response != null ? response.body() : null);
+        if (pending.durationMs() != null) {
+            ps.setDouble(6, pending.durationMs());
+        } else {
+            ps.setNull(6, Types.DOUBLE);
+        }
+        ps.setString(7, state.name());
+        ps.setString(8, buildResponseHaystackFragment(response, error));
+        ps.setInt(9, MAX_HAYSTACK_LENGTH);
+        ps.setString(10, pending.cycleId());
+        ps.setString(11, pending.callId());
     }
 
     public boolean removeById(String cycleId, String capturedCallId) {
@@ -370,7 +445,7 @@ public class SqliteSessionCyclesRepository {
 
     /** See SqliteCallsRepository.SUMMARY_SQL's identical comment - list/search views never need request/response bodies. */
     private static final String SUMMARY_SQL =
-            "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name FROM ";
+            "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state FROM ";
 
     public CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
@@ -428,11 +503,11 @@ public class SqliteSessionCyclesRepository {
         return "\"" + query.replace("\"", "\"\"") + "\"";
     }
 
-    private static int statusRank(CallRecord call) {
-        if (call.error() != null && !call.error().isBlank()) {
+    private static int statusRank(ResponseData response, String error) {
+        if (error != null && !error.isBlank()) {
             return 999;
         }
-        Integer status = call.response() != null ? call.response().status() : null;
+        Integer status = response != null ? response.status() : null;
         return status == null ? -1 : status;
     }
 
@@ -455,26 +530,43 @@ public class SqliteSessionCyclesRepository {
     /** See SqliteCallsRepository.MAX_HAYSTACK_LENGTH's comment - caps FTS indexing cost for large captured-call bodies on the capture-fan-out hot path. */
     private static final int MAX_HAYSTACK_LENGTH = 20_000;
 
-    private static String buildHaystack(CallRecord call) {
+    /** See SqliteCallsRepository's identical method - the request-only slice of the haystack, persisted in request_haystack so completeCapturedCall can extend it into the full mixed haystack purely in SQL. */
+    private static String buildRequestHaystack(CallRecord call) {
         StringBuilder sb = new StringBuilder();
         append(sb, call.method());
         append(sb, call.originalUrl());
         append(sb, call.url());
-        if (call.response() != null) {
-            sb.append(call.response().status()).append(' ');
-            if (call.response().headers() != null) {
-                sb.append(call.response().headers()).append(' ');
-            }
-            append(sb, call.response().body());
-        }
-        append(sb, call.error());
         if (call.request() != null) {
             if (call.request().headers() != null) {
                 sb.append(call.request().headers()).append(' ');
             }
             append(sb, call.request().body());
         }
-        String haystack = sb.toString().toLowerCase(Locale.ROOT);
+        return cap(sb.toString().toLowerCase(Locale.ROOT));
+    }
+
+    /** See SqliteCallsRepository's identical method. */
+    private static String buildResponseHaystackFragment(ResponseData response, String error) {
+        StringBuilder sb = new StringBuilder();
+        if (response != null) {
+            if (response.status() != null) {
+                sb.append(response.status()).append(' ');
+            }
+            if (response.headers() != null) {
+                sb.append(response.headers()).append(' ');
+            }
+            append(sb, response.body());
+        }
+        append(sb, error);
+        return sb.toString().toLowerCase(Locale.ROOT);
+    }
+
+    private static String buildHaystack(CallRecord call, String requestHaystack) {
+        String responseFragment = buildResponseHaystackFragment(call.response(), call.error());
+        return cap(requestHaystack + " " + responseFragment);
+    }
+
+    private static String cap(String haystack) {
         return haystack.length() > MAX_HAYSTACK_LENGTH ? haystack.substring(0, MAX_HAYSTACK_LENGTH) : haystack;
     }
 
@@ -525,7 +617,8 @@ public class SqliteSessionCyclesRepository {
 
         CallRecord call = new CallRecord(
                 rs.getString("call_id"), rs.getString("original_url"), rs.getString("url"), rs.getString("method"),
-                request, rs.getString("timestamp"), durationMs, response, rs.getString("error"));
+                request, rs.getString("timestamp"), durationMs, response, rs.getString("error"),
+                CallLifecycleStatus.valueOf(rs.getString("status_state")));
 
         return new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
     };
@@ -545,7 +638,8 @@ public class SqliteSessionCyclesRepository {
                 durationMs,
                 status,
                 rs.getString("error"),
-                nullIfEmpty(rs.getString("supplier_name")));
+                nullIfEmpty(rs.getString("supplier_name")),
+                CallLifecycleStatus.valueOf(rs.getString("status_state")));
 
         return new CapturedCallSummary(rs.getString("id"), rs.getString("captured_at"), callSummary);
     };

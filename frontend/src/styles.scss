@@ -389,6 +389,9 @@ main {
   &.err b {
     color: var(--red);
   }
+  &.pending b {
+    color: var(--purple-light);
+  }
 }
 
 .call-list {
@@ -742,6 +745,24 @@ main {
   background: color-mix(in srgb, var(--red) 22%, transparent);
   color: var(--red);
   border: 1px solid color-mix(in srgb, var(--red) 50%, transparent);
+}
+.status-pending {
+  background: color-mix(in srgb, var(--purple) 18%, transparent);
+  color: var(--purple-light);
+  border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+
+  .spinner {
+    gap: 0.2rem;
+
+    span {
+      width: 0.28rem;
+      height: 0.28rem;
+      background: var(--purple-light);
+    }
+  }
 }
 
 .duration {

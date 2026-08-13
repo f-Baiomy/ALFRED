@@ -4,10 +4,12 @@ import com.fathy.alfred.backend.calls.application.port.out.CallFilterPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.CallsPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -261,5 +263,81 @@ class CallsServiceTest {
 
         verify(port).save(call);
         verify(notificationPort).notifyNewCall(call, List.of());
+    }
+
+    @Test
+    void receivePreparedCallAssignsAnIdSavesItInProgressAndFansOutToObserversBeforeNotifying() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        NewCallObserverPort observer = mock(NewCallObserverPort.class);
+        CallRecord partial = new CallRecord(null, "https://example.com-proxy/x", "https://example.com/x", "GET", null, "t", null, null, null, null);
+        when(observer.onCallPrepared(org.mockito.ArgumentMatchers.any())).thenReturn(List.of("cycle-1"));
+        CallsService service = serviceWith(port, notificationPort, List.of(observer));
+
+        Optional<String> id = service.receivePreparedCall(partial);
+
+        assertThat(id).isPresent();
+        ArgumentCaptor<CallRecord> prepared = ArgumentCaptor.forClass(CallRecord.class);
+        verify(port).prepare(prepared.capture());
+        assertThat(prepared.getValue().id()).isEqualTo(id.get());
+        assertThat(prepared.getValue().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
+        assertThat(prepared.getValue().response()).isNull();
+        var order = inOrder(port, observer, notificationPort);
+        order.verify(port).prepare(prepared.getValue());
+        order.verify(observer).onCallPrepared(prepared.getValue());
+        order.verify(notificationPort).notifyCallPrepared(prepared.getValue(), List.of("cycle-1"));
+    }
+
+    @Test
+    void receivePreparedCallReturnsEmptyAndSkipsPersistenceWhenTheFilterPortRejectsTheCall() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        CallFilterPort filterPort = mock(CallFilterPort.class);
+        when(filterPort.isAllowed(org.mockito.ArgumentMatchers.any())).thenReturn(false);
+        CallRecord partial = new CallRecord(null, "https://blocked.com-proxy/x", "https://blocked.com/x", "GET", null, "t", null, null, null, null);
+        CallsService service = serviceWith(port, notificationPort, List.of(), Optional.of(filterPort));
+
+        Optional<String> id = service.receivePreparedCall(partial);
+
+        assertThat(id).isEmpty();
+        verify(port, never()).prepare(org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(notificationPort);
+    }
+
+    @Test
+    void receiveCompletedCallUpdatesFansOutAndNotifiesInOrder() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        NewCallObserverPort observer = mock(NewCallObserverPort.class);
+        CallRecord completed = call("https://example.com/api/x");
+        ResponseData response = new ResponseData(200, null, "{}");
+        when(port.complete("call-1", response, null, 42.0)).thenReturn(true);
+        when(port.findById("call-1")).thenReturn(Optional.of(completed));
+        when(observer.onCallCompleted(completed)).thenReturn(List.of("cycle-1"));
+        CallsService service = serviceWith(port, notificationPort, List.of(observer));
+
+        boolean result = service.receiveCompletedCall("call-1", response, null, 42.0);
+
+        assertThat(result).isTrue();
+        var order = inOrder(port, observer, notificationPort);
+        order.verify(port).complete("call-1", response, null, 42.0);
+        order.verify(port).findById("call-1");
+        order.verify(observer).onCallCompleted(completed);
+        order.verify(notificationPort).notifyCallCompleted(completed, List.of("cycle-1"));
+    }
+
+    @Test
+    void receiveCompletedCallReturnsFalseAndSkipsFanOutWhenThePortReportsTheCallWasNeverPrepared() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        NewCallObserverPort observer = mock(NewCallObserverPort.class);
+        when(port.complete("missing", null, "timeout", null)).thenReturn(false);
+        CallsService service = serviceWith(port, notificationPort, List.of(observer));
+
+        boolean result = service.receiveCompletedCall("missing", null, "timeout", null);
+
+        assertThat(result).isFalse();
+        verify(port, never()).findById(org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(observer, notificationPort);
     }
 }

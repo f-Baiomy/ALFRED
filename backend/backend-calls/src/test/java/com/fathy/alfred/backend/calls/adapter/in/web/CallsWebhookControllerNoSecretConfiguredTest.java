@@ -1,6 +1,8 @@
 package com.fathy.alfred.backend.calls.adapter.in.web;
 
+import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.ReceivePreparedCallUseCase;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +25,12 @@ class CallsWebhookControllerNoSecretConfiguredTest {
 
     @MockBean
     private ReceiveNewCallUseCase receiveNewCallUseCase;
+
+    @MockBean
+    private ReceivePreparedCallUseCase receivePreparedCallUseCase;
+
+    @MockBean
+    private ReceiveCompletedCallUseCase receiveCompletedCallUseCase;
 
     @Test
     void acceptsAnyRequestWhenNoSecretIsConfigured() throws Exception {

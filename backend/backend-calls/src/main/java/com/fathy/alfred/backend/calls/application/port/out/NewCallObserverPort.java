@@ -11,6 +11,12 @@ import java.util.List;
  */
 public interface NewCallObserverPort {
 
-    /** @return the ids of whatever this observer captured the call into (e.g. recording session-cycles), or an empty list. */
+    /** Legacy single-shot path (POST /calls/webhook) - call arrives already fully resolved; capture it in one shot exactly as before two-phase logging existed. @return the ids of whatever this observer captured the call into (e.g. recording session-cycles), or an empty list. */
     List<String> onNewCall(CallRecord call);
+
+    /** Two-phase logging, first half - the call was just intercepted, not yet resolved (state IN_PROGRESS). @return the ids captured into, same contract as {@link #onNewCall}. */
+    List<String> onCallPrepared(CallRecord call);
+
+    /** Two-phase logging, second half - fills in the outcome of a previously-{@link #onCallPrepared} call, in whichever cycles captured it (regardless of whether they're still recording now). @return the ids updated. */
+    List<String> onCallCompleted(CallRecord call);
 }

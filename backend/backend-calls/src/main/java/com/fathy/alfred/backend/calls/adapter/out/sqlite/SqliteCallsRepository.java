@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
@@ -61,11 +62,15 @@ public class SqliteCallsRepository {
     private HikariDataSource dataSource;
     private JdbcTemplate jdbcTemplate;
     private volatile boolean ftsAvailable;
-    private BatchWriter<CallRecord> batchWriter;
+    private BatchWriter<CallRecord> insertWriter;
+    private BatchWriter<PendingCompletion> completionWriter;
 
     /** How often (in saves) to check the file size against maxSizeBytes - stat'ing the file on every single insert would itself be wasteful at high write volume. */
     private static final int SIZE_CHECK_EVERY_N_SAVES = 50;
     private int savesSinceLastSizeCheck;
+
+    /** The outcome half of a two-phase call, awaiting write via {@link #completionWriter} - see {@link #complete}. */
+    private record PendingCompletion(String id, ResponseData response, String error, Double durationMs) {}
 
     @PostConstruct
     void init() {
@@ -123,10 +128,12 @@ public class SqliteCallsRepository {
                 )
                 """);
         addSupplierNameColumnIfMissing();
+        addLifecycleColumnsIfMissing();
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_timestamp_millis ON calls(timestamp_millis)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_supplier ON calls(supplier)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_status_rank ON calls(status_rank)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_duration ON calls(duration_ms)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_calls_status_state ON calls(status_state)");
 
         initFts();
         backfillSupplierNameIfNeeded();
@@ -137,7 +144,13 @@ public class SqliteCallsRepository {
         // next transaction instead of each paying for its own commit. See BatchWriter's own doc.
         // Queue capacity of 1000 comfortably exceeds Tomcat's default max worker threads (200) -
         // see BatchWriter's queueCapacity doc for why that's the number that actually matters.
-        this.batchWriter = new BatchWriter<>("calls-sqlite-writer", dataSource, INSERT_SQL, this::bindCall, 1000);
+        this.insertWriter = new BatchWriter<>("calls-sqlite-writer", dataSource, INSERT_SQL, this::bindCall, 1000);
+        // A second, independent writer for the two-phase "complete" UPDATE - same rationale as
+        // insertWriter (one dedicated thread, no cross-request lock contention), but a distinct
+        // instance since BatchWriter is bound to one fixed SQL statement/bind function. SQLite only
+        // ever allows one writer at a time regardless (WAL mode + busy_timeout already serializes
+        // the two threads against each other exactly like it does for concurrent inserts today).
+        this.completionWriter = new BatchWriter<>("calls-sqlite-completion-writer", dataSource, UPDATE_SQL, this::bindCompletion, 1000);
     }
 
     /** FTS5 with the trigram tokenizer mirrors CallListSupport.matchesSearch's `.contains(query)` substring semantics far more closely than the default whole-token tokenizer. Falls back to a plain `LIKE` scan over the haystack column if this SQLite build lacks FTS5/trigram, rather than failing startup. */
@@ -187,6 +200,26 @@ public class SqliteCallsRepository {
     }
 
     /**
+     * Two-phase logging (prepare/complete) added {@code status_state} (see
+     * {@link CallLifecycleStatus}) and {@code request_haystack} (the request-only slice of
+     * {@code haystack}, kept so {@link #complete} can extend it into the full mixed haystack with
+     * a single {@code UPDATE ... SET haystack = request_haystack || ...} rather than a SELECT to
+     * reconstruct the request-side text first). Every row written before this existed is a
+     * completed call (the old single-shot flow never had an in-progress state) - backfilled to
+     * {@code COMPLETED}, or {@code ERROR} for rows that already have an error recorded.
+     */
+    private void addLifecycleColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(calls)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("status_state")) {
+            jdbcTemplate.execute("ALTER TABLE calls ADD COLUMN status_state TEXT NOT NULL DEFAULT 'COMPLETED'");
+            jdbcTemplate.update("UPDATE calls SET status_state = 'ERROR' WHERE error IS NOT NULL AND error != ''");
+        }
+        if (!columns.contains("request_haystack")) {
+            jdbcTemplate.execute("ALTER TABLE calls ADD COLUMN request_haystack TEXT");
+        }
+    }
+
+    /**
      * supplier_name is normally precomputed at write time (see bindCall) so list queries never
      * need to touch request_body to get it - but rows written before this column existed have it
      * NULL. One-time, streamed (not loaded all at once) backfill from each such row's already-
@@ -222,8 +255,11 @@ public class SqliteCallsRepository {
 
     @PreDestroy
     public void close() {
-        if (batchWriter != null) {
-            batchWriter.close();
+        if (insertWriter != null) {
+            insertWriter.close();
+        }
+        if (completionWriter != null) {
+            completionWriter.close();
         }
         if (dataSource != null) {
             try {
@@ -239,9 +275,9 @@ public class SqliteCallsRepository {
         }
     }
 
-    /** Blocks until the call is actually committed - see BatchWriter's class doc for why this is still synchronous (and safe under concurrency) despite writes now being batched. */
+    /** Blocks until the call is actually committed - see BatchWriter's class doc for why this is still synchronous (and safe under concurrency) despite writes now being batched. Used both for a fully-resolved call (the legacy single-shot webhook) and for the first half of two-phase logging (state IN_PROGRESS, response/error/durationMs null) - bindCall already handles either shape. */
     public void save(CallRecord call) {
-        batchWriter.submit(call);
+        insertWriter.submit(call);
 
         if (++savesSinceLastSizeCheck >= SIZE_CHECK_EVERY_N_SAVES) {
             savesSinceLastSizeCheck = 0;
@@ -252,22 +288,24 @@ public class SqliteCallsRepository {
     private static final String INSERT_SQL = """
             INSERT INTO calls (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
                                status, status_rank, supplier, supplier_name, error, request_headers, request_body,
-                               response_headers, response_body, haystack)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                               response_headers, response_body, haystack, status_state, request_haystack)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     /** Binds one call's columns onto BatchWriter's persistent, reused PreparedStatement - runs on its single dedicated thread. */
     private void bindCall(PreparedStatement ps, CallRecord call) throws SQLException {
-        String haystack = buildHaystack(call);
-        Integer status = call.response() != null ? call.response().status() : null;
-        ps.setString(1, call.id());
-        ps.setString(2, call.originalUrl());
-        ps.setString(3, call.url());
-        ps.setString(4, call.method());
-        ps.setString(5, call.timestamp());
-        ps.setLong(6, callTimeMillis(call));
-        if (call.durationMs() != null) {
-            ps.setDouble(7, call.durationMs());
+        CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
+        String requestHaystack = buildRequestHaystack(normalized);
+        String haystack = buildHaystack(normalized, requestHaystack);
+        Integer status = normalized.response() != null ? normalized.response().status() : null;
+        ps.setString(1, normalized.id());
+        ps.setString(2, normalized.originalUrl());
+        ps.setString(3, normalized.url());
+        ps.setString(4, normalized.method());
+        ps.setString(5, normalized.timestamp());
+        ps.setLong(6, callTimeMillis(normalized));
+        if (normalized.durationMs() != null) {
+            ps.setDouble(7, normalized.durationMs());
         } else {
             ps.setNull(7, Types.DOUBLE);
         }
@@ -276,20 +314,66 @@ public class SqliteCallsRepository {
         } else {
             ps.setNull(8, Types.INTEGER);
         }
-        ps.setInt(9, statusRank(call));
-        ps.setString(10, CallListSupport.supplierOf(call));
+        ps.setInt(9, statusRank(normalized.response(), normalized.error()));
+        ps.setString(10, CallListSupport.supplierOf(normalized));
         // Precomputed here (not derived from request_body on every read) so list/search queries
         // can skip fetching request_body entirely - see query()'s SUMMARY_SQL. Stored as "" rather
         // than SQL NULL when there's genuinely no supplier field - see backfillSupplierNameIfNeeded's
         // doc for why NULL must mean "not yet processed", never "processed, no value".
-        String supplierName = CallSummary.supplierNameOf(call);
+        String supplierName = CallSummary.supplierNameOf(normalized);
         ps.setString(11, supplierName == null ? "" : supplierName);
-        ps.setString(12, call.error());
-        ps.setString(13, toJson(call.request() != null ? call.request().headers() : null));
-        ps.setString(14, call.request() != null ? call.request().body() : null);
-        ps.setString(15, toJson(call.response() != null ? call.response().headers() : null));
-        ps.setString(16, call.response() != null ? call.response().body() : null);
+        ps.setString(12, normalized.error());
+        ps.setString(13, toJson(normalized.request() != null ? normalized.request().headers() : null));
+        ps.setString(14, normalized.request() != null ? normalized.request().body() : null);
+        ps.setString(15, toJson(normalized.response() != null ? normalized.response().headers() : null));
+        ps.setString(16, normalized.response() != null ? normalized.response().body() : null);
         ps.setString(17, haystack);
+        ps.setString(18, normalized.state().name());
+        ps.setString(19, requestHaystack);
+    }
+
+    private static final String UPDATE_SQL = """
+            UPDATE calls SET
+              status = ?, status_rank = ?, error = ?, response_headers = ?, response_body = ?,
+              duration_ms = ?, status_state = ?, haystack = substr(COALESCE(request_haystack, '') || ' ' || ?, 1, ?)
+            WHERE id = ?
+            """;
+
+    /** Second half of two-phase logging - fills in a previously-{@link #save prepared} call's outcome. @return true if a row with this id existed to update. */
+    public boolean complete(String id, ResponseData response, String error, Double durationMs) {
+        Integer existing = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM calls WHERE id = ?", Integer.class, id);
+        if (existing == null || existing == 0) {
+            return false;
+        }
+        completionWriter.submit(new PendingCompletion(id, response, error, durationMs));
+        return true;
+    }
+
+    private void bindCompletion(PreparedStatement ps, PendingCompletion pending) throws SQLException {
+        ResponseData response = pending.response();
+        String error = pending.error();
+        boolean hasError = error != null && !error.isBlank();
+        CallLifecycleStatus state = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
+        Integer status = response != null ? response.status() : null;
+
+        if (status != null) {
+            ps.setInt(1, status);
+        } else {
+            ps.setNull(1, Types.INTEGER);
+        }
+        ps.setInt(2, statusRank(response, error));
+        ps.setString(3, error);
+        ps.setString(4, toJson(response != null ? response.headers() : null));
+        ps.setString(5, response != null ? response.body() : null);
+        if (pending.durationMs() != null) {
+            ps.setDouble(6, pending.durationMs());
+        } else {
+            ps.setNull(6, Types.DOUBLE);
+        }
+        ps.setString(7, state.name());
+        ps.setString(8, buildResponseHaystackFragment(response, error));
+        ps.setInt(9, MAX_HAYSTACK_LENGTH);
+        ps.setString(10, pending.id());
     }
 
     /** Deletes the oldest rows (by the call's own timestamp) until the on-disk file is back under maxSizeBytes, then reclaims the freed pages - this is the actual "up to 100GB" mechanism. */
@@ -326,7 +410,7 @@ public class SqliteCallsRepository {
      * selects everything.
      */
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
@@ -381,17 +465,18 @@ public class SqliteCallsRepository {
         }
     }
 
-    /** Single grouped-count query rather than one query per bucket - error takes priority over status (mirrors statusRank's own precedence), then the usual HTTP status class ranges. */
+    /** Single grouped-count query rather than one query per bucket - error takes priority over status (mirrors statusRank's own precedence), then the usual HTTP status class ranges; in-progress is its own bucket, keyed off status_state rather than inferred from null status/error (which is also true of a genuinely completed call whose response legitimately carried no status). */
     public CallStatusBreakdown statusBreakdown() {
         return jdbcTemplate.queryForObject("""
                 SELECT
                   COUNT(*) AS total,
-                  SUM(CASE WHEN (error IS NULL OR error = '') AND status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS ok,
-                  SUM(CASE WHEN (error IS NULL OR error = '') AND status BETWEEN 400 AND 499 THEN 1 ELSE 0 END) AS client_error,
-                  SUM(CASE WHEN (error IS NOT NULL AND error != '') OR status >= 500 THEN 1 ELSE 0 END) AS server_error
+                  SUM(CASE WHEN status_state = 'COMPLETED' AND status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS ok,
+                  SUM(CASE WHEN status_state = 'COMPLETED' AND status BETWEEN 400 AND 499 THEN 1 ELSE 0 END) AS client_error,
+                  SUM(CASE WHEN status_state = 'ERROR' OR (status_state = 'COMPLETED' AND status >= 500) THEN 1 ELSE 0 END) AS server_error,
+                  SUM(CASE WHEN status_state = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS in_progress
                 FROM calls
                 """, (rs, rowNum) -> new CallStatusBreakdown(
-                rs.getLong("total"), rs.getLong("ok"), rs.getLong("client_error"), rs.getLong("server_error")));
+                rs.getLong("total"), rs.getLong("ok"), rs.getLong("client_error"), rs.getLong("server_error"), rs.getLong("in_progress")));
     }
 
     /** Permanently deletes every call - the calls_fts external-content triggers keep the FTS index in sync automatically. Runs a best-effort VACUUM afterward so the freed pages are actually reclaimed on disk rather than left as free space inside an unchanged-size file. */
@@ -432,11 +517,11 @@ public class SqliteCallsRepository {
         return "\"" + query.replace("\"", "\"\"") + "\"";
     }
 
-    private static int statusRank(CallRecord call) {
-        if (call.error() != null && !call.error().isBlank()) {
+    private static int statusRank(ResponseData response, String error) {
+        if (error != null && !error.isBlank()) {
             return 999;
         }
-        Integer status = call.response() != null ? call.response().status() : null;
+        Integer status = response != null ? response.status() : null;
         return status == null ? -1 : status;
     }
 
@@ -467,27 +552,49 @@ public class SqliteCallsRepository {
      */
     private static final int MAX_HAYSTACK_LENGTH = 20_000;
 
-    /** Mirrors CallListSupport.matchesSearch's haystack construction (method/urls/status/headers/error/bodies, lowercased), truncated to MAX_HAYSTACK_LENGTH before indexing. */
-    private static String buildHaystack(CallRecord call) {
+    /**
+     * The request-only slice of the haystack (method/urls/request headers/body) - computed and
+     * persisted (in {@code request_haystack}) at insert time regardless of whether the call is
+     * already complete, so {@link #complete} can extend it into the full mixed haystack purely in
+     * SQL (string concatenation) without a SELECT to reconstruct this text first.
+     */
+    private static String buildRequestHaystack(CallRecord call) {
         StringBuilder sb = new StringBuilder();
         append(sb, call.method());
         append(sb, call.originalUrl());
         append(sb, call.url());
-        if (call.response() != null) {
-            sb.append(call.response().status()).append(' ');
-            if (call.response().headers() != null) {
-                sb.append(call.response().headers()).append(' ');
-            }
-            append(sb, call.response().body());
-        }
-        append(sb, call.error());
         if (call.request() != null) {
             if (call.request().headers() != null) {
                 sb.append(call.request().headers()).append(' ');
             }
             append(sb, call.request().body());
         }
-        String haystack = sb.toString().toLowerCase(Locale.ROOT);
+        return cap(sb.toString().toLowerCase(Locale.ROOT));
+    }
+
+    /** The response-only slice of the haystack (status/response headers/body/error) - not capped individually, since it's only ever used concatenated onto request_haystack, capped as a whole (see UPDATE_SQL and buildHaystack). */
+    private static String buildResponseHaystackFragment(ResponseData response, String error) {
+        StringBuilder sb = new StringBuilder();
+        if (response != null) {
+            if (response.status() != null) {
+                sb.append(response.status()).append(' ');
+            }
+            if (response.headers() != null) {
+                sb.append(response.headers()).append(' ');
+            }
+            append(sb, response.body());
+        }
+        append(sb, error);
+        return sb.toString().toLowerCase(Locale.ROOT);
+    }
+
+    /** Mirrors CallListSupport.matchesSearch's haystack construction (method/urls/status/headers/error/bodies, lowercased), truncated to MAX_HAYSTACK_LENGTH before indexing. Degrades gracefully to just {@code requestHaystack} for a still-in-progress call (response/error both null). */
+    private static String buildHaystack(CallRecord call, String requestHaystack) {
+        String responseFragment = buildResponseHaystackFragment(call.response(), call.error());
+        return cap(requestHaystack + " " + responseFragment);
+    }
+
+    private static String cap(String haystack) {
         return haystack.length() > MAX_HAYSTACK_LENGTH ? haystack.substring(0, MAX_HAYSTACK_LENGTH) : haystack;
     }
 
@@ -541,7 +648,8 @@ public class SqliteCallsRepository {
                 rs.getString("timestamp"),
                 durationMs,
                 response,
-                rs.getString("error"));
+                rs.getString("error"),
+                CallLifecycleStatus.valueOf(rs.getString("status_state")));
     };
 
     private static final RowMapper<CallSummary> SUMMARY_ROW_MAPPER = (rs, rowNum) -> {
@@ -559,7 +667,8 @@ public class SqliteCallsRepository {
                 durationMs,
                 status,
                 rs.getString("error"),
-                nullIfEmpty(rs.getString("supplier_name")));
+                nullIfEmpty(rs.getString("supplier_name")),
+                CallLifecycleStatus.valueOf(rs.getString("status_state")));
     };
 
     /** Undoes the ""-instead-of-NULL storage trick from bindCall/backfillSupplierNameIfNeeded - external behavior stays "null when there's no supplier name", exactly as CallSummary.of() always returned. */

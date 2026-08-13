@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
@@ -74,5 +75,15 @@ public class SqliteCapturedCallsStoreAdapter implements CapturedCallsStorePort {
     @Override
     public long countAll() {
         return repository.capturedCallsCountAll();
+    }
+
+    @Override
+    public boolean supportsTwoPhaseCapture() {
+        return true;
+    }
+
+    @Override
+    public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs) {
+        return repository.completeCapturedCall(cycleId, callId, response, error, durationMs);
     }
 }

@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.filestore;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
@@ -211,6 +212,19 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
             log.error("Failed to list session-cycles directory {} while clearing: {}", dir, e.getMessage());
         }
         cacheByCycle.clear();
+    }
+
+    /** File mode deliberately keeps its pre-existing single-shot behavior (see the two-phase logging plan) - SessionCycleCaptureAdapter checks this and never calls append() at prepare time or completeCapturedCall() at all for this adapter, deciding capture fresh once a call completes instead, exactly as it did before two-phase logging existed. */
+    @Override
+    public boolean supportsTwoPhaseCapture() {
+        return false;
+    }
+
+    /** Never called in practice (see {@link #supportsTwoPhaseCapture()}) - implemented defensively rather than throwing, in case that invariant is ever violated. */
+    @Override
+    public synchronized boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs) {
+        log.warn("completeCapturedCall called on the file adapter (cycle {}, call {}) - this adapter doesn't support two-phase capture and should never receive this call", cycleId, callId);
+        return false;
     }
 
     private Path fileFor(String cycleId) {

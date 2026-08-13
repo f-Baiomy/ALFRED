@@ -25,13 +25,22 @@ public record CallSummary(
         @JsonProperty("duration_ms") Double durationMs,
         Integer status,
         String error,
-        String supplierName
+        String supplierName,
+        CallLifecycleStatus state
 ) {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    /** Pre-two-phase shape, kept for the same reason CallRecord keeps its own 9-arg constructor - every existing call site already only ever built an already-resolved summary, so state is derived from error here instead of requiring every caller to pass it explicitly. */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName,
+                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED);
+    }
+
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call));
+        CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state());
     }
 
     /**

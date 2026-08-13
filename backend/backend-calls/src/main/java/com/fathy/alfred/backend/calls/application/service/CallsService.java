@@ -2,16 +2,22 @@ package com.fathy.alfred.backend.calls.application.service;
 
 import com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.ReceivePreparedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.out.CallFilterPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.CallsPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -20,7 +26,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, ReceiveNewCallUseCase {
+public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, ReceiveNewCallUseCase,
+        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(CallsService.class);
 
     private final CallLogPort callLogPort;
     private final CallNotificationPort notificationPort;
@@ -64,11 +73,10 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
     }
 
     /**
-     * The proxy only calls the webhook now - it doesn't write any file itself - so this is where
-     * a call actually becomes durable. Saved first, then fanned out to any observers (e.g. session
-     * cycles capturing it), then broadcast last - a client that reacts to the WebSocket push and
-     * immediately re-fetches GET /calls, or a cycle's own calls endpoint, must always find the
-     * record already there.
+     * The legacy single-shot webhook path (POST /calls/webhook) - a call arrives already fully
+     * resolved. Kept working unchanged alongside the new two-phase endpoints so an
+     * already-running proxy container isn't broken by a backend-only redeploy; the proxy itself
+     * moves to {@link #receivePreparedCall}/{@link #receiveCompletedCall} in a later phase.
      */
     @Override
     public void receiveNewCall(CallRecord call) {
@@ -84,6 +92,58 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
                 .flatMap(observer -> observer.onNewCall(withId).stream())
                 .toList();
         notificationPort.notifyNewCall(withId, capturedByCycleIds);
+    }
+
+    /**
+     * Two-phase logging, first half - the proxy just intercepted a request, before the upstream
+     * has responded. The host/URL filter (request-side only, never response-based) runs here, so
+     * a filtered-out call is never logged at all, not even as an in-progress placeholder that
+     * would then have no matching {@code complete} call coming. Observers (session-cycle capture)
+     * aren't fanned out to here - a recording cycle only sees a call once it completes, exactly as
+     * before this feature (see NewCallObserverPort's own phase for when that changes).
+     */
+    @Override
+    public Optional<String> receivePreparedCall(CallRecord partial) {
+        String id = UUID.randomUUID().toString();
+        CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
+                partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS);
+        if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {
+            return Optional.empty();
+        }
+        callLogPort.prepare(prepared);
+        List<String> capturedByCycleIds = observers.stream()
+                .flatMap(observer -> observer.onCallPrepared(prepared).stream())
+                .toList();
+        notificationPort.notifyCallPrepared(prepared, capturedByCycleIds);
+        return Optional.of(id);
+    }
+
+    /**
+     * Two-phase logging, second half - fills in a previously-prepared call's outcome and only
+     * then fans out to observers/notifies, mirroring receiveNewCall's own "persist, then fan out,
+     * then notify" order so a client reacting to the WebSocket push always finds the row already
+     * updated.
+     */
+    @Override
+    public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs) {
+        boolean updated = callLogPort.complete(id, response, error, durationMs);
+        if (!updated) {
+            log.warn("Received a completion for unknown/already-trimmed call id {}", id);
+            return false;
+        }
+        Optional<CallRecord> completed = callLogPort.findById(id);
+        if (completed.isEmpty()) {
+            // Vanishingly unlikely (e.g. retention trimmed the row in the instant between the
+            // update above and this read) - the update itself already succeeded, so still report
+            // success to the caller; there's just nothing left to fan out/notify about.
+            return true;
+        }
+        CallRecord call = completed.get();
+        List<String> capturedByCycleIds = observers.stream()
+                .flatMap(observer -> observer.onCallCompleted(call).stream())
+                .toList();
+        notificationPort.notifyCallCompleted(call, capturedByCycleIds);
+        return true;
     }
 
     private static CallRecord withGeneratedId(CallRecord call) {

@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -91,6 +92,16 @@ public class SqliteCallLogAdapter implements CallLogPort {
     @Override
     public void save(CallRecord call) {
         repository.save(call);
+    }
+
+    @Override
+    public void prepare(CallRecord call) {
+        repository.save(call);
+    }
+
+    @Override
+    public boolean complete(String id, ResponseData response, String error, Double durationMs) {
+        return repository.complete(id, response, error, durationMs);
     }
 
     @Override

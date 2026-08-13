@@ -1,5 +1,8 @@
 <div class="stats">
   <span class="stat-pill"><b>{{ stats().total }}</b> calls</span>
+  @if (stats().inProgress > 0) {
+    <span class="stat-pill pending"><b>{{ stats().inProgress }}</b> in progress</span>
+  }
   <span class="stat-pill ok"><b>{{ stats().ok }}</b> 2xx/3xx</span>
   <span class="stat-pill warn"><b>{{ stats().client }}</b> 4xx</span>
   <span class="stat-pill err"><b>{{ stats().failed }}</b> errors/5xx</span>

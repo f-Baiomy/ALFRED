@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
@@ -364,5 +365,147 @@ class SqliteCallsRepositoryTest {
         assertThat(remaining.size()).isLessThan(60);
         // The oldest calls are the ones dropped, not the newest.
         assertThat(remaining).extracting(CallRecord::url).doesNotContain("u0", "u1");
+    }
+
+    private static CallRecord preparedCall(String id, String url) {
+        return new CallRecord(id, url, url, "GET", new RequestData(null, "{\"supplier\":\"FlyNas\"}"), "t",
+                null, null, null, CallLifecycleStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void savingAPreparedCallPersistsItInProgressWithNoResponseYet() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord prepared = preparedCall(UUID.randomUUID().toString(), "https://a.com/x");
+
+        repo.save(prepared);
+
+        CallRecord found = repo.findById(prepared.id()).orElseThrow();
+        assertThat(found.state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
+        assertThat(found.response()).isNull();
+        assertThat(found.error()).isNull();
+        var summary = repo.query("", "", "newest", 0, 10, true).items().get(0);
+        assertThat(summary.state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
+        // Precomputed from the request body regardless of the call still being in progress.
+        assertThat(summary.supplierName()).isEqualTo("FlyNas");
+    }
+
+    @Test
+    void completingAPreparedCallFillsInTheResponseAndFlipsStateToCompleted() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        boolean updated = repo.complete(id, new ResponseData(200, null, "{\"ok\":true}"), null, 42.0);
+
+        assertThat(updated).isTrue();
+        CallRecord found = repo.findById(id).orElseThrow();
+        assertThat(found.state()).isEqualTo(CallLifecycleStatus.COMPLETED);
+        assertThat(found.response().status()).isEqualTo(200);
+        assertThat(found.response().body()).isEqualTo("{\"ok\":true}");
+        assertThat(found.durationMs()).isEqualTo(42.0);
+    }
+
+    @Test
+    void completingAPreparedCallWithAnErrorFlipsStateToError() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        repo.complete(id, null, "connection refused", null);
+
+        CallRecord found = repo.findById(id).orElseThrow();
+        assertThat(found.state()).isEqualTo(CallLifecycleStatus.ERROR);
+        assertThat(found.error()).isEqualTo("connection refused");
+        assertThat(found.response()).isNull();
+    }
+
+    @Test
+    void searchFindsTextFromTheResponseOnlyAfterCompleteExtendsTheHaystack() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        assertThat(repo.query("needle-in-response", "", "newest", 0, 10, true).items()).isEmpty();
+
+        repo.complete(id, new ResponseData(200, null, "needle-in-response"), null, 1.0);
+
+        var page = repo.query("needle-in-response", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(CallSummary::id).containsExactly(id);
+        // The request-side match must still work too - complete() must extend the haystack, not replace it.
+        assertThat(repo.query("supplier", "", "newest", 0, 10, true).items()).extracting(CallSummary::id).containsExactly(id);
+    }
+
+    @Test
+    void completingAnUnknownIdReturnsFalseWithoutThrowing() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+
+        boolean updated = repo.complete("does-not-exist", new ResponseData(200, null, null), null, 1.0);
+
+        assertThat(updated).isFalse();
+    }
+
+    @Test
+    void completingTheSameCallTwiceOverwritesWithTheSecondOutcome() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        repo.complete(id, new ResponseData(200, null, "first"), null, 10.0);
+        boolean secondUpdated = repo.complete(id, new ResponseData(500, null, "second"), null, 20.0);
+
+        assertThat(secondUpdated).isTrue();
+        CallRecord found = repo.findById(id).orElseThrow();
+        assertThat(found.response().status()).isEqualTo(500);
+        assertThat(found.response().body()).isEqualTo("second");
+        assertThat(found.durationMs()).isEqualTo(20.0);
+    }
+
+    @Test
+    void statusBreakdownCountsInProgressCallsInTheirOwnBucketNotOkOrErrors() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        repo.save(call("https://a.com/ok", "t", 1.0, 200, null));
+        repo.save(preparedCall(UUID.randomUUID().toString(), "https://a.com/pending"));
+
+        var breakdown = repo.statusBreakdown();
+
+        assertThat(breakdown.total()).isEqualTo(2);
+        assertThat(breakdown.ok()).isEqualTo(1);
+        assertThat(breakdown.inProgress()).isEqualTo(1);
+        assertThat(breakdown.clientError()).isZero();
+        assertThat(breakdown.serverError()).isZero();
+    }
+
+    @Test
+    void existingRowsAreBackfilledAsCompletedOrErrorOnFirstStartupAfterTheLifecycleColumnsWereAdded() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        // Simulate a pre-two-phase database: create the table without status_state/request_haystack
+        // (mirrors what addLifecycleColumnsIfMissing finds on an existing deployment's first
+        // startup after this feature ships).
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE calls (
+                      id TEXT PRIMARY KEY, original_url TEXT, url TEXT, method TEXT, timestamp TEXT,
+                      timestamp_millis INTEGER, duration_ms REAL, status INTEGER, status_rank INTEGER,
+                      supplier TEXT, supplier_name TEXT, error TEXT, request_headers TEXT, request_body TEXT,
+                      response_headers TEXT, response_body TEXT, haystack TEXT
+                    )
+                    """);
+            statement.execute("INSERT INTO calls (id, url, status, supplier_name) VALUES ('ok-1', 'https://a.com/x', 200, '')");
+            statement.execute("INSERT INTO calls (id, url, error, supplier_name) VALUES ('err-1', 'https://a.com/y', 'boom', '')");
+        }
+
+        repositoryFor(dbFile);
+
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement();
+             var rs = statement.executeQuery("SELECT id, status_state FROM calls ORDER BY id")) {
+            rs.next();
+            assertThat(rs.getString("id")).isEqualTo("err-1");
+            assertThat(rs.getString("status_state")).isEqualTo("ERROR");
+            rs.next();
+            assertThat(rs.getString("id")).isEqualTo("ok-1");
+            assertThat(rs.getString("status_state")).isEqualTo("COMPLETED");
+        }
     }
 }

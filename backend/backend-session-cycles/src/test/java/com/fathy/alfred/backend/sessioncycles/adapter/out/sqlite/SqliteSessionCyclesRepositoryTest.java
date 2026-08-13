@@ -1,6 +1,9 @@
 package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.RequestData;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
@@ -241,5 +244,88 @@ class SqliteSessionCyclesRepositoryTest {
 
         var page = secondInstance.query("c1", "", "", "newest", 0, 10, true);
         assertThat(page.items()).extracting(c -> c.call().supplierName()).containsExactly("Galileo");
+    }
+
+    private static CallRecord preparedCall(String id, String url) {
+        return new CallRecord(id, url, url, "GET", new RequestData(null, "{\"supplier\":\"FlyNas\"}"), "t",
+                null, null, null, CallLifecycleStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void appendingAPreparedCallPersistsItInProgressWithNoResponseYet() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        CallRecord prepared = preparedCall(UUID.randomUUID().toString(), "https://a.com/x");
+
+        repo.append("c1", prepared);
+
+        CapturedCall found = repo.findAllByCycle("c1").get(0);
+        assertThat(found.call().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
+        assertThat(found.call().response()).isNull();
+        var summary = repo.query("c1", "", "", "newest", 0, 10, true).items().get(0);
+        assertThat(summary.call().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
+        assertThat(summary.call().supplierName()).isEqualTo("FlyNas");
+    }
+
+    @Test
+    void completingACapturedCallFillsInTheResponseAndFlipsStateToCompleted() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        String callId = UUID.randomUUID().toString();
+        repo.append("c1", preparedCall(callId, "https://a.com/x"));
+
+        boolean updated = repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "{\"ok\":true}"), null, 42.0);
+
+        assertThat(updated).isTrue();
+        CapturedCall found = repo.findAllByCycle("c1").get(0);
+        assertThat(found.call().state()).isEqualTo(CallLifecycleStatus.COMPLETED);
+        assertThat(found.call().response().status()).isEqualTo(200);
+        assertThat(found.call().durationMs()).isEqualTo(42.0);
+    }
+
+    @Test
+    void completingACapturedCallWithAnErrorFlipsStateToError() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        String callId = UUID.randomUUID().toString();
+        repo.append("c1", preparedCall(callId, "https://a.com/x"));
+
+        repo.completeCapturedCall("c1", callId, null, "connection refused", null);
+
+        CapturedCall found = repo.findAllByCycle("c1").get(0);
+        assertThat(found.call().state()).isEqualTo(CallLifecycleStatus.ERROR);
+        assertThat(found.call().error()).isEqualTo("connection refused");
+    }
+
+    @Test
+    void searchFindsTextFromTheResponseOnlyAfterCompletingExtendsTheHaystack() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        String callId = UUID.randomUUID().toString();
+        repo.append("c1", preparedCall(callId, "https://a.com/x"));
+
+        assertThat(repo.query("c1", "needle-in-response", "", "newest", 0, 10, true).items()).isEmpty();
+
+        repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "needle-in-response"), null, 1.0);
+
+        var page = repo.query("c1", "needle-in-response", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(c -> c.call().id()).containsExactly(callId);
+        assertThat(repo.query("c1", "supplier", "", "newest", 0, 10, true).items()).extracting(c -> c.call().id()).containsExactly(callId);
+    }
+
+    @Test
+    void completingIsScopedToOneCycleAndDoesNotAffectTheSameCallCapturedInAnotherCycle() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        String callId = UUID.randomUUID().toString();
+        repo.append("c1", preparedCall(callId, "https://a.com/x"));
+        repo.append("c2", preparedCall(callId, "https://a.com/x"));
+
+        repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "ok"), null, 1.0);
+
+        assertThat(repo.findAllByCycle("c1").get(0).call().state()).isEqualTo(CallLifecycleStatus.COMPLETED);
+        assertThat(repo.findAllByCycle("c2").get(0).call().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void completingAnUnknownCycleOrCallReturnsFalseWithoutThrowing() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+
+        assertThat(repo.completeCapturedCall("missing-cycle", "missing-call", new ResponseData(200, null, null), null, 1.0)).isFalse();
     }
 }

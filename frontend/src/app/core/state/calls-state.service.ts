@@ -71,8 +71,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
           return;
         }
         const call = toCallRecord(message.call);
-        const key = callKey(call);
-        this.liveCalls.set([call, ...this.liveCalls().filter((c) => callKey(c) !== key)]);
+        // Matched by id, not callKey - two-phase logging pushes the same call twice (once
+        // IN_PROGRESS at prepare, once resolved at complete), and id is the one thing guaranteed
+        // stable across both pushes for the exact same call.
+        this.liveCalls.set([call, ...this.liveCalls().filter((c) => c.id !== call.id)]);
         this.view.refresh();
       });
   }

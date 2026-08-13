@@ -144,7 +144,17 @@ describe('CallsStateService', () => {
     const { state } = setup([ok, clientErr, serverErr]);
     tick();
 
-    expect(state.stats()).toEqual({ total: 3, ok: 1, client: 1, failed: 1 });
+    expect(state.stats()).toEqual({ total: 3, ok: 1, client: 1, failed: 1, inProgress: 0 });
+    discardPeriodicTasks();
+  }));
+
+  it('counts a call still awaiting its response in its own inProgress bucket, not ok/client/failed', fakeAsync(() => {
+    const pending = makeCall({ response: undefined, error: undefined, state: 'IN_PROGRESS' });
+    const ok = makeCall({ response: { status: 200, headers: {}, body: '' }, timestamp: 't2', state: 'COMPLETED' });
+    const { state } = setup([pending, ok]);
+    tick();
+
+    expect(state.stats()).toEqual({ total: 2, ok: 1, client: 0, failed: 0, inProgress: 1 });
     discardPeriodicTasks();
   }));
 

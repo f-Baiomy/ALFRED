@@ -27,6 +27,20 @@ public class WebSocketCallNotificationAdapter implements CallNotificationPort {
 
     @Override
     public void notifyNewCall(CallRecord call, List<String> capturedByCycleIds) {
+        broadcastCallEvent(call, capturedByCycleIds);
+    }
+
+    @Override
+    public void notifyCallPrepared(CallRecord call, List<String> capturedByCycleIds) {
+        broadcastCallEvent(call, capturedByCycleIds);
+    }
+
+    @Override
+    public void notifyCallCompleted(CallRecord call, List<String> capturedByCycleIds) {
+        broadcastCallEvent(call, capturedByCycleIds);
+    }
+
+    private void broadcastCallEvent(CallRecord call, List<String> capturedByCycleIds) {
         try {
             handler.broadcast(objectMapper.writeValueAsString(new CallEvent(CallSummary.of(call), capturedByCycleIds)));
         } catch (JsonProcessingException e) {

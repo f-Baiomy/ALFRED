@@ -12,12 +12,19 @@
       />
     </label>
     <span class="badge" [class]="methodClass()">{{ call().method }}</span>
-    @if (call().error) {
+    @if (inProgress()) {
+      <span class="badge status-pending">
+        <span class="spinner" aria-hidden="true"><span></span><span></span><span></span></span>
+        In progress
+      </span>
+    } @else if (call().error) {
       <span class="badge status-err">ERROR</span>
     } @else {
       <span class="badge" [class]="statusClass()">{{ call().response?.status ?? '?' }}</span>
     }
-    @if (call().duration_ms != null) {
+    @if (inProgress()) {
+      <span class="duration">&hellip;</span>
+    } @else if (call().duration_ms != null) {
       <span class="duration" [class]="durationClass()">{{ call().duration_ms }} ms</span>
     }
     @if (call().supplierName) {

@@ -12,7 +12,13 @@ export function toCallRecord(dto: CallSummaryDto): CallRecord {
     response: dto.status != null ? { status: dto.status } : undefined,
     error: dto.error,
     supplierName: dto.supplierName,
+    state: dto.state,
   };
+}
+
+/** Whether a call is still awaiting its upstream response (two-phase logging) - a call with this state has no response/error yet, not to be confused with one that legitimately failed or never carried a status. */
+export function isInProgress(call: CallRecord): boolean {
+  return call.state === 'IN_PROGRESS';
 }
 
 /**

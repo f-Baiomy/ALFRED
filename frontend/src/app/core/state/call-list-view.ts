@@ -3,7 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, Subject, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
 import { CallRecord, SortMode } from '../models/call.model';
-import { callKey, sortCalls, supplierOf } from '../../shared/utils/call-utils';
+import { callKey, isInProgress, sortCalls, supplierOf } from '../../shared/utils/call-utils';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -17,6 +17,7 @@ export interface CallStats {
   readonly ok: number;
   readonly client: number;
   readonly failed: number;
+  readonly inProgress: number;
 }
 
 export interface SupplierGroup {
@@ -189,6 +190,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       ok: list.filter((c) => c.response && c.response.status < 400).length,
       client: list.filter((c) => c.response && c.response.status >= 400 && c.response.status < 500).length,
       failed: list.filter((c) => c.error || (c.response && c.response.status >= 500)).length,
+      inProgress: list.filter(isInProgress).length,
     };
   });
 

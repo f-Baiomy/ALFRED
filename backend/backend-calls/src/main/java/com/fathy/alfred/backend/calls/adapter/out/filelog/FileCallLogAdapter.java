@@ -2,9 +2,11 @@ package com.fathy.alfred.backend.calls.adapter.out.filelog;
 
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -22,8 +24,10 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Owns RECENT_CALLS.log end to end - the proxy only calls the webhook now, it no longer writes
@@ -73,6 +77,18 @@ public class FileCallLogAdapter implements CallLogPort {
     private List<CachedLine> cachedLines;
     private long cachedFileSize = -1;
     private long cachedModifiedMillis = -1;
+
+    /**
+     * Two-phase logging is deliberately SQLite-only - this adapter keeps its pre-existing
+     * single-shot-on-disk behavior (RECENT_CALLS.log never gains an in-progress line at all), by
+     * holding a {@link #prepare}d call here in memory until {@link #complete} merges in the
+     * outcome and only then writes it to disk exactly once, same as the old one-shot save() always
+     * did. If the process restarts between prepare and complete, the pending entry is lost and
+     * complete() degrades to persisting whatever the completion payload alone can produce (no
+     * request-side data) - an accepted gap for this legacy/small-deployment adapter, matching the
+     * "no automatic recovery" stance taken for the SQLite adapter's own edge cases.
+     */
+    private final Map<String, CallRecord> pendingById = new ConcurrentHashMap<>();
 
     /** Fail fast with a clear message if the directory isn't writable, rather than only discovering it on the first webhook call. */
     @PostConstruct
@@ -138,6 +154,30 @@ public class FileCallLogAdapter implements CallLogPort {
             log.error("Failed to save to {}: {}", recentCallsFile, e.getMessage());
             throw new UncheckedIOException(e);
         }
+    }
+
+    /** Holds the partial call in memory only - nothing is written to RECENT_CALLS.log until {@link #complete} - see the class-level doc on {@link #pendingById}. */
+    @Override
+    public void prepare(CallRecord call) {
+        pendingById.put(call.id(), call);
+    }
+
+    /** Merges the outcome into the pending call (if this process is still the one that prepared it) and performs the one, single-shot disk write - the same write save() always did. */
+    @Override
+    public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs) {
+        CallRecord partial = pendingById.remove(id);
+        boolean wasPending = partial != null;
+        boolean hasError = error != null && !error.isBlank();
+        CallLifecycleStatus state = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
+        CallRecord resolved = partial != null
+                ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
+                        partial.timestamp(), durationMs, response, error, state)
+                // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
+                // in between) - persist what the completion payload alone can offer rather than
+                // silently dropping it.
+                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state);
+        save(resolved);
+        return wasPending;
     }
 
     /** Returns the cached lines, re-reading and re-parsing only when the file's size/mtime no longer match what was cached. */
@@ -250,7 +290,9 @@ public class FileCallLogAdapter implements CallLogPort {
                 ok++;
             }
         }
-        return new CallStatusBreakdown(calls.size(), ok, clientError, serverError);
+        // Always 0 - this adapter never persists an in-progress call to disk (see pendingById's
+        // doc), so there's nothing on-disk to count into this bucket.
+        return new CallStatusBreakdown(calls.size(), ok, clientError, serverError, 0);
     }
 
     @Override
@@ -262,6 +304,7 @@ public class FileCallLogAdapter implements CallLogPort {
             log.error("Failed to delete {}: {}", recentCallsFile, e.getMessage());
         }
         invalidateCache();
+        pendingById.clear();
     }
 
     private static CallRecord withGeneratedId(CallRecord call) {

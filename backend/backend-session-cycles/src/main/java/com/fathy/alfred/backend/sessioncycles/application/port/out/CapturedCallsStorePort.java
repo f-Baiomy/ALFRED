@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.application.port.out;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 
@@ -43,4 +44,23 @@ public interface CapturedCallsStorePort {
 
     /** Permanently deletes every captured call across every cycle - the Database settings tab's "Clear cycles" action (paired with SessionCycleMetadataStorePort.deleteAll()). */
     void deleteAll();
+
+    /**
+     * Whether this adapter can persist an in-progress captured call at {@link #append} time and
+     * later fill in its outcome via {@link #completeCapturedCall} - true for the SQLite adapter,
+     * false for the JSON file adapter (which deliberately keeps its pre-existing single-shot
+     * behavior - see the two-phase logging plan). {@link com.fathy.alfred.backend.sessioncycles.adapter.out.capture.SessionCycleCaptureAdapter}
+     * uses this to decide whether to capture a call at prepare time at all, or wait and decide
+     * fresh once it completes (today's behavior).
+     */
+    boolean supportsTwoPhaseCapture();
+
+    /**
+     * Two-phase logging, second half - fills in the outcome of a captured call previously
+     * {@link #append}ed in state IN_PROGRESS, identified by the underlying CallRecord's id (not
+     * the CapturedCall wrapper's own id) within one specific cycle. Only ever called when
+     * {@link #supportsTwoPhaseCapture()} is true.
+     * @return true if a captured call with this call id existed in this cycle and was updated.
+     */
+    boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs);
 }

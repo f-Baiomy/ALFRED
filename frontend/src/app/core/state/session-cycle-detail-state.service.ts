@@ -152,8 +152,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         const id = this.cycleId();
         if (!id || !capturedByCycleIds.includes(id)) return;
         const call = toCallRecord(summary);
-        const key = callKey(call);
-        this.liveCalls.set([call, ...this.liveCalls().filter((c) => callKey(c) !== key)]);
+        // Matched by id, not callKey - see CallsStateService's identical change for why (two-phase
+        // logging pushes the same call twice, once IN_PROGRESS then once resolved).
+        this.liveCalls.set([call, ...this.liveCalls().filter((c) => c.id !== call.id)]);
         this.view.refresh();
       });
   }

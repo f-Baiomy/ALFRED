@@ -3,6 +3,9 @@ export interface HttpMessageData {
   readonly body?: string;
 }
 
+/** Where a call is in its two-phase logging lifecycle - see backend's CallLifecycleStatus. Distinct from the HTTP status code in `response`. Optional/undefined only for data that predates two-phase logging (defaults to however error/response already implied "resolved" before this field existed). */
+export type CallLifecycleState = 'IN_PROGRESS' | 'COMPLETED' | 'ERROR';
+
 export interface CallResponse extends HttpMessageData {
   readonly status: number;
 }
@@ -28,6 +31,7 @@ export interface CallRecord {
   readonly error?: string;
   /** Best-effort supplier name parsed server-side from the request body's "supplier" JSON field (see backend's CallSummary.supplierNameOf) - null/undefined when it couldn't be determined. Part of the summary, not the detail, so it shows on a collapsed card with no extra fetch. */
   readonly supplierName?: string | null;
+  readonly state?: CallLifecycleState;
 }
 
 /** The full request/response for one call - GET /calls/{id}/detail's response shape. */
@@ -47,6 +51,7 @@ export interface CallSummaryDto {
   readonly status: number | null;
   readonly error?: string;
   readonly supplierName?: string | null;
+  readonly state?: CallLifecycleState;
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle
