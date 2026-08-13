@@ -168,14 +168,26 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   remove(call: CallRecord): void {
     const captured = this.capturedByKey.get(callKey(call));
     if (captured) {
-      this.removeCall(captured.id);
+      this.removeCall(captured.id, [callKey(call)]);
     }
   }
 
-  removeCall(callId: string): void {
+  /**
+   * `keysToPrune` - see removeMany's doc: liveCalls is a "not yet confirmed by a refresh" buffer
+   * that only ever grows or dedupes by key, never shrinks on its own, so a call removed here would
+   * otherwise still satisfy the "not in the freshly-fetched page" check in call-list-view.ts's
+   * matchingCalls and get spliced right back into the visible list - the exact bug this fixes
+   * (backend delete succeeds, call reappears in the UI until the next unrelated liveCalls reset).
+   */
+  removeCall(callId: string, keysToPrune?: readonly string[]): void {
     const id = this.cycleId();
     if (!id) return;
-    this.api.removeCall(id, callId).subscribe(() => this.view.refresh());
+    this.api.removeCall(id, callId).subscribe(() => {
+      if (keysToPrune?.length) {
+        this.pruneLiveCalls(keysToPrune);
+      }
+      this.view.refresh();
+    });
   }
 
   /** CallRemovalState - bulk counterpart to remove(), one request instead of one per call.
@@ -191,8 +203,15 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
     this.api.removeCalls(id, callIds).subscribe(() => {
       this.clearSelection();
+      this.pruneLiveCalls(calls.map(callKey));
       this.view.refresh();
     });
+  }
+
+  /** Drops the given keys out of the live-push buffer - see removeCall's doc for why this is necessary on every removal path, not just relying on view.refresh() alone. */
+  private pruneLiveCalls(keys: readonly string[]): void {
+    const keySet = new Set(keys);
+    this.liveCalls.set(this.liveCalls().filter((c) => !keySet.has(callKey(c))));
   }
 
   refreshNow(): void {
