@@ -35,7 +35,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -63,8 +62,8 @@ public class SessionCyclesService implements
     @Value("${alfred.calls.max-limit:200}")
     private int maxLimit;
 
-    /** See CallListSupport.apply's paginationEnabled param. */
-    @Value("${alfred.calls.pagination-enabled:true}")
+    /** Deliberately a separate property from alfred.calls.pagination-enabled - the dashboard scrolls to load more, but a session cycle's captured calls still return everything up to maxLimit in one response (no infinite scroll there). See CallListSupport.apply's paginationEnabled param. */
+    @Value("${alfred.session-cycles.pagination-enabled:false}")
     private boolean paginationEnabled;
 
     public SessionCyclesService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore, SessionCycleNotificationPort notificationPort) {
@@ -204,24 +203,25 @@ public class SessionCyclesService implements
 
     /**
      * Manual duplication, not the recording fan-out - works regardless of RECORDING/PAUSED.
-     * "Already present" is judged by content (timestamp+method+originalUrl, same identity the
-     * frontend's callKey() uses), not by CapturedCall id, since a call copied in has no
-     * relationship to any id it might already have elsewhere. Skips within the same batch too,
-     * so copying a selection containing the same call twice doesn't add it twice either.
+     * "Already present" is judged by the underlying call's own id (every call gets one, assigned
+     * once in CallsService.receiveNewCall and preserved everywhere it's stored/copied), not by
+     * content (timestamp+method+originalUrl) - two genuinely different calls can legitimately
+     * share the same timestamp/method/URL (e.g. two requests in the same millisecond), and content
+     * matching would wrongly skip one of them as a "duplicate". Skips within the same batch too, so
+     * copying a selection containing the same call twice doesn't add it twice either.
      */
     @Override
     public Optional<CopyCallsResult> copyInto(String cycleId, List<CallRecord> calls) {
         return metadataStore.findById(cycleId).map(cycle -> {
-            Set<String> existingKeys = new HashSet<>();
+            Set<String> existingIds = new HashSet<>();
             for (CapturedCall captured : capturedCallsStore.findAllByCycle(cycleId)) {
-                existingKeys.add(contentKey(captured.call()));
+                existingIds.add(captured.call().id());
             }
 
             int added = 0;
             int skipped = 0;
             for (CallRecord call : calls) {
-                String key = contentKey(call);
-                if (!existingKeys.add(key)) {
+                if (!existingIds.add(call.id())) {
                     skipped++;
                     continue;
                 }
@@ -230,9 +230,5 @@ public class SessionCyclesService implements
             }
             return new CopyCallsResult(added, skipped);
         });
-    }
-
-    private static String contentKey(CallRecord call) {
-        return Objects.toString(call.timestamp(), "") + "|" + Objects.toString(call.method(), "") + "|" + Objects.toString(call.originalUrl(), "");
     }
 }

@@ -296,6 +296,10 @@ class SessionCyclesServiceTest {
         return new CallRecord("id-" + timestamp, "https://a.com-proxy/x", "https://a.com/x", "GET", null, timestamp, 1.0, null, null);
     }
 
+    private static CallRecord callWithId(String id, String timestamp) {
+        return new CallRecord(id, "https://a.com-proxy/x", "https://a.com/x", "GET", null, timestamp, 1.0, null, null);
+    }
+
     private static CapturedCall captured(CallRecord call) {
         return new CapturedCall("captured-" + call.timestamp(), "2026-01-01T00:00:00Z", call);
     }
@@ -323,12 +327,16 @@ class SessionCyclesServiceTest {
     }
 
     @Test
-    void copyIntoSkipsCallsAlreadyPresentByContent() {
-        CallRecord existingContent = call("t1");
+    void copyIntoSkipsCallsAlreadyPresentByCallId() {
+        CallRecord existing = callWithId("shared-id", "t1");
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(existingContent)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(existing)));
 
-        CallRecord duplicate = call("t1");
+        // Same id as the already-captured call, but a different timestamp - still the same call
+        // (e.g. re-selected after its timestamp was reformatted upstream), and must still be
+        // recognized as a duplicate. This is the actual bug this dedup-by-id switch fixes: content
+        // (timestamp+method+originalUrl) matching missed this, id matching doesn't.
+        CallRecord duplicate = callWithId("shared-id", "t1-reformatted");
         CallRecord fresh = call("t2");
         Optional<CopyCallsResult> result = service.copyInto("c1", List.of(duplicate, fresh));
 
@@ -338,13 +346,30 @@ class SessionCyclesServiceTest {
     }
 
     @Test
+    void copyIntoDoesNotSkipDifferentCallsThatShareTheSameContent() {
+        // Two distinct calls (different ids) that happen to share timestamp+method+originalUrl -
+        // e.g. two separate requests to the same URL in the same millisecond. Content-based
+        // matching used to wrongly treat these as duplicates; id-based matching must not.
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+
+        CallRecord a = callWithId("id-a", "t1");
+        CallRecord b = callWithId("id-b", "t1");
+        Optional<CopyCallsResult> result = service.copyInto("c1", List.of(a, b));
+
+        assertThat(result).contains(new CopyCallsResult(2, 0));
+        verify(capturedCallsStore).append("c1", a);
+        verify(capturedCallsStore).append("c1", b);
+    }
+
+    @Test
     void copyIntoSkipsDuplicatesWithinTheSameBatchToo() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
 
         CallRecord a = call("t1");
-        CallRecord sameContent = call("t1");
-        Optional<CopyCallsResult> result = service.copyInto("c1", List.of(a, sameContent));
+        CallRecord sameId = call("t1");
+        Optional<CopyCallsResult> result = service.copyInto("c1", List.of(a, sameId));
 
         assertThat(result).contains(new CopyCallsResult(1, 1));
         verify(capturedCallsStore, org.mockito.Mockito.times(1)).append(eq("c1"), any());
