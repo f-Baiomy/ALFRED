@@ -2329,3 +2329,128 @@ mark.hl.active {
   display: flex;
   gap: 0.4rem;
 }
+
+.db-status-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin: 1rem 0 1.5rem;
+}
+
+.db-metric-grid {
+  flex: 1;
+  min-width: 260px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.db-metric-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.db-metric-label {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.db-metric-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+
+  &.ok {
+    color: var(--green);
+  }
+  &.warn {
+    color: var(--amber);
+  }
+  &.err {
+    color: var(--red);
+  }
+}
+
+.status-donut {
+  flex-shrink: 0;
+}
+
+.donut-seg {
+  &.ok {
+    stroke: var(--green);
+  }
+  &.warn {
+    stroke: var(--amber);
+  }
+  &.err {
+    stroke: var(--red);
+  }
+}
+
+.db-section-title {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.db-file-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-top: 0.5rem;
+
+  th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 600;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  td:last-child,
+  th:last-child,
+  td:nth-child(2),
+  th:nth-child(2) {
+    text-align: right;
+  }
+}
+
+.danger-zone {
+  margin-top: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.danger-zone-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+
+  &:not(:first-child) {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+  }
+}
+
+.danger-zone-title {
+  font-size: 0.9rem;
+  color: var(--text);
+  margin: 0 0 0.15rem;
+}

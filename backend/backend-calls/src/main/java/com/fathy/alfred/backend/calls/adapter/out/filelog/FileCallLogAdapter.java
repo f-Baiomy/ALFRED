@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.adapter.out.filelog;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -222,6 +223,45 @@ public class FileCallLogAdapter implements CallLogPort {
     @Override
     public Optional<CallRecord> findById(String id) {
         return readAll().stream().filter(call -> id.equals(call.id())).findFirst();
+    }
+
+    @Override
+    public synchronized long storageSizeBytes() {
+        try {
+            return Files.size(Path.of(recentCallsFile));
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
+    /** Loads the whole (ring-buffer-capped) list to count buckets - fine at this adapter's scale (see class doc), unlike the SQLite adapter which pushes this into a single grouped query. */
+    @Override
+    public synchronized CallStatusBreakdown statusBreakdown() {
+        long ok = 0, clientError = 0, serverError = 0;
+        List<CallRecord> calls = readAll();
+        for (CallRecord call : calls) {
+            boolean hasError = call.error() != null && !call.error().isBlank();
+            Integer status = call.response() != null ? call.response().status() : null;
+            if (hasError || (status != null && status >= 500)) {
+                serverError++;
+            } else if (status != null && status >= 400) {
+                clientError++;
+            } else if (status != null && status >= 200) {
+                ok++;
+            }
+        }
+        return new CallStatusBreakdown(calls.size(), ok, clientError, serverError);
+    }
+
+    @Override
+    public synchronized void deleteAll() {
+        Path path = Path.of(recentCallsFile);
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException e) {
+            log.error("Failed to delete {}: {}", recentCallsFile, e.getMessage());
+        }
+        invalidateCache();
     }
 
     private static CallRecord withGeneratedId(CallRecord call) {

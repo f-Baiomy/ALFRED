@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
@@ -369,6 +370,38 @@ public class SqliteCallsRepository {
     public int count() {
         Integer result = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM calls", Integer.class);
         return result == null ? 0 : result;
+    }
+
+    /** Bytes currently on disk for calls.db - drives the Database settings tab's file-size table. Returns 0 if the file doesn't exist yet rather than throwing. */
+    public long storageSizeBytes() {
+        try {
+            return Files.size(Path.of(dbFile));
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
+    /** Single grouped-count query rather than one query per bucket - error takes priority over status (mirrors statusRank's own precedence), then the usual HTTP status class ranges. */
+    public CallStatusBreakdown statusBreakdown() {
+        return jdbcTemplate.queryForObject("""
+                SELECT
+                  COUNT(*) AS total,
+                  SUM(CASE WHEN (error IS NULL OR error = '') AND status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS ok,
+                  SUM(CASE WHEN (error IS NULL OR error = '') AND status BETWEEN 400 AND 499 THEN 1 ELSE 0 END) AS client_error,
+                  SUM(CASE WHEN (error IS NOT NULL AND error != '') OR status >= 500 THEN 1 ELSE 0 END) AS server_error
+                FROM calls
+                """, (rs, rowNum) -> new CallStatusBreakdown(
+                rs.getLong("total"), rs.getLong("ok"), rs.getLong("client_error"), rs.getLong("server_error")));
+    }
+
+    /** Permanently deletes every call - the calls_fts external-content triggers keep the FTS index in sync automatically. Runs a best-effort VACUUM afterward so the freed pages are actually reclaimed on disk rather than left as free space inside an unchanged-size file. */
+    public void deleteAll() {
+        jdbcTemplate.update("DELETE FROM calls");
+        try {
+            jdbcTemplate.execute("VACUUM");
+        } catch (Exception e) {
+            log.warn("VACUUM after clearing calls.db failed (non-fatal): {}", e.getMessage());
+        }
     }
 
     public Optional<CallRecord> findById(String id) {

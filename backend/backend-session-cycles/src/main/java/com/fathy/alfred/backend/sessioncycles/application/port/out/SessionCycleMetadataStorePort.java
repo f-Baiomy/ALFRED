@@ -17,4 +17,7 @@ public interface SessionCycleMetadataStorePort {
 
     /** @return true if a cycle with this id existed and was deleted. */
     boolean deleteById(String id);
+
+    /** Permanently deletes every session cycle - the Database settings tab's "Clear cycles" action (paired with CapturedCallsStorePort.deleteAll()). */
+    void deleteAll();
 }

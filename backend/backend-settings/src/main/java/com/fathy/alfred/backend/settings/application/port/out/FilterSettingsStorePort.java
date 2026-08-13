@@ -9,4 +9,7 @@ public interface FilterSettingsStorePort {
     CallFilterSettings load();
 
     CallFilterSettings save(CallFilterSettings settings);
+
+    /** Bytes currently occupied on disk by this adapter's storage - drives the Database settings tab's file-size table. */
+    long storageSizeBytes();
 }

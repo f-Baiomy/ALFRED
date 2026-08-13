@@ -8,4 +8,7 @@ import java.util.List;
 public interface CallNotificationPort {
 
     void notifyNewCall(CallRecord call, List<String> capturedByCycleIds);
+
+    /** Fired after every logged call is deleted at once (the Database settings tab's "Clear calls" action) - no payload, callers just refetch GET /calls, same as SessionCycleNotificationPort.notifySessionCyclesChanged(). */
+    void notifyCallsCleared();
 }

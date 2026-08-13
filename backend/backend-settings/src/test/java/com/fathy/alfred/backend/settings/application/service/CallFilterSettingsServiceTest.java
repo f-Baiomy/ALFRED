@@ -26,6 +26,11 @@ class CallFilterSettingsServiceTest {
             this.settings = settings;
             return settings;
         }
+
+        @Override
+        public long storageSizeBytes() {
+            return 0L;
+        }
     }
 
     private final FakeStore store = new FakeStore();

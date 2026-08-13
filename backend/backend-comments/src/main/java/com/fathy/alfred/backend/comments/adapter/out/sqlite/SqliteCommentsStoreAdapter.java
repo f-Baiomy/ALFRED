@@ -74,4 +74,9 @@ public class SqliteCommentsStoreAdapter implements CommentsStorePort {
     public void replaceAll(List<Comment> comments) {
         repository.replaceAll(comments);
     }
+
+    @Override
+    public long storageSizeBytes() {
+        return repository.storageSizeBytes();
+    }
 }

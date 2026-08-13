@@ -147,6 +147,72 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
         return findAllByCycle(cycleId).stream().filter(c -> callId.equals(c.call().id())).findFirst();
     }
 
+    /** Sums every per-cycle captured-calls file under sessionCyclesDir - there's no single shared file to stat the way SqliteSessionCyclesRepository has one .db. */
+    @Override
+    public synchronized long storageSizeBytes() {
+        Path dir = Path.of(sessionCyclesDir);
+        if (!Files.isDirectory(dir)) {
+            return 0L;
+        }
+        try (var paths = Files.list(dir)) {
+            return paths.filter(p -> p.getFileName().toString().endsWith(".json"))
+                    .mapToLong(this::sizeOrZero)
+                    .sum();
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
+    private long sizeOrZero(Path path) {
+        try {
+            return Files.size(path);
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
+    /** Sums each cycle file's captured-call count - reuses readAll() (and its cache) per cycle rather than a separate counting code path. */
+    @Override
+    public synchronized long countAll() {
+        Path dir = Path.of(sessionCyclesDir);
+        if (!Files.isDirectory(dir)) {
+            return 0L;
+        }
+        try (var paths = Files.list(dir)) {
+            return paths.filter(p -> p.getFileName().toString().endsWith(".json"))
+                    .mapToLong(p -> {
+                        String fileName = p.getFileName().toString();
+                        String cycleId = fileName.substring(0, fileName.length() - ".json".length());
+                        return readAll(cycleId).size();
+                    })
+                    .sum();
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
+    /** Deletes every cycle's captured-calls file - the Database settings tab's "Clear cycles" action. */
+    @Override
+    public synchronized void deleteAll() {
+        Path dir = Path.of(sessionCyclesDir);
+        if (!Files.isDirectory(dir)) {
+            cacheByCycle.clear();
+            return;
+        }
+        try (var paths = Files.list(dir)) {
+            paths.filter(p -> p.getFileName().toString().endsWith(".json")).forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    log.error("Failed to delete captured-calls file {}: {}", p, e.getMessage());
+                }
+            });
+        } catch (IOException e) {
+            log.error("Failed to list session-cycles directory {} while clearing: {}", dir, e.getMessage());
+        }
+        cacheByCycle.clear();
+    }
+
     private Path fileFor(String cycleId) {
         return Path.of(sessionCyclesDir, cycleId + ".json");
     }

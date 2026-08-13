@@ -92,6 +92,11 @@ public class JsonFileSessionCycleMetadataStoreAdapter implements SessionCycleMet
         return removed;
     }
 
+    @Override
+    public synchronized void deleteAll() {
+        writeAll(new ArrayList<>());
+    }
+
     /** Returns a fresh mutable copy - save/deleteById mutate what they get back, and the cached snapshot itself must stay immutable. */
     private List<SessionCycle> readAll() {
         Path path = Path.of(sessionCyclesFile);

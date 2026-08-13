@@ -17,4 +17,7 @@ public interface ProfileStorePort {
 
     /** @return true if a profile with this id existed and was deleted. */
     boolean deleteById(String id);
+
+    /** Bytes currently occupied on disk by this adapter's storage - drives the Database settings tab's file-size table. */
+    long storageSizeBytes();
 }

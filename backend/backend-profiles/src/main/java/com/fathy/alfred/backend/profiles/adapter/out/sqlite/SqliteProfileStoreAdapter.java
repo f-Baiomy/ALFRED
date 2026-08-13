@@ -75,4 +75,9 @@ public class SqliteProfileStoreAdapter implements ProfileStorePort {
     public boolean deleteById(String id) {
         return repository.deleteById(id);
     }
+
+    @Override
+    public long storageSizeBytes() {
+        return repository.storageSizeBytes();
+    }
 }

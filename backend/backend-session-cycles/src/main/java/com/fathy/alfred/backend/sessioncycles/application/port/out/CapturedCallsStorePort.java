@@ -34,4 +34,13 @@ public interface CapturedCallsStorePort {
 
     /** Looks up a captured call by the underlying CallRecord's id (not the CapturedCall wrapper's own id) - what GET /session-cycles/{id}/calls/{callId}/detail keys on. */
     Optional<CapturedCall> findByCallId(String cycleId, String callId);
+
+    /** Bytes currently occupied on disk by this adapter's storage - drives the Database settings tab's file-size table. */
+    long storageSizeBytes();
+
+    /** Total captured calls across every cycle - drives the Database settings tab's row-count column. */
+    long countAll();
+
+    /** Permanently deletes every captured call across every cycle - the Database settings tab's "Clear cycles" action (paired with SessionCycleMetadataStorePort.deleteAll()). */
+    void deleteAll();
 }

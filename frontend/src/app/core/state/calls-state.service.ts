@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { webSocket } from 'rxjs/webSocket';
 import { Observable, retry, timer } from 'rxjs';
-import { CallDetail, CallEvent, CallRecord, SortMode } from '../models/call.model';
+import { CallDetail, CallRecord, CallsWsMessage, SortMode } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
 import { PinService } from '../services/pin.service';
 import { AppConfigService } from '../services/app-config.service';
@@ -61,10 +61,15 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    */
   private connectLiveUpdates(): void {
     const wsUrl = this.config.backendUrl.replace(/^http/, 'ws') + '/ws/calls';
-    webSocket<CallEvent>(wsUrl)
+    webSocket<CallsWsMessage>(wsUrl)
       .pipe(retry({ delay: () => timer(3000) }))
-      .subscribe(({ call: summary }) => {
-        const call = toCallRecord(summary);
+      .subscribe((message) => {
+        if (!('call' in message)) {
+          this.liveCalls.set([]);
+          this.view.refresh();
+          return;
+        }
+        const call = toCallRecord(message.call);
         const key = callKey(call);
         this.liveCalls.set([call, ...this.liveCalls().filter((c) => callKey(c) !== key)]);
         this.view.refresh();

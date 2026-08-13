@@ -63,4 +63,9 @@ public class SqliteFilterSettingsStoreAdapter implements FilterSettingsStorePort
     public CallFilterSettings save(CallFilterSettings settings) {
         return repository.save(settings);
     }
+
+    @Override
+    public long storageSizeBytes() {
+        return repository.storageSizeBytes();
+    }
 }

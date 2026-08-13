@@ -244,6 +244,30 @@ public class SqliteSessionCyclesRepository {
         return result == null ? 0 : result;
     }
 
+    /** Bytes currently on disk for session-cycles.db - drives the Database settings tab's file-size table. Returns 0 if the file doesn't exist yet rather than throwing. */
+    public long storageSizeBytes() {
+        try {
+            return Files.size(Path.of(dbFile));
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
+    /** Deletes every session cycle - the Database settings tab's "Clear cycles" action deletes cycles and captured calls together (see deleteAllCapturedCalls()). */
+    public void deleteAllCycles() {
+        jdbcTemplate.update("DELETE FROM session_cycles");
+    }
+
+    /** Deletes every captured call across every cycle. captured_calls_fts stays in sync via its external-content triggers. */
+    public void deleteAllCapturedCalls() {
+        jdbcTemplate.update("DELETE FROM captured_calls");
+        try {
+            jdbcTemplate.execute("VACUUM");
+        } catch (Exception e) {
+            log.warn("VACUUM after clearing session-cycles.db failed (non-fatal): {}", e.getMessage());
+        }
+    }
+
     // ---------- captured_calls ----------
 
     public List<CapturedCall> findAllByCycle(String cycleId) {
@@ -332,6 +356,11 @@ public class SqliteSessionCyclesRepository {
     public Optional<CapturedCall> findByCallId(String cycleId, String callId) {
         return jdbcTemplate.query("SELECT * FROM captured_calls WHERE cycle_id = ? AND call_id = ?", CAPTURED_ROW_MAPPER, cycleId, callId)
                 .stream().findFirst();
+    }
+
+    public int capturedCallsCountAll() {
+        Integer result = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM captured_calls", Integer.class);
+        return result == null ? 0 : result;
     }
 
     public boolean cycleHasAnyCapturedCalls(String cycleId) {

@@ -69,6 +69,15 @@ public class JsonFileFilterSettingsStoreAdapter implements FilterSettingsStorePo
         return settings;
     }
 
+    @Override
+    public synchronized long storageSizeBytes() {
+        try {
+            return Files.size(Path.of(filterSettingsFile));
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
     private CallFilterSettings readSettings() {
         Path path = Path.of(filterSettingsFile);
         if (!Files.exists(path)) {

@@ -42,4 +42,9 @@ public class SqliteSessionCycleMetadataStoreAdapter implements SessionCycleMetad
     public boolean deleteById(String id) {
         return repository.deleteCycleById(id);
     }
+
+    @Override
+    public void deleteAll() {
+        repository.deleteAllCycles();
+    }
 }

@@ -94,6 +94,15 @@ public class JsonFileCommentsStoreAdapter implements CommentsStorePort {
         writeAll(new ArrayList<>(comments));
     }
 
+    @Override
+    public synchronized long storageSizeBytes() {
+        try {
+            return Files.size(Path.of(commentsFile));
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
     /** Returns a fresh mutable copy - save/deleteById mutate what they get back, and the cached snapshot itself must stay immutable. */
     private List<Comment> readAll() {
         Path path = Path.of(commentsFile);

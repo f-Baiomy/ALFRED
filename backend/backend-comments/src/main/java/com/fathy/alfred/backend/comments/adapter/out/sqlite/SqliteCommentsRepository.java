@@ -112,6 +112,15 @@ public class SqliteCommentsRepository {
         return result == null ? 0 : result;
     }
 
+    /** Bytes currently on disk for comments.db - drives the Database settings tab's file-size table. Returns 0 if the file doesn't exist yet rather than throwing. */
+    public long storageSizeBytes() {
+        try {
+            return Files.size(Path.of(dbFile));
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
     private static final RowMapper<Comment> ROW_MAPPER = (rs, rowNum) -> new Comment(
             rs.getString("id"), rs.getString("call_id"), rs.getString("block"), rs.getInt("line_index"),
             rs.getString("line_text"), rs.getString("comment"), rs.getString("created_at"));

@@ -84,6 +84,15 @@ public class JsonFileProfileStoreAdapter implements ProfileStorePort {
         return removed;
     }
 
+    @Override
+    public synchronized long storageSizeBytes() {
+        try {
+            return Files.size(Path.of(profilesFile));
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
     private List<Profile> readAll() {
         Path path = Path.of(profilesFile);
         if (!Files.exists(path)) {

@@ -61,6 +61,13 @@ export interface CallEvent {
   readonly capturedByCycleIds: readonly string[];
 }
 
+/** The other /ws/calls broadcast shape - sent once after the Database settings tab's "Clear calls" action, no payload beyond the discriminator. */
+export interface CallsClearedEvent {
+  readonly type: 'calls-cleared';
+}
+
+export type CallsWsMessage = CallEvent | CallsClearedEvent;
+
 export type SessionCycleStatus = 'RECORDING' | 'PAUSED';
 
 /** A named, recordable/pausable group of calls, as served by GET /session-cycles. assignedTo is a Profile's id (see profile.model.ts) - resolved to a display name via ProfilesStateService.labelFor, not shown raw. */

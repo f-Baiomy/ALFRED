@@ -16,4 +16,7 @@ public interface CommentsStorePort {
 
     /** Full overwrite - used by the one-time startup migration (backend-app) that remaps comments' callId from the legacy content-hash to a call's real id, not by any regular request-handling path. */
     void replaceAll(List<Comment> comments);
+
+    /** Bytes currently occupied on disk by this adapter's storage - drives the Database settings tab's file-size table. */
+    long storageSizeBytes();
 }

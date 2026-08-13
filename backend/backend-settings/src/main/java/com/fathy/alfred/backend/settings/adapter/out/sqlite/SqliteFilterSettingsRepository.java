@@ -114,6 +114,15 @@ public class SqliteFilterSettingsRepository {
         return (modeCount != null && modeCount > 0) || (whitelistCount != null && whitelistCount > 0) || (blacklistCount != null && blacklistCount > 0);
     }
 
+    /** Bytes currently on disk for settings.db - drives the Database settings tab's file-size table. Returns 0 if the file doesn't exist yet rather than throwing. */
+    public long storageSizeBytes() {
+        try {
+            return Files.size(Path.of(dbFile));
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
     private static final RowMapper<UrlRule> RULE_ROW_MAPPER = (rs, rowNum) -> new UrlRule(
             rs.getString("id"), rs.getString("host"), rs.getInt("enabled") != 0);
 }

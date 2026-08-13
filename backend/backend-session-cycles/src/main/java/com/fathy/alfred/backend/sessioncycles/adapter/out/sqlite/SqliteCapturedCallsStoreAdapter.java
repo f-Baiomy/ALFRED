@@ -60,4 +60,19 @@ public class SqliteCapturedCallsStoreAdapter implements CapturedCallsStorePort {
     public Optional<CapturedCall> findByCallId(String cycleId, String callId) {
         return repository.findByCallId(cycleId, callId);
     }
+
+    @Override
+    public long storageSizeBytes() {
+        return repository.storageSizeBytes();
+    }
+
+    @Override
+    public void deleteAll() {
+        repository.deleteAllCapturedCalls();
+    }
+
+    @Override
+    public long countAll() {
+        return repository.capturedCallsCountAll();
+    }
 }

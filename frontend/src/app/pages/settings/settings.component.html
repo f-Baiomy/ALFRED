@@ -6,12 +6,117 @@
 
   <div class="settings-shell">
     <nav class="settings-nav">
-      <button type="button" class="settings-nav-item" [class.active]="activePartition() === 'call-filtering'">
+      <button
+        type="button"
+        class="settings-nav-item"
+        [class.active]="activePartition() === 'call-filtering'"
+        (click)="setActivePartition('call-filtering')"
+      >
         Call filtering
+      </button>
+      <button
+        type="button"
+        class="settings-nav-item"
+        [class.active]="activePartition() === 'database'"
+        (click)="setActivePartition('database')"
+      >
+        Database
       </button>
     </nav>
 
     <div class="settings-content">
+      @if (activePartition() === 'database') {
+        <section class="panel settings-panel">
+          <h3>Database</h3>
+          <p class="sub">Storage usage across every backend datastore, and destructive maintenance actions.</p>
+
+          @if (databaseStats.loading() && !databaseStats.stats()) {
+            <div class="empty">Loading...</div>
+          } @else {
+          @if (databaseStats.stats(); as stats) {
+            <div class="db-status-row">
+              <div class="db-metric-grid">
+                <div class="db-metric-card">
+                  <span class="db-metric-label">Total calls</span>
+                  <span class="db-metric-value">{{ stats.calls.total }}</span>
+                </div>
+                <div class="db-metric-card">
+                  <span class="db-metric-label">2xx / 3xx</span>
+                  <span class="db-metric-value ok">{{ stats.calls.ok }}</span>
+                </div>
+                <div class="db-metric-card">
+                  <span class="db-metric-label">4xx</span>
+                  <span class="db-metric-value warn">{{ stats.calls.clientError }}</span>
+                </div>
+                <div class="db-metric-card">
+                  <span class="db-metric-label">Errors / 5xx</span>
+                  <span class="db-metric-value err">{{ stats.calls.serverError }}</span>
+                </div>
+              </div>
+
+              <svg viewBox="0 0 100 100" class="status-donut" width="120" height="120">
+                <circle cx="50" cy="50" r="40" fill="none" stroke="var(--border)" stroke-width="14" />
+                @for (seg of donutSegments(); track seg.className) {
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke-width="14"
+                    transform="rotate(-90 50 50)"
+                    [class]="'donut-seg ' + seg.className"
+                    [attr.stroke-dasharray]="seg.dasharray"
+                    [attr.stroke-dashoffset]="seg.dashoffset"
+                  />
+                }
+              </svg>
+            </div>
+
+            <h4 class="db-section-title">Database files</h4>
+            <table class="db-file-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Rows</th>
+                  <th>Size on disk</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (file of stats.files; track file.name) {
+                  <tr>
+                    <td>{{ file.name }}</td>
+                    <td>{{ file.rows }}</td>
+                    <td>{{ formatBytes(file.sizeBytes) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+
+            <h4 class="db-section-title">Danger zone</h4>
+            <div class="danger-zone">
+              <div class="danger-zone-row">
+                <div>
+                  <p class="danger-zone-title">Clear all saved calls</p>
+                  <p class="sub">Deletes every row in calls.db. Cannot be undone.</p>
+                </div>
+                <button type="button" class="bulk-btn danger" [disabled]="clearingCalls()" (click)="clearAllCalls()">
+                  Clear calls
+                </button>
+              </div>
+              <div class="danger-zone-row">
+                <div>
+                  <p class="danger-zone-title">Clear all saved session cycles</p>
+                  <p class="sub">Deletes every cycle and its captured calls. Cannot be undone.</p>
+                </div>
+                <button type="button" class="bulk-btn danger" [disabled]="clearingCycles()" (click)="clearAllCycles()">
+                  Clear cycles
+                </button>
+              </div>
+            </div>
+          }
+          }
+        </section>
+      } @else {
       <section class="panel settings-panel">
         <h3>Call filtering</h3>
         <p class="sub">Decide which incoming calls from the proxy get logged.</p>
@@ -107,6 +212,9 @@
           }
         </div>
       </section>
+      }
     </div>
   </div>
 </main>
+
+<app-confirm-dialog />

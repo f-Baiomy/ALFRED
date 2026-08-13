@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.calls.application.port.out;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 
 import java.util.List;
@@ -29,4 +30,13 @@ public interface CallLogPort {
 
     /** A single call by id, or empty if no call with that id has ever been logged. */
     Optional<CallRecord> findById(String id);
+
+    /** Bytes currently occupied on disk by this adapter's storage - drives the Database settings tab's file-size table. */
+    long storageSizeBytes();
+
+    /** Counts of every logged call grouped into ok (2xx/3xx) / client error (4xx) / server error (5xx or a captured proxy error) - drives the Database settings tab's status donut. */
+    CallStatusBreakdown statusBreakdown();
+
+    /** Permanently deletes every logged call - the Database settings tab's "Clear calls" action. */
+    void deleteAll();
 }

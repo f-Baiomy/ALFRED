@@ -16,6 +16,8 @@ public class WebSocketCallNotificationAdapter implements CallNotificationPort {
 
     private static final Logger log = LoggerFactory.getLogger(WebSocketCallNotificationAdapter.class);
 
+    private static final String CALLS_CLEARED_EVENT = "{\"type\":\"calls-cleared\"}";
+
     private final CallEventsWebSocketHandler handler;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -30,5 +32,10 @@ public class WebSocketCallNotificationAdapter implements CallNotificationPort {
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize call event for WebSocket broadcast: {}", e.getMessage());
         }
+    }
+
+    @Override
+    public void notifyCallsCleared() {
+        handler.broadcast(CALLS_CLEARED_EVENT);
     }
 }

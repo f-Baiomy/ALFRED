@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -100,5 +101,20 @@ public class SqliteCallLogAdapter implements CallLogPort {
     @Override
     public Optional<CallRecord> findById(String id) {
         return repository.findById(id);
+    }
+
+    @Override
+    public long storageSizeBytes() {
+        return repository.storageSizeBytes();
+    }
+
+    @Override
+    public CallStatusBreakdown statusBreakdown() {
+        return repository.statusBreakdown();
+    }
+
+    @Override
+    public void deleteAll() {
+        repository.deleteAll();
     }
 }
