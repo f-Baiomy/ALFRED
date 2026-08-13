@@ -435,6 +435,21 @@ main {
     border-color: var(--purple);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--purple) 40%, transparent);
   }
+  &.in-progress {
+    animation: call-pulse 1.8s ease-out infinite;
+  }
+}
+
+@keyframes call-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--purple) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 0%, transparent);
+  }
 }
 
 // The hit area is deliberately much bigger than the visible checkbox
