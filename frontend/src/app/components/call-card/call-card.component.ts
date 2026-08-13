@@ -4,6 +4,7 @@ import { CallDetail, CallRecord } from '../../core/models/call.model';
 import {
   callKey,
   durationClass as durationClassOf,
+  isInProgress,
   methodClass as methodClassOf,
   statusClass as statusClassOf,
 } from '../../shared/utils/call-utils';
@@ -55,6 +56,7 @@ export class CallCardComponent {
   readonly methodClass = computed(() => methodClassOf(this.call().method));
   readonly statusClass = computed(() => statusClassOf(this.call().response?.status ?? null));
   readonly durationClass = computed(() => durationClassOf(this.call().duration_ms));
+  readonly inProgress = computed(() => isInProgress(this.call()));
   readonly formattedTime = computed(() => {
     const ts = this.call().timestamp;
     return ts ? new Date(ts).toLocaleString() : '';
@@ -110,6 +112,29 @@ export class CallCardComponent {
           // if re-expanded), it just hides it - only a still-pending/loading card resets.
           this.detailState.set('collapsed');
         }
+      },
+      { allowSignalWrites: true }
+    );
+
+    // If this card is expanded while its call is still IN_PROGRESS, the fetched detail has no
+    // response yet - the live WebSocket push that later completes the call replaces call() with
+    // a new object (see calls-state.service.ts), but this component's own cached `detail` signal
+    // is never told to refetch, so the response panel would otherwise stay stuck at "no response
+    // yet" forever until a hard page refresh re-fetches everything from scratch (confirmed live).
+    let wasInProgress = false;
+    effect(
+      () => {
+        const inProgressNow = this.call().state === 'IN_PROGRESS';
+        if (inProgressNow) {
+          wasInProgress = true;
+          return;
+        }
+        if (wasInProgress && this.detailState() === 'loaded') {
+          this.detail.set(null);
+          this.detailState.set('pending');
+          this.maybeLoadDetail();
+        }
+        wasInProgress = false;
       },
       { allowSignalWrites: true }
     );
