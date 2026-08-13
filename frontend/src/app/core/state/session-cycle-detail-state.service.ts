@@ -9,7 +9,7 @@ import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, createCallListView } from './call-list-view';
-import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils';
+import { callKey, toCallRecord } from '../../shared/utils/call-utils';
 
 /**
  * Per-open-cycle state for the session-cycle detail page - component-provided (see
@@ -345,12 +345,19 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   // ---- BulkSelectionState ----
 
-  /** In current-sort-order, not capture/insertion order - matches CallsStateService.selectedCalls
-   * (dashboard). Scoped to what's currently loaded - see call-list-view.ts's doc comment. */
+  /**
+   * In the exact order the list is actually rendered on screen - matches
+   * CallsStateService.selectedCalls (dashboard). Pinned calls first, then either the
+   * grouped-by-supplier view or the flat sorted list (which already applies customOrder itself
+   * when sortMode is 'custom' - see mainListCalls in call-list-view.ts), whichever
+   * CallListComponent is currently showing. Scoped to what's currently loaded - see
+   * call-list-view.ts's doc comment.
+   */
   selectedCalls(): readonly CallRecord[] {
     const ids = this.selectedIds();
     if (ids.size === 0) return [];
-    return sortCalls(this.view.matchingCalls(), this.view.sortMode(), this.customOrder()).filter((call) => ids.has(callKey(call)));
+    const displayOrder = this.view.groupBySupplier() ? this.view.groupedCalls().flatMap((g) => g.calls) : this.view.mainListCalls();
+    return [...this.pinService.pinned().values(), ...displayOrder].filter((call) => ids.has(callKey(call)));
   }
 
   selectAll(): void {

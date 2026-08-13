@@ -5,7 +5,7 @@ import { CallDetail, CallRecord, CallsWsMessage, SortMode } from '../models/call
 import { CallsApiService } from '../services/calls-api.service';
 import { PinService } from '../services/pin.service';
 import { AppConfigService } from '../services/app-config.service';
-import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils';
+import { callKey, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, createCallListView } from './call-list-view';
 
@@ -176,11 +176,20 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     return this.api.getDetail(callId);
   }
 
-  /** In current-sort-order, not click order - deterministic regardless of which one you happened to check first. Scoped to what's currently loaded - see call-list-view.ts's doc comment. */
+  /**
+   * In the exact order the list is actually rendered on screen - pinned calls first (their own
+   * always-visible section, per PinService's order), then either the grouped-by-supplier view
+   * (biggest group first) or the flat sorted list, whichever CallListComponent is currently
+   * showing. Exports (bulk report/JSON/cURL) read this directly, so a plain flat re-sort here
+   * used to silently disagree with the screen whenever a selected call was pinned or "Group by
+   * supplier" was on - see mainListCalls/groupedCalls in call-list-view.ts for how each is built.
+   * Scoped to what's currently loaded - see call-list-view.ts's doc comment.
+   */
   readonly selectedCalls = computed(() => {
     const ids = this.selectedIds();
     if (ids.size === 0) return [];
-    return sortCalls(this.view.matchingCalls(), this.view.sortMode()).filter((c) => ids.has(callKey(c)));
+    const displayOrder = this.view.groupBySupplier() ? this.view.groupedCalls().flatMap((g) => g.calls) : this.view.mainListCalls();
+    return [...this.pinService.pinned().values(), ...displayOrder].filter((c) => ids.has(callKey(c)));
   });
 
   /** Whether a drag-select is in progress, and which state (select/deselect) it's painting - set by the card the drag started on, applied to every card the pointer subsequently enters. */

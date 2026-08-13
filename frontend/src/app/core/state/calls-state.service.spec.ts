@@ -160,4 +160,37 @@ describe('CallsStateService', () => {
     expect(state.mainListCalls()).toEqual([other]);
     discardPeriodicTasks();
   }));
+
+  it('orders selectedCalls with pinned calls first, matching how the list actually renders, regardless of selection click order', fakeAsync(() => {
+    const pinned = makeCall({ timestamp: 't1' });
+    const a = makeCall({ timestamp: 't2' });
+    const b = makeCall({ timestamp: 't3' });
+    localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify([pinned]));
+    const { state } = setup([pinned, a, b]);
+    tick();
+
+    // Selected out of display order on purpose - selectedCalls must not reflect click order.
+    state.toggleSelected(b);
+    state.toggleSelected(pinned);
+    state.toggleSelected(a);
+
+    expect(state.selectedCalls()).toEqual([pinned, a, b]);
+    discardPeriodicTasks();
+  }));
+
+  it('orders selectedCalls by supplier group (busiest first) when Group by supplier is on, not the flat sort order', fakeAsync(() => {
+    const a1 = makeCall({ url: 'https://a.example/1', timestamp: 't1' });
+    const a2 = makeCall({ url: 'https://a.example/2', timestamp: 't2' });
+    const b1 = makeCall({ url: 'https://b.example/1', timestamp: 't3' });
+    const { state } = setup([b1, a1, a2]);
+    tick();
+
+    state.toggleGroupBySupplier();
+    state.toggleSelected(b1);
+    state.toggleSelected(a1);
+    state.toggleSelected(a2);
+
+    expect(state.selectedCalls()).toEqual([a1, a2, b1]);
+    discardPeriodicTasks();
+  }));
 });
