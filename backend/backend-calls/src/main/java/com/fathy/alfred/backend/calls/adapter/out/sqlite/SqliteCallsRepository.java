@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -131,7 +130,9 @@ public class SqliteCallsRepository {
         // calls.db, so concurrent webhook calls never contend for SQLite's single write lock with
         // each other, and a burst that arrives while a commit is in flight gets folded into the
         // next transaction instead of each paying for its own commit. See BatchWriter's own doc.
-        this.batchWriter = new BatchWriter<>("calls-sqlite-writer", dataSource, this::insertBatch);
+        // Queue capacity of 1000 comfortably exceeds Tomcat's default max worker threads (200) -
+        // see BatchWriter's queueCapacity doc for why that's the number that actually matters.
+        this.batchWriter = new BatchWriter<>("calls-sqlite-writer", dataSource, INSERT_SQL, this::bindCall, 1000);
     }
 
     /** FTS5 with the trigram tokenizer mirrors CallListSupport.matchesSearch's `.contains(query)` substring semantics far more closely than the default whole-token tokenizer. Falls back to a plain `LIKE` scan over the haystack column if this SQLite build lacks FTS5/trigram, rather than failing startup. */
@@ -201,40 +202,34 @@ public class SqliteCallsRepository {
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
-    /** Runs on BatchWriter's single dedicated thread - executes every call in the batch as one JDBC batch, committed once by the caller. */
-    private void insertBatch(Connection connection, List<CallRecord> batch) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(INSERT_SQL)) {
-            for (CallRecord call : batch) {
-                String haystack = buildHaystack(call);
-                Integer status = call.response() != null ? call.response().status() : null;
-                ps.setString(1, call.id());
-                ps.setString(2, call.originalUrl());
-                ps.setString(3, call.url());
-                ps.setString(4, call.method());
-                ps.setString(5, call.timestamp());
-                ps.setLong(6, callTimeMillis(call));
-                if (call.durationMs() != null) {
-                    ps.setDouble(7, call.durationMs());
-                } else {
-                    ps.setNull(7, Types.DOUBLE);
-                }
-                if (status != null) {
-                    ps.setInt(8, status);
-                } else {
-                    ps.setNull(8, Types.INTEGER);
-                }
-                ps.setInt(9, statusRank(call));
-                ps.setString(10, CallListSupport.supplierOf(call));
-                ps.setString(11, call.error());
-                ps.setString(12, toJson(call.request() != null ? call.request().headers() : null));
-                ps.setString(13, call.request() != null ? call.request().body() : null);
-                ps.setString(14, toJson(call.response() != null ? call.response().headers() : null));
-                ps.setString(15, call.response() != null ? call.response().body() : null);
-                ps.setString(16, haystack);
-                ps.addBatch();
-            }
-            ps.executeBatch();
+    /** Binds one call's columns onto BatchWriter's persistent, reused PreparedStatement - runs on its single dedicated thread. */
+    private void bindCall(PreparedStatement ps, CallRecord call) throws SQLException {
+        String haystack = buildHaystack(call);
+        Integer status = call.response() != null ? call.response().status() : null;
+        ps.setString(1, call.id());
+        ps.setString(2, call.originalUrl());
+        ps.setString(3, call.url());
+        ps.setString(4, call.method());
+        ps.setString(5, call.timestamp());
+        ps.setLong(6, callTimeMillis(call));
+        if (call.durationMs() != null) {
+            ps.setDouble(7, call.durationMs());
+        } else {
+            ps.setNull(7, Types.DOUBLE);
         }
+        if (status != null) {
+            ps.setInt(8, status);
+        } else {
+            ps.setNull(8, Types.INTEGER);
+        }
+        ps.setInt(9, statusRank(call));
+        ps.setString(10, CallListSupport.supplierOf(call));
+        ps.setString(11, call.error());
+        ps.setString(12, toJson(call.request() != null ? call.request().headers() : null));
+        ps.setString(13, call.request() != null ? call.request().body() : null);
+        ps.setString(14, toJson(call.response() != null ? call.response().headers() : null));
+        ps.setString(15, call.response() != null ? call.response().body() : null);
+        ps.setString(16, haystack);
     }
 
     /** Deletes the oldest rows (by the call's own timestamp) until the on-disk file is back under maxSizeBytes, then reclaims the freed pages - this is the actual "up to 100GB" mechanism. */

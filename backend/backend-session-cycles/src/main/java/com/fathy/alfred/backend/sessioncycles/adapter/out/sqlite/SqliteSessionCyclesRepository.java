@@ -26,7 +26,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -131,7 +130,7 @@ public class SqliteSessionCyclesRepository {
 
         // Group-commit writer for captured_calls - see SqliteCallsRepository's identical field for
         // why this eliminates cross-request lock contention on session-cycles.db.
-        this.batchWriter = new BatchWriter<>("session-cycles-sqlite-writer", dataSource, this::insertBatch);
+        this.batchWriter = new BatchWriter<>("session-cycles-sqlite-writer", dataSource, INSERT_SQL, this::bindCapturedCall, 1000);
     }
 
     private void initFts() {
@@ -234,46 +233,40 @@ public class SqliteSessionCyclesRepository {
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
-    /** Runs on BatchWriter's single dedicated thread - executes every pending captured call as one JDBC batch, committed once by the caller. */
-    private void insertBatch(Connection connection, List<PendingCapturedCall> batch) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(INSERT_SQL)) {
-            for (PendingCapturedCall pending : batch) {
-                String cycleId = pending.cycleId();
-                CapturedCall captured = pending.captured();
-                CallRecord call = captured.call();
-                String haystack = buildHaystack(call);
-                Integer status = call.response() != null ? call.response().status() : null;
-                ps.setString(1, captured.id());
-                ps.setString(2, cycleId);
-                ps.setString(3, captured.capturedAt());
-                ps.setString(4, call.id());
-                ps.setString(5, call.originalUrl());
-                ps.setString(6, call.url());
-                ps.setString(7, call.method());
-                ps.setString(8, call.timestamp());
-                ps.setLong(9, callTimeMillis(call));
-                if (call.durationMs() != null) {
-                    ps.setDouble(10, call.durationMs());
-                } else {
-                    ps.setNull(10, Types.DOUBLE);
-                }
-                if (status != null) {
-                    ps.setInt(11, status);
-                } else {
-                    ps.setNull(11, Types.INTEGER);
-                }
-                ps.setInt(12, statusRank(call));
-                ps.setString(13, CallListSupport.supplierOf(call));
-                ps.setString(14, call.error());
-                ps.setString(15, toJson(call.request() != null ? call.request().headers() : null));
-                ps.setString(16, call.request() != null ? call.request().body() : null);
-                ps.setString(17, toJson(call.response() != null ? call.response().headers() : null));
-                ps.setString(18, call.response() != null ? call.response().body() : null);
-                ps.setString(19, haystack);
-                ps.addBatch();
-            }
-            ps.executeBatch();
+    /** Binds one pending captured call's columns onto BatchWriter's persistent, reused PreparedStatement - runs on its single dedicated thread. */
+    private void bindCapturedCall(PreparedStatement ps, PendingCapturedCall pending) throws SQLException {
+        String cycleId = pending.cycleId();
+        CapturedCall captured = pending.captured();
+        CallRecord call = captured.call();
+        String haystack = buildHaystack(call);
+        Integer status = call.response() != null ? call.response().status() : null;
+        ps.setString(1, captured.id());
+        ps.setString(2, cycleId);
+        ps.setString(3, captured.capturedAt());
+        ps.setString(4, call.id());
+        ps.setString(5, call.originalUrl());
+        ps.setString(6, call.url());
+        ps.setString(7, call.method());
+        ps.setString(8, call.timestamp());
+        ps.setLong(9, callTimeMillis(call));
+        if (call.durationMs() != null) {
+            ps.setDouble(10, call.durationMs());
+        } else {
+            ps.setNull(10, Types.DOUBLE);
         }
+        if (status != null) {
+            ps.setInt(11, status);
+        } else {
+            ps.setNull(11, Types.INTEGER);
+        }
+        ps.setInt(12, statusRank(call));
+        ps.setString(13, CallListSupport.supplierOf(call));
+        ps.setString(14, call.error());
+        ps.setString(15, toJson(call.request() != null ? call.request().headers() : null));
+        ps.setString(16, call.request() != null ? call.request().body() : null);
+        ps.setString(17, toJson(call.response() != null ? call.response().headers() : null));
+        ps.setString(18, call.response() != null ? call.response().body() : null);
+        ps.setString(19, haystack);
     }
 
     public boolean removeById(String cycleId, String capturedCallId) {
