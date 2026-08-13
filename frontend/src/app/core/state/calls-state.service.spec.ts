@@ -56,11 +56,11 @@ describe('CallsStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('defaults to newest sort and a 10-item page on the first fetch', fakeAsync(() => {
+  it('defaults to newest sort and a 50-item page on the first fetch', fakeAsync(() => {
     const { queries } = setup([makeCall()]);
     tick();
 
-    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 10 });
+    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 50 });
     discardPeriodicTasks();
   }));
 

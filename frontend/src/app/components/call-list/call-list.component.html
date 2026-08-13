@@ -31,10 +31,20 @@
       }
     </div>
     @if (state.remainingCount() > 0) {
-      <button type="button" class="load-more-btn" (click)="loadMore()">
-        Load {{ state.loadMorePageSize < state.remainingCount() ? state.loadMorePageSize : state.remainingCount() }} more
-        (showing {{ state.visibleCalls().length }} of {{ state.visibleCalls().length + state.remainingCount() }})
-      </button>
+      @if (infiniteScroll()) {
+        <div #sentinel class="load-more-sentinel">
+          @if (state.loading()) {
+            <div class="spinner" aria-label="Loading more calls">
+              <span></span><span></span><span></span>
+            </div>
+          }
+        </div>
+      } @else {
+        <button type="button" class="load-more-btn" (click)="loadMore()">
+          Load {{ state.loadMorePageSize < state.remainingCount() ? state.loadMorePageSize : state.remainingCount() }} more
+          (showing {{ state.visibleCalls().length }} of {{ state.visibleCalls().length + state.remainingCount() }})
+        </button>
+      }
     } @else if (state.mainListCalls().length > state.loadMorePageSize) {
       <div class="all-shown-note">Showing all {{ state.mainListCalls().length }} matching calls</div>
     }

@@ -43,6 +43,7 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     this.view = createCallListView(
       computed(() => new Set(this.pinned().keys())),
       {
+        pageSize: 50,
         fetchPage: (query) => this.api.getCalls(query),
         liveCalls: this.liveCalls,
         onError: (message) => this.error.set(message),
