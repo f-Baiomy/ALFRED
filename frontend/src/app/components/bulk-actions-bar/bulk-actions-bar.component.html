@@ -23,6 +23,9 @@
         <button type="button" class="filter-option-item" [disabled]="jsonLoading()" (click)="exportAsJson()">
           {{ jsonLoading() ? 'Loading...' : 'Export as JSON' }}
         </button>
+        <button type="button" class="filter-option-item" [disabled]="postmanLoading()" (click)="exportAsPostman()">
+          {{ postmanLoading() ? 'Loading...' : 'Export as Postman Collection' }}
+        </button>
         <button type="button" class="filter-option-item" [disabled]="curlLoading()" (click)="exportAsCurl()">
           {{ curlLoading() ? 'Loading...' : 'Export as cURL' }}
         </button>

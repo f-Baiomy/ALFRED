@@ -53,7 +53,7 @@
         <textarea rows="3" [value]="description()" (input)="description.set($any($event.target).value)" placeholder="Any context worth noting..."></textarea>
       </label>
 
-      @if (!isJsonMode()) {
+      @if (!isRawExportMode()) {
         <fieldset class="dialog-radio-group">
           <legend>Format</legend>
           <label>

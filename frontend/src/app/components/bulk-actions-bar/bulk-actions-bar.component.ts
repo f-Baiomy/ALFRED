@@ -16,9 +16,9 @@ import { downloadText } from '../../shared/utils/download';
 /**
  * Sticky bar always present above the list so "Select all" is reachable
  * even before anything is selected; it grows to show export actions once
- * `selectedCalls().length > 0`. Every export action (report/JSON/cURL) is
+ * `selectedCalls().length > 0`. Every export action (report/JSON/Postman/cURL) is
  * grouped behind one "Export" menu (ActionMenuComponent) rather than one
- * toolbar button per format. Markdown/JSON export both go through the
+ * toolbar button per format. Markdown/JSON/Postman export all go through the
  * (now-generalized) export dialog so the user can review/edit metadata
  * first - pre-filled from the FIRST selected call in current list order,
  * same rule the user asked for; Markdown vs. HTML is chosen inside that
@@ -51,6 +51,7 @@ export class BulkActionsBarComponent {
   readonly curlLoading = signal(false);
   readonly mdLoading = signal(false);
   readonly jsonLoading = signal(false);
+  readonly postmanLoading = signal(false);
   readonly duplicateLoading = signal(false);
 
   selectAll(): void {
@@ -69,6 +70,10 @@ export class BulkActionsBarComponent {
 
   exportAsJson(): void {
     this.openDialog(this.jsonLoading, 'json');
+  }
+
+  exportAsPostman(): void {
+    this.openDialog(this.postmanLoading, 'postman');
   }
 
   exportAsCurl(): void {
@@ -108,7 +113,7 @@ export class BulkActionsBarComponent {
     this.removalState.removeMany(selected);
   }
 
-  private openDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'json' | 'html'): void {
+  private openDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'json' | 'html' | 'postman'): void {
     const selected = this.state.selectedCalls();
     if (selected.length === 0) return;
     loading.set(true);

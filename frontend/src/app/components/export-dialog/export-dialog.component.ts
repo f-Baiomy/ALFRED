@@ -4,6 +4,7 @@ import { Environment, ExportFormData } from '../../core/models/export-metadata.m
 import { buildExportMarkdown, buildBulkExportMarkdown, exportFilename, bulkExportFilename } from '../../shared/utils/markdown-builder';
 import { buildExportHtml, buildBulkExportHtml, exportHtmlFilename, bulkExportHtmlFilename } from '../../shared/utils/html-builder';
 import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
+import { buildBulkPostmanCollection, bulkPostmanFilename } from '../../shared/utils/postman-builder';
 import { buildDiscordReport } from '../../shared/utils/discord-report-builder';
 import { downloadText, downloadJson } from '../../shared/utils/download';
 import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
@@ -39,22 +40,24 @@ export class ExportDialogComponent {
 
   /** Which of Markdown/HTML is currently toggled in the dialog - independent of the format the
    * caller originally opened it with (state().format), which is now just the initial value; a
-   * 'json' open never shows this toggle at all (see isJsonMode below), so this only matters for
-   * the other two. */
+   * 'json'/'postman' open never shows this toggle at all (see isRawExportMode below), so this
+   * only matters for the other two. */
   readonly reportFormat = signal<ReportFormat>('markdown');
 
   readonly copyFeedback = signal(false);
   readonly discordCopyFeedback = signal(false);
 
-  private static readonly FORMAT_LABELS: Record<ExportFormat, string> = { markdown: 'Markdown', json: 'JSON', html: 'HTML' };
-  private static readonly FORMAT_EXTENSIONS: Record<ExportFormat, string> = { markdown: '.md', json: '.json', html: '.html' };
+  private static readonly FORMAT_LABELS: Record<ExportFormat, string> = { markdown: 'Markdown', json: 'JSON', html: 'HTML', postman: 'Postman Collection' };
+  private static readonly FORMAT_EXTENSIONS: Record<ExportFormat, string> = { markdown: '.md', json: '.json', html: '.html', postman: '.postman_collection.json' };
 
   readonly isBulk = computed(() => (this.state()?.calls.length ?? 0) > 1);
-  /** 'json' export (raw-data reprocessing, not a human-readable report) never offers the
-   * Markdown/HTML toggle - it's a fundamentally different export, not a third format of the same
-   * report. */
-  readonly isJsonMode = computed(() => this.state()?.format === 'json');
-  readonly effectiveFormat = computed<ExportFormat>(() => (this.isJsonMode() ? 'json' : this.reportFormat()));
+  /** 'json' and 'postman' exports (raw data/tooling formats, not a human-readable report) never
+   * offer the Markdown/HTML toggle - each is a fundamentally different export, not a third/fourth
+   * format of the same report. */
+  readonly isRawExportMode = computed(() => this.state()?.format === 'json' || this.state()?.format === 'postman');
+  readonly effectiveFormat = computed<ExportFormat>(() =>
+    this.isRawExportMode() ? this.state()!.format : this.reportFormat()
+  );
   readonly formatLabel = computed(() => ExportDialogComponent.FORMAT_LABELS[this.effectiveFormat()]);
   readonly formatExtension = computed(() => ExportDialogComponent.FORMAT_EXTENSIONS[this.effectiveFormat()]);
   readonly totalFlaggedCount = computed(() => {
@@ -109,10 +112,10 @@ export class ExportDialogComponent {
   /** Always copies Markdown, even when the dialog's toggle is currently on HTML - HTML export is
    * a self-contained downloadable document (its own search/copy/syntax-highlighting baked in via
    * <script>), not something worth pasting into a chat message or ticket; Markdown reads cleanly
-   * in both. 'json' export is a different case entirely (raw data, not a report) and keeps
-   * copying JSON as-is. */
+   * in both. 'json'/'postman' export is a different case entirely (raw data, not a report) and
+   * keeps copying that same raw data as-is. */
   copyToClipboard(): void {
-    const built = this.buildContent(this.isJsonMode() ? 'json' : 'markdown');
+    const built = this.buildContent(this.isRawExportMode() ? this.state()!.format : 'markdown');
     if (!built) return;
 
     const text = built.isJson ? JSON.stringify(built.payload, null, 2) : built.content;
@@ -159,6 +162,11 @@ export class ExportDialogComponent {
     if (format === 'json') {
       const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString());
       return { isJson: true, payload, filename: bulkExportFilename(calls, 'json') };
+    }
+
+    if (format === 'postman') {
+      const payload = buildBulkPostmanCollection(calls, form, new Date().toISOString());
+      return { isJson: true, payload, filename: bulkPostmanFilename(calls) };
     }
 
     if (format === 'html') {
