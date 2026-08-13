@@ -16,6 +16,16 @@ import java.util.concurrent.CopyOnWriteArraySet;
  * The dashboard doesn't send anything meaningful over this socket - it just opens it and listens.
  * Every connected session is tracked here so WebSocketCallNotificationAdapter can broadcast to
  * all of them; a session that errors on send is assumed dead and dropped rather than retried.
+ *
+ * <p>Two-phase logging means {@code broadcast} can now be called twice as often per call (once at
+ * prepare, once at complete) from two different HTTP request-handling threads - {@code
+ * WebSocketSession.sendMessage} is not safe to call concurrently for the *same* session from two
+ * threads (confirmed live: {@code IllegalStateException: ... TEXT_PARTIAL_WRITING ...} thrown
+ * under real concurrent traffic, which surfaced as the webhook's complete call getting a 500 and
+ * the affected call staying stuck IN_PROGRESS forever - see the two-phase logging plan's "no
+ * automatic recovery" note). Synchronizing per-session (not the whole method) still lets sends to
+ * different sessions proceed fully in parallel - only two threads racing to write the *same*
+ * session are serialized.
  */
 @Component
 public class CallEventsWebSocketHandler extends TextWebSocketHandler {
@@ -38,10 +48,12 @@ public class CallEventsWebSocketHandler extends TextWebSocketHandler {
         TextMessage message = new TextMessage(json);
         for (WebSocketSession session : sessions) {
             try {
-                if (session.isOpen()) {
-                    session.sendMessage(message);
+                synchronized (session) {
+                    if (session.isOpen()) {
+                        session.sendMessage(message);
+                    }
                 }
-            } catch (IOException e) {
+            } catch (IOException | IllegalStateException e) {
                 log.warn("Dropping WebSocket session {} after send failure: {}", session.getId(), e.getMessage());
                 sessions.remove(session);
             }

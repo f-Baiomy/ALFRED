@@ -37,14 +37,17 @@ public class SessionCycleEventsWebSocketHandler extends TextWebSocketHandler {
         sessions.remove(session);
     }
 
+    /** Synchronized per-session (not the whole method) - see CallEventsWebSocketHandler's identical fix/doc for why: sendMessage isn't safe to call concurrently for the same session from two threads. */
     public void broadcast(String json) {
         TextMessage message = new TextMessage(json);
         for (WebSocketSession session : sessions) {
             try {
-                if (session.isOpen()) {
-                    session.sendMessage(message);
+                synchronized (session) {
+                    if (session.isOpen()) {
+                        session.sendMessage(message);
+                    }
                 }
-            } catch (IOException e) {
+            } catch (IOException | IllegalStateException e) {
                 log.warn("Dropping WebSocket session {} after send failure: {}", session.getId(), e.getMessage());
                 sessions.remove(session);
             }
