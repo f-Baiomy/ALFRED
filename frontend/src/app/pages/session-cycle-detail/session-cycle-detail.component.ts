@@ -7,8 +7,10 @@ import { CopyToCyclesDialogComponent } from '../../components/copy-to-cycles-dia
 import { EditCycleDialogComponent } from '../../components/edit-cycle-dialog/edit-cycle-dialog.component';
 import { ExportDialogComponent } from '../../components/export-dialog/export-dialog.component';
 import { HeaderComponent } from '../../components/header/header.component';
+import { ImportCallsDialogComponent } from '../../components/import-calls-dialog/import-calls-dialog.component';
 import { StatsBarComponent } from '../../components/stats-bar/stats-bar.component';
 import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.service';
+import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
 import {
   BULK_SELECTION_STATE,
   CALL_LIST_CONTROLS_STATE,
@@ -30,7 +32,7 @@ import { SessionCyclesStateService } from '../../core/state/session-cycles-state
 @Component({
   selector: 'app-session-cycle-detail',
   standalone: true,
-  imports: [RouterLink, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent],
+  imports: [RouterLink, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },
@@ -45,8 +47,13 @@ export class SessionCycleDetailComponent {
   readonly state = inject(SessionCycleDetailStateService);
   private readonly cyclesState = inject(SessionCyclesStateService);
   private readonly editDialog = inject(EditCycleDialogService);
+  private readonly importDialog = inject(ImportCallsDialogService);
 
   readonly cycle = computed(() => this.cyclesState.cycles().find((c) => c.id === this.state.cycleId()) ?? null);
+
+  openImportDialog(): void {
+    this.importDialog.open(this.state.cycleId());
+  }
 
   toggleRecording(): void {
     const cycle = this.cycle();

@@ -1,0 +1,72 @@
+@if (dialogState()) {
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <h2>Import calls into a cycle</h2>
+      <p class="dialog-sub">Drop a calls export (.json) here, or click to browse - then pick one or more cycles to import into.</p>
+
+      @if (resultMessage(); as message) {
+        <p class="dialog-sub dialog-flagged-note">{{ message }}</p>
+      }
+
+      @if (!parsedCalls()) {
+        <div
+          class="import-dropzone"
+          [class.dragging]="isDraggingOver()"
+          (dragover)="onDragOver($event)"
+          (dragleave)="onDragLeave()"
+          (drop)="onDrop($event)"
+          (click)="browseForFile()"
+        >
+          <p>Drop a .json file here, or click to browse</p>
+          <input #fileInput type="file" accept=".json,application/json" hidden (change)="onFileSelected($event)" />
+        </div>
+        @if (parseError(); as error) {
+          <p class="dialog-sub dialog-error-note">{{ error }}</p>
+        }
+      } @else {
+        <div class="import-file-summary">
+          <span>{{ fileName() }} - {{ parsedCalls()!.length }} call{{ parsedCalls()!.length === 1 ? '' : 's' }} found</span>
+          <button type="button" class="action-btn" (click)="clearFile()">Choose a different file</button>
+        </div>
+
+        <form class="new-cycle-form" (submit)="$event.preventDefault(); createCycle()">
+          <input
+            type="text"
+            placeholder="New cycle name (e.g. Repro flight bug)"
+            [value]="newCycleName()"
+            (input)="newCycleName.set($any($event.target).value)"
+          />
+          <app-profile-picker [value]="newCycleAssignedTo()" (valueChange)="newCycleAssignedTo.set($event)" />
+          <button type="submit" class="bulk-btn" [disabled]="creatingCycle() || !newCycleName().trim()">
+            {{ creatingCycle() ? 'Creating...' : '+ New Cycle' }}
+          </button>
+        </form>
+
+        @if (cycles().length === 0) {
+          <p class="dialog-sub">No session cycles yet - create one above.</p>
+        } @else {
+          <div class="copy-cycle-list">
+            @for (cycle of cycles(); track cycle.id) {
+              <label class="copy-cycle-option">
+                <input type="checkbox" [checked]="isSelected(cycle)" (change)="toggle(cycle)" />
+                <span>{{ cycle.name }}</span>
+                <span class="badge" [class]="cycle.status === 'RECORDING' ? 'cycle-status-recording' : 'cycle-status-paused'">
+                  {{ cycle.status === 'RECORDING' ? 'Recording' : 'Paused' }}
+                </span>
+              </label>
+            }
+          </div>
+        }
+      }
+
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="close()">Close</button>
+        @if (parsedCalls()) {
+          <button type="button" class="dialog-btn primary" [disabled]="importing() || selectedCycleIds().size === 0" (click)="import()">
+            {{ importing() ? 'Importing...' : 'Import' }}
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+}
