@@ -106,10 +106,16 @@ class RouteAndLog:
         if not WEBHOOK_URL:
             return
 
-        # Generated here, not handed back by backend - lets prepare become
+        # Reuses the client's own X-Request-Id if it sent one (case-insensitive
+        # header lookup, mitmproxy's headers object handles that) - lets a
+        # caller correlate its own request id with the logged call directly,
+        # without a separate lookup. Falls back to a freshly generated UUID
+        # when the header is absent, empty, or blank. Generated/resolved here
+        # rather than handed back by backend either way - lets prepare become
         # fire-and-forget (see module docstring) since response()/error()
         # already know which call to complete without waiting on anything.
-        call_id = str(uuid.uuid4())
+        client_request_id = (flow.request.headers.get('X-Request-Id') or '').strip()
+        call_id = client_request_id if client_request_id else str(uuid.uuid4())
         flow.metadata['call_id'] = call_id
 
         call_log = {
