@@ -166,7 +166,8 @@ public class SessionCyclesService implements
             int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
             CallListSupport.Page<CapturedCallSummary> page = capturedCallsStore.query(
-                    cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
+                    cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
+                    query.sessionId(), query.operationId(), query.requestId());
             return new CapturedCallsPage(page.items(), page.total());
         });
     }

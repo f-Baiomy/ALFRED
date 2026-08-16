@@ -182,6 +182,26 @@ class SqliteSessionCyclesRepositoryTest {
     }
 
     @Test
+    void dedicatedIdFiltersNarrowIndependentlyOfTheGeneralSearchBox() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        CallRecord target = new CallRecord("target-id", "https://a.com/x", "https://a.com/x", "GET",
+                null, "t", 1.0, new ResponseData(200, null, null), null, CallLifecycleStatus.COMPLETED, "session-abc", "operation-xyz");
+        CallRecord other = new CallRecord("other-id", "https://b.com/y", "https://b.com/y", "GET",
+                null, "t", 1.0, new ResponseData(200, null, null), null, CallLifecycleStatus.COMPLETED, "session-def", "operation-uvw");
+        repo.append("c1", target);
+        repo.append("c1", other);
+
+        assertThat(repo.query("c1", "", "", "newest", 0, 10, true, "session-abc", "", "").items())
+                .extracting(c -> c.call().id()).containsExactly("target-id");
+        assertThat(repo.query("c1", "", "", "newest", 0, 10, true, "", "operation-xyz", "").items())
+                .extracting(c -> c.call().id()).containsExactly("target-id");
+        assertThat(repo.query("c1", "", "", "newest", 0, 10, true, "", "", "target-id").items())
+                .extracting(c -> c.call().id()).containsExactly("target-id");
+        assertThat(repo.query("c1", "", "", "newest", 0, 10, true, "session-abc", "operation-uvw", "").items())
+                .isEmpty();
+    }
+
+    @Test
     void querySummariesCarryThePrecomputedSupplierNameWithoutFetchingTheRequestBody() throws Exception {
         SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
         CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",

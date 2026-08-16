@@ -233,6 +233,15 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get supplierFilter() {
     return this.view.supplierFilter;
   }
+  get sessionIdFilter() {
+    return this.view.sessionIdFilter;
+  }
+  get operationIdFilter() {
+    return this.view.operationIdFilter;
+  }
+  get requestIdFilter() {
+    return this.view.requestIdFilter;
+  }
   get groupBySupplier() {
     return this.view.groupBySupplier;
   }
@@ -295,6 +304,18 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   setSupplierFilter(supplier: string): void {
     this.view.setSupplierFilter(supplier);
+  }
+
+  setSessionIdFilter(sessionId: string): void {
+    this.view.setSessionIdFilter(sessionId);
+  }
+
+  setOperationIdFilter(operationId: string): void {
+    this.view.setOperationIdFilter(operationId);
+  }
+
+  setRequestIdFilter(requestId: string): void {
+    this.view.setRequestIdFilter(requestId);
   }
 
   toggleGroupBySupplier(): void {

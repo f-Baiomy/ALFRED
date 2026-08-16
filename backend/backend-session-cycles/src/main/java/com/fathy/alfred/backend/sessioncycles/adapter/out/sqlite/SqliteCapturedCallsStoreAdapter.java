@@ -58,6 +58,12 @@ public class SqliteCapturedCallsStoreAdapter implements CapturedCallsStorePort {
     }
 
     @Override
+    public CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                             String sessionId, String operationId, String requestId) {
+        return repository.query(cycleId, search, supplier, sort, offset, limit, paginationEnabled, sessionId, operationId, requestId);
+    }
+
+    @Override
     public Optional<CapturedCall> findByCallId(String cycleId, String callId) {
         return repository.findByCallId(cycleId, callId);
     }

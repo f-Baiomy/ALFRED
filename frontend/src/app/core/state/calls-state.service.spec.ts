@@ -60,7 +60,7 @@ describe('CallsStateService', () => {
     const { queries } = setup([makeCall()]);
     tick();
 
-    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 50 });
+    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 50, sessionId: '', operationId: '', requestId: '' });
     discardPeriodicTasks();
   }));
 

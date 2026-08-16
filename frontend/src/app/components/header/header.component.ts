@@ -90,6 +90,18 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
     this.state.setSupplierFilter(value);
   }
 
+  onSessionIdInput(value: string): void {
+    this.state.setSessionIdFilter(value);
+  }
+
+  onOperationIdInput(value: string): void {
+    this.state.setOperationIdFilter(value);
+  }
+
+  onRequestIdInput(value: string): void {
+    this.state.setRequestIdFilter(value);
+  }
+
   toggleGroupBySupplier(): void {
     this.state.toggleGroupBySupplier();
   }

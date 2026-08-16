@@ -29,9 +29,12 @@ public class CallsController {
             @RequestParam(defaultValue = "") String supplier,
             @RequestParam(defaultValue = "newest") String sort,
             @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = "10") int limit,
+            @RequestParam(defaultValue = "") String sessionId,
+            @RequestParam(defaultValue = "") String operationId,
+            @RequestParam(defaultValue = "") String requestId
     ) {
-        return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit));
+        return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId));
     }
 
     /** The full request/response (headers+bodies) for one call - fetched only once it's actually expanded, not up front with every call in the list. */

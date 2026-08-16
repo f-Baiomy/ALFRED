@@ -485,8 +485,22 @@ public class SqliteCallsRepository {
             "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
+        return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
+    }
+
+    /**
+     * As above, plus three optional substring filters scoped to one column each - {@code sessionId}
+     * against {@code session_id}, {@code operationId} against {@code operation_id}, {@code requestId}
+     * against the call's own {@code id} - each ANDed onto the same WHERE clause as search/supplier
+     * when non-blank, narrowing rather than widening the result.
+     */
+    public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                     String sessionId, String operationId, String requestId) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         String supplierFilter = supplier == null ? "" : supplier.trim();
+        String sessionIdFilter = sessionId == null ? "" : sessionId.trim();
+        String operationIdFilter = operationId == null ? "" : operationId.trim();
+        String requestIdFilter = requestId == null ? "" : requestId.trim();
 
         StringBuilder where = new StringBuilder(" WHERE 1=1");
         List<Object> params = new ArrayList<>();
@@ -503,6 +517,18 @@ public class SqliteCallsRepository {
         if (!supplierFilter.isEmpty()) {
             where.append(" AND call_metadata.supplier = ?");
             params.add(supplierFilter);
+        }
+        if (!sessionIdFilter.isEmpty()) {
+            where.append(" AND call_metadata.session_id LIKE ?");
+            params.add("%" + sessionIdFilter + "%");
+        }
+        if (!operationIdFilter.isEmpty()) {
+            where.append(" AND call_metadata.operation_id LIKE ?");
+            params.add("%" + operationIdFilter + "%");
+        }
+        if (!requestIdFilter.isEmpty()) {
+            where.append(" AND call_metadata.id LIKE ?");
+            params.add("%" + requestIdFilter + "%");
         }
 
         int total = jdbcTemplate.queryForObject(

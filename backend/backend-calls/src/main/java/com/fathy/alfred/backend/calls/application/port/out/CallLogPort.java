@@ -44,6 +44,19 @@ public interface CallLogPort {
      */
     CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled);
 
+    /**
+     * As {@link #query}, plus three optional substring filters scoped to one column each - a
+     * call's own id, session id, or operation id - combined with each other (and the general
+     * {@code search}/{@code supplier} filters) via AND, narrowing the result rather than widening
+     * it. A blank filter is not applied at all. Defaults to ignoring the three new filters (falls
+     * back to {@link #query}) so an adapter that hasn't been taught about them (the file adapter)
+     * still satisfies this interface without change - only the SQLite adapter overrides it.
+     */
+    default CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                      String sessionId, String operationId, String requestId) {
+        return query(search, supplier, sort, offset, limit, paginationEnabled);
+    }
+
     /** A single call by id, or empty if no call with that id has ever been logged. */
     Optional<CallRecord> findById(String id);
 

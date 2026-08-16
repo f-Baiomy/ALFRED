@@ -90,7 +90,7 @@ class CallsServiceTest {
     @Test
     void passesThePortsPageOfCallSummariesThroughUnchanged() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.query("", "", "newest", 0, 50, true))
+        when(port.query("", "", "newest", 0, 50, true, "", "", ""))
                 .thenReturn(new CallListSupport.Page<>(List.of(summary("c"), summary("b")), 3));
         CallsService service = serviceWith(port);
 
@@ -103,63 +103,63 @@ class CallsServiceTest {
     @Test
     void passesOffsetAndLimitThroughUnchangedWhenWithinBounds() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean(), anyString(), anyString(), anyString()))
                 .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
 
         service.getCalls(query(2, 2));
 
-        verify(port).query("", "", "newest", 2, 2, true);
+        verify(port).query("", "", "newest", 2, 2, true, "", "", "");
     }
 
     @Test
     void clampsANegativeOffsetUpToZero() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean(), anyString(), anyString(), anyString()))
                 .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
 
         service.getCalls(query(-5, 2));
 
-        verify(port).query("", "", "newest", 0, 2, true);
+        verify(port).query("", "", "newest", 0, 2, true, "", "", "");
     }
 
     @Test
     void clampsALimitBelowOneUpToOne() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean(), anyString(), anyString(), anyString()))
                 .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
 
         service.getCalls(query(0, 0));
         service.getCalls(query(0, -5));
 
-        verify(port, org.mockito.Mockito.times(2)).query("", "", "newest", 0, 1, true);
+        verify(port, org.mockito.Mockito.times(2)).query("", "", "newest", 0, 1, true, "", "", "");
     }
 
     @Test
     void clampsALimitAboveTheMaximum() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean(), anyString(), anyString(), anyString()))
                 .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
 
         service.getCalls(query(0, TEST_MAX_LIMIT + 50));
 
-        verify(port).query("", "", "newest", 0, TEST_MAX_LIMIT, true);
+        verify(port).query("", "", "newest", 0, TEST_MAX_LIMIT, true, "", "", "");
     }
 
     @Test
     void disabledPaginationIgnoresTheRequestedLimitAndUsesMaxLimitInstead() {
         CallLogPort port = mock(CallLogPort.class);
-        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean()))
+        when(port.query(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyBoolean(), anyString(), anyString(), anyString()))
                 .thenReturn(new CallListSupport.Page<>(List.of(), 0));
         CallsService service = serviceWith(port);
         setPaginationEnabled(service, false);
 
         service.getCalls(query(2, 50));
 
-        verify(port).query("", "", "newest", 2, TEST_MAX_LIMIT, false);
+        verify(port).query("", "", "newest", 2, TEST_MAX_LIMIT, false, "", "", "");
     }
 
     @Test

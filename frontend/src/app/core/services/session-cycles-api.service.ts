@@ -82,7 +82,10 @@ export class SessionCyclesApiService {
       .set('supplier', query.supplier)
       .set('sort', query.sort)
       .set('offset', query.offset)
-      .set('limit', query.limit);
+      .set('limit', query.limit)
+      .set('sessionId', query.sessionId)
+      .set('operationId', query.operationId)
+      .set('requestId', query.requestId);
     return this.http.get<CapturedCallsPageDto>(`${this.baseUrl}/${id}/calls`, { params }).pipe(
       map((page) => ({
         calls: page.calls.map((c) => ({ id: c.id, capturedAt: c.capturedAt, call: toCallRecord(c.call) })),

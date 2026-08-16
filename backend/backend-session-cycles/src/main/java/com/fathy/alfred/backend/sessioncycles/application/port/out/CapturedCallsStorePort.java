@@ -33,6 +33,17 @@ public interface CapturedCallsStorePort {
      */
     CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled);
 
+    /**
+     * As {@link #query}, plus three optional substring filters scoped to one column each - see
+     * {@link com.fathy.alfred.backend.calls.application.port.out.CallLogPort}'s identical overload.
+     * Defaults to ignoring them (falls back to {@link #query}) so the JSON file adapter still
+     * satisfies this interface without change - only the SQLite adapter overrides it.
+     */
+    default CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                              String sessionId, String operationId, String requestId) {
+        return query(cycleId, search, supplier, sort, offset, limit, paginationEnabled);
+    }
+
     /** Looks up a captured call by the underlying CallRecord's id (not the CapturedCall wrapper's own id) - what GET /session-cycles/{id}/calls/{callId}/detail keys on. */
     Optional<CapturedCall> findByCallId(String cycleId, String callId);
 

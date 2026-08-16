@@ -37,4 +37,34 @@
 
     <button type="button" (click)="refreshNow()">Refresh</button>
   </div>
+
+  <div class="id-filters">
+    <label class="id-filter">
+      <span class="id-filter-label">Session ID</span>
+      <input
+        type="text"
+        placeholder="filter by session id..."
+        [value]="state.sessionIdFilter()"
+        (input)="onSessionIdInput($any($event.target).value)"
+      />
+    </label>
+    <label class="id-filter">
+      <span class="id-filter-label">Operation ID</span>
+      <input
+        type="text"
+        placeholder="filter by operation id..."
+        [value]="state.operationIdFilter()"
+        (input)="onOperationIdInput($any($event.target).value)"
+      />
+    </label>
+    <label class="id-filter">
+      <span class="id-filter-label">Request ID</span>
+      <input
+        type="text"
+        placeholder="filter by request id..."
+        [value]="state.requestIdFilter()"
+        (input)="onRequestIdInput($any($event.target).value)"
+      />
+    </label>
+  </div>
 </header>

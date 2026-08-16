@@ -62,7 +62,8 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
         int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
         CallListSupport.Page<CallSummary> page = callLogPort.query(
-                query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled);
+                query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
+                query.sessionId(), query.operationId(), query.requestId());
         return new CallsPage(page.items(), page.total());
     }
 

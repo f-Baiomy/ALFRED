@@ -31,6 +31,9 @@ export interface CallsQuery {
   readonly sort: SortMode;
   readonly offset: number;
   readonly limit: number;
+  readonly sessionId: string;
+  readonly operationId: string;
+  readonly requestId: string;
 }
 
 export interface CallsPageResult {
@@ -56,6 +59,9 @@ export interface CallListView {
   readonly limit: Signal<number>;
   readonly sortMode: Signal<SortMode>;
   readonly supplierFilter: Signal<string>;
+  readonly sessionIdFilter: Signal<string>;
+  readonly operationIdFilter: Signal<string>;
+  readonly requestIdFilter: Signal<string>;
   readonly groupBySupplier: Signal<boolean>;
   readonly expanded: Signal<boolean>;
   readonly collapseAllVersion: Signal<number>;
@@ -72,6 +78,9 @@ export interface CallListView {
   setLimit(limit: number): void;
   setSortMode(mode: SortMode): void;
   setSupplierFilter(supplier: string): void;
+  setSessionIdFilter(sessionId: string): void;
+  setOperationIdFilter(operationId: string): void;
+  setRequestIdFilter(requestId: string): void;
   toggleGroupBySupplier(): void;
   toggleExpanded(): void;
   loadMore(): void;
@@ -105,6 +114,9 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const pageSize = signal(options.pageSize ?? DEFAULT_PAGE_SIZE);
   const sortMode = signal<SortMode>(options.defaultSortMode ?? 'newest');
   const supplierFilter = signal('');
+  const sessionIdFilter = signal('');
+  const operationIdFilter = signal('');
+  const requestIdFilter = signal('');
   const groupBySupplier = signal(false);
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
@@ -131,7 +143,16 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
         loading.set(true);
         const sort = sortMode() === 'custom' ? lastFetchedSort : sortMode();
         lastFetchedSort = sort;
-        return options.fetchPage({ search: searchQuery().trim(), supplier: supplierFilter(), sort, offset: req.offset, limit: req.limit }).pipe(
+        return options.fetchPage({
+          search: searchQuery().trim(),
+          supplier: supplierFilter(),
+          sort,
+          offset: req.offset,
+          limit: req.limit,
+          sessionId: sessionIdFilter().trim(),
+          operationId: operationIdFilter().trim(),
+          requestId: requestIdFilter().trim(),
+        }).pipe(
           switchMap((result) => of({ req, result, failed: false })),
           catchError((err: unknown) => {
             options.onError?.(err instanceof Error ? err.message : String(err));
@@ -156,10 +177,32 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
 
   fetch(0, pageSize(), true);
 
+  /**
+   * A live-pushed call that doesn't match the currently-active supplier/id filters must not show
+   * up ahead of the (correctly filtered) loaded window just because it hasn't been confirmed by a
+   * fetch yet - confirmed live: with an id filter active and real traffic streaming in, every new
+   * unrelated call kept appearing at the top of an otherwise-narrowed list, and never got pruned
+   * (the "already in loadedCalls" check in matchingCalls below never becomes true for a call that
+   * genuinely doesn't match the filter, so it would linger until a full page reload). Free-text
+   * `search` isn't checked here (a CallSummaryDto never carries headers/body to match against
+   * client-side) - that gap already existed before these id filters and is unchanged by this fix.
+   */
+  function matchesActiveFilters(call: CallRecord): boolean {
+    const supplier = supplierFilter().trim();
+    if (supplier && supplierOf(call) !== supplier) return false;
+    const session = sessionIdFilter().trim().toLowerCase();
+    if (session && !(call.session_id ?? '').toLowerCase().includes(session)) return false;
+    const operation = operationIdFilter().trim().toLowerCase();
+    if (operation && !(call.operation_id ?? '').toLowerCase().includes(operation)) return false;
+    const request = requestIdFilter().trim().toLowerCase();
+    if (request && !call.id.toLowerCase().includes(request)) return false;
+    return true;
+  }
+
   const matchingCalls = computed(() => {
     const live = options.liveCalls?.() ?? [];
     const loadedKeys = new Set(loadedCalls().map(callKey));
-    const unconfirmed = live.filter((c) => !loadedKeys.has(callKey(c)));
+    const unconfirmed = live.filter((c) => !loadedKeys.has(callKey(c)) && matchesActiveFilters(c));
     return [...unconfirmed, ...loadedCalls()];
   });
 
@@ -199,6 +242,9 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     limit: pageSize,
     sortMode,
     supplierFilter,
+    sessionIdFilter,
+    operationIdFilter,
+    requestIdFilter,
     groupBySupplier,
     expanded,
     collapseAllVersion,
@@ -238,6 +284,18 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     },
     setSupplierFilter(supplier: string) {
       supplierFilter.set(supplier);
+      fetch(0, pageSize(), true);
+    },
+    setSessionIdFilter(sessionId: string) {
+      sessionIdFilter.set(sessionId);
+      fetch(0, pageSize(), true);
+    },
+    setOperationIdFilter(operationId: string) {
+      operationIdFilter.set(operationId);
+      fetch(0, pageSize(), true);
+    },
+    setRequestIdFilter(requestId: string) {
+      requestIdFilter.set(requestId);
       fetch(0, pageSize(), true);
     },
     toggleGroupBySupplier() {

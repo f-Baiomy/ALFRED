@@ -142,9 +142,12 @@ public class SessionCyclesController {
             @RequestParam(defaultValue = "") String supplier,
             @RequestParam(defaultValue = "oldest-call") String sort,
             @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = "10") int limit,
+            @RequestParam(defaultValue = "") String sessionId,
+            @RequestParam(defaultValue = "") String operationId,
+            @RequestParam(defaultValue = "") String requestId
     ) {
-        return listCapturedCallsUseCase.listCalls(id, new CallsQuery(search, supplier, sort, offset, limit))
+        return listCapturedCallsUseCase.listCalls(id, new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

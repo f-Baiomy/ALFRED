@@ -9,5 +9,11 @@ package com.fathy.alfred.backend.calls.domain.model;
  * whatever a session-cycle detail page already has loaded, not a data ordering the backend knows
  * about.
  */
-public record CallsQuery(String search, String supplier, String sort, int offset, int limit) {
+public record CallsQuery(String search, String supplier, String sort, int offset, int limit,
+                          String sessionId, String operationId, String requestId) {
+
+    /** Pre-id-filters shape, kept so every existing call site doesn't need to touch three new arguments - all three default to blank (not applied). */
+    public CallsQuery(String search, String supplier, String sort, int offset, int limit) {
+        this(search, supplier, sort, offset, limit, "", "", "");
+    }
 }

@@ -23,7 +23,10 @@ export class CallsApiService {
       .set('supplier', query.supplier)
       .set('sort', query.sort)
       .set('offset', query.offset)
-      .set('limit', query.limit);
+      .set('limit', query.limit)
+      .set('sessionId', query.sessionId)
+      .set('operationId', query.operationId)
+      .set('requestId', query.requestId);
     return this.http.get<CallsPageDto>(`${this.config.backendUrl}/calls`, { params }).pipe(
       map((page) => ({ calls: page.calls.map(toCallRecord), total: page.total }))
     );
