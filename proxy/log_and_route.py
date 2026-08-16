@@ -19,19 +19,20 @@ This addon does not persist anything itself - backend owns storage. That
 means WEBHOOK_URL is not really optional: if it's unset, calls are proxied
 correctly but never recorded anywhere.
 
-Concurrency trade-off, read before changing request(): every other hook in
-this addon fires its webhook call asynchronously via a background queue
-+thread specifically so a blocking HTTP call never stalls mitmproxy's
-single asyncio event loop (and therefore every other connection currently
-being proxied). request() is the one exception - it needs a real call id
-back from backend's POST .../prepare *before* the request proceeds, so
-response()/error() later know which call to complete. That means
-request() blocks the event loop for the (normally few-ms, same-docker-
-network) round trip to backend, bounded by PREPARE_TIMEOUT_SECONDS so a
-backend hiccup adds at most that much latency to every concurrently-
-proxied connection rather than hanging indefinitely. If backend is
-unreachable or times out, the call is simply not logged at all (proxying
-itself is never blocked - only delayed by up to the timeout).
+Both webhook calls are fully asynchronous, fire-and-forget, via one shared
+background queue+thread - neither ever blocks mitmproxy's single asyncio
+event loop (and therefore every other connection currently being proxied).
+This only works because the call's id is generated right here in
+request(), not handed back by backend's POST .../prepare response - unlike
+the earlier design, request() never needs to wait on that response at all
+before letting response()/error() later know which call to complete. A
+single shared queue (rather than one queue per phase) also guarantees
+prepare is always sent before complete for the same call, since request()
+always enqueues the former before response()/error() can enqueue the
+latter for the same flow - two independent queues/threads could otherwise
+race and send complete first. If backend is unreachable or a request is
+dropped, the call is simply never recorded (proxying itself is never
+affected either way).
 """
 
 import json
@@ -40,6 +41,7 @@ import queue
 import threading
 import time
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 
 from mitmproxy import ctx
@@ -50,30 +52,30 @@ from mitmproxy import ctx
 # large/binary responses.
 BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
 
-# Two-phase logging: POST {WEBHOOK_URL}/prepare at request time (blocking,
-# see the module docstring), then POST {WEBHOOK_URL}/{id}/complete once the
-# response/error arrives (async, via the background queue+thread below,
-# same as this addon's only webhook call used to work before two-phase
-# logging existed).
+# Two-phase logging: POST {WEBHOOK_URL}/prepare at request time and POST
+# {WEBHOOK_URL}/{id}/complete once the response/error arrives - both fully
+# async via the one shared background queue+thread below (see module docstring).
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
 WEBHOOK_TIMEOUT_SECONDS = 2
-# Short - this blocks mitmproxy's event loop (see module docstring), so the
-# bound on "how much latency can one backend hiccup add to every proxied
-# connection" needs to stay small. A local docker-network round trip is
-# normally single-digit milliseconds.
-PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '1'))
+# Kept as a separate, still-overridable constant even though prepare is no
+# longer on the blocking path, since it's a distinct request shape/endpoint
+# from complete and may warrant a different timeout later.
+PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '2'))
 
-# response()/error() only ever enqueue (never block) - see the module docstring.
+# request()/response()/error() only ever enqueue (never block) - see the module docstring.
+# Items are ('prepare', call_id, data) or ('complete', call_id, data).
 _webhook_queue = queue.Queue()
 
 
 def _webhook_worker():
     while True:
-        call_id, data = _webhook_queue.get()
+        phase, call_id, data = _webhook_queue.get()
+        url = f'{WEBHOOK_URL}/prepare' if phase == 'prepare' else f'{WEBHOOK_URL}/{call_id}/complete'
+        timeout = PREPARE_TIMEOUT_SECONDS if phase == 'prepare' else WEBHOOK_TIMEOUT_SECONDS
         try:
             request = urllib.request.Request(
-                f'{WEBHOOK_URL}/{call_id}/complete',
+                url,
                 data=json.dumps(data).encode('utf-8'),
                 headers={
                     'Content-Type': 'application/json',
@@ -81,13 +83,16 @@ def _webhook_worker():
                 },
                 method='POST',
             )
-            urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS)
+            urllib.request.urlopen(request, timeout=timeout)
         except Exception as e:
             # A webhook failure must never affect proxying - it just means
-            # this particular call's outcome never reaches backend (it stays
-            # logged as in-progress forever - see the two-phase logging plan
-            # for why that's an accepted gap, not handled here).
-            print(f"[webhook] complete failed to notify {WEBHOOK_URL}: {e}")
+            # this particular call's outcome never reaches backend. For
+            # complete specifically, the call then stays logged as
+            # in-progress forever - see the two-phase logging plan for why
+            # that's an accepted gap, not handled here. A prepare failure
+            # means a later complete() call for the same id just 404s
+            # (backend never saw the prepare), logged the same harmless way.
+            print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: {e}")
 
 
 if WEBHOOK_URL:
@@ -101,7 +106,14 @@ class RouteAndLog:
         if not WEBHOOK_URL:
             return
 
+        # Generated here, not handed back by backend - lets prepare become
+        # fire-and-forget (see module docstring) since response()/error()
+        # already know which call to complete without waiting on anything.
+        call_id = str(uuid.uuid4())
+        flow.metadata['call_id'] = call_id
+
         call_log = {
+            'id': call_id,
             'original_url': flow.request.pretty_url,
             'url': flow.request.pretty_url,
             'method': flow.request.method,
@@ -111,11 +123,7 @@ class RouteAndLog:
             },
             'timestamp': datetime.now(timezone.utc).isoformat(),
         }
-        # None here (backend unreachable/timed out, or the host/URL filter
-        # rejected this call) means response()/error() below have nothing
-        # to complete - they check for this and skip, same as this addon's
-        # single-phase predecessor skipped calls missing 'call_log'.
-        flow.metadata['call_id'] = self._prepare(call_log)
+        _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
     def response(self, flow):
         call_id = flow.metadata.get('call_id')
@@ -156,31 +164,8 @@ class RouteAndLog:
             text = text[:limit] + '...[truncated]'
         return text
 
-    def _prepare(self, call_log):
-        """Blocking (short-timeout) call to get a real id back before the request proceeds - see
-        the module docstring for why this one call is deliberately not queued like the others."""
-        try:
-            request = urllib.request.Request(
-                f'{WEBHOOK_URL}/prepare',
-                data=json.dumps(call_log).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'X-Webhook-Secret': WEBHOOK_SECRET,
-                },
-                method='POST',
-            )
-            with urllib.request.urlopen(request, timeout=PREPARE_TIMEOUT_SECONDS) as response:
-                if response.status == 204:
-                    # Filtered out by backend's host/URL allow/block list - not an error.
-                    return None
-                body = json.loads(response.read().decode('utf-8'))
-                return body.get('id')
-        except Exception as e:
-            print(f"[webhook] prepare failed to notify {WEBHOOK_URL}: {e}")
-            return None
-
     def _write(self, call_id, data):
-        _webhook_queue.put_nowait((call_id, data))
+        _webhook_queue.put_nowait(('complete', call_id, data))
 
 
 addons = [RouteAndLog()]

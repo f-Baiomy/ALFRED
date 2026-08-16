@@ -101,10 +101,14 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
      * would then have no matching {@code complete} call coming. Observers (session-cycle capture)
      * aren't fanned out to here - a recording cycle only sees a call once it completes, exactly as
      * before this feature (see NewCallObserverPort's own phase for when that changes).
+     *
+     * <p>{@code partial.id()} is normally the proxy's own generated id (it no longer waits for
+     * this method to hand one back) - only generated here as a fallback for a blank/missing id,
+     * e.g. an older proxy build still running mid-rollout.
      */
     @Override
     public Optional<String> receivePreparedCall(CallRecord partial) {
-        String id = UUID.randomUUID().toString();
+        String id = (partial.id() != null && !partial.id().isBlank()) ? partial.id() : UUID.randomUUID().toString();
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS);
         if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {

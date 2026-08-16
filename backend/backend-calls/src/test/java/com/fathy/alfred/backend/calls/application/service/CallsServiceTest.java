@@ -289,6 +289,21 @@ class CallsServiceTest {
     }
 
     @Test
+    void receivePreparedCallUsesTheProxySuppliedIdInsteadOfGeneratingOne() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        CallRecord partial = new CallRecord("proxy-generated-id", "https://example.com-proxy/x", "https://example.com/x", "GET", null, "t", null, null, null, null);
+        CallsService service = serviceWith(port, notificationPort, List.of());
+
+        Optional<String> id = service.receivePreparedCall(partial);
+
+        assertThat(id).contains("proxy-generated-id");
+        ArgumentCaptor<CallRecord> prepared = ArgumentCaptor.forClass(CallRecord.class);
+        verify(port).prepare(prepared.capture());
+        assertThat(prepared.getValue().id()).isEqualTo("proxy-generated-id");
+    }
+
+    @Test
     void receivePreparedCallReturnsEmptyAndSkipsPersistenceWhenTheFilterPortRejectsTheCall() {
         CallLogPort port = mock(CallLogPort.class);
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);

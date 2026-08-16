@@ -8,10 +8,11 @@ import java.util.Optional;
 public interface ReceivePreparedCallUseCase {
 
     /**
-     * @param partial The request-side data only - id/response/error/durationMs/state are ignored
-     *                even if set, this method assigns them.
-     * @return the id assigned to this call, or empty if the host/URL filter rejected it (nothing
-     * was logged - the proxy should not call {@code complete} for this call).
+     * @param partial The request-side data, plus (normally) the proxy's own generated id -
+     *                response/error/durationMs/state are ignored even if set, this method assigns
+     *                them. A blank/missing id is filled in server-side as a fallback.
+     * @return the id this call was logged under, or empty if the host/URL filter rejected it
+     * (nothing was logged - a later {@code complete} call for this id will just 404).
      */
     Optional<String> receivePreparedCall(CallRecord partial);
 }

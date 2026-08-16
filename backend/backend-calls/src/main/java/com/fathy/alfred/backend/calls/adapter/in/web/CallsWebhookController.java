@@ -59,9 +59,12 @@ public class CallsWebhookController {
     }
 
     /**
-     * First half of two-phase logging - called the moment the proxy intercepts a request, before
-     * forwarding it upstream. Returns 204 (no id) if the host/URL filter rejected this call - the
-     * proxy must not call {@code complete} for a call it never got an id back for.
+     * First half of two-phase logging - called (fire-and-forget, from the proxy's point of view)
+     * the moment the proxy intercepts a request, before forwarding it upstream. The proxy already
+     * generated {@code body.id()} itself and moves on without waiting for this response - the
+     * returned/echoed id is only useful for manual debugging (e.g. curl). Still returns 204 if the
+     * host/URL filter rejected this call, for the same reason - a later {@code complete} call for
+     * this id will just 404, which the proxy already tolerates.
      */
     @PostMapping("/calls/webhook/prepare")
     public ResponseEntity<Map<String, String>> prepare(
@@ -71,7 +74,7 @@ public class CallsWebhookController {
         if (!secretMatches(providedSecret)) {
             return ResponseEntity.status(401).build();
         }
-        CallRecord partial = new CallRecord(null, body.originalUrl(), body.url(), body.method(), body.request(), body.timestamp(), null, null, null);
+        CallRecord partial = new CallRecord(body.id(), body.originalUrl(), body.url(), body.method(), body.request(), body.timestamp(), null, null, null);
         Optional<String> id = receivePreparedCallUseCase.receivePreparedCall(partial);
         return id.map(value -> ResponseEntity.ok(Map.of("id", value)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
