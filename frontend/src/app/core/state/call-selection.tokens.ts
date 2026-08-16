@@ -21,6 +21,8 @@ export interface BulkSelectionState {
   selectedCalls(): readonly CallRecord[];
   selectAll(): void;
   clearSelection(): void;
+  /** Replaces the current selection wholesale with exactly the given calls - used by StatsBarComponent so clicking a stat pill (e.g. "4xx") selects only the calls in that bucket, not adding to whatever was already selected. */
+  selectOnly(calls: readonly CallRecord[]): void;
 }
 
 export const CALL_SELECTION_STATE = new InjectionToken<CallSelectionState>('CALL_SELECTION_STATE');

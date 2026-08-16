@@ -416,10 +416,21 @@ main {
   border-radius: 999px;
   padding: 0.4rem 0.95rem;
   font-size: 0.78rem;
+  font-family: inherit;
   color: var(--text-dim);
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: var(--border-strong);
+    background: color-mix(in srgb, var(--purple) 10%, var(--card));
+  }
+  &:active {
+    background: color-mix(in srgb, var(--purple) 18%, var(--card));
+  }
 
   b {
     color: var(--text);

@@ -386,6 +386,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     this.selectedIds.set(new Set(this.view.matchingCalls().map(callKey)));
   }
 
+  selectOnly(calls: readonly CallRecord[]): void {
+    this.selectedIds.set(new Set(calls.map(callKey)));
+  }
+
   clearSelection(): void {
     this.selectedIds.set(new Set());
   }

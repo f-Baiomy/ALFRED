@@ -262,4 +262,8 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   selectAll(): void {
     this.selectedIds.set(new Set(this.view.matchingCalls().map(callKey)));
   }
+
+  selectOnly(calls: readonly CallRecord[]): void {
+    this.selectedIds.set(new Set(calls.map(callKey)));
+  }
 }

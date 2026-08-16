@@ -1,9 +1,9 @@
 <div class="stats">
-  <span class="stat-pill"><b>{{ stats().total }}</b> calls</span>
+  <button type="button" class="stat-pill" title="Select all" (click)="selectTotal()"><b>{{ stats().total }}</b> calls</button>
   @if (stats().inProgress > 0) {
-    <span class="stat-pill pending"><b>{{ stats().inProgress }}</b> in progress</span>
+    <button type="button" class="stat-pill pending" title="Select in-progress calls" (click)="selectInProgress()"><b>{{ stats().inProgress }}</b> in progress</button>
   }
-  <span class="stat-pill ok"><b>{{ stats().ok }}</b> 2xx/3xx</span>
-  <span class="stat-pill warn"><b>{{ stats().client }}</b> 4xx</span>
-  <span class="stat-pill err"><b>{{ stats().failed }}</b> errors/5xx</span>
+  <button type="button" class="stat-pill ok" title="Select 2xx/3xx calls" (click)="selectOk()"><b>{{ stats().ok }}</b> 2xx/3xx</button>
+  <button type="button" class="stat-pill warn" title="Select 4xx calls" (click)="selectClientError()"><b>{{ stats().client }}</b> 4xx</button>
+  <button type="button" class="stat-pill err" title="Select error/5xx calls" (click)="selectFailed()"><b>{{ stats().failed }}</b> errors/5xx</button>
 </div>
