@@ -397,7 +397,7 @@ main {
 .call-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
 }
 
 .empty,
@@ -421,7 +421,7 @@ main {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 1rem 1.15rem;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
   cursor: pointer;
   user-select: none;
 
@@ -437,6 +437,26 @@ main {
   }
   &.in-progress {
     animation: call-pulse 1.8s ease-out infinite;
+  }
+  // Real failures (network/proxy error or a 5xx response) - a soft red wash + glow, not a hard
+  // block of color, so it stays legible/smooth across every theme (including near-black ones).
+  &.has-error {
+    border-color: color-mix(in srgb, var(--red) 50%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--red) 18%, transparent), 0 4px 14px -4px color-mix(in srgb, var(--red) 40%, transparent);
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--red) 65%, transparent);
+    }
+  }
+  // 4xx responses - the call completed but was rejected (validation/business rule), not a real
+  // failure - same treatment as .has-error but amber, and never both at once (see hasError/hasWarning).
+  &.has-warning {
+    border-color: color-mix(in srgb, var(--amber) 50%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 18%, transparent), 0 4px 14px -4px color-mix(in srgb, var(--amber) 35%, transparent);
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--amber) 65%, transparent);
+    }
   }
 }
 

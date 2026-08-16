@@ -57,6 +57,20 @@ export class CallCardComponent {
   readonly statusClass = computed(() => statusClassOf(this.call().response?.status ?? null));
   readonly durationClass = computed(() => durationClassOf(this.call().duration_ms));
   readonly inProgress = computed(() => isInProgress(this.call()));
+  /** Network/proxy failures and 5xx responses - a real error on our or the supplier's side. */
+  readonly hasError = computed(() => {
+    if (this.inProgress()) return false;
+    if (this.call().error) return true;
+    const status = this.call().response?.status;
+    return status != null && status >= 500;
+  });
+  /** 4xx responses - the call completed but the supplier rejected it (validation/business rule),
+   * distinct from hasError since nothing actually broke on either side. */
+  readonly hasWarning = computed(() => {
+    if (this.inProgress() || this.hasError()) return false;
+    const status = this.call().response?.status;
+    return status != null && status >= 400 && status < 500;
+  });
   readonly formattedTime = computed(() => {
     const ts = this.call().timestamp;
     return ts ? new Date(ts).toLocaleString() : '';
