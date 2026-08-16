@@ -167,9 +167,12 @@ public class SqliteCallsRepository {
                   error TEXT,
                   haystack TEXT,
                   status_state TEXT NOT NULL DEFAULT 'COMPLETED',
-                  request_haystack TEXT
+                  request_haystack TEXT,
+                  session_id TEXT,
+                  operation_id TEXT
                 )
                 """);
+        addSessionOperationColumnsIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS call_request (
                   call_id TEXT PRIMARY KEY REFERENCES call_metadata(id) ON DELETE CASCADE,
@@ -189,6 +192,17 @@ public class SqliteCallsRepository {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_status_rank ON call_metadata(status_rank)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_duration ON call_metadata(duration_ms)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_status_state ON call_metadata(status_state)");
+    }
+
+    /** {@code session_id}/{@code operation_id} were added after call_metadata was already in use in some deployments (this repository already existed with 3 tables before these two fields) - added explicitly via ALTER TABLE for those, same pattern as every other column added after initial rollout. */
+    private void addSessionOperationColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("session_id")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN session_id TEXT");
+        }
+        if (!columns.contains("operation_id")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN operation_id TEXT");
+        }
     }
 
     /** FTS5 with the trigram tokenizer mirrors CallListSupport.matchesSearch's `.contains(query)` substring semantics far more closely than the default whole-token tokenizer. Falls back to a plain `LIKE` scan over the haystack column if this SQLite build lacks FTS5/trigram, rather than failing startup. */
@@ -243,6 +257,7 @@ public class SqliteCallsRepository {
 
         addLegacySupplierNameColumnIfMissing();
         addLegacyLifecycleColumnsIfMissing();
+        addLegacySessionOperationColumnsIfMissing();
 
         int migrated = 0;
         List<CallRecord> legacyRows = jdbcTemplate.query("SELECT * FROM calls ORDER BY rowid ASC", LEGACY_ROW_MAPPER);
@@ -272,6 +287,17 @@ public class SqliteCallsRepository {
         }
         if (!columns.contains("request_haystack")) {
             jdbcTemplate.execute("ALTER TABLE calls ADD COLUMN request_haystack TEXT");
+        }
+    }
+
+    /** session_id/operation_id postdate even the single-table {@code calls} schema - an ancient never-migrated database has neither, so LEGACY_ROW_MAPPER's {@code SELECT *} needs them added (as NULL) before it can read the row. */
+    private void addLegacySessionOperationColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(calls)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("session_id")) {
+            jdbcTemplate.execute("ALTER TABLE calls ADD COLUMN session_id TEXT");
+        }
+        if (!columns.contains("operation_id")) {
+            jdbcTemplate.execute("ALTER TABLE calls ADD COLUMN operation_id TEXT");
         }
     }
 
@@ -309,8 +335,9 @@ public class SqliteCallsRepository {
 
     private static final String INSERT_METADATA_SQL = """
             INSERT INTO call_metadata (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
-                               status, status_rank, supplier, supplier_name, error, haystack, status_state, request_haystack)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                               status, status_rank, supplier, supplier_name, error, haystack, status_state, request_haystack,
+                               session_id, operation_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO call_request (call_id, headers, body) VALUES (?,?,?)";
@@ -351,6 +378,8 @@ public class SqliteCallsRepository {
         ps.setString(13, haystack);
         ps.setString(14, normalized.state().name());
         ps.setString(15, requestHaystack);
+        ps.setString(16, normalized.sessionId());
+        ps.setString(17, normalized.operationId());
     }
 
     /** Binds one call's request-table row - always inserted (headers/body null if there is no request data). */
@@ -453,7 +482,7 @@ public class SqliteCallsRepository {
      * Detail view (findById) still needs the full 3-way join.
      */
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
@@ -534,6 +563,7 @@ public class SqliteCallsRepository {
 
     private static final String DETAIL_SQL = """
             SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
+                   cm.session_id, cm.operation_id,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM call_metadata cm
@@ -551,6 +581,7 @@ public class SqliteCallsRepository {
     public List<CallRecord> readAll() {
         return jdbcTemplate.query("""
                 SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
+                       cm.session_id, cm.operation_id,
                        cr.headers AS request_headers, cr.body AS request_body,
                        cp.headers AS response_headers, cp.body AS response_body
                 FROM call_metadata cm
@@ -710,7 +741,9 @@ public class SqliteCallsRepository {
                 durationMs,
                 response,
                 rs.getString("error"),
-                CallLifecycleStatus.valueOf(rs.getString("status_state")));
+                CallLifecycleStatus.valueOf(rs.getString("status_state")),
+                rs.getString("session_id"),
+                rs.getString("operation_id"));
     };
 
     /** Reads a row of the OLD (pre-split) single-table {@code calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. */
@@ -740,7 +773,9 @@ public class SqliteCallsRepository {
                 durationMs,
                 response,
                 rs.getString("error"),
-                CallLifecycleStatus.valueOf(rs.getString("status_state")));
+                CallLifecycleStatus.valueOf(rs.getString("status_state")),
+                rs.getString("session_id"),
+                rs.getString("operation_id"));
     };
 
     private static Map<String, String> legacyFromJson(ObjectMapper mapper, String json) {
@@ -770,7 +805,9 @@ public class SqliteCallsRepository {
                 status,
                 rs.getString("error"),
                 nullIfEmpty(rs.getString("supplier_name")),
-                CallLifecycleStatus.valueOf(rs.getString("status_state")));
+                CallLifecycleStatus.valueOf(rs.getString("status_state")),
+                rs.getString("session_id"),
+                rs.getString("operation_id"));
     };
 
     /** Undoes the ""-instead-of-NULL storage trick from bindMetadata - external behavior stays "null when there's no supplier name", exactly as CallSummary.of() always returned. */

@@ -32,6 +32,10 @@ export interface CallRecord {
   /** Best-effort supplier name parsed server-side from the request body's "supplier" JSON field (see backend's CallSummary.supplierNameOf) - null/undefined when it couldn't be determined. Part of the summary, not the detail, so it shows on a collapsed card with no extra fetch. */
   readonly supplierName?: string | null;
   readonly state?: CallLifecycleState;
+  /** The proxy's X-Session-ID header value, or a proxy-generated UUID if the client didn't send one - null/undefined only for a call logged before this field existed. */
+  readonly session_id?: string | null;
+  /** The proxy's X-Operation-Id header value, or a proxy-generated UUID if the client didn't send one - null/undefined only for a call logged before this field existed. */
+  readonly operation_id?: string | null;
 }
 
 /** The full request/response for one call - GET /calls/{id}/detail's response shape. */
@@ -52,6 +56,8 @@ export interface CallSummaryDto {
   readonly error?: string;
   readonly supplierName?: string | null;
   readonly state?: CallLifecycleState;
+  readonly session_id?: string | null;
+  readonly operation_id?: string | null;
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle

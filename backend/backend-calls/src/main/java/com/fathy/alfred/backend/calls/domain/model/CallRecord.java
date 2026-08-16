@@ -34,21 +34,37 @@ public record CallRecord(
         @JsonProperty("duration_ms") Double durationMs,
         ResponseData response,
         String error,
-        CallLifecycleStatus state
+        CallLifecycleStatus state,
+        @JsonProperty("session_id") String sessionId,
+        @JsonProperty("operation_id") String operationId
 ) {
+    /**
+     * Pre-session/operation-id shape (the two-phase-logging-era canonical constructor) - kept so
+     * every call site built before those fields existed doesn't need to touch a new required
+     * argument. {@code sessionId}/{@code operationId} are both null; see
+     * {@link com.fathy.alfred.backend.calls.application.service.CallsService#receivePreparedCall}
+     * for where a blank one is filled in with a generated UUID instead.
+     */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, null, null);
+    }
+
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error) {
         this(id, originalUrl, url, method, request, timestamp, durationMs, response, error,
-                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED);
+                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null);
     }
 
     /**
      * Jackson (via the records/parameter-names module) deserializes JSON through the canonical
-     * (10-arg) constructor, bypassing the derivation the 9-arg constructor above provides - so any
-     * JSON that predates the {@code state} field (an old RECENT_CALLS.log line, or - defensively -
-     * any other legacy source) comes back with {@code state == null}. Call sites that read a
-     * CallRecord fresh off the wire/disk rather than constructing one themselves should run it
-     * through this to normalize that, the same way {@code withGeneratedId} normalizes a missing id.
+     * (12-arg) constructor, bypassing the derivation the shorter constructors above provide - so
+     * any JSON that predates the {@code state} field (an old RECENT_CALLS.log line, or -
+     * defensively - any other legacy source) comes back with {@code state == null}. Call sites
+     * that read a CallRecord fresh off the wire/disk rather than constructing one themselves
+     * should run it through this to normalize that, the same way {@code withGeneratedId}
+     * normalizes a missing id. Does not touch sessionId/operationId - null is a valid, meaningful
+     * value there (a call logged before those fields existed simply has none), unlike state.
      */
     public static CallRecord withDerivedStateIfMissing(CallRecord call) {
         if (call.state() != null) {
@@ -57,6 +73,6 @@ public record CallRecord(
         boolean hasError = call.error() != null && !call.error().isBlank();
         CallLifecycleStatus derived = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
-                call.timestamp(), call.durationMs(), call.response(), call.error(), derived);
+                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId());
     }
 }

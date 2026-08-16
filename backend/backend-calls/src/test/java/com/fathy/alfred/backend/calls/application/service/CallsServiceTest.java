@@ -282,6 +282,9 @@ class CallsServiceTest {
         assertThat(prepared.getValue().id()).isEqualTo(id.get());
         assertThat(prepared.getValue().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
         assertThat(prepared.getValue().response()).isNull();
+        assertThat(prepared.getValue().sessionId()).isNotBlank();
+        assertThat(prepared.getValue().operationId()).isNotBlank();
+        assertThat(prepared.getValue().sessionId()).isNotEqualTo(prepared.getValue().operationId());
         var order = inOrder(port, observer, notificationPort);
         order.verify(port).prepare(prepared.getValue());
         order.verify(observer).onCallPrepared(prepared.getValue());
@@ -301,6 +304,22 @@ class CallsServiceTest {
         ArgumentCaptor<CallRecord> prepared = ArgumentCaptor.forClass(CallRecord.class);
         verify(port).prepare(prepared.capture());
         assertThat(prepared.getValue().id()).isEqualTo("proxy-generated-id");
+    }
+
+    @Test
+    void receivePreparedCallUsesTheProxySuppliedSessionAndOperationIds() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        CallRecord partial = new CallRecord("id-1", "https://example.com-proxy/x", "https://example.com/x", "GET", null, "t",
+                null, null, null, null, "proxy-session-id", "proxy-operation-id");
+        CallsService service = serviceWith(port, notificationPort, List.of());
+
+        service.receivePreparedCall(partial);
+
+        ArgumentCaptor<CallRecord> prepared = ArgumentCaptor.forClass(CallRecord.class);
+        verify(port).prepare(prepared.capture());
+        assertThat(prepared.getValue().sessionId()).isEqualTo("proxy-session-id");
+        assertThat(prepared.getValue().operationId()).isEqualTo("proxy-operation-id");
     }
 
     @Test

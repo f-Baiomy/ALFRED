@@ -9,6 +9,8 @@ import com.fathy.alfred.backend.calls.domain.model.RequestData;
  * itself (not returned by this endpoint) so the proxy never has to wait for a response before
  * knowing which call complete() will later resolve - see CallsService.receivePreparedCall, which
  * falls back to generating one server-side if this is blank (an old proxy build mid-rollout).
+ * {@code sessionId}/{@code operationId} are the proxy's X-Session-ID/X-Operation-Id header values
+ * (or a proxy-generated UUID if the client didn't send one) - same blank-fallback treatment.
  */
 public record PrepareCallRequestDto(
         String id,
@@ -16,6 +18,8 @@ public record PrepareCallRequestDto(
         String url,
         String method,
         RequestData request,
-        String timestamp
+        String timestamp,
+        @JsonProperty("session_id") String sessionId,
+        @JsonProperty("operation_id") String operationId
 ) {
 }

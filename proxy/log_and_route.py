@@ -118,6 +118,15 @@ class RouteAndLog:
         call_id = client_request_id if client_request_id else str(uuid.uuid4())
         flow.metadata['call_id'] = call_id
 
+        # Same reuse-or-generate rule as X-Request-Id above, one independent
+        # UUID per header - a session groups related calls together, an
+        # operation identifies one logical action that may itself span
+        # several calls, and neither is derived from the other or from call_id.
+        client_session_id = (flow.request.headers.get('X-Session-ID') or '').strip()
+        session_id = client_session_id if client_session_id else str(uuid.uuid4())
+        client_operation_id = (flow.request.headers.get('X-Operation-Id') or '').strip()
+        operation_id = client_operation_id if client_operation_id else str(uuid.uuid4())
+
         call_log = {
             'id': call_id,
             'original_url': flow.request.pretty_url,
@@ -128,6 +137,8 @@ class RouteAndLog:
                 'body': self._safe_body(flow.request),
             },
             'timestamp': datetime.now(timezone.utc).isoformat(),
+            'session_id': session_id,
+            'operation_id': operation_id,
         }
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 

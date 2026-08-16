@@ -102,15 +102,19 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
      * aren't fanned out to here - a recording cycle only sees a call once it completes, exactly as
      * before this feature (see NewCallObserverPort's own phase for when that changes).
      *
-     * <p>{@code partial.id()} is normally the proxy's own generated id (it no longer waits for
-     * this method to hand one back) - only generated here as a fallback for a blank/missing id,
-     * e.g. an older proxy build still running mid-rollout.
+     * <p>{@code partial.id()}/{@code sessionId()}/{@code operationId()} are normally the proxy's
+     * own values (generated there from X-Request-Id/X-Session-ID/X-Operation-Id, or a fresh UUID
+     * per header if the client didn't send one - it no longer waits for this method to hand any of
+     * them back) - only generated here as a fallback for whichever come back blank/missing, e.g.
+     * an older proxy build still running mid-rollout.
      */
     @Override
     public Optional<String> receivePreparedCall(CallRecord partial) {
-        String id = (partial.id() != null && !partial.id().isBlank()) ? partial.id() : UUID.randomUUID().toString();
+        String id = valueOrGenerated(partial.id());
+        String sessionId = valueOrGenerated(partial.sessionId());
+        String operationId = valueOrGenerated(partial.operationId());
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
-                partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS);
+                partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS, sessionId, operationId);
         if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {
             return Optional.empty();
         }
@@ -153,5 +157,9 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
     private static CallRecord withGeneratedId(CallRecord call) {
         return new CallRecord(UUID.randomUUID().toString(), call.originalUrl(), call.url(), call.method(),
                 call.request(), call.timestamp(), call.durationMs(), call.response(), call.error());
+    }
+
+    private static String valueOrGenerated(String value) {
+        return (value != null && !value.isBlank()) ? value : UUID.randomUUID().toString();
     }
 }

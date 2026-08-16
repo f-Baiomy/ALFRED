@@ -13,6 +13,8 @@ export function toCallRecord(dto: CallSummaryDto): CallRecord {
     error: dto.error,
     supplierName: dto.supplierName,
     state: dto.state,
+    session_id: dto.session_id,
+    operation_id: dto.operation_id,
   };
 }
 

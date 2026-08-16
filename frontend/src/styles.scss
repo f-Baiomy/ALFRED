@@ -906,6 +906,27 @@ main {
   color: var(--cyan);
 }
 
+.call-ids-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: -0.3rem 0 0.65rem;
+}
+
+.call-id-chip {
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
 // The card as a whole is a click/drag selection target (see .call above),
 // but the URLs and JSON panel contents are exactly what a user copies out
 // of this tool most often, so they stay normally text-selectable.

@@ -259,6 +259,22 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
+    void sessionAndOperationIdRoundTripThroughSaveFindByIdAndQuery() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "GET",
+                null, "t", 1.0, new ResponseData(200, null, null), null, CallLifecycleStatus.COMPLETED, "session-1", "operation-1");
+
+        repo.save(call);
+
+        CallRecord found = repo.findById(call.id()).orElseThrow();
+        assertThat(found.sessionId()).isEqualTo("session-1");
+        assertThat(found.operationId()).isEqualTo("operation-1");
+        var page = repo.query("", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(CallSummary::sessionId, CallSummary::operationId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("session-1", "operation-1"));
+    }
+
+    @Test
     void aBodyWithNoSupplierFieldReadsBackAsNullNotAnEmptyString() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
         CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",

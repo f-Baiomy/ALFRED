@@ -166,9 +166,12 @@ public class SqliteSessionCyclesRepository {
                   error TEXT,
                   haystack TEXT,
                   status_state TEXT NOT NULL DEFAULT 'COMPLETED',
-                  request_haystack TEXT
+                  request_haystack TEXT,
+                  session_id TEXT,
+                  operation_id TEXT
                 )
                 """);
+        addSessionOperationColumnsIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS captured_call_request (
                   captured_call_id TEXT PRIMARY KEY REFERENCES captured_call_metadata(id) ON DELETE CASCADE,
@@ -186,6 +189,17 @@ public class SqliteSessionCyclesRepository {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_call_metadata_cycle ON captured_call_metadata(cycle_id)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_call_metadata_timestamp ON captured_call_metadata(cycle_id, timestamp_millis)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_captured_call_metadata_call_id ON captured_call_metadata(call_id)");
+    }
+
+    /** See SqliteCallsRepository's identical method - session_id/operation_id were added after captured_call_metadata was already in use in some deployments. */
+    private void addSessionOperationColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(captured_call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("session_id")) {
+            jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN session_id TEXT");
+        }
+        if (!columns.contains("operation_id")) {
+            jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN operation_id TEXT");
+        }
     }
 
     private void initFts() {
@@ -237,6 +251,7 @@ public class SqliteSessionCyclesRepository {
 
         addLegacySupplierNameColumnIfMissing();
         addLegacyLifecycleColumnsIfMissing();
+        addLegacySessionOperationColumnsIfMissing();
 
         int migrated = 0;
         List<PendingCapturedCall> legacyRows = jdbcTemplate.query("SELECT * FROM captured_calls ORDER BY rowid ASC", LEGACY_ROW_MAPPER);
@@ -266,6 +281,17 @@ public class SqliteSessionCyclesRepository {
         }
         if (!columns.contains("request_haystack")) {
             jdbcTemplate.execute("ALTER TABLE captured_calls ADD COLUMN request_haystack TEXT");
+        }
+    }
+
+    /** See SqliteCallsRepository's identical method - session_id/operation_id postdate even the single-table captured_calls schema. */
+    private void addLegacySessionOperationColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(captured_calls)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("session_id")) {
+            jdbcTemplate.execute("ALTER TABLE captured_calls ADD COLUMN session_id TEXT");
+        }
+        if (!columns.contains("operation_id")) {
+            jdbcTemplate.execute("ALTER TABLE captured_calls ADD COLUMN operation_id TEXT");
         }
     }
 
@@ -346,6 +372,7 @@ public class SqliteSessionCyclesRepository {
     private static final String DETAIL_JOIN_SQL = """
             SELECT cm.id, cm.cycle_id, cm.captured_at, cm.call_id, cm.original_url, cm.url, cm.method,
                    cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
+                   cm.session_id, cm.operation_id,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM captured_call_metadata cm
@@ -372,8 +399,9 @@ public class SqliteSessionCyclesRepository {
     private static final String INSERT_METADATA_SQL = """
             INSERT INTO captured_call_metadata (id, cycle_id, captured_at, call_id, original_url, url, method,
                                  timestamp, timestamp_millis, duration_ms, status, status_rank,
-                                 supplier, supplier_name, error, haystack, status_state, request_haystack)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                 supplier, supplier_name, error, haystack, status_state, request_haystack,
+                                 session_id, operation_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO captured_call_request (captured_call_id, headers, body) VALUES (?,?,?)";
@@ -419,6 +447,8 @@ public class SqliteSessionCyclesRepository {
         ps.setString(16, haystack);
         ps.setString(17, call.state().name());
         ps.setString(18, requestHaystack);
+        ps.setString(19, call.sessionId());
+        ps.setString(20, call.operationId());
     }
 
     /** Binds one pending captured call's request-table row - always inserted (headers/body null if there is no request data). */
@@ -530,7 +560,7 @@ public class SqliteSessionCyclesRepository {
 
     /** See SqliteCallsRepository.SUMMARY_SQL's identical comment - list/search views never need request/response bodies. */
     private static final String SUMMARY_SQL =
-            "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state FROM ";
+            "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id FROM ";
 
     public CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
@@ -703,7 +733,7 @@ public class SqliteSessionCyclesRepository {
         CallRecord call = new CallRecord(
                 rs.getString("call_id"), rs.getString("original_url"), rs.getString("url"), rs.getString("method"),
                 request, rs.getString("timestamp"), durationMs, response, rs.getString("error"),
-                CallLifecycleStatus.valueOf(rs.getString("status_state")));
+                CallLifecycleStatus.valueOf(rs.getString("status_state")), rs.getString("session_id"), rs.getString("operation_id"));
 
         return new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
     };
@@ -724,7 +754,8 @@ public class SqliteSessionCyclesRepository {
                 status,
                 rs.getString("error"),
                 nullIfEmpty(rs.getString("supplier_name")),
-                CallLifecycleStatus.valueOf(rs.getString("status_state")));
+                CallLifecycleStatus.valueOf(rs.getString("status_state")),
+                rs.getString("session_id"), rs.getString("operation_id"));
 
         return new CapturedCallSummary(rs.getString("id"), rs.getString("captured_at"), callSummary);
     };
@@ -749,7 +780,7 @@ public class SqliteSessionCyclesRepository {
         CallRecord call = new CallRecord(
                 rs.getString("call_id"), rs.getString("original_url"), rs.getString("url"), rs.getString("method"),
                 request, rs.getString("timestamp"), durationMs, response, rs.getString("error"),
-                CallLifecycleStatus.valueOf(rs.getString("status_state")));
+                CallLifecycleStatus.valueOf(rs.getString("status_state")), rs.getString("session_id"), rs.getString("operation_id"));
 
         CapturedCall captured = new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
         return new PendingCapturedCall(rs.getString("cycle_id"), captured);
