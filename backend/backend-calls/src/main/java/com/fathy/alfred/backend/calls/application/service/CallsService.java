@@ -103,19 +103,20 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
      * aren't fanned out to here - a recording cycle only sees a call once it completes, exactly as
      * before this feature (see NewCallObserverPort's own phase for when that changes).
      *
-     * <p>{@code partial.id()}/{@code sessionId()}/{@code operationId()} are normally the proxy's
-     * own values (generated there from X-Request-Id/X-Session-ID/X-Operation-Id, or a fresh UUID
-     * per header if the client didn't send one - it no longer waits for this method to hand any of
-     * them back) - only generated here as a fallback for whichever come back blank/missing, e.g.
-     * an older proxy build still running mid-rollout.
+     * <p>{@code partial.id()} is normally the proxy's own generated id (from X-Request-Id, or a
+     * fresh UUID if the client didn't send one - it no longer waits for this method to hand one
+     * back) - only generated here as a fallback for a blank/missing id, e.g. an older proxy build
+     * still running mid-rollout, since every call must have one. {@code sessionId}/
+     * {@code operationId} are passed through exactly as received (from X-Session-ID/
+     * X-Operation-Id) with no fallback - a call the client never tagged with either simply has
+     * {@code null} for that field, rather than a value invented server-side.
      */
     @Override
     public Optional<String> receivePreparedCall(CallRecord partial) {
         String id = valueOrGenerated(partial.id());
-        String sessionId = valueOrGenerated(partial.sessionId());
-        String operationId = valueOrGenerated(partial.operationId());
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
-                partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS, sessionId, operationId);
+                partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
+                partial.sessionId(), partial.operationId());
         if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {
             return Optional.empty();
         }

@@ -282,9 +282,10 @@ class CallsServiceTest {
         assertThat(prepared.getValue().id()).isEqualTo(id.get());
         assertThat(prepared.getValue().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
         assertThat(prepared.getValue().response()).isNull();
-        assertThat(prepared.getValue().sessionId()).isNotBlank();
-        assertThat(prepared.getValue().operationId()).isNotBlank();
-        assertThat(prepared.getValue().sessionId()).isNotEqualTo(prepared.getValue().operationId());
+        // No fallback for these two - a call the proxy didn't tag with either simply has null,
+        // never a server-invented value.
+        assertThat(prepared.getValue().sessionId()).isNull();
+        assertThat(prepared.getValue().operationId()).isNull();
         var order = inOrder(port, observer, notificationPort);
         order.verify(port).prepare(prepared.getValue());
         order.verify(observer).onCallPrepared(prepared.getValue());
