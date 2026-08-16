@@ -925,6 +925,21 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 260px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+
+  &:hover {
+    color: var(--purple-light);
+    border-color: color-mix(in srgb, var(--purple) 50%, transparent);
+  }
+
+  // "Just copied" is component/template state (CallCardComponent.copiedChip), not derivable from
+  // :hover/:active, so it's a plain class toggled alongside the text swap in the template.
+  &.copied {
+    color: var(--green);
+    border-color: color-mix(in srgb, var(--green) 50%, transparent);
+    background: color-mix(in srgb, var(--green) 8%, transparent);
+  }
 }
 
 // The card as a whole is a click/drag selection target (see .call above),

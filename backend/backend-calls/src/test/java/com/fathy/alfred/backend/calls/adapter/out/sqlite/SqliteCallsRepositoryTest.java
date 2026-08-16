@@ -275,6 +275,22 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
+    void searchFindsACallByItsOwnIdSessionIdOrOperationId() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord call = new CallRecord("findable-call-id", "https://a.com/x", "https://a.com/x", "GET",
+                null, "t", 1.0, new ResponseData(200, null, null), null, CallLifecycleStatus.COMPLETED, "findable-session-id", "findable-operation-id");
+        repo.save(call);
+        repo.save(call("https://b.com/y", "t", 1.0, 200, null));
+
+        assertThat(repo.query("findable-call-id", "", "newest", 0, 10, true).items())
+                .extracting(CallSummary::id).containsExactly("findable-call-id");
+        assertThat(repo.query("findable-session-id", "", "newest", 0, 10, true).items())
+                .extracting(CallSummary::id).containsExactly("findable-call-id");
+        assertThat(repo.query("findable-operation-id", "", "newest", 0, 10, true).items())
+                .extracting(CallSummary::id).containsExactly("findable-call-id");
+    }
+
+    @Test
     void aBodyWithNoSupplierFieldReadsBackAsNullNotAnEmptyString() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
         CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",

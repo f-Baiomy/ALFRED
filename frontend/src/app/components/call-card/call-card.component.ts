@@ -12,6 +12,7 @@ import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { JsonPanelComponent } from '../json-panel/json-panel.component';
 import { CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
@@ -75,6 +76,9 @@ export class CallCardComponent {
     const ts = this.call().timestamp;
     return ts ? new Date(ts).toLocaleString() : '';
   });
+
+  /** Which id chip (if any) just got copied, briefly showing "Copied!" in its place - see copyChip(). Cleared automatically after the flash, and whenever the underlying call's id chips change identity (a different call rendered into this same card instance would otherwise show a stale flash). */
+  readonly copiedChip = signal<'request' | 'session' | 'operation' | null>(null);
 
   readonly detailState = signal<DetailState>('collapsed');
   private readonly detail = signal<CallDetail | null>(null);
@@ -186,6 +190,18 @@ export class CallCardComponent {
     this.isIntersecting = true;
     this.detailState.set('pending');
     this.maybeLoadDetail();
+  }
+
+  /** Truncates an id chip's value down to its first 8 characters for display - the full value is still what gets copied (see copyChip), this is purely a rendering shortcut for a UUID that would otherwise dominate the card's width. */
+  shortId(value: string): string {
+    return value.length > 8 ? value.slice(0, 8) + '…' : value;
+  }
+
+  copyChip(chip: 'request' | 'session' | 'operation', value: string): void {
+    copyToClipboard(value).then(() => {
+      this.copiedChip.set(chip);
+      setTimeout(() => this.copiedChip.set(null), 1000);
+    });
   }
 
   isSelected(): boolean {

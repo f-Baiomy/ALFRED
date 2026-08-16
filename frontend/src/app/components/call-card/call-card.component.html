@@ -48,16 +48,21 @@
     </div>
   </div>
 
-  @if (call().session_id || call().operation_id) {
-    <div class="call-ids-row">
-      @if (call().session_id) {
-        <span class="call-id-chip" title="X-Session-ID">Session: {{ call().session_id }}</span>
-      }
-      @if (call().operation_id) {
-        <span class="call-id-chip" title="X-Operation-Id">Operation: {{ call().operation_id }}</span>
-      }
-    </div>
-  }
+  <div class="call-ids-row">
+    <button type="button" class="call-id-chip" [class.copied]="copiedChip() === 'request'" title="Request id (click to copy) - {{ call().id }}" (click)="copyChip('request', call().id)">
+      Request: {{ copiedChip() === 'request' ? 'Copied!' : shortId(call().id) }}
+    </button>
+    @if (call().session_id) {
+      <button type="button" class="call-id-chip" [class.copied]="copiedChip() === 'session'" title="X-Session-ID (click to copy) - {{ call().session_id }}" (click)="copyChip('session', call().session_id!)">
+        Session: {{ copiedChip() === 'session' ? 'Copied!' : shortId(call().session_id!) }}
+      </button>
+    }
+    @if (call().operation_id) {
+      <button type="button" class="call-id-chip" [class.copied]="copiedChip() === 'operation'" title="X-Operation-Id (click to copy) - {{ call().operation_id }}" (click)="copyChip('operation', call().operation_id!)">
+        Operation: {{ copiedChip() === 'operation' ? 'Copied!' : shortId(call().operation_id!) }}
+      </button>
+    }
+  </div>
 
   @if (call().error) {
     <div class="error-banner">&#9888; {{ call().error }}</div>

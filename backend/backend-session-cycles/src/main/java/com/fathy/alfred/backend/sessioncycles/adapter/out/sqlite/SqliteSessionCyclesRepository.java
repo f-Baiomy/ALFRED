@@ -648,6 +648,9 @@ public class SqliteSessionCyclesRepository {
     /** See SqliteCallsRepository's identical method - the request-only slice of the haystack, persisted in request_haystack so completeCapturedCall can extend it into the full mixed haystack purely in SQL. */
     private static String buildRequestHaystack(CallRecord call) {
         StringBuilder sb = new StringBuilder();
+        append(sb, call.id());
+        append(sb, call.sessionId());
+        append(sb, call.operationId());
         append(sb, call.method());
         append(sb, call.originalUrl());
         append(sb, call.url());

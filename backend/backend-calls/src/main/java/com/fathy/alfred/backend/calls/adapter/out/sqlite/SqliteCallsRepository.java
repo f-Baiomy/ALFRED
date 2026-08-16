@@ -652,6 +652,9 @@ public class SqliteCallsRepository {
      */
     private static String buildRequestHaystack(CallRecord call) {
         StringBuilder sb = new StringBuilder();
+        append(sb, call.id());
+        append(sb, call.sessionId());
+        append(sb, call.operationId());
         append(sb, call.method());
         append(sb, call.originalUrl());
         append(sb, call.url());
