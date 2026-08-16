@@ -26,10 +26,13 @@ public interface CallLogPort {
     void prepare(CallRecord call);
 
     /**
-     * Second half: fills in the outcome of a previously-{@link #prepare}d call - either
+     * Second half: fills in the outcome of a previously-{@link #prepare}d call - usually either
      * {@code response} (a real HTTP reply, any status code) or {@code error} (the proxy never got
-     * one), never both. @return true if a call with this id was found and updated, false if not
-     * (already trimmed by retention, or never prepared - the caller should treat this as a 404).
+     * one), but both can be set together when the supplier did answer yet the proxy's own client
+     * had already disconnected before that reply could be relayed to it - see
+     * CompleteCallRequestDto's doc. @return true if a call with this id was found and updated,
+     * false if not (already trimmed by retention, or never prepared - the caller should treat this
+     * as a 404).
      */
     boolean complete(String id, ResponseData response, String error, Double durationMs);
 

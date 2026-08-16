@@ -170,7 +170,26 @@ class RouteAndLog:
         call_id = flow.metadata.get('call_id')
         if not call_id:
             return
-        self._write(call_id, {'error': str(flow.error)})
+
+        data = {'error': str(flow.error)}
+        # This hook fires whenever mitmproxy couldn't deliver a response to
+        # the client that made the original request - most commonly because
+        # that client gave up and disconnected before the reply arrived, or
+        # while it was still being sent. That does NOT mean the upstream
+        # supplier never answered: if it already had, flow.response is still
+        # fully populated in memory at this point (mitmproxy only failed the
+        # final write-back to the client, not the read from the supplier) -
+        # capture it so a real response is never silently lost. error stays
+        # set either way, so it's still clear the client itself never saw it.
+        if flow.response is not None:
+            start_time = flow.metadata.get('start_time', time.time())
+            data['duration_ms'] = round((time.time() - start_time) * 1000, 2)
+            data['response'] = {
+                'status': flow.response.status_code,
+                'headers': dict(flow.response.headers),
+                'body': self._safe_body(flow.response),
+            }
+        self._write(call_id, data)
 
     def _safe_body(self, message, limit=BODY_LIMIT):
         try:

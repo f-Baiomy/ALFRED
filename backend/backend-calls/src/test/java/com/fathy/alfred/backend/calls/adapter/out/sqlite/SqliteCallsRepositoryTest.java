@@ -425,6 +425,27 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
+    void completingWithBothAResponseAndAnErrorStoresTheResponseButStillClassifiesAsError() throws Exception {
+        // The proxy sends both when the supplier answered but the client that made the original
+        // request had already disconnected before the reply could reach it - the response must
+        // still be fully visible even though the call is (correctly) classified as an error, since
+        // the client itself never received it.
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        repo.complete(id, new ResponseData(200, null, "{\"booked\":true}"), "client disconnected", 3500.0);
+
+        CallRecord found = repo.findById(id).orElseThrow();
+        assertThat(found.state()).isEqualTo(CallLifecycleStatus.ERROR);
+        assertThat(found.error()).isEqualTo("client disconnected");
+        assertThat(found.response()).isNotNull();
+        assertThat(found.response().status()).isEqualTo(200);
+        assertThat(found.response().body()).isEqualTo("{\"booked\":true}");
+        assertThat(found.durationMs()).isEqualTo(3500.0);
+    }
+
+    @Test
     void searchFindsTextFromTheResponseOnlyAfterCompleteExtendsTheHaystack() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
         String id = UUID.randomUUID().toString();

@@ -361,6 +361,25 @@ class CallsServiceTest {
     }
 
     @Test
+    void receiveCompletedCallPassesThroughBothResponseAndErrorUnchangedWhenTheProxySendsBoth() {
+        // The proxy sends both when the supplier answered but its own client had already
+        // disconnected before that reply could be relayed - see CompleteCallRequestDto's doc.
+        // CallsService itself doesn't need to know about this case at all: it's a thin pass-through
+        // to the port either way, which is exactly what this test locks in.
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        ResponseData response = new ResponseData(200, null, "{\"booked\":true}");
+        when(port.complete("call-1", response, "client disconnected", 42.0)).thenReturn(true);
+        when(port.findById("call-1")).thenReturn(Optional.of(call("https://example.com/api/x")));
+        CallsService service = serviceWith(port, notificationPort, List.of());
+
+        boolean result = service.receiveCompletedCall("call-1", response, "client disconnected", 42.0);
+
+        assertThat(result).isTrue();
+        verify(port).complete("call-1", response, "client disconnected", 42.0);
+    }
+
+    @Test
     void receiveCompletedCallReturnsFalseAndSkipsFanOutWhenThePortReportsTheCallWasNeverPrepared() {
         CallLogPort port = mock(CallLogPort.class);
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);
