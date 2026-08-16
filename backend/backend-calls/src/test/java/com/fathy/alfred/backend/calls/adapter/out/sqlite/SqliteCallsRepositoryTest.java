@@ -271,56 +271,6 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
-    void aRowWithNoSupplierFieldIsNeverRescannedByTheBackfillOnANewRepositoryInstance() throws Exception {
-        // Regression test: bindCall must store "" (an internal sentinel meaning "processed, no
-        // supplier field"), not SQL NULL, when the body has no supplier field - otherwise this row
-        // would look identical to "never processed" and the backfill would keep re-selecting and
-        // re-updating it (a no-op, but pointlessly, and on a real 400+ row database this alone
-        // added well over a minute to every single restart).
-        Path dbFile = tempDir.resolve("calls.db");
-        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
-                new RequestData(null, "{\"no-supplier-here\":true}"), "t", 1.0, null, null);
-        repositoryFor(dbFile).save(call);
-
-        // init() (called by repositoryFor) already runs the backfill on this new instance - if the
-        // row above were left NULL, this second instance's own backfill would still see it as
-        // pending. Check the on-disk state directly rather than re-invoking backfill again.
-        repositoryFor(dbFile);
-
-        assertThat(countPendingBackfill(dbFile)).isZero();
-    }
-
-    private static int countPendingBackfill(Path dbFile) throws Exception {
-        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
-             var statement = connection.createStatement();
-             var rs = statement.executeQuery("SELECT COUNT(*) AS c FROM calls WHERE supplier_name IS NULL AND request_body IS NOT NULL")) {
-            rs.next();
-            return rs.getInt("c");
-        }
-    }
-
-    @Test
-    void backfillsSupplierNameForRowsWrittenBeforeTheColumnWasPopulated() throws Exception {
-        Path dbFile = tempDir.resolve("calls.db");
-        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
-                new RequestData(null, "{\"supplier\":\"Galileo\"}"), "t", 1.0, null, null);
-        SqliteCallsRepository firstInstance = repositoryFor(dbFile);
-        firstInstance.save(call);
-        // Simulate a row written before supplier_name existed/was populated - clear it directly,
-        // bypassing the normal insert path bindCall() already covers.
-        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
-             var statement = connection.createStatement()) {
-            statement.execute("UPDATE calls SET supplier_name = NULL");
-        }
-
-        // A fresh instance's init() runs the backfill.
-        SqliteCallsRepository secondInstance = repositoryFor(dbFile);
-
-        var page = secondInstance.query("", "", "newest", 0, 10, true);
-        assertThat(page.items()).extracting(CallSummary::supplierName).containsExactly("Galileo");
-    }
-
-    @Test
     void concurrentWritesFromManyThreadsAllSucceedWithoutBeingDropped() throws Exception {
         // Regression test for the real bug this fixes: without busy_timeout applied to every
         // pooled connection (not just one), a second thread writing while another holds the
@@ -476,11 +426,11 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
-    void existingRowsAreBackfilledAsCompletedOrErrorOnFirstStartupAfterTheLifecycleColumnsWereAdded() throws Exception {
+    void migratesAPreTwoPhaseLegacySingleTableDerivingStatusStateForEachRow() throws Exception {
         Path dbFile = tempDir.resolve("calls.db");
-        // Simulate a pre-two-phase database: create the table without status_state/request_haystack
-        // (mirrors what addLifecycleColumnsIfMissing finds on an existing deployment's first
-        // startup after this feature ships).
+        // Simulate the oldest possible legacy shape: a single-table calls.db that predates even
+        // status_state/request_haystack (mirrors what addLegacyLifecycleColumnsIfMissing finds on
+        // an existing deployment's first startup after the 3-table split ships).
         try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
              var statement = connection.createStatement()) {
             statement.execute("""
@@ -495,17 +445,97 @@ class SqliteCallsRepositoryTest {
             statement.execute("INSERT INTO calls (id, url, error, supplier_name) VALUES ('err-1', 'https://a.com/y', 'boom', '')");
         }
 
-        repositoryFor(dbFile);
+        SqliteCallsRepository repo = repositoryFor(dbFile);
+
+        CallRecord ok = repo.findById("ok-1").orElseThrow();
+        assertThat(ok.state()).isEqualTo(CallLifecycleStatus.COMPLETED);
+        assertThat(ok.response().status()).isEqualTo(200);
+        CallRecord err = repo.findById("err-1").orElseThrow();
+        assertThat(err.state()).isEqualTo(CallLifecycleStatus.ERROR);
+        assertThat(err.error()).isEqualTo("boom");
+    }
+
+    @Test
+    void migratesLegacySingleTableDataIntoTheThreeTableSchemaAndRenamesTheOldTable() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE calls (
+                      id TEXT PRIMARY KEY, original_url TEXT, url TEXT, method TEXT, timestamp TEXT,
+                      timestamp_millis INTEGER, duration_ms REAL, status INTEGER, status_rank INTEGER,
+                      supplier TEXT, supplier_name TEXT, error TEXT, request_headers TEXT, request_body TEXT,
+                      response_headers TEXT, response_body TEXT, haystack TEXT, status_state TEXT, request_haystack TEXT
+                    )
+                    """);
+            statement.execute("""
+                    INSERT INTO calls (id, original_url, url, method, timestamp, status, supplier_name,
+                                        request_headers, request_body, response_headers, response_body, status_state)
+                    VALUES ('legacy-1', 'https://a.com/x', 'https://a.com/x', 'POST', 't', 200, 'FlyNas',
+                            '{"Content-Type":"application/json"}', '{"supplier":"FlyNas"}', '{"X-Trace":"abc"}', '{"ok":true}', 'COMPLETED')
+                    """);
+        }
+
+        SqliteCallsRepository repo = repositoryFor(dbFile);
+
+        CallRecord found = repo.findById("legacy-1").orElseThrow();
+        assertThat(found.request().headers()).containsEntry("Content-Type", "application/json");
+        assertThat(found.request().body()).isEqualTo("{\"supplier\":\"FlyNas\"}");
+        assertThat(found.response().headers()).containsEntry("X-Trace", "abc");
+        assertThat(found.response().body()).isEqualTo("{\"ok\":true}");
+        var page = repo.query("", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(CallSummary::supplierName).containsExactly("FlyNas");
 
         try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
-             var statement = connection.createStatement();
-             var rs = statement.executeQuery("SELECT id, status_state FROM calls ORDER BY id")) {
-            rs.next();
-            assertThat(rs.getString("id")).isEqualTo("err-1");
-            assertThat(rs.getString("status_state")).isEqualTo("ERROR");
-            rs.next();
-            assertThat(rs.getString("id")).isEqualTo("ok-1");
-            assertThat(rs.getString("status_state")).isEqualTo("COMPLETED");
+             var statement = connection.createStatement()) {
+            var legacyTables = statement.executeQuery(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('calls', 'calls_legacy')");
+            List<String> names = new ArrayList<>();
+            while (legacyTables.next()) {
+                names.add(legacyTables.getString("name"));
+            }
+            assertThat(names).containsExactly("calls_legacy");
+        }
+    }
+
+    @Test
+    void migrationIsSkippedOnceCallMetadataAlreadyHasRows() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        SqliteCallsRepository firstInstance = repositoryFor(dbFile);
+        firstInstance.save(call("https://a.com/x", "t", 1.0, 200, null));
+        // A legacy `calls` table appearing after the 3-table schema already has data (e.g. a
+        // manually-restored old backup file placed alongside calls.db) must never be migrated in
+        // and clobber/duplicate what's already there.
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE calls (id TEXT PRIMARY KEY, url TEXT)");
+            statement.execute("INSERT INTO calls (id, url) VALUES ('should-not-be-migrated', 'https://b.com/y')");
+        }
+
+        SqliteCallsRepository secondInstance = repositoryFor(dbFile);
+
+        assertThat(secondInstance.findById("should-not-be-migrated")).isEmpty();
+        assertThat(secondInstance.count()).isEqualTo(1);
+    }
+
+    @Test
+    void deletingACallCascadesToItsRequestAndResponseRows() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        SqliteCallsRepository repo = repositoryFor(dbFile);
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new RequestData(java.util.Map.of("k", "v"), "body"), "t", 1.0, new ResponseData(200, null, "resp"), null);
+        repo.save(call);
+
+        repo.deleteAll();
+
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            var requestCount = statement.executeQuery("SELECT COUNT(*) AS c FROM call_request");
+            requestCount.next();
+            assertThat(requestCount.getInt("c")).isZero();
+            var responseCount = statement.executeQuery("SELECT COUNT(*) AS c FROM call_response");
+            responseCount.next();
+            assertThat(responseCount.getInt("c")).isZero();
         }
     }
 }

@@ -28,14 +28,22 @@ import java.util.concurrent.TimeoutException;
  * (or the write fails), preserving the existing "row exists before the HTTP response / before
  * the WebSocket notification" guarantee callers depend on.
  *
- * <p>The writer holds one persistent connection and one persistent {@link PreparedStatement} for
- * its whole lifetime (reopened only if a connection-level failure is detected), rather than
- * checking a connection out of the pool for every batch - avoids paying pool-checkout and
- * statement-preparation cost on every commit.
+ * <p>The writer holds one persistent connection and one persistent {@link PreparedStatement} per
+ * configured statement for its whole lifetime (reopened only if a connection-level failure is
+ * detected), rather than checking a connection out of the pool for every batch - avoids paying
+ * pool-checkout and statement-preparation cost on every commit.
+ *
+ * <p>One item can require more than one statement against the same connection/transaction - e.g.
+ * a prepared call now writes both a {@code call_metadata} row and a {@code call_request} row.
+ * Each configured {@link StatementSpec} runs across the whole batch in order (all items' first
+ * statement, then all items' second statement, ...) before a single commit - never one commit per
+ * statement - so a partial write (metadata without its request row) can never survive a crash
+ * mid-batch.
  *
  * <p>If a whole-batch {@code executeBatch()} fails (e.g. one row violates a constraint), the
- * batch is retried one row at a time so only the actually-bad row fails - a single bad write must
- * not fail every other call that happened to be batched alongside it.
+ * batch is retried one item at a time (running every statement for that item, then committing)
+ * so only the actually-bad item fails - a single bad write must not fail every other call that
+ * happened to be batched alongside it.
  */
 public final class BatchWriter<T> implements AutoCloseable {
 
@@ -49,12 +57,14 @@ public final class BatchWriter<T> implements AutoCloseable {
         void bind(PreparedStatement statement, T item) throws SQLException;
     }
 
+    /** One SQL statement (and its binder) run, in order, for every item in a batch before the shared commit. */
+    public record StatementSpec<T>(String sql, RowBinder<T> binder) {}
+
     private record PendingWrite<T>(T item, CompletableFuture<Void> future) {}
 
     private final BlockingQueue<PendingWrite<T>> queue;
     private final DataSource dataSource;
-    private final String insertSql;
-    private final RowBinder<T> binder;
+    private final List<StatementSpec<T>> statements;
     private final Thread workerThread;
     private volatile boolean running = true;
 
@@ -67,10 +77,14 @@ public final class BatchWriter<T> implements AutoCloseable {
      *                      stalls - not something normal traffic is expected to hit.
      */
     public BatchWriter(String threadName, DataSource dataSource, String insertSql, RowBinder<T> binder, int queueCapacity) {
+        this(threadName, dataSource, List.of(new StatementSpec<>(insertSql, binder)), queueCapacity);
+    }
+
+    /** As above, but running every statement in {@code statements} (in order) against the same connection/transaction per item, one shared commit per batch. */
+    public BatchWriter(String threadName, DataSource dataSource, List<StatementSpec<T>> statements, int queueCapacity) {
         this.queue = new LinkedBlockingQueue<>(queueCapacity);
         this.dataSource = dataSource;
-        this.insertSql = insertSql;
-        this.binder = binder;
+        this.statements = statements;
         this.workerThread = new Thread(this::runLoop, threadName);
         this.workerThread.setDaemon(true);
         this.workerThread.start();
@@ -104,7 +118,7 @@ public final class BatchWriter<T> implements AutoCloseable {
 
     private void runLoop() {
         Connection connection = null;
-        PreparedStatement statement = null;
+        List<PreparedStatement> preparedStatements = null;
         while (running) {
             PendingWrite<T> first;
             try {
@@ -124,22 +138,22 @@ public final class BatchWriter<T> implements AutoCloseable {
                 if (connection == null || connection.isClosed()) {
                     connection = dataSource.getConnection();
                     connection.setAutoCommit(false);
-                    statement = connection.prepareStatement(insertSql);
+                    preparedStatements = prepareAll(connection);
                 }
-                executeWithIsolation(connection, statement, batch);
+                executeWithIsolation(connection, preparedStatements, batch);
             } catch (SQLException e) {
                 log.error("Writer connection failed, reopening on the next batch: {}", e.getMessage());
-                closeQuietly(statement);
+                closeAllQuietly(preparedStatements);
                 closeQuietly(connection);
                 connection = null;
-                statement = null;
+                preparedStatements = null;
                 batch.forEach(pw -> pw.future().completeExceptionally(e));
             }
         }
 
         // Graceful shutdown: attempt to persist whatever was still queued rather than silently
-        // dropping it, using whatever connection/statement is already open (or opening one if the
-        // loop above never needed to).
+        // dropping it, using whatever connection/statements are already open (or opening them if
+        // the loop above never needed to).
         List<PendingWrite<T>> remaining = new ArrayList<>();
         queue.drainTo(remaining);
         if (!remaining.isEmpty()) {
@@ -147,47 +161,87 @@ public final class BatchWriter<T> implements AutoCloseable {
                 if (connection == null || connection.isClosed()) {
                     connection = dataSource.getConnection();
                     connection.setAutoCommit(false);
-                    statement = connection.prepareStatement(insertSql);
+                    preparedStatements = prepareAll(connection);
                 }
-                executeWithIsolation(connection, statement, remaining);
+                executeWithIsolation(connection, preparedStatements, remaining);
             } catch (SQLException e) {
                 log.error("Could not flush {} pending write(s) during shutdown: {}", remaining.size(), e.getMessage());
                 remaining.forEach(pw -> pw.future().completeExceptionally(e));
             }
         }
-        closeQuietly(statement);
+        closeAllQuietly(preparedStatements);
         closeQuietly(connection);
     }
 
-    /** Tries the whole batch as one transaction first (the fast, common path); on any failure, rolls back and retries one row at a time so a single bad row doesn't fail every other write batched alongside it. */
-    private void executeWithIsolation(Connection connection, PreparedStatement statement, List<PendingWrite<T>> batch) throws SQLException {
+    private List<PreparedStatement> prepareAll(Connection connection) throws SQLException {
+        List<PreparedStatement> prepared = new ArrayList<>(statements.size());
+        for (StatementSpec<T> spec : statements) {
+            prepared.add(connection.prepareStatement(spec.sql()));
+        }
+        return prepared;
+    }
+
+    /**
+     * Tries the whole batch as one transaction first (the fast, common path): every configured
+     * statement runs across all items in {@code batch} (all items' first statement, then all
+     * items' second statement, ...), then a single commit. On any failure, rolls back and retries
+     * one item at a time - running every statement for that item, then committing - so a single
+     * bad item doesn't fail every other write batched alongside it, and a multi-statement item
+     * never partially commits (e.g. metadata without its request row).
+     */
+    private void executeWithIsolation(Connection connection, List<PreparedStatement> preparedStatements, List<PendingWrite<T>> batch) throws SQLException {
         try {
-            for (PendingWrite<T> pending : batch) {
-                statement.clearParameters();
-                binder.bind(statement, pending.item());
-                statement.addBatch();
+            for (int i = 0; i < statements.size(); i++) {
+                PreparedStatement ps = preparedStatements.get(i);
+                RowBinder<T> binder = statements.get(i).binder();
+                for (PendingWrite<T> pending : batch) {
+                    ps.clearParameters();
+                    binder.bind(ps, pending.item());
+                    ps.addBatch();
+                }
+                ps.executeBatch();
             }
-            statement.executeBatch();
             connection.commit();
             batch.forEach(pw -> pw.future().complete(null));
         } catch (SQLException batchFailure) {
             rollbackQuietly(connection);
-            statement.clearBatch();
+            clearBatchesQuietly(preparedStatements);
             for (PendingWrite<T> pending : batch) {
                 try {
-                    statement.clearParameters();
-                    binder.bind(statement, pending.item());
-                    statement.addBatch();
-                    statement.executeBatch();
+                    for (int i = 0; i < statements.size(); i++) {
+                        PreparedStatement ps = preparedStatements.get(i);
+                        RowBinder<T> binder = statements.get(i).binder();
+                        ps.clearParameters();
+                        binder.bind(ps, pending.item());
+                        ps.addBatch();
+                        ps.executeBatch();
+                    }
                     connection.commit();
                     pending.future().complete(null);
                 } catch (SQLException singleFailure) {
                     rollbackQuietly(connection);
-                    statement.clearBatch();
+                    clearBatchesQuietly(preparedStatements);
                     pending.future().completeExceptionally(singleFailure);
                 }
             }
         }
+    }
+
+    private static void clearBatchesQuietly(List<PreparedStatement> statements) {
+        for (PreparedStatement ps : statements) {
+            try {
+                ps.clearBatch();
+            } catch (SQLException ignored) {
+                // Best-effort - about to retry or fail this batch either way.
+            }
+        }
+    }
+
+    private static void closeAllQuietly(List<PreparedStatement> statements) {
+        if (statements == null) {
+            return;
+        }
+        statements.forEach(BatchWriter::closeQuietly);
     }
 
     private static void rollbackQuietly(Connection connection) {

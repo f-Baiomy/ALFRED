@@ -174,4 +174,52 @@ class BatchWriterTest {
         assertThatThrownBy(() -> writer.submit(new String[]{"dup", "second"}))
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void multiStatementItemWritesBothTablesAtomicallyInASharedCommit() throws Exception {
+        HikariDataSource dataSource = dataSourceFor(tempDir.resolve("f.db"));
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE side_items (id TEXT PRIMARY KEY, value TEXT)");
+        }
+        BatchWriter<String[]> writer = new BatchWriter<>("test-multi-writer", dataSource, List.of(
+                new BatchWriter.StatementSpec<>("INSERT INTO items (id, value) VALUES (?,?)",
+                        (ps, row) -> { ps.setString(1, row[0]); ps.setString(2, row[1]); }),
+                new BatchWriter.StatementSpec<>("INSERT INTO side_items (id, value) VALUES (?,?)",
+                        (ps, row) -> { ps.setString(1, row[0]); ps.setString(2, row[1]); })
+        ), 1000);
+        writers.add(writer);
+
+        writer.submit(new String[]{"id-1", "value-1"});
+
+        assertThat(allIds(dataSource)).containsExactly("id-1");
+        try (var connection = dataSource.getConnection();
+             var statement = connection.createStatement();
+             var rs = statement.executeQuery("SELECT id FROM side_items")) {
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getString("id")).isEqualTo("id-1");
+        }
+    }
+
+    @Test
+    void multiStatementItemFailingItsSecondStatementRollsBackTheFirstToo() throws Exception {
+        HikariDataSource dataSource = dataSourceFor(tempDir.resolve("g.db"));
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE side_items (id TEXT PRIMARY KEY, value TEXT)");
+            statement.execute("INSERT INTO side_items (id, value) VALUES ('dup', 'already-there')");
+        }
+        BatchWriter<String[]> writer = new BatchWriter<>("test-multi-writer-fail", dataSource, List.of(
+                new BatchWriter.StatementSpec<>("INSERT INTO items (id, value) VALUES (?,?)",
+                        (ps, row) -> { ps.setString(1, row[0]); ps.setString(2, row[1]); }),
+                new BatchWriter.StatementSpec<>("INSERT INTO side_items (id, value) VALUES (?,?)",
+                        (ps, row) -> { ps.setString(1, row[0]); ps.setString(2, row[1]); })
+        ), 1000);
+        writers.add(writer);
+
+        // The first statement (items) would succeed on its own, but the second (side_items) hits a
+        // PRIMARY KEY violation - the whole item must fail, not leave a row in items with none in
+        // side_items.
+        assertThatThrownBy(() -> writer.submit(new String[]{"dup", "value"}))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(allIds(dataSource)).doesNotContain("dup");
+    }
 }
