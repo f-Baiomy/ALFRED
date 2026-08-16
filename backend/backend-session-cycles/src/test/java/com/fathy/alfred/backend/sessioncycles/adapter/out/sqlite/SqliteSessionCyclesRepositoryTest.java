@@ -207,45 +207,6 @@ class SqliteSessionCyclesRepositoryTest {
         assertThat(page.items()).extracting(c -> c.call().supplierName()).containsExactly((String) null);
     }
 
-    @Test
-    void aCapturedCallWithNoSupplierFieldIsNeverRescannedByTheBackfillOnANewRepositoryInstance() throws Exception {
-        // See SqliteCallsRepositoryTest's identical regression test - "" (not SQL NULL) is what
-        // marks a row as already processed with no supplier field found.
-        Path dbFile = tempDir.resolve("session-cycles.db");
-        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
-                new com.fathy.alfred.backend.calls.domain.model.RequestData(null, "{\"no-supplier-here\":true}"),
-                "t", 1.0, null, null);
-        repositoryFor(dbFile).append("c1", call);
-
-        repositoryFor(dbFile);
-
-        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
-             var statement = connection.createStatement();
-             var rs = statement.executeQuery("SELECT COUNT(*) AS c FROM captured_calls WHERE supplier_name IS NULL AND request_body IS NOT NULL")) {
-            rs.next();
-            assertThat(rs.getInt("c")).isZero();
-        }
-    }
-
-    @Test
-    void backfillsSupplierNameForCapturedCallsWrittenBeforeTheColumnWasPopulated() throws Exception {
-        Path dbFile = tempDir.resolve("session-cycles.db");
-        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
-                new com.fathy.alfred.backend.calls.domain.model.RequestData(null, "{\"supplier\":\"Galileo\"}"),
-                "t", 1.0, null, null);
-        SqliteSessionCyclesRepository firstInstance = repositoryFor(dbFile);
-        firstInstance.append("c1", call);
-        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
-             var statement = connection.createStatement()) {
-            statement.execute("UPDATE captured_calls SET supplier_name = NULL");
-        }
-
-        SqliteSessionCyclesRepository secondInstance = repositoryFor(dbFile);
-
-        var page = secondInstance.query("c1", "", "", "newest", 0, 10, true);
-        assertThat(page.items()).extracting(c -> c.call().supplierName()).containsExactly("Galileo");
-    }
-
     private static CallRecord preparedCall(String id, String url) {
         return new CallRecord(id, url, url, "GET", new RequestData(null, "{\"supplier\":\"FlyNas\"}"), "t",
                 null, null, null, CallLifecycleStatus.IN_PROGRESS);
@@ -327,5 +288,88 @@ class SqliteSessionCyclesRepositoryTest {
         SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
 
         assertThat(repo.completeCapturedCall("missing-cycle", "missing-call", new ResponseData(200, null, null), null, 1.0)).isFalse();
+    }
+
+    @Test
+    void migratesLegacySingleTableDataIntoTheThreeTableSchemaAndRenamesTheOldTable() throws Exception {
+        Path dbFile = tempDir.resolve("session-cycles.db");
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE captured_calls (
+                      id TEXT PRIMARY KEY, cycle_id TEXT NOT NULL, captured_at TEXT, call_id TEXT,
+                      original_url TEXT, url TEXT, method TEXT, timestamp TEXT, timestamp_millis INTEGER,
+                      duration_ms REAL, status INTEGER, status_rank INTEGER, supplier TEXT, supplier_name TEXT,
+                      error TEXT, request_headers TEXT, request_body TEXT, response_headers TEXT,
+                      response_body TEXT, haystack TEXT, status_state TEXT, request_haystack TEXT
+                    )
+                    """);
+            statement.execute("""
+                    INSERT INTO captured_calls (id, cycle_id, captured_at, call_id, original_url, url, method,
+                                                 timestamp, status, supplier_name, request_headers, request_body,
+                                                 response_headers, response_body, status_state)
+                    VALUES ('captured-1', 'c1', 'ts', 'call-1', 'https://a.com/x', 'https://a.com/x', 'POST', 't', 200, 'FlyNas',
+                            '{"Content-Type":"application/json"}', '{"supplier":"FlyNas"}', '{"X-Trace":"abc"}', '{"ok":true}', 'COMPLETED')
+                    """);
+        }
+
+        SqliteSessionCyclesRepository repo = repositoryFor(dbFile);
+
+        Optional<CapturedCall> found = repo.findByCallId("c1", "call-1");
+        assertThat(found).isPresent();
+        assertThat(found.get().id()).isEqualTo("captured-1");
+        assertThat(found.get().call().request().headers()).containsEntry("Content-Type", "application/json");
+        assertThat(found.get().call().response().body()).isEqualTo("{\"ok\":true}");
+        var page = repo.query("c1", "", "", "newest", 0, 10, true);
+        assertThat(page.items()).extracting(c -> c.call().supplierName()).containsExactly("FlyNas");
+
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            var legacyTables = statement.executeQuery(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('captured_calls', 'captured_calls_legacy')");
+            List<String> names = new ArrayList<>();
+            while (legacyTables.next()) {
+                names.add(legacyTables.getString("name"));
+            }
+            assertThat(names).containsExactly("captured_calls_legacy");
+        }
+    }
+
+    @Test
+    void migrationIsSkippedOnceCapturedCallMetadataAlreadyHasRows() throws Exception {
+        Path dbFile = tempDir.resolve("session-cycles.db");
+        SqliteSessionCyclesRepository firstInstance = repositoryFor(dbFile);
+        firstInstance.append("c1", call("https://a.com/x", "t1"));
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE captured_calls (id TEXT PRIMARY KEY, cycle_id TEXT, call_id TEXT, url TEXT)");
+            statement.execute("INSERT INTO captured_calls (id, cycle_id, call_id, url) VALUES ('should-not-be-migrated', 'c1', 'call-x', 'https://b.com/y')");
+        }
+
+        SqliteSessionCyclesRepository secondInstance = repositoryFor(dbFile);
+
+        assertThat(secondInstance.findByCallId("c1", "call-x")).isEmpty();
+        assertThat(secondInstance.capturedCallsCountAll()).isEqualTo(1);
+    }
+
+    @Test
+    void removingACapturedCallCascadesToItsRequestAndResponseRows() throws Exception {
+        Path dbFile = tempDir.resolve("session-cycles.db");
+        SqliteSessionCyclesRepository repo = repositoryFor(dbFile);
+        CallRecord call = new CallRecord(UUID.randomUUID().toString(), "https://a.com/x", "https://a.com/x", "POST",
+                new RequestData(java.util.Map.of("k", "v"), "body"), "t", 1.0, new ResponseData(200, null, "resp"), null);
+        repo.append("c1", call);
+
+        repo.deleteAllCapturedCalls();
+
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            var requestCount = statement.executeQuery("SELECT COUNT(*) AS c FROM captured_call_request");
+            requestCount.next();
+            assertThat(requestCount.getInt("c")).isZero();
+            var responseCount = statement.executeQuery("SELECT COUNT(*) AS c FROM captured_call_response");
+            responseCount.next();
+            assertThat(responseCount.getInt("c")).isZero();
+        }
     }
 }
