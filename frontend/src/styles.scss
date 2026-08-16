@@ -400,6 +400,12 @@ main {
   gap: 1.5rem;
 }
 
+.calls-flat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
 .empty,
 .error-box {
   color: var(--text-dim);
@@ -1449,7 +1455,7 @@ mark.hl.active {
 .pinned-section {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
   padding-bottom: 1rem;
   margin-bottom: 0.25rem;
   border-bottom: 1px dashed var(--border);
@@ -1506,7 +1512,7 @@ mark.hl.active {
 .supplier-group-body {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
   padding: 0 1rem 1rem;
 }
 
