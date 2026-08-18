@@ -447,6 +447,10 @@ main {
   &.pending b {
     color: var(--purple-light);
   }
+  &.active {
+    border-color: var(--purple);
+    background: color-mix(in srgb, var(--purple) 18%, var(--card));
+  }
 }
 
 .call-list {

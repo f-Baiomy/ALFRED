@@ -1,15 +1,25 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { webSocket } from 'rxjs/webSocket';
-import { Observable, retry, timer } from 'rxjs';
-import { CallDetail, CallRecord, CallsWsMessage, SortMode } from '../models/call.model';
+import { Observable, Subscription, forkJoin, map, retry, timer } from 'rxjs';
+import {
+  CallDetail,
+  CallEndpointSource,
+  CallRecord,
+  CallSource,
+  CallSummaryDto,
+  CallsClearedEvent,
+  CallsWsMessage,
+  InternalCallsWsMessage,
+  SortMode,
+} from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
 import { PinService } from '../services/pin.service';
 import { AppConfigService } from '../services/app-config.service';
-import { callKey, toCallRecord } from '../../shared/utils/call-utils';
+import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
-import { CallListView, createCallListView } from './call-list-view';
+import { CallListView, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
 
-export type { CallStats, SupplierGroup, SupplierOption } from './call-list-view';
+export type { CallStats, CallStatusFilter, SupplierGroup, SupplierOption } from './call-list-view';
 
 /**
  * Single source of truth for the dashboard: fetches pages from the backend (search/sort/supplier
@@ -39,12 +49,24 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   readonly pinned = this.pinService.pinned;
 
+  /**
+   * Which backend-side source(s) the dashboard is currently reading from - defaults to 'external'
+   * so nothing about today's behavior changes for anyone who never touches the new toggle. Not
+   * part of CallListControlsState/CallListView (the shared token session-cycle detail pages also
+   * implement) since source-switching is a dashboard-only concept - HeaderComponent takes it as a
+   * plain optional input/output instead, wired up only from DashboardComponent.
+   */
+  readonly callSource = signal<CallSource>('external');
+
+  /** Live WebSocket subscriptions for the currently-selected source(s) - torn down and rebuilt whenever callSource changes, since 'both' needs two sockets and 'external'/'internal' need exactly one each. */
+  private wsSubscriptions: Subscription[] = [];
+
   constructor() {
     this.view = createCallListView(
       computed(() => new Set(this.pinned().keys())),
       {
         pageSize: 50,
-        fetchPage: (query) => this.api.getCalls(query),
+        fetchPage: (query) => this.fetchPageForSource(query),
         liveCalls: this.liveCalls,
         onError: (message) => this.error.set(message),
       }
@@ -54,29 +76,87 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   }
 
   /**
-   * Pushes a new CallRecord onto the dashboard the instant the proxy's webhook reaches backend,
-   * and immediately triggers a refresh() to fetch the authoritative (filtered/sorted/paginated)
-   * page - there's no 5s poll to eventually pick it up otherwise. Falls back to a fixed retry
-   * delay on disconnect; a call that arrives during a reconnect gap is only picked up by the next
-   * push or a manual refresh, which is the accepted trade-off of not polling.
+   * Fetches one page for whatever source(s) are currently selected. 'external'/'internal' are a
+   * straight passthrough to the matching REST resource. 'both' fetches the same offset/limit from
+   * each of the two independent, independently-paginated backends in parallel, merges the two
+   * pages, and re-sorts the combination with sortCalls (shared with the session-cycle "custom
+   * order" view). The merged page is then trimmed back down to `query.limit` so `loadMore`'s
+   * offset math (based on how many calls are loaded so far) keeps advancing by a consistent page
+   * size - this is a pragmatic compromise, not an exact global page: because the two sources are
+   * paginated independently, a page boundary can occasionally skip or (rarely) repeat a call when
+   * the two sources' recent-call rates differ a lot. `total` is the sum of both sources' totals,
+   * so "N remaining" stays a reasonable (if not exact once trimming has occurred) estimate.
+   *
+   * 'newest'/'oldest' are substituted with 'newest-call'/'oldest-call' for the merge only: those
+   * two modes normally rely on "whatever order this one backend already returned it in" (its own
+   * received/capture order - see sortCalls' comment), which has no defined meaning once two
+   * independent backends' pages are interleaved, so call.timestamp is the only sensible order left
+   * to merge by. Every other mode (slowest/fastest/status/*-call) already sorts by an actual field
+   * on the record, so it merges correctly unchanged.
+   */
+  private fetchPageForSource(query: CallsQuery): Observable<CallsPageResult> {
+    const source = this.callSource();
+    if (source === 'external') return this.api.getCalls(query, 'external');
+    if (source === 'internal') return this.api.getCalls(query, 'internal');
+    const mergeSort: SortMode = query.sort === 'newest' ? 'newest-call' : query.sort === 'oldest' ? 'oldest-call' : query.sort;
+    return forkJoin([this.api.getCalls(query, 'external'), this.api.getCalls(query, 'internal')]).pipe(
+      map(([external, internal]) => {
+        const merged = sortCalls([...external.calls, ...internal.calls], mergeSort);
+        return { calls: merged.slice(0, query.limit), total: external.total + internal.total };
+      })
+    );
+  }
+
+  /** Switches which backend source(s) the dashboard reads from - clears whatever's loaded/live (it belonged to the old source(s)) and rebuilds both the REST fetch and the live WebSocket connection(s) to match. */
+  setCallSource(source: CallSource): void {
+    if (this.callSource() === source) return;
+    this.callSource.set(source);
+    this.liveCalls.set([]);
+    this.connectLiveUpdates();
+    this.view.resetSource();
+  }
+
+  /**
+   * Pushes a new CallRecord onto the dashboard the instant the proxy's webhook (external) or the
+   * reverse-mode mitmproxy (internal) reaches backend, and immediately triggers a refresh() to
+   * fetch the authoritative (filtered/sorted/paginated) page - there's no 5s poll to eventually
+   * pick it up otherwise. Falls back to a fixed retry delay on disconnect; a call that arrives
+   * during a reconnect gap is only picked up by the next push or a manual refresh, which is the
+   * accepted trade-off of not polling. Tears down any previous connection(s) first, since this is
+   * also called whenever callSource changes.
    */
   private connectLiveUpdates(): void {
-    const wsUrl = this.config.backendUrl.replace(/^http/, 'ws') + '/ws/calls';
-    webSocket<CallsWsMessage>(wsUrl)
+    this.wsSubscriptions.forEach((sub) => sub.unsubscribe());
+    this.wsSubscriptions = [];
+
+    const source = this.callSource();
+    const wsBase = this.config.backendUrl.replace(/^http/, 'ws');
+    if (source === 'external' || source === 'both') {
+      this.wsSubscriptions.push(this.subscribeToWs<CallsWsMessage>(`${wsBase}/ws/calls`, 'external'));
+    }
+    if (source === 'internal' || source === 'both') {
+      this.wsSubscriptions.push(this.subscribeToWs<InternalCallsWsMessage>(`${wsBase}/ws/internal-calls`, 'internal'));
+    }
+  }
+
+  private subscribeToWs<T extends { call: CallSummaryDto } | CallsClearedEvent>(wsUrl: string, source: CallEndpointSource): Subscription {
+    return webSocket<T>(wsUrl)
       .pipe(retry({ delay: () => timer(3000) }))
-      .subscribe((message) => {
-        if (!('call' in message)) {
-          this.liveCalls.set([]);
-          this.view.refresh();
-          return;
-        }
-        const call = toCallRecord(message.call);
-        // Matched by id, not callKey - two-phase logging pushes the same call twice (once
-        // IN_PROGRESS at prepare, once resolved at complete), and id is the one thing guaranteed
-        // stable across both pushes for the exact same call.
-        this.liveCalls.set([call, ...this.liveCalls().filter((c) => c.id !== call.id)]);
-        this.view.refresh();
-      });
+      .subscribe((message) => this.handleWsMessage(message, source));
+  }
+
+  private handleWsMessage(message: { call: CallSummaryDto } | CallsClearedEvent, source: CallEndpointSource): void {
+    if (!('call' in message)) {
+      this.liveCalls.set([]);
+      this.view.refresh();
+      return;
+    }
+    const call = toCallRecord(message.call, source);
+    // Matched by id, not callKey - two-phase logging pushes the same call twice (once
+    // IN_PROGRESS at prepare, once resolved at complete), and id is the one thing guaranteed
+    // stable across both pushes for the exact same call.
+    this.liveCalls.set([call, ...this.liveCalls().filter((c) => c.id !== call.id)]);
+    this.view.refresh();
   }
 
   // ---- CallListControlsState (delegates to the shared view) ----
@@ -101,6 +181,9 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   }
   get requestIdFilter() {
     return this.view.requestIdFilter;
+  }
+  get statusFilter() {
+    return this.view.statusFilter;
   }
   get groupBySupplier() {
     return this.view.groupBySupplier;
@@ -178,6 +261,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     this.view.setRequestIdFilter(requestId);
   }
 
+  setStatusFilter(filter: CallStatusFilter): void {
+    this.view.setStatusFilter(filter);
+  }
+
   toggleGroupBySupplier(): void {
     this.view.toggleGroupBySupplier();
   }
@@ -194,9 +281,15 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     this.view.refresh();
   }
 
-  /** Always a real network call - never served from a cache, so a call's detail is refetched every time it's expanded, even if it was already loaded before (this session or otherwise). */
-  getCallDetail(callId: string): Observable<CallDetail> {
-    return this.api.getDetail(callId);
+  /**
+   * Always a real network call - never served from a cache, so a call's detail is refetched every
+   * time it's expanded, even if it was already loaded before (this session or otherwise). `source`
+   * (stamped by toCallRecord() onto whichever call this id belongs to) picks GET /calls/{id}/detail
+   * vs GET /internal-calls/{id}/detail - required once the list can hold calls from either store
+   * (source omitted/undefined falls back to 'external', matching every pre-existing call site).
+   */
+  getCallDetail(callId: string, source?: CallEndpointSource): Observable<CallDetail> {
+    return this.api.getDetail(callId, source);
   }
 
   /**
@@ -263,7 +356,4 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     this.selectedIds.set(new Set(this.view.matchingCalls().map(callKey)));
   }
 
-  selectOnly(calls: readonly CallRecord[]): void {
-    this.selectedIds.set(new Set(calls.map(callKey)));
-  }
 }

@@ -44,6 +44,31 @@ function setup(calls: CallRecord[], total = calls.length): { state: CallsStateSe
   return { state: TestBed.inject(CallsStateService), queries };
 }
 
+/**
+ * Separate setup for source-switching tests: records which (query, source) pairs CallsApiService
+ * was actually asked for, so a test can assert 'both' fans out to both endpoints in parallel and
+ * 'external'/'internal' each hit only their own endpoint - exactly like the real CallsApiService,
+ * whose `source` param defaults to 'external' (see calls-api.service.spec.ts).
+ */
+function setupWithSources(
+  externalCalls: CallRecord[],
+  internalCalls: CallRecord[],
+  externalTotal = externalCalls.length,
+  internalTotal = internalCalls.length
+): { state: CallsStateService; calls: Array<{ query: CallsQuery; source: 'external' | 'internal' }> } {
+  const calls: Array<{ query: CallsQuery; source: 'external' | 'internal' }> = [];
+  const apiStub: Pick<CallsApiService, 'getCalls'> = {
+    getCalls: (query, source = 'external') => {
+      calls.push({ query, source });
+      return source === 'internal' ? of({ calls: internalCalls, total: internalTotal }) : of({ calls: externalCalls, total: externalTotal });
+    },
+  };
+  TestBed.configureTestingModule({
+    providers: [{ provide: CallsApiService, useValue: apiStub }],
+  });
+  return { state: TestBed.inject(CallsStateService), calls };
+}
+
 describe('CallsStateService', () => {
   afterEach(() => localStorage.removeItem(PIN_STORAGE_KEY));
 
@@ -201,6 +226,75 @@ describe('CallsStateService', () => {
     state.toggleSelected(a2);
 
     expect(state.selectedCalls()).toEqual([a1, a2, b1]);
+    discardPeriodicTasks();
+  }));
+
+  it('defaults callSource to "external" and never passes a source on the initial fetch', fakeAsync(() => {
+    const { state, queries } = setup([makeCall()]);
+    tick();
+
+    expect(state.callSource()).toBe('external');
+    expect(queries.length).toBe(1);
+    discardPeriodicTasks();
+  }));
+
+  it('setCallSource("internal") re-fetches from GET /internal-calls only', fakeAsync(() => {
+    const external = [makeCall({ id: 'ext-1' })];
+    const internal = [makeCall({ id: 'int-1' })];
+    const { state, calls } = setupWithSources(external, internal);
+    tick();
+
+    calls.length = 0;
+    state.setCallSource('internal');
+    tick();
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].source).toBe('internal');
+    expect(state.calls()).toEqual(internal);
+    discardPeriodicTasks();
+  }));
+
+  it('setCallSource("both") fetches external and internal in parallel and merges by newest-call-time, summing totals', fakeAsync(() => {
+    const older = makeCall({ id: 'ext-1', timestamp: '2026-01-01T00:00:00.000Z' });
+    const newer = makeCall({ id: 'int-1', timestamp: '2026-01-02T00:00:00.000Z' });
+    const { state, calls } = setupWithSources([older], [newer], 3, 4);
+    tick();
+
+    calls.length = 0;
+    state.setCallSource('both');
+    tick();
+
+    expect(calls.map((c) => c.source).sort()).toEqual(['external', 'internal']);
+    // Default sort is 'newest' (received/capture order) - the merged page must be re-sorted by
+    // that same mode rather than left in fetch-arrival order.
+    expect(state.calls()).toEqual([newer, older]);
+    discardPeriodicTasks();
+  }));
+
+  it('setCallSource("both") trims the merged page back down to the requested limit', fakeAsync(() => {
+    const external = [makeCall({ id: 'ext-1', timestamp: '2026-01-01T00:00:00.000Z' })];
+    const internal = [makeCall({ id: 'int-1', timestamp: '2026-01-02T00:00:00.000Z' })];
+    const { state } = setupWithSources(external, internal);
+    tick();
+
+    state.setLimit(1);
+    tick();
+    state.setCallSource('both');
+    tick();
+
+    expect(state.calls().length).toBe(1);
+    discardPeriodicTasks();
+  }));
+
+  it('setCallSource is a no-op when re-selecting the already-active source', fakeAsync(() => {
+    const { state, calls } = setupWithSources([makeCall()], []);
+    tick();
+
+    calls.length = 0;
+    state.setCallSource('external');
+    tick();
+
+    expect(calls.length).toBe(0);
     discardPeriodicTasks();
   }));
 });

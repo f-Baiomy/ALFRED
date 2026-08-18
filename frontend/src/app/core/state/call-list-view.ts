@@ -20,6 +20,24 @@ export interface CallStats {
   readonly inProgress: number;
 }
 
+/** Which stat-pill bucket (if any) is narrowing the visible list - see StatsBarComponent. 'all' means no narrowing. */
+export type CallStatusFilter = 'all' | 'inProgress' | 'ok' | 'client' | 'failed';
+
+function matchesStatusFilter(call: CallRecord, filter: CallStatusFilter): boolean {
+  switch (filter) {
+    case 'all':
+      return true;
+    case 'inProgress':
+      return isInProgress(call);
+    case 'ok':
+      return !!call.response && call.response.status < 400;
+    case 'client':
+      return !!call.response && call.response.status >= 400 && call.response.status < 500;
+    case 'failed':
+      return !!call.error || (!!call.response && call.response.status >= 500);
+  }
+}
+
 export interface SupplierGroup {
   readonly supplier: string;
   readonly calls: readonly CallRecord[];
@@ -62,6 +80,8 @@ export interface CallListView {
   readonly sessionIdFilter: Signal<string>;
   readonly operationIdFilter: Signal<string>;
   readonly requestIdFilter: Signal<string>;
+  /** Client-side narrowing by stat-pill bucket - unlike the filters above this never refetches, it just re-filters the already-loaded window (see matchesStatusFilter). */
+  readonly statusFilter: Signal<CallStatusFilter>;
   readonly groupBySupplier: Signal<boolean>;
   readonly expanded: Signal<boolean>;
   readonly collapseAllVersion: Signal<number>;
@@ -81,6 +101,8 @@ export interface CallListView {
   setSessionIdFilter(sessionId: string): void;
   setOperationIdFilter(operationId: string): void;
   setRequestIdFilter(requestId: string): void;
+  /** Clicking the same bucket again clears the filter back to 'all' - see StatsBarComponent. */
+  setStatusFilter(filter: CallStatusFilter): void;
   toggleGroupBySupplier(): void;
   toggleExpanded(): void;
   loadMore(): void;
@@ -117,6 +139,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const sessionIdFilter = signal('');
   const operationIdFilter = signal('');
   const requestIdFilter = signal('');
+  const statusFilter = signal<CallStatusFilter>('all');
   const groupBySupplier = signal(false);
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
@@ -211,9 +234,15 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     return matchingCalls().filter((c) => !pinned.has(callKey(c)));
   });
 
+  /** withoutPinned narrowed to the active stat-pill bucket, if any - stats() below deliberately stays scoped to matchingCalls (unfiltered) so the pill counts never shrink as a result of clicking a pill. */
+  const statusFiltered = computed(() => {
+    const filter = statusFilter();
+    return filter === 'all' ? withoutPinned() : withoutPinned().filter((c) => matchesStatusFilter(c, filter));
+  });
+
   const mainListCalls = computed(() => {
     const mode = sortMode();
-    return mode === 'custom' ? sortCalls(withoutPinned(), 'custom', options.customOrder?.() ?? []) : [...withoutPinned()];
+    return mode === 'custom' ? sortCalls(statusFiltered(), 'custom', options.customOrder?.() ?? []) : [...statusFiltered()];
   });
 
   const supplierOptions = computed<SupplierOption[]>(() => {
@@ -245,6 +274,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     sessionIdFilter,
     operationIdFilter,
     requestIdFilter,
+    statusFilter,
     groupBySupplier,
     expanded,
     collapseAllVersion,
@@ -297,6 +327,9 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     setRequestIdFilter(requestId: string) {
       requestIdFilter.set(requestId);
       fetch(0, pageSize(), true);
+    },
+    setStatusFilter(filter: CallStatusFilter) {
+      statusFilter.update((current) => (current === filter ? 'all' : filter));
     },
     toggleGroupBySupplier() {
       groupBySupplier.set(!groupBySupplier());

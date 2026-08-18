@@ -1,6 +1,6 @@
 import { InjectionToken, Signal } from '@angular/core';
 import { Observable } from 'rxjs';
-import { CallDetail, CallRecord } from '../models/call.model';
+import { CallDetail, CallEndpointSource, CallRecord } from '../models/call.model';
 import { CallListView } from './call-list-view';
 
 /**
@@ -21,8 +21,6 @@ export interface BulkSelectionState {
   selectedCalls(): readonly CallRecord[];
   selectAll(): void;
   clearSelection(): void;
-  /** Replaces the current selection wholesale with exactly the given calls - used by StatsBarComponent so clicking a stat pill (e.g. "4xx") selects only the calls in that bucket, not adding to whatever was already selected. */
-  selectOnly(calls: readonly CallRecord[]): void;
 }
 
 export const CALL_SELECTION_STATE = new InjectionToken<CallSelectionState>('CALL_SELECTION_STATE');
@@ -77,9 +75,11 @@ export interface CallListControlsState extends CallListView {
    * hydration (e.g. from exporting or duplicating-to-cycles) to make a later expand skip the
    * request. Each concrete state knows which endpoint to hit - the dashboard's GET
    * /calls/{id}/detail, or a session-cycle's GET /session-cycles/{id}/calls/{callId}/detail - so
-   * CallCardComponent doesn't need to know or care which context it's rendering in.
+   * CallCardComponent doesn't need to know or care which context it's rendering in. `source`
+   * (a CallRecord's own stamped source, see its doc) picks /calls vs /internal-calls on the
+   * dashboard; session-cycles' implementation ignores it (it never captures 'internal' calls).
    */
-  getCallDetail(callId: string): Observable<CallDetail>;
+  getCallDetail(callId: string, source?: CallEndpointSource): Observable<CallDetail>;
 }
 
 export const CALL_LIST_CONTROLS_STATE = new InjectionToken<CallListControlsState>('CALL_LIST_CONTROLS_STATE');
