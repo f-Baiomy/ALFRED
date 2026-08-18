@@ -2,9 +2,18 @@
 """
 restart.py - rebuild and restart the Alfred stack (or a single service).
 
-Runs "docker compose down" followed by "docker compose up -d --build" from
-this project's folder. Does NOT touch certificate trust - use start.py for
-that. Safe to run any time containers are running or stopped.
+With no service names given, this is exactly "stop.py, then start.py" (see
+restart_everything()) - a full teardown (undoing WildFly's port-offset/JVM-attach
+side effects too, not just stopping containers) followed by a full, from-scratch
+bring-up (cert trust, port-offset, etc.). Because of that, a plain "python3
+restart.py" now needs the same privileges start.py does (Administrator on Windows,
+sudo on Linux/macOS) - it didn't before, when it only ran "docker compose down"/"up"
+directly.
+
+With one or more service names given, this stays a targeted, no-elevation-needed
+rebuild of just those containers ("docker compose up -d --build <services>") - no
+full stop/start round trip, since that would be overkill (and would needlessly touch
+WildFly's port-offset/JVM attachment) just to rebuild one container.
 
 Also runs wildfly-proxy-toggle's proxy-on step automatically (on either OS)
 - routes an already-running WildFly JVM's HTTPS traffic through the proxy
@@ -12,13 +21,20 @@ via the Java Attach API, auto-detecting the running instance. Non-fatal if
 it fails (e.g. no WildFly running) - a convenience step, not required for
 the restart itself to succeed. See wildfly-proxy-toggle/README.md.
 
+Separately (and not to be confused with the above), also flips the REVERSE
+proxy's live logging toggle - see toggle-wildfly-reverse-proxy.sh/.bat and
+proxy/log_and_route_reverse.py. That reverse proxy (docker-compose.yml's
+wildfly-proxy service) is itself already restarted like any other service;
+this step only controls whether it logs.
+
 Usage:
-    python3 restart.py                 restart every service (proxy, backend, frontend)
-    python3 restart.py backend      restart/rebuild just one service
+    python3 restart.py                 restart everything (stop.py, then start.py)
+    python3 restart.py backend      restart/rebuild just one service (targeted, no elevation)
     python3 restart.py frontend backend  restart/rebuild multiple named services
-    python3 restart.py --wildfly-proxy off   turn the WildFly proxy off instead of on -
-                                              combinable with the above, e.g.:
-                                              python3 restart.py backend --wildfly-proxy off
+    python3 restart.py --wildfly-proxy off            turn the OUTBOUND JVM Attach-API proxy off -
+                                                       combinable with the above, e.g.:
+                                                       python3 restart.py backend --wildfly-proxy off
+    python3 restart.py --wildfly-reverse-proxy off    turn OFF logging of frontend->WildFly calls
 """
 
 import os
@@ -73,6 +89,141 @@ def ensure_backend_port():
     print(f"Port 5000 is already in use on this host - wrote .env with BACKEND_PORT={port}.")
 
 
+SETTINGS_FILE = os.path.join(SCRIPT_DIR, "settings.properties")
+ENV_FILE = os.path.join(SCRIPT_DIR, ".env")
+
+
+def _parse_settings_properties():
+    """Extracts every key=value line from settings.properties (see its own doc) - blank lines,
+    lines starting with #, and anything without an "=" are ignored."""
+    settings = {}
+    if not os.path.exists(SETTINGS_FILE):
+        return settings
+    with open(SETTINGS_FILE, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if not line or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            settings[key.strip()] = value.strip()
+    return settings
+
+
+def _read_env_file():
+    env = {}
+    if not os.path.exists(ENV_FILE):
+        return env
+    with open(ENV_FILE, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            env[key.strip()] = value.strip()
+    return env
+
+
+def _write_env_file(env):
+    with open(ENV_FILE, "w", encoding="utf-8") as f:
+        for key, value in env.items():
+            f.write(f"{key}={value}\n")
+
+
+def sync_env_from_settings():
+    """Same as start.py's function of the same name - see its docstring. Also needed here (not
+    just in start.py) since restart.py is a valid standalone entry point, e.g. after hand-editing
+    settings.properties on an already-running deployment. Must run AFTER ensure_backend_port()."""
+    settings = _parse_settings_properties()
+    enabled = settings.get("inbound_logging_enabled", "false").strip().lower() == "true"
+
+    env = _read_env_file()
+    env["INBOUND_LOGGING_ENABLED"] = "true" if enabled else "false"
+    if enabled:
+        env["COMPOSE_PROFILES"] = "inbound-logging"
+    else:
+        env.pop("COMPOSE_PROFILES", None)
+    _write_env_file(env)
+
+    print(f"Inbound logging feature: {'enabled' if enabled else 'disabled'} (settings.properties - edit and re-run to change)")
+
+    if not enabled:
+        # See start.py's identical step for why this is needed - "docker compose up" alone never
+        # stops an already-running container that's fallen out of profile scope. Best-effort/
+        # non-fatal.
+        subprocess.run(["docker", "compose", "stop", "wildfly-proxy"], cwd=SCRIPT_DIR)
+
+    sync_wildfly_port_offset(settings, enabled)
+
+
+WILDFLY_PORT_OFFSET_BEGIN = {
+    True: "REM --- BEGIN alfred-inbound-logging (managed by Alfred - do not edit by hand) ---",
+    False: "# --- BEGIN alfred-inbound-logging (managed by Alfred - do not edit by hand) ---",
+}
+WILDFLY_PORT_OFFSET_END = {
+    True: "REM --- END alfred-inbound-logging ---",
+    False: "# --- END alfred-inbound-logging ---",
+}
+
+
+def _wildfly_home(settings):
+    """settings.properties' wildfly_home wins if set; otherwise falls back to the WILDFLY_HOME
+    environment variable (see settings.properties' own doc)."""
+    return settings.get("wildfly_home", "").strip() or os.environ.get("WILDFLY_HOME", "").strip()
+
+
+def _standalone_conf_path(wildfly_home):
+    is_windows = platform.system() == "Windows"
+    filename = "standalone.conf.bat" if is_windows else "standalone.conf"
+    return os.path.join(wildfly_home, "bin", filename), is_windows
+
+
+def sync_wildfly_port_offset(settings, enabled):
+    """Same as start.py's function of the same name - see its docstring for the full rationale
+    (why the append happens at the end of the file, idempotency, non-fatal skip conditions)."""
+    wildfly_home = _wildfly_home(settings)
+    if not wildfly_home:
+        if enabled:
+            print("No wildfly_home set in settings.properties (or WILDFLY_HOME env var) - skipping "
+                  "WildFly's port-offset setup. Add one of those, or set "
+                  "-Djboss.socket.binding.port-offset=1 on WildFly's own VM options yourself.")
+        return
+
+    conf_path, is_windows = _standalone_conf_path(wildfly_home)
+    if not os.path.exists(conf_path):
+        print(f"WildFly config not found at {conf_path} - skipping port-offset setup. Check wildfly_home/WILDFLY_HOME.")
+        return
+
+    begin_marker = WILDFLY_PORT_OFFSET_BEGIN[is_windows]
+    end_marker = WILDFLY_PORT_OFFSET_END[is_windows]
+
+    try:
+        with open(conf_path, encoding="utf-8") as f:
+            content = f.read()
+    except OSError as e:
+        print(f"Could not read {conf_path}, skipping port-offset setup: {e}")
+        return
+
+    if begin_marker in content and end_marker in content:
+        start = content.index(begin_marker)
+        end = content.index(end_marker) + len(end_marker)
+        content = content[:start].rstrip("\n") + "\n" + content[end:].lstrip("\n")
+
+    if enabled:
+        offset_line = ('set "JAVA_OPTS=%JAVA_OPTS% -Djboss.socket.binding.port-offset=1"' if is_windows
+                        else 'JAVA_OPTS="$JAVA_OPTS -Djboss.socket.binding.port-offset=1"')
+        content = content.rstrip("\n") + f"\n\n{begin_marker}\n{offset_line}\n{end_marker}\n"
+
+    try:
+        with open(conf_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except OSError as e:
+        print(f"Could not write {conf_path}, skipping port-offset setup: {e}")
+        return
+
+    action = "Added" if enabled else "Removed"
+    print(f"{action} WildFly's port-offset in {conf_path} - restart WildFly for this to take effect.")
+
+
 def run(cmd):
     print(f"$ {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=SCRIPT_DIR)
@@ -81,27 +232,35 @@ def run(cmd):
 
 
 def _parse_args(argv):
-    """Splits service names (positional) from the optional --wildfly-proxy [on|off] flag - a
-    small hand-rolled parser rather than argparse, matching this script's existing plain
-    sys.argv[1:] handling for service names. The WildFly proxy toggle now runs automatically as
-    a step on every restart - defaults to "on" even with no flag at all. A following token is
-    only consumed as the on|off value when it's actually "on"/"off"; anything else (e.g. a
-    service name) is left for the positional branch below."""
+    """Splits service names (positional) from the two independent, unrelated toggle flags this
+    script accepts - --wildfly-proxy (the OUTBOUND JVM Attach-API proxy, wildfly-proxy-toggle/)
+    and --wildfly-reverse-proxy (the INBOUND reverse-proxy call logger, toggle-wildfly-reverse-
+    proxy.sh/.bat) - a small hand-rolled parser rather than argparse, matching this script's
+    existing plain sys.argv[1:] handling for service names. Both toggles now run automatically
+    as a step on every restart - both default to "on" even with no flags at all. A following
+    token is only consumed as the on|off value when it's actually "on"/"off"; anything else
+    (e.g. a service name) is left for the positional branch below."""
     services = []
     wildfly_action = "on"
+    wildfly_reverse_action = "on"
     i = 0
     while i < len(argv):
-        if argv[i] == "--wildfly-proxy":
+        if argv[i] in ("--wildfly-proxy", "--wildfly-reverse-proxy"):
+            flag = argv[i]
             if i + 1 < len(argv) and argv[i + 1] in ("on", "off"):
-                wildfly_action = argv[i + 1]
+                value = argv[i + 1]
                 i += 2
             else:
-                wildfly_action = "on"
+                value = "on"
                 i += 1
+            if flag == "--wildfly-proxy":
+                wildfly_action = value
+            else:
+                wildfly_reverse_action = value
         else:
             services.append(argv[i])
             i += 1
-    return services, wildfly_action
+    return services, wildfly_action, wildfly_reverse_action
 
 
 def toggle_wildfly_proxy(action):
@@ -128,21 +287,76 @@ def toggle_wildfly_proxy(action):
         print("convenience step, not required for the restart itself to succeed.")
 
 
-def main():
-    ensure_backend_port()
-    services, wildfly_action = _parse_args(sys.argv[1:])
-
-    if services:
-        print(f"Restarting: {', '.join(services)}")
-        run(["docker", "compose", "up", "-d", "--build"] + services)
+def toggle_wildfly_reverse_proxy(action):
+    """Flips proxy/reverse-proxy-enabled.flag via toggle-wildfly-reverse-proxy.sh/.bat - live,
+    no container restart (see proxy/log_and_route_reverse.py). Unrelated to
+    toggle_wildfly_proxy() above: that one injects proxy settings into a running WildFly JVM for
+    its OUTBOUND calls; this one only controls whether docker-compose.yml's wildfly-proxy service
+    (already restarted by the "docker compose" calls in main(), like any other service) logs the
+    frontend's INBOUND calls to WildFly. Deliberately non-fatal, same rationale as
+    toggle_wildfly_proxy."""
+    if platform.system() == "Windows":
+        cmd = [os.path.join(SCRIPT_DIR, "toggle-wildfly-reverse-proxy.bat"), action]
     else:
-        print("Restarting all services (down, then up --build)")
-        run(["docker", "compose", "down"])
-        run(["docker", "compose", "up", "-d", "--build"])
+        cmd = ["bash", os.path.join(SCRIPT_DIR, "toggle-wildfly-reverse-proxy.sh"), action]
+
+    print(f"$ {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=SCRIPT_DIR)
+    if result.returncode != 0:
+        print("WildFly reverse-proxy toggle failed (see above) - continuing anyway, since this")
+        print("is a convenience step, not required for the restart itself to succeed.")
+
+
+def restart_everything(wildfly_action, wildfly_reverse_action):
+    """A full restart (no service names given) is just "stop everything, then start
+    everything" - delegated to stop.py and start.py as separate processes rather than
+    reimplemented here, so there's exactly one place that knows how to fully tear down
+    (undoing the WildFly port-offset/JVM-attach side effects too, not just the
+    containers) and exactly one place that knows how to fully bring everything back up
+    (cert trust, port-offset, etc.). Note this means a plain "python3 restart.py" now
+    needs whatever privileges start.py itself needs (Administrator on Windows, sudo on
+    Linux/macOS, for the certificate store) - previously it didn't, since it only ever
+    ran "docker compose down"/"up" directly. Targeted restarts (see main()) are
+    unaffected and still don't need elevation."""
+    stop_script = os.path.join(SCRIPT_DIR, "stop.py")
+    print(f"$ {sys.executable} {stop_script}")
+    result = subprocess.run([sys.executable, stop_script], cwd=SCRIPT_DIR)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+    start_script = os.path.join(SCRIPT_DIR, "start.py")
+    start_cmd = [sys.executable, start_script,
+                 "--wildfly-proxy", wildfly_action,
+                 "--wildfly-reverse-proxy", wildfly_reverse_action]
+    print(f"$ {' '.join(start_cmd)}")
+    result = subprocess.run(start_cmd, cwd=SCRIPT_DIR)
+    sys.exit(result.returncode)
+
+
+def main():
+    services, wildfly_action, wildfly_reverse_action = _parse_args(sys.argv[1:])
+
+    if not services:
+        print("Restarting everything (stop.py, then start.py)")
+        restart_everything(wildfly_action, wildfly_reverse_action)
+        return  # unreachable - restart_everything always exits - kept for clarity
+
+    # Targeted restart of specific service(s) - a full stop.py/start.py round trip would
+    # be overkill (and would needlessly touch WildFly's port-offset/JVM attachment) just
+    # to rebuild one container, so this path stays the original, more surgical behavior.
+    ensure_backend_port()
+    sync_env_from_settings()
+
+    print(f"Restarting: {', '.join(services)}")
+    run(["docker", "compose", "up", "-d", "--build"] + services)
 
     print()
-    print("=== Step: WildFly proxy ===")
+    print("=== Step: WildFly proxy (outbound, JVM Attach API) ===")
     toggle_wildfly_proxy(wildfly_action)
+
+    print()
+    print("=== Step: WildFly reverse-proxy (inbound, frontend call logging) ===")
+    toggle_wildfly_reverse_proxy(wildfly_reverse_action)
 
     print("Done.")
 

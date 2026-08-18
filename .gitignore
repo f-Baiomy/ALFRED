@@ -4,6 +4,11 @@ proxy/certs/
 # Generated at runtime - captured request/response logs
 proxy/logs/
 
+# Generated at runtime - live on/off state for the inbound reverse-proxy toggle, shared via
+# bind-mount between wildfly-proxy and backend (see docker-compose.yml) - managed by
+# toggle-wildfly-reverse-proxy.sh/.bat, not something to version
+proxy/reverse-proxy-enabled.flag
+
 # Python
 __pycache__/
 *.py[cod]

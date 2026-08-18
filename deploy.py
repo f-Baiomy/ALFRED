@@ -4,13 +4,22 @@ deploy.py - pulls the latest master and restarts the stack.
 
 Runs "git checkout master", "git pull origin master", then delegates to
 restart.py (rebuild + restart every service, or just the ones named).
-Does NOT touch certificate trust - use start.py for that (only needed
-once per machine, not on every deploy).
+
+IMPORTANT: "python3 deploy.py" with no service names now needs the same elevated
+privileges start.py does (Administrator on Windows, sudo on Linux/macOS) - restart.py's
+no-args case is now "stop.py, then start.py" (a full teardown/bring-up, including
+certificate trust and WildFly's port-offset), not just "docker compose down/up" like
+before. An unattended/CI deploy that can't prompt for elevation should pass explicit
+service names (e.g. "python3 deploy.py backend frontend") to stay on the original,
+no-elevation-needed targeted-rebuild path instead.
 
 Usage:
-    python3 deploy.py                 pull latest, restart every service
-    python3 deploy.py backend      pull latest, restart/rebuild just one service
+    python3 deploy.py                 pull latest, restart everything (stop.py, then start.py)
+    python3 deploy.py backend      pull latest, restart/rebuild just one service (no elevation)
     python3 deploy.py frontend backend  pull latest, restart/rebuild multiple named services
+
+Any extra args (e.g. --wildfly-proxy off, --wildfly-reverse-proxy off) pass straight through to
+restart.py - see its own docstring for what those do.
 """
 
 import os
