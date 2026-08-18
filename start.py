@@ -85,6 +85,37 @@ def ensure_backend_port():
     print(f"Port 5000 is already in use on this host - wrote .env with BACKEND_PORT={port}.")
 
 
+REVERSE_PROXY_FLAG_FILE = os.path.join(SCRIPT_DIR, "proxy", "reverse-proxy-enabled.flag")
+
+
+def ensure_reverse_proxy_flag_file():
+    """Docker creates a DIRECTORY at a bind-mount's host path if it doesn't already exist as a
+    plain file the first time "docker compose up" runs (confirmed live: a fresh clone doesn't have
+    this gitignored runtime-state file, so wildfly-proxy/backend's bind mounts of
+    ./proxy/reverse-proxy-enabled.flag - see docker-compose.yml - each silently turned it into a
+    directory instead, breaking toggle-wildfly-reverse-proxy.sh/.bat's plain "echo on > file" the
+    first time anyone used it, with "Is a directory"). Must run BEFORE "docker compose up" - fixing
+    it after the fact doesn't undo an already-wrong bind mount inside a running container (that
+    needs a restart of those containers anyway, which happens naturally on the next "docker compose
+    up" once this is a file again).
+
+    Also self-heals a host that already hit this bug (removes the wrongly-created directory first)
+    - toggle-wildfly-reverse-proxy.sh/.bat do the same check for anyone running them standalone
+    without going through start.py/restart.py first."""
+    if os.path.isdir(REVERSE_PROXY_FLAG_FILE):
+        print(f"{REVERSE_PROXY_FLAG_FILE} exists as a directory (created by an earlier 'docker "
+              "compose up' before this file existed) - removing it so it can be a plain file.")
+        try:
+            os.rmdir(REVERSE_PROXY_FLAG_FILE)
+        except OSError as e:
+            print(f"Could not remove {REVERSE_PROXY_FLAG_FILE}: {e} - remove it by hand, then re-run.")
+            return
+    if not os.path.exists(REVERSE_PROXY_FLAG_FILE):
+        os.makedirs(os.path.dirname(REVERSE_PROXY_FLAG_FILE), exist_ok=True)
+        with open(REVERSE_PROXY_FLAG_FILE, "w", encoding="utf-8") as f:
+            f.write("on\n")
+
+
 SETTINGS_FILE = os.path.join(SCRIPT_DIR, "settings.properties")
 ENV_FILE = os.path.join(SCRIPT_DIR, ".env")
 
@@ -255,6 +286,7 @@ def toggle_wildfly_reverse_proxy(action):
 
 def main():
     ensure_backend_port()
+    ensure_reverse_proxy_flag_file()
     sync_env_from_settings()
     wildfly_action, wildfly_reverse_action = _parse_toggle_args(sys.argv[1:])
     system = platform.system()

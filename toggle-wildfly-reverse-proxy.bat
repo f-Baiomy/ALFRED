@@ -24,6 +24,17 @@ set "FLAG_FILE=proxy\reverse-proxy-enabled.flag"
 set "ACTION=%~1"
 if "%ACTION%"=="" set "ACTION=status"
 
+REM Docker creates a DIRECTORY at a bind-mount's host path if "docker compose up" ever ran before
+REM this file existed (e.g. a fresh clone - it's gitignored runtime state) - see docker-compose.yml's
+REM wildfly-proxy/backend services. start.py/restart.py now create this file up front to prevent
+REM that, but self-heal here too in case this script runs standalone against an already-broken host.
+if exist "%FLAG_FILE%\" (
+    echo %FLAG_FILE% exists as a directory ^(created by an earlier "docker compose up" before this
+    echo file existed^) - removing it so it can be a plain file. Restart wildfly-proxy/backend
+    echo afterward if they're already running, so they re-mount the file instead of the old directory.
+    rd "%FLAG_FILE%"
+)
+
 if /i "%ACTION%"=="on" (
     echo on> "%FLAG_FILE%"
     echo WildFly call logging: ON ^(wildfly-proxy keeps forwarding to WildFly regardless^)

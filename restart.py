@@ -89,6 +89,27 @@ def ensure_backend_port():
     print(f"Port 5000 is already in use on this host - wrote .env with BACKEND_PORT={port}.")
 
 
+REVERSE_PROXY_FLAG_FILE = os.path.join(SCRIPT_DIR, "proxy", "reverse-proxy-enabled.flag")
+
+
+def ensure_reverse_proxy_flag_file():
+    """Same as start.py's function of the same name - see its docstring. Also needed here since a
+    targeted "restart.py <service>" can itself be the very first "docker compose up" a fresh clone
+    ever runs."""
+    if os.path.isdir(REVERSE_PROXY_FLAG_FILE):
+        print(f"{REVERSE_PROXY_FLAG_FILE} exists as a directory (created by an earlier 'docker "
+              "compose up' before this file existed) - removing it so it can be a plain file.")
+        try:
+            os.rmdir(REVERSE_PROXY_FLAG_FILE)
+        except OSError as e:
+            print(f"Could not remove {REVERSE_PROXY_FLAG_FILE}: {e} - remove it by hand, then re-run.")
+            return
+    if not os.path.exists(REVERSE_PROXY_FLAG_FILE):
+        os.makedirs(os.path.dirname(REVERSE_PROXY_FLAG_FILE), exist_ok=True)
+        with open(REVERSE_PROXY_FLAG_FILE, "w", encoding="utf-8") as f:
+            f.write("on\n")
+
+
 SETTINGS_FILE = os.path.join(SCRIPT_DIR, "settings.properties")
 ENV_FILE = os.path.join(SCRIPT_DIR, ".env")
 
@@ -286,6 +307,7 @@ def main():
     # be overkill (and would needlessly touch WildFly's port-offset/JVM attachment) just
     # to rebuild one container, so this path stays the original, more surgical behavior.
     ensure_backend_port()
+    ensure_reverse_proxy_flag_file()
     sync_env_from_settings()
 
     print(f"Restarting: {', '.join(services)}")
