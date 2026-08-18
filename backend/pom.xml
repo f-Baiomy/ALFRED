@@ -35,6 +35,7 @@
   <modules>
     <module>backend-platform</module>
     <module>backend-calls</module>
+    <module>backend-internal-calls</module>
     <module>backend-comments</module>
     <module>backend-export</module>
     <module>backend-session-cycles</module>

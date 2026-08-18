@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.fathy.alfred</groupId>
+    <artifactId>backend-parent</artifactId>
+    <version>1.0.0</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>backend-internal-calls</artifactId>
+  <name>backend-internal-calls</name>
+  <description>Vertical slice: logs and serves calls captured by the reverse-mode mitmproxy (wildfly-proxy) sitting in front of WildFly - the frontend's own browser calls, a separate traffic source from backend-calls' supplier calls. Fully isolated from backend-calls; reuses the same JSON wire shape only so the existing frontend models/export logic work against it unmodified. Hexagonal internally (domain/application/adapter packages under com.fathy.alfred.backend.internalcalls).</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-websocket</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+</project>

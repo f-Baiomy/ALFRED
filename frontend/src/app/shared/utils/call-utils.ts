@@ -1,7 +1,14 @@
-import { CallRecord, CallSummaryDto, SortMode } from '../../core/models/call.model';
+import { CallEndpointSource, CallRecord, CallSummaryDto, SortMode } from '../../core/models/call.model';
 
-/** Converts a wire-format summary into the frontend's CallRecord shape (nested `response.status`, matching what a hydrated call looks like) - `request`/`response.headers`/`response.body` stay undefined until GET /calls/{id}/detail fills them in. */
-export function toCallRecord(dto: CallSummaryDto): CallRecord {
+/**
+ * Converts a wire-format summary into the frontend's CallRecord shape (nested `response.status`,
+ * matching what a hydrated call looks like) - `request`/`response.headers`/`response.body` stay
+ * undefined until GET /calls/{id}/detail fills them in. `source` is stamped client-side (not part
+ * of the wire shape) so a call fetched into a merged 'both' list still remembers which endpoint
+ * (`/calls` vs `/internal-calls`) it came from - see CallRecord.source's doc. Omitted (left
+ * undefined) for session-cycles' CapturedCall wrapping, which never deals with 'internal' calls.
+ */
+export function toCallRecord(dto: CallSummaryDto, source?: CallEndpointSource): CallRecord {
   return {
     id: dto.id,
     original_url: dto.original_url,
@@ -15,6 +22,7 @@ export function toCallRecord(dto: CallSummaryDto): CallRecord {
     state: dto.state,
     session_id: dto.session_id,
     operation_id: dto.operation_id,
+    source,
   };
 }
 

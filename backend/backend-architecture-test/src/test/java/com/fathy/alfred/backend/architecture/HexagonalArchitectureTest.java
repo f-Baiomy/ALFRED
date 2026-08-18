@@ -69,7 +69,21 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.calls..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
-                        "..backend.profiles..", "..backend.settings..")
+                        "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..")
+                .check(classes);
+    }
+
+    // internalcalls is a leaf slice like profiles/settings: it logs the frontend's own browser
+    // calls to WildFly (captured by the separate reverse-mode wildfly-proxy), a completely
+    // separate traffic source from backend-calls' supplier calls - it only reuses backend-calls'
+    // JSON wire shape (copied, not shared) so the existing frontend models work against it
+    // unmodified, with zero actual code dependency in either direction.
+    @Test
+    void internalCallsSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.internalcalls..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..")
                 .check(classes);
     }
 
@@ -78,15 +92,16 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.comments..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.export..", "..backend.sessioncycles..",
-                        "..backend.profiles..", "..backend.settings..")
+                        "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..")
                 .check(classes);
     }
 
-    // export -> calls and sessioncycles -> calls are the two allowed cross-slice dependencies
-    // (each receives a full logged call and does something with it - extracts metadata, or
-    // captures it into a recording cycle), so there is deliberately no
+    // export -> calls, sessioncycles -> calls, and sessioncycles -> internalcalls are the three
+    // allowed cross-slice dependencies (each receives a full logged call and does something with
+    // it - extracts metadata, or captures it into a recording cycle), so there is deliberately no
     // "exportSliceMustNotDependOnOtherSlices" test, and sessionCyclesSliceMustNotDependOnOtherSlices
-    // below permits calls specifically while still forbidding comments/export/profiles.
+    // below permits calls and internalcalls specifically while still forbidding comments/export/
+    // profiles/settings.
 
     @Test
     void sessionCyclesSliceMustNotDependOnOtherSlices() {
@@ -105,7 +120,7 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.profiles..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
-                        "..backend.sessioncycles..", "..backend.settings..")
+                        "..backend.sessioncycles..", "..backend.settings..", "..backend.internalcalls..")
                 .check(classes);
     }
 
@@ -118,7 +133,7 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.settings..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
-                        "..backend.sessioncycles..", "..backend.profiles..")
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.internalcalls..")
                 .check(classes);
     }
 }

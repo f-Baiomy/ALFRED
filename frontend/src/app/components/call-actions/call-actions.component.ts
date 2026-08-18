@@ -96,7 +96,7 @@ export class CallActionsComponent {
 
   /** Resolves to a fully-hydrated CallRecord (request/response headers+bodies present) - always a real fetch, even if this same call was hydrated by an earlier action, so detail is never served stale. */
   private hydrated(call: CallRecord): Observable<CallRecord> {
-    return this.controlsState.getCallDetail(call.id).pipe(map((detail) => ({ ...call, ...detail })));
+    return this.controlsState.getCallDetail(call.id, call.source).pipe(map((detail) => ({ ...call, ...detail })));
   }
 
   private fetchComments(call: CallRecord) {

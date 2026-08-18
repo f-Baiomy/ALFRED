@@ -22,6 +22,16 @@
       >
         Database
       </button>
+      @if (inboundLoggingFeatureEnabled()) {
+        <button
+          type="button"
+          class="settings-nav-item"
+          [class.active]="activePartition() === 'inbound-logging'"
+          (click)="setActivePartition('inbound-logging')"
+        >
+          Inbound logging
+        </button>
+      }
     </nav>
 
     <div class="settings-content">
@@ -114,6 +124,37 @@
               </div>
             </div>
           }
+          }
+        </section>
+      } @else if (activePartition() === 'inbound-logging' && inboundLoggingFeatureEnabled()) {
+        <section class="panel settings-panel">
+          <h3>Inbound logging</h3>
+          <p class="sub">
+            Controls whether wildfly-proxy (the reverse-mode mitmproxy in front of WildFly) logs the
+            frontend's inbound calls to it. Forwarding to WildFly is never affected either way -
+            turning this off just stops those calls from being recorded.
+          </p>
+
+          @if (!inboundLoggingLoaded()) {
+            <div class="empty">Loading...</div>
+          } @else {
+            <div class="danger-zone-row">
+              <div>
+                <p class="danger-zone-title">Log inbound frontend&#8594;WildFly calls</p>
+                <p class="sub">
+                  {{ inboundLoggingEnabled() ? 'Currently ON - every call is being recorded.' : 'Currently OFF - calls still reach WildFly, just aren\'t recorded.' }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="bulk-btn"
+                [class.danger]="inboundLoggingEnabled()"
+                [disabled]="savingInboundLogging()"
+                (click)="toggleInboundLogging()"
+              >
+                {{ inboundLoggingEnabled() ? 'Turn off' : 'Turn on' }}
+              </button>
+            </div>
           }
         </section>
       } @else {

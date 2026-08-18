@@ -1,4 +1,4 @@
-<app-header />
+<app-header [callSource]="state.callSource()" (callSourceChange)="state.setCallSource($event)" />
 
 <main>
   <app-bulk-actions-bar />

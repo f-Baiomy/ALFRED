@@ -170,7 +170,7 @@ export class CallCardComponent {
     if (!this.isIntersecting) return;
     if (this.detailState() !== 'pending') return;
     this.detailState.set('loading');
-    this.controlsState.getCallDetail(this.call().id).subscribe({
+    this.controlsState.getCallDetail(this.call().id, this.call().source).subscribe({
       next: (detail) => {
         this.detail.set(detail);
         this.detailState.set('loaded');

@@ -33,6 +33,54 @@ services:
     networks:
       - alfred-net
 
+  # Reverse-mode mitmproxy sitting in front of the external WildFly server, so the
+  # frontend's own calls to WildFly get logged the same way - see
+  # proxy/log_and_route_reverse.py. WildFly must be reachable at wildfly-proxy's
+  # WILDFLY_UPSTREAM (default localhost:8081, one port above WildFly's usual 8080 -
+  # see the port-offset VM option this setup requires on WildFly's own run
+  # config). This container owns host port 8080 permanently; logging itself is
+  # toggled on/off live via toggle-wildfly-reverse-proxy.sh/.bat (also wired into
+  # start.py/restart.py's --wildfly-reverse-proxy flag), which just flips
+  # ./proxy/reverse-proxy-enabled.flag - no restart of this container needed.
+  wildfly-proxy:
+    image: mitmproxy/mitmproxy:latest
+    container_name: wildfly-proxy
+    restart: unless-stopped
+    # Only started when the "inbound-logging" profile is active - start.py/restart.py set
+    # COMPOSE_PROFILES=inbound-logging in .env based on settings.properties's inbound_logging_enabled
+    # setting, so
+    # this container (and the whole feature) simply doesn't exist for a deployment that opts out.
+    profiles:
+      - inbound-logging
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - WEBHOOK_URL=http://backend:5000/internal-calls/webhook
+      - WEBHOOK_SECRET=change-me-in-production
+      - TOGGLE_FILE=/home/mitmproxy/reverse-proxy-enabled.flag
+      # WildFly runs on the host (started via IntelliJ), not in this compose stack -
+      # host.docker.internal resolves to the host machine from inside the container.
+      # Override WILDFLY_UPSTREAM (below, baked into the command) if WildFly's
+      # port-offset differs from the default +1.
+      - WILDFLY_UPSTREAM=http://host.docker.internal:8081
+    volumes:
+      - ./proxy/log_and_route_reverse.py:/home/mitmproxy/log_and_route_reverse.py:ro
+      - ./proxy/reverse-proxy-enabled.flag:/home/mitmproxy/reverse-proxy-enabled.flag
+      - ./proxy/certs:/home/mitmproxy/.mitmproxy
+    working_dir: /home/mitmproxy
+    # sh -c so $WILDFLY_UPSTREAM expands into --mode's argument - Compose's own
+    # ${VAR} substitution only applies to the compose file itself, not to values
+    # inside a literal `command:` string at container runtime.
+    entrypoint: ["sh", "-c"]
+    command: ["mitmdump -q -s log_and_route_reverse.py --mode reverse:$$WILDFLY_UPSTREAM -p 8080 --set connection_strategy=lazy"]
+    extra_hosts:
+      # Docker Desktop (Windows/Mac) already resolves host.docker.internal without
+      # this; host-gateway is what makes the same hostname work on Linux too.
+      - "host.docker.internal:host-gateway"
+    mem_limit: 256m
+    networks:
+      - alfred-net
+
   # Backend - persists calls the proxy's webhook sends it (RECENT_CALLS.log) and serves them
   # over an API, plus a WebSocket push to the dashboard for each new one.
   backend:
@@ -77,8 +125,21 @@ services:
       - ALFRED_CALLS_MAX_SIZE_BYTES=107374182400
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
+      # Separate store for calls captured by wildfly-proxy (frontend -> WildFly
+      # traffic) - same CallRecord/CallSummary JSON shape as calls.db, kept apart so
+      # WildFly traffic never mixes with external supplier-call history.
+      - INTERNAL_CALLS_FILE=/appdata/internal-calls.log
+      # Same file wildfly-proxy's TOGGLE_FILE points at (bind-mounted a second time here,
+      # at a different in-container path) - lets GET/POST /internal-calls/logging-enabled
+      # flip the same switch toggle-wildfly-reverse-proxy.sh/.bat already do by hand.
+      - REVERSE_PROXY_TOGGLE_FILE=/appdata/reverse-proxy-enabled.flag
+      # Deploy-time flag from settings.properties (via .env) - whether the inbound-logging feature
+      # exists at all for this deployment. false hides Settings' "Inbound logging" panel
+      # entirely; wildfly-proxy itself is gated separately, by the profiles: key above.
+      - INBOUND_LOGGING_ENABLED=${INBOUND_LOGGING_ENABLED:-false}
     volumes:
       - ./backend/data:/appdata
+      - ./proxy/reverse-proxy-enabled.flag:/appdata/reverse-proxy-enabled.flag
     depends_on:
       - proxy
     # Gives the JVM's -XX:MaxRAMPercentage (see backend/Dockerfile) a real ceiling to be a

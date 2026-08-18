@@ -14,7 +14,12 @@
   }
 </div>
 
-<app-header [title]="cycle()?.name ?? 'Session Cycle'" subtitle="Captured calls for this session cycle" />
+<app-header
+  [title]="cycle()?.name ?? 'Session Cycle'"
+  subtitle="Captured calls for this session cycle"
+  [callSource]="state.callSource()"
+  (callSourceChange)="state.setCallSource($event)"
+/>
 
 <main>
   <app-bulk-actions-bar />

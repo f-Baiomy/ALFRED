@@ -3,22 +3,29 @@ package com.fathy.alfred.backend.sessioncycles.adapter.in.web;
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CopyCallsRequestDto;
+import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CopyInternalCallsRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CreateSessionCycleRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.RemoveCallsRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.UpdateSessionCycleRequestDto;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyInternalCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
@@ -56,6 +63,11 @@ public class SessionCyclesController {
     private final RemoveCapturedCallUseCase removeCapturedCallUseCase;
     private final RemoveCapturedCallsUseCase removeCapturedCallsUseCase;
     private final CopyCallsToCycleUseCase copyCallsToCycleUseCase;
+    private final ListCapturedInternalCallsUseCase listCapturedInternalCallsUseCase;
+    private final GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase;
+    private final RemoveCapturedInternalCallUseCase removeCapturedInternalCallUseCase;
+    private final RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase;
+    private final CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase;
 
     public SessionCyclesController(
             CreateSessionCycleUseCase createSessionCycleUseCase,
@@ -69,7 +81,12 @@ public class SessionCyclesController {
             GetCapturedCallDetailUseCase getCapturedCallDetailUseCase,
             RemoveCapturedCallUseCase removeCapturedCallUseCase,
             RemoveCapturedCallsUseCase removeCapturedCallsUseCase,
-            CopyCallsToCycleUseCase copyCallsToCycleUseCase
+            CopyCallsToCycleUseCase copyCallsToCycleUseCase,
+            ListCapturedInternalCallsUseCase listCapturedInternalCallsUseCase,
+            GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase,
+            RemoveCapturedInternalCallUseCase removeCapturedInternalCallUseCase,
+            RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase,
+            CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase
     ) {
         this.createSessionCycleUseCase = createSessionCycleUseCase;
         this.listSessionCyclesUseCase = listSessionCyclesUseCase;
@@ -83,6 +100,11 @@ public class SessionCyclesController {
         this.removeCapturedCallUseCase = removeCapturedCallUseCase;
         this.removeCapturedCallsUseCase = removeCapturedCallsUseCase;
         this.copyCallsToCycleUseCase = copyCallsToCycleUseCase;
+        this.listCapturedInternalCallsUseCase = listCapturedInternalCallsUseCase;
+        this.getCapturedInternalCallDetailUseCase = getCapturedInternalCallDetailUseCase;
+        this.removeCapturedInternalCallUseCase = removeCapturedInternalCallUseCase;
+        this.removeCapturedInternalCallsUseCase = removeCapturedInternalCallsUseCase;
+        this.copyInternalCallsToCycleUseCase = copyInternalCallsToCycleUseCase;
     }
 
     @PostMapping
@@ -176,6 +198,57 @@ public class SessionCyclesController {
     @PostMapping("/{id}/calls/copy")
     public ResponseEntity<CopyCallsResult> copyCalls(@PathVariable String id, @Valid @RequestBody CopyCallsRequestDto request) {
         return copyCallsToCycleUseCase.copyInto(id, request.calls())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Internal-calls mirror of GET /session-cycles/{id}/calls (frontend->WildFly traffic, via
+     * backend-internal-calls) - same query params/contract, same default sort.
+     */
+    @GetMapping("/{id}/internal-calls")
+    public ResponseEntity<CapturedInternalCallsPage> listInternalCalls(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "") String search,
+            @RequestParam(defaultValue = "") String supplier,
+            @RequestParam(defaultValue = "oldest-call") String sort,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "10") int limit,
+            @RequestParam(defaultValue = "") String sessionId,
+            @RequestParam(defaultValue = "") String operationId,
+            @RequestParam(defaultValue = "") String requestId
+    ) {
+        return listCapturedInternalCallsUseCase.listCalls(id, new com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery(
+                        search, supplier, sort, offset, limit, sessionId, operationId, requestId))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** The full request/response (headers+bodies) for one captured internal call - fetched only once it's actually expanded. */
+    @GetMapping("/{id}/internal-calls/{callId}/detail")
+    public ResponseEntity<com.fathy.alfred.backend.internalcalls.domain.model.CallDetail> getInternalCallDetail(@PathVariable String id, @PathVariable String callId) {
+        return getCapturedInternalCallDetailUseCase.getDetail(id, callId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/{id}/internal-calls/{callId}")
+    public ResponseEntity<Void> removeInternalCall(@PathVariable String id, @PathVariable String callId) {
+        boolean removed = removeCapturedInternalCallUseCase.removeCall(id, callId);
+        return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/{id}/internal-calls/remove")
+    public ResponseEntity<RemoveCallsResult> removeInternalCalls(@PathVariable String id, @Valid @RequestBody RemoveCallsRequestDto request) {
+        return removeCapturedInternalCallsUseCase.removeCalls(id, request.callIds())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Internal-calls mirror of POST /session-cycles/{id}/calls/copy - manual duplication, works regardless of RECORDING/PAUSED. */
+    @PostMapping("/{id}/internal-calls/copy")
+    public ResponseEntity<CopyCallsResult> copyInternalCalls(@PathVariable String id, @Valid @RequestBody CopyInternalCallsRequestDto request) {
+        return copyInternalCallsToCycleUseCase.copyInto(id, request.calls())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

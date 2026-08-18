@@ -21,6 +21,10 @@
       (input)="onSearchInput($any($event.target).value)"
     />
 
+    @if (callSource(); as source) {
+      <app-select-picker [options]="callSourceOptions" [value]="source" (valueChange)="onCallSourceChange($event)" />
+    }
+
     <app-select-picker [options]="limitOptions" [value]="state.limit().toString()" (valueChange)="onLimitChange($event)" />
 
     <app-select-picker [options]="sortOptions()" [value]="state.sortMode()" (valueChange)="onSortChange($event)" />

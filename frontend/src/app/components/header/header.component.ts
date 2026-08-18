@@ -1,6 +1,6 @@
-import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, input, viewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, input, output, viewChild } from '@angular/core';
 import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/call-selection.tokens';
-import { SortMode } from '../../core/models/call.model';
+import { CallSource, SortMode } from '../../core/models/call.model';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 
 const LIMIT_OPTIONS: readonly SelectOption[] = [
@@ -8,6 +8,12 @@ const LIMIT_OPTIONS: readonly SelectOption[] = [
   { value: '25', label: '25 per page' },
   { value: '50', label: '50 per page' },
   { value: '100', label: '100 per page' },
+];
+
+const CALL_SOURCE_OPTIONS: readonly SelectOption[] = [
+  { value: 'external', label: 'External calls' },
+  { value: 'internal', label: 'Internal calls' },
+  { value: 'both', label: 'External + Internal' },
 ];
 
 const SORT_OPTIONS: readonly SelectOption[] = [
@@ -46,6 +52,17 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
 
   readonly title = input('ALFRED');
   readonly subtitle = input('Live feed of every call Alfred intercepted, via backend');
+
+  /**
+   * Which backend call source(s) to read from - `null` (the default) hides the toggle entirely,
+   * which is what happens on a session-cycle detail page (that page never binds this input): a
+   * cycle's captured calls have no "internal" counterpart, so the control would be meaningless
+   * there. Only DashboardComponent passes this, wired to CallsStateService.callSource.
+   */
+  readonly callSource = input<CallSource | null>(null);
+  readonly callSourceChange = output<CallSource>();
+
+  readonly callSourceOptions = CALL_SOURCE_OPTIONS;
 
   readonly limitOptions = LIMIT_OPTIONS;
   readonly sortOptions = computed<readonly SelectOption[]>(() =>
@@ -88,6 +105,10 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
 
   onSupplierChange(value: string): void {
     this.state.setSupplierFilter(value);
+  }
+
+  onCallSourceChange(value: string): void {
+    this.callSourceChange.emit(value as CallSource);
   }
 
   onSessionIdInput(value: string): void {

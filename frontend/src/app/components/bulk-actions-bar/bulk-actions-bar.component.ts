@@ -135,7 +135,7 @@ export class BulkActionsBarComponent {
 
   /** Always a real fetch per call, even if it was hydrated by an earlier bulk action this session - detail is never served from a cache. */
   private hydrateAll(calls: readonly CallRecord[]): Observable<CallRecord[]> {
-    const requests = calls.map((call) => this.controlsState.getCallDetail(call.id).pipe(map((detail) => ({ ...call, ...detail }))));
+    const requests = calls.map((call) => this.controlsState.getCallDetail(call.id, call.source).pipe(map((detail) => ({ ...call, ...detail }))));
     return forkJoin(requests);
   }
 

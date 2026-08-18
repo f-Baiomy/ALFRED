@@ -32,6 +32,11 @@
     </dependency>
     <dependency>
       <groupId>com.fathy.alfred</groupId>
+      <artifactId>backend-internal-calls</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fathy.alfred</groupId>
       <artifactId>backend-comments</artifactId>
       <version>${project.version}</version>
     </dependency>

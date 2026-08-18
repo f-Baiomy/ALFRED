@@ -4,8 +4,9 @@ import { CallFilterSettingsStateService } from '../../core/state/call-filter-set
 import { DatabaseStatsStateService } from '../../core/state/database-stats-state.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
+import { InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
 
-type Partition = 'call-filtering' | 'database';
+type Partition = 'call-filtering' | 'database' | 'inbound-logging';
 
 @Component({
   selector: 'app-settings',
@@ -17,6 +18,7 @@ export class SettingsComponent implements OnInit {
   readonly state = inject(CallFilterSettingsStateService);
   readonly databaseStats = inject(DatabaseStatsStateService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly internalLoggingApi = inject(InternalLoggingApiService);
 
   readonly activePartition = signal<Partition>('call-filtering');
 
@@ -26,11 +28,32 @@ export class SettingsComponent implements OnInit {
   readonly clearingCalls = signal(false);
   readonly clearingCycles = signal(false);
 
+  /** null = not loaded yet (or a request is in flight) - the toggle renders disabled/loading until this resolves. */
+  readonly inboundLoggingEnabled = signal<boolean | null>(null);
+  readonly inboundLoggingLoaded = signal(false);
+  readonly savingInboundLogging = signal(false);
+
+  /**
+   * The deploy-time flag (settings.md's inbound_logging_enabled) - null until the initial fetch
+   * resolves, at which point the nav item either appears or stays hidden for good this session.
+   * Deliberately starts hidden-until-confirmed (not shown-then-removed) - see ngOnInit.
+   */
+  readonly inboundLoggingFeatureEnabled = signal<boolean | null>(null);
+
   readonly isAcceptAll = computed(() => this.state.settings().mode === 'ACCEPT_ALL');
   readonly isAcceptOnly = computed(() => this.state.settings().mode === 'ACCEPT_ONLY');
 
   ngOnInit(): void {
     this.state.loadIfNeeded();
+
+    // Fetched once up front (not lazily on nav click) so the "Inbound logging" nav item's
+    // visibility is decided before the user could ever click it - a deploy-time flag, so this
+    // never changes mid-session.
+    this.internalLoggingApi.getEnabled().subscribe((res) => {
+      this.inboundLoggingEnabled.set(res.enabled);
+      this.inboundLoggingLoaded.set(true);
+      this.inboundLoggingFeatureEnabled.set(res.featureEnabled);
+    });
   }
 
   setActivePartition(partition: Partition): void {
@@ -38,6 +61,21 @@ export class SettingsComponent implements OnInit {
     if (partition === 'database') {
       this.databaseStats.loadIfNeeded();
     }
+  }
+
+  /**
+   * Flips whether wildfly-proxy (the reverse-mode mitmproxy in front of WildFly, handling inbound
+   * frontend->WildFly traffic) logs calls to backend-internal-calls right now - forwarding itself
+   * is never affected, only logging. Same switch toggle-wildfly-reverse-proxy.sh/.bat already
+   * control from a terminal.
+   */
+  toggleInboundLogging(): void {
+    const next = !this.inboundLoggingEnabled();
+    this.savingInboundLogging.set(true);
+    this.internalLoggingApi.setEnabled(next).subscribe((res) => {
+      this.inboundLoggingEnabled.set(res.enabled);
+      this.savingInboundLogging.set(false);
+    });
   }
 
   async clearAllCalls(): Promise<void> {

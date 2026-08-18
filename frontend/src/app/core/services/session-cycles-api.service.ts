@@ -1,10 +1,15 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, map } from 'rxjs';
-import { CallDetail, CallRecord, CallSummaryDto, CapturedCall, SessionCycle } from '../models/call.model';
+import { Observable, forkJoin, map } from 'rxjs';
+import { CallDetail, CallEndpointSource, CallRecord, CallSummaryDto, CapturedCall, SessionCycle } from '../models/call.model';
 import { AppConfigService } from './app-config.service';
 import { CallsQuery } from '../state/call-list-view';
 import { toCallRecord } from '../../shared/utils/call-utils';
+
+/** Mirrors CallsApiService's endpointFor - 'internal' routes to the parallel /session-cycles/{id}/internal-calls* resource, 'external' (the default everywhere below) keeps hitting today's /session-cycles/{id}/calls*. */
+function endpointSegmentFor(source: CallEndpointSource): string {
+  return source === 'internal' ? 'internal-calls' : 'calls';
+}
 
 export interface NewSessionCycleRequest {
   readonly name: string;
@@ -76,7 +81,7 @@ export class SessionCyclesApiService {
     return this.http.delete<void>(`${this.baseUrl}/${id}`);
   }
 
-  listCalls(id: string, query: CallsQuery): Observable<CapturedCallsPageResult> {
+  listCalls(id: string, query: CallsQuery, source: CallEndpointSource = 'external'): Observable<CapturedCallsPageResult> {
     const params = new HttpParams()
       .set('search', query.search)
       .set('supplier', query.supplier)
@@ -86,30 +91,54 @@ export class SessionCyclesApiService {
       .set('sessionId', query.sessionId)
       .set('operationId', query.operationId)
       .set('requestId', query.requestId);
-    return this.http.get<CapturedCallsPageDto>(`${this.baseUrl}/${id}/calls`, { params }).pipe(
+    return this.http.get<CapturedCallsPageDto>(`${this.baseUrl}/${id}/${endpointSegmentFor(source)}`, { params }).pipe(
       map((page) => ({
-        calls: page.calls.map((c) => ({ id: c.id, capturedAt: c.capturedAt, call: toCallRecord(c.call) })),
+        calls: page.calls.map((c) => ({ id: c.id, capturedAt: c.capturedAt, call: toCallRecord(c.call, source) })),
         total: page.total,
       }))
     );
   }
 
   /** The full request/response for one captured call - fetched only once it's actually expanded, always over the network (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail). */
-  getDetail(cycleId: string, callId: string): Observable<CallDetail> {
-    return this.http.get<CallDetail>(`${this.baseUrl}/${cycleId}/calls/${callId}/detail`);
+  getDetail(cycleId: string, callId: string, source: CallEndpointSource = 'external'): Observable<CallDetail> {
+    return this.http.get<CallDetail>(`${this.baseUrl}/${cycleId}/${endpointSegmentFor(source)}/${callId}/detail`);
   }
 
-  removeCall(id: string, callId: string): Observable<void> {
-    return this.http.delete<void>(`${this.baseUrl}/${id}/calls/${callId}`);
+  removeCall(id: string, callId: string, source: CallEndpointSource = 'external'): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${id}/${endpointSegmentFor(source)}/${callId}`);
   }
 
   /** Bulk counterpart to removeCall - one request instead of one DELETE per selected call. */
-  removeCalls(id: string, callIds: readonly string[]): Observable<RemoveCallsResult> {
-    return this.http.post<RemoveCallsResult>(`${this.baseUrl}/${id}/calls/remove`, { callIds });
+  removeCalls(id: string, callIds: readonly string[], source: CallEndpointSource = 'external'): Observable<RemoveCallsResult> {
+    return this.http.post<RemoveCallsResult>(`${this.baseUrl}/${id}/${endpointSegmentFor(source)}/remove`, { callIds });
   }
 
-  /** {@code calls} must already be fully hydrated (request/response present) - copying stores the complete CallRecord, not a summary. Callers hydrate the selection first (see BulkActionsBarComponent.hydrateAll). */
+  /**
+   * {@code calls} must already be fully hydrated (request/response present) - copying stores the
+   * complete CallRecord, not a summary. Callers hydrate the selection first (see
+   * BulkActionsBarComponent.hydrateAll). A selection built from a 'both'-mode list can mix
+   * external- and internal-sourced calls, each of which only exists in its own backend store - so
+   * this groups by each call's own stamped `source` (defaulting to 'external' for a call that
+   * predates the source toggle) and issues one POST per group, to /calls/copy or
+   * /internal-calls/copy respectively, then sums the added/skipped counts back into one result.
+   */
   copyCallsInto(id: string, calls: readonly CallRecord[]): Observable<CopyCallsResult> {
-    return this.http.post<CopyCallsResult>(`${this.baseUrl}/${id}/calls/copy`, { calls });
+    const bySource = new Map<CallEndpointSource, CallRecord[]>();
+    for (const call of calls) {
+      const source = call.source ?? 'external';
+      const group = bySource.get(source);
+      if (group) {
+        group.push(call);
+      } else {
+        bySource.set(source, [call]);
+      }
+    }
+
+    const requests = [...bySource.entries()].map(([source, group]) =>
+      this.http.post<CopyCallsResult>(`${this.baseUrl}/${id}/${endpointSegmentFor(source)}/copy`, { calls: group })
+    );
+    return forkJoin(requests).pipe(
+      map((results) => results.reduce((acc, r) => ({ added: acc.added + r.added, skipped: acc.skipped + r.skipped }), { added: 0, skipped: 0 }))
+    );
   }
 }

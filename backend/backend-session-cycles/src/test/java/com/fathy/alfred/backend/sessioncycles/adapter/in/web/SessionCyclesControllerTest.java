@@ -2,18 +2,24 @@ package com.fathy.alfred.backend.sessioncycles.adapter.in.web;
 
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyInternalCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
@@ -72,6 +78,16 @@ class SessionCyclesControllerTest {
     private RemoveCapturedCallsUseCase removeCapturedCallsUseCase;
     @MockBean
     private CopyCallsToCycleUseCase copyCallsToCycleUseCase;
+    @MockBean
+    private ListCapturedInternalCallsUseCase listCapturedInternalCallsUseCase;
+    @MockBean
+    private GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase;
+    @MockBean
+    private RemoveCapturedInternalCallUseCase removeCapturedInternalCallUseCase;
+    @MockBean
+    private RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase;
+    @MockBean
+    private CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase;
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "2026-01-01T00:00:00Z", null, status);
@@ -308,5 +324,110 @@ class SessionCyclesControllerTest {
                         && ((List<CallRecord>) calls).get(0).method().equals("GET")
                         && ((List<CallRecord>) calls).get(1).method().equals("POST")
         ));
+    }
+
+    @Test
+    void copyInternalCallsRejectsAnEmptyCallsList() throws Exception {
+        mockMvc.perform(post("/session-cycles/c1/internal-calls/copy")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"calls":[]}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void copyInternalCallsReturnsNotFoundWhenTheCycleDoesNotExist() throws Exception {
+        when(copyInternalCallsToCycleUseCase.copyInto(eq("missing"), any())).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/session-cycles/missing/internal-calls/copy")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"calls":[{"original_url":"http://host.docker.internal:8081/x","url":"http://host.docker.internal:8081/x","method":"GET","timestamp":"t1"}]}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void copyInternalCallsReturnsTheAddedAndSkippedCounts() throws Exception {
+        when(copyInternalCallsToCycleUseCase.copyInto(eq("c1"), any())).thenReturn(Optional.of(new CopyCallsResult(1, 1)));
+
+        mockMvc.perform(post("/session-cycles/c1/internal-calls/copy")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"calls":[
+                                  {"original_url":"http://host.docker.internal:8081/a","url":"http://host.docker.internal:8081/a","method":"GET","timestamp":"t1"},
+                                  {"original_url":"http://host.docker.internal:8081/b","url":"http://host.docker.internal:8081/b","method":"POST","timestamp":"t2"}
+                                ]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.added").value(1))
+                .andExpect(jsonPath("$.skipped").value(1));
+
+        verify(copyInternalCallsToCycleUseCase).copyInto(eq("c1"), org.mockito.ArgumentMatchers.argThat(calls -> calls.size() == 2));
+    }
+
+    @Test
+    void listInternalCallsReturnsNotFoundWhenTheCycleDoesNotExist() throws Exception {
+        when(listCapturedInternalCallsUseCase.listCalls(eq("missing"), any())).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/session-cycles/missing/internal-calls")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listInternalCallsReturnsTheCapturedCalls() throws Exception {
+        when(listCapturedInternalCallsUseCase.listCalls(eq("c1"), any())).thenReturn(Optional.of(new CapturedInternalCallsPage(List.of(), 0)));
+
+        mockMvc.perform(get("/session-cycles/c1/internal-calls")).andExpect(status().isOk());
+    }
+
+    @Test
+    void getInternalCallDetailReturnsTheRequestAndResponse() throws Exception {
+        com.fathy.alfred.backend.internalcalls.domain.model.CallRecord call = new com.fathy.alfred.backend.internalcalls.domain.model.CallRecord(
+                "call-1", "https://wildfly-proxy/x", "https://wildfly/x", "GET",
+                new com.fathy.alfred.backend.internalcalls.domain.model.RequestData(java.util.Map.of(), "req-body"), "t",
+                1.0, new com.fathy.alfred.backend.internalcalls.domain.model.ResponseData(200, java.util.Map.of(), "resp-body"), null);
+        when(getCapturedInternalCallDetailUseCase.getDetail("c1", "call-1"))
+                .thenReturn(Optional.of(com.fathy.alfred.backend.internalcalls.domain.model.CallDetail.of(call)));
+
+        mockMvc.perform(get("/session-cycles/c1/internal-calls/call-1/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.request.body").value("req-body"))
+                .andExpect(jsonPath("$.response.body").value("resp-body"));
+    }
+
+    @Test
+    void getInternalCallDetailReturnsNotFoundWhenMissing() throws Exception {
+        when(getCapturedInternalCallDetailUseCase.getDetail("c1", "missing")).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/session-cycles/c1/internal-calls/missing/detail")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void removeInternalCallReturnsNoContentOnSuccess() throws Exception {
+        when(removeCapturedInternalCallUseCase.removeCall("c1", "call-1")).thenReturn(true);
+
+        mockMvc.perform(delete("/session-cycles/c1/internal-calls/call-1")).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void removeInternalCallReturnsNotFoundWhenMissing() throws Exception {
+        when(removeCapturedInternalCallUseCase.removeCall("c1", "missing")).thenReturn(false);
+
+        mockMvc.perform(delete("/session-cycles/c1/internal-calls/missing")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void removeInternalCallsReturnsTheRemovedAndNotFoundCounts() throws Exception {
+        when(removeCapturedInternalCallsUseCase.removeCalls(eq("c1"), any())).thenReturn(Optional.of(new RemoveCallsResult(2, 1)));
+
+        mockMvc.perform(post("/session-cycles/c1/internal-calls/remove")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"callIds":["call-1","call-2","missing"]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.removed").value(2))
+                .andExpect(jsonPath("$.notFound").value(1));
     }
 }

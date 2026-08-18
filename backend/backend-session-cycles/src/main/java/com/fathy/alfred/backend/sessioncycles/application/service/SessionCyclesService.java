@@ -17,6 +17,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCaptured
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
@@ -57,6 +58,16 @@ public class SessionCyclesService implements
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
     private final SessionCycleNotificationPort notificationPort;
+    // Only used here to also clean up a cycle's captured-internal-calls file when the cycle itself
+    // is deleted (see delete() below) - the actual internal-calls use cases live in
+    // SessionCyclesInternalCallsService, kept as a separate class from this one deliberately:
+    // GetCapturedInternalCallDetailUseCase/RemoveCapturedInternalCallUseCase/
+    // RemoveCapturedInternalCallsUseCase have parameter lists identical (after generic erasure) to
+    // this class's own GetCapturedCallDetailUseCase/RemoveCapturedCallUseCase/
+    // RemoveCapturedCallsUseCase methods, so a single class cannot implement both sets - Java would
+    // either reject the class outright (clashing erasure with incompatible return types) or silently
+    // collapse two logically-different operations onto one shared method body.
+    private final CapturedInternalCallsStorePort capturedInternalCallsStore;
 
     /** Same property + same clamp CallsService applies to GET /calls, reused here so a page of captured calls can't be forced unbounded either. */
     @Value("${alfred.calls.max-limit:200}")
@@ -66,10 +77,12 @@ public class SessionCyclesService implements
     @Value("${alfred.session-cycles.pagination-enabled:false}")
     private boolean paginationEnabled;
 
-    public SessionCyclesService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore, SessionCycleNotificationPort notificationPort) {
+    public SessionCyclesService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore,
+                                 SessionCycleNotificationPort notificationPort, CapturedInternalCallsStorePort capturedInternalCallsStore) {
         this.metadataStore = metadataStore;
         this.capturedCallsStore = capturedCallsStore;
         this.notificationPort = notificationPort;
+        this.capturedInternalCallsStore = capturedInternalCallsStore;
     }
 
     @Override
@@ -152,6 +165,7 @@ public class SessionCyclesService implements
         }
         metadataStore.deleteById(id);
         capturedCallsStore.deleteAllForCycle(id);
+        capturedInternalCallsStore.deleteAllForCycle(id);
         notificationPort.notifySessionCyclesChanged();
         return DeleteOutcome.DELETED;
     }
