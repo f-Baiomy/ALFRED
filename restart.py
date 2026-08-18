@@ -129,6 +129,16 @@ def _write_env_file(env):
             f.write(f"{key}={value}\n")
 
 
+def sync_wildfly_port_offset():
+    """Same as start.py's function of the same name - delegates to the standalone
+    sync-wildfly-port-offset.py so there's exactly one place that knows how to edit WildFly's
+    config (and how to fall back to manual instructions if it can't)."""
+    script = os.path.join(SCRIPT_DIR, "sync-wildfly-port-offset.py")
+    result = subprocess.run([sys.executable, script], cwd=SCRIPT_DIR)
+    if result.returncode != 0:
+        print("WildFly port-offset sync failed (see above) - continuing anyway.")
+
+
 def sync_env_from_settings():
     """Same as start.py's function of the same name - see its docstring. Also needed here (not
     just in start.py) since restart.py is a valid standalone entry point, e.g. after hand-editing
@@ -152,76 +162,7 @@ def sync_env_from_settings():
         # non-fatal.
         subprocess.run(["docker", "compose", "stop", "wildfly-proxy"], cwd=SCRIPT_DIR)
 
-    sync_wildfly_port_offset(settings, enabled)
-
-
-WILDFLY_PORT_OFFSET_BEGIN = {
-    True: "REM --- BEGIN alfred-inbound-logging (managed by Alfred - do not edit by hand) ---",
-    False: "# --- BEGIN alfred-inbound-logging (managed by Alfred - do not edit by hand) ---",
-}
-WILDFLY_PORT_OFFSET_END = {
-    True: "REM --- END alfred-inbound-logging ---",
-    False: "# --- END alfred-inbound-logging ---",
-}
-
-
-def _wildfly_home(settings):
-    """settings.properties' wildfly_home wins if set; otherwise falls back to the WILDFLY_HOME
-    environment variable (see settings.properties' own doc)."""
-    return settings.get("wildfly_home", "").strip() or os.environ.get("WILDFLY_HOME", "").strip()
-
-
-def _standalone_conf_path(wildfly_home):
-    is_windows = platform.system() == "Windows"
-    filename = "standalone.conf.bat" if is_windows else "standalone.conf"
-    return os.path.join(wildfly_home, "bin", filename), is_windows
-
-
-def sync_wildfly_port_offset(settings, enabled):
-    """Same as start.py's function of the same name - see its docstring for the full rationale
-    (why the append happens at the end of the file, idempotency, non-fatal skip conditions)."""
-    wildfly_home = _wildfly_home(settings)
-    if not wildfly_home:
-        if enabled:
-            print("No wildfly_home set in settings.properties (or WILDFLY_HOME env var) - skipping "
-                  "WildFly's port-offset setup. Add one of those, or set "
-                  "-Djboss.socket.binding.port-offset=1 on WildFly's own VM options yourself.")
-        return
-
-    conf_path, is_windows = _standalone_conf_path(wildfly_home)
-    if not os.path.exists(conf_path):
-        print(f"WildFly config not found at {conf_path} - skipping port-offset setup. Check wildfly_home/WILDFLY_HOME.")
-        return
-
-    begin_marker = WILDFLY_PORT_OFFSET_BEGIN[is_windows]
-    end_marker = WILDFLY_PORT_OFFSET_END[is_windows]
-
-    try:
-        with open(conf_path, encoding="utf-8") as f:
-            content = f.read()
-    except OSError as e:
-        print(f"Could not read {conf_path}, skipping port-offset setup: {e}")
-        return
-
-    if begin_marker in content and end_marker in content:
-        start = content.index(begin_marker)
-        end = content.index(end_marker) + len(end_marker)
-        content = content[:start].rstrip("\n") + "\n" + content[end:].lstrip("\n")
-
-    if enabled:
-        offset_line = ('set "JAVA_OPTS=%JAVA_OPTS% -Djboss.socket.binding.port-offset=1"' if is_windows
-                        else 'JAVA_OPTS="$JAVA_OPTS -Djboss.socket.binding.port-offset=1"')
-        content = content.rstrip("\n") + f"\n\n{begin_marker}\n{offset_line}\n{end_marker}\n"
-
-    try:
-        with open(conf_path, "w", encoding="utf-8") as f:
-            f.write(content)
-    except OSError as e:
-        print(f"Could not write {conf_path}, skipping port-offset setup: {e}")
-        return
-
-    action = "Added" if enabled else "Removed"
-    print(f"{action} WildFly's port-offset in {conf_path} - restart WildFly for this to take effect.")
+    sync_wildfly_port_offset()
 
 
 def run(cmd):

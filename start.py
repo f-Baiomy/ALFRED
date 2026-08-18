@@ -19,7 +19,9 @@ wildfly-proxy service) is itself already started by "docker compose up"
 like any other service; this step only controls whether it logs. Requires
 WildFly's own port to be offset by +1 (e.g. -Djboss.socket.binding.port-
 offset=1 in its run config) so wildfly-proxy can own WildFly's usual port -
-a one-time manual step on WildFly's side, not something this script does.
+handled automatically, BEFORE "docker compose up" runs, by
+sync-wildfly-port-offset.py (see its own docstring), as long as wildfly_home
+(or WILDFLY_HOME) is set - falls back to printing manual steps otherwise.
 
 Usage (same command on any OS):
     python3 start.py       (Linux/macOS - will re-exec itself with sudo if needed)
@@ -123,6 +125,19 @@ def _write_env_file(env):
             f.write(f"{key}={value}\n")
 
 
+def sync_wildfly_port_offset():
+    """Delegates to sync-wildfly-port-offset.py (see its own docstring) - kept as a separate,
+    independently-runnable script rather than inlined here so WildFly's port-offset can be synced
+    on its own (e.g. right after hand-editing settings.properties, or ahead of "docker compose up"
+    in a deploy pipeline) without going through the rest of start.py. Deliberately non-fatal here:
+    a failure printed its own manual-steps fallback already, and shouldn't block the rest of this
+    script over what is otherwise just a WildFly-side convenience."""
+    script = os.path.join(SCRIPT_DIR, "sync-wildfly-port-offset.py")
+    result = subprocess.run([sys.executable, script], cwd=SCRIPT_DIR)
+    if result.returncode != 0:
+        print("WildFly port-offset sync failed (see above) - continuing anyway.")
+
+
 def sync_env_from_settings():
     """Reads inbound_logging_enabled from settings.properties and bakes it into .env as
     COMPOSE_PROFILES/INBOUND_LOGGING_ENABLED - docker-compose.yml's wildfly-proxy service only
@@ -133,7 +148,11 @@ def sync_env_from_settings():
     .env already exist" check would otherwise see the file this creates and skip picking a free
     BACKEND_PORT on a fresh install. Merges into whatever .env already has (preserving
     BACKEND_PORT, etc.) rather than overwriting it. A deploy-time flag, re-read on every
-    start.py/restart.py run, not live - see settings.properties's own comments."""
+    start.py/restart.py run, not live - see settings.properties's own comments.
+
+    Also syncs WildFly's own port-offset (see sync_wildfly_port_offset() above) BEFORE returning -
+    this must happen before "docker compose up" (called right after this, in main()) ever brings
+    wildfly-proxy up wanting to own WildFly's usual port, or the two will fight over it."""
     settings = _parse_settings_properties()
     enabled = settings.get("inbound_logging_enabled", "false").strip().lower() == "true"
 
@@ -155,90 +174,7 @@ def sync_env_from_settings():
         # never running, and shouldn't block the rest of this script over it.
         subprocess.run(["docker", "compose", "stop", "wildfly-proxy"], cwd=SCRIPT_DIR)
 
-    sync_wildfly_port_offset(settings, enabled)
-
-
-WILDFLY_PORT_OFFSET_BEGIN = {
-    True: "REM --- BEGIN alfred-inbound-logging (managed by Alfred - do not edit by hand) ---",
-    False: "# --- BEGIN alfred-inbound-logging (managed by Alfred - do not edit by hand) ---",
-}
-WILDFLY_PORT_OFFSET_END = {
-    True: "REM --- END alfred-inbound-logging ---",
-    False: "# --- END alfred-inbound-logging ---",
-}
-
-
-def _wildfly_home(settings):
-    """settings.properties' wildfly_home wins if set; otherwise falls back to the WILDFLY_HOME
-    environment variable (see settings.properties' own doc)."""
-    return settings.get("wildfly_home", "").strip() or os.environ.get("WILDFLY_HOME", "").strip()
-
-
-def _standalone_conf_path(wildfly_home):
-    is_windows = platform.system() == "Windows"
-    filename = "standalone.conf.bat" if is_windows else "standalone.conf"
-    return os.path.join(wildfly_home, "bin", filename), is_windows
-
-
-def sync_wildfly_port_offset(settings, enabled):
-    """Adds/removes a marked -Djboss.socket.binding.port-offset=1 append to WildFly's own
-    JAVA_OPTS, in bin/standalone.conf(.bat) under wildfly_home - the offset wildfly-proxy assumes
-    (see docker-compose.yml's wildfly-proxy service) so it can take over WildFly's usual port.
-    Appended at the very end of the file (after any existing JAVA_OPTS-building logic, including
-    an if/else that only fires when JAVA_OPTS *isn't* already set in the environment) so it always
-    applies to whatever JAVA_OPTS ends up being, regardless of how WildFly is actually launched -
-    confirmed live against a setup where an IDE sets JAVA_OPTS directly in the environment before
-    invoking standalone.bat (which still calls standalone.conf.bat first, so an append at the end
-    of that file still runs).
-
-    Idempotent either way: always strips any previously-managed block first, then re-adds it only
-    if enabled - so toggling on twice never duplicates the line, and toggling off cleanly removes
-    it. Silently skipped (with a warning) if wildfly_home/WILDFLY_HOME isn't set or doesn't point
-    at a real WildFly install - this is a convenience, not something that should block the rest of
-    this script. Requires restarting WildFly itself to take effect either way.
-    """
-    wildfly_home = _wildfly_home(settings)
-    if not wildfly_home:
-        if enabled:
-            print("No wildfly_home set in settings.properties (or WILDFLY_HOME env var) - skipping "
-                  "WildFly's port-offset setup. Add one of those, or set "
-                  "-Djboss.socket.binding.port-offset=1 on WildFly's own VM options yourself.")
-        return
-
-    conf_path, is_windows = _standalone_conf_path(wildfly_home)
-    if not os.path.exists(conf_path):
-        print(f"WildFly config not found at {conf_path} - skipping port-offset setup. Check wildfly_home/WILDFLY_HOME.")
-        return
-
-    begin_marker = WILDFLY_PORT_OFFSET_BEGIN[is_windows]
-    end_marker = WILDFLY_PORT_OFFSET_END[is_windows]
-
-    try:
-        with open(conf_path, encoding="utf-8") as f:
-            content = f.read()
-    except OSError as e:
-        print(f"Could not read {conf_path}, skipping port-offset setup: {e}")
-        return
-
-    if begin_marker in content and end_marker in content:
-        start = content.index(begin_marker)
-        end = content.index(end_marker) + len(end_marker)
-        content = content[:start].rstrip("\n") + "\n" + content[end:].lstrip("\n")
-
-    if enabled:
-        offset_line = ('set "JAVA_OPTS=%JAVA_OPTS% -Djboss.socket.binding.port-offset=1"' if is_windows
-                        else 'JAVA_OPTS="$JAVA_OPTS -Djboss.socket.binding.port-offset=1"')
-        content = content.rstrip("\n") + f"\n\n{begin_marker}\n{offset_line}\n{end_marker}\n"
-
-    try:
-        with open(conf_path, "w", encoding="utf-8") as f:
-            f.write(content)
-    except OSError as e:
-        print(f"Could not write {conf_path}, skipping port-offset setup: {e}")
-        return
-
-    action = "Added" if enabled else "Removed"
-    print(f"{action} WildFly's port-offset in {conf_path} - restart WildFly for this to take effect.")
+    sync_wildfly_port_offset()
 
 
 USAGE = ("Usage: python3 start.py [--wildfly-proxy [on|off]] "
