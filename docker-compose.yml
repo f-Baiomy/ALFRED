@@ -30,6 +30,11 @@ services:
     # Guardrail, not a tuned limit - normal usage sits well under this (observed ~65MB); caps a
     # runaway connection/large-body burst from taking down the rest of the host.
     mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - alfred-net
 
@@ -78,6 +83,11 @@ services:
       # this; host-gateway is what makes the same hostname work on Linux too.
       - "host.docker.internal:host-gateway"
     mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - alfred-net
 
@@ -149,6 +159,11 @@ services:
     # the JDBC driver/connection pools/WAL page cache across five databases need real headroom,
     # and the one-time legacy-file migration still streams through memory once at startup.
     mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - alfred-net
 
@@ -169,6 +184,11 @@ services:
       - backend
     # Guardrail, not a tuned limit - nginx serving a static bundle observed at ~9MB.
     mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - alfred-net
 
