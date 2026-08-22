@@ -105,7 +105,14 @@ services:
       # below reads the same variable so both stay in sync from this one place. Only the HOST-side
       # port changes; the container still listens on 5000 internally regardless.
       - "${BACKEND_PORT:-5000}:5000"
+      # Remote JDWP debug port - attach IntelliJ's "Remote JVM Debug" run config to
+      # localhost:BACKEND_DEBUG_PORT. suspend=n so the JVM starts normally when nothing's
+      # attached. Override BACKEND_DEBUG_PORT in .env if 5006 collides with another
+      # project's own debug port on this machine.
+      - "${BACKEND_DEBUG_PORT:-5006}:5006"
     environment:
+      # Picked up automatically by the JVM at startup (no Dockerfile/CMD change needed).
+      - JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006
       # Recent calls now live here, written by backend itself after each webhook call from
       # the proxy - not read from the proxy's filesystem at all anymore.
       # RECENT_CALLS_FILE/COMMENTS_FILE/SESSION_CYCLES_FILE/SESSION_CYCLES_DIR/PROFILES_FILE/
