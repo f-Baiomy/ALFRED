@@ -2,10 +2,18 @@ import { TestBed, fakeAsync, tick, discardPeriodicTasks } from '@angular/core/te
 import { of } from 'rxjs';
 import { CallsStateService } from './calls-state.service';
 import { CallsApiService } from '../services/calls-api.service';
+import { InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { CallRecord } from '../models/call.model';
 import { CallsQuery } from './call-list-view';
 
 const PIN_STORAGE_KEY = 'alfred_pinned_calls';
+
+/** Every test defaults to inbound logging disabled (no feature-enabled fetch resolving true, no services fetched) - the constructor's extra HTTP calls stay inert unless a test explicitly overrides this stub, matching "nobody configured any internal projects" as the baseline. */
+const FEATURE_DISABLED_STUB: Pick<InternalLoggingApiService, 'getFeatureEnabled' | 'getServices' | 'setEnabled'> = {
+  getFeatureEnabled: () => of({ enabled: false }),
+  getServices: () => of([]),
+  setEnabled: () => of([]),
+};
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -39,16 +47,19 @@ function setup(calls: CallRecord[], total = calls.length): { state: CallsStateSe
     },
   };
   TestBed.configureTestingModule({
-    providers: [{ provide: CallsApiService, useValue: apiStub }],
+    providers: [
+      { provide: CallsApiService, useValue: apiStub },
+      { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
+    ],
   });
   return { state: TestBed.inject(CallsStateService), queries };
 }
 
 /**
  * Separate setup for source-switching tests: records which (query, source) pairs CallsApiService
- * was actually asked for, so a test can assert 'both' fans out to both endpoints in parallel and
- * 'external'/'internal' each hit only their own endpoint - exactly like the real CallsApiService,
- * whose `source` param defaults to 'external' (see calls-api.service.spec.ts).
+ * was actually asked for, so a test can assert selecting an internal project fans out to the
+ * internal-calls endpoint alongside (or instead of) external - exactly like the real
+ * CallsApiService, whose `source` param defaults to 'external' (see calls-api.service.spec.ts).
  */
 function setupWithSources(
   externalCalls: CallRecord[],
@@ -64,7 +75,10 @@ function setupWithSources(
     },
   };
   TestBed.configureTestingModule({
-    providers: [{ provide: CallsApiService, useValue: apiStub }],
+    providers: [
+      { provide: CallsApiService, useValue: apiStub },
+      { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
+    ],
   });
   return { state: TestBed.inject(CallsStateService), calls };
 }
@@ -229,23 +243,24 @@ describe('CallsStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('defaults callSource to "external" and never passes a source on the initial fetch', fakeAsync(() => {
+  it('defaults selectedSources to just "external" and never passes a source on the initial fetch', fakeAsync(() => {
     const { state, queries } = setup([makeCall()]);
     tick();
 
-    expect(state.callSource()).toBe('external');
+    expect([...state.selectedSources()]).toEqual(['external']);
     expect(queries.length).toBe(1);
     discardPeriodicTasks();
   }));
 
-  it('setCallSource("internal") re-fetches from GET /internal-calls only', fakeAsync(() => {
+  it('toggling external off and an internal project on re-fetches from GET /internal-calls only', fakeAsync(() => {
     const external = [makeCall({ id: 'ext-1' })];
     const internal = [makeCall({ id: 'int-1' })];
     const { state, calls } = setupWithSources(external, internal);
     tick();
 
     calls.length = 0;
-    state.setCallSource('internal');
+    state.toggleSource('external');
+    state.toggleSource('odeysys');
     tick();
 
     expect(calls.length).toBe(1);
@@ -254,14 +269,14 @@ describe('CallsStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('setCallSource("both") fetches external and internal in parallel and merges by newest-call-time, summing totals', fakeAsync(() => {
+  it('selecting an internal project alongside external fetches both in parallel and merges by newest-call-time, summing totals', fakeAsync(() => {
     const older = makeCall({ id: 'ext-1', timestamp: '2026-01-01T00:00:00.000Z' });
     const newer = makeCall({ id: 'int-1', timestamp: '2026-01-02T00:00:00.000Z' });
     const { state, calls } = setupWithSources([older], [newer], 3, 4);
     tick();
 
     calls.length = 0;
-    state.setCallSource('both');
+    state.toggleSource('odeysys');
     tick();
 
     expect(calls.map((c) => c.source).sort()).toEqual(['external', 'internal']);
@@ -271,7 +286,7 @@ describe('CallsStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('setCallSource("both") trims the merged page back down to the requested limit', fakeAsync(() => {
+  it('merging both sources trims the merged page back down to the requested limit', fakeAsync(() => {
     const external = [makeCall({ id: 'ext-1', timestamp: '2026-01-01T00:00:00.000Z' })];
     const internal = [makeCall({ id: 'int-1', timestamp: '2026-01-02T00:00:00.000Z' })];
     const { state } = setupWithSources(external, internal);
@@ -279,22 +294,23 @@ describe('CallsStateService', () => {
 
     state.setLimit(1);
     tick();
-    state.setCallSource('both');
+    state.toggleSource('odeysys');
     tick();
 
     expect(state.calls().length).toBe(1);
     discardPeriodicTasks();
   }));
 
-  it('setCallSource is a no-op when re-selecting the already-active source', fakeAsync(() => {
+  it('deselecting every source fetches nothing rather than falling back to a default', fakeAsync(() => {
     const { state, calls } = setupWithSources([makeCall()], []);
     tick();
 
     calls.length = 0;
-    state.setCallSource('external');
+    state.toggleSource('external');
     tick();
 
     expect(calls.length).toBe(0);
+    expect(state.calls()).toEqual([]);
     discardPeriodicTasks();
   }));
 });

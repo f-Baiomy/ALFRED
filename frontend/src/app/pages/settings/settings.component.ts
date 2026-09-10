@@ -4,7 +4,7 @@ import { CallFilterSettingsStateService } from '../../core/state/call-filter-set
 import { DatabaseStatsStateService } from '../../core/state/database-stats-state.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
-import { InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
+import { InternalCallServiceDto, InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
 
 type Partition = 'call-filtering' | 'database' | 'inbound-logging';
 
@@ -28,15 +28,16 @@ export class SettingsComponent implements OnInit {
   readonly clearingCalls = signal(false);
   readonly clearingCycles = signal(false);
 
-  /** null = not loaded yet (or a request is in flight) - the toggle renders disabled/loading until this resolves. */
-  readonly inboundLoggingEnabled = signal<boolean | null>(null);
-  readonly inboundLoggingLoaded = signal(false);
-  readonly savingInboundLogging = signal(false);
+  /** Every project reverse-proxy fronts (plus the reserved "unknown" bucket), each with its own live enabled state - see internal-logging-api.service.ts. */
+  readonly inboundServices = signal<InternalCallServiceDto[]>([]);
+  readonly inboundServicesLoaded = signal(false);
+  /** Name of the row currently mid-save (disables just that row's button), or null when nothing's in flight. */
+  readonly savingInboundService = signal<string | null>(null);
 
   /**
-   * The deploy-time flag (settings.md's inbound_logging_enabled) - null until the initial fetch
-   * resolves, at which point the nav item either appears or stays hidden for good this session.
-   * Deliberately starts hidden-until-confirmed (not shown-then-removed) - see ngOnInit.
+   * The deploy-time flag (settings.properties's reverse_proxy_enabled) - null until the initial
+   * fetch resolves, at which point the nav item either appears or stays hidden for good this
+   * session. Deliberately starts hidden-until-confirmed (not shown-then-removed) - see ngOnInit.
    */
   readonly inboundLoggingFeatureEnabled = signal<boolean | null>(null);
 
@@ -49,10 +50,13 @@ export class SettingsComponent implements OnInit {
     // Fetched once up front (not lazily on nav click) so the "Inbound logging" nav item's
     // visibility is decided before the user could ever click it - a deploy-time flag, so this
     // never changes mid-session.
-    this.internalLoggingApi.getEnabled().subscribe((res) => {
-      this.inboundLoggingEnabled.set(res.enabled);
-      this.inboundLoggingLoaded.set(true);
-      this.inboundLoggingFeatureEnabled.set(res.featureEnabled);
+    this.internalLoggingApi.getFeatureEnabled().subscribe((res) => {
+      this.inboundLoggingFeatureEnabled.set(res.enabled);
+      if (!res.enabled) return;
+      this.internalLoggingApi.getServices().subscribe((services) => {
+        this.inboundServices.set(services);
+        this.inboundServicesLoaded.set(true);
+      });
     });
   }
 
@@ -64,17 +68,16 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Flips whether wildfly-proxy (the reverse-mode mitmproxy in front of WildFly, handling inbound
-   * frontend->WildFly traffic) logs calls to backend-internal-calls right now - forwarding itself
-   * is never affected, only logging. Same switch toggle-wildfly-reverse-proxy.sh/.bat already
-   * control from a terminal.
+   * Flips whether reverse-proxy logs ONE named project's calls to backend-internal-calls right
+   * now - forwarding to that project's upstream is never affected, only logging, and every
+   * other project's toggle is unaffected. Same per-project switches
+   * toggle-wildfly-reverse-proxy.sh/.bat already control from a terminal.
    */
-  toggleInboundLogging(): void {
-    const next = !this.inboundLoggingEnabled();
-    this.savingInboundLogging.set(true);
-    this.internalLoggingApi.setEnabled(next).subscribe((res) => {
-      this.inboundLoggingEnabled.set(res.enabled);
-      this.savingInboundLogging.set(false);
+  toggleInboundService(name: string, enabled: boolean): void {
+    this.savingInboundService.set(name);
+    this.internalLoggingApi.setEnabled(name, enabled).subscribe((services) => {
+      this.inboundServices.set(services);
+      this.savingInboundService.set(null);
     });
   }
 

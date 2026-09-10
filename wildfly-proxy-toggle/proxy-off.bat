@@ -2,7 +2,7 @@
 setlocal
 
 rem proxy-off.bat - reverses proxy-on.bat: compiles (if needed) and runs
-rem WildFlyProxyController.java to remove the https.proxyHost/https.proxyPort system properties
+rem WildFlyProxyController.java to remove the http.proxyHost/http.proxyPort and https.proxyHost/https.proxyPort system properties
 rem from the detected WildFly instance via the Attach API. Safe to run even if the proxy was
 rem never turned on.
 rem

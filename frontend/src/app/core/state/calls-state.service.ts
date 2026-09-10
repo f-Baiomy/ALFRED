@@ -1,21 +1,22 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { webSocket } from 'rxjs/webSocket';
-import { Observable, Subscription, forkJoin, map, retry, timer } from 'rxjs';
+import { Observable, Subscription, forkJoin, map, of, retry, timer } from 'rxjs';
 import {
   CallDetail,
   CallEndpointSource,
   CallRecord,
-  CallSource,
   CallSummaryDto,
   CallsClearedEvent,
   CallsWsMessage,
   InternalCallsWsMessage,
   SortMode,
+  SourceKey,
 } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
 import { PinService } from '../services/pin.service';
 import { AppConfigService } from '../services/app-config.service';
-import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils';
+import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
+import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
 
@@ -36,6 +37,7 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   private readonly api = inject(CallsApiService);
   private readonly pinService = inject(PinService);
   private readonly config = inject(AppConfigService);
+  private readonly internalLoggingApi = inject(InternalLoggingApiService);
 
   readonly error = signal<string | null>(null);
 
@@ -50,15 +52,26 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   readonly pinned = this.pinService.pinned;
 
   /**
-   * Which backend-side source(s) the dashboard is currently reading from - defaults to 'external'
-   * so nothing about today's behavior changes for anyone who never touches the new toggle. Not
-   * part of CallListControlsState/CallListView (the shared token session-cycle detail pages also
-   * implement) since source-switching is a dashboard-only concept - HeaderComponent takes it as a
-   * plain optional input/output instead, wired up only from DashboardComponent.
+   * Every project reverse-proxy fronts (plus the reserved "unknown" bucket) - fetched once up
+   * front alongside the deploy-time feature flag, same pattern as the Settings page. Empty until
+   * that resolves, and stays empty forever on a deployment where inbound logging isn't enabled at
+   * all - the Sources bar only ever renders a pill per entry here, so it naturally has nothing
+   * beyond "External" to show in that case.
    */
-  readonly callSource = signal<CallSource>('external');
+  readonly internalServices = signal<readonly InternalCallServiceDto[]>([]);
+  readonly inboundLoggingFeatureEnabled = signal(false);
 
-  /** Live WebSocket subscriptions for the currently-selected source(s) - torn down and rebuilt whenever callSource changes, since 'both' needs two sockets and 'external'/'internal' need exactly one each. */
+  /**
+   * Which source(s) the dashboard is currently reading from - a set of SourceKeys, either the
+   * reserved 'external' or a named internal project (including its "unknown" bucket). Starts as
+   * just {'external'} and is widened to "every source" the moment internalServices resolves (see
+   * the constructor) - not part of CallListControlsState/CallListView (the shared interface
+   * session-cycle detail pages also implement) since source-switching is a per-page concept; the
+   * Sources bar component takes it as a plain input/output instead.
+   */
+  readonly selectedSources = signal<ReadonlySet<SourceKey>>(new Set([EXTERNAL_SOURCE_KEY]));
+
+  /** Live WebSocket subscriptions for the currently-selected source(s) - torn down and rebuilt whenever selectedSources changes, one socket per distinct backend store actually needed (never more than two: /ws/calls for 'external', /ws/internal-calls for any internal name). */
   private wsSubscriptions: Subscription[] = [];
 
   constructor() {
@@ -72,20 +85,35 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
       }
     );
 
+    this.internalLoggingApi.getFeatureEnabled().subscribe((res) => {
+      this.inboundLoggingFeatureEnabled.set(res.enabled);
+      if (!res.enabled) return;
+      this.internalLoggingApi.getServices().subscribe((services) => {
+        this.internalServices.set(services);
+        // "All sources" is the default the moment there's something to show beyond External -
+        // matches the Sources bar's own "everything checked" starting state.
+        this.selectedSources.set(new Set([EXTERNAL_SOURCE_KEY, ...services.map((s) => s.name)]));
+        this.connectLiveUpdates();
+        this.view.resetSource();
+      });
+    });
+
     this.connectLiveUpdates();
   }
 
   /**
-   * Fetches one page for whatever source(s) are currently selected. 'external'/'internal' are a
-   * straight passthrough to the matching REST resource. 'both' fetches the same offset/limit from
-   * each of the two independent, independently-paginated backends in parallel, merges the two
-   * pages, and re-sorts the combination with sortCalls (shared with the session-cycle "custom
-   * order" view). The merged page is then trimmed back down to `query.limit` so `loadMore`'s
-   * offset math (based on how many calls are loaded so far) keeps advancing by a consistent page
-   * size - this is a pragmatic compromise, not an exact global page: because the two sources are
-   * paginated independently, a page boundary can occasionally skip or (rarely) repeat a call when
-   * the two sources' recent-call rates differ a lot. `total` is the sum of both sources' totals,
-   * so "N remaining" stays a reasonable (if not exact once trimming has occurred) estimate.
+   * Fetches one page for whatever source(s) are currently selected. External-only or
+   * internal-only (any number of named projects) is a straight passthrough to the matching REST
+   * resource, with the selected internal names sent as a server-side filter. Selecting both kinds
+   * fetches the same offset/limit from each of the two independent, independently-paginated
+   * backends in parallel, merges the two pages, and re-sorts the combination with sortCalls
+   * (shared with the session-cycle "custom order" view). The merged page is then trimmed back
+   * down to `query.limit` so `loadMore`'s offset math (based on how many calls are loaded so far)
+   * keeps advancing by a consistent page size - this is a pragmatic compromise, not an exact
+   * global page: because the two sources are paginated independently, a page boundary can
+   * occasionally skip or (rarely) repeat a call when the two sources' recent-call rates differ a
+   * lot. `total` is the sum of both sources' totals, so "N remaining" stays a reasonable (if not
+   * exact once trimming has occurred) estimate. Selecting nothing at all fetches nothing.
    *
    * 'newest'/'oldest' are substituted with 'newest-call'/'oldest-call' for the merge only: those
    * two modes normally rely on "whatever order this one backend already returned it in" (its own
@@ -95,11 +123,17 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    * on the record, so it merges correctly unchanged.
    */
   private fetchPageForSource(query: CallsQuery): Observable<CallsPageResult> {
-    const source = this.callSource();
-    if (source === 'external') return this.api.getCalls(query, 'external');
-    if (source === 'internal') return this.api.getCalls(query, 'internal');
+    const selected = this.selectedSources();
+    const wantExternal = selected.has(EXTERNAL_SOURCE_KEY);
+    const internalNames = [...selected].filter((s) => s !== EXTERNAL_SOURCE_KEY);
+    const wantInternal = internalNames.length > 0;
+
+    if (wantExternal && !wantInternal) return this.api.getCalls(query, 'external');
+    if (wantInternal && !wantExternal) return this.api.getCalls(query, 'internal', internalNames);
+    if (!wantExternal && !wantInternal) return of({ calls: [], total: 0 });
+
     const mergeSort: SortMode = query.sort === 'newest' ? 'newest-call' : query.sort === 'oldest' ? 'oldest-call' : query.sort;
-    return forkJoin([this.api.getCalls(query, 'external'), this.api.getCalls(query, 'internal')]).pipe(
+    return forkJoin([this.api.getCalls(query, 'external'), this.api.getCalls(query, 'internal', internalNames)]).pipe(
       map(([external, internal]) => {
         const merged = sortCalls([...external.calls, ...internal.calls], mergeSort);
         return { calls: merged.slice(0, query.limit), total: external.total + internal.total };
@@ -107,13 +141,23 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     );
   }
 
-  /** Switches which backend source(s) the dashboard reads from - clears whatever's loaded/live (it belonged to the old source(s)) and rebuilds both the REST fetch and the live WebSocket connection(s) to match. */
-  setCallSource(source: CallSource): void {
-    if (this.callSource() === source) return;
-    this.callSource.set(source);
+  /** Flips one source's membership in the selection - clears whatever's loaded/live (some of it may no longer belong) and rebuilds both the REST fetch and the live WebSocket connection(s) to match. */
+  toggleSource(key: SourceKey): void {
+    const next = new Set(this.selectedSources());
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    this.selectedSources.set(next);
     this.liveCalls.set([]);
     this.connectLiveUpdates();
     this.view.resetSource();
+  }
+
+  /** Flips one project's live logging switch - the exact same endpoint the Settings page's "Inbound logging" panel uses, just reachable from the Sources bar too. Forwarding is never affected either way, only whether that project's calls get recorded from now on. */
+  toggleServiceLogging(name: string, enabled: boolean): void {
+    this.internalLoggingApi.setEnabled(name, enabled).subscribe((services) => this.internalServices.set(services));
   }
 
   /**
@@ -123,18 +167,18 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    * pick it up otherwise. Falls back to a fixed retry delay on disconnect; a call that arrives
    * during a reconnect gap is only picked up by the next push or a manual refresh, which is the
    * accepted trade-off of not polling. Tears down any previous connection(s) first, since this is
-   * also called whenever callSource changes.
+   * also called whenever selectedSources changes.
    */
   private connectLiveUpdates(): void {
     this.wsSubscriptions.forEach((sub) => sub.unsubscribe());
     this.wsSubscriptions = [];
 
-    const source = this.callSource();
+    const selected = this.selectedSources();
     const wsBase = this.config.backendUrl.replace(/^http/, 'ws');
-    if (source === 'external' || source === 'both') {
+    if (selected.has(EXTERNAL_SOURCE_KEY)) {
       this.wsSubscriptions.push(this.subscribeToWs<CallsWsMessage>(`${wsBase}/ws/calls`, 'external'));
     }
-    if (source === 'internal' || source === 'both') {
+    if ([...selected].some((s) => s !== EXTERNAL_SOURCE_KEY)) {
       this.wsSubscriptions.push(this.subscribeToWs<InternalCallsWsMessage>(`${wsBase}/ws/internal-calls`, 'internal'));
     }
   }
@@ -152,6 +196,11 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
       return;
     }
     const call = toCallRecord(message.call, source);
+    // The /ws/internal-calls socket pushes every internal project's calls regardless of which
+    // ones are actually selected (the backend doesn't filter its broadcasts) - drop one that
+    // doesn't match the current selection here, or it would show up ahead of the (correctly
+    // filtered) loaded window just because it hasn't been confirmed by a fetch yet.
+    if (source === 'internal' && !this.selectedSources().has(sourceKeyOf(call))) return;
     // Matched by id, not callKey - two-phase logging pushes the same call twice (once
     // IN_PROGRESS at prepare, once resolved at complete), and id is the one thing guaranteed
     // stable across both pushes for the exact same call.

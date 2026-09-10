@@ -161,13 +161,32 @@ class InternalCallsFileLogAdapterTest {
                 null, "t", null, null, null, CallLifecycleStatus.IN_PROGRESS, "session-other", "operation-other"));
         adapter.complete("call-2", new ResponseData(200, null, "ok"), null, 1.0);
 
-        var bySession = adapter.query("", "", "newest", 0, 10, true, "abc", "", "");
-        var byOperation = adapter.query("", "", "newest", 0, 10, true, "", "xyz", "");
-        var byRequestId = adapter.query("", "", "newest", 0, 10, true, "", "", "call-2");
+        var bySession = adapter.query("", "", "newest", 0, 10, true, "abc", "", "", "");
+        var byOperation = adapter.query("", "", "newest", 0, 10, true, "", "xyz", "", "");
+        var byRequestId = adapter.query("", "", "newest", 0, 10, true, "", "", "call-2", "");
 
         assertThat(bySession.items()).extracting(s -> s.id()).containsExactly("call-1");
         assertThat(byOperation.items()).extracting(s -> s.id()).containsExactly("call-1");
         assertThat(byRequestId.items()).extracting(s -> s.id()).containsExactly("call-2");
+    }
+
+    @Test
+    void queryFiltersByServiceNamesTreatingMissingAsUnknown() throws Exception {
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
+        adapter.prepare(new CallRecord("call-1", "https://wildfly-proxy/x", "https://wildfly/x", "GET",
+                null, "t", null, null, null, CallLifecycleStatus.IN_PROGRESS, null, null, "odeysys"));
+        adapter.complete("call-1", new ResponseData(200, null, "ok"), null, 1.0);
+        adapter.prepare(new CallRecord("call-2", "https://wildfly-proxy/y", "https://wildfly/y", "GET",
+                null, "t", null, null, null, CallLifecycleStatus.IN_PROGRESS, null, null, null));
+        adapter.complete("call-2", new ResponseData(200, null, "ok"), null, 1.0);
+
+        var byOdeysys = adapter.query("", "", "newest", 0, 10, true, "", "", "", "odeysys");
+        var byUnknown = adapter.query("", "", "newest", 0, 10, true, "", "", "", "unknown");
+        var unfiltered = adapter.query("", "", "newest", 0, 10, true, "", "", "", "");
+
+        assertThat(byOdeysys.items()).extracting(s -> s.id()).containsExactly("call-1");
+        assertThat(byUnknown.items()).extracting(s -> s.id()).containsExactly("call-2");
+        assertThat(unfiltered.items()).extracting(s -> s.id()).containsExactlyInAnyOrder("call-1", "call-2");
     }
 
     @Test

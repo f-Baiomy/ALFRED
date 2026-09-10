@@ -48,6 +48,17 @@ public interface CapturedInternalCallsStorePort {
         return query(cycleId, search, supplier, sort, offset, limit, paginationEnabled);
     }
 
+    /**
+     * As the 10-arg {@link #query}, plus an optional comma-separated project-name filter (see
+     * {@link com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery#serviceNames}).
+     * Defaults to ignoring it (falls back to the 10-arg overload) so an adapter without dedicated
+     * support for this still satisfies this interface without change.
+     */
+    default CallListSupport.Page<CapturedInternalCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                                      String sessionId, String operationId, String requestId, String serviceNames) {
+        return query(cycleId, search, supplier, sort, offset, limit, paginationEnabled, sessionId, operationId, requestId);
+    }
+
     /** Looks up a captured call by the underlying CallRecord's id (not the CapturedInternalCall wrapper's own id) - what GET /session-cycles/{id}/internal-calls/{callId}/detail keys on. */
     Optional<CapturedInternalCall> findByCallId(String cycleId, String callId);
 

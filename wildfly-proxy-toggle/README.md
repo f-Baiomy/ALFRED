@@ -1,13 +1,13 @@
 # WildFly proxy toggle
 
-Routes an **already-running** WildFly JVM's HTTPS traffic through Alfred's forward-mode proxy (`127.0.0.2:443` by default), and back off again — without restarting WildFly, without editing `standalone.xml` (not even transiently), and without touching your IntelliJ run configuration, `pom.xml`, or application code.
+Routes an **already-running** WildFly JVM's HTTP **and** HTTPS traffic through Alfred's forward-mode proxy (`127.0.0.2:443` by default), and back off again — without restarting WildFly, without editing `standalone.xml` (not even transiently), and without touching your IntelliJ run configuration, `pom.xml`, or application code.
 
 ## How it works
 
 Two small Java 8 classes, no dependencies beyond the JDK:
 
 - **`WildFlyProxyController.java`** — runs as a normal short-lived process. Uses the Java Attach API (`com.sun.tools.attach.*`) to find the running WildFly instance: it attaches briefly to every running java process and checks for a `jboss.home.dir` system property (more precise than matching free-text process names). Exactly one match is used automatically; more than one prompts you to pick by PID.
-- **`WildFlyProxyAgent.java`** — loaded *into* the chosen WildFly JVM via `VirtualMachine.loadAgent(...)`, using the standard Java Instrumentation agent mechanism. Its `agentmain()` calls `System.setProperty("https.proxyHost", ...)`/`System.setProperty("https.proxyPort", ...)` directly, in-process — the same guarantee as if the JVM had been launched with `-Dhttps.proxyHost=...` in the first place, just applied after the fact.
+- **`WildFlyProxyAgent.java`** — loaded *into* the chosen WildFly JVM via `VirtualMachine.loadAgent(...)`, using the standard Java Instrumentation agent mechanism. Its `agentmain()` calls `System.setProperty(...)` directly, in-process, for **both** the `http.proxyHost`/`http.proxyPort` and `https.proxyHost`/`https.proxyPort` pairs (same host/port for both — Alfred's forward proxy tells HTTP and HTTPS traffic apart from the request itself, not from which port it's reached on) — the same guarantee as if the JVM had been launched with `-Dhttp.proxyHost=...` / `-Dhttps.proxyHost=...` in the first place, just applied after the fact.
 
 These are deliberately two separate classes: the target JVM has to load and verify `WildFlyProxyAgent`'s method signatures to find `agentmain()`, and it has no `tools.jar` on its own classpath to resolve `com.sun.tools.attach.*` types with — confirmed live, mixing them into one class throws `NoClassDefFoundError` inside the target even though `agentmain()` itself never touches the Attach API.
 
@@ -16,7 +16,7 @@ Unlike a jboss-cli/management-CLI-based approach, this **never needs to locate W
 ## Prerequisites
 
 - **A JDK 8 install somewhere on this machine** (needs `tools.jar`, which only JDK 8 ships — the only JDK available in this environment; a `tools.jar`-free JDK 9+ Attach API story would need `ProcessHandle`-based detection instead, ask if that's ever needed). This is independent of whatever JDK WildFly itself runs on. `FindJdk8.java` checks `JAVA_HOME` first and uses it if it happens to already be JDK 8 - confirmed live that a machine's default `JAVA_HOME` is commonly a newer JDK used for everything else, so if it isn't (or isn't set), you're told to set `JDK8_HOME` explicitly instead, e.g. `set JDK8_HOME=C:\Program Files\Java\jdk1.8.0_XXX`. Deliberately doesn't guess by scanning other install locations - a clear ask is better than silently picking a possibly-unexpected JDK.
-- Whatever HTTP client your app actually uses needs to read `https.proxyHost`/`https.proxyPort` dynamically to begin with. Plain `HttpURLConnection`-based clients (including a default, unconfigured `RestTemplate`) do. Apache HttpClient only does if it was explicitly built with `.useSystemProperties()`/`SystemDefaultRoutePlanner` — if you're not sure, turn the proxy on and make one test call to confirm it shows up in Alfred's dashboard before relying on this for real debugging.
+- Whatever HTTP client your app actually uses needs to read `http.proxyHost`/`http.proxyPort`/`https.proxyHost`/`https.proxyPort` dynamically to begin with. Plain `HttpURLConnection`-based clients (including a default, unconfigured `RestTemplate`) do. Apache HttpClient only does if it was explicitly built with `.useSystemProperties()`/`SystemDefaultRoutePlanner` — if you're not sure, turn the proxy on and make one test call (of both a plain-HTTP and an HTTPS URL) to confirm it shows up in Alfred's dashboard before relying on this for real debugging.
 - The JDK this WildFly instance runs under needs to already trust Alfred's CA (`proxy/certs/mitmproxy-ca-cert.pem`) **before** you use this toggle — a running JVM doesn't pick up a trust-store change live, so if that JDK isn't already in this repo's `jdks.txt` and synced via `start.py`, you'll need one restart to pick up the cert trust before this toggle is useful going forward.
 
 ## Usage
@@ -25,7 +25,7 @@ Unlike a jboss-cli/management-CLI-based approach, this **never needs to locate W
 ```bat
 wildfly-proxy-toggle\proxy-on.bat
 wildfly-proxy-toggle\proxy-status.bat
-:: ... test your HTTPS calls, check Alfred's dashboard ...
+:: ... test your HTTP/HTTPS calls, check Alfred's dashboard ...
 wildfly-proxy-toggle\proxy-off.bat
 ```
 
@@ -33,7 +33,7 @@ wildfly-proxy-toggle\proxy-off.bat
 ```bash
 ./wildfly-proxy-toggle/proxy-on.sh
 ./wildfly-proxy-toggle/proxy-status.sh
-# ... test your HTTPS calls, check Alfred's dashboard ...
+# ... test your HTTP/HTTPS calls, check Alfred's dashboard ...
 ./wildfly-proxy-toggle/proxy-off.sh
 ```
 
@@ -57,7 +57,7 @@ None of these are required for the common case (one WildFly instance running, vi
 | `JDK8_HOME` | Only needed if `JAVA_HOME` doesn't already point at a JDK 8 install — points at one explicitly (needs `tools.jar`) |
 | `WILDFLY_PID` | Skip the interactive prompt and pick this specific detected PID (also needed for non-interactive/scripted use when more than one instance is running — the controller refuses to guess rather than hang waiting on a prompt that'll never come) |
 | `PROXY_HOST` | Alfred's forward-proxy listener address (default `127.0.0.2`) |
-| `PROXY_PORT` | Alfred's forward-proxy listener port (default `443`) |
+| `PROXY_PORT` | Alfred's forward-proxy listener port (default `443`) - used for both `http.proxyPort` and `https.proxyPort`, since mitmproxy's regular mode serves both protocols on the same port |
 
 ## Known limitation
 

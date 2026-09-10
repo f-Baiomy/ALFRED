@@ -32,9 +32,10 @@ public class InternalCallsController {
             @RequestParam(defaultValue = "10") int limit,
             @RequestParam(defaultValue = "") String sessionId,
             @RequestParam(defaultValue = "") String operationId,
-            @RequestParam(defaultValue = "") String requestId
+            @RequestParam(defaultValue = "") String requestId,
+            @RequestParam(defaultValue = "") String serviceNames
     ) {
-        return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId));
+        return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId, serviceNames));
     }
 
     /** The full request/response (headers+bodies) for one call - fetched only once it's actually expanded. */

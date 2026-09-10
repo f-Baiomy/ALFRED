@@ -1,0 +1,35 @@
+<div class="sources-bar">
+  <span class="sources-label">Sources</span>
+
+  <button
+    type="button"
+    class="source-pill"
+    [class.active]="isSelected(externalKey)"
+    (click)="toggleSource.emit(externalKey)"
+  >
+    External
+  </button>
+
+  @for (service of internalServices(); track service.name) {
+    <span class="source-pill-group" [class.active]="isSelected(service.name)">
+      <button type="button" class="source-pill-main" (click)="toggleSource.emit(service.name)">
+        {{ service.name }}
+      </button>
+      <button
+        type="button"
+        class="source-pill-switch"
+        [class.on]="service.enabled"
+        [title]="service.enabled ? 'Logging is on - click to turn off' : 'Logging is off - click to turn on'"
+        (click)="onToggleLogging(service.name, service.enabled, $event)"
+      >
+        <span class="switch-dot"></span>
+      </button>
+    </span>
+  }
+
+  <span class="sources-spacer"></span>
+
+  @if (featureEnabled()) {
+    <button type="button" class="sources-reset" (click)="selectAll()">Reset</button>
+  }
+</div>

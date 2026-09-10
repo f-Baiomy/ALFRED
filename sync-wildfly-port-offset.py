@@ -2,8 +2,8 @@
 """
 sync-wildfly-port-offset.py - adds or removes WildFly's -Djboss.socket.binding.port-offset=1
 VM option in bin/standalone.conf(.bat) - the one host-level step inbound (frontend->WildFly)
-logging depends on (see docker-compose.yml's wildfly-proxy service, which needs to own
-WildFly's usual HTTP port). This MUST run before "docker compose up" brings wildfly-proxy up,
+logging depends on (see docker-compose.yml's reverse-proxy service, which needs to own
+WildFly's usual HTTP port). This MUST run before "docker compose up" brings reverse-proxy up,
 or it will fight WildFly itself for the same port - start.py/restart.py both run this
 automatically as their very first step, before touching docker at all.
 
@@ -12,11 +12,15 @@ runnable - to check/redo this step on its own, e.g. right after hand-editing
 settings.properties on an already-running deployment, or to run it as a separate step ahead
 of "docker compose up" in a CI/deploy pipeline instead of relying on start.py's ordering.
 
-Reads inbound_logging_enabled from settings.properties to decide whether to add the offset
-(true) or remove it (false); wildfly_home also comes from settings.properties, falling back to
-the WILDFLY_HOME environment variable. Pass --disable to unconditionally remove the offset
-regardless of what settings.properties currently says - stop.py uses this for its teardown,
-since stopping means undoing this live effect entirely, not just respecting the config.
+Reads wildfly_port_offset_enabled from settings.properties to decide whether to add the offset
+(true) or remove it (false) - LEGACY/OPTIONAL, independent of which projects reverse-proxy
+fronts (internal_call_services): only relevant if you specifically want WildFly reachable on
+its original port both proxied and unproxied at once, rather than just adding it to
+internal_call_services like any other project. wildfly_home also comes from
+settings.properties, falling back to the WILDFLY_HOME environment variable. Pass --disable to
+unconditionally remove the offset regardless of what settings.properties currently says -
+stop.py uses this for its teardown, since stopping means undoing this live effect entirely,
+not just respecting the config.
 
 If it can't read/write WildFly's own config - most commonly "Permission denied", since
 WildFly is often installed system-wide under another user/service account - this prints the
@@ -111,8 +115,8 @@ def _print_manual_steps(conf_path, is_windows, enabled):
 
 def sync_wildfly_port_offset(settings, enabled):
     """Adds/removes a marked -Djboss.socket.binding.port-offset=1 append to WildFly's own
-    JAVA_OPTS, in bin/standalone.conf(.bat) under wildfly_home - the offset wildfly-proxy assumes
-    (see docker-compose.yml's wildfly-proxy service) so it can take over WildFly's usual port.
+    JAVA_OPTS, in bin/standalone.conf(.bat) under wildfly_home - the offset reverse-proxy assumes
+    (see docker-compose.yml's reverse-proxy service) so it can take over WildFly's usual port.
     Appended at the very end of the file (after any existing JAVA_OPTS-building logic, including
     an if/else that only fires when JAVA_OPTS *isn't* already set in the environment) so it always
     applies to whatever JAVA_OPTS ends up being, regardless of how WildFly is actually launched -
@@ -180,7 +184,7 @@ def sync_wildfly_port_offset(settings, enabled):
 def main():
     settings = _parse_settings_properties()
     force_disable = "--disable" in sys.argv[1:]
-    enabled = False if force_disable else settings.get("inbound_logging_enabled", "false").strip().lower() == "true"
+    enabled = False if force_disable else settings.get("wildfly_port_offset_enabled", "false").strip().lower() == "true"
     sync_wildfly_port_offset(settings, enabled)
 
 

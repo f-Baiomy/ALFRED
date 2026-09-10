@@ -131,6 +131,43 @@ public class JsonFileCapturedInternalCallsStoreAdapter implements CapturedIntern
         return new CallListSupport.Page<>(page.items().stream().map(CapturedInternalCallSummary::of).toList(), page.total());
     }
 
+    /** As the 7-arg {@link #query}, plus the project-name filter - see CapturedInternalCallsStorePort's doc. Applied before CallListSupport.apply, same as InternalCallsFileLogAdapter's identical pre-filter. */
+    @Override
+    public synchronized CallListSupport.Page<CapturedInternalCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                                                  String sessionId, String operationId, String requestId, String serviceNames) {
+        Set<String> serviceNameFilter = parseServiceNames(serviceNames);
+        List<CapturedInternalCall> filtered = findAllByCycle(cycleId).stream()
+                .filter(c -> matchesServiceNames(c.call(), serviceNameFilter))
+                .toList();
+        CallListSupport.Page<CapturedInternalCall> page = CallListSupport.apply(
+                filtered, CapturedInternalCall::call, search, supplier, sort, offset, limit, paginationEnabled);
+        return new CallListSupport.Page<>(page.items().stream().map(CapturedInternalCallSummary::of).toList(), page.total());
+    }
+
+    /** Mirrors InternalCallsFileLogAdapter's identical helper - see its doc. */
+    private static Set<String> parseServiceNames(String serviceNames) {
+        if (serviceNames == null || serviceNames.isBlank()) {
+            return Set.of();
+        }
+        Set<String> names = new HashSet<>();
+        for (String name : serviceNames.split(",")) {
+            String trimmed = name.strip();
+            if (!trimmed.isEmpty()) {
+                names.add(trimmed);
+            }
+        }
+        return names;
+    }
+
+    /** Mirrors InternalCallsFileLogAdapter's identical helper - a null serviceName (captured before this field existed) is treated as LoggingToggleService.UNKNOWN_NAME. */
+    private static boolean matchesServiceNames(CallRecord call, Set<String> filter) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        String name = call.serviceName() != null ? call.serviceName() : com.fathy.alfred.backend.internalcalls.application.service.LoggingToggleService.UNKNOWN_NAME;
+        return filter.contains(name);
+    }
+
     @Override
     public synchronized Optional<CapturedInternalCall> findByCallId(String cycleId, String callId) {
         return findAllByCycle(cycleId).stream().filter(c -> callId.equals(c.call().id())).findFirst();

@@ -17,8 +17,11 @@
 <app-header
   [title]="cycle()?.name ?? 'Session Cycle'"
   subtitle="Captured calls for this session cycle"
-  [callSource]="state.callSource()"
-  (callSourceChange)="state.setCallSource($event)"
+  [selectedSources]="state.selectedSources()"
+  [internalServices]="state.internalServices()"
+  [inboundLoggingFeatureEnabled]="state.inboundLoggingFeatureEnabled()"
+  (toggleSource)="state.toggleSource($event)"
+  (toggleServiceLogging)="state.toggleServiceLogging($event.name, $event.enabled)"
 />
 
 <main>

@@ -32,11 +32,13 @@ public interface CallLogPort {
     /**
      * Filtered/searched/sorted/paginated call summaries, plus the total count matching before
      * pagination, plus optional substring filters scoped to a call's own id, session id, or
-     * operation id - each combined with the others (and the general search/supplier filters) via
-     * AND, narrowing rather than widening the result. A blank filter is not applied at all.
+     * operation id, plus an optional comma-separated project-name filter (see
+     * CallsQuery.serviceNames) - each combined with the others (and the general search/supplier
+     * filters) via AND, narrowing rather than widening the result. A blank filter is not applied
+     * at all.
      */
     CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
-                                             String sessionId, String operationId, String requestId);
+                                             String sessionId, String operationId, String requestId, String serviceNames);
 
     /** A single call by id, or empty if no call with that id has ever been logged. */
     Optional<CallRecord> findById(String id);

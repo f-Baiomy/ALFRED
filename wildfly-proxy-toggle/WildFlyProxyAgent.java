@@ -13,20 +13,31 @@ public class WildFlyProxyAgent {
 
     private static final String HTTPS_PROXY_HOST = "https.proxyHost";
     private static final String HTTPS_PROXY_PORT = "https.proxyPort";
+    private static final String HTTP_PROXY_HOST = "http.proxyHost";
+    private static final String HTTP_PROXY_PORT = "http.proxyPort";
 
     /** agentArgs is "on:<host>:<port>", "off", or "status" - encoding the proxy host/port into
-     * the single string loadAgent() accepts, since it has no way to pass structured arguments. */
+     * the single string loadAgent() accepts, since it has no way to pass structured arguments.
+     * Sets BOTH the https.* and http.* system properties to the same host/port - Alfred's forward
+     * proxy (mitmproxy in "regular" mode) tells plain HTTP and HTTPS apart by the request itself
+     * (an HTTP CONNECT vs an absolute-URI request line), not by which port it's reached on, so one
+     * proxy address handles both. Without the http.* pair, this JVM's plain-HTTP outbound calls
+     * would never route through Alfred at all and so would never get logged. */
     public static void agentmain(String agentArgs, Instrumentation instrumentation) {
         if (agentArgs.startsWith("on:")) {
             String[] parts = agentArgs.split(":", 3);
             System.setProperty(HTTPS_PROXY_HOST, parts[1]);
             System.setProperty(HTTPS_PROXY_PORT, parts[2]);
-            System.out.println("[wildfly-proxy-toggle] Proxy ON - HTTPS traffic in this JVM now routes through "
+            System.setProperty(HTTP_PROXY_HOST, parts[1]);
+            System.setProperty(HTTP_PROXY_PORT, parts[2]);
+            System.out.println("[wildfly-proxy-toggle] Proxy ON - HTTP/HTTPS traffic in this JVM now routes through "
                     + parts[1] + ":" + parts[2]);
         } else if (agentArgs.equals("off")) {
             System.clearProperty(HTTPS_PROXY_HOST);
             System.clearProperty(HTTPS_PROXY_PORT);
-            System.out.println("[wildfly-proxy-toggle] Proxy OFF - HTTPS traffic in this JVM goes direct again.");
+            System.clearProperty(HTTP_PROXY_HOST);
+            System.clearProperty(HTTP_PROXY_PORT);
+            System.out.println("[wildfly-proxy-toggle] Proxy OFF - HTTP/HTTPS traffic in this JVM goes direct again.");
         } else if (agentArgs.equals("status")) {
             String host = System.getProperty(HTTPS_PROXY_HOST);
             String port = System.getProperty(HTTPS_PROXY_PORT);

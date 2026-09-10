@@ -4,26 +4,37 @@ Maven multi-module, hexagonal per slice. See docs/frontend-architecture.md for t
 
 ```
 backend-platform          cross-cutting: CORS config, GlobalExceptionHandler, HealthController
-backend-calls             CallRecord domain, CallLogPort, webhook + GET /calls
-backend-comments          line-scoped comments, flat JSON store
+backend-calls             CallRecord domain, CallLogPort, webhook + GET /calls (outbound/supplier traffic)
+backend-internal-calls    mirrors backend-calls for INBOUND traffic (frontend→any project, via reverse-proxy)
+                          - same webhook/query/detail shape, deliberately not shared code; also owns the
+                          per-project live logging toggle (GET /internal-calls/services, POST .../{name}/
+                          logging-enabled) - every configured project (plus a reserved "unknown" bucket)
+                          toggled independently, not one global switch
+backend-comments          line-scoped comments, own store
 backend-export            depends on backend-calls (extracts ExportMetadata)
-backend-session-cycles    depends on backend-calls (implements its NewCallObserverPort)
+backend-session-cycles    depends on backend-calls AND backend-internal-calls (implements both modules'
+                          NewCallObserverPort, so a recording cycle captures both traffic directions)
 backend-profiles          leaf slice, no deps either direction
-backend-app               composition root, owns spring-boot-maven-plugin repackage
+backend-settings          call-filter whitelist/blacklist/mode config (CallFilterSettings) - which supplier
+                          calls get logged in the first place, NOT the internal-calls logging toggle above
+backend-app               composition root, owns spring-boot-maven-plugin repackage, DatabaseStatsController,
+                          the CallFilterAdapter bridging calls→settings, CommentCallIdMigration
 backend-architecture-test test-only, holds the ArchUnit suite (see docs/testing.md)
 ```
 
-Each slice: `domain.model` / `application.port.in|out` / `application.service` / `adapter.in.web` / `adapter.out.*`. Only two cross-slice deps exist, both one-directional: `export→calls`, `session-cycles→calls`. Maven module boundaries make any other cross-slice import a compile error; ArchUnit enforces intra-slice layering direction and domain purity (no Spring; Jackson is allowed).
+Each slice: `domain.model` / `application.port.in|out` / `application.service` / `adapter.in.web` / `adapter.out.*`. Maven module boundaries make any cross-slice import not listed below a compile error; ArchUnit enforces intra-slice layering direction, domain purity (no Spring; Jackson is allowed), and slice isolation. Current isolation rules (`HexagonalArchitectureTest`): `calls`, `internal-calls`, `comments`, `profiles`, and `settings` are each fully isolated from every other slice; the only allowed cross-slice edges are `export→calls`, `session-cycles→calls`, and `session-cycles→internal-calls` (session-cycles is the one slice allowed to depend on more than one other).
 
 **DTO vs. reusing the domain type directly:** reuse the domain record (`CallRecord`, `Comment`, `ExportMetadata`) when the wire shape matches exactly. Add a `dto` type only when the boundary needs something the domain type shouldn't carry (e.g. `CommentRequestDto`'s Bean Validation annotations).
 
 **Adding a slice:** new `backend-<name>` module, same internal package shape, add to aggregator `<modules>`, to `backend-app`'s deps (for component scan), to `backend-architecture-test`'s deps + a new isolation rule, and a test-only `@SpringBootApplication` if it needs `@WebMvcTest`.
 
-**Persistence is file-based, deliberately swappable per slice.** Every adapter is `@ConditionalOnProperty(prefix="alfred.storage.<slice>", name="type", havingValue="file", matchIfMissing=true)`. Moving one slice to Redis/MySQL later = new `adapter.out.*` class implementing the same port + new `havingValue` + flip the property — services/controllers/ArchUnit rules don't change.
+**Persistence is per-slice-swappable, and SQLite is now the shipped default — flat files are a legacy fallback, not dead code.** Every adapter is `@ConditionalOnProperty(prefix="alfred.storage.<slice>", name="type", ...)`; `application.properties` sets `type=sqlite` for `calls`/`comments`/`session-cycles`/`profiles`/`filter-settings` (`havingValue="sqlite", matchIfMissing=true`), each slice keeping its old `File*Adapter`/`JsonFile*Adapter` alongside the new `Sqlite*Adapter` (`havingValue="file"`) so `type=file` still works as an explicit opt-out. **`backend-internal-calls` is the one exception — it never got a SQLite adapter.** Its `InternalCallsFileLogAdapter`/`FileLoggingToggleAdapter` are plain unconditional `@Component`s, file-only, by design (per its own doc comment: not part of the SQLite/file switch at all).
 
-**Every file adapter caches its parsed file in memory**, revalidated on every read against size+mtime (`FileCallLogAdapter`, `JsonFile{Comments,SessionCycleMetadata,CapturedCalls,Profile}StoreAdapter`). Safe because: each adapter is the sole writer of its file, it re-stats on every read (so out-of-band edits/restores are picked up), and the cache is per-instance/never static. `FileCallLogAdapter` additionally caches each line's raw text alongside its parsed record so a malformed line still round-trips to disk untouched.
+**On first boot after upgrading, each SQLite adapter migrates its slice's legacy flat file exactly once** (`Sqlite*Adapter`'s `@PostConstruct migrateLegacyFileIfPresent()`): streams the old file into the DB (skipped if the DB already has rows), then renames it to `*.migrated`. The legacy `*_FILE` env vars (`RECENT_CALLS_FILE`, `COMMENTS_FILE`, ...) stay set specifically so this migration and the `type=file` fallback keep working.
 
-**`RECENT_CALLS.log` is a ring buffer** capped at `alfred.calls.max-limit` (env `RECENT_CALLS_MAX_LIMIT`, default 200) — `save()` does a synchronized read-modify-write, trimming from the front. `GET /calls?limit=` is clamped server-side to the same range. **Session-cycles' captured-calls files have no such cap** — one JSON array per cycle, unbounded growth is intentional (a cycle is a bounded manual recording, not an ambient log).
+**Caching differs between the two storage types.** File adapters cache their parsed file in memory, revalidated on every read against size+mtime (`FileCallLogAdapter`, `JsonFile{Comments,SessionCycleMetadata,CapturedCalls,Profile}StoreAdapter`) — safe because each adapter is the sole writer of its file and re-stats on every read. `FileCallLogAdapter` additionally caches each line's raw text alongside its parsed record so a malformed line still round-trips to disk untouched. **SQLite adapters (`SqliteCallsRepository` etc.) have no such cache — every read/write goes straight through JDBC**, since holding the whole log in memory doesn't scale (the stated reason for the switch); don't add one without checking whether the query pattern still holds under real row counts.
+
+**`RECENT_CALLS.log` (file mode) is a ring buffer** capped at `alfred.calls.max-limit` (env `RECENT_CALLS_MAX_LIMIT`, default 200) — `save()` does a synchronized read-modify-write, trimming from the front. `GET /calls?limit=` is clamped server-side to the same range. **`calls.db` (SQLite mode, the default) uses size-based retention instead** — `ALFRED_CALLS_MAX_SIZE_BYTES` (docker-compose default 100GB); once exceeded, oldest calls are dropped until back under it, not a row-count cap. **Session-cycles' captured-calls storage has no cap either way** — unbounded growth is intentional (a cycle is a bounded manual recording, not an ambient log).
 
 **Session-cycles captures calls without `backend-calls` knowing session-cycles exists**: `NewCallObserverPort` (owned by `backend-calls`, `CallsService` takes `List<NewCallObserverPort>` — empty list if the module isn't on the classpath) is implemented by `SessionCycleCaptureAdapter`, which appends to every currently-`RECORDING` cycle's file per webhook call and returns the ids that captured it — those ride along in the `/ws/calls` broadcast so an open cycle-detail page can filter the same socket.
 

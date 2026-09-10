@@ -3,10 +3,18 @@ import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { of } from 'rxjs';
 import { SessionCycleDetailStateService } from './session-cycle-detail-state.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
+import { InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { CallEndpointSource, CallRecord, CapturedCall } from '../models/call.model';
 import { CallsQuery } from './call-list-view';
 
 const PIN_STORAGE_KEY = 'alfred_pinned_calls';
+
+/** Every test defaults to inbound logging disabled - see calls-state.service.spec.ts's identical stub. */
+const FEATURE_DISABLED_STUB: Pick<InternalLoggingApiService, 'getFeatureEnabled' | 'getServices' | 'setEnabled'> = {
+  getFeatureEnabled: () => of({ enabled: false }),
+  getServices: () => of([]),
+  setEnabled: () => of([]),
+};
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -71,6 +79,7 @@ function setupWithSources(
     providers: [
       SessionCycleDetailStateService,
       { provide: SessionCyclesApiService, useValue: apiStub },
+      { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
       { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id: 'cycle-1' })) } },
     ],
   });
@@ -80,25 +89,26 @@ function setupWithSources(
 describe('SessionCycleDetailStateService', () => {
   afterEach(() => localStorage.removeItem(PIN_STORAGE_KEY));
 
-  it('defaults callSource to "external" and never queries the internal-calls endpoint on the initial fetch', fakeAsync(() => {
+  it('defaults selectedSources to just "external" and never queries the internal-calls endpoint on the initial fetch', fakeAsync(() => {
     const call = makeCall();
     const { state, listCalls } = setupWithSources([makeCaptured(call)], []);
     tick();
 
-    expect(state.callSource()).toBe('external');
+    expect([...state.selectedSources()]).toEqual(['external']);
     expect(listCalls.every((c) => c.source === 'external')).toBe(true);
     expect(state.calls()).toEqual([call]);
     discardPeriodicTasks();
   }));
 
-  it('setCallSource("internal") re-fetches from the internal-calls endpoint only', fakeAsync(() => {
+  it('toggling external off and an internal project on re-fetches from the internal-calls endpoint only', fakeAsync(() => {
     const external = [makeCaptured(makeCall({ id: 'ext-1' }))];
     const internal = [makeCaptured(makeCall({ id: 'int-1' }))];
     const { state, listCalls } = setupWithSources(external, internal);
     tick();
 
     listCalls.length = 0;
-    state.setCallSource('internal');
+    state.toggleSource('external');
+    state.toggleSource('odeysys');
     tick();
 
     expect(listCalls.length).toBeGreaterThan(0);
@@ -107,14 +117,14 @@ describe('SessionCycleDetailStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('setCallSource("both") fetches external and internal, merges by call time (this page\'s default sort), and sums totals', fakeAsync(() => {
+  it('selecting an internal project alongside external fetches both, merges by call time (this page\'s default sort), and sums totals', fakeAsync(() => {
     const older = makeCaptured(makeCall({ id: 'ext-1', timestamp: '2026-01-01T00:00:00.000Z' }));
     const newer = makeCaptured(makeCall({ id: 'int-1', timestamp: '2026-01-02T00:00:00.000Z' }));
     const { state, listCalls } = setupWithSources([older], [newer], 3, 4);
     tick();
 
     listCalls.length = 0;
-    state.setCallSource('both');
+    state.toggleSource('odeysys');
     tick();
 
     expect(new Set(listCalls.map((c) => c.source))).toEqual(new Set(['external', 'internal']));
@@ -124,7 +134,7 @@ describe('SessionCycleDetailStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('setCallSource("both") trims the merged page back down to the requested limit', fakeAsync(() => {
+  it('merging both sources trims the merged page back down to the requested limit', fakeAsync(() => {
     const external = [makeCaptured(makeCall({ id: 'ext-1', timestamp: '2026-01-01T00:00:00.000Z' }))];
     const internal = [makeCaptured(makeCall({ id: 'int-1', timestamp: '2026-01-02T00:00:00.000Z' }))];
     const { state } = setupWithSources(external, internal);
@@ -132,7 +142,7 @@ describe('SessionCycleDetailStateService', () => {
 
     state.setLimit(1);
     tick();
-    state.setCallSource('both');
+    state.toggleSource('odeysys');
     tick();
 
     expect(state.calls().length).toBe(1);
@@ -147,7 +157,7 @@ describe('SessionCycleDetailStateService', () => {
     const { state, removeCalls } = setupWithSources(external, internal);
     tick();
 
-    state.setCallSource('both');
+    state.toggleSource('odeysys');
     tick();
 
     state.remove(internalCall);
@@ -157,15 +167,16 @@ describe('SessionCycleDetailStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('setCallSource is a no-op when re-selecting the already-active source', fakeAsync(() => {
+  it('deselecting every source fetches nothing rather than falling back to a default', fakeAsync(() => {
     const { state, listCalls } = setupWithSources([makeCaptured(makeCall())], []);
     tick();
 
     listCalls.length = 0;
-    state.setCallSource('external');
+    state.toggleSource('external');
     tick();
 
     expect(listCalls.length).toBe(0);
+    expect(state.calls()).toEqual([]);
     discardPeriodicTasks();
   }));
 });

@@ -1,4 +1,10 @@
-<app-header [callSource]="state.callSource()" (callSourceChange)="state.setCallSource($event)" />
+<app-header
+  [selectedSources]="state.selectedSources()"
+  [internalServices]="state.internalServices()"
+  [inboundLoggingFeatureEnabled]="state.inboundLoggingFeatureEnabled()"
+  (toggleSource)="state.toggleSource($event)"
+  (toggleServiceLogging)="state.toggleServiceLogging($event.name, $event.enabled)"
+/>
 
 <main>
   <app-bulk-actions-bar />

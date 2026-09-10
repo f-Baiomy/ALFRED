@@ -9,12 +9,11 @@ In order:
      "--wildfly-proxy off", but always run here regardless of any flag.
   2. Removes WildFly's port-offset from bin/standalone.conf(.bat) under wildfly_home (see
      settings.properties) - the same marked block start.py/restart.py add when
-     inbound_logging_enabled=true - regardless of what settings.properties currently
+     wildfly_port_offset_enabled=true - regardless of what settings.properties currently
      says, since stopping means undoing this live effect entirely, not just respecting
      whatever the config happens to say right now.
   3. "docker compose down --remove-orphans" - stops and removes every container this
-     project created (proxy, wildfly-proxy, backend, frontend), including one left
-     behind from a profile that's no longer active.
+     project created (proxy, reverse-proxy, backend, frontend).
 
 Does NOT touch certificate trust (that's a one-time host setup, not something starting
 should undo) or .env/settings.properties themselves - re-running start.py/restart.py

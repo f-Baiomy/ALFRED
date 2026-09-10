@@ -130,31 +130,45 @@
         <section class="panel settings-panel">
           <h3>Inbound logging</h3>
           <p class="sub">
-            Controls whether wildfly-proxy (the reverse-mode mitmproxy in front of WildFly) logs the
-            frontend's inbound calls to it. Forwarding to WildFly is never affected either way -
-            turning this off just stops those calls from being recorded.
+            Controls whether reverse-proxy (the reverse-mode mitmproxy fronting each project below)
+            logs that project's inbound calls. Forwarding to a project's upstream is never affected
+            either way - turning a project off just stops its calls from being recorded. Each
+            project is independent. Callers reach a project on its <code>localhost:&lt;port&gt;</code>
+            shown below; the arrow points to the project's own unchanged port.
           </p>
 
-          @if (!inboundLoggingLoaded()) {
+          @if (!inboundServicesLoaded()) {
             <div class="empty">Loading...</div>
+          } @else if (inboundServices().length === 0) {
+            <div class="empty">No projects configured yet - add one to internal_call_services in settings.properties and re-run start.py/restart.py.</div>
           } @else {
-            <div class="danger-zone-row">
-              <div>
-                <p class="danger-zone-title">Log inbound frontend&#8594;WildFly calls</p>
-                <p class="sub">
-                  {{ inboundLoggingEnabled() ? 'Currently ON - every call is being recorded.' : 'Currently OFF - calls still reach WildFly, just aren\'t recorded.' }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="bulk-btn"
-                [class.danger]="inboundLoggingEnabled()"
-                [disabled]="savingInboundLogging()"
-                (click)="toggleInboundLogging()"
-              >
-                {{ inboundLoggingEnabled() ? 'Turn off' : 'Turn on' }}
-              </button>
-            </div>
+            <ul class="url-rule-list">
+              @for (service of inboundServices(); track service.name) {
+                <li class="url-rule-row">
+                  <span class="badge" [class.method-GET]="service.enabled" [class.method-DEFAULT]="!service.enabled">
+                    {{ service.enabled ? 'Enabled' : 'Disabled' }}
+                  </span>
+                  <span class="url-rule-host">
+                    {{ service.name }}
+                    @if (service.listenPort) {
+                      <span class="sub">(localhost:{{ service.listenPort }} &#8594; {{ service.upstreamPort }})</span>
+                    } @else {
+                      <span class="sub">(unrecognized port)</span>
+                    }
+                  </span>
+                  <span class="url-rule-actions">
+                    <button
+                      type="button"
+                      class="action-btn"
+                      [disabled]="savingInboundService() === service.name"
+                      (click)="toggleInboundService(service.name, !service.enabled)"
+                    >
+                      {{ service.enabled ? 'Disable' : 'Enable' }}
+                    </button>
+                  </span>
+                </li>
+              }
+            </ul>
           }
         </section>
       } @else {

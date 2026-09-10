@@ -248,6 +248,123 @@ header h1 {
   }
 }
 
+// The Sources bar (app-sources-bar) - its own row between .controls and .id-filters, one pill
+// per source. A pill's main body toggles whether that source is included in the view; an
+// internal project's pill additionally carries a small switch (::before/.switch-dot) that flips
+// its live logging on/off - two independent controls sharing one pill, not one control with two
+// visual states.
+.sources-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.sources-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-right: 0.25rem;
+}
+
+.source-pill {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: var(--purple);
+    color: var(--text);
+  }
+  &.active {
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
+    border-color: var(--border-strong);
+    color: var(--purple-light);
+  }
+}
+
+.source-pill-group {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+
+  &.active {
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
+    border-color: var(--border-strong);
+
+    .source-pill-main {
+      color: var(--purple-light);
+    }
+  }
+}
+
+.source-pill-main {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 0.4rem 0.7rem 0.4rem 0.8rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: color 0.15s;
+
+  &:hover {
+    color: var(--text);
+  }
+}
+
+.source-pill-switch {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.switch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  display: inline-block;
+}
+
+.source-pill-switch.on .switch-dot {
+  background: var(--green);
+}
+
+.sources-spacer {
+  flex: 1;
+}
+
+.sources-reset {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.3rem 0.4rem;
+
+  &:hover {
+    color: var(--text-dim);
+    text-decoration: underline;
+  }
+}
+
 .id-filters {
   display: flex;
   gap: 0.75rem;
@@ -682,6 +799,29 @@ main {
   // Supplier names are case-sensitive (e.g. "FlyNas") - unlike every other badge here, this one
   // must render exactly as the backend sent it, not force-uppercased by the shared .badge rule.
   text-transform: none;
+}
+
+// Which Sources-bar entry a call belongs to (see sourceLabelOf()) - a tinted (not solid, unlike
+// .supplier-badge) badge so it doesn't visually compete with the method/status badges for
+// attention; "unknown" gets .source-badge-unknown's warning tint instead, to stand out as a
+// request that never matched a configured project.
+.source-badge {
+  background: color-mix(in srgb, var(--purple) 15%, transparent);
+  color: var(--purple-light);
+  border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent);
+  text-transform: none;
+}
+
+.source-badge-unknown {
+  background: color-mix(in srgb, var(--amber) 15%, transparent);
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+}
+
+.source-badge-external {
+  background: rgba(148, 163, 194, 0.15);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
 }
 
 .cycle-status-recording {

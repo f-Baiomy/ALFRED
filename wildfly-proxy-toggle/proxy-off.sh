@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # proxy-off.sh - reverses proxy-on.sh: compiles (if needed) and runs
-# WildFlyProxyController.java to remove the https.proxyHost/https.proxyPort system properties
+# WildFlyProxyController.java to remove the http.proxyHost/http.proxyPort and https.proxyHost/https.proxyPort system properties
 # from the detected WildFly instance via the Attach API. Safe to run even if the proxy was never
 # turned on.
 #

@@ -7,10 +7,14 @@ import java.util.Properties;
 import java.util.Scanner;
 
 /**
- * WildFlyProxyController - turns an already-running WildFly JVM's https.proxyHost/
- * https.proxyPort system properties on or off via the Java Attach API, without restarting
- * WildFly, hand-editing standalone.xml (not even transiently, unlike the jboss-cli/management-
- * CLI approach), or changing any launch configuration.
+ * WildFlyProxyController - turns an already-running WildFly JVM's http.proxyHost/http.proxyPort
+ * and https.proxyHost/https.proxyPort system properties on or off via the Java Attach API,
+ * without restarting WildFly, hand-editing standalone.xml (not even transiently, unlike the
+ * jboss-cli/management-CLI approach), or changing any launch configuration. Both the http.* and
+ * https.* pairs are set to the same proxy address - Alfred's forward proxy is a single mitmproxy
+ * "regular" mode listener that tells plain HTTP and HTTPS traffic apart from the request itself,
+ * not from which port it arrived on - so plain-HTTP outbound calls get logged too, not just TLS
+ * ones.
  *
  * Detects the running WildFly instance by attaching to each candidate JVM in turn and checking
  * for a "jboss.home.dir" system property - more precise than matching on the free-text
@@ -67,7 +71,7 @@ public class WildFlyProxyController {
                 String port = props.getProperty("https.proxyPort");
                 System.out.println(host == null || port == null
                         ? "Proxy status: DISABLED"
-                        : "Proxy status: ENABLED, routing through " + host + ":" + port);
+                        : "Proxy status: ENABLED (HTTP+HTTPS), routing through " + host + ":" + port);
             } finally {
                 vm.detach();
             }
@@ -98,10 +102,10 @@ public class WildFlyProxyController {
         // System.out lines land in the TARGET JVM's console (e.g. IntelliJ's run window for
         // WildFly), not here, so this side needs its own confirmation independently of that.
         if (command.equals("on")) {
-            System.out.println("Proxy ON - HTTPS traffic in this WildFly JVM now routes through " + proxyHost + ":" + proxyPort);
+            System.out.println("Proxy ON - HTTP/HTTPS traffic in this WildFly JVM now routes through " + proxyHost + ":" + proxyPort);
             System.out.println("Run with \"off\" to disable.");
         } else {
-            System.out.println("Proxy OFF - HTTPS traffic in this WildFly JVM goes direct again.");
+            System.out.println("Proxy OFF - HTTP/HTTPS traffic in this WildFly JVM goes direct again.");
         }
     }
 

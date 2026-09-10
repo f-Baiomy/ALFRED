@@ -25,8 +25,8 @@ Usage:
     python3 deploy.py backend      hard-reset to latest, restart/rebuild just one service (no elevation)
     python3 deploy.py frontend backend  hard-reset to latest, restart/rebuild multiple named services
 
-Any extra args (e.g. --wildfly-proxy off, --wildfly-reverse-proxy off) pass straight through to
-restart.py - see its own docstring for what those do.
+Any extra args (e.g. --wildfly-proxy off) pass straight through to restart.py - see its own
+docstring for what that does.
 """
 
 import os

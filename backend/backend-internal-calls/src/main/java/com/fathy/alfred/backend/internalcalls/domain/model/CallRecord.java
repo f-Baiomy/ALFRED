@@ -10,7 +10,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * in CLAUDE.md). Field-for-field identical to backend-calls' own CallRecord (same JSON property
  * names) purely so the existing Angular frontend's CallRecord/CallSummary TypeScript models and
  * export/download logic work against this slice unmodified - the two are otherwise fully
- * independent slices with no shared code or dependency.
+ * independent slices with no shared code or dependency. {@code serviceName} is the one field
+ * backend-calls' CallRecord doesn't have, since only inbound calls have a named project to
+ * attribute to.
  *
  * <p>{@code id} is assigned by the backend, never sent by the proxy - the webhook payload has no
  * "id" property in the malformed/legacy case, so Jackson deserializes it as null, and
@@ -22,6 +24,13 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * once at request time via {@code POST /internal-calls/webhook/prepare} (state
  * {@code IN_PROGRESS}, no response yet), then again via
  * {@code POST /internal-calls/webhook/{id}/complete} once the upstream responds or fails.
+ *
+ * <p>{@code serviceName} is the project name the addon resolved this flow to (see
+ * proxy/log_and_route_reverse.py's PORT_MAP), or its reserved "unknown" bucket for an
+ * unrecognized arrival port - never null for anything logged after this field was added. A call
+ * logged before it existed has {@code serviceName == null}, which every read path treats the same
+ * as "unknown" (see LoggingToggleService.UNKNOWN_NAME) rather than a distinct bucket - there's
+ * nothing to gain from telling old, unattributed data apart from genuinely-unmatched new traffic.
  */
 public record CallRecord(
         String id,
@@ -35,28 +44,36 @@ public record CallRecord(
         String error,
         CallLifecycleStatus state,
         @JsonProperty("session_id") String sessionId,
-        @JsonProperty("operation_id") String operationId
+        @JsonProperty("operation_id") String operationId,
+        @JsonProperty("service_name") String serviceName
 ) {
-    /** Pre-session/operation-id shape - kept so a call site built before those fields existed doesn't need to touch a new required argument. sessionId/operationId are both null. */
+    /** Pre-service-name shape - kept so a call site built before that field existed doesn't need to touch a new required argument. serviceName is null (treated as "unknown" by every reader). */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null);
+    }
+
+    /** Pre-session/operation-id shape - kept so a call site built before those fields existed doesn't need to touch a new required argument. sessionId/operationId/serviceName are all null. */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, null, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, null, null, null);
     }
 
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error) {
         this(id, originalUrl, url, method, request, timestamp, durationMs, response, error,
-                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null);
+                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null);
     }
 
     /**
      * Jackson (via the records/parameter-names module) deserializes JSON through the canonical
-     * (12-arg) constructor, bypassing the derivation the shorter constructors above provide - so
+     * (13-arg) constructor, bypassing the derivation the shorter constructors above provide - so
      * any JSON that predates the {@code state} field comes back with {@code state == null}. Call
      * sites that read a CallRecord fresh off the wire/disk rather than constructing one themselves
      * should run it through this to normalize that, the same way {@code withGeneratedId}
-     * normalizes a missing id. Does not touch sessionId/operationId - null is a valid, meaningful
-     * value there.
+     * normalizes a missing id. Does not touch sessionId/operationId/serviceName - null is a valid,
+     * meaningful value there.
      */
     public static CallRecord withDerivedStateIfMissing(CallRecord call) {
         if (call.state() != null) {
@@ -65,6 +82,6 @@ public record CallRecord(
         boolean hasError = call.error() != null && !call.error().isBlank();
         CallLifecycleStatus derived = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
-                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId());
+                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName());
     }
 }

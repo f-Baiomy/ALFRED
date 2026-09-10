@@ -1,4 +1,4 @@
-/** Which REST resource/store a call came from - 'both' (CallSource, below) isn't a valid endpoint on its own, it's handled one level up by requesting 'external' and 'internal' separately and merging. */
+/** Which REST resource/store a call came from - selecting sources that span both is handled one level up by requesting 'external' and 'internal' separately and merging (see CallsStateService.fetchPageForSource). */
 export type CallEndpointSource = 'external' | 'internal';
 
 export interface HttpMessageData {
@@ -39,6 +39,8 @@ export interface CallRecord {
   readonly session_id?: string | null;
   /** The proxy's X-Operation-Id header value, or a proxy-generated UUID if the client didn't send one - null/undefined only for a call logged before this field existed. */
   readonly operation_id?: string | null;
+  /** Which named project (from settings.properties's internal_call_services) reverse-proxy resolved this call to, or its "unknown" bucket - only ever set on an internal call; undefined for every external call and for one logged before this field existed (see sourceKeyOf()/sourceLabelOf() in call-utils.ts, which both treat that the same as "unknown"). */
+  readonly service_name?: string | null;
   /** Which backend endpoint this call was fetched from - stamped client-side in toCallRecord(), never part of the wire shape. Undefined only for a CapturedCall's wrapped CallRecord (session-cycles never captures 'internal' calls, so it's always implicitly 'external' there). Needed so getCallDetail() knows whether to fetch GET /calls/{id}/detail or GET /internal-calls/{id}/detail once a call from a merged 'both' list is expanded. */
   readonly source?: CallEndpointSource;
 }
@@ -63,6 +65,7 @@ export interface CallSummaryDto {
   readonly state?: CallLifecycleState;
   readonly session_id?: string | null;
   readonly operation_id?: string | null;
+  readonly service_name?: string | null;
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle
@@ -85,13 +88,14 @@ export interface CallsClearedEvent {
 export type CallsWsMessage = CallEvent | CallsClearedEvent;
 
 /**
- * Which backend-side source(s) the Live Calls view is reading from - 'external' is today's
- * mitmproxy-forward-mode-captured supplier traffic (GET /calls, /ws/calls), unchanged default.
- * 'internal' is the separate backend-internal-calls slice logging browser-to-WildFly traffic
- * (GET /internal-calls, /ws/internal-calls) - a totally independent store, not a filter over the
- * same data. 'both' merges the two client-side (see CallsStateService.fetchPageForSource).
+ * A single entry in the Sources bar's selection set - either the reserved key 'external' (today's
+ * mitmproxy-forward-mode-captured supplier traffic, GET /calls, /ws/calls) or a named internal
+ * project's `name` (matching CallRecord.service_name, including its reserved "unknown" bucket) -
+ * GET /internal-calls, /ws/internal-calls, narrowed server-side by serviceNames. See
+ * CallsStateService.selectedSources/fetchPageForSource for how a set of these is turned into
+ * actual requests.
  */
-export type CallSource = 'external' | 'internal' | 'both';
+export type SourceKey = string;
 
 /** Wire envelope for the /ws/internal-calls broadcast - mirrors CallEvent exactly now that backend-internal-calls traffic can also be captured into a session-cycle (see CapturedCall). */
 export interface InternalCallEvent {

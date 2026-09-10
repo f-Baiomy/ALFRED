@@ -73,7 +73,7 @@ class SessionCyclesInternalCallsServiceTest {
     @Test
     void listCallsReturnsThePossiblyEmptyCapturedList() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedInternalCallsStore.query("c1", "", "", "oldest", 0, 10, true, "", "", ""))
+        when(capturedInternalCallsStore.query("c1", "", "", "oldest", 0, 10, true, "", "", "", ""))
                 .thenReturn(new CallListSupport.Page<>(List.of(CapturedInternalCallSummary.of(captured(call("t1")))), 1));
 
         var result = service.listCalls("c1", DEFAULT_QUERY);
@@ -91,7 +91,7 @@ class SessionCyclesInternalCallsServiceTest {
 
         CapturedInternalCall first = captured(call("t1"));
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedInternalCallsStore.query("c1", "", "", "oldest", 1, 200, false, "", "", ""))
+        when(capturedInternalCallsStore.query("c1", "", "", "oldest", 1, 200, false, "", "", "", ""))
                 .thenReturn(new CallListSupport.Page<>(List.of(CapturedInternalCallSummary.of(first)), 1));
 
         var result = service.listCalls("c1", new CallsQuery("", "", "oldest", 1, 10, "", "", ""));

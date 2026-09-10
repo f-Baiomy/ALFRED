@@ -151,17 +151,18 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
         boolean hasError = error != null && !error.isBlank();
         CallLifecycleStatus state = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         CallRecord resolved = partial != null
-                // Uses the full 12-arg constructor (unlike backend-calls' FileCallLogAdapter,
+                // Uses the full 13-arg constructor (unlike backend-calls' FileCallLogAdapter,
                 // which drops sessionId/operationId here via its 10-arg constructor - harmless
                 // there since SQLite is that slice's primary adapter, but this file adapter is
-                // this slice's *only* store, so losing session/operation id at completion time
-                // would silently break the session-id/operation-id filters for every completed call).
+                // this slice's *only* store, so losing session/operation id (or now serviceName)
+                // at completion time would silently break the session-id/operation-id/source
+                // filters for every completed call).
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
-                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId())
+                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName())
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
-                // silently dropping it.
-                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null);
+                // silently dropping it. serviceName unknown too in this narrow, accepted-gap case.
+                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null);
         save(resolved);
         return wasPending;
     }
@@ -238,17 +239,20 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
 
     /**
      * Filters/sorts/paginates over the full in-memory list, applying the sessionId/operationId/
-     * requestId substring filters first (case-insensitive contains) since CallListSupport here has
-     * no built-in id-filter overload (only backend-calls' SQL repository has that) - then maps to
-     * CallSummary as the final step, matching CallLogPort's summary-only contract.
+     * requestId substring filters and the serviceNames exact-match filter first, since
+     * CallListSupport here has no built-in id-filter overload (only backend-calls' SQL repository
+     * has that) - then maps to CallSummary as the final step, matching CallLogPort's summary-only
+     * contract.
      */
     @Override
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
-                                                     String sessionId, String operationId, String requestId) {
+                                                     String sessionId, String operationId, String requestId, String serviceNames) {
+        java.util.Set<String> serviceNameFilter = parseServiceNames(serviceNames);
         List<CallRecord> idFiltered = readAll().stream()
                 .filter(call -> matchesSubstring(call.sessionId(), sessionId))
                 .filter(call -> matchesSubstring(call.operationId(), operationId))
                 .filter(call -> matchesSubstring(call.id(), requestId))
+                .filter(call -> matchesServiceNames(call, serviceNameFilter))
                 .toList();
         CallListSupport.Page<CallRecord> page = CallListSupport.apply(
                 idFiltered, java.util.function.Function.identity(), search, supplier, sort, offset, limit, paginationEnabled);
@@ -260,6 +264,30 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             return true;
         }
         return value != null && value.toLowerCase(java.util.Locale.ROOT).contains(filter.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /** Comma-separated project names (see CallsQuery.serviceNames) into a set - blank/empty input means "no filter", represented as an empty set rather than null so callers never need a separate null check. */
+    private static java.util.Set<String> parseServiceNames(String serviceNames) {
+        if (serviceNames == null || serviceNames.isBlank()) {
+            return java.util.Set.of();
+        }
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (String name : serviceNames.split(",")) {
+            String trimmed = name.strip();
+            if (!trimmed.isEmpty()) {
+                names.add(trimmed);
+            }
+        }
+        return names;
+    }
+
+    /** An empty filter set matches everything (no filter applied). A null serviceName (a call logged before this field existed) is treated as LoggingToggleService.UNKNOWN_NAME, same as every other read path. */
+    private static boolean matchesServiceNames(CallRecord call, java.util.Set<String> filter) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        String name = call.serviceName() != null ? call.serviceName() : com.fathy.alfred.backend.internalcalls.application.service.LoggingToggleService.UNKNOWN_NAME;
+        return filter.contains(name);
     }
 
     @Override

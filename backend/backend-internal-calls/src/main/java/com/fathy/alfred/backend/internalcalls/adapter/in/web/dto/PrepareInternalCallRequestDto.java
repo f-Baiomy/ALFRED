@@ -9,7 +9,8 @@ import com.fathy.alfred.backend.internalcalls.domain.model.RequestData;
  * proxy itself - see InternalCallsService.receivePreparedCall, which falls back to generating one
  * server-side if this is blank. {@code sessionId}/{@code operationId} are the proxy's
  * X-Session-ID/X-Operation-Id header values - same blank-fallback treatment (stays null, never
- * invented server-side).
+ * invented server-side). {@code serviceName} is the project name proxy/log_and_route_reverse.py
+ * resolved this flow's arrival port to (or its "unknown" bucket) - always sent, never blank.
  */
 public record PrepareInternalCallRequestDto(
         String id,
@@ -19,6 +20,7 @@ public record PrepareInternalCallRequestDto(
         RequestData request,
         String timestamp,
         @JsonProperty("session_id") String sessionId,
-        @JsonProperty("operation_id") String operationId
+        @JsonProperty("operation_id") String operationId,
+        @JsonProperty("service_name") String serviceName
 ) {
 }

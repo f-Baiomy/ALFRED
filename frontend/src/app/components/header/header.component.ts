@@ -1,19 +1,15 @@
 import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, input, output, viewChild } from '@angular/core';
 import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/call-selection.tokens';
-import { CallSource, SortMode } from '../../core/models/call.model';
+import { SortMode, SourceKey } from '../../core/models/call.model';
+import { InternalCallServiceDto } from '../../core/services/internal-logging-api.service';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
+import { SourcesBarComponent } from '../sources-bar/sources-bar.component';
 
 const LIMIT_OPTIONS: readonly SelectOption[] = [
   { value: '10', label: '10 per page' },
   { value: '25', label: '25 per page' },
   { value: '50', label: '50 per page' },
   { value: '100', label: '100 per page' },
-];
-
-const CALL_SOURCE_OPTIONS: readonly SelectOption[] = [
-  { value: 'external', label: 'External calls' },
-  { value: 'internal', label: 'Internal calls' },
-  { value: 'both', label: 'External + Internal' },
 ];
 
 const SORT_OPTIONS: readonly SelectOption[] = [
@@ -41,7 +37,7 @@ const SORT_OPTIONS: readonly SelectOption[] = [
 @Component({
   selector: 'app-header',
   standalone: true,
-  imports: [SelectPickerComponent],
+  imports: [SelectPickerComponent, SourcesBarComponent],
   templateUrl: './header.component.html',
 })
 export class HeaderComponent implements AfterViewInit, OnDestroy {
@@ -54,15 +50,15 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
   readonly subtitle = input('Live feed of every call Alfred intercepted, via backend');
 
   /**
-   * Which backend call source(s) to read from - `null` (the default) hides the toggle entirely,
-   * which is what happens on a session-cycle detail page (that page never binds this input): a
-   * cycle's captured calls have no "internal" counterpart, so the control would be meaningless
-   * there. Only DashboardComponent passes this, wired to CallsStateService.callSource.
+   * The Sources bar's own state - both pages (dashboard and a session-cycle detail view) bind
+   * these, each to their own state service's identically-shaped selectedSources/internalServices/
+   * inboundLoggingFeatureEnabled/toggleSource/toggleServiceLogging (see CallsStateService's docs).
    */
-  readonly callSource = input<CallSource | null>(null);
-  readonly callSourceChange = output<CallSource>();
-
-  readonly callSourceOptions = CALL_SOURCE_OPTIONS;
+  readonly selectedSources = input<ReadonlySet<SourceKey>>(new Set());
+  readonly internalServices = input<readonly InternalCallServiceDto[]>([]);
+  readonly inboundLoggingFeatureEnabled = input(false);
+  readonly toggleSource = output<SourceKey>();
+  readonly toggleServiceLogging = output<{ name: string; enabled: boolean }>();
 
   readonly limitOptions = LIMIT_OPTIONS;
   readonly sortOptions = computed<readonly SelectOption[]>(() =>
@@ -107,8 +103,12 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
     this.state.setSupplierFilter(value);
   }
 
-  onCallSourceChange(value: string): void {
-    this.callSourceChange.emit(value as CallSource);
+  onToggleSource(key: SourceKey): void {
+    this.toggleSource.emit(key);
+  }
+
+  onToggleServiceLogging(event: { name: string; enabled: boolean }): void {
+    this.toggleServiceLogging.emit(event);
   }
 
   onSessionIdInput(value: string): void {

@@ -30,6 +30,7 @@
     @if (call().supplierName) {
       <span class="badge supplier-badge">{{ call().supplierName }}</span>
     }
+    <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
     <app-call-actions [call]="call()" />
     @if (removalState) {
       <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>

@@ -38,46 +38,58 @@ services:
     networks:
       - alfred-net
 
-  # Reverse-mode mitmproxy sitting in front of the external WildFly server, so the
-  # frontend's own calls to WildFly get logged the same way - see
-  # proxy/log_and_route_reverse.py. WildFly must be reachable at wildfly-proxy's
-  # WILDFLY_UPSTREAM (default localhost:8081, one port above WildFly's usual 8080 -
-  # see the port-offset VM option this setup requires on WildFly's own run
-  # config). This container owns host port 8080 permanently; logging itself is
-  # toggled on/off live via toggle-wildfly-reverse-proxy.sh/.bat (also wired into
-  # start.py/restart.py's --wildfly-reverse-proxy flag), which just flips
-  # ./proxy/reverse-proxy-enabled.flag - no restart of this container needed.
-  wildfly-proxy:
+  # Reverse-mode mitmproxy fronting any number of NAMED upstream projects (e.g. multiple
+  # WildFly-style apps, each already running on its own port) - one listener per project inside
+  # this single container, see proxy/reverse-proxy-entrypoint.sh (builds one "--mode reverse:"
+  # flag per project from REVERSE_PROXY_PORT_MAP) and proxy/log_and_route_reverse.py (logs each
+  # call, identifying the project by the port it arrived on - it does not route).
+  #
+  # Add a project by adding a "name:listenPort:upstreamPort" triple to settings.properties's
+  # internal_call_services: Alfred then listens on that NEW listenPort and forwards to the
+  # project's own unchanged port, so callers just swap http://localhost:<upstreamPort>/... for
+  # http://localhost:<listenPort>/.... No hostnames, no hosts-file entries, and nothing moves
+  # off its own port. Staying on "localhost" is deliberate - a per-project hostname would make
+  # every browser API call cross-site and get its session cookie dropped.
+  #
+  # NOTE: the per-project listenPort publishes live in the GENERATED docker-compose.override.yml
+  # (written by start.py/restart.py from that same list), not here - Compose can't expand a
+  # variable-length port list from an env var.
+  #
+  # Each project's logging is toggled on/off independently, live, from the Settings UI (GET/POST
+  # /internal-calls/services...) or toggle-wildfly-reverse-proxy.sh/.bat <name> [on|off] - both
+  # just flip a line in ./proxy/reverse-proxy-enabled.flag, no restart of this container needed.
+  reverse-proxy:
     image: mitmproxy/mitmproxy:latest
-    container_name: wildfly-proxy
+    container_name: reverse-proxy
     restart: unless-stopped
     # Only started when the "inbound-logging" profile is active - start.py/restart.py set
-    # COMPOSE_PROFILES=inbound-logging in .env based on settings.properties's inbound_logging_enabled
-    # setting, so
-    # this container (and the whole feature) simply doesn't exist for a deployment that opts out.
+    # COMPOSE_PROFILES=inbound-logging in .env based on settings.properties's
+    # reverse_proxy_enabled setting, so this container (and the whole feature) simply doesn't
+    # exist for a deployment that only needs OUTBOUND logging (the "proxy" service, unaffected
+    # by this flag and always running).
     profiles:
       - inbound-logging
-    ports:
-      - "127.0.0.1:8080:8080"
     environment:
       - WEBHOOK_URL=http://backend:5000/internal-calls/webhook
       - WEBHOOK_SECRET=change-me-in-production
       - TOGGLE_FILE=/home/mitmproxy/reverse-proxy-enabled.flag
-      # WildFly runs on the host (started via IntelliJ), not in this compose stack -
-      # host.docker.internal resolves to the host machine from inside the container.
-      # Override WILDFLY_UPSTREAM (below, baked into the command) if WildFly's
-      # port-offset differs from the default +1.
-      - WILDFLY_UPSTREAM=http://host.docker.internal:8081
+      # One "name:listenPort:upstreamPort" triple per project, comma-separated, no spaces - the
+      # SAME list backend's INTERNAL_CALL_SERVICES below is given (single source of truth, baked
+      # into .env from settings.properties's internal_call_services by start.py/restart.py -
+      # don't set this directly here, edit settings.properties instead). May be empty (no
+      # projects configured yet), in which case this container starts and idles.
+      - REVERSE_PROXY_PORT_MAP=${INTERNAL_CALL_SERVICES:-}
+      # All upstreams are assumed to run on the host machine (e.g. started via IntelliJ), not in
+      # this compose stack - host.docker.internal resolves to the host from inside the container.
+      # Override only if some project's upstream lives elsewhere.
+      - REVERSE_PROXY_UPSTREAM_HOST=host.docker.internal
     volumes:
       - ./proxy/log_and_route_reverse.py:/home/mitmproxy/log_and_route_reverse.py:ro
+      - ./proxy/reverse-proxy-entrypoint.sh:/home/mitmproxy/reverse-proxy-entrypoint.sh:ro
       - ./proxy/reverse-proxy-enabled.flag:/home/mitmproxy/reverse-proxy-enabled.flag
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
     working_dir: /home/mitmproxy
-    # sh -c so $WILDFLY_UPSTREAM expands into --mode's argument - Compose's own
-    # ${VAR} substitution only applies to the compose file itself, not to values
-    # inside a literal `command:` string at container runtime.
-    entrypoint: ["sh", "-c"]
-    command: ["mitmdump -q -s log_and_route_reverse.py --mode reverse:$$WILDFLY_UPSTREAM -p 8080 --set connection_strategy=lazy"]
+    entrypoint: ["sh", "/home/mitmproxy/reverse-proxy-entrypoint.sh"]
     extra_hosts:
       # Docker Desktop (Windows/Mac) already resolves host.docker.internal without
       # this; host-gateway is what makes the same hostname work on Linux too.
@@ -142,18 +154,26 @@ services:
       - ALFRED_CALLS_MAX_SIZE_BYTES=107374182400
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
-      # Separate store for calls captured by wildfly-proxy (frontend -> WildFly
-      # traffic) - same CallRecord/CallSummary JSON shape as calls.db, kept apart so
-      # WildFly traffic never mixes with external supplier-call history.
+      # Separate store for calls captured by reverse-proxy (frontend/other clients -> whichever
+      # upstream project owns the listenPort the request arrived on, per REVERSE_PROXY_PORT_MAP) -
+      # same CallRecord/CallSummary JSON shape as calls.db, kept apart so inbound traffic never
+      # mixes with external supplier-call history.
       - INTERNAL_CALLS_FILE=/appdata/internal-calls.log
-      # Same file wildfly-proxy's TOGGLE_FILE points at (bind-mounted a second time here,
-      # at a different in-container path) - lets GET/POST /internal-calls/logging-enabled
-      # flip the same switch toggle-wildfly-reverse-proxy.sh/.bat already do by hand.
+      # Same file reverse-proxy's TOGGLE_FILE points at (bind-mounted a second time here,
+      # at a different in-container path) - lets GET/POST /internal-calls/services/{name}/
+      # logging-enabled flip the same per-project lines toggle-wildfly-reverse-proxy.sh/.bat
+      # already do by hand.
       - REVERSE_PROXY_TOGGLE_FILE=/appdata/reverse-proxy-enabled.flag
-      # Deploy-time flag from settings.properties (via .env) - whether the inbound-logging feature
-      # exists at all for this deployment. false hides Settings' "Inbound logging" panel
-      # entirely; wildfly-proxy itself is gated separately, by the profiles: key above.
-      - INBOUND_LOGGING_ENABLED=${INBOUND_LOGGING_ENABLED:-false}
+      # The SAME "name:listenPort:upstreamPort" list as reverse-proxy's REVERSE_PROXY_PORT_MAP
+      # above (single source of truth, baked into .env from settings.properties's
+      # internal_call_services) - lets backend know every configured project's name/ports to
+      # list in GET /internal-calls/services, without duplicating that list separately here.
+      - INTERNAL_CALL_SERVICES=${INTERNAL_CALL_SERVICES:-}
+      # Deploy-time flag from settings.properties's reverse_proxy_enabled (via .env) - whether
+      # the inbound-logging feature exists at all for this deployment. false hides Settings'
+      # "Inbound logging" panel entirely; reverse-proxy itself is gated separately, by the
+      # profiles: key above - both read the same setting, kept in sync by start.py/restart.py.
+      - REVERSE_PROXY_ENABLED=${REVERSE_PROXY_ENABLED:-false}
     volumes:
       - ./backend/data:/appdata
       - ./proxy/reverse-proxy-enabled.flag:/appdata/reverse-proxy-enabled.flag

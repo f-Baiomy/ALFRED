@@ -1,23 +1,30 @@
 """
-mitmproxy addon: runs in reverse mode in front of an external WildFly server, so
-browser traffic the frontend sends straight to WildFly can be logged the same way
-proxy/log_and_route.py logs proxy-aware Java clients - two-phase (prepare/complete)
-webhook POSTs to backend, reusing the same X-Request-Id/X-Session-ID/X-Operation-Id
-convention.
+mitmproxy addon: logs traffic flowing through one reverse-mode listener PER NAMED PROJECT
+(e.g. several WildFly-style apps, each already running on its own port), the same way
+proxy/log_and_route.py logs proxy-aware Java clients - two-phase (prepare/complete) webhook
+POSTs to backend, reusing the same X-Request-Id/X-Session-ID/X-Operation-Id convention.
 
-Unlike log_and_route.py's forward-mode addon, the upstream here is fixed (passed via
-mitmdump's own --mode reverse:<url> flag, not read from the request) - this addon only
-adds logging on top of mitmproxy's normal reverse-mode forwarding, it never decides
-where a request goes.
+This addon does NOT route. reverse-proxy-entrypoint.sh gives mitmdump one
+"--mode reverse:http://<upstreamHost>:<upstreamPort>@<listenPort>" flag per project from
+REVERSE_PROXY_PORT_MAP ("name:listenPort:upstreamPort" triples), so each listener already has
+its own fixed upstream and mitmproxy forwards on its own. All this addon does is work out WHICH
+project a flow belongs to - from the port it arrived on, i.e. flow.client_conn.sockname - so it
+can label the call and honour that project's logging toggle. Nothing here depends on the
+request's contents, which is the point: an earlier revision routed by Host header instead and
+broke in two separate ways (mitmproxy rewrites Host before addon hooks run, and Docker Desktop
+leaks the host's hosts file into container DNS - see docs/supplier-integrations.md).
 
-Logging can be toggled on/off live, without restarting this container, by writing
-"on"/"off" to TOGGLE_FILE (see toggle-wildfly-reverse-proxy.sh/.bat at the repo root,
-also wired into start.py/restart.py's --wildfly-reverse-proxy flag) - the file
-is re-read (cheaply, via mtime) on every request rather than only at startup. Forwarding
-itself is never affected by the toggle: a request is always relayed to WildFly either
-way, only whether it gets logged changes. This means turning logging off does not free
-the port or stop the container - see the toggle scripts' own doc for why that's the
-point (the frontend keeps working at the same address regardless).
+Routing by arrival port also means callers stay on "localhost" (just a different port), which
+is what keeps browser session cookies working: a per-project hostname would make every API call
+cross-site, and browsers drop SameSite=Lax cookies there.
+
+Logging can be toggled on/off live, per NAME, without restarting this container, by writing
+"name=on"/"name=off" lines to TOGGLE_FILE (see toggle-wildfly-reverse-proxy.sh/.bat at the
+repo root, or the Settings UI's per-service switches) - the file is re-read (cheaply, via
+mtime) on every request rather than only at startup. A name with no line in the file yet
+defaults to enabled. Forwarding is entirely mitmproxy's own and happens regardless of any
+name's toggle state - turning a project's logging off never stops its traffic, only whether its
+calls get recorded; other projects' toggles are unaffected.
 """
 
 import json
@@ -38,10 +45,30 @@ WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
 WEBHOOK_TIMEOUT_SECONDS = 2
 PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '2'))
 
-# Written by toggle-wildfly-reverse-proxy.sh/.bat on the host, bind-mounted into this
-# container - see docker-compose.yml's reverse-proxy service. Missing entirely (e.g.
-# volume not mounted yet) is treated as "on", so logging works out of the box.
+# Fallback label for a flow whose arrival port isn't in PORT_MAP. Shouldn't normally happen
+# (this process only listens on ports that ARE in the map), so it exists to keep an unexpected
+# flow visible and toggleable rather than silently unlabelled - must not collide with a real
+# configured name (see docs/supplier-integrations.md).
+UNKNOWN_NAME = 'unknown'
+
+# Written by toggle-wildfly-reverse-proxy.sh/.bat (or the Settings UI, via backend) on the
+# host, bind-mounted into this container - see docker-compose.yml's reverse-proxy service.
+# One "name=on"/"name=off" line per project; a name with no line defaults to enabled, so
+# logging works out of the box for every project the moment it's added to REVERSE_PROXY_PORT_MAP.
 TOGGLE_FILE = os.environ.get('TOGGLE_FILE', '/home/mitmproxy/reverse-proxy-enabled.flag')
+
+# "name:listenPort:upstreamPort" triples, comma-separated - the same value
+# reverse-proxy-entrypoint.sh turned into one --mode flag per project. PORT_MAP:
+# {listenPort -> (name, upstreamPort)}, keyed on arrival port since that's what identifies a
+# project here. upstreamPort is only used to report where a call actually went.
+UPSTREAM_HOST = os.environ.get('REVERSE_PROXY_UPSTREAM_HOST', 'host.docker.internal')
+PORT_MAP = {}
+for _triple in os.environ.get('REVERSE_PROXY_PORT_MAP', '').split(','):
+    _triple = _triple.strip()
+    if not _triple:
+        continue
+    _name, _listen_port, _upstream_port = _triple.split(':', 2)
+    PORT_MAP[int(_listen_port)] = (_name.strip(), int(_upstream_port))
 
 _webhook_queue = queue.Queue()
 
@@ -71,13 +98,13 @@ if WEBHOOK_URL:
 
 
 class _ToggleState:
-    """Re-reads TOGGLE_FILE only when its mtime changes - same cache-validated-by-mtime idiom the backend's file adapters use, so a live toggle flip is picked up on the very next request without stat-ing the file more than once per change."""
+    """Re-reads TOGGLE_FILE only when its mtime changes - same cache-validated-by-mtime idiom the backend's file adapters use, so a live toggle flip is picked up on the very next request without stat-ing the file more than once per change. One "name=on"/"name=off" line per project; a name with no line (including one never toggled, or a brand-new project just added to REVERSE_PROXY_PORT_MAP) defaults to enabled."""
 
     def __init__(self):
         self._mtime = None
-        self._enabled = True
+        self._states = {}
 
-    def enabled(self):
+    def enabled(self, name):
         try:
             mtime = os.path.getmtime(TOGGLE_FILE)
         except OSError:
@@ -86,12 +113,19 @@ class _ToggleState:
             return True
         if mtime != self._mtime:
             self._mtime = mtime
+            states = {}
             try:
                 with open(TOGGLE_FILE, 'r', encoding='utf-8') as f:
-                    self._enabled = f.read().strip().lower() != 'off'
+                    for line in f:
+                        line = line.strip()
+                        if not line or '=' not in line:
+                            continue
+                        line_name, value = line.split('=', 1)
+                        states[line_name.strip()] = value.strip().lower() != 'off'
             except OSError:
-                self._enabled = True
-        return self._enabled
+                pass
+            self._states = states
+        return self._states.get(name, True)
 
 
 _toggle = _ToggleState()
@@ -101,7 +135,16 @@ class RouteAndLog:
 
     def request(self, flow):
         flow.metadata['start_time'] = time.time()
-        if not WEBHOOK_URL or not _toggle.enabled():
+
+        # Identify the project by the port this flow ARRIVED on - each listener was created with
+        # its own upstream by reverse-proxy-entrypoint.sh, so mitmproxy has already decided where
+        # this goes and nothing here touches the destination. Purely labelling, for the logging
+        # toggle below and for the recorded url.
+        listen_port = self._listen_port(flow)
+        name, upstream_port = PORT_MAP.get(listen_port, (UNKNOWN_NAME, None))
+        flow.metadata['service_name'] = name
+
+        if not WEBHOOK_URL or not _toggle.enabled(name):
             return
 
         client_request_id = (flow.request.headers.get('X-Request-Id') or '').strip()
@@ -116,8 +159,14 @@ class RouteAndLog:
 
         call_log = {
             'id': call_id,
-            'original_url': flow.request.pretty_url,
-            'url': flow.request.pretty_url,
+            # original_url = what the client called (its own Host header, e.g.
+            # http://localhost:9001/...; intact thanks to keep_host_header - see
+            # reverse-proxy-entrypoint.sh); url = where mitmproxy forwarded it, i.e. this
+            # project's real upstream. Built by hand rather than read off pretty_url, which
+            # reflects the Host header either way and so can't show the upstream at all.
+            'original_url': self._client_url(flow),
+            'url': (f'{flow.request.scheme}://{UPSTREAM_HOST}:{upstream_port}{flow.request.path}'
+                    if upstream_port is not None else self._client_url(flow)),
             'method': flow.request.method,
             'request': {
                 'headers': dict(flow.request.headers),
@@ -126,6 +175,9 @@ class RouteAndLog:
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'session_id': session_id,
             'operation_id': operation_id,
+            # Which configured project this arrived on (or UNKNOWN_NAME) - lets the dashboard tag
+            # each call and filter by source without re-deriving it from the URL/port.
+            'service_name': name,
         }
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
@@ -165,6 +217,29 @@ class RouteAndLog:
                 'body': self._safe_body(flow.response),
             }
         self._write(call_id, data)
+
+    def _listen_port(self, flow):
+        """Which of this process's listeners the flow came in on - client_conn.sockname is OUR
+        side of the client connection, so its port is the --mode listen port. Falls back to the
+        port in the client's own Host header (kept intact by keep_host_header), which is the
+        same number for any client that reached us normally."""
+        try:
+            return int(flow.client_conn.sockname[1])
+        except (AttributeError, IndexError, TypeError, ValueError):
+            host_header = (flow.request.headers.get('Host') or '').strip()
+            _, _, port = host_header.rpartition(':')
+            try:
+                return int(port)
+            except ValueError:
+                return -1
+
+    def _client_url(self, flow):
+        """What the client actually asked for, rebuilt from its own Host header rather than
+        pretty_url so it always shows the address the caller used (e.g. localhost:9001)."""
+        host_header = (flow.request.headers.get('Host') or '').strip()
+        if not host_header:
+            return flow.request.pretty_url
+        return f'{flow.request.scheme}://{host_header}{flow.request.path}'
 
     def _safe_body(self, message, limit=BODY_LIMIT):
         try:

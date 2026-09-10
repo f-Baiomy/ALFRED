@@ -29,8 +29,9 @@ export class CallsApiService {
   private readonly http = inject(HttpClient);
   private readonly config = inject(AppConfigService);
 
-  getCalls(query: CallsQuery, source: CallEndpointSource = 'external'): Observable<CallsPageResult> {
-    const params = new HttpParams()
+  /** `serviceNames` (internal only - ignored for 'external') narrows the result to just those named projects (plus "unknown"), server-side - see the Sources bar/CallsStateService.selectedSources. Omitted/empty means no filter, every project. */
+  getCalls(query: CallsQuery, source: CallEndpointSource = 'external', serviceNames?: readonly string[]): Observable<CallsPageResult> {
+    let params = new HttpParams()
       .set('search', query.search)
       .set('supplier', query.supplier)
       .set('sort', query.sort)
@@ -39,6 +40,9 @@ export class CallsApiService {
       .set('sessionId', query.sessionId)
       .set('operationId', query.operationId)
       .set('requestId', query.requestId);
+    if (source === 'internal' && serviceNames?.length) {
+      params = params.set('serviceNames', serviceNames.join(','));
+    }
     return this.http.get<CallsPageDto>(`${this.config.backendUrl}/${endpointFor(source)}`, { params }).pipe(
       map((page) => ({ calls: page.calls.map((dto) => toCallRecord(dto, source)), total: page.total }))
     );

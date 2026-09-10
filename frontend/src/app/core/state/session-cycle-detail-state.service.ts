@@ -1,26 +1,27 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { Observable, Subscription, forkJoin, map, retry, timer } from 'rxjs';
+import { Observable, Subscription, forkJoin, map, of, retry, timer } from 'rxjs';
 import { webSocket } from 'rxjs/webSocket';
 import {
   CallDetail,
   CallEndpointSource,
   CallRecord,
-  CallSource,
   CallSummaryDto,
   CallsClearedEvent,
   CallsWsMessage,
   CapturedCall,
   InternalCallsWsMessage,
   SortMode,
+  SourceKey,
 } from '../models/call.model';
 import { AppConfigService } from '../services/app-config.service';
 import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
+import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
-import { callKey, sortCalls, toCallRecord } from '../../shared/utils/call-utils';
+import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, toCallRecord } from '../../shared/utils/call-utils';
 
 /**
  * Per-open-cycle state for the session-cycle detail page - component-provided (see
@@ -35,6 +36,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   private readonly config = inject(AppConfigService);
   private readonly route = inject(ActivatedRoute);
   private readonly pinService = inject(PinService);
+  private readonly internalLoggingApi = inject(InternalLoggingApiService);
 
   readonly cycleId = toSignal(this.route.paramMap.pipe(map((params) => params.get('id') ?? '')), { initialValue: '' });
 
@@ -48,15 +50,14 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   /** Captured calls pushed live over WebSocket that the next refresh() hasn't confirmed (with their real backend id) yet. */
   private readonly liveCalls = signal<readonly CallRecord[]>([]);
 
-  /**
-   * Which backend-side source(s) this cycle's captured-calls view is currently reading from -
-   * defaults to 'external' so a cycle nobody ever toggles behaves exactly as before. Mirrors
-   * CallsStateService.callSource; see HeaderComponent's callSource input for how the toggle
-   * itself is rendered.
-   */
-  readonly callSource = signal<CallSource>('external');
+  /** Mirrors CallsStateService.internalServices/inboundLoggingFeatureEnabled exactly - see its doc. */
+  readonly internalServices = signal<readonly InternalCallServiceDto[]>([]);
+  readonly inboundLoggingFeatureEnabled = signal(false);
 
-  /** Live WebSocket subscriptions for the currently-selected source(s) - torn down and rebuilt whenever callSource changes, since 'both' needs two sockets and 'external'/'internal' need exactly one each. */
+  /** Mirrors CallsStateService.selectedSources - see its doc. */
+  readonly selectedSources = signal<ReadonlySet<SourceKey>>(new Set([EXTERNAL_SOURCE_KEY]));
+
+  /** Live WebSocket subscriptions for the currently-selected source(s) - torn down and rebuilt whenever selectedSources changes. */
   private wsSubscriptions: Subscription[] = [];
 
   readonly selectedIds = signal<ReadonlySet<string>>(new Set());
@@ -110,6 +111,17 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       { allowSignalWrites: true }
     );
 
+    this.internalLoggingApi.getFeatureEnabled().subscribe((res) => {
+      this.inboundLoggingFeatureEnabled.set(res.enabled);
+      if (!res.enabled) return;
+      this.internalLoggingApi.getServices().subscribe((services) => {
+        this.internalServices.set(services);
+        this.selectedSources.set(new Set([EXTERNAL_SOURCE_KEY, ...services.map((s) => s.name)]));
+        this.connectLiveUpdates();
+        this.view.resetSource();
+      });
+    });
+
     this.connectLiveUpdates();
   }
 
@@ -120,17 +132,21 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
    * wrapper is peeled off here, with every returned CapturedCall - from either source - recorded
    * into capturedByKey along the way, exactly like the single-source code this replaced did).
    *
-   * 'both' fetches the same offset/limit from each of the two independently-paginated backends in
-   * parallel and merges them. sortCalls only operates on bare CallRecord[], so the merge sorts the
-   * unwrapped `.call` side and maps back to the matching CapturedCall via callKey (sortCalls
-   * reorders in place rather than cloning, but a lookup by content-key is simpler than relying on
-   * that implementation detail). See CallsStateService's identical doc comment for why
-   * 'newest'/'oldest' are substituted with 'newest-call'/'oldest-call' for the merge only, and why
-   * the merged page is trimmed to `query.limit` with `total` as the sum of both sources' totals.
+   * Selecting both external and internal sources fetches the same offset/limit from each of the
+   * two independently-paginated backends in parallel and merges them. sortCalls only operates on
+   * bare CallRecord[], so the merge sorts the unwrapped `.call` side and maps back to the matching
+   * CapturedCall via callKey (sortCalls reorders in place rather than cloning, but a lookup by
+   * content-key is simpler than relying on that implementation detail). See CallsStateService's
+   * identical doc comment for why 'newest'/'oldest' are substituted with 'newest-call'/
+   * 'oldest-call' for the merge only, and why the merged page is trimmed to `query.limit` with
+   * `total` as the sum of both sources' totals.
    */
   private fetchPageForSource(query: CallsQuery): Observable<CallsPageResult> {
     const id = this.cycleId();
-    const source = this.callSource();
+    const selected = this.selectedSources();
+    const wantExternal = selected.has(EXTERNAL_SOURCE_KEY);
+    const internalNames = [...selected].filter((s) => s !== EXTERNAL_SOURCE_KEY);
+    const wantInternal = internalNames.length > 0;
 
     const recordAndUnwrap = (page: { calls: readonly CapturedCall[]; total: number }): CallsPageResult => {
       for (const c of page.calls) {
@@ -139,11 +155,12 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       return { calls: page.calls.map((c) => c.call), total: page.total };
     };
 
-    if (source === 'external') return this.api.listCalls(id, query, 'external').pipe(map(recordAndUnwrap));
-    if (source === 'internal') return this.api.listCalls(id, query, 'internal').pipe(map(recordAndUnwrap));
+    if (wantExternal && !wantInternal) return this.api.listCalls(id, query, 'external').pipe(map(recordAndUnwrap));
+    if (wantInternal && !wantExternal) return this.api.listCalls(id, query, 'internal', internalNames).pipe(map(recordAndUnwrap));
+    if (!wantExternal && !wantInternal) return of({ calls: [], total: 0 });
 
     const mergeSort: SortMode = query.sort === 'newest' ? 'newest-call' : query.sort === 'oldest' ? 'oldest-call' : query.sort;
-    return forkJoin([this.api.listCalls(id, query, 'external'), this.api.listCalls(id, query, 'internal')]).pipe(
+    return forkJoin([this.api.listCalls(id, query, 'external'), this.api.listCalls(id, query, 'internal', internalNames)]).pipe(
       map(([external, internal]) => {
         const allCaptured = [...external.calls, ...internal.calls];
         for (const c of allCaptured) {
@@ -165,14 +182,24 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     );
   }
 
-  /** Switches which backend source(s) this cycle reads from - clears whatever's loaded/live/looked-up (it belonged to the old source(s)) and rebuilds both the REST fetch and the live WebSocket connection(s) to match. Mirrors CallsStateService.setCallSource. */
-  setCallSource(source: CallSource): void {
-    if (this.callSource() === source) return;
-    this.callSource.set(source);
+  /** Flips one source's membership in the selection - clears whatever's loaded/live/looked-up (some of it may no longer belong) and rebuilds both the REST fetch and the live WebSocket connection(s) to match. Mirrors CallsStateService.toggleSource. */
+  toggleSource(key: SourceKey): void {
+    const next = new Set(this.selectedSources());
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    this.selectedSources.set(next);
     this.capturedByKey.clear();
     this.liveCalls.set([]);
     this.connectLiveUpdates();
     this.view.resetSource();
+  }
+
+  /** Mirrors CallsStateService.toggleServiceLogging - see its doc. */
+  toggleServiceLogging(name: string, enabled: boolean): void {
+    this.internalLoggingApi.setEnabled(name, enabled).subscribe((services) => this.internalServices.set(services));
   }
 
   private customOrderStorageKey(cycleId: string): string {
@@ -217,19 +244,20 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   /**
    * Pushes a captured call onto the page the instant it's recorded, and immediately triggers a
    * refresh() for the authoritative page - there's no 5s poll to eventually pick it up otherwise.
-   * Mirrors CallsStateService.connectLiveUpdates: one socket per currently-selected source(s),
-   * torn down and reconnected whenever callSource changes (also called from setCallSource).
+   * Mirrors CallsStateService.connectLiveUpdates: one socket per distinct backend store actually
+   * needed, torn down and reconnected whenever selectedSources changes (also called from
+   * toggleSource).
    */
   private connectLiveUpdates(): void {
     this.wsSubscriptions.forEach((sub) => sub.unsubscribe());
     this.wsSubscriptions = [];
 
-    const source = this.callSource();
+    const selected = this.selectedSources();
     const wsBase = this.config.backendUrl.replace(/^http/, 'ws');
-    if (source === 'external' || source === 'both') {
+    if (selected.has(EXTERNAL_SOURCE_KEY)) {
       this.wsSubscriptions.push(this.subscribeToWs<CallsWsMessage>(`${wsBase}/ws/calls`, 'external'));
     }
-    if (source === 'internal' || source === 'both') {
+    if ([...selected].some((s) => s !== EXTERNAL_SOURCE_KEY)) {
       this.wsSubscriptions.push(this.subscribeToWs<InternalCallsWsMessage>(`${wsBase}/ws/internal-calls`, 'internal'));
     }
   }
@@ -252,6 +280,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     const id = this.cycleId();
     if (!id || !message.capturedByCycleIds.includes(id)) return;
     const call = toCallRecord(message.call, source);
+    // See CallsStateService's identical check for why - the /ws/internal-calls socket pushes
+    // every internal project's captured calls regardless of which ones are actually selected.
+    if (source === 'internal' && !this.selectedSources().has(sourceKeyOf(call))) return;
     // Matched by id, not callKey - see CallsStateService's identical change for why (two-phase
     // logging pushes the same call twice, once IN_PROGRESS then once resolved).
     this.liveCalls.set([call, ...this.liveCalls().filter((c) => c.id !== call.id)]);

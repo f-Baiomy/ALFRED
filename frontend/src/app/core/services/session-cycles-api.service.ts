@@ -81,8 +81,9 @@ export class SessionCyclesApiService {
     return this.http.delete<void>(`${this.baseUrl}/${id}`);
   }
 
-  listCalls(id: string, query: CallsQuery, source: CallEndpointSource = 'external'): Observable<CapturedCallsPageResult> {
-    const params = new HttpParams()
+  /** `serviceNames` (internal only - ignored for 'external') narrows the result to just those named projects (plus "unknown"), server-side - see the Sources bar/SessionCycleDetailStateService.selectedSources. Omitted/empty means no filter, every project. */
+  listCalls(id: string, query: CallsQuery, source: CallEndpointSource = 'external', serviceNames?: readonly string[]): Observable<CapturedCallsPageResult> {
+    let params = new HttpParams()
       .set('search', query.search)
       .set('supplier', query.supplier)
       .set('sort', query.sort)
@@ -91,6 +92,9 @@ export class SessionCyclesApiService {
       .set('sessionId', query.sessionId)
       .set('operationId', query.operationId)
       .set('requestId', query.requestId);
+    if (source === 'internal' && serviceNames?.length) {
+      params = params.set('serviceNames', serviceNames.join(','));
+    }
     return this.http.get<CapturedCallsPageDto>(`${this.baseUrl}/${id}/${endpointSegmentFor(source)}`, { params }).pipe(
       map((page) => ({
         calls: page.calls.map((c) => ({ id: c.id, capturedAt: c.capturedAt, call: toCallRecord(c.call, source) })),

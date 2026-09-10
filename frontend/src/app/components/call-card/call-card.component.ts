@@ -2,10 +2,13 @@ import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inje
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { CallDetail, CallRecord } from '../../core/models/call.model';
 import {
+  EXTERNAL_SOURCE_KEY,
   callKey,
   durationClass as durationClassOf,
   isInProgress,
   methodClass as methodClassOf,
+  sourceKeyOf,
+  sourceLabelOf,
   statusClass as statusClassOf,
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
@@ -57,6 +60,14 @@ export class CallCardComponent {
   readonly methodClass = computed(() => methodClassOf(this.call().method));
   readonly statusClass = computed(() => statusClassOf(this.call().response?.status ?? null));
   readonly durationClass = computed(() => durationClassOf(this.call().duration_ms));
+  readonly sourceLabel = computed(() => sourceLabelOf(this.call()));
+  /** 'unknown' gets its own warning tint (a request that never matched a configured project); a real project name gets the neutral tinted badge; 'external' (the common case) gets the plain, unremarkable one. */
+  readonly sourceBadgeClass = computed(() => {
+    const key = sourceKeyOf(this.call());
+    if (key === EXTERNAL_SOURCE_KEY) return 'source-badge-external';
+    if (key === 'unknown') return 'source-badge-unknown';
+    return 'source-badge';
+  });
   readonly inProgress = computed(() => isInProgress(this.call()));
   /** Network/proxy failures and 5xx responses - a real error on our or the supplier's side. */
   readonly hasError = computed(() => {

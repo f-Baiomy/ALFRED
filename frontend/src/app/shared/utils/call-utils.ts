@@ -22,8 +22,24 @@ export function toCallRecord(dto: CallSummaryDto, source?: CallEndpointSource): 
     state: dto.state,
     session_id: dto.session_id,
     operation_id: dto.operation_id,
+    service_name: dto.service_name,
     source,
   };
+}
+
+/** Reserved key for a call that has no service_name - every external call, plus an internal one logged before this field existed (see CallRecord.service_name's doc). Must match backend's LoggingToggleService.UNKNOWN_NAME/proxy's UNKNOWN_NAME for the "unknown" case, but 'external' itself is a frontend-only concept - the backend has no such name. */
+export const EXTERNAL_SOURCE_KEY = 'external';
+
+/** Which Sources-bar entry a call belongs to - its own service_name if it has one (an internal call, including its "unknown" bucket), else the reserved 'external' key. See SourceKey's doc. */
+export function sourceKeyOf(call: CallRecord): string {
+  return call.service_name ?? EXTERNAL_SOURCE_KEY;
+}
+
+/** Display label for sourceKeyOf() - 'external' becomes "External", everything else (a real project name, or "unknown") is shown title-cased as-is. */
+export function sourceLabelOf(call: CallRecord): string {
+  const key = sourceKeyOf(call);
+  if (key === EXTERNAL_SOURCE_KEY) return 'External';
+  return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
 /** Whether a call is still awaiting its upstream response (two-phase logging) - a call with this state has no response/error yet, not to be confused with one that legitimately failed or never carried a status. */

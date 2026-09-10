@@ -216,10 +216,11 @@ public class SessionCyclesController {
             @RequestParam(defaultValue = "10") int limit,
             @RequestParam(defaultValue = "") String sessionId,
             @RequestParam(defaultValue = "") String operationId,
-            @RequestParam(defaultValue = "") String requestId
+            @RequestParam(defaultValue = "") String requestId,
+            @RequestParam(defaultValue = "") String serviceNames
     ) {
         return listCapturedInternalCallsUseCase.listCalls(id, new com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery(
-                        search, supplier, sort, offset, limit, sessionId, operationId, requestId))
+                        search, supplier, sort, offset, limit, sessionId, operationId, requestId, serviceNames))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

@@ -74,7 +74,7 @@ public class SessionCyclesInternalCallsService implements
 
             CallListSupport.Page<CapturedInternalCallSummary> page = capturedInternalCallsStore.query(
                     cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
-                    query.sessionId(), query.operationId(), query.requestId());
+                    query.sessionId(), query.operationId(), query.requestId(), query.serviceNames());
             return new CapturedInternalCallsPage(page.items(), page.total());
         });
     }

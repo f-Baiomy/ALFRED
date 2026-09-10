@@ -31,34 +31,47 @@ class FileLoggingToggleAdapterTest {
     void defaultsToEnabledWhenTheFileDoesNotExist() {
         FileLoggingToggleAdapter adapter = newAdapter(tempDir.resolve("missing.flag"));
 
-        assertThat(adapter.isEnabled()).isTrue();
+        assertThat(adapter.isEnabled("odeysys")).isTrue();
     }
 
     @Test
-    void offIsCaseInsensitiveAndWhitespaceTolerant() throws IOException {
+    void defaultsToEnabledWhenTheNameHasNoLineYet() throws IOException {
         Path file = tempDir.resolve("flag");
-        Files.writeString(file, "  OFF  \n");
+        Files.writeString(file, "core-service=off\n");
 
-        assertThat(newAdapter(file).isEnabled()).isFalse();
+        assertThat(newAdapter(file).isEnabled("odeysys")).isTrue();
     }
 
     @Test
-    void anyContentOtherThanOffCountsAsEnabled() throws IOException {
+    void offIsCaseInsensitiveAndWhitespaceTolerantForItsOwnName() throws IOException {
         Path file = tempDir.resolve("flag");
-        Files.writeString(file, "on\n");
+        Files.writeString(file, "  odeysys = OFF  \n");
 
-        assertThat(newAdapter(file).isEnabled()).isTrue();
+        assertThat(newAdapter(file).isEnabled("odeysys")).isFalse();
     }
 
     @Test
-    void setEnabledRoundTripsThroughIsEnabled() {
-        FileLoggingToggleAdapter adapter = newAdapter(tempDir.resolve("flag"));
+    void namesAreIndependent() throws IOException {
+        Path file = tempDir.resolve("flag");
+        Files.writeString(file, "odeysys=off\ncore-service=on\n");
 
-        adapter.setEnabled(false);
-        assertThat(adapter.isEnabled()).isFalse();
+        FileLoggingToggleAdapter adapter = newAdapter(file);
+        assertThat(adapter.isEnabled("odeysys")).isFalse();
+        assertThat(adapter.isEnabled("core-service")).isTrue();
+    }
 
-        adapter.setEnabled(true);
-        assertThat(adapter.isEnabled()).isTrue();
+    @Test
+    void setEnabledRoundTripsThroughIsEnabledWithoutAffectingOtherNames() {
+        Path file = tempDir.resolve("flag");
+        FileLoggingToggleAdapter adapter = newAdapter(file);
+        adapter.setEnabled("core-service", true);
+
+        adapter.setEnabled("odeysys", false);
+        assertThat(adapter.isEnabled("odeysys")).isFalse();
+        assertThat(adapter.isEnabled("core-service")).isTrue();
+
+        adapter.setEnabled("odeysys", true);
+        assertThat(adapter.isEnabled("odeysys")).isTrue();
     }
 
     @Test
@@ -66,9 +79,9 @@ class FileLoggingToggleAdapterTest {
         Path file = tempDir.resolve("nested/dir/flag");
         FileLoggingToggleAdapter adapter = newAdapter(file);
 
-        adapter.setEnabled(false);
+        adapter.setEnabled("odeysys", false);
 
         assertThat(Files.exists(file)).isTrue();
-        assertThat(adapter.isEnabled()).isFalse();
+        assertThat(adapter.isEnabled("odeysys")).isFalse();
     }
 }

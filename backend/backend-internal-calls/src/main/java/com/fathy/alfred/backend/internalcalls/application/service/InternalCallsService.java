@@ -64,7 +64,7 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
 
         CallListSupport.Page<CallSummary> page = callLogPort.query(
                 query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
-                query.sessionId(), query.operationId(), query.requestId());
+                query.sessionId(), query.operationId(), query.requestId(), query.serviceNames());
         return new CallsPage(page.items(), page.total());
     }
 
@@ -89,7 +89,7 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
         String id = valueOrGenerated(partial.id());
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
-                partial.sessionId(), partial.operationId());
+                partial.sessionId(), partial.operationId(), partial.serviceName());
         callLogPort.prepare(prepared);
         notificationPort.notifyCallPrepared(prepared);
         return Optional.of(id);
