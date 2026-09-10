@@ -4,6 +4,7 @@ import {
   durationClass,
   methodClass,
   sortCalls,
+  splitCallsForDisplay,
   statusClass,
   statusRank,
   supplierOf,
@@ -171,6 +172,52 @@ describe('methodClass', () => {
     expect(methodClass('POST')).toBe('method-POST');
     expect(methodClass('post')).toBe('method-POST');
     expect(methodClass('TRACE')).toBe('method-DEFAULT');
+  });
+});
+
+describe('splitCallsForDisplay', () => {
+  it('never splits an external call, regardless of sort mode', () => {
+    const call = makeCall({ source: 'external' });
+    for (const mode of ['newest', 'oldest', 'newest-call', 'oldest-call', 'status', 'custom'] as const) {
+      const rows = splitCallsForDisplay([call], mode);
+      expect(rows).toEqual([{ call, variant: 'full', rowKey: call.id }]);
+    }
+  });
+
+  it('produces only a request row for an in-progress internal call', () => {
+    const call = makeCall({ source: 'internal', state: 'IN_PROGRESS', response: undefined, duration_ms: 0 });
+    const rows = splitCallsForDisplay([call], 'newest');
+    expect(rows).toEqual([{ call, variant: 'request', rowKey: `${call.id}::request` }]);
+  });
+
+  it('produces a request row then a response row (chronologically) for a resolved internal call', () => {
+    const call = makeCall({ id: 'call-1', source: 'internal', state: 'COMPLETED', timestamp: '2026-01-01T00:00:00.000Z', duration_ms: 100 });
+    const oldestFirst = splitCallsForDisplay([call], 'oldest-call');
+    expect(oldestFirst.map((r) => r.variant)).toEqual(['request', 'response']);
+    expect(oldestFirst.map((r) => r.rowKey)).toEqual(['call-1::request', 'call-1::response']);
+    expect(oldestFirst.map((r) => r.call)).toEqual([call, call]);
+
+    const newestFirst = splitCallsForDisplay([call], 'newest-call');
+    expect(newestFirst.map((r) => r.variant)).toEqual(['response', 'request']);
+  });
+
+  it('interleaves request/response rows from multiple internal calls in true chronological order', () => {
+    const a = makeCall({ id: 'a', source: 'internal', state: 'COMPLETED', timestamp: '2026-01-01T00:00:00.000Z', duration_ms: 500 });
+    const b = makeCall({ id: 'b', source: 'internal', state: 'COMPLETED', timestamp: '2026-01-01T00:00:00.100Z', duration_ms: 50 });
+    // a starts first but finishes after b starts and after b finishes: a-request, b-request, b-response, a-response.
+    const rows = splitCallsForDisplay([a, b], 'oldest-call');
+    expect(rows.map((r) => r.rowKey)).toEqual(['a::request', 'b::request', 'b::response', 'a::response']);
+  });
+
+  it('returns one unsplit full row per call for a non-chronological sort mode, even for internal calls', () => {
+    const calls = [
+      makeCall({ id: 'a', source: 'internal', state: 'COMPLETED' }),
+      makeCall({ id: 'b', source: 'external' }),
+    ];
+    for (const mode of ['slowest', 'fastest', 'status', 'custom'] as const) {
+      const rows = splitCallsForDisplay(calls, mode);
+      expect(rows).toEqual(calls.map((call) => ({ call, variant: 'full', rowKey: call.id })));
+    }
   });
 });
 

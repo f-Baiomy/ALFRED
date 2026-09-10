@@ -1,6 +1,16 @@
 import { CallEndpointSource, CallRecord, CallSummaryDto, SortMode } from '../../core/models/call.model';
 
 /**
+ * One rendered row in the flat call list - either a whole call ('full', today's behavior) or one
+ * half of an internal call split across two rows ('request'/'response'). See splitCallsForDisplay().
+ */
+export interface CallListRow {
+  readonly call: CallRecord;
+  readonly variant: 'request' | 'response' | 'full';
+  readonly rowKey: string;
+}
+
+/**
  * Converts a wire-format summary into the frontend's CallRecord shape (nested `response.status`,
  * matching what a hydrated call looks like) - `request`/`response.headers`/`response.body` stay
  * undefined until GET /calls/{id}/detail fills them in. `source` is stamped client-side (not part
@@ -178,4 +188,42 @@ const KNOWN_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 export function methodClass(method: string | undefined): string {
   const m = (method || '').toUpperCase();
   return KNOWN_METHODS.includes(m) ? `method-${m}` : 'method-DEFAULT';
+}
+
+/** Chronological sort modes are the only ones where "request row, then later, response row" reads as a coherent timeline - see splitCallsForDisplay(). */
+const CHRONOLOGICAL_SORT_MODES: ReadonlySet<SortMode> = new Set(['newest', 'oldest', 'newest-call', 'oldest-call']);
+
+/** When a resolved internal call's response row should sort - its request's timestamp plus however long it took, so the response row lands after everything that happened before it finished, not back at its request's own timestamp. */
+function responseTimeMs(call: CallRecord): number {
+  return new Date(call.timestamp).getTime() + (call.duration_ms ?? 0);
+}
+
+/**
+ * Expands a call list into display rows for the flat list: an internal call (source === 'internal')
+ * becomes a 'request' row plus (once resolved) a 'response' row, sharing the call's own id as the
+ * correlation key - no new correlation-id concept. External calls, and internal calls when the sort
+ * mode isn't chronological (or the list itself isn't in call-timeline order - grouped-by-supplier,
+ * pinned, or manually reordered), stay a single 'full' row exactly as before: splitting a call
+ * across two rows only has a coherent reading order when the list itself is time-ordered.
+ */
+export function splitCallsForDisplay(calls: readonly CallRecord[], sortMode: SortMode): CallListRow[] {
+  if (!CHRONOLOGICAL_SORT_MODES.has(sortMode)) {
+    return calls.map((call) => ({ call, variant: 'full' as const, rowKey: call.id }));
+  }
+
+  const rows: Array<{ row: CallListRow; sortTime: number }> = [];
+  for (const call of calls) {
+    if (call.source !== 'internal') {
+      rows.push({ row: { call, variant: 'full', rowKey: call.id }, sortTime: new Date(call.timestamp).getTime() });
+      continue;
+    }
+    rows.push({ row: { call, variant: 'request', rowKey: `${call.id}::request` }, sortTime: new Date(call.timestamp).getTime() });
+    if (!isInProgress(call)) {
+      rows.push({ row: { call, variant: 'response', rowKey: `${call.id}::response` }, sortTime: responseTimeMs(call) });
+    }
+  }
+
+  const descending = sortMode === 'newest' || sortMode === 'newest-call';
+  rows.sort((a, b) => (descending ? b.sortTime - a.sortTime : a.sortTime - b.sortTime));
+  return rows.map((r) => r.row);
 }

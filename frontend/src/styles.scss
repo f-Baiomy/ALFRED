@@ -1005,6 +1005,14 @@ main {
   }
 }
 
+/** A split internal call's request row, once resolved - deliberately neutral/muted (unlike
+    .status-2xx/.status-err etc.) since the real status code and duration belong to its response row. */
+.status-sent {
+  background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
 .duration {
   font-size: 0.72rem;
   padding: 0.22rem 0.55rem;

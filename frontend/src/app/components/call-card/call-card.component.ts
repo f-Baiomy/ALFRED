@@ -55,12 +55,26 @@ export class CallCardComponent {
    * (a session-cycle detail page, ungrouped, with CALL_REORDER_STATE bound) - drives whether the
    * drag-handle grip icon renders at all. The dashboard never sets this. */
   readonly dragHandle = input<boolean>(false);
+  /**
+   * 'full' (the default) renders exactly as before: one card with both request and response.
+   * 'request'/'response' are the two halves of a split internal call (see splitCallsForDisplay()
+   * in call-utils.ts) - only ever passed by the flat, chronological list. A 'request' row never
+   * shows error/warning styling or a status/duration (that's the response row's job) and settles
+   * to a plain "Sent" badge once resolved; a 'response' row is never in-progress (it only exists
+   * once resolved) and shows the real status/duration exactly like a 'full' row does today.
+   */
+  readonly variant = input<'request' | 'response' | 'full'>('full');
 
   readonly idBase = computed(() => callKey(this.call()));
   readonly methodClass = computed(() => methodClassOf(this.call().method));
   readonly statusClass = computed(() => statusClassOf(this.call().response?.status ?? null));
   readonly durationClass = computed(() => durationClassOf(this.call().duration_ms));
-  readonly sourceLabel = computed(() => sourceLabelOf(this.call()));
+  readonly sourceLabel = computed(() => {
+    const label = sourceLabelOf(this.call());
+    if (this.variant() === 'request') return `${label} · request`;
+    if (this.variant() === 'response') return `${label} · response`;
+    return label;
+  });
   /** 'unknown' gets its own warning tint (a request that never matched a configured project); a real project name gets the neutral tinted badge; 'external' (the common case) gets the plain, unremarkable one. */
   readonly sourceBadgeClass = computed(() => {
     const key = sourceKeyOf(this.call());
@@ -69,16 +83,21 @@ export class CallCardComponent {
     return 'source-badge';
   });
   readonly inProgress = computed(() => isInProgress(this.call()));
-  /** Network/proxy failures and 5xx responses - a real error on our or the supplier's side. */
+  /** Network/proxy failures and 5xx responses - a real error on our or the supplier's side. A
+   * 'request' row never shows this: error/warning styling belongs to the response half, so a
+   * resolved internal call's request row reads as neutral rather than red/orange. */
   readonly hasError = computed(() => {
+    if (this.variant() === 'request') return false;
     if (this.inProgress()) return false;
     if (this.call().error) return true;
     const status = this.call().response?.status;
     return status != null && status >= 500;
   });
   /** 4xx responses - the call completed but the supplier rejected it (validation/business rule),
-   * distinct from hasError since nothing actually broke on either side. */
+   * distinct from hasError since nothing actually broke on either side. Same request-row exemption
+   * as hasError above. */
   readonly hasWarning = computed(() => {
+    if (this.variant() === 'request') return false;
     if (this.inProgress() || this.hasError()) return false;
     const status = this.call().response?.status;
     return status != null && status >= 400 && status < 500;

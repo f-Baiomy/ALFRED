@@ -277,6 +277,101 @@ describe('buildBulkExportHtml', () => {
     expect(html).toContain('⚠️');
     expect(html).toContain('boom');
   });
+
+  it('an external call stays a single unsplit block, exactly as before', () => {
+    const call = makeCall({ source: 'external' });
+    const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(html).toContain('<b>Call 1</b>');
+    expect(html).not.toContain('&middot; request');
+    expect(html).not.toContain('&middot; response');
+    expect((html.match(/<a id="call-1[^"]*"/g) ?? [])).toEqual(['<a id="call-1"']);
+  });
+
+  it('splits a resolved internal call into a request block and a response block, correlated by the same call number, both closed by default', () => {
+    const call = makeCall({
+      source: 'internal',
+      service_name: 'core-service',
+      timestamp: '2026-08-07T13:45:51.965328+00:00',
+      duration_ms: 1000,
+    });
+    const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(html).toContain('id="call-1"');
+    expect(html).toContain('id="call-1-response"');
+    expect(html).toContain('<b>Call 1</b> &middot; request');
+    expect(html).toContain('<b>Call 1</b> &middot; response');
+    expect(html).not.toContain('<details open');
+    expect(html).not.toContain('<details class="json-block" open');
+
+    const requestBlock = html.slice(html.indexOf('<b>Call 1</b> &middot; request'), html.indexOf('<b>Call 1</b> &middot; response'));
+    expect(requestBlock).toContain('📤 Request');
+    expect(requestBlock).not.toContain('📥 Response');
+    // Settles to a plain "sent" marker, never "pending" - a request block only ever exists for a
+    // call that has already resolved (see isSplitInternalCall), so "pending" would misrepresent it.
+    expect(requestBlock).not.toContain('pending');
+    expect(requestBlock).toContain('sent');
+
+    const responseBlock = html.slice(html.indexOf('<b>Call 1</b> &middot; response'));
+    expect(responseBlock).toContain('📥 Response');
+    // Response block's own section shouldn't repeat a Request heading (script/style/footer text elsewhere is fine).
+    const responseSectionOnly = responseBlock.slice(0, responseBlock.indexOf('</details>'));
+    expect(responseSectionOnly).not.toContain('📤 Request');
+  });
+
+  it('does not split an internal call that is still in-progress - it stays one block with no fabricated response', () => {
+    const call = makeCall({ source: 'internal', response: undefined, error: undefined, state: 'IN_PROGRESS' });
+    const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(html).not.toContain('&middot; request');
+    expect(html).not.toContain('&middot; response');
+  });
+
+  it('forces chronological order regardless of input order, and interleaves a split internal call around calls that fall in between', () => {
+    const odeysys = makeCall({
+      id: 'odeysys',
+      source: 'internal',
+      service_name: 'odeysys',
+      timestamp: '2026-08-07T10:00:00.000Z',
+      duration_ms: 5000,
+    });
+    const external = makeCall({
+      id: 'external-call',
+      source: 'external',
+      timestamp: '2026-08-07T10:00:02.000Z',
+      duration_ms: 100,
+    });
+
+    const html = buildBulkExportHtml([external, odeysys], makeForm(), new Map(), EXPORTED_AT);
+
+    const odeysysReqIdx = html.indexOf('id="call-1"');
+    const externalIdx = html.indexOf('id="call-2"');
+    const odeysysResIdx = html.indexOf('id="call-1-response"');
+
+    expect(odeysysReqIdx).toBeGreaterThan(-1);
+    expect(externalIdx).toBeGreaterThan(-1);
+    expect(odeysysResIdx).toBeGreaterThan(-1);
+    expect(odeysysReqIdx).toBeLessThan(externalIdx);
+    expect(externalIdx).toBeLessThan(odeysysResIdx);
+  });
+
+  it("a request block only shows its own request-side flagged issues, and a response block only its own response-side ones", () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const comments: Comment[] = [
+      makeComment({ id: 'c1', block: 'request-body', comment: 'request-side issue' }),
+      makeComment({ id: 'c2', block: 'response-body', comment: 'response-side issue' }),
+    ];
+    const commentsByCallId = new Map<string, Comment[]>([[call.id, comments]]);
+    const html = buildBulkExportHtml([call], makeForm(), commentsByCallId, EXPORTED_AT);
+
+    const requestBlock = html.slice(html.indexOf('<b>Call 1</b> &middot; request'), html.indexOf('<b>Call 1</b> &middot; response'));
+    const responseBlock = html.slice(html.indexOf('<b>Call 1</b> &middot; response'), html.indexOf('<script>'));
+
+    expect(requestBlock).toContain('request-side issue');
+    expect(requestBlock).not.toContain('response-side issue');
+    expect(responseBlock).toContain('response-side issue');
+    expect(responseBlock).not.toContain('request-side issue');
+  });
 });
 
 describe('bulkExportHtmlFilename', () => {

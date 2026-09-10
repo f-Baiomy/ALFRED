@@ -2,7 +2,7 @@ import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
-import { callKey, supplierOf, uriPath } from './call-utils';
+import { callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 
 function metadataValue(value: string): string {
   return value && value.trim().length > 0 ? value : '_(none provided)_';
@@ -173,12 +173,133 @@ function statusCell(call: CallRecord): string {
 }
 
 /**
+ * One rendered block in the bulk report: a whole call ('full', today's behavior - always used for
+ * external calls) or one half of a split internal call ('request'/'response'). See
+ * buildRenderBlocks() - mirrors call-utils.ts's splitCallsForDisplay()/CallListRow, but this file's
+ * split is driven purely by "is this an internal, resolved call", not by the live list's sort mode.
+ */
+interface RenderBlock {
+  readonly call: CallRecord;
+  readonly n: number;
+  readonly variant: 'request' | 'response' | 'full';
+  readonly sortTime: number;
+}
+
+/** An internal call only reads sensibly as two separate blocks once it actually has a response or error - a still-in-progress internal call stays a single (incomplete) block rather than fabricating an empty response half. */
+function isSplitInternalCall(call: CallRecord): boolean {
+  return call.source === 'internal' && (call.response !== undefined || call.error !== undefined) && !isInProgress(call);
+}
+
+/**
+ * Expands the (already chronologically sorted) calls into their rendered blocks, then re-sorts by
+ * each block's own effective time - a response block's time is its call's timestamp plus its
+ * duration, so it can legitimately land after another call's request block that started later but
+ * finished/was captured first. This is what produces the "Odeysys-request, core-service-request,
+ * external-call, core-service-response, odeysys-response" interleaving from the spec.
+ */
+function buildRenderBlocks(sortedCalls: readonly CallRecord[]): RenderBlock[] {
+  const blocks: RenderBlock[] = [];
+  sortedCalls.forEach((call, i) => {
+    const n = i + 1;
+    const baseTime = new Date(call.timestamp).getTime();
+    if (isSplitInternalCall(call)) {
+      blocks.push({ call, n, variant: 'request', sortTime: baseTime });
+      blocks.push({ call, n, variant: 'response', sortTime: baseTime + (call.duration_ms ?? 0) });
+    } else {
+      blocks.push({ call, n, variant: 'full', sortTime: baseTime });
+    }
+  });
+  blocks.sort((a, b) => a.sortTime - b.sortTime);
+  return blocks;
+}
+
+function blockAnchor(block: RenderBlock): string {
+  return block.variant === 'response' ? `call-${block.n}-response` : `call-${block.n}`;
+}
+
+function blockSuffix(block: RenderBlock): string {
+  return block.variant === 'full' ? '' : ` · ${block.variant}`;
+}
+
+/**
+ * A request block only ever exists for a call that has ALREADY resolved (see isSplitInternalCall -
+ * a still-in-progress call stays a single 'full' block, never 'request'), so this must never say
+ * "pending" - it settles to a plain "sent" marker exactly like the live list's request row does
+ * once its paired response arrives, and the real outcome shows on the response block instead.
+ */
+function blockStatusCell(block: RenderBlock): string {
+  return block.variant === 'request' ? '➡️ sent' : statusCell(block.call);
+}
+
+/** A request block's own flagged issues are request-side only (it can't show a response-side flag that hasn't arrived yet); a response block's are response-side only; a full block keeps showing everything, exactly as today. */
+function commentsForVariant(comments: readonly Comment[], variant: RenderBlock['variant']): Comment[] {
+  if (variant === 'request') return comments.filter((c) => c.block.startsWith('request'));
+  if (variant === 'response') return comments.filter((c) => c.block.startsWith('response'));
+  return [...comments];
+}
+
+function renderBlockBody(block: RenderBlock, allComments: readonly Comment[]): string[] {
+  const { call, variant } = block;
+  const comments = commentsForVariant(allComments, variant);
+  const lines: string[] = [];
+
+  lines.push(`- **Method:** \`${call.method}\``);
+  lines.push(`- **URL:** ${call.url}`);
+  if (variant !== 'response') {
+    lines.push(`- **Timestamp:** ${call.timestamp}`);
+  }
+  if (variant !== 'request') {
+    lines.push(`- **Status:** ${call.response ? `\`${call.response.status}\`` : call.error ? `⚠️ ${call.error}` : '`?`'}`);
+    if (variant === 'response') {
+      lines.push(`- **Received:** ${new Date(new Date(call.timestamp).getTime() + (call.duration_ms ?? 0)).toISOString()}`);
+    }
+    if (call.duration_ms != null) {
+      lines.push(`- **Duration:** ${formatMs(call.duration_ms)}`);
+    }
+  }
+  lines.push('');
+
+  const flagged = flaggedIssuesSection(comments, 4);
+  if (flagged) lines.push(flagged);
+
+  if (variant !== 'response') {
+    lines.push('#### 📤 Request', '');
+    lines.push(headersBlock(call.request?.headers, commentsForBlock(allComments, 'request-headers')));
+    lines.push('');
+    lines.push(codeBlock('Body', call.request?.body, commentsForBlock(allComments, 'request-body')));
+    lines.push('');
+  }
+
+  if (variant !== 'request') {
+    if (call.error) {
+      const suffix = call.response ? '' : ' No response was received for this call.';
+      lines.push(`> ⚠️ **Error:** ${call.error}${suffix}`, '');
+    }
+    if (call.response) {
+      lines.push('#### 📥 Response', '');
+      lines.push(headersBlock(call.response.headers, commentsForBlock(allComments, 'response-headers')));
+      lines.push('');
+      lines.push(codeBlock('Body', call.response.body, commentsForBlock(allComments, 'response-body')));
+      lines.push('');
+    }
+  }
+
+  return lines;
+}
+
+/**
  * One combined report for several calls at once - a summary table up top
  * (so a reader can scan status/duration before diving in) followed by every
  * call's full detail, each collapsed into its own `<details open>` block
  * (open by default, unlike the Headers/Body blocks inside it) so a long
  * multi-call report still reads as a scannable list of headings rather
  * than one continuous wall of JSON.
+ *
+ * Internal calls (call.source === 'internal') that have resolved render as two separate,
+ * flat/non-nested blocks - a request block and a response block - so the export reads in real
+ * chronological order (e.g. request, request, external call, response, response) instead of
+ * request+response always sitting glued together. External calls, and internal calls that haven't
+ * resolved yet, always render as a single block exactly as before. See buildRenderBlocks().
  */
 export function buildBulkExportMarkdown(
   calls: readonly CallRecord[],
@@ -193,6 +314,12 @@ export function buildBulkExportMarkdown(
   const totalFlagged = [...commentsByCallId.values()].reduce((sum, list) => sum + list.length, 0);
   const callWord = calls.length === 1 ? 'Call' : 'Calls';
 
+  // The request/response sandwich split only reads sensibly in real time order - a caller may pass
+  // pinned-first/supplier-grouped/custom-drag order, which would otherwise interleave nonsensically
+  // once a call is split into two blocks. Sort a local copy; never mutate/reorder for the caller.
+  const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const blocks = buildRenderBlocks(sortedCalls);
+
   lines.push(`# 📋 API Calls Export — ${calls.length} ${callWord}`, '');
   lines.push(
     `**Exported:** ${exportedAt} &nbsp;•&nbsp; **Succeeded:** ${succeeded} ✅ &nbsp;•&nbsp; **Failed:** ${failed} ❌ &nbsp;•&nbsp; **Total duration:** ${formatMs(totalDurationMs)}`,
@@ -206,59 +333,32 @@ export function buildBulkExportMarkdown(
 
   lines.push('## 📊 Summary', '');
   lines.push('| # | Method | Path | Status | Duration | Flagged |', '|---|--------|------|--------|----------|---------|');
-  calls.forEach((call, i) => {
-    const n = i + 1;
-    const flaggedCount = commentsByCallId.get(call.id)?.length ?? 0;
-    const duration = call.duration_ms != null ? formatMs(call.duration_ms) : '—';
+  blocks.forEach((block) => {
+    const { call } = block;
+    const comments = commentsForVariant(commentsByCallId.get(call.id) ?? [], block.variant);
+    const flaggedCount = comments.length;
+    const duration = block.variant !== 'request' && call.duration_ms != null ? formatMs(call.duration_ms) : '—';
     const flaggedCell = flaggedCount > 0 ? `🚩 ${flaggedCount} issue${flaggedCount === 1 ? '' : 's'}` : '—';
     lines.push(
-      `| [${n}](#call-${n}) | \`${call.method}\` | \`${uriPath(call.url)}\` | ${statusCell(call)} | ${duration} | ${flaggedCell} |`
+      `| [${block.n}${blockSuffix(block)}](#${blockAnchor(block)}) | \`${call.method}\` | \`${uriPath(call.url)}\` | ${blockStatusCell(block)} | ${duration} | ${flaggedCell} |`
     );
   });
   lines.push('', '---', '');
 
   lines.push('## 🔗 Calls', '');
 
-  calls.forEach((call, i) => {
-    const n = i + 1;
-    const comments = commentsByCallId.get(call.id) ?? [];
+  blocks.forEach((block) => {
+    const { call } = block;
+    const allComments = commentsByCallId.get(call.id) ?? [];
 
-    lines.push(`<a id="call-${n}"></a>`);
+    lines.push(`<a id="${blockAnchor(block)}"></a>`);
     lines.push('<details open>');
     lines.push(
-      `<summary><b>Call ${n}</b> &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${statusCell(call)}</summary>`,
+      `<summary><b>Call ${block.n}</b>${blockSuffix(block)} &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${blockStatusCell(block)}</summary>`,
       ''
     );
 
-    lines.push(`- **Method:** \`${call.method}\``);
-    lines.push(`- **URL:** ${call.url}`);
-    lines.push(`- **Status:** ${call.response ? `\`${call.response.status}\`` : call.error ? `⚠️ ${call.error}` : '`?`'}`);
-    lines.push(`- **Timestamp:** ${call.timestamp}`);
-    if (call.duration_ms != null) {
-      lines.push(`- **Duration:** ${formatMs(call.duration_ms)}`);
-    }
-    lines.push('');
-
-    const flagged = flaggedIssuesSection(comments, 4);
-    if (flagged) lines.push(flagged);
-
-    lines.push('#### 📤 Request', '');
-    lines.push(headersBlock(call.request?.headers, commentsForBlock(comments, 'request-headers')));
-    lines.push('');
-    lines.push(codeBlock('Body', call.request?.body, commentsForBlock(comments, 'request-body')));
-    lines.push('');
-
-    if (call.error) {
-      const suffix = call.response ? '' : ' No response was received for this call.';
-      lines.push(`> ⚠️ **Error:** ${call.error}${suffix}`, '');
-    }
-    if (call.response) {
-      lines.push('#### 📥 Response', '');
-      lines.push(headersBlock(call.response.headers, commentsForBlock(comments, 'response-headers')));
-      lines.push('');
-      lines.push(codeBlock('Body', call.response.body, commentsForBlock(comments, 'response-body')));
-      lines.push('');
-    }
+    lines.push(...renderBlockBody(block, allComments));
 
     lines.push('</details>', '');
   });

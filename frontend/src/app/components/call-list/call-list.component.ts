@@ -3,7 +3,7 @@ import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk
 import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/call-selection.tokens';
 import { CallRecord } from '../../core/models/call.model';
 import { PinService } from '../../core/services/pin.service';
-import { callKey } from '../../shared/utils/call-utils';
+import { CallListRow, callKey } from '../../shared/utils/call-utils';
 import { CallCardComponent } from '../call-card/call-card.component';
 import { SupplierGroupComponent } from '../supplier-group/supplier-group.component';
 
@@ -34,6 +34,7 @@ export class CallListComponent {
   readonly infiniteScroll = input(true);
 
   readonly trackByCallKey = callKey;
+  readonly trackByRowKey = (row: CallListRow) => row.rowKey;
 
   readonly pinnedCalls = computed(() => [...this.pinService.pinned().values()]);
   readonly hasAnyData = computed(() => this.state.calls().length > 0 || this.pinnedCalls().length > 0);

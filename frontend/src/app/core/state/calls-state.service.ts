@@ -261,6 +261,9 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get visibleCalls() {
     return this.view.visibleCalls;
   }
+  get visibleRows() {
+    return this.view.visibleRows;
+  }
   get remainingCount() {
     return this.view.remainingCount;
   }

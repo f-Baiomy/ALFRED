@@ -2,7 +2,7 @@ import { CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
-import { callKey, supplierOf, uriPath } from './call-utils';
+import { callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -106,6 +106,7 @@ table.metadata td:first-child { color: var(--text-dim); width: 220px; font-weigh
 .field-list b { color: var(--text-dim); font-weight: 600; }
 .status-ok { color: var(--green); font-weight: 600; }
 .status-err { color: var(--red); font-weight: 600; }
+.status-neutral { color: var(--text-dim); font-weight: 600; }
 .flagged { background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 10px; padding: 1.1rem 1.25rem; margin: 1rem 0 1.5rem; }
 .flagged h3 { margin: 0 0 0.7rem; font-size: 0.92rem; color: var(--amber); }
 .flagged .note { font-size: 0.85rem; margin: 0.7rem 0; }
@@ -339,36 +340,68 @@ function statusHtml(call: CallRecord): string {
     : `<span class="status-err">${call.response.status}</span>`;
 }
 
-function callSectionHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string): { html: string; blocks: JsonBlockConfig[] } {
+/** The Request half of callSectionHtml, factored out so it can be rendered alone as a split internal call's request block (see requestSectionHtml/responseSectionHtml/callSectionHtml). */
+function requestPartHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string, includeTimestampAndDuration: boolean): { html: string; blocks: JsonBlockConfig[] } {
   const reqHeaders = jsonBlockConfig(`${idPrefix}-req-headers`, JSON.stringify(call.request?.headers ?? {}), commentsForBlock(comments, 'request-headers'));
   const reqBody = jsonBlockConfig(`${idPrefix}-req-body`, call.request?.body, commentsForBlock(comments, 'request-body'));
-  const resHeaders = jsonBlockConfig(`${idPrefix}-res-headers`, JSON.stringify(call.response?.headers ?? {}), commentsForBlock(comments, 'response-headers'));
-  const resBody = jsonBlockConfig(`${idPrefix}-res-body`, call.response?.body, commentsForBlock(comments, 'response-body'));
 
   const parts: string[] = [];
   parts.push('<h2>📤 Request</h2>');
   parts.push('<ul class="field-list">');
   parts.push(`<li><b>Method:</b> ${escapeHtml(call.method)}</li>`);
   parts.push(`<li><b>URL:</b> ${escapeHtml(call.url)}</li>`);
-  parts.push(`<li><b>Timestamp:</b> ${escapeHtml(call.timestamp)}</li>`);
-  if (call.duration_ms != null) parts.push(`<li><b>Duration:</b> ${formatMs(call.duration_ms)}</li>`);
+  if (includeTimestampAndDuration) {
+    parts.push(`<li><b>Timestamp:</b> ${escapeHtml(call.timestamp)}</li>`);
+    if (call.duration_ms != null) parts.push(`<li><b>Duration:</b> ${formatMs(call.duration_ms)}</li>`);
+  }
   parts.push('</ul>');
   parts.push(jsonBlockHtml(reqHeaders, 'Headers', false));
   parts.push(jsonBlockHtml(reqBody, 'Body', false));
 
-  parts.push('<hr />');
+  return { html: parts.join(''), blocks: [reqHeaders, reqBody] };
+}
+
+/** The Response half of callSectionHtml, factored out so it can be rendered alone as a split internal call's response block (see requestSectionHtml/responseSectionHtml/callSectionHtml). */
+function responsePartHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string, leadingHr: boolean, receivedAt?: string): { html: string; blocks: JsonBlockConfig[] } {
+  const resHeaders = jsonBlockConfig(`${idPrefix}-res-headers`, JSON.stringify(call.response?.headers ?? {}), commentsForBlock(comments, 'response-headers'));
+  const resBody = jsonBlockConfig(`${idPrefix}-res-body`, call.response?.body, commentsForBlock(comments, 'response-body'));
+
+  const parts: string[] = [];
+  if (leadingHr) parts.push('<hr />');
   parts.push('<h2>📥 Response</h2>');
   if (call.error) {
     const suffix = call.response ? '' : ' No response was received for this call.';
     parts.push(`<p>⚠️ <b>Error:</b> ${escapeHtml(call.error)}${suffix}</p>`);
   }
+  if (call.response || receivedAt) {
+    parts.push('<ul class="field-list">');
+    if (call.response) parts.push(`<li><b>Status:</b> ${statusHtml(call)}</li>`);
+    if (receivedAt) parts.push(`<li><b>Received:</b> ${escapeHtml(receivedAt)}</li>`);
+    if (call.duration_ms != null) parts.push(`<li><b>Duration:</b> ${formatMs(call.duration_ms)}</li>`);
+    parts.push('</ul>');
+  }
   if (call.response) {
-    parts.push(`<ul class="field-list"><li><b>Status:</b> ${statusHtml(call)}</li></ul>`);
     parts.push(jsonBlockHtml(resHeaders, 'Headers', false));
     parts.push(jsonBlockHtml(resBody, 'Body', false));
   }
 
-  return { html: parts.join(''), blocks: [reqHeaders, reqBody, resHeaders, resBody] };
+  return { html: parts.join(''), blocks: [resHeaders, resBody] };
+}
+
+function callSectionHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string): { html: string; blocks: JsonBlockConfig[] } {
+  const req = requestPartHtml(call, comments, idPrefix, true);
+  const res = responsePartHtml(call, comments, idPrefix, true);
+  return { html: req.html + res.html, blocks: [...req.blocks, ...res.blocks] };
+}
+
+/** Renders just the request half of a split internal call - see buildBulkExportHtml. */
+function requestSectionHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string): { html: string; blocks: JsonBlockConfig[] } {
+  return requestPartHtml(call, comments, idPrefix, true);
+}
+
+/** Renders just the response half of a split internal call - see buildBulkExportHtml. */
+function responseSectionHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string, receivedAt: string): { html: string; blocks: JsonBlockConfig[] } {
+  return responsePartHtml(call, comments, idPrefix, false, receivedAt);
 }
 
 export function buildExportHtml(call: CallRecord, form: ExportFormData, comments: readonly Comment[] = []): string {
@@ -388,6 +421,65 @@ export function buildExportHtml(call: CallRecord, form: ExportFormData, comments
   return documentShell('API Call Export', body, blocks);
 }
 
+/**
+ * One rendered block in the bulk HTML report - mirrors markdown-builder's RenderBlock. A whole call
+ * ('full', always used for external calls) or one half of a split internal call
+ * ('request'/'response').
+ */
+interface RenderBlock {
+  readonly call: CallRecord;
+  readonly n: number;
+  readonly variant: 'request' | 'response' | 'full';
+  readonly sortTime: number;
+}
+
+/** Same splitting rule as markdown-builder.ts's isSplitInternalCall - an internal call only splits into two blocks once it's actually resolved (has a response or error), never while still in-progress. */
+function isSplitInternalCall(call: CallRecord): boolean {
+  return call.source === 'internal' && (call.response !== undefined || call.error !== undefined) && !isInProgress(call);
+}
+
+/** Same interleaving logic as markdown-builder.ts's buildRenderBlocks - a response block sorts at its call's timestamp plus duration, so it can land after another call's later-starting request block. */
+function buildRenderBlocks(sortedCalls: readonly CallRecord[]): RenderBlock[] {
+  const blocks: RenderBlock[] = [];
+  sortedCalls.forEach((call, i) => {
+    const n = i + 1;
+    const baseTime = new Date(call.timestamp).getTime();
+    if (isSplitInternalCall(call)) {
+      blocks.push({ call, n, variant: 'request', sortTime: baseTime });
+      blocks.push({ call, n, variant: 'response', sortTime: baseTime + (call.duration_ms ?? 0) });
+    } else {
+      blocks.push({ call, n, variant: 'full', sortTime: baseTime });
+    }
+  });
+  blocks.sort((a, b) => a.sortTime - b.sortTime);
+  return blocks;
+}
+
+function blockAnchorId(block: RenderBlock): string {
+  return block.variant === 'response' ? `call-${block.n}-response` : `call-${block.n}`;
+}
+
+function blockSuffixHtml(block: RenderBlock): string {
+  return block.variant === 'full' ? '' : ` &middot; ${block.variant}`;
+}
+
+/**
+ * A request block only ever exists for a call that has ALREADY resolved (see isSplitInternalCall -
+ * a still-in-progress call stays a single 'full' block, never 'request'), so this must never say
+ * "pending" - it settles to a plain "sent" marker exactly like the live list's request row does
+ * once its paired response arrives, and the real outcome shows on the response block instead.
+ */
+function blockStatusHtml(block: RenderBlock): string {
+  return block.variant === 'request' ? '<span class="status-neutral">sent</span>' : statusHtml(block.call);
+}
+
+/** Same request-only/response-only comment scoping as markdown-builder.ts's commentsForVariant. */
+function commentsForVariant(comments: readonly Comment[], variant: RenderBlock['variant']): Comment[] {
+  if (variant === 'request') return comments.filter((c) => c.block.startsWith('request'));
+  if (variant === 'response') return comments.filter((c) => c.block.startsWith('response'));
+  return [...comments];
+}
+
 export function buildBulkExportHtml(
   calls: readonly CallRecord[],
   form: ExportFormData,
@@ -400,27 +492,52 @@ export function buildBulkExportHtml(
   const totalFlagged = [...commentsByCallId.values()].reduce((sum, list) => sum + list.length, 0);
   const callWord = calls.length === 1 ? 'Call' : 'Calls';
 
+  // Same forced-chronological reasoning as markdown-builder.ts: the split only reads sensibly in
+  // real time order, regardless of whatever order the caller passed in.
+  const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const blocks = buildRenderBlocks(sortedCalls);
+
   const allBlocks: JsonBlockConfig[] = [];
   const summaryRows: string[] = [];
   const callSections: string[] = [];
 
-  calls.forEach((call, i) => {
-    const n = i + 1;
-    const comments = commentsByCallId.get(call.id) ?? [];
+  blocks.forEach((block) => {
+    const { call } = block;
+    const allComments = commentsByCallId.get(call.id) ?? [];
+    const comments = commentsForVariant(allComments, block.variant);
     const flaggedCount = comments.length;
-    const duration = call.duration_ms != null ? formatMs(call.duration_ms) : '—';
+    const duration = block.variant !== 'request' && call.duration_ms != null ? formatMs(call.duration_ms) : '—';
+    const anchor = blockAnchorId(block);
     summaryRows.push(
-      `<tr><td><a href="#call-${n}">${n}</a></td><td>${escapeHtml(call.method)}</td><td>${escapeHtml(
+      `<tr><td><a href="#${anchor}">${block.n}${blockSuffixHtml(block)}</a></td><td>${escapeHtml(call.method)}</td><td>${escapeHtml(
         call.url
-      )}</td><td>${statusHtml(call)}</td><td>${duration}</td><td>${flaggedCount > 0 ? `🚩 ${flaggedCount}` : '—'}</td></tr>`
+      )}</td><td>${blockStatusHtml(block)}</td><td>${duration}</td><td>${flaggedCount > 0 ? `🚩 ${flaggedCount}` : '—'}</td></tr>`
     );
 
-    const { html: sectionHtml, blocks } = callSectionHtml(call, comments, `call-${n}`);
-    allBlocks.push(...blocks);
+    let sectionHtml: string;
+    let sectionBlocks: JsonBlockConfig[];
+    if (block.variant === 'request') {
+      const result = requestSectionHtml(call, allComments, anchor);
+      sectionHtml = result.html;
+      sectionBlocks = result.blocks;
+    } else if (block.variant === 'response') {
+      const receivedAt = new Date(new Date(call.timestamp).getTime() + (call.duration_ms ?? 0)).toISOString();
+      const result = responseSectionHtml(call, allComments, anchor, receivedAt);
+      sectionHtml = result.html;
+      sectionBlocks = result.blocks;
+    } else {
+      const result = callSectionHtml(call, allComments, anchor);
+      sectionHtml = result.html;
+      sectionBlocks = result.blocks;
+    }
+    allBlocks.push(...sectionBlocks);
+
     callSections.push(
-      `<a id="call-${n}"></a><details class="json-block"><summary class="call-summary"><b>Call ${n}</b> &nbsp; <code>${escapeHtml(
-        call.method
-      )} ${escapeHtml(uriPath(call.url))}</code> &nbsp; ${statusHtml(call)}</summary><div class="call-summary-body">${flaggedIssuesHtml(comments)}${sectionHtml}</div></details>`
+      `<a id="${anchor}"></a><details class="json-block"><summary class="call-summary"><b>Call ${block.n}</b>${blockSuffixHtml(
+        block
+      )} &nbsp; <code>${escapeHtml(call.method)} ${escapeHtml(uriPath(call.url))}</code> &nbsp; ${blockStatusHtml(
+        block
+      )}</summary><div class="call-summary-body">${flaggedIssuesHtml(comments)}${sectionHtml}</div></details>`
     );
   });
 

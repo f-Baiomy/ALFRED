@@ -412,6 +412,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get visibleCalls() {
     return this.view.visibleCalls;
   }
+  get visibleRows() {
+    return this.view.visibleRows;
+  }
   get remainingCount() {
     return this.view.remainingCount;
   }

@@ -283,6 +283,105 @@ describe('buildBulkExportMarkdown', () => {
 
     expect(md).toContain('- **Status:** ⚠️ boom');
   });
+
+  it('an external call stays a single unsplit block, exactly as before', () => {
+    const call = makeCall({ source: 'external' });
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(md).toContain('<b>Call 1</b> &nbsp;');
+    expect(md).not.toContain('· request');
+    expect(md).not.toContain('· response');
+    expect((md.match(/<details open>/g) ?? []).length).toBe(1);
+  });
+
+  it('splits a resolved internal call into a request block and a response block, correlated by the same call number', () => {
+    const call = makeCall({
+      source: 'internal',
+      service_name: 'core-service',
+      timestamp: '2026-08-07T13:45:51.965328+00:00',
+      duration_ms: 1000,
+    });
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(md).toContain('<a id="call-1"></a>');
+    expect(md).toContain('<a id="call-1-response"></a>');
+    expect(md).toContain('<summary><b>Call 1</b> · request');
+    expect(md).toContain('<summary><b>Call 1</b> · response');
+    expect((md.match(/<details open>/g) ?? []).length).toBe(2);
+
+    // Request block has no Status line and no Response section. Its heading/summary settle to a
+    // plain "sent" marker, never "pending" - the call has already resolved by the time a request
+    // block exists at all (see isSplitInternalCall), so "pending" would misrepresent it.
+    const requestBlock = md.slice(md.indexOf('<b>Call 1</b> · request'), md.indexOf('<b>Call 1</b> · response'));
+    expect(requestBlock).toContain('#### 📤 Request');
+    expect(requestBlock).not.toContain('#### 📥 Response');
+    expect(requestBlock).not.toContain('- **Status:**');
+    expect(requestBlock).not.toContain('pending');
+    expect(requestBlock).toContain('sent');
+
+    // Response block has no Request section, and shows Status/Duration/Received.
+    const responseBlock = md.slice(md.indexOf('<b>Call 1</b> · response'));
+    expect(responseBlock).toContain('#### 📥 Response');
+    expect(responseBlock).not.toContain('#### 📤 Request');
+    expect(responseBlock).toContain('- **Status:** `200`');
+    expect(responseBlock).toContain('- **Duration:** 1,000 ms');
+  });
+
+  it('does not split an internal call that is still in-progress - it stays one block with no fabricated response', () => {
+    const call = makeCall({ source: 'internal', response: undefined, error: undefined, state: 'IN_PROGRESS' });
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(md).not.toContain('· request');
+    expect(md).not.toContain('· response');
+    expect((md.match(/<details open>/g) ?? []).length).toBe(1);
+  });
+
+  it('forces chronological order regardless of input order, and interleaves a split internal call around calls that fall in between', () => {
+    const odeysys = makeCall({
+      id: 'odeysys',
+      source: 'internal',
+      service_name: 'odeysys',
+      timestamp: '2026-08-07T10:00:00.000Z',
+      duration_ms: 5000, // resolves at 10:00:05
+    });
+    const external = makeCall({
+      id: 'external-call',
+      source: 'external',
+      timestamp: '2026-08-07T10:00:02.000Z', // starts and finishes before odeysys resolves
+      duration_ms: 100,
+    });
+
+    // Passed in reverse order on purpose - the builder must sort chronologically itself.
+    const md = buildBulkExportMarkdown([external, odeysys], makeForm(), new Map(), EXPORTED_AT);
+
+    const odeysysReqIdx = md.indexOf('<a id="call-1"></a>');
+    const externalIdx = md.indexOf('<a id="call-2"></a>');
+    const odeysysResIdx = md.indexOf('<a id="call-1-response"></a>');
+
+    expect(odeysysReqIdx).toBeGreaterThan(-1);
+    expect(externalIdx).toBeGreaterThan(-1);
+    expect(odeysysResIdx).toBeGreaterThan(-1);
+    expect(odeysysReqIdx).toBeLessThan(externalIdx);
+    expect(externalIdx).toBeLessThan(odeysysResIdx);
+  });
+
+  it("a request block only shows its own request-side flagged issues, and a response block only its own response-side ones - both scoped to the call's comments", () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const comments: Comment[] = [
+      makeComment({ id: 'c1', block: 'request-body', comment: 'request-side issue' }),
+      makeComment({ id: 'c2', block: 'response-body', comment: 'response-side issue' }),
+    ];
+    const commentsByCallId = new Map<string, Comment[]>([[call.id, comments]]);
+    const md = buildBulkExportMarkdown([call], makeForm(), commentsByCallId, EXPORTED_AT);
+
+    const requestBlock = md.slice(md.indexOf('<summary><b>Call 1</b> · request'), md.indexOf('<summary><b>Call 1</b> · response'));
+    const responseBlock = md.slice(md.indexOf('<summary><b>Call 1</b> · response'));
+
+    expect(requestBlock).toContain('request-side issue');
+    expect(requestBlock).not.toContain('response-side issue');
+    expect(responseBlock).toContain('response-side issue');
+    expect(responseBlock).not.toContain('request-side issue');
+  });
 });
 
 describe('bulkExportFilename', () => {

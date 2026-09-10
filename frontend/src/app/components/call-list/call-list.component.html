@@ -26,8 +26,8 @@
     <div class="empty">No calls match "{{ state.searchQuery() }}".</div>
   } @else {
     <div class="calls-flat-list" cdkDropList [cdkDropListDisabled]="!dragEnabled()" (cdkDropListDropped)="onDrop($event)">
-      @for (call of state.visibleCalls(); track trackByCallKey(call)) {
-        <app-call-card [call]="call" [dragHandle]="dragEnabled()" cdkDrag [cdkDragDisabled]="!dragEnabled()" />
+      @for (row of state.visibleRows(); track trackByRowKey(row)) {
+        <app-call-card [call]="row.call" [variant]="row.variant" [dragHandle]="dragEnabled()" cdkDrag [cdkDragDisabled]="!dragEnabled()" />
       }
     </div>
     @if (state.remainingCount() > 0) {

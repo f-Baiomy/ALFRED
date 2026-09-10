@@ -67,9 +67,10 @@ describe('CallCardComponent', () => {
     httpMock.verify();
   });
 
-  function createCard(call: CallRecord = makeCall()) {
+  function createCard(call: CallRecord = makeCall(), variant?: 'request' | 'response' | 'full') {
     const fixture = TestBed.createComponent(CallCardComponent);
     fixture.componentRef.setInput('call', call);
+    if (variant) fixture.componentRef.setInput('variant', variant);
     fixture.detectChanges();
     return fixture;
   }
@@ -175,5 +176,64 @@ describe('CallCardComponent', () => {
     fixture.detectChanges();
 
     expect(host.querySelector('.error-banner')).toBeTruthy();
+  });
+
+  describe('variant', () => {
+    it('shows a plain "Sent" badge, never a status/duration, for a resolved request row', () => {
+      const fixture = createCard(makeCall({ response: { status: 500 } }), 'request');
+      const host: HTMLElement = fixture.nativeElement;
+
+      expect(host.querySelector('.status-sent')?.textContent).toContain('Sent');
+      expect(host.querySelector('.status-5xx')).toBeFalsy();
+      expect(host.querySelector('.duration')).toBeFalsy();
+    });
+
+    it('shows "In progress" on a request row while the call is unresolved', () => {
+      const fixture = createCard(makeCall({ state: 'IN_PROGRESS', response: undefined }), 'request');
+      const host: HTMLElement = fixture.nativeElement;
+
+      expect(host.querySelector('.status-pending')?.textContent).toContain('In progress');
+    });
+
+    it('never applies error/warning styling to a request row, even for a failed call', () => {
+      const fixture = createCard(makeCall({ response: { status: 500 } }), 'request');
+      const host: HTMLElement = fixture.nativeElement;
+
+      expect(host.querySelector('.call')?.classList.contains('has-error')).toBe(false);
+      expect(host.querySelector('.call')?.classList.contains('has-warning')).toBe(false);
+    });
+
+    it('shows the real status code and duration on a response row, exactly like a full row', () => {
+      const fixture = createCard(makeCall({ response: { status: 500 }, duration_ms: 42 }), 'response');
+      const host: HTMLElement = fixture.nativeElement;
+
+      expect(host.querySelector('.status-5xx')).toBeTruthy();
+      expect(host.querySelector('.call')?.classList.contains('has-error')).toBe(true);
+      expect(host.querySelector('.duration')?.textContent).toContain('42');
+    });
+
+    it('appends " · request" / " · response" to the source label for split rows', () => {
+      const requestFixture = createCard(makeCall(), 'request');
+      expect((requestFixture.nativeElement as HTMLElement).textContent).toContain('· request');
+
+      const responseFixture = createCard(makeCall(), 'response');
+      expect((responseFixture.nativeElement as HTMLElement).textContent).toContain('· response');
+    });
+
+    it('hides the request panel on a response row and the response panel on a request row once expanded', () => {
+      const fixture = createCard(makeCall(), 'request');
+      const host: HTMLElement = fixture.nativeElement;
+      (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({
+        request: { headers: {}, body: 'req-body' },
+        response: { status: 200, headers: {}, body: 'resp-body' },
+      });
+      fixture.detectChanges();
+
+      expect(host.textContent).toContain('req-body');
+      expect(host.textContent).not.toContain('resp-body');
+    });
   });
 });

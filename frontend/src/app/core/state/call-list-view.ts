@@ -3,7 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, Subject, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
 import { CallRecord, SortMode } from '../models/call.model';
-import { callKey, isInProgress, sortCalls, supplierOf } from '../../shared/utils/call-utils';
+import { CallListRow, callKey, isInProgress, sortCalls, splitCallsForDisplay, supplierOf } from '../../shared/utils/call-utils';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -91,6 +91,14 @@ export interface CallListView {
   readonly stats: Signal<CallStats>;
   readonly mainListCalls: Signal<CallRecord[]>;
   readonly visibleCalls: Signal<CallRecord[]>;
+  /**
+   * `mainListCalls`/`visibleCalls` expanded into display rows - an internal call becomes a
+   * request row plus (once resolved) a response row when the list is in chronological order; see
+   * splitCallsForDisplay(). Purely additional/for rendering: `visibleCalls` itself keeps returning
+   * one real CallRecord per call, unsplit, since drag-drop reorder (onDrop in
+   * call-list.component.ts) and export-ordering logic key off of it directly.
+   */
+  readonly visibleRows: Signal<readonly CallListRow[]>;
   readonly remainingCount: Signal<number>;
   readonly groupedCalls: Signal<SupplierGroup[]>;
   readonly loadMorePageSize: number;
@@ -284,6 +292,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     stats,
     mainListCalls,
     visibleCalls: mainListCalls,
+    visibleRows: computed(() => splitCallsForDisplay(mainListCalls(), sortMode())),
     remainingCount: computed(() => Math.max(0, totalCount() - loadedCalls().length)),
     groupedCalls: computed<SupplierGroup[]>(() => {
       const groups = new Map<string, CallRecord[]>();

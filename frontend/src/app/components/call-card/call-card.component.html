@@ -12,20 +12,31 @@
       />
     </label>
     <span class="badge" [class]="methodClass()">{{ call().method }}</span>
-    @if (inProgress()) {
-      <span class="badge status-pending">
-        <span class="spinner" aria-hidden="true"><span></span><span></span><span></span></span>
-        In progress
-      </span>
-    } @else if (call().error) {
-      <span class="badge status-err">ERROR</span>
+    @if (variant() === 'request') {
+      @if (inProgress()) {
+        <span class="badge status-pending">
+          <span class="spinner" aria-hidden="true"><span></span><span></span><span></span></span>
+          In progress
+        </span>
+      } @else {
+        <span class="badge status-sent">Sent</span>
+      }
     } @else {
-      <span class="badge" [class]="statusClass()">{{ call().response?.status ?? '?' }}</span>
-    }
-    @if (inProgress()) {
-      <span class="duration">&hellip;</span>
-    } @else if (call().duration_ms != null) {
-      <span class="duration" [class]="durationClass()">{{ call().duration_ms }} ms</span>
+      @if (inProgress()) {
+        <span class="badge status-pending">
+          <span class="spinner" aria-hidden="true"><span></span><span></span><span></span></span>
+          In progress
+        </span>
+      } @else if (call().error) {
+        <span class="badge status-err">ERROR</span>
+      } @else {
+        <span class="badge" [class]="statusClass()">{{ call().response?.status ?? '?' }}</span>
+      }
+      @if (inProgress()) {
+        <span class="duration">&hellip;</span>
+      } @else if (call().duration_ms != null) {
+        <span class="duration" [class]="durationClass()">{{ call().duration_ms }} ms</span>
+      }
     }
     @if (call().supplierName) {
       <span class="badge supplier-badge">{{ call().supplierName }}</span>
@@ -87,7 +98,7 @@
     }
     @case ('loaded') {
       <div class="panels">
-        @if (displayCall().request) {
+        @if (variant() !== 'response' && displayCall().request) {
           <div class="panel">
             <div class="panel-title">Request</div>
             <app-json-panel label="Headers" [rawValue]="displayCall().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="call().id" block="request-headers" />
@@ -95,7 +106,7 @@
           </div>
         }
 
-        @if (displayCall().response) {
+        @if (variant() !== 'request' && displayCall().response) {
           <div class="panel">
             <div class="panel-title">Response</div>
             <app-json-panel label="Headers" [rawValue]="displayCall().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="call().id" block="response-headers" />
