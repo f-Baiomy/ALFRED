@@ -121,6 +121,20 @@ export class CallCardComponent {
     return detail ? { ...this.call(), ...detail } : this.call();
   });
 
+  /** Whether the Request panel renders at all: never on a 'response' half, and not until the
+   * hydrated detail actually carries a request (see displayCall). */
+  readonly showsRequestPanel = computed(() => this.variant() !== 'response' && this.displayCall().request != null);
+  /** Whether the Response panel renders at all: never on a 'request' half, and not on a full card
+   * whose call hasn't resolved yet. */
+  readonly showsResponsePanel = computed(() => this.variant() !== 'request' && this.displayCall().response != null);
+  /**
+   * True when exactly one of the two panels renders - either half of a split internal call (see
+   * splitCallsForDisplay() in call-utils.ts), or a full card still waiting on its response. The
+   * panels grid is 2-up by default, which would leave a permanently empty second column in both
+   * cases, so the lone panel is given the card's full width instead (see .panels.single).
+   */
+  readonly singlePanel = computed(() => this.showsRequestPanel() !== this.showsResponsePanel());
+
   constructor() {
     this.observer = new IntersectionObserver(
       (entries) => {

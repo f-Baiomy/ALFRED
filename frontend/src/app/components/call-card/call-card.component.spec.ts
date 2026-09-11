@@ -235,5 +235,40 @@ describe('CallCardComponent', () => {
       expect(host.textContent).toContain('req-body');
       expect(host.textContent).not.toContain('resp-body');
     });
+
+    it('gives a split row\'s lone panel the card\'s full width, while a full row keeps the 2-up grid', () => {
+      function expandedPanels(variant?: 'request' | 'response' | 'full'): HTMLElement {
+        const fixture = createCard(makeCall(), variant);
+        const host: HTMLElement = fixture.nativeElement;
+        (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
+        fixture.detectChanges();
+        httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({
+          request: { headers: {}, body: 'req-body' },
+          response: { status: 200, headers: {}, body: 'resp-body' },
+        });
+        fixture.detectChanges();
+        return host.querySelector('.panels') as HTMLElement;
+      }
+
+      // Only one panel renders on either half, so the 2-up grid would strand it beside an empty
+      // column - .single collapses the grid to one full-width track (see styles.scss's .panels).
+      expect(expandedPanels('request').classList.contains('single')).toBe(true);
+      expect(expandedPanels('response').classList.contains('single')).toBe(true);
+      // A full row still renders both panels side by side, unchanged.
+      expect(expandedPanels().classList.contains('single')).toBe(false);
+    });
+
+    it('gives a full row\'s request panel the whole width while the call is still in progress, with no response panel to sit beside', () => {
+      const fixture = createCard(makeCall({ state: 'IN_PROGRESS', response: undefined }));
+      const host: HTMLElement = fixture.nativeElement;
+      (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({ request: { headers: {}, body: 'req-body' } });
+      fixture.detectChanges();
+
+      expect(host.querySelector('.panels')?.classList.contains('single')).toBe(true);
+      expect(host.querySelectorAll('.panel').length).toBe(1);
+    });
   });
 });

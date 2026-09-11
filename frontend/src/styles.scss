@@ -1219,6 +1219,14 @@ app-json-panel {
   gap: 0.85rem;
   margin-top: 0.35rem;
 
+  // Only one panel to show - either half of a split internal call (request row or response row),
+  // or a full card whose call hasn't resolved yet. The 2-up grid would strand it in the first
+  // column with a permanently empty second one, so it spans the card instead. See the call-card
+  // component's singlePanel().
+  &.single {
+    grid-template-columns: 1fr;
+  }
+
   @media (max-width: 880px) {
     grid-template-columns: 1fr;
   }

@@ -97,8 +97,8 @@
       </div>
     }
     @case ('loaded') {
-      <div class="panels">
-        @if (variant() !== 'response' && displayCall().request) {
+      <div class="panels" [class.single]="singlePanel()">
+        @if (showsRequestPanel()) {
           <div class="panel">
             <div class="panel-title">Request</div>
             <app-json-panel label="Headers" [rawValue]="displayCall().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="call().id" block="request-headers" />
@@ -106,7 +106,7 @@
           </div>
         }
 
-        @if (variant() !== 'request' && displayCall().response) {
+        @if (showsResponsePanel()) {
           <div class="panel">
             <div class="panel-title">Response</div>
             <app-json-panel label="Headers" [rawValue]="displayCall().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="call().id" block="response-headers" />
