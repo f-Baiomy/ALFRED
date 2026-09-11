@@ -31,6 +31,10 @@
       {{ state.groupBySupplier() ? 'Ungroup' : 'Group by supplier' }}
     </button>
 
+    <button type="button" [class.active]="state.showOptionsCalls()" (click)="toggleShowOptionsCalls()" title="CORS preflight requests - hidden by default, they never carry any real payload">
+      Show OPTIONS calls
+    </button>
+
     <button type="button" (click)="toggleExpanded()">
       {{ state.expanded() ? 'Collapse all' : 'Expand all' }}
     </button>

@@ -114,4 +114,39 @@ describe('createCallListView', () => {
     expect(queries[1].offset).toBe(0);
     expect(queries[1].limit).toBeGreaterThanOrEqual(2);
   });
+
+  describe('showOptionsCalls', () => {
+    const SHOW_OPTIONS_CALLS_KEY = 'alfred_show_options_calls';
+    afterEach(() => localStorage.removeItem(SHOW_OPTIONS_CALLS_KEY));
+
+    it('defaults to off and hides OPTIONS calls from mainListCalls/stats/supplierOptions', () => {
+      const page = [makeCall({ id: 'preflight', method: 'OPTIONS', timestamp: 'first' }), makeCall({ id: 'real', method: 'GET', timestamp: 'second' })];
+      const { view } = makeView([page]);
+
+      expect(view.showOptionsCalls()).toBe(false);
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['real']);
+      expect(view.stats().total).toBe(1);
+      expect(view.supplierOptions().reduce((sum, s) => sum + s.count, 0)).toBe(1);
+    });
+
+    it('toggleShowOptionsCalls reveals OPTIONS calls again and persists the preference', () => {
+      const page = [makeCall({ id: 'preflight', method: 'OPTIONS', timestamp: 'first' }), makeCall({ id: 'real', method: 'GET', timestamp: 'second' })];
+      const { view } = makeView([page]);
+
+      view.toggleShowOptionsCalls();
+
+      expect(view.showOptionsCalls()).toBe(true);
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['preflight', 'real']);
+      expect(localStorage.getItem(SHOW_OPTIONS_CALLS_KEY)).toBe('true');
+    });
+
+    it('a fresh view picks up a previously-saved preference', () => {
+      localStorage.setItem(SHOW_OPTIONS_CALLS_KEY, 'true');
+      const page = [makeCall({ id: 'preflight', method: 'OPTIONS', timestamp: 'first' })];
+      const { view } = makeView([page]);
+
+      expect(view.showOptionsCalls()).toBe(true);
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['preflight']);
+    });
+  });
 });

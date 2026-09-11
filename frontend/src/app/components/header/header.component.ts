@@ -127,6 +127,10 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
     this.state.toggleGroupBySupplier();
   }
 
+  toggleShowOptionsCalls(): void {
+    this.state.toggleShowOptionsCalls();
+  }
+
   toggleExpanded(): void {
     this.state.toggleExpanded();
   }

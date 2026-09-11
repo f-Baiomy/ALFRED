@@ -7,6 +7,27 @@ import { CallListRow, CallStatusFilter, callKey, isInProgress, matchesStatusFilt
 
 const DEFAULT_PAGE_SIZE = 10;
 
+/** A CORS preflight - almost never what anyone actually wants to look at (see call-card's docs on
+ * OPTIONS/preflight pairs), so hiding it is the default; the preference is remembered across
+ * reloads since it's a personal display choice, not page-specific data. */
+const SHOW_OPTIONS_CALLS_KEY = 'alfred_show_options_calls';
+
+function loadShowOptionsCalls(): boolean {
+  try {
+    return localStorage.getItem(SHOW_OPTIONS_CALLS_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function saveShowOptionsCalls(value: boolean): void {
+  try {
+    localStorage.setItem(SHOW_OPTIONS_CALLS_KEY, String(value));
+  } catch {
+    // storage full/blocked - the preference just won't survive a reload this time
+  }
+}
+
 export interface SupplierOption {
   readonly name: string;
   readonly count: number;
@@ -86,6 +107,10 @@ export interface CallListView {
   /** Client-side narrowing by stat-pill bucket - unlike the filters above this never refetches, it just re-filters the already-loaded window (see matchesStatusFilter). */
   readonly statusFilter: Signal<CallStatusFilter>;
   readonly groupBySupplier: Signal<boolean>;
+  /** Whether CORS preflight (OPTIONS) calls show up in the list at all - off by default (see
+   * SHOW_OPTIONS_CALLS_KEY), persisted across reloads. Client-side only, like statusFilter -
+   * narrows the already-loaded window rather than refetching. */
+  readonly showOptionsCalls: Signal<boolean>;
   readonly expanded: Signal<boolean>;
   readonly collapseAllVersion: Signal<number>;
   readonly loading: Signal<boolean>;
@@ -124,6 +149,7 @@ export interface CallListView {
   /** Clicking the same bucket again clears the filter back to 'all' - see StatsBarComponent. */
   setStatusFilter(filter: CallStatusFilter): void;
   toggleGroupBySupplier(): void;
+  toggleShowOptionsCalls(): void;
   toggleExpanded(): void;
   loadMore(): void;
   /** Re-fetches the currently-loaded window (offset 0 through however many calls are loaded) and replaces it wholesale - used both for the manual "Refresh" button and to reconcile a WebSocket push, since there's no polling to fall back on. */
@@ -169,6 +195,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const requestIdFilter = signal('');
   const statusFilter = signal<CallStatusFilter>('all');
   const groupBySupplier = signal(false);
+  const showOptionsCalls = signal(loadShowOptionsCalls());
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
   const loading = signal(false);
@@ -257,12 +284,20 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     return [...unconfirmed, ...loadedCalls()];
   });
 
-  const withoutPinned = computed(() => {
-    const pinned = pinnedIds();
-    return matchingCalls().filter((c) => !pinned.has(callKey(c)));
+  /** matchingCalls minus a CORS preflight when showOptionsCalls() is off - unlike statusFilter
+   * (a temporary drill-down that deliberately keeps totals stable), hiding OPTIONS is a persistent
+   * display preference, so stats()/supplierOptions() are scoped off this too, not matchingCalls -
+   * the "N calls" pill should match what's actually visible. */
+  const optionsFiltered = computed(() => {
+    return showOptionsCalls() ? matchingCalls() : matchingCalls().filter((c) => c.method !== 'OPTIONS');
   });
 
-  /** withoutPinned narrowed to the active stat-pill bucket, if any - stats() below deliberately stays scoped to matchingCalls (unfiltered) so the pill counts never shrink as a result of clicking a pill. */
+  const withoutPinned = computed(() => {
+    const pinned = pinnedIds();
+    return optionsFiltered().filter((c) => !pinned.has(callKey(c)));
+  });
+
+  /** withoutPinned narrowed to the active stat-pill bucket, if any - stats() below deliberately stays scoped to optionsFiltered (unfiltered by the status pill) so the pill counts never shrink as a result of clicking a pill. */
   const statusFiltered = computed(() => {
     const filter = statusFilter();
     return filter === 'all' ? withoutPinned() : withoutPinned().filter((c) => matchesStatusFilter(c, filter));
@@ -324,7 +359,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
 
   const supplierOptions = computed<SupplierOption[]>(() => {
     const counts = new Map<string, number>();
-    for (const c of matchingCalls()) {
+    for (const c of optionsFiltered()) {
       counts.set(supplierOf(c), (counts.get(supplierOf(c)) ?? 0) + 1);
     }
     return [...counts.entries()]
@@ -333,7 +368,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   });
 
   const stats = computed<CallStats>(() => {
-    const list = matchingCalls();
+    const list = optionsFiltered();
     return {
       total: list.length,
       ok: list.filter((c) => c.response && c.response.status < 400).length,
@@ -353,6 +388,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     requestIdFilter,
     statusFilter,
     groupBySupplier,
+    showOptionsCalls,
     expanded,
     collapseAllVersion,
     loading,
@@ -412,6 +448,11 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     },
     toggleGroupBySupplier() {
       groupBySupplier.set(!groupBySupplier());
+    },
+    toggleShowOptionsCalls() {
+      const next = !showOptionsCalls();
+      showOptionsCalls.set(next);
+      saveShowOptionsCalls(next);
     },
     toggleExpanded() {
       expanded.set(!expanded());

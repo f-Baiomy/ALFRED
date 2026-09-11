@@ -415,6 +415,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get groupBySupplier() {
     return this.view.groupBySupplier;
   }
+  get showOptionsCalls() {
+    return this.view.showOptionsCalls;
+  }
   get expanded() {
     return this.view.expanded;
   }
@@ -500,6 +503,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   toggleGroupBySupplier(): void {
     this.view.toggleGroupBySupplier();
+  }
+
+  toggleShowOptionsCalls(): void {
+    this.view.toggleShowOptionsCalls();
   }
 
   toggleExpanded(): void {

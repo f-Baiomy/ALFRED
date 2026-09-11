@@ -260,6 +260,9 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get groupBySupplier() {
     return this.view.groupBySupplier;
   }
+  get showOptionsCalls() {
+    return this.view.showOptionsCalls;
+  }
   get expanded() {
     return this.view.expanded;
   }
@@ -345,6 +348,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   toggleGroupBySupplier(): void {
     this.view.toggleGroupBySupplier();
+  }
+
+  toggleShowOptionsCalls(): void {
+    this.view.toggleShowOptionsCalls();
   }
 
   toggleExpanded(): void {
