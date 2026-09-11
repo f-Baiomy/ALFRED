@@ -10,6 +10,9 @@
       </button>
       <button type="button" class="action-btn" (click)="edit()">Edit</button>
       <button type="button" class="action-btn" (click)="openImportDialog()">Import calls</button>
+      <button type="button" class="action-btn danger" [disabled]="clearingCalls()" (click)="clearAllCalls()">
+        {{ clearingCalls() ? 'Clearing…' : 'Clear all calls' }}
+      </button>
     </div>
   }
 </div>

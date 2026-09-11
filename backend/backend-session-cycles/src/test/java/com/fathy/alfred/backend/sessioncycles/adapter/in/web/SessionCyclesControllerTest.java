@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.sessioncycles.adapter.in.web;
 
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ClearCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyInternalCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
@@ -79,6 +80,8 @@ class SessionCyclesControllerTest {
     private RemoveCapturedCallUseCase removeCapturedCallUseCase;
     @MockBean
     private RemoveCapturedCallsUseCase removeCapturedCallsUseCase;
+    @MockBean
+    private ClearCapturedCallsUseCase clearCapturedCallsUseCase;
     @MockBean
     private CopyCallsToCycleUseCase copyCallsToCycleUseCase;
     @MockBean
@@ -246,6 +249,20 @@ class SessionCyclesControllerTest {
         when(removeCapturedCallUseCase.removeCall("c1", "missing")).thenReturn(false);
 
         mockMvc.perform(delete("/session-cycles/c1/calls/missing")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void clearCallsSucceedsWhenTheCycleExists() throws Exception {
+        when(clearCapturedCallsUseCase.clearCalls("c1")).thenReturn(true);
+
+        mockMvc.perform(post("/session-cycles/c1/calls/clear")).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void clearCallsReturnsNotFoundWhenTheCycleIsMissing() throws Exception {
+        when(clearCapturedCallsUseCase.clearCalls("missing")).thenReturn(false);
+
+        mockMvc.perform(post("/session-cycles/missing/calls/clear")).andExpect(status().isNotFound());
     }
 
     @Test

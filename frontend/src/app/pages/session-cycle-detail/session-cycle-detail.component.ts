@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { BulkActionsBarComponent } from '../../components/bulk-actions-bar/bulk-actions-bar.component';
 import { CallListComponent } from '../../components/call-list/call-list.component';
@@ -9,6 +9,7 @@ import { ExportDialogComponent } from '../../components/export-dialog/export-dia
 import { HeaderComponent } from '../../components/header/header.component';
 import { ImportCallsDialogComponent } from '../../components/import-calls-dialog/import-calls-dialog.component';
 import { StatsBarComponent } from '../../components/stats-bar/stats-bar.component';
+import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.service';
 import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
 import {
@@ -48,8 +49,10 @@ export class SessionCycleDetailComponent {
   private readonly cyclesState = inject(SessionCyclesStateService);
   private readonly editDialog = inject(EditCycleDialogService);
   private readonly importDialog = inject(ImportCallsDialogService);
+  private readonly confirmDialog = inject(ConfirmDialogService);
 
   readonly cycle = computed(() => this.cyclesState.cycles().find((c) => c.id === this.state.cycleId()) ?? null);
+  readonly clearingCalls = signal(false);
 
   openImportDialog(): void {
     this.importDialog.open(this.state.cycleId());
@@ -71,5 +74,15 @@ export class SessionCycleDetailComponent {
     const result = await this.editDialog.open(cycle);
     if (!result) return;
     this.cyclesState.update(cycle.id, result).subscribe();
+  }
+
+  async clearAllCalls(): Promise<void> {
+    const confirmed = await this.confirmDialog.confirm(
+      'Delete every captured call in this cycle? This cannot be undone.',
+      'Clear calls'
+    );
+    if (!confirmed) return;
+    this.clearingCalls.set(true);
+    this.state.clearAllCalls().subscribe(() => this.clearingCalls.set(false));
   }
 }

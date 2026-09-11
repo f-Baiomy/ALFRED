@@ -1,7 +1,7 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { Observable, Subscription, forkJoin, map, of, retry, timer } from 'rxjs';
+import { Observable, Subscription, forkJoin, map, of, retry, tap, timer } from 'rxjs';
 import { webSocket } from 'rxjs/webSocket';
 import {
   CallDetail,
@@ -374,6 +374,25 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       this.pruneLiveCalls(calls.map(callKey));
       this.view.refresh();
     });
+  }
+
+  /**
+   * Wipes every captured call (external and internal) for this cycle in one request - the "Clear
+   * all calls" button's action, gated behind a confirm dialog in the component (see
+   * settings.component.ts's clearAllCalls for the same confirm-then-request shape). Returns the
+   * request itself (rather than subscribing internally like removeCall/removeMany) so the
+   * component can drive its own button-disabled/loading state around it.
+   */
+  clearAllCalls(): Observable<void> {
+    const id = this.cycleId();
+    if (!id) return of(undefined);
+    return this.api.clearCalls(id).pipe(
+      tap(() => {
+        this.clearSelection();
+        this.liveCalls.set([]);
+        this.view.resetSource();
+      })
+    );
   }
 
   /** Drops the given keys out of the live-push buffer - see removeCall's doc for why this is necessary on every removal path, not just relying on view.refresh() alone. */

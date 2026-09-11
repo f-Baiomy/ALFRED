@@ -60,10 +60,12 @@ function setupWithSources(
   state: SessionCycleDetailStateService;
   listCalls: Array<{ query: CallsQuery; source: CallEndpointSource }>;
   removeCalls: Array<{ id: string; callId: string; source: CallEndpointSource | undefined }>;
+  clearCalls: string[];
 } {
   const listCalls: Array<{ query: CallsQuery; source: CallEndpointSource }> = [];
   const removeCalls: Array<{ id: string; callId: string; source: CallEndpointSource | undefined }> = [];
-  const apiStub: Pick<SessionCyclesApiService, 'listCalls' | 'removeCall' | 'removeCalls' | 'getDetail' | 'getCallOverlaps'> = {
+  const clearCalls: string[] = [];
+  const apiStub: Pick<SessionCyclesApiService, 'listCalls' | 'removeCall' | 'removeCalls' | 'clearCalls' | 'getDetail' | 'getCallOverlaps'> = {
     listCalls: (_id, query, source = 'external') => {
       listCalls.push({ query, source });
       return of(source === 'internal' ? { calls: internalCaptured, total: internalTotal } : { calls: externalCaptured, total: externalTotal });
@@ -73,6 +75,10 @@ function setupWithSources(
       return of(void 0);
     },
     removeCalls: () => of({ removed: 0, notFound: 0 }),
+    clearCalls: (id) => {
+      clearCalls.push(id);
+      return of(void 0);
+    },
     getDetail: () => of({}),
     // Not under test here - just enough of a stub that createCallListView's required
     // fetchOverlaps callback has something to call (see call-utils.spec.ts for the actual
@@ -87,7 +93,7 @@ function setupWithSources(
       { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id: 'cycle-1' })) } },
     ],
   });
-  return { state: TestBed.inject(SessionCycleDetailStateService), listCalls, removeCalls };
+  return { state: TestBed.inject(SessionCycleDetailStateService), listCalls, removeCalls, clearCalls };
 }
 
 describe('SessionCycleDetailStateService', () => {
@@ -181,6 +187,24 @@ describe('SessionCycleDetailStateService', () => {
 
     expect(listCalls.length).toBe(0);
     expect(state.calls()).toEqual([]);
+    discardPeriodicTasks();
+  }));
+
+  it('clearAllCalls hits the clear endpoint for this cycle, clears the selection, and re-fetches from scratch', fakeAsync(() => {
+    const call = makeCall({ id: 'call-1' });
+    const { state, clearCalls, listCalls } = setupWithSources([makeCaptured(call)], []);
+    tick();
+
+    state.toggleSelected(call);
+    expect(state.selectedIds().size).toBe(1);
+    listCalls.length = 0;
+
+    state.clearAllCalls().subscribe();
+    tick();
+
+    expect(clearCalls).toEqual(['cycle-1']);
+    expect(state.selectedIds().size).toBe(0);
+    expect(listCalls.length).toBeGreaterThan(0);
     discardPeriodicTasks();
   }));
 });

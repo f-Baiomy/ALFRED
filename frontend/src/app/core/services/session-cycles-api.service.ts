@@ -133,6 +133,11 @@ export class SessionCyclesApiService {
     return this.http.post<RemoveCallsResult>(`${this.baseUrl}/${id}/${endpointSegmentFor(source)}/remove`, { callIds });
   }
 
+  /** Wipes every captured call (external and internal) for this cycle in one request - the cycle itself (name/status/assignee) is untouched. */
+  clearCalls(id: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${id}/calls/clear`, {});
+  }
+
   /**
    * {@code calls} must already be fully hydrated (request/response present) - copying stores the
    * complete CallRecord, not a summary. Callers hydrate the selection first (see

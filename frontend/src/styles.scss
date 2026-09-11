@@ -1059,6 +1059,18 @@ main {
     border-color: color-mix(in srgb, var(--amber) 50%, transparent);
     color: var(--amber);
   }
+  &.danger {
+    background: color-mix(in srgb, var(--red) 18%, transparent);
+    border-color: color-mix(in srgb, var(--red) 45%, transparent);
+    color: var(--red);
+    &:hover {
+      background: color-mix(in srgb, var(--red) 30%, transparent);
+    }
+  }
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
 }
 
 .call-time {

@@ -186,6 +186,25 @@ class SessionCyclesServiceTest {
     }
 
     @Test
+    void clearCallsReturnsFalseWhenTheCycleDoesNotExist() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.clearCalls("missing")).isFalse();
+        verify(capturedCallsStore, never()).deleteAllForCycle(any());
+        verify(capturedInternalCallsStore, never()).deleteAllForCycle(any());
+    }
+
+    @Test
+    void clearCallsWipesBothStoresButLeavesTheCycleItselfAlone() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+
+        assertThat(service.clearCalls("c1")).isTrue();
+        verify(metadataStore, never()).deleteById(any());
+        verify(capturedCallsStore).deleteAllForCycle("c1");
+        verify(capturedInternalCallsStore).deleteAllForCycle("c1");
+    }
+
+    @Test
     void listCallsReturnsEmptyOptionalWhenTheCycleDoesNotExist() {
         when(metadataStore.findById("missing")).thenReturn(Optional.empty());
 

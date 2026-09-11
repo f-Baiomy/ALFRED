@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ClearCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
@@ -58,6 +59,7 @@ public class SessionCyclesService implements
         GetCapturedCallDetailUseCase,
         RemoveCapturedCallUseCase,
         RemoveCapturedCallsUseCase,
+        ClearCapturedCallsUseCase,
         CopyCallsToCycleUseCase,
         ListCallOverlapsUseCase {
 
@@ -174,6 +176,17 @@ public class SessionCyclesService implements
         capturedInternalCallsStore.deleteAllForCycle(id);
         notificationPort.notifySessionCyclesChanged();
         return DeleteOutcome.DELETED;
+    }
+
+    /** Same two-store cleanup as {@link #delete}, minus the metadata deletion - the cycle itself (name, status, assignee) is untouched, only what it's captured is wiped. */
+    @Override
+    public boolean clearCalls(String id) {
+        if (metadataStore.findById(id).isEmpty()) {
+            return false;
+        }
+        capturedCallsStore.deleteAllForCycle(id);
+        capturedInternalCallsStore.deleteAllForCycle(id);
+        return true;
     }
 
     /** Filters/sorts/paginates via whichever CapturedCallsStorePort adapter is active (CallListSupport for the file adapter, SQL for the SQLite adapter) - same delegation shape as CallsService.getCalls. */

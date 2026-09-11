@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CopyInternalCal
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CreateSessionCycleRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.RemoveCallsRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.UpdateSessionCycleRequestDto;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ClearCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyInternalCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
@@ -69,6 +70,7 @@ public class SessionCyclesController {
     private final GetCapturedCallDetailUseCase getCapturedCallDetailUseCase;
     private final RemoveCapturedCallUseCase removeCapturedCallUseCase;
     private final RemoveCapturedCallsUseCase removeCapturedCallsUseCase;
+    private final ClearCapturedCallsUseCase clearCapturedCallsUseCase;
     private final CopyCallsToCycleUseCase copyCallsToCycleUseCase;
     private final ListCapturedInternalCallsUseCase listCapturedInternalCallsUseCase;
     private final GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase;
@@ -89,6 +91,7 @@ public class SessionCyclesController {
             GetCapturedCallDetailUseCase getCapturedCallDetailUseCase,
             RemoveCapturedCallUseCase removeCapturedCallUseCase,
             RemoveCapturedCallsUseCase removeCapturedCallsUseCase,
+            ClearCapturedCallsUseCase clearCapturedCallsUseCase,
             CopyCallsToCycleUseCase copyCallsToCycleUseCase,
             ListCapturedInternalCallsUseCase listCapturedInternalCallsUseCase,
             GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase,
@@ -108,6 +111,7 @@ public class SessionCyclesController {
         this.getCapturedCallDetailUseCase = getCapturedCallDetailUseCase;
         this.removeCapturedCallUseCase = removeCapturedCallUseCase;
         this.removeCapturedCallsUseCase = removeCapturedCallsUseCase;
+        this.clearCapturedCallsUseCase = clearCapturedCallsUseCase;
         this.copyCallsToCycleUseCase = copyCallsToCycleUseCase;
         this.listCapturedInternalCallsUseCase = listCapturedInternalCallsUseCase;
         this.getCapturedInternalCallDetailUseCase = getCapturedInternalCallDetailUseCase;
@@ -203,6 +207,13 @@ public class SessionCyclesController {
         return removeCapturedCallsUseCase.removeCalls(id, request.callIds())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Clears both external and internal captured calls for this cycle in one shot - the cycle's own record (name/status/assignee) is untouched. */
+    @PostMapping("/{id}/calls/clear")
+    public ResponseEntity<Void> clearCalls(@PathVariable String id) {
+        boolean cleared = clearCapturedCallsUseCase.clearCalls(id);
+        return cleared ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
     @PostMapping("/{id}/calls/copy")
