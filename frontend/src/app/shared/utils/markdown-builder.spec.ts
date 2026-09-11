@@ -317,6 +317,28 @@ describe('buildBulkExportMarkdown', () => {
     expect((md.match(/<details open>/g) ?? []).length).toBe(1);
   });
 
+  it('splits a resolved internal call for a fan-out of children that each individually fail the single-child blocking signature', () => {
+    // Mirrors call-utils.spec.ts's fan-out case: several suppliers called in parallel, then a long
+    // post-processing tail, so no candidate clears MIN_COVERAGE_RATIO or the tail window alone.
+    // Keep in step with call-utils.ts's hasBlockingEvidence, re-implemented in this file.
+    const call = makeCall({
+      source: 'internal',
+      service_name: 'odeysys',
+      timestamp: '2026-08-07T13:45:51.965328+00:00',
+      duration_ms: 27000,
+    });
+    const suppliers = [1780, 1141, 1683].map((durationMs, i) =>
+      makeCandidate({ id: `supplier-${i}`, timestamp: '2026-08-07T13:45:55.965328+00:00', durationMs })
+    );
+
+    const mergedAlone = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT, [suppliers[0]], 'all');
+    expect(mergedAlone).not.toContain('· request');
+
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT, suppliers, 'all');
+    expect(md).toContain('<summary><b>Call 1</b> · request');
+    expect(md).toContain('<summary><b>Call 1</b> · response');
+  });
+
   it('splits a resolved internal call into a request block and a response block, correlated by the same call number', () => {
     const call = makeCall({
       source: 'internal',

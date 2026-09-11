@@ -148,6 +148,26 @@ describe('buildBulkExportPayload', () => {
     expect(payload.events[0].type).toBe('call');
   });
 
+  it('a resolved internal call stays split for a fan-out of children that each individually fail the single-child blocking signature', () => {
+    // Mirrors call-utils.spec.ts's fan-out case - the parent farmed work out to several suppliers in
+    // parallel and then post-processed for longer than any one of them took, so no single candidate
+    // clears MIN_COVERAGE_RATIO or the tail window, but the nesting is real. Keep in step with
+    // call-utils.ts's hasBlockingEvidence, which this file deliberately re-implements.
+    const call = makeCall({ source: 'internal', service_name: 'odeysys', timestamp: '2026-08-07T10:00:00.000Z', duration_ms: 27000 });
+    const suppliers = [1780, 1141, 1683].map((durationMs, i) =>
+      makeCandidate({ id: `supplier-${i}`, timestamp: '2026-08-07T10:00:04.000Z', durationMs })
+    );
+
+    for (const supplier of suppliers) {
+      const alone = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', [supplier], 'all');
+      expect(alone.events.length).toBe(1);
+      expect(alone.events[0].type).toBe('call');
+    }
+
+    const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', suppliers, 'all');
+    expect(payload.events.map((e) => e.type)).toEqual(['request', 'response']);
+  });
+
   it('excludes a candidate that fails the active status-pill filter from counting towards containment', () => {
     const call = makeCall({ source: 'internal', service_name: 'core-service' });
     const failedCandidate = makeCandidate({ status: 500, error: 'boom' });

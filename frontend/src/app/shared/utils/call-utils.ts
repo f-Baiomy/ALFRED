@@ -110,10 +110,13 @@ export function candidateMatchesStatusFilter(candidate: CallOverlapCandidate, fi
 }
 
 /**
- * Minimum share of the parent's own duration a candidate must occupy to count as blocking evidence
- * (check 3 of 4 - see qualifiesAsEvidence). A genuine blocking child - the call that actually held
- * the parent up - accounts for most of how long the parent took; a coincidental overlap (two
- * unrelated concurrent requests in the same browser burst) essentially never does.
+ * Minimum share of the parent's own duration a LONE candidate must occupy to count as blocking
+ * evidence (check 3 of 4 - see hasBlockingEvidence). One call that actually held the parent up
+ * accounts for most of how long the parent took; a single coincidental overlap (an unrelated
+ * concurrent request in the same browser burst) essentially never does.
+ *
+ * Deliberately applies ONLY when exactly one candidate survives - see hasBlockingEvidence's doc for
+ * why a fan-out parent can't be held to this and must not be.
  */
 const MIN_COVERAGE_RATIO = 0.3;
 
@@ -170,10 +173,11 @@ function passesOwnershipCheck(target: CallRecord, candidate: CallOverlapCandidat
 }
 
 /**
- * Check 3 of 4: the blocking signature - a candidate that's merely contained by coincidence (two
- * unrelated concurrent calls) neither accounts for much of the parent's duration nor ends close to
- * when the parent itself finishes; a genuine blocking child does both. See MIN_COVERAGE_RATIO/
- * MIN_TAIL_MS/TAIL_RATIO's own docs for why each threshold is shaped the way it is.
+ * The single-child blocking signature - one candidate that's merely contained by coincidence
+ * neither accounts for much of the parent's duration nor ends close to when the parent itself
+ * finishes; one genuine blocking child does both. See MIN_COVERAGE_RATIO/MIN_TAIL_MS/TAIL_RATIO's
+ * own docs for why each threshold is shaped the way it is, and hasBlockingEvidence for when this
+ * test applies at all.
  */
 function passesBlockingSignature(target: CallRecord, candidate: CallOverlapCandidate): boolean {
   const targetDurationMs = target.duration_ms ?? 0;
@@ -187,10 +191,38 @@ function passesBlockingSignature(target: CallRecord, candidate: CallOverlapCandi
   return coverage >= MIN_COVERAGE_RATIO && tail <= Math.max(MIN_TAIL_MS, targetDurationMs * TAIL_RATIO);
 }
 
-/** Checks 1-3 combined - everything EXCEPT the ambiguity veto (check 4), which can only be applied
- * once every other internal call under consideration is known too. See computeSplitCallIds. */
-function qualifiesAsEvidence(target: CallRecord, candidate: CallOverlapCandidate): boolean {
-  return isStrictlyContained(target, candidate) && passesOwnershipCheck(target, candidate) && passesBlockingSignature(target, candidate);
+/** Checks 1-2 combined: a candidate that sits wholly inside the target's window and could plausibly
+ * be the target's own downstream work. Whether that nesting is real (check 3) can only be judged
+ * once the whole surviving set is known, and the ambiguity veto (check 4) needs every other internal
+ * call under consideration too - see hasBlockingEvidence/computeSplitCallIds. */
+function qualifiesAsNestedChild(target: CallRecord, candidate: CallOverlapCandidate): boolean {
+  return isStrictlyContained(target, candidate) && passesOwnershipCheck(target, candidate);
+}
+
+/**
+ * Check 3 of 4: does this parent's surviving candidate set actually evidence nesting, rather than
+ * coincidence? Applied to the SET, not per candidate - which parent-shape a call has decides what
+ * counts as evidence:
+ *
+ * - TWO OR MORE survivors: the parent fanned work out to several downstream calls, and multiplicity
+ *   is itself the evidence. Coincidence produces the odd stray contained call, not a cluster of
+ *   them that no other parent can claim (they'd have been vetoed in check 4 if it could).
+ * - EXACTLY ONE survivor: nothing but that call's own shape to go on, so it must carry the full
+ *   single-child blocking signature (passesBlockingSignature) - this is what keeps a lone
+ *   coincidental overlap from splitting its parent.
+ *
+ * Requiring the single-child signature of EVERY candidate (as this did before) silently broke the
+ * commonest real parent there is: a fan-out. A search that calls six suppliers in parallel and then
+ * spends longer merging/pricing the results than any one supplier took has no candidate that covers
+ * MIN_COVERAGE_RATIO of it (each covers ~1/6), and none that ends within the tail window (they all
+ * finish long before the post-processing does) - so every genuinely nested call failed, the parent
+ * merged, and the interleaved supplier calls this whole feature exists to reveal stayed hidden.
+ * Confirmed against live data: a 26.9s inbound search with six strictly-contained supplier calls
+ * (best coverage 0.19, tails 17.5-22.7s against a 2.7s allowance) merged when it plainly shouldn't.
+ */
+function hasBlockingEvidence(target: CallRecord, survivors: readonly CallOverlapCandidate[]): boolean {
+  if (survivors.length >= 2) return true;
+  return survivors.length === 1 && passesBlockingSignature(target, survivors[0]);
 }
 
 /**
@@ -198,14 +230,17 @@ function qualifiesAsEvidence(target: CallRecord, candidate: CallOverlapCandidate
  * consideration - e.g. mainListCalls()'s internal subset for the live list, or the exported `calls`
  * subset for exports) stay split into request/response rows, per the full 4-check algorithm:
  *
- * Pass 1: for every internal call, gather its own set of candidates surviving checks 1-3
- * (qualifiesAsEvidence) among the candidates currently visible under the status-pill filter.
+ * Pass 1: for every internal call, gather its own set of candidates passing checks 1-2
+ * (qualifiesAsNestedChild) among the candidates currently visible under the status-pill filter.
  *
- * Pass 2 (the ambiguity veto, check 4): for every candidate that survived checks 1-3 against MORE
- * THAN ONE different internal call, it's ambiguous which call it's actually blocking evidence for -
- * remove it from every one of those calls' surviving sets rather than guessing for either.
+ * Pass 2 (the ambiguity veto, check 4): for every candidate contained in MORE THAN ONE different
+ * internal call, it's ambiguous whose downstream work it actually is - remove it from every one of
+ * those calls' surviving sets rather than guessing for either. Deliberately keyed on checks 1-2
+ * alone: which parent a call belongs to is a question about containment and ownership, so a
+ * candidate that two parents could equally claim is ambiguous however its own timing happens to
+ * look against either of them.
  *
- * A call stays split iff its remaining surviving set, after the veto, is non-empty.
+ * A call stays split iff its post-veto set clears check 3 (hasBlockingEvidence).
  */
 function computeSplitCallIds(
   internalCalls: readonly CallRecord[],
@@ -218,7 +253,7 @@ function computeSplitCallIds(
   for (const call of internalCalls) {
     survivorsByCallId.set(
       call.id,
-      visibleCandidates.filter((candidate) => qualifiesAsEvidence(call, candidate))
+      visibleCandidates.filter((candidate) => qualifiesAsNestedChild(call, candidate))
     );
   }
 
@@ -230,9 +265,10 @@ function computeSplitCallIds(
   }
 
   const staysSplit = new Set<string>();
+  const callsById = new Map(internalCalls.map((call) => [call.id, call]));
   for (const [callId, survivors] of survivorsByCallId) {
     const afterVeto = survivors.filter((candidate) => (survivedCountByCandidate.get(candidate) ?? 0) <= 1);
-    if (afterVeto.length > 0) staysSplit.add(callId);
+    if (hasBlockingEvidence(callsById.get(callId)!, afterVeto)) staysSplit.add(callId);
   }
   return staysSplit;
 }

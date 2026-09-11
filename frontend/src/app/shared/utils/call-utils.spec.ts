@@ -258,6 +258,31 @@ describe('splitCallsForDisplay', () => {
     expect(rows).toEqual([{ call, variant: 'full', rowKey: call.id }]);
   });
 
+  it('stays split for a fan-out parent whose children individually fail the single-child signature - several nested calls ARE the evidence', () => {
+    // Modelled on live data that regressed: a 26.9s inbound search that fired six supplier calls in
+    // parallel ~4s in, then spent the remaining ~17s merging/pricing the results. No single child
+    // covers MIN_COVERAGE_RATIO of the parent and none ends anywhere near its tail window, so the
+    // per-candidate signature rejects every one of them - yet the nesting is unmistakable.
+    const call = makeCall({
+      id: 'call-1',
+      source: 'internal',
+      service_name: 'odeysys',
+      state: 'COMPLETED',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      duration_ms: 26886,
+    });
+    const suppliers = [1780, 1141, 1683, 5161, 3638].map((durationMs, i) =>
+      makeCandidate({ id: `supplier-${i}`, source: 'external', timestamp: '2026-01-01T00:00:04.183Z', durationMs })
+    );
+    // Sanity-check the premise: every one of them would fail on its own.
+    for (const supplier of suppliers) {
+      expect(splitCallsForDisplay([call], 'oldest-call', [supplier], 'all')).toEqual([{ call, variant: 'full', rowKey: call.id }]);
+    }
+
+    const rows = splitCallsForDisplay([call], 'oldest-call', suppliers, 'all');
+    expect(rows.map((r) => r.variant)).toEqual(['request', 'response']);
+  });
+
   it('stays split when a candidate sits exactly at the coverage and tail boundary', () => {
     const call = makeCall({
       id: 'call-1',

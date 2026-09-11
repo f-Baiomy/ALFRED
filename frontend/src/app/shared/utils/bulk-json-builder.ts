@@ -104,7 +104,7 @@ function passesOwnershipCheck(target: CallRecord, candidate: CallOverlapCandidat
   return candidate.serviceName === targetServiceName;
 }
 
-/** Check 3 of 4: the blocking signature - see call-utils.ts's passesBlockingSignature. */
+/** The single-child blocking signature - see call-utils.ts's passesBlockingSignature. */
 function passesBlockingSignature(target: CallRecord, candidate: CallOverlapCandidate): boolean {
   const targetDurationMs = target.duration_ms ?? 0;
   if (targetDurationMs <= 0) return false;
@@ -117,10 +117,16 @@ function passesBlockingSignature(target: CallRecord, candidate: CallOverlapCandi
   return coverage >= MIN_COVERAGE_RATIO && tail <= Math.max(MIN_TAIL_MS, targetDurationMs * TAIL_RATIO);
 }
 
-/** Checks 1-3 combined - everything except the ambiguity veto (check 4), applied separately in
- * computeSplitCallIds once every internal call under consideration is known. */
-function qualifiesAsEvidence(target: CallRecord, candidate: CallOverlapCandidate): boolean {
-  return isStrictlyContained(target, candidate) && passesOwnershipCheck(target, candidate) && passesBlockingSignature(target, candidate);
+/** Checks 1-2 combined - see call-utils.ts's qualifiesAsNestedChild. */
+function qualifiesAsNestedChild(target: CallRecord, candidate: CallOverlapCandidate): boolean {
+  return isStrictlyContained(target, candidate) && passesOwnershipCheck(target, candidate);
+}
+
+/** Check 3 of 4, applied to the whole surviving SET rather than per candidate - see call-utils.ts's
+ * hasBlockingEvidence for why a fan-out parent can't be held to the single-child signature. */
+function hasBlockingEvidence(target: CallRecord, survivors: readonly CallOverlapCandidate[]): boolean {
+  if (survivors.length >= 2) return true;
+  return survivors.length === 1 && passesBlockingSignature(target, survivors[0]);
 }
 
 /** Mirrors call-utils.ts's candidateMatchesStatusFilter - see its doc. */
@@ -151,7 +157,7 @@ function computeSplitCallIds(
   for (const call of internalCalls) {
     survivorsByCallId.set(
       call.id,
-      visibleCandidates.filter((candidate) => qualifiesAsEvidence(call, candidate))
+      visibleCandidates.filter((candidate) => qualifiesAsNestedChild(call, candidate))
     );
   }
 
@@ -163,9 +169,10 @@ function computeSplitCallIds(
   }
 
   const staysSplit = new Set<string>();
+  const callsById = new Map(internalCalls.map((call) => [call.id, call]));
   for (const [callId, survivors] of survivorsByCallId) {
     const afterVeto = survivors.filter((candidate) => (survivedCountByCandidate.get(candidate) ?? 0) <= 1);
-    if (afterVeto.length > 0) staysSplit.add(callId);
+    if (hasBlockingEvidence(callsById.get(callId)!, afterVeto)) staysSplit.add(callId);
   }
   return staysSplit;
 }
