@@ -37,7 +37,14 @@ done
 # from the client, and a bypass of this proxy where it does resolve (confirmed live: WildFly's 302
 # Location did exactly that). Keeping the client's Host is also just what a reverse proxy should
 # forward upstream, same as nginx's "proxy_set_header Host $host".
+#
+# confdir is LOAD-BEARING for the same reason it is in forward-proxy-entrypoint.sh: pointing
+# docker-compose's "entrypoint:" at this script replaces the image's own docker-entrypoint.sh
+# (the thing that would otherwise set HOME=/home/mitmproxy and drop to the mitmproxy user), so
+# without it mitmdump runs as root, resolves confdir to /root/.mitmproxy rather than the mounted
+# ./proxy/certs, and generates a throwaway CA there on every start.
 exec mitmdump -q -s log_and_route_reverse.py \
   $MODE_ARGS \
+  --set confdir=/home/mitmproxy/.mitmproxy \
   --set connection_strategy=lazy \
   --set keep_host_header=true

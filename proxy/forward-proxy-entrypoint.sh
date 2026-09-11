@@ -35,6 +35,15 @@ else
   echo "forward-proxy-entrypoint: to settings.properties's internal_call_services entries to opt in)."
 fi
 
+# confdir is LOAD-BEARING and must be explicit: setting docker-compose's "entrypoint:" to this
+# script REPLACES the image's own docker-entrypoint.sh, which is what used to "exec env
+# HOME=/home/mitmproxy gosu mitmproxy ..." (it only does that when its first arg is literally
+# mitmdump/mitmproxy/mitmweb, so chaining through it wouldn't help either). Without it mitmdump
+# runs as root with HOME=/root, resolves its confdir to /root/.mitmproxy instead of the mounted
+# ./proxy/certs, and GENERATES A FRESH CA there on every container start - so it serves leaf
+# certs signed by a CA no client trusts, every HTTPS call dies with "PKIX path validation
+# failed", and nothing is ever logged (the TLS handshake fails before the request hook runs).
 exec mitmdump -q -s log_and_route.py \
   $MODE_ARGS \
+  --set confdir=/home/mitmproxy/.mitmproxy \
   --set connection_strategy=lazy
