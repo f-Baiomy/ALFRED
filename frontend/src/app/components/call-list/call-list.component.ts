@@ -4,7 +4,10 @@ import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/c
 import { CallRecord } from '../../core/models/call.model';
 import { PinService } from '../../core/services/pin.service';
 import { CallListRow, callKey } from '../../shared/utils/call-utils';
+import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { CallCardComponent } from '../call-card/call-card.component';
+import { CallTreeNodeComponent } from '../call-tree-node/call-tree-node.component';
+import { CallWaterfallComponent } from '../call-waterfall/call-waterfall.component';
 import { SupplierGroupComponent } from '../supplier-group/supplier-group.component';
 
 /**
@@ -21,7 +24,7 @@ import { SupplierGroupComponent } from '../supplier-group/supplier-group.compone
 @Component({
   selector: 'app-call-list',
   standalone: true,
-  imports: [CallCardComponent, SupplierGroupComponent, CdkDropList, CdkDrag],
+  imports: [CallCardComponent, CallTreeNodeComponent, CallWaterfallComponent, SupplierGroupComponent, CdkDropList, CdkDrag],
   templateUrl: './call-list.component.html',
 })
 export class CallListComponent {
@@ -35,6 +38,25 @@ export class CallListComponent {
 
   readonly trackByCallKey = callKey;
   readonly trackByRowKey = (row: CallListRow) => row.rowKey;
+
+  /** Only the flat-depth view annotates its cards - the other two show depth structurally (see
+   * CallViewMode), and a call with no proven relations gets nothing rather than a lone "L1". */
+  depthFor(call: CallRecord): CallDepthInfo | null {
+    return this.state.callDepths().get(call.id) ?? null;
+  }
+
+  /**
+   * Scroll-to-parent behind the flat-depth view's depth badge - the one affordance replacing what
+   * indentation would otherwise do. The flash class is removed on the animation's own end event
+   * rather than a timeout, so a re-render mid-flash can't leave a card stuck highlighted.
+   */
+  revealParent(parentId: string): void {
+    const target = document.getElementById(`call-row-${parentId}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('call-flash');
+    target.addEventListener('animationend', () => target.classList.remove('call-flash'), { once: true });
+  }
 
   readonly pinnedCalls = computed(() => [...this.pinService.pinned().values()]);
   readonly hasAnyData = computed(() => this.state.calls().length > 0 || this.pinnedCalls().length > 0);

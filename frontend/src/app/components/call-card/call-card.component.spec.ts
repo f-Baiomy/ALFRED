@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { CallCardComponent } from './call-card.component';
 import { CallRecord } from '../../core/models/call.model';
+import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { CallsStateService } from '../../core/state/calls-state.service';
 import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 
@@ -269,6 +270,97 @@ describe('CallCardComponent', () => {
 
       expect(host.querySelector('.panels')?.classList.contains('single')).toBe(true);
       expect(host.querySelectorAll('.panel').length).toBe(1);
+    });
+  });
+
+  describe('depth badge and span bar (flat-depth view)', () => {
+    function depthInfo(overrides: Partial<CallDepthInfo> = {}): CallDepthInfo {
+      return {
+        depth: 1,
+        parentLabel: 'Odeysys',
+        parentId: 'parent-call',
+        childCount: 0,
+        descendantCount: 0,
+        spanStart: 0.25,
+        spanWidth: 0.4,
+        ambiguous: false,
+        ...overrides,
+      };
+    }
+
+    function createWithDepth(info: CallDepthInfo | null, variant?: 'request' | 'response' | 'full') {
+      const fixture = TestBed.createComponent(CallCardComponent);
+      fixture.componentRef.setInput('call', makeCall());
+      fixture.componentRef.setInput('depth', info);
+      if (variant) fixture.componentRef.setInput('variant', variant);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('names the parent on a nested call, and offers it as a button that reveals it', () => {
+      const fixture = createWithDepth(depthInfo());
+      const badge = (fixture.nativeElement as HTMLElement).querySelector('.depth-badge') as HTMLButtonElement;
+
+      expect(badge.textContent).toContain('L2 · in Odeysys');
+      expect(badge.tagName).toBe('BUTTON');
+
+      let revealed: string | undefined;
+      fixture.componentInstance.revealParent.subscribe((id: string) => (revealed = id));
+      badge.click();
+      expect(revealed).toBe('parent-call');
+    });
+
+    it('counts what is underneath a root call instead of naming a parent it does not have', () => {
+      const fixture = createWithDepth(depthInfo({ depth: 0, parentLabel: null, parentId: null, childCount: 1, descendantCount: 4 }));
+      const badge = (fixture.nativeElement as HTMLElement).querySelector('.depth-badge')!;
+
+      expect(badge.textContent).toContain('root · 4 below');
+      expect(badge.tagName).not.toBe('BUTTON');
+    });
+
+    it('shows no badge at all for a call with no proven relations', () => {
+      const isolated = createWithDepth(depthInfo({ depth: 0, parentLabel: null, parentId: null, descendantCount: 0 }));
+      expect((isolated.nativeElement as HTMLElement).querySelector('.depth-badge')).toBeNull();
+
+      const noInfo = createWithDepth(null);
+      expect((noInfo.nativeElement as HTMLElement).querySelector('.depth-badge')).toBeNull();
+    });
+
+    it('flags a call two parents could equally claim as plain text, never a parent link, and gives it no span bar', () => {
+      // parentId is deliberately still set here: an ambiguous call is parentless by construction,
+      // so this asserts the card refuses to offer a jump target even on contradictory input.
+      const fixture = createWithDepth(depthInfo({ ambiguous: true }));
+      const host: HTMLElement = fixture.nativeElement;
+
+      expect(host.querySelector('.depth-badge-orphan')?.textContent).toContain('unattributed');
+      expect(host.querySelector('.span-bar')).toBeNull();
+    });
+
+    it('positions the span bar at the call\'s own slice of its root window', () => {
+      const fixture = createWithDepth(depthInfo({ spanStart: 0.25, spanWidth: 0.4 }));
+      const fill = (fixture.nativeElement as HTMLElement).querySelector('.span-bar-fill') as HTMLElement;
+
+      // Compared numerically - the browser normalises '25.00%' back to '25%' on the way in.
+      expect(parseFloat(fill.style.marginLeft)).toBeCloseTo(25, 5);
+      expect(parseFloat(fill.style.width)).toBeCloseTo(40, 5);
+    });
+
+    it('keeps a sub-hairline slice visible rather than rendering nothing', () => {
+      const fixture = createWithDepth(depthInfo({ spanWidth: 0.0001 }));
+      const fill = (fixture.nativeElement as HTMLElement).querySelector('.span-bar-fill') as HTMLElement;
+
+      expect(parseFloat(fill.style.width)).toBeGreaterThan(0.5);
+    });
+
+    it('leaves the badge off a response row - the request row opening the pair already carries it', () => {
+      const fixture = createWithDepth(depthInfo(), 'response');
+      expect((fixture.nativeElement as HTMLElement).querySelector('.depth-badge')).toBeNull();
+    });
+
+    it('anchors every row except a response half, so scroll-to-parent lands on the opening row', () => {
+      expect((createWithDepth(depthInfo()).nativeElement as HTMLElement).querySelector('#call-row-call-1')).toBeTruthy();
+      expect((createWithDepth(depthInfo(), 'request').nativeElement as HTMLElement).querySelector('#call-row-call-1')).toBeTruthy();
+      expect((createWithDepth(depthInfo(), 'response').nativeElement as HTMLElement).querySelector('#call-row-call-1')).toBeNull();
     });
   });
 });

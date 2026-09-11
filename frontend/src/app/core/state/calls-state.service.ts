@@ -17,6 +17,7 @@ import { CallsApiService } from '../services/calls-api.service';
 import { PinService } from '../services/pin.service';
 import { AppConfigService } from '../services/app-config.service';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
+import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
@@ -290,6 +291,15 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get visibleRows() {
     return this.view.visibleRows;
   }
+  get viewMode() {
+    return this.view.viewMode;
+  }
+  get callTree() {
+    return this.view.callTree;
+  }
+  get callDepths() {
+    return this.view.callDepths;
+  }
   get overlapCandidates() {
     return this.view.overlapCandidates;
   }
@@ -352,6 +362,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   toggleShowOptionsCalls(): void {
     this.view.toggleShowOptionsCalls();
+  }
+
+  setViewMode(mode: CallViewMode): void {
+    this.view.setViewMode(mode);
   }
 
   toggleExpanded(): void {

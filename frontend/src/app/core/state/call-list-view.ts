@@ -4,8 +4,42 @@ import { Observable, Subject, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
 import { CallOverlapCandidate, CallRecord, SortMode } from '../models/call.model';
 import { CallListRow, CallStatusFilter, callKey, isInProgress, matchesStatusFilter, sortCalls, splitCallsForDisplay, supplierOf } from '../../shared/utils/call-utils';
+import {
+  CallDepthInfo,
+  CallTreeNode,
+  CallViewMode,
+  DEFAULT_CALL_VIEW_MODE,
+  TREE_FALLBACK_SORT_MODE,
+  buildCallTree,
+  indexCallTree,
+  isTreeSortMode,
+  requiresChronologicalSort,
+} from '../../shared/utils/call-tree';
 
 const DEFAULT_PAGE_SIZE = 10;
+
+/** Which of the three call views the list renders - a personal display choice like
+ * SHOW_OPTIONS_CALLS_KEY, so it's remembered across reloads rather than reset every visit. */
+const CALL_VIEW_MODE_KEY = 'alfred_call_view_mode';
+
+const CALL_VIEW_MODES: readonly CallViewMode[] = ['flat-depth', 'nested', 'waterfall'];
+
+function loadViewMode(): CallViewMode {
+  try {
+    const stored = localStorage.getItem(CALL_VIEW_MODE_KEY);
+    return CALL_VIEW_MODES.includes(stored as CallViewMode) ? (stored as CallViewMode) : DEFAULT_CALL_VIEW_MODE;
+  } catch {
+    return DEFAULT_CALL_VIEW_MODE;
+  }
+}
+
+function saveViewMode(value: CallViewMode): void {
+  try {
+    localStorage.setItem(CALL_VIEW_MODE_KEY, value);
+  } catch {
+    // storage full/blocked - the preference just won't survive a reload this time
+  }
+}
 
 /** A CORS preflight - almost never what anyone actually wants to look at (see call-card's docs on
  * OPTIONS/preflight pairs), so hiding it is the default; the preference is remembered across
@@ -127,6 +161,18 @@ export interface CallListView {
    * call-list.component.ts) and export-ordering logic key off of it directly.
    */
   readonly visibleRows: Signal<readonly CallListRow[]>;
+  /** Which of the three views is rendering - 'flat-depth' by default, remembered across reloads
+   * (see CALL_VIEW_MODE_KEY). The only one that splits: see CallViewMode's own doc. */
+  readonly viewMode: Signal<CallViewMode>;
+  /**
+   * `mainListCalls()` arranged as a forest - every call appears exactly once, nested under whatever
+   * is proven to contain it. What the 'nested' and 'waterfall' views render from directly; the
+   * 'flat-depth' view ignores it in favour of `callDepths` below, since it renders no hierarchy.
+   */
+  readonly callTree: Signal<readonly CallTreeNode[]>;
+  /** Per-call depth/parent/span annotations for the flat-depth view's badge and timing bar, keyed
+   * by call id - every call in `mainListCalls()` has an entry, roots included. */
+  readonly callDepths: Signal<ReadonlyMap<string, CallDepthInfo>>;
   /**
    * The batch of overlap candidates fetched for whatever time range `mainListCalls()` currently
    * spans, under the currently-active filters - `undefined` while that fetch for the current range
@@ -150,6 +196,10 @@ export interface CallListView {
   setStatusFilter(filter: CallStatusFilter): void;
   toggleGroupBySupplier(): void;
   toggleShowOptionsCalls(): void;
+  /** Picking a tree view ('nested'/'waterfall') while a non-chronological sort is active also moves
+   * the list back to a chronological sort - a tree can't be drawn over an order that scatters a
+   * parent away from its children (see CallViewMode's doc). */
+  setViewMode(mode: CallViewMode): void;
   toggleExpanded(): void;
   loadMore(): void;
   /** Re-fetches the currently-loaded window (offset 0 through however many calls are loaded) and replaces it wholesale - used both for the manual "Refresh" button and to reconcile a WebSocket push, since there's no polling to fall back on. */
@@ -196,6 +246,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const statusFilter = signal<CallStatusFilter>('all');
   const groupBySupplier = signal(false);
   const showOptionsCalls = signal(loadShowOptionsCalls());
+  const viewMode = signal<CallViewMode>(loadViewMode());
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
   const loading = signal(false);
@@ -397,7 +448,17 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     stats,
     mainListCalls,
     visibleCalls: mainListCalls,
-    visibleRows: computed(() => splitCallsForDisplay(mainListCalls(), sortMode(), overlapCandidates(), statusFilter())),
+    // The request/response split belongs to the flat-depth view alone (see CallViewMode) - the
+    // other two enclose or bracket their children structurally, so splitting there would only
+    // restate what the card or the bar already shows.
+    visibleRows: computed<readonly CallListRow[]>(() =>
+      viewMode() === 'flat-depth'
+        ? splitCallsForDisplay(mainListCalls(), sortMode(), overlapCandidates(), statusFilter())
+        : mainListCalls().map((call) => ({ call, variant: 'full' as const, rowKey: call.id }))
+    ),
+    viewMode,
+    callTree: computed(() => buildCallTree(mainListCalls())),
+    callDepths: computed(() => indexCallTree(mainListCalls())),
     overlapCandidates,
     remainingCount: computed(() => Math.max(0, totalCount() - loadedCalls().length)),
     groupedCalls: computed<SupplierGroup[]>(() => {
@@ -453,6 +514,15 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       const next = !showOptionsCalls();
       showOptionsCalls.set(next);
       saveShowOptionsCalls(next);
+    },
+    setViewMode(mode: CallViewMode) {
+      viewMode.set(mode);
+      saveViewMode(mode);
+      if (!requiresChronologicalSort(mode) || isTreeSortMode(sortMode())) return;
+      // Same refetch as setSortMode - the backend decides the order, so a tree view can't just
+      // re-sort what's already loaded and call it chronological.
+      sortMode.set(TREE_FALLBACK_SORT_MODE);
+      fetch(0, Math.max(pageSize(), loadedCalls().length), true);
     },
     toggleExpanded() {
       expanded.set(!expanded());

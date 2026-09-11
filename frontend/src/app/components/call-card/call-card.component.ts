@@ -1,4 +1,4 @@
-import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, output, signal } from '@angular/core';
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { CallDetail, CallRecord } from '../../core/models/call.model';
 import {
@@ -13,6 +13,7 @@ import {
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { JsonPanelComponent } from '../json-panel/json-panel.component';
+import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { copyToClipboard } from '../../shared/utils/clipboard';
@@ -64,6 +65,15 @@ export class CallCardComponent {
    * once resolved) and shows the real status/duration exactly like a 'full' row does today.
    */
   readonly variant = input<'request' | 'response' | 'full'>('full');
+  /**
+   * This call's place in the tree, for the flat-depth view's depth badge and timing bar (see
+   * CallDepthInfo). Null in the nested and waterfall views, which show the same facts structurally
+   * and would only be repeating themselves, and null for a call that has no proven relations at all.
+   */
+  readonly depth = input<CallDepthInfo | null>(null);
+  /** Emitted when the depth badge's parent name is clicked - the list scrolls that parent into view
+   * and flashes it, which is how hierarchy stays navigable in a view that never indents. */
+  readonly revealParent = output<string>();
 
   readonly idBase = computed(() => callKey(this.call()));
   readonly methodClass = computed(() => methodClassOf(this.call().method));
@@ -134,6 +144,51 @@ export class CallCardComponent {
    * cases, so the lone panel is given the card's full width instead (see .panels.single).
    */
   readonly singlePanel = computed(() => this.showsRequestPanel() !== this.showsResponsePanel());
+
+  /** The depth badge's text: a parent names what it contains, a child names what it sits inside.
+   * Null for a call with no proven relations - an isolated call gets no badge at all rather than a
+   * meaningless "L1". A 'response' row carries no badge either; the request row opening the pair
+   * already stated it, and repeating it on both halves just doubles the noise. */
+  readonly depthLabel = computed(() => {
+    const info = this.depth();
+    if (!info || this.variant() === 'response') return null;
+    if (info.ambiguous) return 'unattributed';
+    if (info.depth === 0) return info.descendantCount > 0 ? `root · ${info.descendantCount} below` : null;
+    return `L${info.depth + 1} · in ${info.parentLabel}`;
+  });
+  /** Only a call that's actually part of a tree gets a bar - for anything else there's no root
+   * window to measure against, and a lone full-width bar would imply a relationship that isn't there. */
+  readonly showsSpanBar = computed(() => {
+    const info = this.depth();
+    if (!info || info.ambiguous || info.spanStart == null || info.spanWidth == null) return false;
+    return info.depth > 0 || info.descendantCount > 0;
+  });
+  /** Whether the badge is the clickable scroll-to-parent control rather than plain text. An
+   * ambiguous call is excluded explicitly: resolveParent leaves it parentless by definition, so a
+   * parentId alongside `ambiguous` would be contradictory data - and a link reading "unattributed"
+   * that jumps somewhere would be worse than no link at all. */
+  readonly linksToParent = computed(() => {
+    const info = this.depth();
+    return !!info?.parentId && !info.ambiguous;
+  });
+  readonly spanBarTitle = computed(() => {
+    const info = this.depth();
+    if (!info) return '';
+    const share = Math.round((info.spanWidth ?? 0) * 100);
+    return info.depth === 0
+      ? `This call's own window - the track every nested call below is measured against`
+      : `Covers about ${share}% of the root call's window`;
+  });
+  /**
+   * DOM id for scroll-to-parent (see revealParent), deliberately absent on a 'response' row: in the
+   * flat-depth view a split call renders twice, and two elements sharing one id would make
+   * getElementById pick whichever came first rather than the call's opening row.
+   */
+  readonly anchorId = computed(() => (this.variant() === 'response' ? null : `call-row-${this.call().id}`));
+  readonly spanOffsetPercent = computed(() => `${((this.depth()?.spanStart ?? 0) * 100).toFixed(2)}%`);
+  /** Floored at a hairline so a very short call inside a very long root still renders something
+   * visible rather than a zero-width sliver. */
+  readonly spanWidthPercent = computed(() => `${Math.max((this.depth()?.spanWidth ?? 0) * 100, 0.8).toFixed(2)}%`);
 
   constructor() {
     this.observer = new IntersectionObserver(
@@ -246,6 +301,11 @@ export class CallCardComponent {
       this.copiedChip.set(chip);
       setTimeout(() => this.copiedChip.set(null), 1000);
     });
+  }
+
+  onRevealParent(): void {
+    const parentId = this.depth()?.parentId;
+    if (parentId) this.revealParent.emit(parentId);
   }
 
   isSelected(): boolean {

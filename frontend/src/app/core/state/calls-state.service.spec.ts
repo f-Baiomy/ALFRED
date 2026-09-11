@@ -3,7 +3,7 @@ import { of } from 'rxjs';
 import { CallsStateService } from './calls-state.service';
 import { CallsApiService } from '../services/calls-api.service';
 import { InternalLoggingApiService } from '../services/internal-logging-api.service';
-import { CallRecord } from '../models/call.model';
+import { CallOverlapCandidate, CallRecord } from '../models/call.model';
 import { CallsQuery } from './call-list-view';
 
 const PIN_STORAGE_KEY = 'alfred_pinned_calls';
@@ -319,4 +319,118 @@ describe('CallsStateService', () => {
     expect(state.calls()).toEqual([]);
     discardPeriodicTasks();
   }));
+
+  describe('view mode', () => {
+    afterEach(() => localStorage.removeItem('alfred_call_view_mode'));
+
+    /** Like setup(), but with real overlap evidence: two calls nested inside `parent`, which is what
+     * makes it eligible to split at all (see call-utils.ts's hasBlockingEvidence). */
+    function setupWithOverlaps(calls: CallRecord[], candidates: CallOverlapCandidate[]): CallsStateService {
+      const apiStub: Pick<CallsApiService, 'getCalls' | 'getCallOverlaps'> = {
+        getCalls: () => of({ calls, total: calls.length }),
+        getCallOverlaps: () => of(candidates),
+      };
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: CallsApiService, useValue: apiStub },
+          { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
+        ],
+      });
+      return TestBed.inject(CallsStateService);
+    }
+
+    it('splits a parent call in the flat-depth view only - the other two show containment structurally', fakeAsync(() => {
+      const parent = makeCall({ id: 'parent', source: 'internal', service_name: 'odeysys', state: 'COMPLETED', timestamp: '2026-01-01T00:00:00.000Z', duration_ms: 10000 });
+      const nested = (id: string, startMs: number): CallOverlapCandidate => ({
+        id,
+        source: 'external',
+        serviceName: null,
+        timestamp: new Date(Date.parse('2026-01-01T00:00:00.000Z') + startMs).toISOString(),
+        durationMs: 1000,
+        status: 200,
+        error: null,
+      });
+      const state = setupWithOverlaps([parent], [nested('child-a', 1000), nested('child-b', 2000)]);
+      tick();
+
+      expect(state.viewMode()).toBe('flat-depth');
+      // Newest-first (the dashboard default), so the response row - which sorts at the call's END -
+      // legitimately comes before its own request row here.
+      expect(state.visibleRows().map((r) => r.variant)).toEqual(['response', 'request']);
+
+      state.setViewMode('nested');
+      tick();
+      expect(state.visibleRows().map((r) => r.variant)).toEqual(['full']);
+
+      state.setViewMode('waterfall');
+      tick();
+      expect(state.visibleRows().map((r) => r.variant)).toEqual(['full']);
+      discardPeriodicTasks();
+    }));
+
+    it('moves a non-chronological sort back to chronological when a tree view is picked, and refetches', fakeAsync(() => {
+      const { state, queries } = setup([makeCall()]);
+      tick();
+      state.setSortMode('slowest');
+      tick();
+      queries.length = 0;
+
+      state.setViewMode('nested');
+      tick();
+
+      expect(state.sortMode()).toBe('newest');
+      expect(queries.map((q) => q.sort)).toEqual(['newest']);
+      discardPeriodicTasks();
+    }));
+
+    it('leaves an already-chronological sort alone, and never touches the sort for the flat-depth view', fakeAsync(() => {
+      const { state, queries } = setup([makeCall()]);
+      tick();
+      state.setSortMode('oldest-call');
+      tick();
+      queries.length = 0;
+
+      state.setViewMode('waterfall');
+      tick();
+      expect(state.sortMode()).toBe('oldest-call');
+      expect(queries.length).toBe(0);
+
+      state.setSortMode('slowest');
+      tick();
+      queries.length = 0;
+      state.setViewMode('flat-depth');
+      tick();
+      // flat-depth reorders nothing, so a duration sort stays exactly as the user left it.
+      expect(state.sortMode()).toBe('slowest');
+      expect(queries.length).toBe(0);
+      discardPeriodicTasks();
+    }));
+
+    it('remembers the chosen view across reloads', fakeAsync(() => {
+      const first = setup([makeCall()]);
+      tick();
+      first.state.setViewMode('waterfall');
+      tick();
+      discardPeriodicTasks();
+
+      TestBed.resetTestingModule();
+      const second = setup([makeCall()]);
+      tick();
+      expect(second.state.viewMode()).toBe('waterfall');
+      discardPeriodicTasks();
+    }));
+
+    it('exposes the call tree and per-call depth annotations for whatever is loaded', fakeAsync(() => {
+      const parent = makeCall({ id: 'parent', source: 'internal', service_name: 'odeysys', state: 'COMPLETED', timestamp: '2026-01-01T00:00:00.000Z', duration_ms: 10000 });
+      const child = makeCall({ id: 'child', source: 'external', service_name: null, timestamp: '2026-01-01T00:00:01.000Z', duration_ms: 2000 });
+      const { state } = setup([parent, child]);
+      tick();
+
+      expect(state.callTree().map((n) => n.call.id)).toEqual(['parent']);
+      expect(state.callTree()[0].children.map((n) => n.call.id)).toEqual(['child']);
+      expect(state.callDepths().get('child')!.parentLabel).toBe('Odeysys');
+      expect(state.callDepths().get('parent')!.descendantCount).toBe(1);
+      discardPeriodicTasks();
+    }));
+  });
 });

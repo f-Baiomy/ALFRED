@@ -1,0 +1,124 @@
+import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { CallWaterfallComponent } from './call-waterfall.component';
+import { CallRecord } from '../../core/models/call.model';
+import { buildCallTree, indexCallTree } from '../../shared/utils/call-tree';
+import { CallsStateService } from '../../core/state/calls-state.service';
+import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
+
+const T0 = Date.parse('2026-01-01T00:00:00.000Z');
+
+function call(id: string, startMs: number, durationMs: number, overrides: Partial<CallRecord> = {}): CallRecord {
+  return {
+    id,
+    original_url: `http://localhost/${id}`,
+    url: `http://host/${id}/path`,
+    method: 'POST',
+    timestamp: new Date(T0 + startMs).toISOString(),
+    duration_ms: durationMs,
+    response: { status: 200 },
+    source: 'internal',
+    state: 'COMPLETED',
+    ...overrides,
+  };
+}
+
+/** odeysys (0 -> 10s) containing core-service (2s -> 4s) containing one supplier call. */
+const CALLS: CallRecord[] = [
+  call('odeysys', 0, 10000, { service_name: 'odeysys' }),
+  call('core', 2000, 4000, { service_name: 'core-service' }),
+  call('sabre', 2500, 1000, { source: 'external', service_name: 'core-service' }),
+];
+
+describe('CallWaterfallComponent', () => {
+  let httpMock: HttpTestingController;
+
+  beforeEach(async () => {
+    (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = class {
+      observe(): void {}
+      disconnect(): void {}
+      unobserve(): void {}
+    };
+    await TestBed.configureTestingModule({
+      imports: [CallWaterfallComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: CALL_SELECTION_STATE, useExisting: CallsStateService },
+        { provide: BULK_SELECTION_STATE, useExisting: CallsStateService },
+        { provide: CALL_LIST_CONTROLS_STATE, useExisting: CallsStateService },
+      ],
+    }).compileComponents();
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.match(() => true).forEach((req) => req.flush({ calls: [], total: 0 }));
+    httpMock.verify();
+  });
+
+  function createWaterfall(calls: CallRecord[] = CALLS) {
+    const fixture = TestBed.createComponent(CallWaterfallComponent);
+    fixture.componentRef.setInput('nodes', buildCallTree(calls));
+    fixture.componentRef.setInput('depths', indexCallTree(calls));
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('flattens the tree parent-first, one row per call', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const labels = Array.from(host.querySelectorAll('.waterfall-label')).map((el) => el.textContent?.trim());
+
+    expect(labels.length).toBe(3);
+    expect(labels[0]).toContain('odeysys');
+    expect(labels[1]).toContain('core-service');
+    expect(labels[2]).toContain('path');
+  });
+
+  it('indents each level and measures every bar against the root call\'s window', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const rails = Array.from(host.querySelectorAll('.waterfall-rail')) as HTMLElement[];
+    const bars = Array.from(host.querySelectorAll('.waterfall-bar')) as HTMLElement[];
+
+    expect(parseFloat(rails[0].style.width || '0')).toBe(0);
+    expect(parseFloat(rails[1].style.width)).toBeGreaterThan(0);
+    expect(parseFloat(rails[2].style.width)).toBeGreaterThan(parseFloat(rails[1].style.width));
+
+    // The root spans its whole track; core-service starts 2s into 10s and runs 4s of it.
+    expect(parseFloat(bars[0].style.width)).toBeCloseTo(100, 3);
+    expect(parseFloat(bars[1].style.marginLeft)).toBeCloseTo(20, 3);
+    expect(parseFloat(bars[1].style.width)).toBeCloseTo(40, 3);
+  });
+
+  it('renders no request/response split - one row per call, whatever its depth', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+
+    expect(host.textContent).not.toContain('· request');
+    expect(host.textContent).not.toContain('· response');
+    expect(host.querySelectorAll('.waterfall-row').length).toBe(3);
+  });
+
+  it('expands the full call card on click, and collapses it again', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
+
+    expect(host.querySelector('app-call-card')).toBeNull();
+
+    (host.querySelectorAll('.waterfall-row')[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelectorAll('app-call-card').length).toBe(1);
+
+    (host.querySelectorAll('.waterfall-row')[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('app-call-card')).toBeNull();
+  });
+
+  it('shows an error row without a duration rather than a bogus timing', () => {
+    const failed = [call('solo', 0, 0, { source: 'external', error: 'boom', response: undefined })];
+    const host: HTMLElement = createWaterfall(failed).nativeElement;
+
+    expect(host.querySelector('.status-err')?.textContent).toContain('ERROR');
+    expect(host.querySelector('.waterfall-duration')?.textContent).toContain('err');
+  });
+});

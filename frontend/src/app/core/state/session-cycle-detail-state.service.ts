@@ -22,6 +22,7 @@ import { SessionCyclesApiService } from '../services/session-cycles-api.service'
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
+import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, toCallRecord } from '../../shared/utils/call-utils';
 
 /**
@@ -464,6 +465,15 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get visibleRows() {
     return this.view.visibleRows;
   }
+  get viewMode() {
+    return this.view.viewMode;
+  }
+  get callTree() {
+    return this.view.callTree;
+  }
+  get callDepths() {
+    return this.view.callDepths;
+  }
   get overlapCandidates() {
     return this.view.overlapCandidates;
   }
@@ -526,6 +536,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   toggleShowOptionsCalls(): void {
     this.view.toggleShowOptionsCalls();
+  }
+
+  setViewMode(mode: CallViewMode): void {
+    this.view.setViewMode(mode);
   }
 
   toggleExpanded(): void {

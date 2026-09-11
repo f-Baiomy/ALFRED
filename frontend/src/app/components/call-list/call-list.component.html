@@ -25,11 +25,33 @@
   } @else if (state.mainListCalls().length === 0) {
     <div class="empty">No calls match "{{ state.searchQuery() }}".</div>
   } @else {
-    <div class="calls-flat-list" cdkDropList [cdkDropListDisabled]="!dragEnabled()" (cdkDropListDropped)="onDrop($event)">
-      @for (row of state.visibleRows(); track trackByRowKey(row)) {
-        <app-call-card [call]="row.call" [variant]="row.variant" [dragHandle]="dragEnabled()" cdkDrag [cdkDragDisabled]="!dragEnabled()" />
+    @switch (state.viewMode()) {
+      @case ('nested') {
+        <div class="calls-tree-list">
+          @for (node of state.callTree(); track node.call.id) {
+            <app-call-tree-node [node]="node" />
+          }
+        </div>
       }
-    </div>
+      @case ('waterfall') {
+        <app-call-waterfall [nodes]="state.callTree()" [depths]="state.callDepths()" />
+      }
+      @default {
+        <div class="calls-flat-list" cdkDropList [cdkDropListDisabled]="!dragEnabled()" (cdkDropListDropped)="onDrop($event)">
+          @for (row of state.visibleRows(); track trackByRowKey(row)) {
+            <app-call-card
+              [call]="row.call"
+              [variant]="row.variant"
+              [depth]="depthFor(row.call)"
+              (revealParent)="revealParent($event)"
+              [dragHandle]="dragEnabled()"
+              cdkDrag
+              [cdkDragDisabled]="!dragEnabled()"
+            />
+          }
+        </div>
+      }
+    }
     @if (state.remainingCount() > 0) {
       @if (infiniteScroll()) {
         <div #sentinel class="load-more-sentinel">

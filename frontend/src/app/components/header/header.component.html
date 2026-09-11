@@ -27,6 +27,12 @@
 
     <app-select-picker [options]="supplierOptions()" [value]="state.supplierFilter()" (valueChange)="onSupplierChange($event)" />
 
+    <app-select-picker
+      [options]="viewModeOptions"
+      [value]="state.viewMode()"
+      (valueChange)="onViewModeChange($event)"
+    />
+
     <button type="button" [class.active]="state.groupBySupplier()" (click)="toggleGroupBySupplier()">
       {{ state.groupBySupplier() ? 'Ungroup' : 'Group by supplier' }}
     </button>

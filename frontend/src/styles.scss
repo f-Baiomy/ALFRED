@@ -824,6 +824,172 @@ main {
   border: 1px solid var(--border);
 }
 
+// ---------- Nested view (design A) ----------
+
+// The rail is what makes containment legible once a card is inside another card; the indent is
+// capped in depthRailPx rather than here, so a deep chain stops eating width without the data
+// itself being flattened.
+.tree-children {
+  margin: 0.35rem 0 0.1rem 0.75rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid color-mix(in srgb, var(--purple) 30%, transparent);
+}
+
+// ---------- Waterfall view (design B) ----------
+
+.waterfall {
+  display: flex;
+  flex-direction: column;
+}
+
+.waterfall-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 8%, transparent);
+  }
+}
+
+.waterfall-line.expanded > .waterfall-row {
+  background: color-mix(in srgb, var(--purple) 12%, transparent);
+}
+
+.waterfall-rail {
+  flex: none;
+  align-self: stretch;
+  border-left: 2px solid color-mix(in srgb, var(--purple) 30%, transparent);
+}
+
+.waterfall-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.waterfall-track {
+  flex: none;
+  width: 170px;
+  height: 12px;
+  display: flex;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
+  overflow: hidden;
+}
+
+.waterfall-bar {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--purple);
+}
+
+.waterfall-duration {
+  flex: none;
+  width: 68px;
+  text-align: right;
+  font-size: 0.75rem;
+}
+
+.waterfall-detail {
+  padding: 0.4rem 0 0.6rem;
+}
+
+@media (max-width: 880px) {
+  .waterfall-track {
+    display: none;
+  }
+}
+
+// ---------- Depth badge + span bar (flat-depth view) ----------
+// The flat-depth view never indents or nests, so these two are the only things on a card saying
+// where it sits in the tree - see CallDepthInfo and call-card's depthLabel()/showsSpanBar().
+
+.depth-badge {
+  background: color-mix(in srgb, var(--purple) 22%, transparent);
+  color: var(--purple-light);
+  border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent);
+  text-transform: none;
+  font-family: inherit;
+}
+
+// A badge naming a parent is a real control (it scrolls that parent into view), so it has to look
+// clickable without becoming as loud as the action buttons beside it.
+.depth-badge-link {
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, var(--purple) 34%, transparent);
+    color: #fff;
+  }
+}
+
+// Contained by two calls that could equally claim it, so it belongs to neither - same amber as
+// source-badge-unknown, which marks the other "we genuinely can't say" case in this UI.
+.depth-badge-orphan {
+  background: color-mix(in srgb, var(--amber) 15%, transparent);
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+}
+
+// The track is always the ROOT call's whole window; the fill is where this call sits inside it. Two
+// things read straight off it that no badge can say: children of one fan-out all start at the same
+// offset, and a parent that keeps working after its children finish leaves visible empty track.
+.span-bar {
+  display: block;
+  width: 120px;
+  height: 6px;
+  flex: none;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--purple) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--purple) 22%, transparent);
+  overflow: hidden;
+}
+
+.span-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--purple);
+}
+
+@media (max-width: 880px) {
+  .span-bar {
+    display: none;
+  }
+}
+
+// Applied for one animation cycle when a depth badge scrolls its parent into view - see
+// CallListComponent.revealParent, which removes the class on animationend.
+.call-flash {
+  animation: call-flash 1.1s ease-out;
+}
+
+@keyframes call-flash {
+  0% {
+    box-shadow: 0 0 0 2px var(--purple);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
 .cycle-status-recording {
   background: color-mix(in srgb, var(--red) 15%, transparent);
   color: var(--red);

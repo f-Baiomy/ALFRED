@@ -2,6 +2,7 @@ import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, inpu
 import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/call-selection.tokens';
 import { SortMode, SourceKey } from '../../core/models/call.model';
 import { InternalCallServiceDto } from '../../core/services/internal-logging-api.service';
+import { CallViewMode } from '../../shared/utils/call-tree';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { SourcesBarComponent } from '../sources-bar/sources-bar.component';
 
@@ -20,6 +21,14 @@ const SORT_OPTIONS: readonly SelectOption[] = [
   { value: 'slowest', label: 'Slowest first' },
   { value: 'fastest', label: 'Fastest first' },
   { value: 'status', label: 'Status (worst first)' },
+];
+
+/** The three call views - see CallViewMode. 'flat-depth' leads because it's the default and the
+ * only one that works under every sort mode. */
+const VIEW_MODE_OPTIONS: readonly SelectOption[] = [
+  { value: 'flat-depth', label: 'Flat + depth' },
+  { value: 'nested', label: 'Nested' },
+  { value: 'waterfall', label: 'Waterfall' },
 ];
 
 /**
@@ -61,6 +70,7 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
   readonly toggleServiceLogging = output<{ name: string; enabled: boolean }>();
 
   readonly limitOptions = LIMIT_OPTIONS;
+  readonly viewModeOptions = VIEW_MODE_OPTIONS;
   readonly sortOptions = computed<readonly SelectOption[]>(() =>
     this.reorderState ? [...SORT_OPTIONS, { value: 'custom', label: 'Custom order' }] : SORT_OPTIONS
   );
@@ -97,6 +107,12 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
 
   onSortChange(value: string): void {
     this.state.setSortMode(value as SortMode);
+  }
+
+  /** Picking a tree view may also move the sort back to chronological - see setViewMode's doc on
+   * CallListView. The sort dropdown re-renders from state.sortMode(), so it follows along by itself. */
+  onViewModeChange(value: string): void {
+    this.state.setViewMode(value as CallViewMode);
   }
 
   onSupplierChange(value: string): void {
