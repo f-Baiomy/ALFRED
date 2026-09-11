@@ -1,9 +1,9 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, map } from 'rxjs';
-import { CallDetail, CallEndpointSource, CallRecord, CallSummaryDto, CapturedCall, SessionCycle } from '../models/call.model';
+import { CallDetail, CallEndpointSource, CallOverlapCandidate, CallRecord, CallSummaryDto, CapturedCall, SessionCycle } from '../models/call.model';
 import { AppConfigService } from './app-config.service';
-import { CallsQuery } from '../state/call-list-view';
+import { CallOverlapQuery, CallsQuery } from '../state/call-list-view';
 import { toCallRecord } from '../../shared/utils/call-utils';
 
 /** Mirrors CallsApiService's endpointFor - 'internal' routes to the parallel /session-cycles/{id}/internal-calls* resource, 'external' (the default everywhere below) keeps hitting today's /session-cycles/{id}/calls*. */
@@ -106,6 +106,22 @@ export class SessionCyclesApiService {
   /** The full request/response for one captured call - fetched only once it's actually expanded, always over the network (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail). */
   getDetail(cycleId: string, callId: string, source: CallEndpointSource = 'external'): Observable<CallDetail> {
     return this.http.get<CallDetail>(`${this.baseUrl}/${cycleId}/${endpointSegmentFor(source)}/${callId}/detail`);
+  }
+
+  /** Mirrors CallsApiService.getCallOverlaps, scoped to this cycle's captured calls - see its doc. */
+  getCallOverlaps(cycleId: string, query: CallOverlapQuery, serviceNames?: readonly string[]): Observable<CallOverlapCandidate[]> {
+    let params = new HttpParams()
+      .set('from', query.from)
+      .set('to', query.to)
+      .set('search', query.search)
+      .set('supplier', query.supplier)
+      .set('sessionId', query.sessionId)
+      .set('operationId', query.operationId)
+      .set('requestId', query.requestId);
+    if (serviceNames?.length) {
+      params = params.set('serviceNames', serviceNames.join(','));
+    }
+    return this.http.get<CallOverlapCandidate[]>(`${this.baseUrl}/${cycleId}/call-overlaps`, { params });
   }
 
   removeCall(id: string, callId: string, source: CallEndpointSource = 'external'): Observable<void> {

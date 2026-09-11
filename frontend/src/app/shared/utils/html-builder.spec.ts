@@ -1,7 +1,23 @@
-import { CallRecord } from '../../core/models/call.model';
+import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { buildBulkExportHtml, buildExportHtml, bulkExportHtmlFilename, exportHtmlFilename } from './html-builder';
+
+/** A candidate genuinely contained in a call's [timestamp, timestamp + duration_ms] window, from a different service - the minimal fixture that makes buildBulkExportHtml keep an internal/resolved call split (see markdown-builder.ts/html-builder.ts's own isSplitInternalCall). */
+function makeCandidate(overrides: Partial<CallOverlapCandidate> = {}): CallOverlapCandidate {
+  return {
+    id: 'nested-candidate',
+    source: 'internal',
+    serviceName: 'a-different-service',
+    // Same start as the default makeCall() above, covering 91% of its default 2965.59ms duration
+    // with a 265.59ms tail - comfortably past both MIN_COVERAGE_RATIO and MIN_TAIL_MS/TAIL_RATIO.
+    timestamp: '2026-08-07T13:45:51.965328+00:00',
+    durationMs: 2700,
+    status: 200,
+    error: null,
+    ...overrides,
+  };
+}
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -295,7 +311,9 @@ describe('buildBulkExportHtml', () => {
       timestamp: '2026-08-07T13:45:51.965328+00:00',
       duration_ms: 1000,
     });
-    const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT);
+    // 80% coverage / 200ms tail against this call's own 1000ms duration - the shared default
+    // makeCandidate() is sized for makeCall()'s own default 2965.59ms duration instead.
+    const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT, [makeCandidate({ durationMs: 800 })], 'all');
 
     expect(html).toContain('id="call-1"');
     expect(html).toContain('id="call-1-response"');
@@ -327,6 +345,24 @@ describe('buildBulkExportHtml', () => {
     expect(html).not.toContain('&middot; response');
   });
 
+  it('merges a resolved internal call into a single block when no overlap candidate is genuinely contained in its window - the default when none is passed', () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(html).not.toContain('&middot; request');
+    expect(html).not.toContain('&middot; response');
+    expect(html).toContain('<b>Call 1</b>');
+  });
+
+  it('merges a resolved internal call when every contained candidate shares its own service name', () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const sameServiceCandidate = makeCandidate({ serviceName: 'core-service' });
+    const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT, [sameServiceCandidate], 'all');
+
+    expect(html).not.toContain('&middot; request');
+    expect(html).not.toContain('&middot; response');
+  });
+
   it('forces chronological order regardless of input order, and interleaves a split internal call around calls that fall in between', () => {
     const odeysys = makeCall({
       id: 'odeysys',
@@ -342,7 +378,14 @@ describe('buildBulkExportHtml', () => {
       duration_ms: 100,
     });
 
-    const html = buildBulkExportHtml([external, odeysys], makeForm(), new Map(), EXPORTED_AT);
+    const nestedInOdeysys = makeCandidate({
+      id: 'nested-in-odeysys',
+      serviceName: 'core-service',
+      timestamp: '2026-08-07T10:00:01.000Z',
+      // 76% coverage / 200ms tail against odeysys's 5000ms duration - well past both thresholds.
+      durationMs: 3800,
+    });
+    const html = buildBulkExportHtml([external, odeysys], makeForm(), new Map(), EXPORTED_AT, [nestedInOdeysys], 'all');
 
     const odeysysReqIdx = html.indexOf('id="call-1"');
     const externalIdx = html.indexOf('id="call-2"');
@@ -362,7 +405,7 @@ describe('buildBulkExportHtml', () => {
       makeComment({ id: 'c2', block: 'response-body', comment: 'response-side issue' }),
     ];
     const commentsByCallId = new Map<string, Comment[]>([[call.id, comments]]);
-    const html = buildBulkExportHtml([call], makeForm(), commentsByCallId, EXPORTED_AT);
+    const html = buildBulkExportHtml([call], makeForm(), commentsByCallId, EXPORTED_AT, [makeCandidate()], 'all');
 
     const requestBlock = html.slice(html.indexOf('<b>Call 1</b> &middot; request'), html.indexOf('<b>Call 1</b> &middot; response'));
     const responseBlock = html.slice(html.indexOf('<b>Call 1</b> &middot; response'), html.indexOf('<script>'));

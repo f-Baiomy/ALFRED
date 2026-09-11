@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.internalcalls.application.service;
 
+import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 
 import java.net.URI;
@@ -7,8 +8,10 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -57,6 +60,76 @@ public final class CallListSupport {
         int from = paginationEnabled ? Math.max(0, Math.min(offset, total)) : 0;
         int to = Math.max(from, Math.min(from + Math.max(limit, 0), total));
         return new Page<>(ordered.subList(from, to), total);
+    }
+
+    /**
+     * Resolved (never IN_PROGRESS) internal calls whose timestamp falls within
+     * {@code [from, to]} (inclusive both ends), optionally narrowed by search/serviceNames/
+     * sessionId/operationId/requestId - built for backend-call-overlap's global "what happened in
+     * this window" query, which needs to see beyond whatever page is currently loaded in the
+     * browser. Unlike {@link #apply}, there's no sort/pagination here - callers only ever pass a
+     * narrow time window, so returning everything that matches is the whole point. An in-progress
+     * call has no fixed end time yet, so it can never be "contained" in anything and is excluded
+     * entirely rather than included with a null/partial duration.
+     */
+    public static List<CallRecord> resolvedInRange(List<CallRecord> source, Instant from, Instant to,
+                                                     String search, String sessionId, String operationId,
+                                                     String requestId, String serviceNames) {
+        String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        Set<String> serviceNameFilter = parseServiceNames(serviceNames);
+        long fromMillis = from.toEpochMilli();
+        long toMillis = to.toEpochMilli();
+
+        return source.stream()
+                .filter(CallListSupport::isResolved)
+                .filter(call -> withinRange(call, fromMillis, toMillis))
+                .filter(call -> matchesSubstring(call.sessionId(), sessionId))
+                .filter(call -> matchesSubstring(call.operationId(), operationId))
+                .filter(call -> matchesSubstring(call.id(), requestId))
+                .filter(call -> matchesServiceNames(call, serviceNameFilter))
+                .filter(call -> matchesSearch(call, query))
+                .toList();
+    }
+
+    /** True once a call has an outcome (COMPLETED or ERROR) - false for IN_PROGRESS, which has no fixed end time. A null (legacy, pre-two-phase) state is derived from whether error is set, same as everywhere else that normalizes a possibly-null state. */
+    private static boolean isResolved(CallRecord call) {
+        return CallRecord.withDerivedStateIfMissing(call).state() != CallLifecycleStatus.IN_PROGRESS;
+    }
+
+    private static boolean withinRange(CallRecord call, long fromMillis, long toMillis) {
+        long callMillis = callTimeMillis(call);
+        return callMillis >= fromMillis && callMillis <= toMillis;
+    }
+
+    private static boolean matchesSubstring(String value, String filter) {
+        if (filter == null || filter.isBlank()) {
+            return true;
+        }
+        return value != null && value.toLowerCase(Locale.ROOT).contains(filter.toLowerCase(Locale.ROOT));
+    }
+
+    /** Comma-separated project names (see CallsQuery.serviceNames) into a set - blank/empty input means "no filter", represented as an empty set rather than null so callers never need a separate null check. Mirrors InternalCallsFileLogAdapter's identical private helper (duplicated rather than shared since that one lives in the adapter layer, which application-layer code must not depend on). */
+    private static Set<String> parseServiceNames(String serviceNames) {
+        if (serviceNames == null || serviceNames.isBlank()) {
+            return Set.of();
+        }
+        Set<String> names = new HashSet<>();
+        for (String name : serviceNames.split(",")) {
+            String trimmed = name.strip();
+            if (!trimmed.isEmpty()) {
+                names.add(trimmed);
+            }
+        }
+        return names;
+    }
+
+    /** An empty filter set matches everything (no filter applied). A null serviceName (a call logged before this field existed) is treated as LoggingToggleService.UNKNOWN_NAME, same as every other read path. */
+    private static boolean matchesServiceNames(CallRecord call, Set<String> filter) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        String name = call.serviceName() != null ? call.serviceName() : LoggingToggleService.UNKNOWN_NAME;
+        return filter.contains(name);
     }
 
     private static <T> List<T> sorted(List<T> filtered, String sort, Function<T, CallRecord> toCall) {

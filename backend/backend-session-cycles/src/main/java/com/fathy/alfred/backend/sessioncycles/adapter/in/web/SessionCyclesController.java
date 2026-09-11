@@ -14,6 +14,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionC
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
@@ -24,6 +25,8 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCaptured
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapEntry;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapQuery;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
@@ -44,7 +47,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 @RestController
@@ -68,6 +75,7 @@ public class SessionCyclesController {
     private final RemoveCapturedInternalCallUseCase removeCapturedInternalCallUseCase;
     private final RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase;
     private final CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase;
+    private final ListCallOverlapsUseCase listCallOverlapsUseCase;
 
     public SessionCyclesController(
             CreateSessionCycleUseCase createSessionCycleUseCase,
@@ -86,7 +94,8 @@ public class SessionCyclesController {
             GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase,
             RemoveCapturedInternalCallUseCase removeCapturedInternalCallUseCase,
             RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase,
-            CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase
+            CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase,
+            ListCallOverlapsUseCase listCallOverlapsUseCase
     ) {
         this.createSessionCycleUseCase = createSessionCycleUseCase;
         this.listSessionCyclesUseCase = listSessionCyclesUseCase;
@@ -105,6 +114,7 @@ public class SessionCyclesController {
         this.removeCapturedInternalCallUseCase = removeCapturedInternalCallUseCase;
         this.removeCapturedInternalCallsUseCase = removeCapturedInternalCallsUseCase;
         this.copyInternalCallsToCycleUseCase = copyInternalCallsToCycleUseCase;
+        this.listCallOverlapsUseCase = listCallOverlapsUseCase;
     }
 
     @PostMapping
@@ -252,5 +262,46 @@ public class SessionCyclesController {
         return copyInternalCallsToCycleUseCase.copyInto(id, request.calls())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Windowed+filtered "what calls (external + internal) happened in this time range", scoped to
+     * this cycle's own captured calls rather than the global live calls tables (see
+     * backend-call-overlap's GET /call-overlaps for that) - built for the frontend's own
+     * containment/nesting check, not for browsing/pagination. {@code from}/{@code to} are required
+     * ISO-8601 instants; every other param is optional and blank/absent means "no filter", same
+     * convention as GET /session-cycles/{id}/calls and GET /session-cycles/{id}/internal-calls.
+     */
+    @GetMapping("/{id}/call-overlaps")
+    public ResponseEntity<List<CallOverlapEntry>> listCallOverlaps(
+            @PathVariable String id,
+            @RequestParam String from,
+            @RequestParam String to,
+            @RequestParam(defaultValue = "") String search,
+            @RequestParam(defaultValue = "") String supplier,
+            @RequestParam(defaultValue = "") String serviceNames,
+            @RequestParam(defaultValue = "") String sessionId,
+            @RequestParam(defaultValue = "") String operationId,
+            @RequestParam(defaultValue = "") String requestId
+    ) {
+        Instant fromInstant = parseInstant("from", from);
+        Instant toInstant = parseInstant("to", to);
+        return listCallOverlapsUseCase.listCallOverlaps(id, new CallOverlapQuery(
+                        fromInstant, toInstant, search, supplier, serviceNames, sessionId, operationId, requestId))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Accepts both Java's Instant.toString() format (trailing "Z") and an OffsetDateTime-shaped offset, same fallback CallListSupport's own timestamp parsing uses elsewhere. */
+    private static Instant parseInstant(String paramName, String value) {
+        try {
+            return Instant.parse(value);
+        } catch (DateTimeParseException e) {
+            try {
+                return OffsetDateTime.parse(value).toInstant();
+            } catch (DateTimeParseException e2) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid " + paramName + " - expected an ISO-8601 timestamp");
+            }
+        }
     }
 }

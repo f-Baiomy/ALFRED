@@ -9,6 +9,7 @@ COPY pom.xml .
 COPY backend-platform/pom.xml backend-platform/pom.xml
 COPY backend-calls/pom.xml backend-calls/pom.xml
 COPY backend-internal-calls/pom.xml backend-internal-calls/pom.xml
+COPY backend-call-overlap/pom.xml backend-call-overlap/pom.xml
 COPY backend-comments/pom.xml backend-comments/pom.xml
 COPY backend-export/pom.xml backend-export/pom.xml
 COPY backend-session-cycles/pom.xml backend-session-cycles/pom.xml

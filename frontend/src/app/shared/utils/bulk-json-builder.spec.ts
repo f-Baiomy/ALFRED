@@ -1,4 +1,4 @@
-import { CallRecord } from '../../core/models/call.model';
+import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import {
@@ -7,6 +7,22 @@ import {
   BulkExportResponseEvent,
   BulkExportCallEvent,
 } from './bulk-json-builder';
+
+/** A candidate genuinely contained in a call's [timestamp, timestamp + duration_ms] window - external by default, so it never trips the same-service exclusion regardless of the target's own service_name (see bulk-json-builder.ts's own isContainedOverlap/eventsForCall). */
+function makeCandidate(overrides: Partial<CallOverlapCandidate> = {}): CallOverlapCandidate {
+  return {
+    id: 'nested-candidate',
+    source: 'external',
+    serviceName: null,
+    // Same start as the default makeCall()'s 100ms duration, covering 80% of it with a 20ms tail -
+    // comfortably past both MIN_COVERAGE_RATIO and MIN_TAIL_MS/TAIL_RATIO.
+    timestamp: '2026-08-07T13:45:51.965328+00:00',
+    durationMs: 80,
+    status: 200,
+    error: null,
+    ...overrides,
+  };
+}
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -78,7 +94,7 @@ describe('buildBulkExportPayload', () => {
 
   it('a resolved internal call produces exactly a request+response event pair sharing callId', () => {
     const call = makeCall({ source: 'internal', service_name: 'core-service' });
-    const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z');
+    const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', [makeCandidate()], 'all');
 
     expect(payload.events.length).toBe(2);
     const [reqEvent, resEvent] = payload.events as [BulkExportRequestEvent, BulkExportResponseEvent];
@@ -95,7 +111,7 @@ describe('buildBulkExportPayload', () => {
 
   it('an internal call resolved via error (no response) still produces a request+response pair', () => {
     const call = makeCall({ source: 'internal', response: undefined, error: 'boom' });
-    const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z');
+    const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', [makeCandidate()], 'all');
 
     expect(payload.events.length).toBe(2);
     const resEvent = payload.events[1] as BulkExportResponseEvent;
@@ -112,10 +128,44 @@ describe('buildBulkExportPayload', () => {
     expect(payload.events[0].type).toBe('request');
   });
 
+  it('a resolved internal call merges into a single "call" event when no overlap candidate is genuinely contained in its window - the default when none is passed', () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z');
+
+    expect(payload.events.length).toBe(1);
+    const event = payload.events[0] as BulkExportCallEvent;
+    expect(event.type).toBe('call');
+    expect(event.callId).toBe(call.id);
+    expect(event.response).toEqual(call.response);
+  });
+
+  it('a resolved internal call merges into a single "call" event when every contained candidate shares its own service name', () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const sameServiceCandidate = makeCandidate({ source: 'internal', serviceName: 'core-service' });
+    const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', [sameServiceCandidate], 'all');
+
+    expect(payload.events.length).toBe(1);
+    expect(payload.events[0].type).toBe('call');
+  });
+
+  it('excludes a candidate that fails the active status-pill filter from counting towards containment', () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const failedCandidate = makeCandidate({ status: 500, error: 'boom' });
+
+    const merged = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', [failedCandidate], 'ok');
+    expect(merged.events.length).toBe(1);
+    expect(merged.events[0].type).toBe('call');
+
+    const stillSplit = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', [failedCandidate], 'all');
+    expect(stillSplit.events.length).toBe(2);
+  });
+
   it("summary.callCount still counts real calls, not events, even after an internal call is split", () => {
     const internalCall = makeCall({ id: 'call-a', source: 'internal', timestamp: '2026-08-07T10:00:00.000Z' });
     const externalCall = makeCall({ id: 'call-b', source: 'external', timestamp: '2026-08-07T10:00:01.000Z' });
-    const payload = buildBulkExportPayload([internalCall, externalCall], makeForm(), new Map(), '2026-08-07T18:00:00Z');
+    // 40% coverage / 10ms tail against the internal call's default 100ms duration.
+    const nestedInInternalCall = makeCandidate({ timestamp: '2026-08-07T10:00:00.050Z', durationMs: 40 });
+    const payload = buildBulkExportPayload([internalCall, externalCall], makeForm(), new Map(), '2026-08-07T18:00:00Z', [nestedInInternalCall], 'all');
 
     expect(payload.events.length).toBe(3); // request+response for internal, one call event for external
     expect(payload.summary.callCount).toBe(2);
@@ -151,7 +201,9 @@ describe('buildBulkExportPayload', () => {
       timestamp: '2026-08-07T10:00:00.500Z',
       duration_ms: 300,
     });
-    const payload = buildBulkExportPayload([internalCall, externalCall], makeForm(), new Map(), '2026-08-07T18:00:00Z');
+    // 85% coverage / 200ms tail against the internal call's 2000ms duration.
+    const nestedInInternalCall = makeCandidate({ timestamp: '2026-08-07T10:00:00.100Z', durationMs: 1700 });
+    const payload = buildBulkExportPayload([internalCall, externalCall], makeForm(), new Map(), '2026-08-07T18:00:00Z', [nestedInInternalCall], 'all');
 
     expect(payload.events.map((e) => `${e.type}:${e.callId}`)).toEqual([
       'request:internal-1',

@@ -37,6 +37,10 @@ function makeView(
         call++;
         return of({ calls: page, total: page.length });
       },
+      // None of these tests exercise the overlap-candidates fetch itself (see call-utils.spec.ts
+      // for that) - every fixture call here uses an unparseable timestamp, so overlapRange is
+      // always null and this is never actually invoked.
+      fetchOverlaps: () => of([]),
     }),
     queries,
   }));

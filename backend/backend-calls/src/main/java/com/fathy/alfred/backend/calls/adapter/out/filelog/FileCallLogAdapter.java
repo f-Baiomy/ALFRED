@@ -170,12 +170,16 @@ public class FileCallLogAdapter implements CallLogPort {
         boolean hasError = error != null && !error.isBlank();
         CallLifecycleStatus state = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         CallRecord resolved = partial != null
+                // Uses the full 13-arg constructor (mirrors InternalCallsFileLogAdapter.complete's
+                // own handling of partial.serviceName()) so sessionId/operationId/serviceName all
+                // survive completion rather than being silently dropped by a shorter constructor.
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
-                        partial.timestamp(), durationMs, response, error, state)
+                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName())
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
-                // silently dropping it.
-                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state);
+                // silently dropping it. sessionId/operationId/serviceName unknown too in this
+                // narrow, accepted-gap case.
+                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null);
         save(resolved);
         return wasPending;
     }

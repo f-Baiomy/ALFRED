@@ -140,9 +140,11 @@ COMPOSE_OVERRIDE_HEADER = """\
 
 
 def _service_listen_ports(services):
-    """Pulls (name, listenPort) out of each "name:listenPort:upstreamPort" triple in
+    """Pulls (name, listenPort) out of each "name:listenPort:upstreamPort[...]" entry in
     internal_call_services, preserving order and dropping duplicates/malformed entries - same
-    format proxy/reverse-proxy-entrypoint.sh and log_and_route_reverse.py parse themselves."""
+    format proxy/reverse-proxy-entrypoint.sh and log_and_route_reverse.py parse themselves. The
+    optional 4th/5th (outbound) fields, if present, ride along inside parts[2] here (maxsplit=2)
+    and are simply never looked at - this function only ever needed name+listenPort."""
     ports = []
     seen = set()
     for triple in services.split(","):
@@ -160,27 +162,141 @@ def _service_listen_ports(services):
     return ports
 
 
-def sync_compose_override(services):
-    """Writes docker-compose.override.yml (auto-loaded by Compose, no -f flag needed) publishing
-    one host port per configured project, so callers reach that project's Alfred listener on
-    127.0.0.1:<listenPort> - see COMPOSE_OVERRIDE_HEADER above for why it's generated rather
-    than hardcoded. Removed entirely when no projects are configured, so a deployment that only
-    does outbound logging never carries a stale override."""
-    ports = _service_listen_ports(services)
-    if not ports:
+# Internal container ports on the "proxy" service assigned to per-project outbound-attribution
+# listeners start here - see _forward_proxy_assignments() below for why.
+FORWARD_PROXY_INTERNAL_PORT_BASE = 20000
+
+
+def _parse_service_entries(services):
+    """Parses internal_call_services into structured entries, preserving order and dropping
+    duplicates/malformed entries - each entry is "name:listenPort:upstreamPort" (the original,
+    still fully supported format) optionally followed by ":outboundProxyHost" and then
+    ":outboundProxyPort" (only meaningful if outboundProxyHost is present too; defaults to "443",
+    matching the existing forward-proxy's conventional port, when the host is given but the port
+    isn't). A project may freely mix 3/4/5-field entries with others in the same comma-separated
+    value - each entry is parsed independently. Returns a list of dicts with keys name,
+    listen_port, upstream_port, outbound_host (str or None), outbound_port (str or None)."""
+    entries = []
+    seen_listen_ports = set()
+    for entry in services.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = [p.strip() for p in entry.split(":")]
+        if len(parts) < 3 or len(parts) > 5:
+            continue
+        name, listen_port, upstream_port = parts[0], parts[1], parts[2]
+        if not name or not listen_port.isdigit() or not upstream_port.isdigit():
+            continue
+        if listen_port in seen_listen_ports:
+            continue
+
+        outbound_host = parts[3] if len(parts) >= 4 and parts[3] else None
+        outbound_port = None
+        if outbound_host:
+            outbound_port = parts[4] if len(parts) == 5 and parts[4] else "443"
+            if not outbound_port.isdigit():
+                # Malformed port - drop the outbound config for this entry rather than the
+                # whole entry, so a typo in the 5th field doesn't also cost it inbound logging.
+                outbound_host = None
+                outbound_port = None
+
+        seen_listen_ports.add(listen_port)
+        entries.append({
+            "name": name,
+            "listen_port": listen_port,
+            "upstream_port": upstream_port,
+            "outbound_host": outbound_host,
+            "outbound_port": outbound_port,
+        })
+    return entries
+
+
+def _forward_proxy_assignments(services):
+    """Assigns each outbound-attribution-configured project its own internal container port on
+    the "proxy" service, deterministically: FORWARD_PROXY_INTERNAL_PORT_BASE (20000) + its index
+    in internal_call_services' own order - counting over ALL entries, not just the outbound-
+    configured ones, so a given project's internal port doesn't shift just because some other,
+    unrelated project earlier in the list gains or loses outbound config. 20000+ is comfortably
+    clear of every listenPort/upstreamPort a project would plausibly use (every documented
+    example is four digits) and of the forward-proxy's own default internal port (8080); even if
+    a collision somehow occurred, Docker would simply fail to publish the duplicate host port and
+    that failure would surface immediately in "docker compose up" output, rather than silently
+    misrouting traffic. Returns a list of dicts: name, outbound_host, outbound_port,
+    internal_port."""
+    assignments = []
+    for index, entry in enumerate(_parse_service_entries(services)):
+        if not entry["outbound_host"]:
+            continue
+        assignments.append({
+            "name": entry["name"],
+            "outbound_host": entry["outbound_host"],
+            "outbound_port": entry["outbound_port"],
+            "internal_port": FORWARD_PROXY_INTERNAL_PORT_BASE + index,
+        })
+    return assignments
+
+
+def sync_compose_override(services, reverse_proxy_enabled=True):
+    """Writes docker-compose.override.yml (auto-loaded by Compose, no -f flag needed) publishing:
+    - one host port per configured project on reverse-proxy, so callers reach that project's
+      Alfred INBOUND listener on 127.0.0.1:<listenPort> - only when reverse_proxy_enabled (that
+      container doesn't even run otherwise);
+    - one host address per project that opted into OUTBOUND attribution (internal_call_services'
+      optional 4th/5th fields) on proxy, publishing <outboundProxyHost>:<outboundProxyPort or
+      443> to that project's own dedicated internal port (see _forward_proxy_assignments()) -
+      unconditionally, since outbound attribution has no feature flag of its own and "proxy"
+      always runs.
+    See COMPOSE_OVERRIDE_HEADER above for why this is generated rather than hardcoded. Removed
+    entirely when neither list has anything to publish, so a deployment using neither feature
+    never carries a stale override."""
+    ports = _service_listen_ports(services) if reverse_proxy_enabled else []
+    forward_assignments = _forward_proxy_assignments(services)
+    if not ports and not forward_assignments:
         if os.path.exists(COMPOSE_OVERRIDE_FILE):
             os.remove(COMPOSE_OVERRIDE_FILE)
-            print("Removed docker-compose.override.yml (no inbound-logging projects configured)")
+            print("Removed docker-compose.override.yml (no inbound-logging or outbound-attribution projects configured)")
         return
 
-    lines = [COMPOSE_OVERRIDE_HEADER, "\nservices:\n", "  reverse-proxy:\n", "    ports:\n"]
-    for name, listen_port in ports:
-        lines.append(f'      - "127.0.0.1:{listen_port}:{listen_port}"   # {name}\n')
+    lines = [COMPOSE_OVERRIDE_HEADER, "\nservices:\n"]
+
+    if ports:
+        lines += ["  reverse-proxy:\n", "    ports:\n"]
+        for name, listen_port in ports:
+            lines.append(f'      - "127.0.0.1:{listen_port}:{listen_port}"   # {name}\n')
+
+    if forward_assignments:
+        lines += ["  proxy:\n", "    ports:\n"]
+        for assignment in forward_assignments:
+            lines.append(
+                f'      - "{assignment["outbound_host"]}:{assignment["outbound_port"]}:'
+                f'{assignment["internal_port"]}"   # {assignment["name"]} (outbound attribution)\n'
+            )
+
     with open(COMPOSE_OVERRIDE_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
-    published = ", ".join(f"{name} -> localhost:{port}" for name, port in ports)
-    print(f"Wrote docker-compose.override.yml publishing {published}")
+    published = []
+    if ports:
+        published += [f"{name} (inbound) -> localhost:{port}" for name, port in ports]
+    if forward_assignments:
+        published += [
+            f'{a["name"]} (outbound) -> {a["outbound_host"]}:{a["outbound_port"]}'
+            for a in forward_assignments
+        ]
+    print(f"Wrote docker-compose.override.yml publishing {', '.join(published)}")
+
+
+def _forward_proxy_port_map_env(services):
+    """Builds the FORWARD_PROXY_PORT_MAP env var value - "name:internalPort" pairs, comma-
+    separated - consumed by proxy/forward-proxy-entrypoint.sh (turns each pair into an extra
+    "--mode regular@<internalPort>" listener) and by proxy/log_and_route.py (resolves
+    service_name from the internal port a flow arrived on). Independent of
+    reverse_proxy_enabled - outbound attribution has no such feature flag, since the "proxy"
+    service is always running regardless."""
+    return ",".join(
+        f'{a["name"]}:{a["internal_port"]}' for a in _forward_proxy_assignments(services)
+    )
 
 
 def _parse_settings_properties():
@@ -234,16 +350,20 @@ def sync_wildfly_port_offset():
 
 def sync_env_from_settings():
     """Reads reverse_proxy_enabled/internal_call_services from settings.properties and bakes
-    them into .env as COMPOSE_PROFILES/REVERSE_PROXY_ENABLED/INTERNAL_CALL_SERVICES -
-    docker-compose.yml's reverse-proxy service only starts when the "inbound-logging" profile
-    is active (Compose reads COMPOSE_PROFILES from .env automatically, no --profile flag
-    needed) - many environments only ever need OUTBOUND logging (the always-running "proxy"
-    service) and have no inbound project to front, so this keeps reverse-proxy from starting at
-    all for them rather than starting an idle container. backend reads REVERSE_PROXY_ENABLED
-    to decide whether to report the feature as available at all (hiding Settings' "Inbound
-    logging" panel when it isn't), and INTERNAL_CALL_SERVICES either way (the
-    "name:hostname:upstreamPort" list of every project reverse-proxy fronts when enabled - both
-    docker-compose.yml services read this same variable, one source of truth). Must run AFTER
+    them into .env as COMPOSE_PROFILES/REVERSE_PROXY_ENABLED/INTERNAL_CALL_SERVICES/
+    FORWARD_PROXY_PORT_MAP - docker-compose.yml's reverse-proxy service only starts when the
+    "inbound-logging" profile is active (Compose reads COMPOSE_PROFILES from .env automatically,
+    no --profile flag needed) - many environments only ever need OUTBOUND logging (the
+    always-running "proxy" service) and have no inbound project to front, so this keeps
+    reverse-proxy from starting at all for them rather than starting an idle container. backend
+    reads REVERSE_PROXY_ENABLED to decide whether to report the feature as available at all
+    (hiding Settings' "Inbound logging" panel when it isn't), and INTERNAL_CALL_SERVICES either
+    way (the "name:listenPort:upstreamPort[:outboundProxyHost[:outboundProxyPort]]" list of every
+    project reverse-proxy and/or proxy fronts - both docker-compose.yml services read this same
+    variable, one source of truth). FORWARD_PROXY_PORT_MAP is derived from the same list's
+    optional 4th/5th fields (see _forward_proxy_assignments()) and is independent of
+    reverse_proxy_enabled - the "proxy" service's per-project outbound-attribution listeners have
+    no feature flag of their own, since "proxy" always runs regardless. Must run AFTER
     ensure_backend_port(), not before - that function's own "does .env already exist" check
     would otherwise see the file this creates and skip picking a free BACKEND_PORT on a fresh
     install. Merges into whatever .env already has (preserving BACKEND_PORT, etc.) rather than
@@ -263,9 +383,16 @@ def sync_env_from_settings():
     reverse_proxy_enabled = settings.get("reverse_proxy_enabled", "false").strip().lower() == "true"
     services = settings.get("internal_call_services", "").strip()
 
+    # Outbound attribution (the "proxy" service's per-project forward-mode listeners) has no
+    # feature flag of its own - it's independent of reverse_proxy_enabled, since "proxy" always
+    # runs regardless. So unlike INTERNAL_CALL_SERVICES/sync_compose_override's reverse-proxy
+    # half, this always uses the full, unfiltered services string.
+    forward_proxy_port_map = _forward_proxy_port_map_env(services)
+
     env = _read_env_file()
     env["REVERSE_PROXY_ENABLED"] = "true" if reverse_proxy_enabled else "false"
     env["INTERNAL_CALL_SERVICES"] = services
+    env["FORWARD_PROXY_PORT_MAP"] = forward_proxy_port_map
     if reverse_proxy_enabled:
         env["COMPOSE_PROFILES"] = "inbound-logging"
     else:
@@ -274,8 +401,9 @@ def sync_env_from_settings():
 
     print(f"Inbound logging feature: {'enabled' if reverse_proxy_enabled else 'disabled'}, "
           f"projects: {services or '(none configured)'} (settings.properties - edit and re-run to change)")
+    print(f"Outbound attribution: {forward_proxy_port_map or '(none configured)'}")
 
-    sync_compose_override(services if reverse_proxy_enabled else "")
+    sync_compose_override(services, reverse_proxy_enabled)
 
     if not reverse_proxy_enabled:
         # "docker compose up" alone never stops an already-running container that's fallen out of

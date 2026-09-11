@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.application.service;
 
 import com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.GetCallsInRangeUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
@@ -21,13 +22,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, ReceiveNewCallUseCase,
-        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase {
+        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(CallsService.class);
 
@@ -73,6 +75,12 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
         return callLogPort.findById(callId).map(CallDetail::of);
     }
 
+    /** Delegates straight to the port - see {@link GetCallsInRangeUseCase}'s doc for what this is for. */
+    @Override
+    public List<CallRecord> getCallsInRange(Instant from, Instant to, String search, String supplier) {
+        return callLogPort.findResolvedInRange(from, to, search, supplier);
+    }
+
     /**
      * The legacy single-shot webhook path (POST /calls/webhook) - a call arrives already fully
      * resolved. Kept working unchanged alongside the new two-phase endpoints so an
@@ -116,7 +124,7 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
         String id = valueOrGenerated(partial.id());
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
-                partial.sessionId(), partial.operationId());
+                partial.sessionId(), partial.operationId(), partial.serviceName());
         if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {
             return Optional.empty();
         }

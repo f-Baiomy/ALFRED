@@ -19,6 +19,21 @@ This addon does not persist anything itself - backend owns storage. That
 means WEBHOOK_URL is not really optional: if it's unset, calls are proxied
 correctly but never recorded anywhere.
 
+Per-project OUTBOUND attribution: docker-compose.yml's proxy service now starts with the usual
+default forward-mode listener PLUS one extra forward-mode listener PER PROJECT that's opted into
+outbound attribution (settings.properties's internal_call_services 4th/5th fields,
+outboundProxyHost[:outboundProxyPort]) - see proxy/forward-proxy-entrypoint.sh, which turns
+FORWARD_PROXY_PORT_MAP ("name:internalPort" pairs) into one "--mode regular@<port>" flag per
+project, mirroring exactly how log_and_route_reverse.py's REVERSE_PROXY_PORT_MAP/--mode
+reverse:...@<port> pattern works for the inbound side. A project's own outbound HTTP client (any
+language) points its proxy settings at its own dedicated outboundProxyHost:outboundProxyPort, and
+this addon works out which project a flow belongs to from the internal port it arrived on
+(flow.client_conn.sockname, same technique log_and_route_reverse.py's _listen_port() already
+uses) - a structural, certain fact, not a guess from the destination. A flow arriving on the
+DEFAULT/shared port (not project-specific) resolves no service_name and stays "External" with no
+attribution, exactly as before this feature existed - strictly additive, no regression for
+anyone not opted in.
+
 Both webhook calls are fully asynchronous, fire-and-forget, via one shared
 background queue+thread - neither ever blocks mitmproxy's single asyncio
 event loop (and therefore every other connection currently being proxied).
@@ -63,6 +78,24 @@ WEBHOOK_TIMEOUT_SECONDS = 2
 # from complete and may warrant a different timeout later.
 PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '2'))
 
+# "name:internalPort" pairs, comma-separated - built by start.py/restart.py from
+# settings.properties's internal_call_services (its optional 4th/5th fields,
+# outboundProxyHost[:outboundProxyPort]) and turned into extra "--mode regular@<port>" listeners
+# by proxy/forward-proxy-entrypoint.sh, one per project that opted into outbound attribution -
+# see the module docstring. FORWARD_PORT_MAP: {internalPort -> name}. Only the internal port
+# assignment matters here; the public outboundProxyHost:outboundProxyPort a project's own client
+# actually points at is resolved to this internal port entirely by Docker's own port publish
+# (docker-compose.override.yml), so this addon never needs to know it.
+FORWARD_PORT_MAP = {}
+for _pair in os.environ.get('FORWARD_PROXY_PORT_MAP', '').split(','):
+    _pair = _pair.strip()
+    if not _pair:
+        continue
+    _name, _, _port = _pair.rpartition(':')
+    if not _name or not _port.isdigit():
+        continue
+    FORWARD_PORT_MAP[int(_port)] = _name
+
 # request()/response()/error() only ever enqueue (never block) - see the module docstring.
 # Items are ('prepare', call_id, data) or ('complete', call_id, data).
 _webhook_queue = queue.Queue()
@@ -103,6 +136,16 @@ class RouteAndLog:
 
     def request(self, flow):
         flow.metadata['start_time'] = time.time()
+
+        # Which of this process's listeners the flow arrived on - the default/shared listener
+        # resolves no name (FORWARD_PORT_MAP.get returns None), a project-specific one does. Set
+        # regardless of WEBHOOK_URL below purely for parity with log_and_route_reverse.py; unlike
+        # that file there's no per-project logging toggle to honour here, so this is only used
+        # for the service_name tag on the payload further down.
+        service_name = FORWARD_PORT_MAP.get(self._listen_port(flow))
+        if service_name:
+            flow.metadata['service_name'] = service_name
+
         if not WEBHOOK_URL:
             return
 
@@ -140,6 +183,11 @@ class RouteAndLog:
             'session_id': session_id,
             'operation_id': operation_id,
         }
+        # Only set when resolved - a call on the default/shared port stays unattributed
+        # ("External" with no service_name at all), exactly as before this feature existed,
+        # rather than noisily sending service_name: null for the common case.
+        if service_name:
+            call_log['service_name'] = service_name
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
     def response(self, flow):
@@ -190,6 +238,19 @@ class RouteAndLog:
                 'body': self._safe_body(flow.response),
             }
         self._write(call_id, data)
+
+    def _listen_port(self, flow):
+        """Which of this process's listeners the flow came in on - client_conn.sockname is OUR
+        side of the client connection, so its port is the --mode listen port (mirrors
+        log_and_route_reverse.py's _listen_port() exactly). Unlike that file there's no Host-header
+        fallback here: forward mode's Host header (or CONNECT target) reflects the real
+        destination the client asked for, not anything about which of our own listeners it used,
+        so there's nothing meaningful to fall back to - an unresolvable sockname just returns -1,
+        which never matches a configured internal port and so resolves no service_name."""
+        try:
+            return int(flow.client_conn.sockname[1])
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return -1
 
     def _safe_body(self, message, limit=BODY_LIMIT):
         try:

@@ -1,9 +1,9 @@
 import { DestroyRef, Signal, computed, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Observable, Subject, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
-import { CallRecord, SortMode } from '../models/call.model';
-import { CallListRow, callKey, isInProgress, sortCalls, splitCallsForDisplay, supplierOf } from '../../shared/utils/call-utils';
+import { CallOverlapCandidate, CallRecord, SortMode } from '../models/call.model';
+import { CallListRow, CallStatusFilter, callKey, isInProgress, matchesStatusFilter, sortCalls, splitCallsForDisplay, supplierOf } from '../../shared/utils/call-utils';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -20,23 +20,8 @@ export interface CallStats {
   readonly inProgress: number;
 }
 
-/** Which stat-pill bucket (if any) is narrowing the visible list - see StatsBarComponent. 'all' means no narrowing. */
-export type CallStatusFilter = 'all' | 'inProgress' | 'ok' | 'client' | 'failed';
-
-function matchesStatusFilter(call: CallRecord, filter: CallStatusFilter): boolean {
-  switch (filter) {
-    case 'all':
-      return true;
-    case 'inProgress':
-      return isInProgress(call);
-    case 'ok':
-      return !!call.response && call.response.status < 400;
-    case 'client':
-      return !!call.response && call.response.status >= 400 && call.response.status < 500;
-    case 'failed':
-      return !!call.error || (!!call.response && call.response.status >= 500);
-  }
-}
+/** Lives in call-utils.ts now (so its containment-check helpers can share it without a call-utils.ts <-> call-list-view.ts import cycle) - re-exported here since every existing consumer of this module imports it from here. */
+export type { CallStatusFilter };
 
 export interface SupplierGroup {
   readonly supplier: string;
@@ -57,6 +42,24 @@ export interface CallsQuery {
 export interface CallsPageResult {
   readonly calls: readonly CallRecord[];
   readonly total: number;
+}
+
+/**
+ * Params for GET /call-overlaps / GET /session-cycles/{id}/call-overlaps - the same
+ * search/session/operation/request filters CallsQuery already sends, minus sort/offset/limit
+ * (this fetches every candidate in the range in one batch, not a page) plus the `from`/`to` range
+ * itself. `serviceNames` isn't included here - it's derived from selectedSources by the caller
+ * (CallsStateService/SessionCycleDetailStateService), the same way fetchPageForSource derives it,
+ * since createCallListView has no notion of "which sources are selected".
+ */
+export interface CallOverlapQuery {
+  readonly from: string;
+  readonly to: string;
+  readonly search: string;
+  readonly supplier: string;
+  readonly sessionId: string;
+  readonly operationId: string;
+  readonly requestId: string;
 }
 
 /**
@@ -99,6 +102,15 @@ export interface CallListView {
    * call-list.component.ts) and export-ordering logic key off of it directly.
    */
   readonly visibleRows: Signal<readonly CallListRow[]>;
+  /**
+   * The batch of overlap candidates fetched for whatever time range `mainListCalls()` currently
+   * spans, under the currently-active filters - `undefined` while that fetch for the current range
+   * hasn't resolved yet (or hasn't been triggered at all, e.g. nothing loaded), in which case every
+   * internal/resolved call in `visibleRows` renders provisionally split (the safe default - see
+   * splitCallsForDisplay). Recomputes (and refetches) whenever `mainListCalls()` changes - a new
+   * page loaded, a WS-pushed call arriving, or a filter changing.
+   */
+  readonly overlapCandidates: Signal<readonly CallOverlapCandidate[] | undefined>;
   readonly remainingCount: Signal<number>;
   readonly groupedCalls: Signal<SupplierGroup[]>;
   readonly loadMorePageSize: number;
@@ -131,6 +143,14 @@ export interface CallListViewOptions {
   readonly pageSize?: number;
   /** Fetches one page from the backend for the given query - CallsApiService.getCalls or SessionCyclesApiService.listCalls (mapped down to CallRecord[]). */
   readonly fetchPage: (query: CallsQuery) => Observable<CallsPageResult>;
+  /**
+   * Fetches every overlap candidate (see CallOverlapCandidate) for the given range/filters -
+   * CallsApiService.getCallOverlaps or SessionCyclesApiService.getCallOverlaps, each already
+   * knowing how to fold in its own selectedSources-derived serviceNames the same way its
+   * `fetchPage` counterpart does. Invoked once per relevant time range (see `overlapCandidates`'s
+   * doc on CallListView), not per-call and not per-card.
+   */
+  readonly fetchOverlaps: (query: CallOverlapQuery) => Observable<readonly CallOverlapCandidate[]>;
   /** Calls not yet confirmed by a fetch - shown ahead of the loaded window the instant a WebSocket push arrives, pruned once `refresh()`'s result includes them. */
   readonly liveCalls?: Signal<readonly CallRecord[]>;
   readonly onError?: (message: string | null) => void;
@@ -253,6 +273,55 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     return mode === 'custom' ? sortCalls(statusFiltered(), 'custom', options.customOrder?.() ?? []) : [...statusFiltered()];
   });
 
+  /**
+   * The [from, to] range `mainListCalls()` currently spans - `from` is the earliest call's own
+   * timestamp, `to` is the latest point any loaded call's window extends to (its timestamp plus
+   * its own duration, since a candidate can legitimately fall after every loaded call's start but
+   * still land inside one of their windows). `null` when nothing's loaded (or every timestamp is
+   * unparseable) - see the overlapCandidates subscription below for how that's handled.
+   */
+  const overlapRange = computed<{ from: string; to: string } | null>(() => {
+    const calls = mainListCalls();
+    let minStart = Infinity;
+    let maxEnd = -Infinity;
+    for (const call of calls) {
+      const start = new Date(call.timestamp).getTime();
+      if (Number.isNaN(start)) continue;
+      const end = start + (call.duration_ms ?? 0);
+      if (start < minStart) minStart = start;
+      if (end > maxEnd) maxEnd = end;
+    }
+    if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd)) return null;
+    return { from: new Date(minStart).toISOString(), to: new Date(maxEnd).toISOString() };
+  });
+
+  /**
+   * `undefined` = not loaded (yet) for the current range - the safe "render provisionally split"
+   * default splitCallsForDisplay falls back to. Reset to `undefined` the instant the range changes
+   * (including a brand new fetch superseding a stale in-flight one, via switchMap), so a call never
+   * shows a stale range's candidates as if they were current.
+   */
+  const overlapCandidates = signal<readonly CallOverlapCandidate[] | undefined>(undefined);
+
+  toObservable(overlapRange)
+    .pipe(
+      switchMap((range) => {
+        overlapCandidates.set(undefined);
+        if (!range) return of([] as readonly CallOverlapCandidate[]);
+        return options.fetchOverlaps({
+          from: range.from,
+          to: range.to,
+          search: searchQuery().trim(),
+          supplier: supplierFilter(),
+          sessionId: sessionIdFilter().trim(),
+          operationId: operationIdFilter().trim(),
+          requestId: requestIdFilter().trim(),
+        }).pipe(catchError(() => of(undefined)));
+      }),
+      takeUntilDestroyed(destroyRef)
+    )
+    .subscribe((result) => overlapCandidates.set(result));
+
   const supplierOptions = computed<SupplierOption[]>(() => {
     const counts = new Map<string, number>();
     for (const c of matchingCalls()) {
@@ -292,7 +361,8 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     stats,
     mainListCalls,
     visibleCalls: mainListCalls,
-    visibleRows: computed(() => splitCallsForDisplay(mainListCalls(), sortMode())),
+    visibleRows: computed(() => splitCallsForDisplay(mainListCalls(), sortMode(), overlapCandidates(), statusFilter())),
+    overlapCandidates,
     remainingCount: computed(() => Math.max(0, totalCount() - loadedCalls().length)),
     groupedCalls: computed<SupplierGroup[]>(() => {
       const groups = new Map<string, CallRecord[]>();

@@ -134,7 +134,9 @@ COMPOSE_OVERRIDE_HEADER = """\
 
 def _service_listen_ports(services):
     """Same as start.py's function of the same name - pulls (name, listenPort) out of each
-    "name:listenPort:upstreamPort" triple in internal_call_services."""
+    "name:listenPort:upstreamPort[...]" entry in internal_call_services. The optional 4th/5th
+    (outbound) fields, if present, ride along inside parts[2] here (maxsplit=2) and are simply
+    never looked at - this function only ever needed name+listenPort."""
     ports = []
     seen = set()
     for triple in services.split(","):
@@ -152,24 +154,115 @@ def _service_listen_ports(services):
     return ports
 
 
-def sync_compose_override(services):
-    """Same as start.py's function of the same name - see its docstring for why each project's
-    listenPort publish is generated rather than hardcoded in docker-compose.yml."""
-    ports = _service_listen_ports(services)
-    if not ports:
+# Same as start.py's constant of the same name - see _forward_proxy_assignments() below.
+FORWARD_PROXY_INTERNAL_PORT_BASE = 20000
+
+
+def _parse_service_entries(services):
+    """Same as start.py's function of the same name - parses internal_call_services into
+    structured entries (name, listen_port, upstream_port, outbound_host, outbound_port), each
+    entry being "name:listenPort:upstreamPort" optionally followed by ":outboundProxyHost" and
+    then ":outboundProxyPort" (defaults to "443" when the host is given but the port isn't)."""
+    entries = []
+    seen_listen_ports = set()
+    for entry in services.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = [p.strip() for p in entry.split(":")]
+        if len(parts) < 3 or len(parts) > 5:
+            continue
+        name, listen_port, upstream_port = parts[0], parts[1], parts[2]
+        if not name or not listen_port.isdigit() or not upstream_port.isdigit():
+            continue
+        if listen_port in seen_listen_ports:
+            continue
+
+        outbound_host = parts[3] if len(parts) >= 4 and parts[3] else None
+        outbound_port = None
+        if outbound_host:
+            outbound_port = parts[4] if len(parts) == 5 and parts[4] else "443"
+            if not outbound_port.isdigit():
+                outbound_host = None
+                outbound_port = None
+
+        seen_listen_ports.add(listen_port)
+        entries.append({
+            "name": name,
+            "listen_port": listen_port,
+            "upstream_port": upstream_port,
+            "outbound_host": outbound_host,
+            "outbound_port": outbound_port,
+        })
+    return entries
+
+
+def _forward_proxy_assignments(services):
+    """Same as start.py's function of the same name - assigns each outbound-attribution-
+    configured project its own internal container port on the "proxy" service, deterministically:
+    FORWARD_PROXY_INTERNAL_PORT_BASE (20000) + its index in internal_call_services' own order
+    (counted over ALL entries, not just outbound-configured ones)."""
+    assignments = []
+    for index, entry in enumerate(_parse_service_entries(services)):
+        if not entry["outbound_host"]:
+            continue
+        assignments.append({
+            "name": entry["name"],
+            "outbound_host": entry["outbound_host"],
+            "outbound_port": entry["outbound_port"],
+            "internal_port": FORWARD_PROXY_INTERNAL_PORT_BASE + index,
+        })
+    return assignments
+
+
+def sync_compose_override(services, reverse_proxy_enabled=True):
+    """Same as start.py's function of the same name - see its docstring. Writes
+    docker-compose.override.yml publishing each inbound project's listenPort on reverse-proxy
+    (only when reverse_proxy_enabled) and each outbound-attribution-configured project's
+    outboundProxyHost:outboundProxyPort on proxy (unconditionally - that feature has no flag)."""
+    ports = _service_listen_ports(services) if reverse_proxy_enabled else []
+    forward_assignments = _forward_proxy_assignments(services)
+    if not ports and not forward_assignments:
         if os.path.exists(COMPOSE_OVERRIDE_FILE):
             os.remove(COMPOSE_OVERRIDE_FILE)
-            print("Removed docker-compose.override.yml (no inbound-logging projects configured)")
+            print("Removed docker-compose.override.yml (no inbound-logging or outbound-attribution projects configured)")
         return
 
-    lines = [COMPOSE_OVERRIDE_HEADER, "\nservices:\n", "  reverse-proxy:\n", "    ports:\n"]
-    for name, listen_port in ports:
-        lines.append(f'      - "127.0.0.1:{listen_port}:{listen_port}"   # {name}\n')
+    lines = [COMPOSE_OVERRIDE_HEADER, "\nservices:\n"]
+
+    if ports:
+        lines += ["  reverse-proxy:\n", "    ports:\n"]
+        for name, listen_port in ports:
+            lines.append(f'      - "127.0.0.1:{listen_port}:{listen_port}"   # {name}\n')
+
+    if forward_assignments:
+        lines += ["  proxy:\n", "    ports:\n"]
+        for assignment in forward_assignments:
+            lines.append(
+                f'      - "{assignment["outbound_host"]}:{assignment["outbound_port"]}:'
+                f'{assignment["internal_port"]}"   # {assignment["name"]} (outbound attribution)\n'
+            )
+
     with open(COMPOSE_OVERRIDE_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
-    published = ", ".join(f"{name} -> localhost:{port}" for name, port in ports)
-    print(f"Wrote docker-compose.override.yml publishing {published}")
+    published = []
+    if ports:
+        published += [f"{name} (inbound) -> localhost:{port}" for name, port in ports]
+    if forward_assignments:
+        published += [
+            f'{a["name"]} (outbound) -> {a["outbound_host"]}:{a["outbound_port"]}'
+            for a in forward_assignments
+        ]
+    print(f"Wrote docker-compose.override.yml publishing {', '.join(published)}")
+
+
+def _forward_proxy_port_map_env(services):
+    """Same as start.py's function of the same name - builds the FORWARD_PROXY_PORT_MAP env var
+    value ("name:internalPort" pairs, comma-separated)."""
+    return ",".join(
+        f'{a["name"]}:{a["internal_port"]}' for a in _forward_proxy_assignments(services)
+    )
 
 
 def _parse_settings_properties():
@@ -221,14 +314,18 @@ def sync_wildfly_port_offset():
 def sync_env_from_settings():
     """Same as start.py's function of the same name - see its docstring. Also needed here (not
     just in start.py) since restart.py is a valid standalone entry point, e.g. after hand-editing
-    settings.properties on an already-running deployment. Must run AFTER ensure_backend_port()."""
+    settings.properties on an already-running deployment. Must run AFTER ensure_backend_port().
+    Also bakes in FORWARD_PROXY_PORT_MAP (the "proxy" service's per-project outbound-attribution
+    listeners) - independent of reverse_proxy_enabled, since that feature has no flag of its own."""
     settings = _parse_settings_properties()
     reverse_proxy_enabled = settings.get("reverse_proxy_enabled", "false").strip().lower() == "true"
     services = settings.get("internal_call_services", "").strip()
+    forward_proxy_port_map = _forward_proxy_port_map_env(services)
 
     env = _read_env_file()
     env["REVERSE_PROXY_ENABLED"] = "true" if reverse_proxy_enabled else "false"
     env["INTERNAL_CALL_SERVICES"] = services
+    env["FORWARD_PROXY_PORT_MAP"] = forward_proxy_port_map
     if reverse_proxy_enabled:
         env["COMPOSE_PROFILES"] = "inbound-logging"
     else:
@@ -237,8 +334,9 @@ def sync_env_from_settings():
 
     print(f"Inbound logging feature: {'enabled' if reverse_proxy_enabled else 'disabled'}, "
           f"projects: {services or '(none configured)'} (settings.properties - edit and re-run to change)")
+    print(f"Outbound attribution: {forward_proxy_port_map or '(none configured)'}")
 
-    sync_compose_override(services if reverse_proxy_enabled else "")
+    sync_compose_override(services, reverse_proxy_enabled)
 
     if not reverse_proxy_enabled:
         # See start.py's identical step for why this is needed - "docker compose up" alone never

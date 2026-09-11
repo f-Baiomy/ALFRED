@@ -9,6 +9,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionC
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
@@ -20,9 +21,12 @@ import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCalls
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapEntry;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapQuery;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
@@ -34,6 +38,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -53,7 +58,8 @@ public class SessionCyclesService implements
         GetCapturedCallDetailUseCase,
         RemoveCapturedCallUseCase,
         RemoveCapturedCallsUseCase,
-        CopyCallsToCycleUseCase {
+        CopyCallsToCycleUseCase,
+        ListCallOverlapsUseCase {
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
@@ -245,5 +251,54 @@ public class SessionCyclesService implements
             }
             return new CopyCallsResult(added, skipped);
         });
+    }
+
+    /**
+     * Scoped to this cycle's own captured-calls/captured-internal-calls stores (already loaded via
+     * findAllByCycle - both stores hold a bounded, per-cycle set, unlike the global live calls
+     * tables), not the main live logs - see backend-call-overlap's GetCallOverlapsUseCase for the
+     * global equivalent. Reuses backend-calls' and backend-internal-calls' own
+     * CallListSupport.resolvedInRange (this class already depends on both slices) rather than
+     * duplicating that filter logic a third time.
+     */
+    @Override
+    public Optional<List<CallOverlapEntry>> listCallOverlaps(String cycleId, CallOverlapQuery query) {
+        return metadataStore.findById(cycleId).map(cycle -> {
+            List<CallRecord> externalCalls = capturedCallsStore.findAllByCycle(cycleId).stream()
+                    .map(CapturedCall::call)
+                    .toList();
+            List<CallRecord> matchedExternal = CallListSupport.resolvedInRange(
+                    externalCalls, query.from(), query.to(), query.search(), query.supplier());
+
+            List<com.fathy.alfred.backend.internalcalls.domain.model.CallRecord> internalCalls =
+                    capturedInternalCallsStore.findAllByCycle(cycleId).stream()
+                            .map(CapturedInternalCall::call)
+                            .toList();
+            List<com.fathy.alfred.backend.internalcalls.domain.model.CallRecord> matchedInternal =
+                    com.fathy.alfred.backend.internalcalls.application.service.CallListSupport.resolvedInRange(
+                            internalCalls, query.from(), query.to(), query.search(),
+                            query.sessionId(), query.operationId(), query.requestId(), query.serviceNames());
+
+            List<CallOverlapEntry> merged = new ArrayList<>(matchedExternal.size() + matchedInternal.size());
+            for (CallRecord call : matchedExternal) {
+                merged.add(fromExternal(call));
+            }
+            for (com.fathy.alfred.backend.internalcalls.domain.model.CallRecord call : matchedInternal) {
+                merged.add(fromInternal(call));
+            }
+            return merged;
+        });
+    }
+
+    private static CallOverlapEntry fromExternal(CallRecord call) {
+        Integer status = call.response() != null ? call.response().status() : null;
+        return new CallOverlapEntry(call.id(), CallOverlapEntry.SOURCE_EXTERNAL, call.serviceName(),
+                call.timestamp(), call.durationMs(), status, call.error());
+    }
+
+    private static CallOverlapEntry fromInternal(com.fathy.alfred.backend.internalcalls.domain.model.CallRecord call) {
+        Integer status = call.response() != null ? call.response().status() : null;
+        return new CallOverlapEntry(call.id(), CallOverlapEntry.SOURCE_INTERNAL, call.serviceName(),
+                call.timestamp(), call.durationMs(), status, call.error());
     }
 }

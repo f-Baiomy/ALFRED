@@ -2,8 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { AppConfigService } from './app-config.service';
-import { CallsPageResult, CallsQuery } from '../state/call-list-view';
-import { CallDetail, CallEndpointSource, CallSummaryDto } from '../models/call.model';
+import { CallOverlapQuery, CallsPageResult, CallsQuery } from '../state/call-list-view';
+import { CallDetail, CallEndpointSource, CallOverlapCandidate, CallSummaryDto } from '../models/call.model';
 import { toCallRecord } from '../../shared/utils/call-utils';
 
 interface CallsPageDto {
@@ -51,5 +51,29 @@ export class CallsApiService {
   /** The full request/response for one call - fetched only once it's actually expanded, always over the network (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail). */
   getDetail(callId: string, source: CallEndpointSource = 'external'): Observable<CallDetail> {
     return this.http.get<CallDetail>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/detail`);
+  }
+
+  /**
+   * Every resolved call (external or internal, any project) whose own [timestamp, timestamp +
+   * duration_ms] window falls anywhere in `[query.from, query.to]` - the batch call-list-view.ts
+   * fetches once per relevant range, not per-call, for the containment check that decides whether
+   * an internal call stays split into request/response rows (see splitCallsForDisplay).
+   * `serviceNames` mirrors getCalls' own (internal-projects-only) narrowing - the dashboard/session-
+   * cycle-detail's currently-selected Sources-bar projects, not the two-DTOs'-worth this endpoint
+   * only ever hits once (it returns both external and internal candidates together).
+   */
+  getCallOverlaps(query: CallOverlapQuery, serviceNames?: readonly string[]): Observable<CallOverlapCandidate[]> {
+    let params = new HttpParams()
+      .set('from', query.from)
+      .set('to', query.to)
+      .set('search', query.search)
+      .set('supplier', query.supplier)
+      .set('sessionId', query.sessionId)
+      .set('operationId', query.operationId)
+      .set('requestId', query.requestId);
+    if (serviceNames?.length) {
+      params = params.set('serviceNames', serviceNames.join(','));
+    }
+    return this.http.get<CallOverlapCandidate[]>(`${this.config.backendUrl}/call-overlaps`, { params });
   }
 }

@@ -1,8 +1,8 @@
-import { CallRecord } from '../../core/models/call.model';
+import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
-import { callKey, isInProgress, supplierOf, uriPath } from './call-utils';
+import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 
 function metadataValue(value: string): string {
   return value && value.trim().length > 0 ? value : '_(none provided)_';
@@ -185,8 +185,114 @@ interface RenderBlock {
   readonly sortTime: number;
 }
 
-/** An internal call only reads sensibly as two separate blocks once it actually has a response or error - a still-in-progress internal call stays a single (incomplete) block rather than fabricating an empty response half. */
-function isSplitInternalCall(call: CallRecord): boolean {
+/**
+ * Same 4-check containment + ownership + blocking-signature + ambiguity-veto algorithm as
+ * call-utils.ts's qualifiesAsEvidence/computeSplitCallIds, re-implemented here per this codebase's
+ * convention of mirroring shared logic per consumer rather than importing it across unrelated
+ * layers (see buildRenderBlocks/isSplitInternalCall's own doc) - keep the actual math identical if
+ * call-utils.ts's version ever changes.
+ */
+const MIN_COVERAGE_RATIO = 0.3;
+const MIN_TAIL_MS = 250;
+const TAIL_RATIO = 0.1;
+
+function targetWindow(target: CallRecord): { start: number; end: number } {
+  const start = new Date(target.timestamp).getTime();
+  return { start, end: start + (target.duration_ms ?? 0) };
+}
+
+function candidateWindow(candidate: CallOverlapCandidate): { start: number; end: number } {
+  const start = new Date(candidate.timestamp).getTime();
+  return { start, end: start + candidate.durationMs };
+}
+
+/** Check 1 of 4: strict containment - see call-utils.ts's isStrictlyContained. */
+function isStrictlyContained(target: CallRecord, candidate: CallOverlapCandidate): boolean {
+  if (candidate.id === target.id) return false;
+  const t = targetWindow(target);
+  const c = candidateWindow(candidate);
+  return c.start >= t.start && c.end <= t.end;
+}
+
+/** Check 2 of 4: ownership/attribution - see call-utils.ts's passesOwnershipCheck. */
+function passesOwnershipCheck(target: CallRecord, candidate: CallOverlapCandidate): boolean {
+  const targetServiceName = target.service_name ?? null;
+  if (candidate.source === 'internal') {
+    return candidate.serviceName !== targetServiceName;
+  }
+  if (candidate.serviceName == null) return true;
+  return candidate.serviceName === targetServiceName;
+}
+
+/** Check 3 of 4: the blocking signature - see call-utils.ts's passesBlockingSignature. */
+function passesBlockingSignature(target: CallRecord, candidate: CallOverlapCandidate): boolean {
+  const targetDurationMs = target.duration_ms ?? 0;
+  if (targetDurationMs <= 0) return false;
+
+  const t = targetWindow(target);
+  const c = candidateWindow(candidate);
+  const coverage = candidate.durationMs / targetDurationMs;
+  const tail = t.end - c.end;
+
+  return coverage >= MIN_COVERAGE_RATIO && tail <= Math.max(MIN_TAIL_MS, targetDurationMs * TAIL_RATIO);
+}
+
+/** Checks 1-3 combined - everything except the ambiguity veto (check 4), applied separately in
+ * computeSplitCallIds once every internal call under consideration is known. */
+function qualifiesAsEvidence(target: CallRecord, candidate: CallOverlapCandidate): boolean {
+  return isStrictlyContained(target, candidate) && passesOwnershipCheck(target, candidate) && passesBlockingSignature(target, candidate);
+}
+
+/** Mirrors call-utils.ts's candidateMatchesStatusFilter - see its doc. */
+function candidateMatchesStatusFilter(candidate: CallOverlapCandidate, filter: CallStatusFilter): boolean {
+  switch (filter) {
+    case 'all':
+      return true;
+    case 'inProgress':
+      return false;
+    case 'ok':
+      return candidate.status != null && candidate.status < 400;
+    case 'client':
+      return candidate.status != null && candidate.status >= 400 && candidate.status < 500;
+    case 'failed':
+      return candidate.error != null || (candidate.status != null && candidate.status >= 500);
+  }
+}
+
+/** Mirrors call-utils.ts's computeSplitCallIds - see its doc for the exact two-pass mechanics. */
+function computeSplitCallIds(
+  internalCalls: readonly CallRecord[],
+  candidates: readonly CallOverlapCandidate[],
+  statusFilter: CallStatusFilter
+): ReadonlySet<string> {
+  const visibleCandidates = candidates.filter((candidate) => candidateMatchesStatusFilter(candidate, statusFilter));
+
+  const survivorsByCallId = new Map<string, CallOverlapCandidate[]>();
+  for (const call of internalCalls) {
+    survivorsByCallId.set(
+      call.id,
+      visibleCandidates.filter((candidate) => qualifiesAsEvidence(call, candidate))
+    );
+  }
+
+  const survivedCountByCandidate = new Map<CallOverlapCandidate, number>();
+  for (const survivors of survivorsByCallId.values()) {
+    for (const candidate of survivors) {
+      survivedCountByCandidate.set(candidate, (survivedCountByCandidate.get(candidate) ?? 0) + 1);
+    }
+  }
+
+  const staysSplit = new Set<string>();
+  for (const [callId, survivors] of survivorsByCallId) {
+    const afterVeto = survivors.filter((candidate) => (survivedCountByCandidate.get(candidate) ?? 0) <= 1);
+    if (afterVeto.length > 0) staysSplit.add(callId);
+  }
+  return staysSplit;
+}
+
+/** An internal call is eligible to be split at all only once it's resolved (has a response or
+ * error, never while still in-progress) - see isSplitInternalCall/buildRenderBlocks. */
+function isResolvedInternalCall(call: CallRecord): boolean {
   return call.source === 'internal' && (call.response !== undefined || call.error !== undefined) && !isInProgress(call);
 }
 
@@ -196,13 +302,25 @@ function isSplitInternalCall(call: CallRecord): boolean {
  * duration, so it can legitimately land after another call's request block that started later but
  * finished/was captured first. This is what produces the "Odeysys-request, core-service-request,
  * external-call, core-service-response, odeysys-response" interleaving from the spec.
+ *
+ * An internal call only reads sensibly as two separate blocks once it actually has a response or
+ * error (a still-in-progress internal call stays a single (incomplete) block rather than
+ * fabricating an empty response half) AND it stays split per the full 4-check algorithm computed
+ * up front across every resolved internal call in `sortedCalls` at once (see computeSplitCallIds -
+ * the ambiguity veto needs the whole picture before any one call's decision can be made).
+ * `overlapCandidates` is the batch already fetched for the export's full time range (see
+ * export-dialog.component.ts) under whatever filters were active at export time; `statusFilter` is
+ * the status-pill bucket active then too.
  */
-function buildRenderBlocks(sortedCalls: readonly CallRecord[]): RenderBlock[] {
+function buildRenderBlocks(sortedCalls: readonly CallRecord[], overlapCandidates: readonly CallOverlapCandidate[], statusFilter: CallStatusFilter): RenderBlock[] {
+  const resolvedInternalCalls = sortedCalls.filter(isResolvedInternalCall);
+  const staysSplitIds = computeSplitCallIds(resolvedInternalCalls, overlapCandidates, statusFilter);
+
   const blocks: RenderBlock[] = [];
   sortedCalls.forEach((call, i) => {
     const n = i + 1;
     const baseTime = new Date(call.timestamp).getTime();
-    if (isSplitInternalCall(call)) {
+    if (isResolvedInternalCall(call) && staysSplitIds.has(call.id)) {
       blocks.push({ call, n, variant: 'request', sortTime: baseTime });
       blocks.push({ call, n, variant: 'response', sortTime: baseTime + (call.duration_ms ?? 0) });
     } else {
@@ -305,7 +423,9 @@ export function buildBulkExportMarkdown(
   calls: readonly CallRecord[],
   form: ExportFormData,
   commentsByCallId: ReadonlyMap<string, readonly Comment[]>,
-  exportedAt: string
+  exportedAt: string,
+  overlapCandidates: readonly CallOverlapCandidate[] = [],
+  statusFilter: CallStatusFilter = 'all'
 ): string {
   const lines: string[] = [];
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
@@ -318,7 +438,7 @@ export function buildBulkExportMarkdown(
   // pinned-first/supplier-grouped/custom-drag order, which would otherwise interleave nonsensically
   // once a call is split into two blocks. Sort a local copy; never mutate/reorder for the caller.
   const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const blocks = buildRenderBlocks(sortedCalls);
+  const blocks = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
 
   lines.push(`# 📋 API Calls Export — ${calls.length} ${callWord}`, '');
   lines.push(

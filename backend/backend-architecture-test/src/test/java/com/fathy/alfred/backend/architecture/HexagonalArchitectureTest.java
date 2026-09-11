@@ -69,7 +69,8 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.calls..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
-                        "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..")
+                        "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
+                        "..backend.calloverlap..")
                 .check(classes);
     }
 
@@ -83,7 +84,8 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.internalcalls..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
-                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..")
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.calloverlap..")
                 .check(classes);
     }
 
@@ -92,23 +94,38 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.comments..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.export..", "..backend.sessioncycles..",
-                        "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..")
+                        "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
+                        "..backend.calloverlap..")
                 .check(classes);
     }
 
-    // export -> calls, sessioncycles -> calls, and sessioncycles -> internalcalls are the three
-    // allowed cross-slice dependencies (each receives a full logged call and does something with
-    // it - extracts metadata, or captures it into a recording cycle), so there is deliberately no
-    // "exportSliceMustNotDependOnOtherSlices" test, and sessionCyclesSliceMustNotDependOnOtherSlices
-    // below permits calls and internalcalls specifically while still forbidding comments/export/
-    // profiles/settings.
+    // export -> calls, sessioncycles -> calls, sessioncycles -> internalcalls, calloverlap -> calls,
+    // and calloverlap -> internalcalls are the allowed cross-slice dependencies (each receives a
+    // full logged call and does something with it - extracts metadata, captures it into a
+    // recording cycle, or extracts the minimal overlap-check fields), so there is deliberately no
+    // "exportSliceMustNotDependOnOtherSlices" test, and sessionCyclesSliceMustNotDependOnOtherSlices/
+    // callOverlapSliceMustNotDependOnOtherSlices below each permit calls and internalcalls
+    // specifically while still forbidding comments/export/profiles/settings/the other one of the two.
 
     @Test
     void sessionCyclesSliceMustNotDependOnOtherSlices() {
         noClasses().that().resideInAPackage("..backend.sessioncycles..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.profiles..",
-                        "..backend.settings..")
+                        "..backend.settings..", "..backend.calloverlap..")
+                .check(classes);
+    }
+
+    // callOverlap mirrors sessionCycles' own exception: it depends on both backend-calls and
+    // backend-internal-calls to merge their two independent call histories into one flat list for
+    // GET /call-overlaps (see backend-call-overlap's module doc) - the one other slice allowed to
+    // depend on more than one other, alongside session-cycles.
+    @Test
+    void callOverlapSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.calloverlap..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
+                        "..backend.profiles..", "..backend.settings..")
                 .check(classes);
     }
 
@@ -120,7 +137,8 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.profiles..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
-                        "..backend.sessioncycles..", "..backend.settings..", "..backend.internalcalls..")
+                        "..backend.sessioncycles..", "..backend.settings..", "..backend.internalcalls..",
+                        "..backend.calloverlap..")
                 .check(classes);
     }
 
@@ -133,7 +151,8 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.settings..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
-                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.internalcalls..")
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.internalcalls..",
+                        "..backend.calloverlap..")
                 .check(classes);
     }
 }

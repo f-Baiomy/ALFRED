@@ -5,6 +5,19 @@ services:
   # already-running JVM or set normally) gets every call it makes logged, for whatever real
   # hostname it actually calls - no hosts-file redirect or hostname convention needed on this
   # end. See proxy/log_and_route.py for the logging/webhook side.
+  #
+  # A project can additionally opt into OUTBOUND attribution by adding an outboundProxyHost
+  # (:outboundProxyPort, defaults to 443) to its entry in settings.properties's
+  # internal_call_services - proxy/forward-proxy-entrypoint.sh then gives this container one
+  # extra forward-mode listener for that project alongside the default one below (see
+  # FORWARD_PROXY_PORT_MAP), so every outbound call from that project's own HTTP client (pointed
+  # at its own dedicated address) gets tagged with which project made it. See
+  # docs/supplier-integrations.md.
+  #
+  # NOTE: each opted-in project's outboundProxyHost:outboundProxyPort publish lives in the
+  # GENERATED docker-compose.override.yml (written by start.py/restart.py), not here - same
+  # reason reverse-proxy's per-project listenPort publishes do (Compose can't expand a
+  # variable-length port list from an env var).
   proxy:
     image: mitmproxy/mitmproxy:latest
     container_name: proxy
@@ -22,11 +35,21 @@ services:
       # network.
       - WEBHOOK_URL=http://backend:5000/calls/webhook
       - WEBHOOK_SECRET=change-me-in-production
+      # Must match the default listener's own internal port - forward-proxy-entrypoint.sh falls
+      # back to this same default if unset, kept explicit here so both stay in sync.
+      - FORWARD_PROXY_DEFAULT_PORT=8080
+      # One "name:internalPort" pair per project that opted into outbound attribution, baked into
+      # .env from settings.properties's internal_call_services by start.py/restart.py (single
+      # source of truth - don't set this directly here). May be empty (no project opted in yet),
+      # in which case only the default listener above is active, exactly as before this feature
+      # existed.
+      - FORWARD_PROXY_PORT_MAP=${FORWARD_PROXY_PORT_MAP:-}
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
+      - ./proxy/forward-proxy-entrypoint.sh:/home/mitmproxy/forward-proxy-entrypoint.sh:ro
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
     working_dir: /home/mitmproxy
-    command: mitmdump -q -s log_and_route.py --mode regular -p 8080 --set connection_strategy=lazy
+    entrypoint: ["sh", "/home/mitmproxy/forward-proxy-entrypoint.sh"]
     # Guardrail, not a tuned limit - normal usage sits well under this (observed ~65MB); caps a
     # runaway connection/large-body burst from taking down the rest of the host.
     mem_limit: 256m

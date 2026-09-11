@@ -11,6 +11,10 @@ import com.fathy.alfred.backend.calls.domain.model.RequestData;
  * falls back to generating one server-side if this is blank (an old proxy build mid-rollout).
  * {@code sessionId}/{@code operationId} are the proxy's X-Session-ID/X-Operation-Id header values
  * (or a proxy-generated UUID if the client didn't send one) - same blank-fallback treatment.
+ * {@code serviceName} is the internal project name the forward-proxy addon resolved this call's
+ * arrival port to (or its "unknown" bucket) - optional/additive, same shape as
+ * PrepareInternalCallRequestDto's own {@code service_name} field; absent or null when the proxy
+ * build sending this hasn't been updated yet, or couldn't resolve one.
  */
 public record PrepareCallRequestDto(
         String id,
@@ -20,6 +24,7 @@ public record PrepareCallRequestDto(
         RequestData request,
         String timestamp,
         @JsonProperty("session_id") String sessionId,
-        @JsonProperty("operation_id") String operationId
+        @JsonProperty("operation_id") String operationId,
+        @JsonProperty("service_name") String serviceName
 ) {
 }

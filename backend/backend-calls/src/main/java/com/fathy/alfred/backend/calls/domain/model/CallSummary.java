@@ -14,7 +14,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * CallRecord.response() since that's the only part of the response a list view needs.
  * {@code supplierName} is a best-effort extraction (see {@link #supplierNameOf}) computed here
  * rather than left to the detail endpoint, so the list can show it without waiting for a call to
- * be expanded.
+ * be expanded. {@code serviceName} is carried straight through from CallRecord - see its doc for
+ * what it means; mirrors backend-internal-calls' own CallSummary.serviceName field exactly (same
+ * {@code @JsonProperty("service_name")} wire name).
  */
 public record CallSummary(
         String id,
@@ -28,27 +30,35 @@ public record CallSummary(
         String supplierName,
         CallLifecycleStatus state,
         @JsonProperty("session_id") String sessionId,
-        @JsonProperty("operation_id") String operationId
+        @JsonProperty("operation_id") String operationId,
+        @JsonProperty("service_name") String serviceName
 ) {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    /** Pre-session/operation-id shape - every call site built before those fields existed gets null for both. */
+    /** Pre-service-name shape - every call site built before that field existed gets null (treated as "unknown" by every reader). */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, null);
+    }
+
+    /** Pre-session/operation-id shape - every call site built before those fields existed gets null for both (and for serviceName). */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, null, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, null, null, null);
     }
 
     /** Pre-two-phase shape, kept for the same reason CallRecord keeps its own 9-arg constructor - every existing call site already only ever built an already-resolved summary, so state is derived from error here instead of requiring every caller to pass it explicitly. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName) {
         this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName,
-                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null);
+                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null);
     }
 
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName());
     }
 
     /**

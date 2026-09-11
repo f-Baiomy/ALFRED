@@ -6,6 +6,7 @@ import { webSocket } from 'rxjs/webSocket';
 import {
   CallDetail,
   CallEndpointSource,
+  CallOverlapCandidate,
   CallRecord,
   CallSummaryDto,
   CallsClearedEvent,
@@ -20,7 +21,7 @@ import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
-import { CallListView, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
+import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, toCallRecord } from '../../shared/utils/call-utils';
 
 /**
@@ -78,6 +79,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       liveCalls: this.liveCalls,
       onError: (message) => this.error.set(message),
       fetchPage: (query) => this.fetchPageForSource(query),
+      fetchOverlaps: (query) => this.fetchOverlapsForSource(query),
     });
 
     // A different cycle is an entirely different data source, not just a query change - clears
@@ -179,6 +181,18 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         const merged = sortedCalls.slice(query.offset, query.offset + query.limit).map((call) => byKey.get(callKey(call))!.call);
         return { calls: merged, total: external.total + internal.total };
       })
+    );
+  }
+
+  /** Mirrors CallsStateService.fetchOverlapsForSource, scoped to this cycle - see its doc. */
+  private fetchOverlapsForSource(query: CallOverlapQuery): Observable<CallOverlapCandidate[]> {
+    const id = this.cycleId();
+    const selected = this.selectedSources();
+    const internalNames = [...selected].filter((s) => s !== EXTERNAL_SOURCE_KEY);
+    return this.api.getCallOverlaps(id, query, internalNames).pipe(
+      map((candidates) =>
+        candidates.filter((c) => (c.source === 'external' ? selected.has(EXTERNAL_SOURCE_KEY) : selected.has(c.serviceName ?? 'unknown')))
+      )
     );
   }
 
@@ -293,6 +307,19 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   getCallDetail(callId: string, source?: CallEndpointSource): Observable<CallDetail> {
     const cycleId = this.cycleId();
     return this.api.getDetail(cycleId, callId, source);
+  }
+
+  /** Mirrors CallsStateService.getCallOverlaps - see its doc. */
+  getCallOverlaps(range: { from: string; to: string }): Observable<CallOverlapCandidate[]> {
+    return this.fetchOverlapsForSource({
+      from: range.from,
+      to: range.to,
+      search: this.view.searchQuery().trim(),
+      supplier: this.view.supplierFilter(),
+      sessionId: this.view.sessionIdFilter().trim(),
+      operationId: this.view.operationIdFilter().trim(),
+      requestId: this.view.requestIdFilter().trim(),
+    });
   }
 
   /** CallRemovalState - looks up the captured call's own backend id from the underlying CallRecord, since CallCardComponent only has the CallRecord, not the CapturedCall wrapper. Threads the CallRecord's own stamped source through so removal hits the matching endpoint. */
@@ -414,6 +441,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   }
   get visibleRows() {
     return this.view.visibleRows;
+  }
+  get overlapCandidates() {
+    return this.view.overlapCandidates;
   }
   get remainingCount() {
     return this.view.remainingCount;

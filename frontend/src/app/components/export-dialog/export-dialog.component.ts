@@ -157,10 +157,10 @@ export class ExportDialogComponent {
     if (!current) return null;
 
     const form = this.currentFormData();
-    const { calls, commentsByCallId } = current;
+    const { calls, commentsByCallId, overlapCandidates, statusFilter } = current;
 
     if (format === 'json') {
-      const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString());
+      const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
       return { isJson: true, payload, filename: bulkExportFilename(calls, 'json') };
     }
 
@@ -175,7 +175,7 @@ export class ExportDialogComponent {
         const html = buildExportHtml(call, form, commentsByCallId.get(call.id) ?? []);
         return { isJson: false, content: html, filename: exportHtmlFilename(call), mimeType: 'text/html' };
       }
-      const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString());
+      const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
       return { isJson: false, content: html, filename: bulkExportHtmlFilename(calls), mimeType: 'text/html' };
     }
 
@@ -185,7 +185,7 @@ export class ExportDialogComponent {
       return { isJson: false, content: markdown, filename: exportFilename(call), mimeType: 'text/markdown' };
     }
 
-    const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString());
+    const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
     return { isJson: false, content: markdown, filename: bulkExportFilename(calls, 'md'), mimeType: 'text/markdown' };
   }
 }

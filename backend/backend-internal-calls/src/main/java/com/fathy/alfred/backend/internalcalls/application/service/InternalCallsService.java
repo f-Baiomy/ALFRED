@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.internalcalls.application.service;
 
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
+import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsInRangeUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceivePreparedCallUseCase;
@@ -19,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,7 +33,7 @@ import java.util.UUID;
  */
 @Service
 public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCase,
-        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase {
+        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(InternalCallsService.class);
 
@@ -72,6 +74,13 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
     @Override
     public Optional<CallDetail> getDetail(String callId) {
         return callLogPort.findById(callId).map(CallDetail::of);
+    }
+
+    /** Delegates straight to the port - see {@link GetCallsInRangeUseCase}'s doc for what this is for. */
+    @Override
+    public List<CallRecord> getCallsInRange(Instant from, Instant to, String search, String sessionId,
+                                             String operationId, String requestId, String serviceNames) {
+        return callLogPort.findResolvedInRange(from, to, search, sessionId, operationId, requestId, serviceNames);
     }
 
     /**

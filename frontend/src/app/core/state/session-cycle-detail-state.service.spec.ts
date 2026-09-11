@@ -63,7 +63,7 @@ function setupWithSources(
 } {
   const listCalls: Array<{ query: CallsQuery; source: CallEndpointSource }> = [];
   const removeCalls: Array<{ id: string; callId: string; source: CallEndpointSource | undefined }> = [];
-  const apiStub: Pick<SessionCyclesApiService, 'listCalls' | 'removeCall' | 'removeCalls' | 'getDetail'> = {
+  const apiStub: Pick<SessionCyclesApiService, 'listCalls' | 'removeCall' | 'removeCalls' | 'getDetail' | 'getCallOverlaps'> = {
     listCalls: (_id, query, source = 'external') => {
       listCalls.push({ query, source });
       return of(source === 'internal' ? { calls: internalCaptured, total: internalTotal } : { calls: externalCaptured, total: externalTotal });
@@ -74,6 +74,10 @@ function setupWithSources(
     },
     removeCalls: () => of({ removed: 0, notFound: 0 }),
     getDetail: () => of({}),
+    // Not under test here - just enough of a stub that createCallListView's required
+    // fetchOverlaps callback has something to call (see call-utils.spec.ts for the actual
+    // containment logic).
+    getCallOverlaps: () => of([]),
   };
   TestBed.configureTestingModule({
     providers: [

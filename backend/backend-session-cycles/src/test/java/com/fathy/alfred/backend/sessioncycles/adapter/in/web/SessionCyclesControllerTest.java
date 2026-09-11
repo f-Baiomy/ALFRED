@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionC
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
@@ -18,6 +19,8 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCaptured
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapEntry;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapQuery;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
@@ -88,6 +91,8 @@ class SessionCyclesControllerTest {
     private RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase;
     @MockBean
     private CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase;
+    @MockBean
+    private ListCallOverlapsUseCase listCallOverlapsUseCase;
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "2026-01-01T00:00:00Z", null, status);
@@ -429,5 +434,50 @@ class SessionCyclesControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.removed").value(2))
                 .andExpect(jsonPath("$.notFound").value(1));
+    }
+
+    @Test
+    void listCallOverlapsReturnsTheUseCasesMergedList() throws Exception {
+        CallOverlapEntry entry = new CallOverlapEntry("call-1", "external", null, "2024-01-01T00:00:00Z", 12.5, 200, null);
+        when(listCallOverlapsUseCase.listCallOverlaps(eq("c1"), any())).thenReturn(Optional.of(List.of(entry)));
+
+        mockMvc.perform(get("/session-cycles/c1/call-overlaps")
+                        .param("from", "2024-01-01T00:00:00Z")
+                        .param("to", "2024-01-01T00:00:05Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value("call-1"))
+                .andExpect(jsonPath("$[0].source").value("external"));
+    }
+
+    @Test
+    void listCallOverlapsParsesTheRequiredFromAndToParams() throws Exception {
+        when(listCallOverlapsUseCase.listCallOverlaps(eq("c1"), any())).thenReturn(Optional.of(List.of()));
+
+        mockMvc.perform(get("/session-cycles/c1/call-overlaps")
+                        .param("from", "2024-01-01T00:00:00Z")
+                        .param("to", "2024-01-01T00:00:05Z"))
+                .andExpect(status().isOk());
+
+        verify(listCallOverlapsUseCase).listCallOverlaps("c1", new CallOverlapQuery(
+                java.time.Instant.parse("2024-01-01T00:00:00Z"), java.time.Instant.parse("2024-01-01T00:00:05Z"),
+                "", "", "", "", "", ""));
+    }
+
+    @Test
+    void listCallOverlapsReturnsNotFoundWhenTheCycleIsMissing() throws Exception {
+        when(listCallOverlapsUseCase.listCallOverlaps(eq("missing"), any())).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/session-cycles/missing/call-overlaps")
+                        .param("from", "2024-01-01T00:00:00Z")
+                        .param("to", "2024-01-01T00:00:05Z"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listCallOverlapsRejectsAnUnparseableFromTimestampWithBadRequest() throws Exception {
+        mockMvc.perform(get("/session-cycles/c1/call-overlaps")
+                        .param("from", "not-a-timestamp")
+                        .param("to", "2024-01-01T00:00:05Z"))
+                .andExpect(status().isBadRequest());
     }
 }

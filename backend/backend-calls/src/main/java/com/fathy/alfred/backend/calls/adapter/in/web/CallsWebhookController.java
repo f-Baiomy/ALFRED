@@ -75,7 +75,7 @@ public class CallsWebhookController {
             return ResponseEntity.status(401).build();
         }
         CallRecord partial = new CallRecord(body.id(), body.originalUrl(), body.url(), body.method(), body.request(),
-                body.timestamp(), null, null, null, null, body.sessionId(), body.operationId());
+                body.timestamp(), null, null, null, null, body.sessionId(), body.operationId(), body.serviceName());
         Optional<String> id = receivePreparedCallUseCase.receivePreparedCall(partial);
         return id.map(value -> ResponseEntity.ok(Map.of("id", value)))
                 .orElseGet(() -> ResponseEntity.noContent().build());

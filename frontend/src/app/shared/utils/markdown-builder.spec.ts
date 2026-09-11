@@ -1,7 +1,30 @@
-import { CallRecord } from '../../core/models/call.model';
+import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { buildBulkExportMarkdown, buildExportMarkdown, bulkExportFilename, exportFilename } from './markdown-builder';
+
+/**
+ * A candidate genuinely contained in a call's [timestamp, timestamp + duration_ms] window, from a
+ * different service, AND with a genuine blocking signature (see markdown-builder.ts's own
+ * qualifiesAsEvidence: coverage >= MIN_COVERAGE_RATIO, tail <= MIN_TAIL_MS/TAIL_RATIO) - the minimal
+ * fixture that makes buildBulkExportMarkdown keep an internal/resolved call split. Callers whose
+ * target call has a different duration/timestamp than the default `makeCall()` must override
+ * `timestamp`/`durationMs` themselves so checks 1 and 3 still hold against THEIR target.
+ */
+function makeCandidate(overrides: Partial<CallOverlapCandidate> = {}): CallOverlapCandidate {
+  return {
+    id: 'nested-candidate',
+    source: 'internal',
+    serviceName: 'a-different-service',
+    // Same start as the default makeCall() below, covering 91% of its default 2965.59ms duration
+    // with a 265.59ms tail - comfortably past both MIN_COVERAGE_RATIO and MIN_TAIL_MS/TAIL_RATIO.
+    timestamp: '2026-08-07T13:45:51.965328+00:00',
+    durationMs: 2700,
+    status: 200,
+    error: null,
+    ...overrides,
+  };
+}
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -301,7 +324,9 @@ describe('buildBulkExportMarkdown', () => {
       timestamp: '2026-08-07T13:45:51.965328+00:00',
       duration_ms: 1000,
     });
-    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
+    // 80% coverage / 200ms tail against this call's own 1000ms duration - the shared default
+    // makeCandidate() is sized for makeCall()'s own default 2965.59ms duration instead.
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT, [makeCandidate({ durationMs: 800 })], 'all');
 
     expect(md).toContain('<a id="call-1"></a>');
     expect(md).toContain('<a id="call-1-response"></a>');
@@ -336,6 +361,24 @@ describe('buildBulkExportMarkdown', () => {
     expect((md.match(/<details open>/g) ?? []).length).toBe(1);
   });
 
+  it('merges a resolved internal call into a single block when no overlap candidate is genuinely contained in its window - the default when none is passed', () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(md).not.toContain('· request');
+    expect(md).not.toContain('· response');
+    expect((md.match(/<details open>/g) ?? []).length).toBe(1);
+  });
+
+  it('merges a resolved internal call when every contained candidate shares its own service name', () => {
+    const call = makeCall({ source: 'internal', service_name: 'core-service' });
+    const sameServiceCandidate = makeCandidate({ serviceName: 'core-service' });
+    const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT, [sameServiceCandidate], 'all');
+
+    expect(md).not.toContain('· request');
+    expect(md).not.toContain('· response');
+  });
+
   it('forces chronological order regardless of input order, and interleaves a split internal call around calls that fall in between', () => {
     const odeysys = makeCall({
       id: 'odeysys',
@@ -351,8 +394,15 @@ describe('buildBulkExportMarkdown', () => {
       duration_ms: 100,
     });
 
+    const nestedInOdeysys = makeCandidate({
+      id: 'nested-in-odeysys',
+      serviceName: 'core-service',
+      timestamp: '2026-08-07T10:00:01.000Z',
+      // 76% coverage / 200ms tail against odeysys's 5000ms duration - well past both thresholds.
+      durationMs: 3800,
+    });
     // Passed in reverse order on purpose - the builder must sort chronologically itself.
-    const md = buildBulkExportMarkdown([external, odeysys], makeForm(), new Map(), EXPORTED_AT);
+    const md = buildBulkExportMarkdown([external, odeysys], makeForm(), new Map(), EXPORTED_AT, [nestedInOdeysys], 'all');
 
     const odeysysReqIdx = md.indexOf('<a id="call-1"></a>');
     const externalIdx = md.indexOf('<a id="call-2"></a>');
@@ -372,7 +422,7 @@ describe('buildBulkExportMarkdown', () => {
       makeComment({ id: 'c2', block: 'response-body', comment: 'response-side issue' }),
     ];
     const commentsByCallId = new Map<string, Comment[]>([[call.id, comments]]);
-    const md = buildBulkExportMarkdown([call], makeForm(), commentsByCallId, EXPORTED_AT);
+    const md = buildBulkExportMarkdown([call], makeForm(), commentsByCallId, EXPORTED_AT, [makeCandidate()], 'all');
 
     const requestBlock = md.slice(md.indexOf('<summary><b>Call 1</b> · request'), md.indexOf('<summary><b>Call 1</b> · response'));
     const responseBlock = md.slice(md.indexOf('<summary><b>Call 1</b> · response'));

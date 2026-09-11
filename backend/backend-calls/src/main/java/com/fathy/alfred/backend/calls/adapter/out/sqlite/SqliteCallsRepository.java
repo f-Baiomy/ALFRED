@@ -169,10 +169,12 @@ public class SqliteCallsRepository {
                   status_state TEXT NOT NULL DEFAULT 'COMPLETED',
                   request_haystack TEXT,
                   session_id TEXT,
-                  operation_id TEXT
+                  operation_id TEXT,
+                  service_name TEXT
                 )
                 """);
         addSessionOperationColumnsIfMissing();
+        addServiceNameColumnIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS call_request (
                   call_id TEXT PRIMARY KEY REFERENCES call_metadata(id) ON DELETE CASCADE,
@@ -202,6 +204,14 @@ public class SqliteCallsRepository {
         }
         if (!columns.contains("operation_id")) {
             jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN operation_id TEXT");
+        }
+    }
+
+    /** {@code service_name} postdates even session_id/operation_id - added explicitly via ALTER TABLE for a database created before this field existed, same pattern as {@link #addSessionOperationColumnsIfMissing}. */
+    private void addServiceNameColumnIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("service_name")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN service_name TEXT");
         }
     }
 
@@ -336,8 +346,8 @@ public class SqliteCallsRepository {
     private static final String INSERT_METADATA_SQL = """
             INSERT INTO call_metadata (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
                                status, status_rank, supplier, supplier_name, error, haystack, status_state, request_haystack,
-                               session_id, operation_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                               session_id, operation_id, service_name)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO call_request (call_id, headers, body) VALUES (?,?,?)";
@@ -380,6 +390,7 @@ public class SqliteCallsRepository {
         ps.setString(15, requestHaystack);
         ps.setString(16, normalized.sessionId());
         ps.setString(17, normalized.operationId());
+        ps.setString(18, normalized.serviceName());
     }
 
     /** Binds one call's request-table row - always inserted (headers/body null if there is no request data). */
@@ -482,7 +493,7 @@ public class SqliteCallsRepository {
      * Detail view (findById) still needs the full 3-way join.
      */
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -589,7 +600,7 @@ public class SqliteCallsRepository {
 
     private static final String DETAIL_SQL = """
             SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
-                   cm.session_id, cm.operation_id,
+                   cm.session_id, cm.operation_id, cm.service_name,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM call_metadata cm
@@ -607,7 +618,7 @@ public class SqliteCallsRepository {
     public List<CallRecord> readAll() {
         return jdbcTemplate.query("""
                 SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
-                       cm.session_id, cm.operation_id,
+                       cm.session_id, cm.operation_id, cm.service_name,
                        cr.headers AS request_headers, cr.body AS request_body,
                        cp.headers AS response_headers, cp.body AS response_body
                 FROM call_metadata cm
@@ -772,10 +783,11 @@ public class SqliteCallsRepository {
                 rs.getString("error"),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
                 rs.getString("session_id"),
-                rs.getString("operation_id"));
+                rs.getString("operation_id"),
+                rs.getString("service_name"));
     };
 
-    /** Reads a row of the OLD (pre-split) single-table {@code calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. */
+    /** Reads a row of the OLD (pre-split) single-table {@code calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. That legacy table predates service_name entirely (it predates even session_id/operation_id), so this always passes null for it rather than reading a column that was never added to {@code calls}. */
     private static final RowMapper<CallRecord> LEGACY_ROW_MAPPER = (rs, rowNum) -> {
         ObjectMapper mapper = new ObjectMapper();
         Map<String, String> requestHeaders = legacyFromJson(mapper, rs.getString("request_headers"));
@@ -804,7 +816,8 @@ public class SqliteCallsRepository {
                 rs.getString("error"),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
                 rs.getString("session_id"),
-                rs.getString("operation_id"));
+                rs.getString("operation_id"),
+                null);
     };
 
     private static Map<String, String> legacyFromJson(ObjectMapper mapper, String json) {
@@ -836,7 +849,8 @@ public class SqliteCallsRepository {
                 nullIfEmpty(rs.getString("supplier_name")),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
                 rs.getString("session_id"),
-                rs.getString("operation_id"));
+                rs.getString("operation_id"),
+                rs.getString("service_name"));
     };
 
     /** Undoes the ""-instead-of-NULL storage trick from bindMetadata - external behavior stays "null when there's no supplier name", exactly as CallSummary.of() always returned. */

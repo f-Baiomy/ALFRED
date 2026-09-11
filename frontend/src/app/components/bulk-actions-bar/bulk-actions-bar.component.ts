@@ -1,7 +1,7 @@
 import { Component, WritableSignal, inject, signal } from '@angular/core';
 import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
-import { CallRecord } from '../../core/models/call.model';
+import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { Comment } from '../../core/models/comment.model';
 import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE } from '../../core/state/call-selection.tokens';
 import { ExportApiService } from '../../core/services/export-api.service';
@@ -113,6 +113,15 @@ export class BulkActionsBarComponent {
     this.removalState.removeMany(selected);
   }
 
+  /**
+   * `format === 'markdown'`/`'html'` only actually split a call when `calls.length > 1` (the
+   * single-call branch in export-dialog.component.ts's buildContent never splits), and `'postman'`
+   * never splits at all - but `'json'` always routes through buildBulkExportPayload/eventsForCall
+   * regardless of selection size, so the overlap fetch runs unconditionally here rather than only
+   * for a multi-call selection; the extra request is cheap and harmless when its result goes
+   * unused (buildBulkExportMarkdown/buildBulkExportHtml/buildBulkExportPayload all default this
+   * parameter to `[]` too, for any caller that skips fetching entirely).
+   */
   private openDialog(loading: WritableSignal<boolean>, format: 'markdown' | 'json' | 'html' | 'postman'): void {
     const selected = this.state.selectedCalls();
     if (selected.length === 0) return;
@@ -124,13 +133,40 @@ export class BulkActionsBarComponent {
             calls: of(calls),
             metadata: this.exportApi.fetchMetadata(calls[0]).pipe(catchError(() => of(null))),
             commentsByCallId: this.fetchAllComments(calls),
+            overlapCandidates: this.fetchOverlapsFor(calls),
           })
         )
       )
-      .subscribe(({ calls, metadata, commentsByCallId }) => {
+      .subscribe(({ calls, metadata, commentsByCallId, overlapCandidates }) => {
         loading.set(false);
-        this.exportDialog.open(calls, metadata, commentsByCallId, format);
+        this.exportDialog.open(calls, metadata, commentsByCallId, format, overlapCandidates, this.controlsState.statusFilter());
       });
+  }
+
+  /**
+   * Fetches every overlap candidate for the full time range spanned by `calls` (each call's own
+   * timestamp through timestamp + duration_ms), under whatever filters are active on the list
+   * right now - the same query the live list's own `overlapCandidates` signal would run for this
+   * range, but for the export's specific selection rather than whatever's currently loaded/visible
+   * on screen (point 8 of the containment-rule spec: exports query the backend for full accuracy,
+   * not just what's in this particular export). Resolves to `[]` (never splits) when there's
+   * nothing to export or the fetch fails - a failed prefetch must not block the export itself.
+   */
+  private fetchOverlapsFor(calls: readonly CallRecord[]): Observable<readonly CallOverlapCandidate[]> {
+    if (calls.length === 0) return of([]);
+    let minStart = Infinity;
+    let maxEnd = -Infinity;
+    for (const call of calls) {
+      const start = new Date(call.timestamp).getTime();
+      if (Number.isNaN(start)) continue;
+      const end = start + (call.duration_ms ?? 0);
+      if (start < minStart) minStart = start;
+      if (end > maxEnd) maxEnd = end;
+    }
+    if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd)) return of([]);
+    return this.controlsState
+      .getCallOverlaps({ from: new Date(minStart).toISOString(), to: new Date(maxEnd).toISOString() })
+      .pipe(catchError(() => of([])));
   }
 
   /** Always a real fetch per call, even if it was hydrated by an earlier bulk action this session - detail is never served from a cache. */

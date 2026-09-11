@@ -1,6 +1,6 @@
 import { InjectionToken, Signal } from '@angular/core';
 import { Observable } from 'rxjs';
-import { CallDetail, CallEndpointSource, CallRecord } from '../models/call.model';
+import { CallDetail, CallEndpointSource, CallOverlapCandidate, CallRecord } from '../models/call.model';
 import { CallListView } from './call-list-view';
 
 /**
@@ -80,6 +80,14 @@ export interface CallListControlsState extends CallListView {
    * dashboard; session-cycles' implementation ignores it (it never captures 'internal' calls).
    */
   getCallDetail(callId: string, source?: CallEndpointSource): Observable<CallDetail>;
+  /**
+   * On-demand counterpart to `overlapCandidates` above, for a caller-chosen range rather than
+   * whatever `mainListCalls()` currently spans - used by the export dialog's prefetch step, which
+   * needs the full range spanned by the calls actually being exported (not just what's currently
+   * loaded/visible on screen), under whatever filters are active right now. See
+   * export-dialog.component.ts/export-dialog.service.ts.
+   */
+  getCallOverlaps(range: { from: string; to: string }): Observable<readonly CallOverlapCandidate[]>;
 }
 
 export const CALL_LIST_CONTROLS_STATE = new InjectionToken<CallListControlsState>('CALL_LIST_CONTROLS_STATE');

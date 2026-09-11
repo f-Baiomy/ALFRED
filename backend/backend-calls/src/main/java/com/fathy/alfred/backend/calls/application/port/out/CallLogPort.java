@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -58,6 +59,21 @@ public interface CallLogPort {
     default CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
                                                       String sessionId, String operationId, String requestId) {
         return query(search, supplier, sort, offset, limit, paginationEnabled);
+    }
+
+    /**
+     * Resolved (never IN_PROGRESS) calls whose timestamp falls within {@code [from, to]}
+     * (inclusive both ends), optionally narrowed by search/supplier - built for
+     * backend-call-overlap's global "what happened in this window" query, unbounded by whatever
+     * page is currently loaded in the browser (unlike {@link #query}, which paginates). Defaults
+     * to filtering the full in-memory {@link #readAll()} the same way {@link #query}'s own default
+     * does - dead simple by design, since every caller only ever passes a narrow time window (see
+     * {@link CallListSupport#resolvedInRange} for the actual filter logic). No adapter overrides
+     * this - even the SQLite adapter's {@link #readAll()} already loads everything into memory for
+     * the same underlying reason.
+     */
+    default List<CallRecord> findResolvedInRange(Instant from, Instant to, String search, String supplier) {
+        return CallListSupport.resolvedInRange(readAll(), from, to, search, supplier);
     }
 
     /** A single call by id, or empty if no call with that id has ever been logged. */

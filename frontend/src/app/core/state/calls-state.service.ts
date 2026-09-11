@@ -4,6 +4,7 @@ import { Observable, Subscription, forkJoin, map, of, retry, timer } from 'rxjs'
 import {
   CallDetail,
   CallEndpointSource,
+  CallOverlapCandidate,
   CallRecord,
   CallSummaryDto,
   CallsClearedEvent,
@@ -18,7 +19,7 @@ import { AppConfigService } from '../services/app-config.service';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
-import { CallListView, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
+import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
 
 export type { CallStats, CallStatusFilter, SupplierGroup, SupplierOption } from './call-list-view';
 
@@ -80,6 +81,7 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
       {
         pageSize: 50,
         fetchPage: (query) => this.fetchPageForSource(query),
+        fetchOverlaps: (query) => this.fetchOverlapsForSource(query),
         liveCalls: this.liveCalls,
         onError: (message) => this.error.set(message),
       }
@@ -138,6 +140,27 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
         const merged = sortCalls([...external.calls, ...internal.calls], mergeSort);
         return { calls: merged.slice(0, query.limit), total: external.total + internal.total };
       })
+    );
+  }
+
+  /**
+   * Fetches every overlap candidate in `query`'s range - unlike fetchPageForSource, GET
+   * /call-overlaps always returns BOTH external and internal candidates together in one request
+   * (never two to merge), narrowed server-side to the currently-selected internal projects via
+   * `serviceNames` exactly like getCalls' own narrowing. The Sources bar's external on/off toggle
+   * has no server-side equivalent on this endpoint (there's no "external" flag to pass, only which
+   * internal projects), so it's applied here instead: a candidate whose own source/service isn't
+   * in the current selection is dropped client-side before the containment check ever sees it -
+   * the same rule matchesActiveFilters applies to a live-pushed CallRecord, just applied to a
+   * CallOverlapCandidate's leaner shape instead.
+   */
+  private fetchOverlapsForSource(query: CallOverlapQuery): Observable<CallOverlapCandidate[]> {
+    const selected = this.selectedSources();
+    const internalNames = [...selected].filter((s) => s !== EXTERNAL_SOURCE_KEY);
+    return this.api.getCallOverlaps(query, internalNames).pipe(
+      map((candidates) =>
+        candidates.filter((c) => (c.source === 'external' ? selected.has(EXTERNAL_SOURCE_KEY) : selected.has(c.serviceName ?? 'unknown')))
+      )
     );
   }
 
@@ -264,6 +287,9 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get visibleRows() {
     return this.view.visibleRows;
   }
+  get overlapCandidates() {
+    return this.view.overlapCandidates;
+  }
   get remainingCount() {
     return this.view.remainingCount;
   }
@@ -342,6 +368,24 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    */
   getCallDetail(callId: string, source?: CallEndpointSource): Observable<CallDetail> {
     return this.api.getDetail(callId, source);
+  }
+
+  /**
+   * CallListControlsState's on-demand overlap fetch, for the export dialog's prefetch step - reuses
+   * fetchOverlapsForSource (same serviceNames/external-toggle narrowing the live view's own
+   * `overlapCandidates` uses) but for a caller-supplied range, under whatever search/supplier/
+   * session/operation/request filters are active on the view right now.
+   */
+  getCallOverlaps(range: { from: string; to: string }): Observable<CallOverlapCandidate[]> {
+    return this.fetchOverlapsForSource({
+      from: range.from,
+      to: range.to,
+      search: this.view.searchQuery().trim(),
+      supplier: this.view.supplierFilter(),
+      sessionId: this.view.sessionIdFilter().trim(),
+      operationId: this.view.operationIdFilter().trim(),
+      requestId: this.view.requestIdFilter().trim(),
+    });
   }
 
   /**

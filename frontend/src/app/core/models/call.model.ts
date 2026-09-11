@@ -39,7 +39,17 @@ export interface CallRecord {
   readonly session_id?: string | null;
   /** The proxy's X-Operation-Id header value, or a proxy-generated UUID if the client didn't send one - null/undefined only for a call logged before this field existed. */
   readonly operation_id?: string | null;
-  /** Which named project (from settings.properties's internal_call_services) reverse-proxy resolved this call to, or its "unknown" bucket - only ever set on an internal call; undefined for every external call and for one logged before this field existed (see sourceKeyOf()/sourceLabelOf() in call-utils.ts, which both treat that the same as "unknown"). */
+  /**
+   * Which named project this call is attributed to - meaning differs by direction. On an internal
+   * call (reverse-proxied): the project (from settings.properties's internal_call_services) that
+   * reverse-proxy resolved this call to, or its "unknown" bucket - always set once the call is
+   * logged. On an external call (forward-proxied): null/undefined by default (unattributed - most
+   * external traffic, or data predating outbound attribution), but non-null once the calling
+   * project has opted into forward-proxy outbound attribution, naming exactly which project made
+   * the call. Undefined either way for a call logged before this field existed. See
+   * sourceKeyOf()/sourceLabelOf() in call-utils.ts - sourceLabelOf renders a non-null value on an
+   * external call as "External · via <Project>".
+   */
   readonly service_name?: string | null;
   /** Which backend endpoint this call was fetched from - stamped client-side in toCallRecord(), never part of the wire shape. Undefined only for a CapturedCall's wrapped CallRecord (session-cycles never captures 'internal' calls, so it's always implicitly 'external' there). Needed so getCallDetail() knows whether to fetch GET /calls/{id}/detail or GET /internal-calls/{id}/detail once a call from a merged 'both' list is expanded. */
   readonly source?: CallEndpointSource;
@@ -122,4 +132,26 @@ export interface CapturedCall {
   readonly id: string;
   readonly capturedAt: string;
   readonly call: CallRecord;
+}
+
+/**
+ * GET /call-overlaps and GET /session-cycles/{id}/call-overlaps's per-item wire shape - a
+ * candidate call that might strictly nest inside another call's own [timestamp, timestamp +
+ * duration_ms] window. Only ever includes resolved calls: an unresolved call has no fixed end
+ * time, so it can never be "contained" in anything - see splitCallsForDisplay's containment rule
+ * in shared/utils/call-utils.ts. `serviceName` mirrors CallRecord.service_name in both directions:
+ * null for an unattributed external candidate (the common case, or one predating outbound
+ * attribution) or an internal candidate logged before the field existed, non-null for an internal
+ * candidate (its own project, including its "unknown" bucket) or an external candidate once
+ * outbound attribution names which project made it; `status`/`error` mirror
+ * CallRecord.response.status/CallRecord.error, flattened the same way CallSummaryDto flattens them.
+ */
+export interface CallOverlapCandidate {
+  readonly id: string;
+  readonly source: CallEndpointSource;
+  readonly serviceName: string | null;
+  readonly timestamp: string;
+  readonly durationMs: number;
+  readonly status: number | null;
+  readonly error: string | null;
 }

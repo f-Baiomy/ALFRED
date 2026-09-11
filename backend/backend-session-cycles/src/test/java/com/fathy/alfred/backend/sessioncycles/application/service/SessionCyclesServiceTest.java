@@ -8,8 +8,11 @@ import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCalls
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapEntry;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapQuery;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
@@ -20,6 +23,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleUpdate;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -388,5 +392,40 @@ class SessionCyclesServiceTest {
         Optional<CopyCallsResult> result = service.copyInto("c1", List.of(call("t1")));
 
         assertThat(result).contains(new CopyCallsResult(1, 0));
+    }
+
+    @Test
+    void listCallOverlapsReturnsEmptyOptionalWhenTheCycleIsMissing() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        Optional<List<CallOverlapEntry>> result = service.listCallOverlaps("missing", new CallOverlapQuery(
+                Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-01T00:00:10Z"), "", "", "", "", "", ""));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void listCallOverlapsMergesResolvedExternalAndInternalCapturedCallsWithinTheWindow() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        CallRecord inWindow = call("2024-01-01T00:00:05Z");
+        CallRecord outOfWindow = call("2024-01-01T00:00:30Z");
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(
+                new CapturedCall("captured-1", "2024-01-01T00:00:05Z", inWindow),
+                new CapturedCall("captured-2", "2024-01-01T00:00:30Z", outOfWindow)));
+
+        com.fathy.alfred.backend.internalcalls.domain.model.CallRecord internalCall = new com.fathy.alfred.backend.internalcalls.domain.model.CallRecord(
+                "internal-1", "https://wildfly-proxy/x", "https://wildfly/x", "GET", null, "2024-01-01T00:00:06Z",
+                2.0, null, null, com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus.COMPLETED,
+                null, null, "wildfly");
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of(
+                new CapturedInternalCall("captured-internal-1", "2024-01-01T00:00:06Z", internalCall)));
+
+        Optional<List<CallOverlapEntry>> result = service.listCallOverlaps("c1", new CallOverlapQuery(
+                Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-01T00:00:10Z"), "", "", "", "", "", ""));
+
+        assertThat(result).isPresent();
+        assertThat(result.get()).containsExactly(
+                new CallOverlapEntry("id-2024-01-01T00:00:05Z", "external", null, "2024-01-01T00:00:05Z", 1.0, null, null),
+                new CallOverlapEntry("internal-1", "internal", "wildfly", "2024-01-01T00:00:06Z", 2.0, null, null));
     }
 }

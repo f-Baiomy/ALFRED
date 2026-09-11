@@ -52,6 +52,11 @@
     </dependency>
     <dependency>
       <groupId>com.fathy.alfred</groupId>
+      <artifactId>backend-call-overlap</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fathy.alfred</groupId>
       <artifactId>backend-profiles</artifactId>
       <version>${project.version}</version>
     </dependency>

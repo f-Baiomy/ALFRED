@@ -40,11 +40,16 @@ function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
  */
 function setup(calls: CallRecord[], total = calls.length): { state: CallsStateService; queries: CallsQuery[] } {
   const queries: CallsQuery[] = [];
-  const apiStub: Pick<CallsApiService, 'getCalls'> = {
+  const apiStub: Pick<CallsApiService, 'getCalls' | 'getCallOverlaps'> = {
     getCalls: (query) => {
       queries.push(query);
       return of({ calls, total });
     },
+    // Not under test here (see call-utils.spec.ts for the containment logic and
+    // call-list-view.spec.ts for overlapCandidates' own fetch-on-range-change plumbing) - just
+    // enough of a stub that createCallListView's required fetchOverlaps callback has something to
+    // call.
+    getCallOverlaps: () => of([]),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -68,11 +73,12 @@ function setupWithSources(
   internalTotal = internalCalls.length
 ): { state: CallsStateService; calls: Array<{ query: CallsQuery; source: 'external' | 'internal' }> } {
   const calls: Array<{ query: CallsQuery; source: 'external' | 'internal' }> = [];
-  const apiStub: Pick<CallsApiService, 'getCalls'> = {
+  const apiStub: Pick<CallsApiService, 'getCalls' | 'getCallOverlaps'> = {
     getCalls: (query, source = 'external') => {
       calls.push({ query, source });
       return source === 'internal' ? of({ calls: internalCalls, total: internalTotal }) : of({ calls: externalCalls, total: externalTotal });
     },
+    getCallOverlaps: () => of([]),
   };
   TestBed.configureTestingModule({
     providers: [

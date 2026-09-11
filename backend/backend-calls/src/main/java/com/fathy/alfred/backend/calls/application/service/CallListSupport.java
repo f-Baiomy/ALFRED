@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.calls.application.service;
 
+import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 
 import java.net.URI;
@@ -60,6 +61,40 @@ public final class CallListSupport {
         int from = paginationEnabled ? Math.max(0, Math.min(offset, total)) : 0;
         int to = Math.max(from, Math.min(from + Math.max(limit, 0), total));
         return new Page<>(ordered.subList(from, to), total);
+    }
+
+    /**
+     * Resolved (never IN_PROGRESS) calls whose timestamp falls within {@code [from, to]}
+     * (inclusive both ends), optionally narrowed by search/supplier - built for
+     * backend-call-overlap's global "what happened in this window" query, which needs to see
+     * beyond whatever page is currently loaded in the browser (unlike {@link #apply}, this has no
+     * sort/pagination - callers only ever pass a narrow time window, so returning everything that
+     * matches is the whole point). An in-progress call has no fixed end time yet, so it can never
+     * be "contained" in anything and is excluded entirely rather than included with a null/partial
+     * duration.
+     */
+    public static List<CallRecord> resolvedInRange(List<CallRecord> source, Instant from, Instant to, String search, String supplier) {
+        String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        String supplierFilter = supplier == null ? "" : supplier.trim();
+        long fromMillis = from.toEpochMilli();
+        long toMillis = to.toEpochMilli();
+
+        return source.stream()
+                .filter(CallListSupport::isResolved)
+                .filter(call -> withinRange(call, fromMillis, toMillis))
+                .filter(call -> matchesSearch(call, query))
+                .filter(call -> supplierFilter.isEmpty() || supplierFilter.equals(supplierOf(call)))
+                .toList();
+    }
+
+    /** True once a call has an outcome (COMPLETED or ERROR) - false for IN_PROGRESS, which has no fixed end time. A null (legacy, pre-two-phase) state is derived from whether error is set, same as everywhere else that normalizes a possibly-null state. */
+    private static boolean isResolved(CallRecord call) {
+        return CallRecord.withDerivedStateIfMissing(call).state() != CallLifecycleStatus.IN_PROGRESS;
+    }
+
+    private static boolean withinRange(CallRecord call, long fromMillis, long toMillis) {
+        long callMillis = callTimeMillis(call);
+        return callMillis >= fromMillis && callMillis <= toMillis;
     }
 
     private static <T> List<T> sorted(List<T> filtered, String sort, Function<T, CallRecord> toCall) {

@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,6 +40,20 @@ public interface CallLogPort {
      */
     CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
                                              String sessionId, String operationId, String requestId, String serviceNames);
+
+    /**
+     * Resolved (never IN_PROGRESS) internal calls whose timestamp falls within {@code [from, to]}
+     * (inclusive both ends), optionally narrowed by search/serviceNames/sessionId/operationId/
+     * requestId - built for backend-call-overlap's global "what happened in this window" query,
+     * unbounded by whatever page is currently loaded in the browser (unlike {@link #query}, which
+     * paginates). Defaults to filtering the full in-memory {@link #readAll()} - dead simple by
+     * design, since every caller only ever passes a narrow time window (see
+     * {@link CallListSupport#resolvedInRange} for the actual filter logic).
+     */
+    default List<CallRecord> findResolvedInRange(Instant from, Instant to, String search,
+                                                  String sessionId, String operationId, String requestId, String serviceNames) {
+        return CallListSupport.resolvedInRange(readAll(), from, to, search, sessionId, operationId, requestId, serviceNames);
+    }
 
     /** A single call by id, or empty if no call with that id has ever been logged. */
     Optional<CallRecord> findById(String id);
