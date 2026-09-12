@@ -422,6 +422,41 @@ describe('splitCallsForDisplay', () => {
     expect(rows.map((r) => r.variant)).toEqual(['request', 'response']);
   });
 
+  it('splits BOTH calls of a nested chain - the inner one owns what it called, not the outer', () => {
+    // The shape that was exporting wrong: odeysys wraps core-service, which makes the two supplier
+    // calls. All four candidates sit inside odeysys's window too, and counting owners rather than
+    // nesting them vetoed the supplier calls from both - leaving core-service with no evidence and
+    // exporting it as a single unsplit call while the waterfall bracketed it correctly.
+    const odeysys = makeCall({
+      id: 'odeysys',
+      source: 'internal',
+      service_name: 'odeysys',
+      state: 'COMPLETED',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      duration_ms: 11396,
+    });
+    const coreService = makeCall({
+      id: 'core',
+      source: 'internal',
+      service_name: 'core-service',
+      state: 'COMPLETED',
+      timestamp: '2026-01-01T00:00:01.090Z',
+      duration_ms: 10246,
+    });
+    const candidates = [
+      makeCandidate({ id: 'core', source: 'internal', serviceName: 'core-service', timestamp: '2026-01-01T00:00:01.090Z', durationMs: 10246 }),
+      makeCandidate({ id: 'sabre-token', source: 'external', serviceName: null, timestamp: '2026-01-01T00:00:08.700Z', durationMs: 831 }),
+      makeCandidate({ id: 'sabre-booking', source: 'external', serviceName: null, timestamp: '2026-01-01T00:00:09.860Z', durationMs: 850 }),
+    ];
+
+    const rows = splitCallsForDisplay([odeysys, coreService], 'oldest-call', candidates, 'all');
+    const variantsOf = (id: string) => rows.filter((r) => r.call.id === id).map((r) => r.variant);
+
+    // odeysys keeps core-service as its own blocking child; core-service keeps the two suppliers.
+    expect(variantsOf('odeysys')).toEqual(['request', 'response']);
+    expect(variantsOf('core')).toEqual(['request', 'response']);
+  });
+
   it('the ambiguity veto merges BOTH internal calls when the same candidate is their only otherwise-qualifying evidence', () => {
     const callA = makeCall({
       id: 'call-a',

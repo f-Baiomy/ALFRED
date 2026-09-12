@@ -137,6 +137,19 @@ function targetWindow(target: CallRecord): { start: number; end: number } {
   return { start, end: start + (target.duration_ms ?? 0) };
 }
 
+/** Whether `inner` sits STRICTLY inside `outer` - one-directionally. Two calls with identical
+ * windows contain each other, and that's ambiguity rather than nesting: there's no telling which of
+ * them a call inside both belongs to, so neither may claim it. Mirrors call-tree.ts's resolveParent,
+ * so the split and the tree views can never disagree about whose downstream work a call was. */
+function strictlyContainsCall(outer: CallRecord, inner: CallRecord): boolean {
+  if (outer.id === inner.id) return false;
+  const o = targetWindow(outer);
+  const i = targetWindow(inner);
+  const innerFitsInOuter = i.start >= o.start && i.end <= o.end;
+  const outerFitsInInner = o.start >= i.start && o.end <= i.end;
+  return innerFitsInOuter && !outerFitsInInner;
+}
+
 function candidateWindow(candidate: CallOverlapCandidate): { start: number; end: number } {
   const start = new Date(candidate.timestamp).getTime();
   return { start, end: start + candidate.durationMs };
@@ -233,12 +246,17 @@ function hasBlockingEvidence(target: CallRecord, survivors: readonly CallOverlap
  * Pass 1: for every internal call, gather its own set of candidates passing checks 1-2
  * (qualifiesAsNestedChild) among the candidates currently visible under the status-pill filter.
  *
- * Pass 2 (the ambiguity veto, check 4): for every candidate contained in MORE THAN ONE different
- * internal call, it's ambiguous whose downstream work it actually is - remove it from every one of
- * those calls' surviving sets rather than guessing for either. Deliberately keyed on checks 1-2
- * alone: which parent a call belongs to is a question about containment and ownership, so a
- * candidate that two parents could equally claim is ambiguous however its own timing happens to
- * look against either of them.
+ * Pass 2 (check 4): a candidate contained in more than one internal call goes to the INNERMOST of
+ * them, as long as those owners form a nested chain - odeysys containing core-service containing a
+ * supplier call is not ambiguous, it just means the supplier call was core-service's work. The
+ * ambiguity veto proper is for owners that merely OVERLAP, neither inside the other: there is no
+ * way to tell whose that candidate was, so it counts for none of them.
+ *
+ * Getting this wrong is what made an export split odeysys but not the core-service call nested
+ * inside it - both owners lost the two supplier calls to the veto, leaving core-service with no
+ * evidence at all while the waterfall (which resolves owners innermost-first via call-tree.ts) had
+ * been bracketing it correctly all along. Keyed on checks 1-2 alone either way: whose work a call
+ * was is a question about containment and ownership, not about how its own timing happens to look.
  *
  * A call stays split iff its post-veto set clears check 3 (hasBlockingEvidence).
  */
@@ -249,26 +267,27 @@ function computeSplitCallIds(
 ): ReadonlySet<string> {
   const visibleCandidates = candidates.filter((candidate) => candidateMatchesStatusFilter(candidate, statusFilter));
 
-  const survivorsByCallId = new Map<string, CallOverlapCandidate[]>();
-  for (const call of internalCalls) {
-    survivorsByCallId.set(
-      call.id,
-      visibleCandidates.filter((candidate) => qualifiesAsNestedChild(call, candidate))
-    );
-  }
+  const survivorsByCallId = new Map<string, CallOverlapCandidate[]>(internalCalls.map((call) => [call.id, []]));
 
-  const survivedCountByCandidate = new Map<CallOverlapCandidate, number>();
-  for (const survivors of survivorsByCallId.values()) {
-    for (const candidate of survivors) {
-      survivedCountByCandidate.set(candidate, (survivedCountByCandidate.get(candidate) ?? 0) + 1);
-    }
+  for (const candidate of visibleCandidates) {
+    const owners = internalCalls.filter((call) => qualifiesAsNestedChild(call, candidate));
+    if (owners.length === 0) continue;
+
+    // The INNERMOST owner takes it, provided the owners form a single nested chain - odeysys
+    // containing core-service containing this call isn't ambiguous at all, it just means
+    // core-service is whose work it was. Only owners that merely OVERLAP, neither inside the other,
+    // are genuinely ambiguous, and those give it up entirely rather than guess.
+    const innermost = owners.reduce((best, owner) => ((owner.duration_ms ?? 0) < (best.duration_ms ?? 0) ? owner : best));
+    const nestedChain = owners.every((owner) => owner.id === innermost.id || strictlyContainsCall(owner, innermost));
+    if (!nestedChain) continue;
+
+    survivorsByCallId.get(innermost.id)!.push(candidate);
   }
 
   const staysSplit = new Set<string>();
   const callsById = new Map(internalCalls.map((call) => [call.id, call]));
   for (const [callId, survivors] of survivorsByCallId) {
-    const afterVeto = survivors.filter((candidate) => (survivedCountByCandidate.get(candidate) ?? 0) <= 1);
-    if (hasBlockingEvidence(callsById.get(callId)!, afterVeto)) staysSplit.add(callId);
+    if (hasBlockingEvidence(callsById.get(callId)!, survivors)) staysSplit.add(callId);
   }
   return staysSplit;
 }

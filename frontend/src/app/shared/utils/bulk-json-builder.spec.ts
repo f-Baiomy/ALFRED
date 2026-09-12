@@ -168,6 +168,41 @@ describe('buildBulkExportPayload', () => {
     expect(payload.events.map((e) => e.type)).toEqual(['request', 'response']);
   });
 
+  it('splits every call of a nested chain, not just the outermost one', () => {
+    // Reported from a real export: odeysys came out split, but the core-service call nested inside
+    // it - which is what actually made the two supplier calls - came out as one unsplit "call"
+    // event, because both owners lost those suppliers to the ambiguity veto.
+    const odeysys = makeCall({
+      id: 'odeysys',
+      source: 'internal',
+      service_name: 'odeysys',
+      state: 'COMPLETED',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      duration_ms: 11396,
+    });
+    const coreService = makeCall({
+      id: 'core',
+      source: 'internal',
+      service_name: 'core-service',
+      state: 'COMPLETED',
+      timestamp: '2026-01-01T00:00:01.090Z',
+      duration_ms: 10246,
+    });
+    const candidates = [
+      makeCandidate({ id: 'core', source: 'internal', serviceName: 'core-service', timestamp: '2026-01-01T00:00:01.090Z', durationMs: 10246 }),
+      makeCandidate({ id: 'sabre-token', timestamp: '2026-01-01T00:00:08.700Z', durationMs: 831 }),
+      makeCandidate({ id: 'sabre-booking', timestamp: '2026-01-01T00:00:09.860Z', durationMs: 850 }),
+    ];
+
+    const payload = buildBulkExportPayload([odeysys, coreService], makeForm(), new Map(), '2026-01-01T18:00:00Z', candidates, 'all');
+    const typesFor = (id: string) => payload.events.filter((e) => e.callId === id).map((e) => e.type);
+
+    expect(typesFor('odeysys')).toEqual(['request', 'response']);
+    expect(typesFor('core')).toEqual(['request', 'response']);
+    // Still one real call per call, however many events they produce.
+    expect(payload.summary.callCount).toBe(2);
+  });
+
   it('excludes a candidate that fails the active status-pill filter from counting towards containment', () => {
     const call = makeCall({ source: 'internal', service_name: 'core-service' });
     const failedCandidate = makeCandidate({ status: 500, error: 'boom' });

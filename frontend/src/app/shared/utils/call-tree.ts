@@ -149,7 +149,11 @@ function resolveParent(call: CallRecord, calls: readonly CallRecord[]): Parented
   const innermost = owners.reduce((best, candidate) =>
     (candidate.duration_ms ?? 0) < (best.duration_ms ?? 0) ? candidate : best
   );
-  const chained = owners.every((owner) => owner.id === innermost.id || canOwn(owner, innermost));
+  // canOwn in BOTH directions means identical windows, which is ambiguity rather than nesting - so
+  // a chain requires the containment to be one-directional.
+  const chained = owners.every(
+    (owner) => owner.id === innermost.id || (canOwn(owner, innermost) && !canOwn(innermost, owner))
+  );
   return chained ? { parent: innermost, ambiguous: false } : { parent: null, ambiguous: true };
 }
 
