@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
@@ -26,7 +27,9 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -62,6 +65,9 @@ public class SqliteCallsRepository {
 
     private static final Logger log = LoggerFactory.getLogger(SqliteCallsRepository.class);
 
+    /** What {@code PRAGMA auto_vacuum} returns for INCREMENTAL (0 = NONE, 1 = FULL, 2 = INCREMENTAL). */
+    private static final int AUTO_VACUUM_INCREMENTAL = 2;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${CALLS_DB_FILE:/appdata/calls.db}")
@@ -79,6 +85,17 @@ public class SqliteCallsRepository {
 
     /** How often (in saves) to check the file size against maxSizeBytes - stat'ing the file on every single insert would itself be wasteful at high write volume. */
     private static final int SIZE_CHECK_EVERY_N_SAVES = 50;
+
+    /** Most calls one retention pass will delete, however far over the target the database is. */
+    private static final int MAX_DELETE_BATCH = 1000;
+
+    /**
+     * Retention never trims below this many calls. A database has a fixed overhead - schema plus
+     * the FTS index, measured at ~4MB on an otherwise empty test database - that deleting rows
+     * cannot reclaim, so a target smaller than that overhead is unreachable no matter how much is
+     * deleted. Without this floor, such a target means "delete everything and still be over".
+     */
+    private static final int MIN_RETAINED_CALLS = 50;
     private int savesSinceLastSizeCheck;
 
     /** The outcome half of a two-phase call, awaiting write via {@link #completionWriter} - see {@link #complete}. */
@@ -114,9 +131,7 @@ public class SqliteCallsRepository {
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
 
-        // auto_vacuum is a database-level (not per-connection) setting, persisted in the file
-        // itself - fine to set once here.
-        jdbcTemplate.execute("PRAGMA auto_vacuum=INCREMENTAL");
+        ensureIncrementalAutoVacuum();
 
         createSchema();
         initFts();
@@ -148,6 +163,48 @@ public class SqliteCallsRepository {
         ), 1000);
 
         migrateLegacySingleTableIfPresent();
+    }
+
+    /**
+     * Makes auto_vacuum actually be INCREMENTAL, converting the file if it isn't already.
+     *
+     * <p>{@code PRAGMA auto_vacuum} only takes effect on a database with no schema yet. On an
+     * existing file SQLite accepts the statement and silently keeps the old mode - so every
+     * deployment created before that pragma was added still reports NONE (confirmed on live data:
+     * a 30MB calls.db reporting auto_vacuum=0 despite this code running on every boot). With NONE,
+     * deleted pages go to the freelist and <b>the file never shrinks</b>, which makes
+     * {@code PRAGMA incremental_vacuum} a no-op and left {@link #enforceRetention()} with a size
+     * condition it could never satisfy - it deleted every call in the table instead of the oldest
+     * few (measured: deleting 90% of rows changed the file size by 0 bytes).
+     *
+     * <p>Converting requires a full VACUUM, which rewrites the file end to end - cheap on a small
+     * database, very expensive on a large one, which is exactly why it's worth doing at the first
+     * opportunity rather than when retention finally fires. Both statements must run on the SAME
+     * physical connection (the pragma is per-connection state that VACUUM reads), so this takes a
+     * connection explicitly rather than issuing two pooled jdbcTemplate calls.
+     */
+    private void ensureIncrementalAutoVacuum() {
+        Integer mode = jdbcTemplate.execute((ConnectionCallback<Integer>) connection -> {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("PRAGMA auto_vacuum=INCREMENTAL");
+                try (ResultSet rs = statement.executeQuery("PRAGMA auto_vacuum")) {
+                    int current = rs.next() ? rs.getInt(1) : -1;
+                    if (current == AUTO_VACUUM_INCREMENTAL) {
+                        return current;
+                    }
+                    log.info("calls.db reports auto_vacuum={} - converting to INCREMENTAL with a one-time VACUUM "
+                            + "so retention can reclaim space instead of emptying the table", current);
+                    statement.execute("VACUUM");
+                }
+                try (ResultSet rs = statement.executeQuery("PRAGMA auto_vacuum")) {
+                    return rs.next() ? rs.getInt(1) : -1;
+                }
+            }
+        });
+        if (mode == null || mode != AUTO_VACUUM_INCREMENTAL) {
+            log.error("calls.db still reports auto_vacuum={} after conversion - retention cannot shrink the file, "
+                    + "so it will refuse to trim rather than delete everything", mode);
+        }
     }
 
     private void createSchema() {
@@ -460,29 +517,104 @@ public class SqliteCallsRepository {
         ps.setString(3, pending.id());
     }
 
-    /** Deletes the oldest rows (by the call's own timestamp) until the on-disk file is back under maxSizeBytes, then reclaims the freed pages - this is the actual "up to 100GB" mechanism. Only ever deletes from call_metadata - the matching call_request/call_response rows are removed automatically via ON DELETE CASCADE. */
-    private void enforceRetention() {
-        try {
-            long size = Files.size(Path.of(dbFile));
-            if (size <= maxSizeBytes) {
-                return;
-            }
-            log.info("calls.db is {} bytes, above the {} byte retention target - trimming oldest rows", size, maxSizeBytes);
-            int batch = 1000;
-            int totalDeleted = 0;
-            while (Files.size(Path.of(dbFile)) > maxSizeBytes) {
-                int deleted = jdbcTemplate.update(
-                        "DELETE FROM call_metadata WHERE id IN (SELECT id FROM call_metadata ORDER BY timestamp_millis ASC LIMIT ?)", batch);
-                totalDeleted += deleted;
-                if (deleted == 0) {
-                    break;
-                }
-            }
-            jdbcTemplate.execute("PRAGMA incremental_vacuum");
-            log.info("Trimmed {} oldest call(s) from calls.db during retention enforcement", totalDeleted);
-        } catch (IOException e) {
-            log.warn("Could not stat {} for retention enforcement: {}", dbFile, e.getMessage());
+    /**
+     * How many of the oldest calls to remove in one pass: a tenth of what's there, never more than
+     * {@link #MAX_DELETE_BATCH}, never enough to drop below {@link #MIN_RETAINED_CALLS}.
+     *
+     * <p>Proportional rather than a flat 1000 because a flat batch overshoots badly on a small
+     * database - with 201 calls it deleted all 201 in a single pass, which is the wipe this whole
+     * change exists to prevent. A tenth converges on the target from above instead, and the cap at
+     * 1000 keeps each pass cheap when there are millions of rows.
+     */
+    private static int deleteBatchSize(int rows) {
+        int roomAboveFloor = rows - MIN_RETAINED_CALLS;
+        int proportional = Math.max(1, rows / 10);
+        return Math.max(1, Math.min(Math.min(proportional, MAX_DELETE_BATCH), roomAboveFloor));
+    }
+
+    /**
+     * Bytes of the database actually holding data - page_count minus the freelist, times page size.
+     *
+     * <p>This, not {@code Files.size}, is what retention measures against. A DELETE moves pages to
+     * the freelist immediately but does not shrink the file, and the pragma that hands those pages
+     * back to the OS cannot be driven from JDBC: {@code PRAGMA incremental_vacuum} frees one page
+     * per <em>step</em>, {@code jdbcTemplate.execute} steps it exactly once (measured: 4KB reclaimed
+     * out of a 9MB freelist), and {@code jdbcTemplate.query} refuses it outright because it returns
+     * no rows. Reclaiming 10GB that way would need millions of round trips.
+     *
+     * <p>Which is fine, because truncation was never what bounds the file: SQLite allocates from the
+     * freelist before extending, so pages freed here are reused by the calls that arrive next and
+     * the file stops growing at roughly the cap either way. Measuring used bytes also makes the
+     * retention loop terminate on something a DELETE changes immediately.
+     */
+    private long usedBytes() {
+        Long pageCount = jdbcTemplate.queryForObject("PRAGMA page_count", Long.class);
+        Long freelist = jdbcTemplate.queryForObject("PRAGMA freelist_count", Long.class);
+        Long pageSize = jdbcTemplate.queryForObject("PRAGMA page_size", Long.class);
+        if (pageCount == null || freelist == null || pageSize == null) {
+            return 0L;
         }
+        return Math.max(0L, pageCount - freelist) * pageSize;
+    }
+
+    /**
+     * Deletes the oldest calls (by their own timestamp) until the database holds at most
+     * maxSizeBytes of actual data - the "up to N bytes" mechanism. Only ever deletes from
+     * call_metadata; the matching call_request/call_response rows go via ON DELETE CASCADE.
+     *
+     * <p>Measured against {@link #usedBytes()} rather than {@code Files.size}. The original version
+     * looped on the file size, which a DELETE does not change - so its condition stayed true no
+     * matter how much it deleted, and its only real exit was {@code deleted == 0}, an EMPTY TABLE.
+     * The first time a deployment reached its cap it would have discarded every logged call instead
+     * of the oldest few. (It never showed up in tests because a freshly-created database gets
+     * auto_vacuum=INCREMENTAL and shrinks, while every pre-existing one reports NONE and does not -
+     * see {@link #ensureIncrementalAutoVacuum()}.)
+     *
+     * <p>The no-progress guard is the remaining safety net: if a batch somehow fails to reduce the
+     * used bytes, stop and say so rather than delete another batch.
+     */
+    private void enforceRetention() {
+        long used = usedBytes();
+        if (used <= maxSizeBytes) {
+            return;
+        }
+        log.info("calls.db holds {} bytes of data, above the {} byte retention target - trimming oldest calls",
+                used, maxSizeBytes);
+        int rows = count();
+        int totalDeleted = 0;
+        while (used > maxSizeBytes) {
+            if (rows <= MIN_RETAINED_CALLS) {
+                log.error("calls.db still holds {} bytes with only {} call(s) left - the {} byte retention target is "
+                        + "below this database's fixed overhead (schema and FTS index), so it cannot be met. Stopping "
+                        + "rather than deleting the last calls; raise ALFRED_CALLS_MAX_SIZE_BYTES.",
+                        used, rows, maxSizeBytes);
+                break;
+            }
+            int batch = deleteBatchSize(rows);
+            int deleted = jdbcTemplate.update(
+                    "DELETE FROM call_metadata WHERE id IN (SELECT id FROM call_metadata ORDER BY timestamp_millis ASC LIMIT ?)", batch);
+            if (deleted == 0) {
+                break;
+            }
+            totalDeleted += deleted;
+            rows -= deleted;
+
+            long remaining = usedBytes();
+            if (remaining >= used) {
+                log.error("calls.db still holds {} bytes after deleting {} call(s) - stopping retention rather than "
+                        + "continuing to delete", remaining, deleted);
+                break;
+            }
+            used = remaining;
+        }
+        // Best-effort hand-back of a page to the OS. Deliberately not what bounds the file (see
+        // usedBytes) - SQLite reuses freelist pages for the calls that arrive next.
+        try {
+            jdbcTemplate.execute("PRAGMA incremental_vacuum");
+        } catch (Exception e) {
+            log.debug("incremental_vacuum after retention failed (non-fatal): {}", e.getMessage());
+        }
+        log.info("Trimmed {} oldest call(s) from calls.db, now holding {} bytes of data", totalDeleted, used);
     }
 
     /**

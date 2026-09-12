@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
@@ -30,7 +31,9 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -66,6 +69,44 @@ import java.util.UUID;
 public class SqliteSessionCyclesRepository {
 
     private static final Logger log = LoggerFactory.getLogger(SqliteSessionCyclesRepository.class);
+
+    /** What {@code PRAGMA auto_vacuum} returns for INCREMENTAL (0 = NONE, 1 = FULL, 2 = INCREMENTAL). */
+    private static final int AUTO_VACUUM_INCREMENTAL = 2;
+
+    /**
+     * Duplicated from SqliteCallsRepository rather than shared - these two slices are isolated from
+     * each other by Maven module boundaries and ArchUnit, so a common helper would need a new home
+     * neither of them is allowed to depend on.
+     *
+     * <p>{@code PRAGMA auto_vacuum} only takes effect on a database with no schema yet; on an
+     * existing file SQLite accepts it and silently keeps the old mode, so a database created before
+     * this call existed still reports NONE. This store has no retention loop, so the consequence
+     * here is milder than in backend-calls - deleting a cycle simply never returns its space to the
+     * OS, and session-cycle storage is deliberately uncapped - but it's the same one-line cause.
+     */
+    private void ensureIncrementalAutoVacuum() {
+        Integer mode = jdbcTemplate.execute((ConnectionCallback<Integer>) connection -> {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("PRAGMA auto_vacuum=INCREMENTAL");
+                try (ResultSet rs = statement.executeQuery("PRAGMA auto_vacuum")) {
+                    int current = rs.next() ? rs.getInt(1) : -1;
+                    if (current == AUTO_VACUUM_INCREMENTAL) {
+                        return current;
+                    }
+                    log.info("session-cycles.db reports auto_vacuum={} - converting to INCREMENTAL with a one-time VACUUM "
+                            + "so deleted cycles actually free disk space", current);
+                    statement.execute("VACUUM");
+                }
+                try (ResultSet rs = statement.executeQuery("PRAGMA auto_vacuum")) {
+                    return rs.next() ? rs.getInt(1) : -1;
+                }
+            }
+        });
+        if (mode == null || mode != AUTO_VACUUM_INCREMENTAL) {
+            log.warn("session-cycles.db still reports auto_vacuum={} after conversion - deleting a cycle will not "
+                    + "shrink the file on disk", mode);
+        }
+    }
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -110,7 +151,7 @@ public class SqliteSessionCyclesRepository {
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
 
-        jdbcTemplate.execute("PRAGMA auto_vacuum=INCREMENTAL");
+        ensureIncrementalAutoVacuum();
 
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS session_cycles (

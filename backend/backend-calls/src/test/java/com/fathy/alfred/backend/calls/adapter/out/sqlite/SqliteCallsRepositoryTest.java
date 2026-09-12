@@ -356,10 +356,12 @@ class SqliteCallsRepositoryTest {
     @Test
     void retentionTrimsOldestRowsOnceTheFileExceedsTheSizeCap() throws Exception {
         Path dbFile = tempDir.resolve("calls.db");
-        // A tiny cap forces retention to kick in almost immediately once real rows exist on disk.
-        SqliteCallsRepository repo = repositoryFor(dbFile, 20_000);
+        // The cap has to be above the database's own fixed overhead (schema + FTS index, ~4MB) or
+        // retention correctly refuses to trim at all - see
+        // refusesToTrimBelowTheFloorWhenTheTargetIsSmallerThanTheDatabaseOverhead.
+        SqliteCallsRepository repo = repositoryFor(dbFile, 8_000_000);
         String bigBody = "x".repeat(30_000);
-        for (int i = 0; i < 60; i++) {
+        for (int i = 0; i < 200; i++) {
             CallRecord call = new CallRecord(UUID.randomUUID().toString(), "u" + i, "u" + i, "GET", null,
                     "t" + i, 1.0, new ResponseData(200, null, bigBody), null);
             repo.save(call);
@@ -367,9 +369,134 @@ class SqliteCallsRepositoryTest {
 
         List<CallRecord> remaining = repo.readAll();
         assertThat(remaining).isNotEmpty();
-        assertThat(remaining.size()).isLessThan(60);
+        assertThat(remaining.size()).isLessThan(200);
         // The oldest calls are the ones dropped, not the newest.
         assertThat(remaining).extracting(CallRecord::url).doesNotContain("u0", "u1");
+    }
+
+    /**
+     * Gives the file a schema while auto_vacuum is still NONE, which is what permanently fixes it
+     * there - exactly the state every database created before SqliteCallsRepository started issuing
+     * the pragma is in (confirmed on live data: a 30MB calls.db reporting auto_vacuum=0).
+     */
+    private static void createLegacyDatabaseWithAutoVacuumNone(Path dbFile) throws Exception {
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            statement.execute("PRAGMA auto_vacuum=NONE");
+            statement.execute("CREATE TABLE legacy_marker (id TEXT)");
+        }
+    }
+
+    private static int autoVacuumOf(Path dbFile) throws Exception {
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement();
+             var rs = statement.executeQuery("PRAGMA auto_vacuum")) {
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
+
+    @Test
+    void convertsAnExistingDatabaseThatStillReportsAutoVacuumNone() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        createLegacyDatabaseWithAutoVacuumNone(dbFile);
+        assertThat(autoVacuumOf(dbFile)).isZero();
+
+        repositoryFor(dbFile);
+
+        // PRAGMA auto_vacuum alone is silently ignored on a database that already has a schema -
+        // only the one-time VACUUM actually converts it.
+        assertThat(autoVacuumOf(dbFile)).isEqualTo(2);
+    }
+
+    @Test
+    void retentionKeepsTheNewestCallsOnADatabaseThatStartedWithAutoVacuumNone() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        createLegacyDatabaseWithAutoVacuumNone(dbFile);
+        SqliteCallsRepository repo = repositoryFor(dbFile, 8_000_000);
+        String bigBody = "x".repeat(30_000);
+        for (int i = 0; i < 200; i++) {
+            repo.save(new CallRecord(UUID.randomUUID().toString(), "u" + i, "u" + i, "GET", null,
+                    "t" + i, 1.0, new ResponseData(200, null, bigBody), null));
+        }
+
+        // The regression: on a database whose auto_vacuum is stuck at NONE the file never shrinks,
+        // so the old Files.size-based loop could never satisfy its condition and its only exit was
+        // an EMPTY table - one webhook call past the cap wiped every logged call.
+        List<CallRecord> remaining = repo.readAll();
+        assertThat(remaining).isNotEmpty();
+        assertThat(remaining.size()).isLessThan(200);
+        assertThat(remaining).extracting(CallRecord::url).doesNotContain("u0", "u1");
+        assertThat(remaining).extracting(CallRecord::url).contains("u199");
+    }
+
+    /** Bytes of the file actually holding data - mirrors SqliteCallsRepository.usedBytes(). */
+    private static long usedBytesOf(Path dbFile) throws Exception {
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbFile);
+             var statement = connection.createStatement()) {
+            long pages = single(statement, "PRAGMA page_count");
+            long free = single(statement, "PRAGMA freelist_count");
+            return (pages - free) * single(statement, "PRAGMA page_size");
+        }
+    }
+
+    private static long single(java.sql.Statement statement, String pragma) throws Exception {
+        try (var rs = statement.executeQuery(pragma)) {
+            rs.next();
+            return rs.getLong(1);
+        }
+    }
+
+    @Test
+    void retentionTrimsDownToTheCapInsteadOfEmptyingTheTable() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        SqliteCallsRepository repo = repositoryFor(dbFile, Long.MAX_VALUE);
+        String bigBody = "x".repeat(30_000);
+        for (int i = 0; i < 200; i++) {
+            repo.save(new CallRecord(UUID.randomUUID().toString(), "u" + i, "u" + i, "GET", null,
+                    "t" + i, 1.0, new ResponseData(200, null, bigBody), null));
+        }
+        repo.readAll();
+        long before = usedBytesOf(dbFile);
+        assertThat(before).isGreaterThan(4_000_000L);
+
+        // Drop the cap well below what is held, then force retention. The size check only runs
+        // every SIZE_CHECK_EVERY_N_SAVES saves, so arm the counter rather than saving 50 more.
+        long cap = 8_000_000L;
+        setField(repo, "maxSizeBytes", cap);
+        setField(repo, "savesSinceLastSizeCheck", 49);
+        repo.save(new CallRecord(UUID.randomUUID().toString(), "trigger", "trigger", "GET", null,
+                "t999", 1.0, new ResponseData(200, null, "small"), null));
+        repo.readAll();
+
+        // It must come DOWN TO the cap and stop there. The original loop measured Files.size, which
+        // a DELETE never changes, so it deleted batch after batch until the table was empty - and
+        // that is the behaviour this pins: data under the cap, but calls still present.
+        long after = usedBytesOf(dbFile);
+        assertThat(after).isLessThanOrEqualTo(cap);
+        assertThat(repo.readAll()).hasSizeGreaterThan(5);
+        assertThat(repo.readAll()).extracting(CallRecord::url).doesNotContain("u0", "u1");
+    }
+
+    @Test
+    void refusesToTrimBelowTheFloorWhenTheTargetIsSmallerThanTheDatabaseOverhead() throws Exception {
+        Path dbFile = tempDir.resolve("calls.db");
+        SqliteCallsRepository repo = repositoryFor(dbFile, Long.MAX_VALUE);
+        String bigBody = "x".repeat(30_000);
+        for (int i = 0; i < 200; i++) {
+            repo.save(new CallRecord(UUID.randomUUID().toString(), "u" + i, "u" + i, "GET", null,
+                    "t" + i, 1.0, new ResponseData(200, null, bigBody), null));
+        }
+        repo.readAll();
+
+        // A target below the schema + FTS overhead (~4MB even with no calls at all) can never be
+        // met. Deleting everything would not reach it either - so it must stop, not wipe the log.
+        setField(repo, "maxSizeBytes", 1_000L);
+        setField(repo, "savesSinceLastSizeCheck", 49);
+        repo.save(new CallRecord(UUID.randomUUID().toString(), "trigger", "trigger", "GET", null,
+                "t999", 1.0, new ResponseData(200, null, "small"), null));
+
+        assertThat(repo.readAll()).hasSizeGreaterThanOrEqualTo(50);
     }
 
     private static CallRecord preparedCall(String id, String url) {

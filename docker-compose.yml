@@ -173,8 +173,15 @@ services:
       - COMMENTS_DB_FILE=/appdata/comments.db
       - FILTER_SETTINGS_DB_FILE=/appdata/settings.db
       # Retention target for calls.db - once it exceeds this many bytes, the oldest calls are
-      # dropped until back under it. Default 100GB; override for a smaller/larger deployment.
-      - ALFRED_CALLS_MAX_SIZE_BYTES=107374182400
+      # dropped until back under it. 10GB.
+      #
+      # This was 100GB, which is larger than the free disk on any machine Alfred has actually run
+      # on - so retention could never fire, and the disk would fill first (measured: ~230KB per
+      # call against real traffic, so 100GB is ~437,000 calls while 27GB of free space runs out at
+      # ~117,000). A cap above your free space is not a cap. 10GB is ~45,000 calls at that average;
+      # raise it only to something the volume can genuinely hold, and remember call sizes vary
+      # hugely (measured 396 bytes to 640KB), which is why this is bytes and not a row count.
+      - ALFRED_CALLS_MAX_SIZE_BYTES=10737418240
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
       # Separate store for calls captured by reverse-proxy (frontend/other clients -> whichever
