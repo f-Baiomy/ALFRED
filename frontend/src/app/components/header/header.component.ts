@@ -5,13 +5,16 @@ import { InternalCallServiceDto } from '../../core/services/internal-logging-api
 import { CallViewMode } from '../../shared/utils/call-tree';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { SourcesBarComponent } from '../sources-bar/sources-bar.component';
+import { ActionMenuComponent } from '../action-menu/action-menu.component';
 
+/** Short labels: this sits in a single-row toolbar, where "200 per page" costs width the search box
+ * wants. The dropdown's own options spell it out. */
 const LIMIT_OPTIONS: readonly SelectOption[] = [
-  { value: '10', label: '10 per page' },
-  { value: '25', label: '25 per page' },
-  { value: '50', label: '50 per page' },
-  { value: '100', label: '100 per page' },
-  { value: '200', label: '200 per page' },
+  { value: '10', label: '10 / page' },
+  { value: '25', label: '25 / page' },
+  { value: '50', label: '50 / page' },
+  { value: '100', label: '100 / page' },
+  { value: '200', label: '200 / page' },
 ];
 
 const SORT_OPTIONS: readonly SelectOption[] = [
@@ -25,12 +28,21 @@ const SORT_OPTIONS: readonly SelectOption[] = [
 ];
 
 /** The three call views - see CallViewMode. 'flat-depth' leads because it's the default and the
- * only one that works under every sort mode. */
+ * only one that works under every sort mode. Rendered as a segmented control rather than a
+ * dropdown: three mutually-exclusive views you flip between while comparing cost two clicks each
+ * from inside a menu, and one from a segment. */
 const VIEW_MODE_OPTIONS: readonly SelectOption[] = [
-  { value: 'flat-depth', label: 'Flat + depth' },
+  { value: 'flat-depth', label: 'Flat' },
   { value: 'nested', label: 'Nested' },
   { value: 'waterfall', label: 'Waterfall' },
 ];
+
+type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request';
+
+interface ActiveFilter {
+  readonly key: ActiveFilterKey;
+  readonly label: string;
+}
 
 /**
  * Search/limit/sort/supplier-filter/group/collapse/refresh controls, reused verbatim on both the
@@ -47,7 +59,7 @@ const VIEW_MODE_OPTIONS: readonly SelectOption[] = [
 @Component({
   selector: 'app-header',
   standalone: true,
-  imports: [SelectPickerComponent, SourcesBarComponent],
+  imports: [SelectPickerComponent, SourcesBarComponent, ActionMenuComponent],
   templateUrl: './header.component.html',
 })
 export class HeaderComponent implements AfterViewInit, OnDestroy {
@@ -80,6 +92,48 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
     { value: '', label: `All suppliers (${this.state.calls().length})` },
     ...this.state.supplierOptions().map((s) => ({ value: s.name, label: `${s.name} (${s.count})` })),
   ]);
+
+  /**
+   * The filters currently narrowing the list, as removable chips.
+   *
+   * Only things that actually hide calls count here - not the search box (it shows its own text),
+   * and not group-by-supplier or show-OPTIONS, which change presentation rather than what matches.
+   * Without this, a filter typed once and forgotten silently explains an empty list, since the ID
+   * fields now live behind a popover instead of sitting permanently on screen.
+   */
+  readonly activeFilters = computed<readonly ActiveFilter[]>(() => {
+    const chips: ActiveFilter[] = [];
+    const supplier = this.state.supplierFilter();
+    if (supplier) chips.push({ key: 'supplier', label: `Supplier: ${supplier}` });
+    const session = this.state.sessionIdFilter();
+    if (session) chips.push({ key: 'session', label: `Session: ${session}` });
+    const operation = this.state.operationIdFilter();
+    if (operation) chips.push({ key: 'operation', label: `Operation: ${operation}` });
+    const request = this.state.requestIdFilter();
+    if (request) chips.push({ key: 'request', label: `Request: ${request}` });
+    return chips;
+  });
+
+  clearFilter(key: ActiveFilterKey): void {
+    switch (key) {
+      case 'supplier':
+        this.state.setSupplierFilter('');
+        return;
+      case 'session':
+        this.state.setSessionIdFilter('');
+        return;
+      case 'operation':
+        this.state.setOperationIdFilter('');
+        return;
+      case 'request':
+        this.state.setRequestIdFilter('');
+        return;
+    }
+  }
+
+  clearAllFilters(): void {
+    this.activeFilters().forEach((filter) => this.clearFilter(filter.key));
+  }
 
   private readonly headerEl = viewChild.required<ElementRef<HTMLElement>>('headerEl');
   private resizeObserver: ResizeObserver | undefined;

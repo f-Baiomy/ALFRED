@@ -203,8 +203,23 @@ header h1 {
 .controls {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
+  // <header> is itself a wrapping row flex whose items are the brand, this toolbar and the sources
+  // bar. Claiming a full-width line does two things: the search box gets the whole width to grow
+  // into (content-width left it at 897px of a 1592px header, with 23px of slack after gaps), and
+  // the toolbar stops competing with the sources bar for the same line - a finite basis let both
+  // share one, which squeezed this to 641px and wrapped its own contents onto two rows.
+  flex: 1 1 100%;
+
+  // Search is the primary control, so it takes whatever the fixed-width controls leave rather than
+  // sitting at a fixed 240px while the row wraps around it. Written with both the element and the
+  // attribute so it outranks `.controls input[type='text']` below, whose attribute selector would
+  // otherwise keep min-width pinned at 240px.
+  input.toolbar-search[type='text'] {
+    flex: 1 1 220px;
+    min-width: 180px;
+  }
 
   input[type='text'] {
     background: var(--bg-2);
@@ -370,6 +385,150 @@ header h1 {
   gap: 0.75rem;
   flex-wrap: wrap;
   margin-top: 0.6rem;
+}
+
+// ---------- Toolbar (header controls row) ----------
+
+// Separates the toolbar's three jobs - find, view, refine - without spending a whole row on group
+// labels. Cheaper than a heading and enough to stop nine controls reading as one undifferentiated
+// list.
+.toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 1.4rem;
+  background: var(--border);
+  margin: 0 0.15rem;
+}
+
+// Mutually-exclusive views belong in a segmented control, not a dropdown: comparing Nested against
+// Waterfall is one click here and two from inside a menu.
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segmented-option {
+  padding: 0.45rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+
+  &:last-child {
+    border-right: none;
+  }
+  &:hover:not(.active) {
+    color: var(--text);
+    background: color-mix(in srgb, var(--purple) 10%, transparent);
+  }
+  &.active {
+    color: var(--purple-light);
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
+  }
+}
+
+.toolbar-icon-btn {
+  padding: 0.4rem 0.6rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--purple-light);
+    border-color: var(--border-strong);
+  }
+}
+
+.action-menu-badge {
+  display: inline-block;
+  min-width: 1.1em;
+  padding: 0 0.3em;
+  margin-left: 0.15rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: var(--purple);
+  color: #fff;
+}
+
+.filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.7rem;
+}
+
+.filter-clear-all {
+  padding: 0.4rem;
+  font-family: inherit;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  }
+}
+
+// What's currently narrowing the list, and how to undo it. Only rendered when something is active -
+// the ID fields moved behind a popover, so an old filter would otherwise silently explain an empty
+// list with nothing on screen pointing at it.
+.active-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  font-family: inherit;
+  font-size: 0.74rem;
+  color: var(--purple-light);
+  background: color-mix(in srgb, var(--purple) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 25%, transparent);
+  }
+}
+
+.active-filter-clear {
+  padding: 0.2rem 0.4rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--red);
+  }
 }
 
 .id-filter {

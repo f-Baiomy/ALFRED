@@ -24,6 +24,19 @@ export class ActionMenuComponent {
 
   readonly label = input('Export');
 
+  /** Rendered next to the label when non-zero - e.g. how many filters are currently active. */
+  readonly badge = input<number>(0);
+
+  /** Wider than the default for a panel holding form fields rather than a list of actions. */
+  readonly panelWidth = input(PANEL_WIDTH);
+
+  /**
+   * Whether clicking inside the panel closes it. True for a list of actions (the original use), but
+   * a panel of *inputs* must stay open while you type into it - otherwise the first click into a
+   * text field dismisses the thing you were about to fill in.
+   */
+  readonly closeOnClick = input(true);
+
   readonly panelOpen = signal(false);
   readonly panelPosition = signal({ top: 0, left: 0 });
 
@@ -31,7 +44,7 @@ export class ActionMenuComponent {
     const opening = !this.panelOpen();
     if (opening) {
       this.panelPosition.set(
-        computeFixedPanelPosition(this.elementRef.nativeElement, { width: PANEL_WIDTH, gap: PANEL_GAP })
+        computeFixedPanelPosition(this.elementRef.nativeElement, { width: this.panelWidth(), gap: PANEL_GAP })
       );
     }
     this.panelOpen.set(opening);
@@ -41,6 +54,7 @@ export class ActionMenuComponent {
    * menu afterward, deferred so the item's own handler runs first (it fires on the same bubbled
    * click event this listens for). */
   onPanelClick(): void {
+    if (!this.closeOnClick()) return;
     setTimeout(() => this.panelOpen.set(false));
   }
 

@@ -13,76 +13,118 @@
     <div class="sub">{{ subtitle() }}</div>
   </div>
 
+  <!-- One priority-ordered row rather than nine equal-weight controls that wrapped to two rows at
+       1024px and one at 1920px. Search leads and grows; the view switcher is a segmented control
+       because its three options are mutually exclusive; everything rarely touched is one level
+       down, behind Filters or the overflow menu. -->
   <div class="controls">
     <input
+      class="toolbar-search"
       type="text"
       placeholder="Search URL, status, headers, body..."
       [value]="state.searchQuery()"
       (input)="onSearchInput($any($event.target).value)"
     />
 
-    <app-select-picker [options]="limitOptions" [value]="state.limit().toString()" (valueChange)="onLimitChange($event)" />
+    <span class="toolbar-divider" aria-hidden="true"></span>
+
+    <div class="segmented" role="group" aria-label="Call view">
+      @for (option of viewModeOptions; track option.value) {
+        <button
+          type="button"
+          class="segmented-option"
+          [class.active]="state.viewMode() === option.value"
+          [attr.aria-pressed]="state.viewMode() === option.value"
+          (click)="onViewModeChange(option.value)"
+        >{{ option.label }}</button>
+      }
+    </div>
+
+    <span class="toolbar-divider" aria-hidden="true"></span>
 
     <app-select-picker [options]="sortOptions()" [value]="state.sortMode()" (valueChange)="onSortChange($event)" />
+    <app-select-picker [options]="limitOptions" [value]="state.limit().toString()" (valueChange)="onLimitChange($event)" />
 
-    <app-select-picker [options]="supplierOptions()" [value]="state.supplierFilter()" (valueChange)="onSupplierChange($event)" />
+    <!-- closeOnClick=false: this panel holds text inputs, and the default would dismiss it on the
+         first click into one. -->
+    <app-action-menu label="Filters" [badge]="activeFilters().length" [panelWidth]="280" [closeOnClick]="false">
+      <div class="filter-panel">
+        <label class="id-filter">
+          <span class="id-filter-label">Supplier</span>
+          <app-select-picker [options]="supplierOptions()" [value]="state.supplierFilter()" (valueChange)="onSupplierChange($event)" />
+        </label>
+        <label class="id-filter">
+          <span class="id-filter-label">Session ID</span>
+          <input
+            type="text"
+            placeholder="filter by session id..."
+            [value]="state.sessionIdFilter()"
+            (input)="onSessionIdInput($any($event.target).value)"
+          />
+        </label>
+        <label class="id-filter">
+          <span class="id-filter-label">Operation ID</span>
+          <input
+            type="text"
+            placeholder="filter by operation id..."
+            [value]="state.operationIdFilter()"
+            (input)="onOperationIdInput($any($event.target).value)"
+          />
+        </label>
+        <label class="id-filter">
+          <span class="id-filter-label">Request ID</span>
+          <input
+            type="text"
+            placeholder="filter by request id..."
+            [value]="state.requestIdFilter()"
+            (input)="onRequestIdInput($any($event.target).value)"
+          />
+        </label>
+        @if (activeFilters().length > 0) {
+          <button type="button" class="filter-clear-all" (click)="clearAllFilters()">Clear all filters</button>
+        }
+      </div>
+    </app-action-menu>
 
-    <app-select-picker
-      [options]="viewModeOptions"
-      [value]="state.viewMode()"
-      (valueChange)="onViewModeChange($event)"
+    <button type="button" class="toolbar-icon-btn" title="Refresh" aria-label="Refresh" (click)="refreshNow()">&#8635;</button>
+
+    <app-action-menu label="More">
+      <button type="button" class="filter-option-item" (click)="toggleGroupBySupplier()">
+        {{ state.groupBySupplier() ? 'Ungroup suppliers' : 'Group by supplier' }}
+      </button>
+      <button type="button" class="filter-option-item" (click)="toggleShowOptionsCalls()">
+        {{ state.showOptionsCalls() ? 'Hide OPTIONS calls' : 'Show OPTIONS calls' }}
+      </button>
+      <button type="button" class="filter-option-item" (click)="toggleExpanded()">
+        {{ state.expanded() ? 'Collapse all' : 'Expand all' }}
+      </button>
+    </app-action-menu>
+  </div>
+
+  <!-- Only rendered when something is actually filtering. The ID fields live behind a popover now,
+       so without this an old filter would silently explain an empty list. -->
+  @if (activeFilters().length > 0) {
+    <div class="active-filters">
+      @for (filter of activeFilters(); track filter.key) {
+        <button type="button" class="active-filter-chip" (click)="clearFilter(filter.key)" [title]="'Remove ' + filter.label">
+          {{ filter.label }} <span aria-hidden="true">&times;</span>
+        </button>
+      }
+      @if (activeFilters().length > 1) {
+        <button type="button" class="active-filter-clear" (click)="clearAllFilters()">Clear all</button>
+      }
+    </div>
+  }
+
+  <!-- Without inbound logging there are no internal projects, so this bar would read "Sources:
+       External" and nothing else - a whole row to say the only thing it could say. -->
+  @if (inboundLoggingFeatureEnabled()) {
+    <app-sources-bar
+      [selected]="selectedSources()"
+      [internalServices]="internalServices()"
+      [featureEnabled]="inboundLoggingFeatureEnabled()"
+      (toggleSource)="onToggleSource($event)"
+      (toggleLogging)="onToggleServiceLogging($event)"
     />
-
-    <button type="button" [class.active]="state.groupBySupplier()" (click)="toggleGroupBySupplier()">
-      {{ state.groupBySupplier() ? 'Ungroup' : 'Group by supplier' }}
-    </button>
-
-    <button type="button" [class.active]="state.showOptionsCalls()" (click)="toggleShowOptionsCalls()" title="CORS preflight requests - hidden by default, they never carry any real payload">
-      Show OPTIONS calls
-    </button>
-
-    <button type="button" (click)="toggleExpanded()">
-      {{ state.expanded() ? 'Collapse all' : 'Expand all' }}
-    </button>
-
-    <button type="button" (click)="refreshNow()">Refresh</button>
-  </div>
-
-  <app-sources-bar
-    [selected]="selectedSources()"
-    [internalServices]="internalServices()"
-    [featureEnabled]="inboundLoggingFeatureEnabled()"
-    (toggleSource)="onToggleSource($event)"
-    (toggleLogging)="onToggleServiceLogging($event)"
-  />
-
-  <div class="id-filters">
-    <label class="id-filter">
-      <span class="id-filter-label">Session ID</span>
-      <input
-        type="text"
-        placeholder="filter by session id..."
-        [value]="state.sessionIdFilter()"
-        (input)="onSessionIdInput($any($event.target).value)"
-      />
-    </label>
-    <label class="id-filter">
-      <span class="id-filter-label">Operation ID</span>
-      <input
-        type="text"
-        placeholder="filter by operation id..."
-        [value]="state.operationIdFilter()"
-        (input)="onOperationIdInput($any($event.target).value)"
-      />
-    </label>
-    <label class="id-filter">
-      <span class="id-filter-label">Request ID</span>
-      <input
-        type="text"
-        placeholder="filter by request id..."
-        [value]="state.requestIdFilter()"
-        (input)="onRequestIdInput($any($event.target).value)"
-      />
-    </label>
-  </div>
+  }
 </header>
