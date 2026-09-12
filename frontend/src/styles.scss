@@ -2677,16 +2677,69 @@ mark.hl.active {
   }
 }
 
+// The panel is the exact same component as on the dashboard - only this page's extra room changes,
+// via plain CSS overrides rather than any dashboard-vs-viewer branching inside JsonPanelComponent.
+//
+// max-width/margin undo the global `main` rule, which this element inherits purely because it is a
+// <main>. That rule's `margin: 0 auto` was the bug: a cross-axis auto margin on a flex item
+// overrides align-items:stretch, so this box became shrink-to-fit and centred, sizing itself to the
+// longest line rather than the window. Measured at a 1600px viewport: 656px wide with 471.75px of
+// margin each side - and because the flat view only renders the rows near the viewport, the width
+// changed as you scrolled (656 -> 707 -> 748px), shifting the whole panel sideways.
 .view-page-body {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 1.25rem;
+  max-width: none;
+  margin: 0;
+  // Fluid rather than a fixed value: hugs the edges on a laptop where space is scarce, opens up on
+  // a large monitor, and stops growing past 48px so an ultrawide doesn't just get wider margins.
+  padding: 1rem clamp(0.75rem, 2vw, 3rem) clamp(0.75rem, 1.5vw, 1.5rem);
 
-  // The panel is the exact same component as on the dashboard - only this
-  // page's extra room changes, via a plain CSS override rather than any
-  // dashboard-vs-viewer branching inside JsonPanelComponent itself.
+  flex: 1 1 auto;
+  display: flex;
+  // min-height/min-width: 0 on every link of this chain - a flex item defaults to min-*: auto,
+  // which lets unwrapped code lines push the box wider than the window instead of scrolling inside
+  // it. overflow: hidden here because the code area itself owns the scrolling now.
+  min-height: 0;
+  overflow: hidden;
+
+  > app-json-panel {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .block-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  // The page header already says which block this is, in bigger type - the panel's own title bar
+  // underneath it would just repeat itself, and its close button duplicates "Close tab".
+  .block-panel-title {
+    display: none;
+  }
+
+  // Every link from the page down to the scrollable code area, or the chain breaks silently at the
+  // first one that isn't a flex item: a component host element (app-json-panel, app-json-flat-view,
+  // app-json-tree) defaults to display:inline, and .panel-content is a plain div. Missing any one
+  // of them leaves the code area sized to its content - measured 69,976px tall inside a 574px box.
+  .json-wrap,
+  .panel-content,
+  app-json-flat-view,
+  app-json-tree {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  // Fills whatever is left below the toolbar instead of the old calc(100vh - 260px), which left a
+  // measured 111px of dead space under the box at an 800px-tall window.
   .scrollable {
-    max-height: calc(100vh - 260px);
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 }
 

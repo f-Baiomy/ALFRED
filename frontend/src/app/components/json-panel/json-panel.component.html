@@ -71,7 +71,7 @@
   @if (hiddenLinesNote()) {
     <div class="hidden-lines-note">{{ hiddenLinesNote() }}</div>
   }
-  <div #contentRoot>
+  <div #contentRoot class="panel-content">
     @if (effectiveViewMode() === 'tree') {
       <app-json-tree [value]="treeValue()" [searchQuery]="searchQuery()" [scrollId]="panelId()" />
     } @else {

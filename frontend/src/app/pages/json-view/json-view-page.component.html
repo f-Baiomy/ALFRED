@@ -13,7 +13,12 @@
       <button type="button" class="dialog-btn secondary" (click)="closeTab()">Close tab</button>
     </header>
     <main class="view-page-body">
-      <app-json-panel [label]="label()" [rawValue]="rawValue()" [callId]="callId()" [block]="block()" panelId="view-panel" />
+      <!-- chrome="panel", not the default collapsible one: this whole tab IS the block, so its
+           summary row would only duplicate the header above it - and a <details> cannot hand its
+           height down to the code area, because the browser wraps its non-summary children in an
+           anonymous content box that is not a flex item (measured: details 697px tall, the wrap
+           inside it 70,008px). Plain divs let the panel fill the window. -->
+      <app-json-panel chrome="panel" [label]="label()" [rawValue]="rawValue()" [callId]="callId()" [block]="block()" panelId="view-panel" />
     </main>
   </div>
 }
