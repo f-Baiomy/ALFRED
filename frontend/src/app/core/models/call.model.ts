@@ -55,7 +55,15 @@ export interface CallRecord {
   readonly source?: CallEndpointSource;
 }
 
-/** The full request/response for one call - GET /calls/{id}/detail's response shape. */
+/**
+ * One expandable block of a call. Each is fetched on its own the first time it's opened (see
+ * GET /calls/{id}/detail's `part` param) - a card lists all four collapsed from the start, and a
+ * response body that's never opened is never transferred.
+ */
+export type CallDetailPart = 'request-headers' | 'request-body' | 'response-headers' | 'response-body';
+
+/** The full request/response for one call - GET /calls/{id}/detail's response shape. A per-part
+ * fetch returns this same shape with only the requested part populated. */
 export interface CallDetail {
   readonly request?: HttpMessageData;
   readonly response?: CallResponse;

@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { AppConfigService } from './app-config.service';
 import { CallOverlapQuery, CallsPageResult, CallsQuery } from '../state/call-list-view';
-import { CallDetail, CallEndpointSource, CallOverlapCandidate, CallSummaryDto } from '../models/call.model';
+import { CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallSummaryDto } from '../models/call.model';
 import { toCallRecord } from '../../shared/utils/call-utils';
 
 interface CallsPageDto {
@@ -48,9 +48,17 @@ export class CallsApiService {
     );
   }
 
-  /** The full request/response for one call - fetched only once it's actually expanded, always over the network (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail). */
-  getDetail(callId: string, source: CallEndpointSource = 'external'): Observable<CallDetail> {
-    return this.http.get<CallDetail>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/detail`);
+  /**
+   * One call's request/response - fetched only once it's actually expanded, always over the network
+   * (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail).
+   *
+   * `part` narrows it to a single block, so opening Response headers doesn't drag a multi-megabyte
+   * response body across with it. Omitted, the whole detail comes back exactly as before - which is
+   * what the export path still wants.
+   */
+  getDetail(callId: string, source: CallEndpointSource = 'external', part?: CallDetailPart): Observable<CallDetail> {
+    const options = part ? { params: new HttpParams().set('part', part) } : {};
+    return this.http.get<CallDetail>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/detail`, options);
   }
 
   /**

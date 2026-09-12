@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, map } from 'rxjs';
-import { CallDetail, CallEndpointSource, CallOverlapCandidate, CallRecord, CallSummaryDto, CapturedCall, SessionCycle } from '../models/call.model';
+import { CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallRecord, CallSummaryDto, CapturedCall, SessionCycle } from '../models/call.model';
 import { AppConfigService } from './app-config.service';
 import { CallOverlapQuery, CallsQuery } from '../state/call-list-view';
 import { toCallRecord } from '../../shared/utils/call-utils';
@@ -103,9 +103,14 @@ export class SessionCyclesApiService {
     );
   }
 
-  /** The full request/response for one captured call - fetched only once it's actually expanded, always over the network (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail). */
-  getDetail(cycleId: string, callId: string, source: CallEndpointSource = 'external'): Observable<CallDetail> {
-    return this.http.get<CallDetail>(`${this.baseUrl}/${cycleId}/${endpointSegmentFor(source)}/${callId}/detail`);
+  /**
+   * One captured call's request/response - fetched only once it's actually expanded, always over
+   * the network (no client-side cache - see CALL_LIST_CONTROLS_STATE.getCallDetail). `part` narrows
+   * it to a single block, mirroring CallsApiService.getDetail.
+   */
+  getDetail(cycleId: string, callId: string, source: CallEndpointSource = 'external', part?: CallDetailPart): Observable<CallDetail> {
+    const options = part ? { params: new HttpParams().set('part', part) } : {};
+    return this.http.get<CallDetail>(`${this.baseUrl}/${cycleId}/${endpointSegmentFor(source)}/${callId}/detail`, options);
   }
 
   /** Mirrors CallsApiService.getCallOverlaps, scoped to this cycle's captured calls - see its doc. */

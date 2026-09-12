@@ -1,7 +1,7 @@
 import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, output, signal } from '@angular/core';
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { NgTemplateOutlet } from '@angular/common';
-import { CallDetail, CallRecord } from '../../core/models/call.model';
+import { CallDetail, CallDetailPart, CallRecord } from '../../core/models/call.model';
 import {
   EXTERNAL_SOURCE_KEY,
   callKey,
@@ -13,7 +13,7 @@ import {
   statusClass as statusClassOf,
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
-import { JsonPanelComponent } from '../json-panel/json-panel.component';
+import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -22,8 +22,6 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
   'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel, .drag-handle';
-
-type DetailState = 'collapsed' | 'pending' | 'loading' | 'loaded' | 'error';
 
 /**
  * One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the
@@ -83,16 +81,6 @@ export class CallCardComponent {
   readonly revealParent = output<string>();
 
   readonly isSandwich = computed(() => this.variant() === 'sandwich');
-  /**
-   * Which halves the user has opened on a sandwich card. Both share ONE underlying fetch (there is
-   * only one detail endpoint per call), but each band reveals only its own half - opening the
-   * request shouldn't drop the response panel on you underneath a pile of children you then have
-   * to scroll past.
-   */
-  private readonly openHalves = signal<ReadonlySet<'request' | 'response'>>(new Set());
-  readonly requestOpen = computed(() => this.openHalves().has('request'));
-  readonly responseOpen = computed(() => this.openHalves().has('response'));
-
   readonly idBase = computed(() => callKey(this.call()));
   readonly methodClass = computed(() => methodClassOf(this.call().method));
   readonly statusClass = computed(() => statusClassOf(this.call().response?.status ?? null));
@@ -145,23 +133,33 @@ export class CallCardComponent {
   /** Which id chip (if any) just got copied, briefly showing "Copied!" in its place - see copyChip(). Cleared automatically after the flash, and whenever the underlying call's id chips change identity (a different call rendered into this same card instance would otherwise show a stale flash). */
   readonly copiedChip = signal<'request' | 'session' | 'operation' | null>(null);
 
-  readonly detailState = signal<DetailState>('collapsed');
-  private readonly detail = signal<CallDetail | null>(null);
+  /**
+   * Per-block load state and content. All four blocks are listed collapsed from the start and stay
+   * 'idle' until one is actually opened - so a response body nobody looks at is never transferred,
+   * and opening Response headers doesn't drag that body along with it.
+   *
+   * Keyed by CallDetailPart, which doubles as the backend's own `part` parameter and as the panel's
+   * CommentBlock, so there's one vocabulary end to end rather than three that have to be mapped.
+   */
+  readonly partStates = signal<Readonly<Record<CallDetailPart, PanelLoadState>>>({
+    'request-headers': 'idle',
+    'request-body': 'idle',
+    'response-headers': 'idle',
+    'response-body': 'idle',
+  });
+  private readonly partValues = signal<Partial<Record<CallDetailPart, unknown>>>({});
+  /** Requested while the card was off-screen - see the IntersectionObserver in the constructor for
+   * why a bulk expand mustn't fire a fetch for a card nobody can see yet. */
+  private readonly queuedParts = new Set<CallDetailPart>();
   private isIntersecting = false;
   private observer?: IntersectionObserver;
 
-  /** call() merged with its hydrated detail (if loaded) - what the template's panels actually render from. Falls back to call() itself (request/response undefined) before hydration. */
-  readonly displayCall = computed<CallRecord>(() => {
-    const detail = this.detail();
-    return detail ? { ...this.call(), ...detail } : this.call();
-  });
-
-  /** Whether the Request panel renders at all: never on a 'response' half, and not until the
-   * hydrated detail actually carries a request (see displayCall). */
-  readonly showsRequestPanel = computed(() => this.variant() !== 'response' && this.displayCall().request != null);
-  /** Whether the Response panel renders at all: never on a 'request' half, and not on a full card
-   * whose call hasn't resolved yet. */
-  readonly showsResponsePanel = computed(() => this.variant() !== 'request' && this.displayCall().response != null);
+  /** Whether the Request panel renders at all: never on a 'response' half. Unlike before, this no
+   * longer waits for a fetch - the blocks are listed precisely so they can be opened. */
+  readonly showsRequestPanel = computed(() => this.variant() !== 'response');
+  /** Whether the Response panel renders at all: never on a 'request' half, and not on a call that
+   * hasn't resolved yet - there is no response to open. */
+  readonly showsResponsePanel = computed(() => this.variant() !== 'request' && !this.inProgress());
   /**
    * True when exactly one of the two panels renders - either half of a split internal call (see
    * splitCallsForDisplay() in call-utils.ts), or a full card still waiting on its response. The
@@ -216,11 +214,16 @@ export class CallCardComponent {
   readonly spanWidthPercent = computed(() => `${Math.max((this.depth()?.spanWidth ?? 0) * 100, 0.8).toFixed(2)}%`);
 
   constructor() {
+    // A bulk "Expand all" asks every card on the page to open its header blocks, including cards
+    // far below the fold. Fetching for those immediately would fire a burst of requests for content
+    // nobody is looking at, so an off-screen card parks the request and runs it once it scrolls
+    // into view. A card the user clicks directly is visible by definition and never waits.
     this.observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
           this.isIntersecting = true;
-          this.maybeLoadDetail();
+          for (const part of this.queuedParts) this.fetchPart(part);
+          this.queuedParts.clear();
           this.observer?.disconnect();
         }
       },
@@ -229,40 +232,10 @@ export class CallCardComponent {
     this.observer.observe(this.hostRef.nativeElement);
     this.destroyRef.onDestroy(() => this.observer?.disconnect());
 
-    // A bulk "Expand all" marks every card 'pending' (so the placeholder already reads
-    // "loading soon" instead of "click to expand") without fetching anything for cards that
-    // aren't visible yet - maybeLoadDetail only actually fetches once isIntersecting is also
-    // true, whether that happened before or after this fires.
-    let lastSeenCollapseAllVersion = -1;
-    effect(
-      () => {
-        const version = this.controlsState.collapseAllVersion();
-        if (lastSeenCollapseAllVersion === -1) {
-          lastSeenCollapseAllVersion = version;
-          return;
-        }
-        if (version === lastSeenCollapseAllVersion) return;
-        lastSeenCollapseAllVersion = version;
-
-        if (this.controlsState.expanded()) {
-          if (this.detailState() === 'collapsed') {
-            this.detailState.set('pending');
-            this.maybeLoadDetail();
-          }
-        } else if (this.detailState() !== 'loaded') {
-          // Collapsing doesn't drop already-hydrated data (still cached, cheap to keep showing
-          // if re-expanded), it just hides it - only a still-pending/loading card resets.
-          this.detailState.set('collapsed');
-        }
-      },
-      { allowSignalWrites: true }
-    );
-
-    // If this card is expanded while its call is still IN_PROGRESS, the fetched detail has no
-    // response yet - the live WebSocket push that later completes the call replaces call() with
-    // a new object (see calls-state.service.ts), but this component's own cached `detail` signal
-    // is never told to refetch, so the response panel would otherwise stay stuck at "no response
-    // yet" forever until a hard page refresh re-fetches everything from scratch (confirmed live).
+    // If a block was opened while the call was still IN_PROGRESS, what it fetched has no response
+    // in it - the live WebSocket push that later completes the call replaces call() with a new
+    // object (see calls-state.service.ts), but nothing tells this card to re-fetch, so a response
+    // block would otherwise sit empty forever until a hard page refresh (confirmed live).
     let wasInProgress = false;
     effect(
       () => {
@@ -271,10 +244,10 @@ export class CallCardComponent {
           wasInProgress = true;
           return;
         }
-        if (wasInProgress && this.detailState() === 'loaded') {
-          this.detail.set(null);
-          this.detailState.set('pending');
-          this.maybeLoadDetail();
+        if (wasInProgress) {
+          for (const [part, state] of Object.entries(this.partStates()) as [CallDetailPart, PanelLoadState][]) {
+            if (state === 'loaded') this.refetchPart(part);
+          }
         }
         wasInProgress = false;
       },
@@ -282,38 +255,49 @@ export class CallCardComponent {
     );
   }
 
-  /**
-   * Only fires when something has already asked for this card's detail ('pending') AND it's
-   * visible - never for a plain 'collapsed' card. The IntersectionObserver's role is purely to
-   * gate *when* a pending fetch actually happens, not to promote a collapsed card into a pending
-   * one by itself, or every card that merely scrolls into view would silently fetch its detail
-   * with no click at all (confirmed live: this exact bug fetched a visible card's detail on
-   * first page load, before this check was narrowed to 'pending' only).
-   */
-  private maybeLoadDetail(): void {
-    if (!this.isIntersecting) return;
-    if (this.detailState() !== 'pending') return;
-    this.detailState.set('loading');
-    this.controlsState.getCallDetail(this.call().id, this.call().source).subscribe({
-      next: (detail) => {
-        this.detail.set(detail);
-        this.detailState.set('loaded');
-      },
-      error: () => {
-        this.detailState.set('error');
-      },
-    });
+  partState(part: CallDetailPart): PanelLoadState {
+    return this.partStates()[part];
+  }
+
+  partValue(part: CallDetailPart): unknown {
+    return this.partValues()[part];
   }
 
   /**
-   * Individual "Show request/response" click - the card is visible by definition (the user just
-   * clicked it), so this fetches immediately without waiting on the IntersectionObserver, which
-   * may not have fired its (async) callback yet even for an already-visible element.
+   * One block was opened (or its retry clicked). Idempotent by design: a panel emits this on its
+   * own toggle AND on a bulk expand, and the two can coincide - a block already loading or loaded
+   * is left alone rather than fetched twice.
    */
-  onExpandClick(): void {
-    this.isIntersecting = true;
-    this.detailState.set('pending');
-    this.maybeLoadDetail();
+  loadPart(part: CallDetailPart, trigger: PanelLoadTrigger = 'user'): void {
+    const state = this.partStates()[part];
+    if (state === 'loading' || state === 'loaded') return;
+    // Someone opening this exact block can obviously see it, so don't make it wait on an
+    // IntersectionObserver callback that may not have fired yet even for a card already on screen.
+    if (trigger === 'user') this.isIntersecting = true;
+    this.refetchPart(part);
+  }
+
+  private refetchPart(part: CallDetailPart): void {
+    this.setPartState(part, 'loading');
+    if (!this.isIntersecting) {
+      this.queuedParts.add(part);
+      return;
+    }
+    this.fetchPart(part);
+  }
+
+  private fetchPart(part: CallDetailPart): void {
+    this.controlsState.getCallDetail(this.call().id, this.call().source, part).subscribe({
+      next: (detail) => {
+        this.partValues.update((values) => ({ ...values, [part]: valueOfPart(detail, part) }));
+        this.setPartState(part, 'loaded');
+      },
+      error: () => this.setPartState(part, 'error'),
+    });
+  }
+
+  private setPartState(part: CallDetailPart, state: PanelLoadState): void {
+    this.partStates.update((states) => ({ ...states, [part]: state }));
   }
 
   /** Truncates an id chip's value down to its first 8 characters for display - the full value is still what gets copied (see copyChip), this is purely a rendering shortcut for a UUID that would otherwise dominate the card's width. */
@@ -326,16 +310,6 @@ export class CallCardComponent {
       this.copiedChip.set(chip);
       setTimeout(() => this.copiedChip.set(null), 1000);
     });
-  }
-
-  /** Opens one half of a sandwich card, fetching the (single, shared) detail if it isn't loaded
-   * yet - so clicking Response on a card whose Request is already open costs no second request. */
-  openHalf(half: 'request' | 'response'): void {
-    const next = new Set(this.openHalves());
-    next.add(half);
-    this.openHalves.set(next);
-    if (this.detailState() === 'loaded') return;
-    this.onExpandClick();
   }
 
   onRevealParent(): void {
@@ -382,5 +356,20 @@ export class CallCardComponent {
   @HostListener('window:mouseup')
   onWindowMouseUp(): void {
     this.state.endDragSelect();
+  }
+}
+
+/** Pulls one block's raw value out of a per-part detail response - the backend populates only the
+ * part that was asked for (see CallDetail.part), so the other three are null either way. */
+function valueOfPart(detail: CallDetail, part: CallDetailPart): unknown {
+  switch (part) {
+    case 'request-headers':
+      return detail.request?.headers;
+    case 'request-body':
+      return detail.request?.body;
+    case 'response-headers':
+      return detail.response?.headers;
+    case 'response-body':
+      return detail.response?.body;
   }
 }

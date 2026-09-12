@@ -3,6 +3,7 @@ import { webSocket } from 'rxjs/webSocket';
 import { Observable, Subscription, forkJoin, map, of, retry, timer } from 'rxjs';
 import {
   CallDetail,
+  CallDetailPart,
   CallEndpointSource,
   CallOverlapCandidate,
   CallRecord,
@@ -387,8 +388,8 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    * vs GET /internal-calls/{id}/detail - required once the list can hold calls from either store
    * (source omitted/undefined falls back to 'external', matching every pre-existing call site).
    */
-  getCallDetail(callId: string, source?: CallEndpointSource): Observable<CallDetail> {
-    return this.api.getDetail(callId, source);
+  getCallDetail(callId: string, source?: CallEndpointSource, part?: CallDetailPart): Observable<CallDetail> {
+    return this.api.getDetail(callId, source, part);
   }
 
   /**

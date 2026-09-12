@@ -32,16 +32,48 @@
 <ng-template #requestPanel>
   <div class="panel">
     <div class="panel-title">Request</div>
-    <app-json-panel label="Headers" [rawValue]="displayCall().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="call().id" block="request-headers" />
-    <app-json-panel label="Body" [rawValue]="displayCall().request!.body" [panelId]="idBase() + '-req-body'" [callId]="call().id" block="request-body" />
+    <app-json-panel
+      label="Headers"
+      [rawValue]="partValue('request-headers')"
+      [loadState]="partState('request-headers')"
+      (loadRequested)="loadPart('request-headers', $event)"
+      [panelId]="idBase() + '-req-headers'"
+      [callId]="call().id"
+      block="request-headers"
+    />
+    <app-json-panel
+      label="Body"
+      [rawValue]="partValue('request-body')"
+      [loadState]="partState('request-body')"
+      (loadRequested)="loadPart('request-body', $event)"
+      [panelId]="idBase() + '-req-body'"
+      [callId]="call().id"
+      block="request-body"
+    />
   </div>
 </ng-template>
 
 <ng-template #responsePanel>
   <div class="panel">
     <div class="panel-title">Response</div>
-    <app-json-panel label="Headers" [rawValue]="displayCall().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="call().id" block="response-headers" />
-    <app-json-panel label="Body" [rawValue]="displayCall().response!.body" [panelId]="idBase() + '-res-body'" [callId]="call().id" block="response-body" />
+    <app-json-panel
+      label="Headers"
+      [rawValue]="partValue('response-headers')"
+      [loadState]="partState('response-headers')"
+      (loadRequested)="loadPart('response-headers', $event)"
+      [panelId]="idBase() + '-res-headers'"
+      [callId]="call().id"
+      block="response-headers"
+    />
+    <app-json-panel
+      label="Body"
+      [rawValue]="partValue('response-body')"
+      [loadState]="partState('response-body')"
+      (loadRequested)="loadPart('response-body', $event)"
+      [panelId]="idBase() + '-res-body'"
+      [callId]="call().id"
+      block="response-body"
+    />
   </div>
 </ng-template>
 
@@ -103,16 +135,7 @@
       <ng-container [ngTemplateOutlet]="urlsBlock" />
       <ng-container [ngTemplateOutlet]="idsBlock" />
 
-      @if (!requestOpen()) {
-        <button type="button" class="expand-toggle" (click)="openHalf('request')">&#9656; Show request</button>
-      } @else if (detailState() === 'error') {
-        <div class="error-banner">
-          Failed to load request.
-          <button type="button" class="action-btn" (click)="openHalf('request')">Retry</button>
-        </div>
-      } @else if (detailState() !== 'loaded') {
-        <div class="detail-placeholder">Loading request&hellip;</div>
-      } @else if (showsRequestPanel()) {
+      @if (showsRequestPanel()) {
         <div class="panels single">
           <ng-container [ngTemplateOutlet]="requestPanel" />
         </div>
@@ -147,16 +170,7 @@
         <div class="error-banner">&#9888; {{ call().error }}</div>
       }
 
-      @if (!responseOpen()) {
-        <button type="button" class="expand-toggle" (click)="openHalf('response')">&#9656; Show response</button>
-      } @else if (detailState() === 'error') {
-        <div class="error-banner">
-          Failed to load response.
-          <button type="button" class="action-btn" (click)="openHalf('response')">Retry</button>
-        </div>
-      } @else if (detailState() !== 'loaded') {
-        <div class="detail-placeholder">Loading response&hellip;</div>
-      } @else if (showsResponsePanel()) {
+      @if (showsResponsePanel()) {
         <div class="panels single">
           <ng-container [ngTemplateOutlet]="responsePanel" />
         </div>
@@ -221,32 +235,13 @@
       <div class="error-banner">&#9888; {{ call().error }}</div>
     }
 
-    @switch (detailState()) {
-      @case ('collapsed') {
-        <button type="button" class="expand-toggle" (click)="onExpandClick()">&#9656; Show request / response</button>
+    <div class="panels" [class.single]="singlePanel()">
+      @if (showsRequestPanel()) {
+        <ng-container [ngTemplateOutlet]="requestPanel" />
       }
-      @case ('pending') {
-        <div class="detail-placeholder">Loading request / response&hellip;</div>
+      @if (showsResponsePanel()) {
+        <ng-container [ngTemplateOutlet]="responsePanel" />
       }
-      @case ('loading') {
-        <div class="detail-placeholder">Loading request / response&hellip;</div>
-      }
-      @case ('error') {
-        <div class="error-banner">
-          Failed to load request / response.
-          <button type="button" class="action-btn" (click)="onExpandClick()">Retry</button>
-        </div>
-      }
-      @case ('loaded') {
-        <div class="panels" [class.single]="singlePanel()">
-          @if (showsRequestPanel()) {
-            <ng-container [ngTemplateOutlet]="requestPanel" />
-          }
-          @if (showsResponsePanel()) {
-            <ng-container [ngTemplateOutlet]="responsePanel" />
-          }
-        </div>
-      }
-    }
+    </div>
   }
 </div>

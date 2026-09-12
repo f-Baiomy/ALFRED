@@ -1,4 +1,4 @@
-import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTreeComponent } from '../json-tree/json-tree.component';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
@@ -10,6 +10,16 @@ import { Comment, CommentBlock } from '../../core/models/comment.model';
 import { CommentsStore } from '../../core/state/comments-store.service';
 import { PanelViewLauncherService } from '../../core/services/panel-view-launcher.service';
 import { copyToClipboard } from '../../shared/utils/clipboard';
+
+/** See JsonPanelComponent.loadState. */
+export type PanelLoadState = 'idle' | 'loading' | 'loaded' | 'error';
+
+/**
+ * Who asked for this block's content. 'user' means someone opened this exact block, which also
+ * means they can see it - so it's fetched immediately. 'bulk' comes from an "Expand all" that may
+ * well have hit cards far below the fold, so the card defers those until they scroll into view.
+ */
+export type PanelLoadTrigger = 'user' | 'bulk';
 
 type ParsedValue =
   | { kind: 'json'; value: unknown }
@@ -46,7 +56,23 @@ export class JsonPanelComponent {
   readonly callId = input.required<string>();
   readonly block = input.required<CommentBlock>();
 
-  readonly open = signal(true);
+  /**
+   * Whether this block's content has been fetched yet. 'loaded' (the default) is the eager case -
+   * the caller already has the value and passes it straight in, which is how JsonViewPageComponent
+   * and every pre-existing caller use this component.
+   *
+   * A call card instead lists all four of its blocks collapsed from the start and leaves them
+   * 'idle' until one is actually opened, at which point it emits `loadRequested` and moves to
+   * 'loading'. A response body nobody opens is never transferred at all.
+   */
+  readonly loadState = input<PanelLoadState>('loaded');
+  /** Emitted the first time this block is opened while still 'idle', and again on a retry click. */
+  readonly loadRequested = output<PanelLoadTrigger>();
+
+  /** Starts closed and is set on the first collapse-all sync (see the constructor): an eagerly
+   * supplied block opens as it always has, a lazily-loaded one stays shut until asked for. Starting
+   * true would flash every block open for one frame before that sync corrected it. */
+  readonly open = signal(false);
   readonly viewMode = signal<JsonViewMode>('flat');
   readonly filterLinesOnly = signal(false);
   readonly searchQuery = signal('');
@@ -54,6 +80,16 @@ export class JsonPanelComponent {
 
   readonly contentRoot = viewChild<ElementRef<HTMLElement>>('contentRoot');
   private lastSeenCollapseAllVersion = -1;
+
+  /**
+   * Whether a bulk "Expand all" should open this block. An already-loaded block always qualifies -
+   * showing it costs nothing. An unfetched one qualifies only if it's a HEADERS block: expanding
+   * every body on a fifty-call page would fire fifty large fetches off one click, while headers are
+   * a few hundred bytes each and are what's actually worth scanning in bulk.
+   */
+  readonly bulkExpandable = computed(
+    () => this.loadState() === 'loaded' || this.block() === 'request-headers' || this.block() === 'response-headers'
+  );
 
   readonly parsed = computed<ParsedValue>(() => {
     const value = this.rawValue();
@@ -141,6 +177,7 @@ export class JsonPanelComponent {
 
   constructor() {
     effect(() => this.commentsStore.ensureLoaded(this.callId()), { allowSignalWrites: true });
+
     // A bulk "Collapse/Expand all" click should force every panel's open
     // state to match, but shouldn't fight a user's individual toggle made
     // in between two bulk clicks - so we only react when the version
@@ -148,10 +185,25 @@ export class JsonPanelComponent {
     effect(
       () => {
         const version = this.state.collapseAllVersion();
-        if (this.lastSeenCollapseAllVersion === -1 || version !== this.lastSeenCollapseAllVersion) {
-          this.lastSeenCollapseAllVersion = version;
-          this.open.set(this.state.expanded());
+        const firstSync = this.lastSeenCollapseAllVersion === -1;
+        if (!firstSync && version === this.lastSeenCollapseAllVersion) return;
+        this.lastSeenCollapseAllVersion = version;
+
+        // The first run is just this panel catching up with the current state, NOT a bulk click.
+        // A lazily-loaded block stays closed there whatever `expanded()` says - otherwise every
+        // card on the page fetches its headers the moment it renders, which is precisely the
+        // "silently fetched with no click at all" bug the card's own tests guard against.
+        if (firstSync) {
+          this.open.set(this.loadState() === 'loaded' && this.state.expanded());
+          return;
         }
+
+        const shouldOpen = this.state.expanded() && this.bulkExpandable();
+        this.open.set(shouldOpen);
+        // Programmatically opening a <details> fires its own toggle event, but not dependably
+        // enough to rely on for a fetch - ask explicitly instead. The card ignores a request for a
+        // block that isn't idle, so the belt-and-braces double emit costs nothing.
+        if (shouldOpen && this.loadState() === 'idle') this.loadRequested.emit('bulk');
       },
       { allowSignalWrites: true }
     );
@@ -167,7 +219,14 @@ export class JsonPanelComponent {
   }
 
   onToggle(event: Event): void {
-    this.open.set((event.target as HTMLDetailsElement).open);
+    const open = (event.target as HTMLDetailsElement).open;
+    this.open.set(open);
+    // Opening is what pays for the fetch - a block the user never looks at never costs anything.
+    if (open && this.loadState() === 'idle') this.loadRequested.emit('user');
+  }
+
+  retryLoad(): void {
+    this.loadRequested.emit('user');
   }
 
   onSearchInput(value: string): void {

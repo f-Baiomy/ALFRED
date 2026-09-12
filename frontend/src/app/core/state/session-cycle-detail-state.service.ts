@@ -5,6 +5,7 @@ import { Observable, Subscription, forkJoin, map, of, retry, tap, timer } from '
 import { webSocket } from 'rxjs/webSocket';
 import {
   CallDetail,
+  CallDetailPart,
   CallEndpointSource,
   CallOverlapCandidate,
   CallRecord,
@@ -305,9 +306,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   }
 
   /** Always a real network call - never served from a cache, so a call's detail is refetched every time it's expanded, even if it was already loaded before (this session or otherwise). `source` picks GET /session-cycles/{id}/calls/{callId}/detail vs the internal-calls equivalent - defaults to 'external' (via SessionCyclesApiService.getDetail) when omitted. */
-  getCallDetail(callId: string, source?: CallEndpointSource): Observable<CallDetail> {
+  getCallDetail(callId: string, source?: CallEndpointSource, part?: CallDetailPart): Observable<CallDetail> {
     const cycleId = this.cycleId();
-    return this.api.getDetail(cycleId, callId, source);
+    return this.api.getDetail(cycleId, callId, source, part);
   }
 
   /** Mirrors CallsStateService.getCallOverlaps - see its doc. */

@@ -824,6 +824,23 @@ main {
   border: 1px solid var(--border);
 }
 
+// ---------- Per-block load hints ----------
+// All four blocks are listed from the start, so each summary has to say whether there's anything
+// behind it yet - see JsonPanelComponent.loadState.
+
+.block-load-hint {
+  margin-left: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  text-transform: none;
+}
+
+.block-load-failed {
+  color: var(--red);
+}
+
 // ---------- Sandwich card (nested view's parents) ----------
 // One card, opened by a request band and closed by a response band, with its own children between
 // them - see CallCardComponent's 'sandwich' variant. The bands are tinted and dashed-divided so

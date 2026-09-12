@@ -76,55 +76,121 @@ describe('CallCardComponent', () => {
     return fixture;
   }
 
-  it('starts collapsed - no request/response fetch, just the expand prompt', () => {
+  /** Opens one of the four blocks the way a user does - <details> fires `toggle` on open. */
+  function openBlock(fixture: ReturnType<typeof createCard>, index: number): void {
+    const block = (fixture.nativeElement as HTMLElement).querySelectorAll('details.block')[index] as HTMLDetailsElement;
+    block.open = true;
+    block.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+  }
+
+  it('lists all four blocks collapsed, fetching none of them', () => {
     const fixture = createCard();
     const host: HTMLElement = fixture.nativeElement;
 
-    expect(host.querySelector('.expand-toggle')).toBeTruthy();
-    expect(host.querySelector('.panels')).toBeFalsy();
+    const blocks = Array.from(host.querySelectorAll('details.block'));
+    expect(blocks.length).toBe(4);
+    expect(blocks.every((b) => !(b as HTMLDetailsElement).open)).toBe(true);
+    expect(host.textContent).toContain('not loaded');
     httpMock.expectNone((req) => req.url.includes('/detail'));
   });
 
-  it('fetches detail only once the expand button is clicked', () => {
+  it('fetches one block, by name, the first time it is opened', () => {
     const fixture = createCard();
     const host: HTMLElement = fixture.nativeElement;
 
-    (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
-    fixture.detectChanges();
+    openBlock(fixture, 3); // response body
 
     const req = httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail'));
-    req.flush({ request: { headers: { Accept: 'application/json' }, body: 'req-body' }, response: { status: 200, headers: {}, body: 'resp-body' } });
+    expect(req.request.params.get('part')).toBe('response-body');
+    req.flush({ response: { status: 200, body: 'resp-body' } });
     fixture.detectChanges();
 
-    expect(host.querySelector('.expand-toggle')).toBeFalsy();
-    expect(host.textContent).toContain('req-body');
     expect(host.textContent).toContain('resp-body');
+    // Opening one block leaves the other three untouched - that's the whole point.
+    httpMock.expectNone((r) => r.url.includes('/detail'));
   });
 
-  it('re-fetches for a second card of the same call id instead of reusing an earlier result - detail is never cached client-side', () => {
+  it('does not refetch a block that is closed and reopened', () => {
+    const fixture = createCard();
+    openBlock(fixture, 0);
+    httpMock.expectOne((r) => r.params.get('part') === 'request-headers').flush({ request: { headers: { accept: 'x' } } });
+    fixture.detectChanges();
+
+    const block = (fixture.nativeElement as HTMLElement).querySelector('details.block') as HTMLDetailsElement;
+    block.open = false;
+    block.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+    block.open = true;
+    block.dispatchEvent(new Event('toggle'));
+    fixture.detectChanges();
+
+    httpMock.expectNone((r) => r.url.includes('/detail'));
+  });
+
+  it('re-fetches for a second card of the same call id - detail is never cached client-side', () => {
     const first = createCard();
-    (first.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.expand-toggle')!.click();
+    openBlock(first, 1);
+    httpMock.expectOne((r) => r.params.get('part') === 'request-body').flush({ request: { body: 'req-body' } });
     first.detectChanges();
-    httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({
-      request: { headers: {}, body: 'req-body' },
-      response: { status: 200, headers: {}, body: 'resp-body' },
-    });
-    first.detectChanges();
+    expect((first.nativeElement as HTMLElement).textContent).toContain('req-body');
 
-    // A second card instance for the same call id must still hit the network - nothing from the
-    // first card's fetch is reused.
     const second = createCard();
-    const secondHost: HTMLElement = second.nativeElement;
-    (secondHost.querySelector('.expand-toggle') as HTMLButtonElement).click();
+    openBlock(second, 1);
+    httpMock.expectOne((r) => r.params.get('part') === 'request-body').flush({ request: { body: 'req-body-2' } });
     second.detectChanges();
 
-    httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({
-      request: { headers: {}, body: 'req-body-2' },
-      response: { status: 200, headers: {}, body: 'resp-body-2' },
-    });
-    second.detectChanges();
+    expect((second.nativeElement as HTMLElement).textContent).toContain('req-body-2');
+  });
 
-    expect(secondHost.textContent).toContain('req-body-2');
+  it('offers a retry on just the block that failed', () => {
+    const fixture = createCard();
+    const host: HTMLElement = fixture.nativeElement;
+
+    openBlock(fixture, 2);
+    httpMock.expectOne((r) => r.params.get('part') === 'response-headers').flush('nope', { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(host.textContent).toContain('Failed to load headers');
+    (host.querySelector('.error-banner .action-btn') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    httpMock.expectOne((r) => r.params.get('part') === 'response-headers').flush({ response: { status: 200, headers: { a: 'b' } } });
+  });
+
+  it('does not fetch anything just because the card scrolls into view', () => {
+    // Regression guard, carried over from when one toggle fetched the whole detail: visibility
+    // alone must never fetch. It only decides WHEN an already-requested block actually goes out.
+    createCard();
+
+    simulateIntersection();
+
+    httpMock.expectNone((req) => req.url.includes('/detail'));
+  });
+
+  it('expands headers only on a bulk expand, and defers them while the card is off-screen', () => {
+    const state = TestBed.inject(CallsStateService);
+    const fixture = TestBed.createComponent(CallCardComponent);
+    fixture.componentRef.setInput('call', makeCall());
+    fixture.detectChanges();
+
+    // Two toggles: collapse all, then expand all - the second is the event under test.
+    state.toggleExpanded();
+    fixture.detectChanges();
+    state.toggleExpanded();
+    fixture.detectChanges();
+
+    // Nothing yet: this card has never been reported visible, and a bulk expand mustn't fire
+    // requests for cards nobody has scrolled to.
+    httpMock.expectNone((r) => r.url.includes('/detail'));
+
+    simulateIntersection();
+    fixture.detectChanges();
+
+    const requests = httpMock.match((r) => r.url.includes('/detail'));
+    // Headers only - expanding every body on a full page would be a burst of large fetches.
+    expect(requests.map((r) => r.request.params.get('part')).sort()).toEqual(['request-headers', 'response-headers']);
+    requests.forEach((r) => r.flush({ request: { headers: {} }, response: { status: 200, headers: {} } }));
   });
 
   it('shows the supplier name badge when the summary carries one', () => {
@@ -141,46 +207,8 @@ describe('CallCardComponent', () => {
     expect(host.querySelector('.supplier-badge')).toBeFalsy();
   });
 
-  it('does not fetch detail just because the card scrolls into view while still collapsed', () => {
-    // Regression test: a card becoming visible must never by itself promote it out of
-    // 'collapsed' - only an explicit expand (individual click or bulk "Expand all") does that.
-    // Confirmed live: before this was fixed, every visible card silently fetched its detail on
-    // page load with no click at all, since the visibility check alone was enough to pass.
-    createCard();
-
-    simulateIntersection();
-
-    httpMock.expectNone((req) => req.url.includes('/detail'));
-  });
-
-  it('fetches immediately on click even if the intersection callback has not fired yet', () => {
-    const fixture = createCard();
-    const host: HTMLElement = fixture.nativeElement;
-
-    (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
-    fixture.detectChanges();
-
-    httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({
-      request: { headers: {}, body: 'req-body' },
-      response: { status: 200, headers: {}, body: 'resp-body' },
-    });
-  });
-
-  it('shows a retry option when the detail fetch fails', () => {
-    const fixture = createCard();
-    const host: HTMLElement = fixture.nativeElement;
-
-    (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
-    fixture.detectChanges();
-
-    httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush('error', { status: 500, statusText: 'Server Error' });
-    fixture.detectChanges();
-
-    expect(host.querySelector('.error-banner')).toBeTruthy();
-  });
-
   describe('variant', () => {
-    it('shows a plain "Sent" badge, never a status/duration, for a resolved request row', () => {
+  it('shows a plain "Sent" badge, never a status/duration, for a resolved request row', () => {
       const fixture = createCard(makeCall({ response: { status: 500 } }), 'request');
       const host: HTMLElement = fixture.nativeElement;
 
@@ -221,55 +249,34 @@ describe('CallCardComponent', () => {
       expect((responseFixture.nativeElement as HTMLElement).textContent).toContain('· response');
     });
 
-    it('hides the request panel on a response row and the response panel on a request row once expanded', () => {
-      const fixture = createCard(makeCall(), 'request');
-      const host: HTMLElement = fixture.nativeElement;
-      (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
-      fixture.detectChanges();
+    it('lists only the request blocks on a request row, and only the response blocks on a response row', () => {
+      const requestRow: HTMLElement = createCard(makeCall(), 'request').nativeElement;
+      expect(Array.from(requestRow.querySelectorAll('.panel-title')).map((t) => t.textContent?.trim())).toEqual(['Request']);
+      expect(requestRow.querySelectorAll('details.block').length).toBe(2);
 
-      httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({
-        request: { headers: {}, body: 'req-body' },
-        response: { status: 200, headers: {}, body: 'resp-body' },
-      });
-      fixture.detectChanges();
-
-      expect(host.textContent).toContain('req-body');
-      expect(host.textContent).not.toContain('resp-body');
+      const responseRow: HTMLElement = createCard(makeCall(), 'response').nativeElement;
+      expect(Array.from(responseRow.querySelectorAll('.panel-title')).map((t) => t.textContent?.trim())).toEqual(['Response']);
+      expect(responseRow.querySelectorAll('details.block').length).toBe(2);
     });
 
-    it('gives a split row\'s lone panel the card\'s full width, while a full row keeps the 2-up grid', () => {
-      function expandedPanels(variant?: 'request' | 'response' | 'full'): HTMLElement {
-        const fixture = createCard(makeCall(), variant);
-        const host: HTMLElement = fixture.nativeElement;
-        (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
-        fixture.detectChanges();
-        httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({
-          request: { headers: {}, body: 'req-body' },
-          response: { status: 200, headers: {}, body: 'resp-body' },
-        });
-        fixture.detectChanges();
-        return host.querySelector('.panels') as HTMLElement;
-      }
+    it("gives a split row's lone panel the card's full width, while a full row keeps the 2-up grid", () => {
+      const panelsOf = (variant?: 'request' | 'response' | 'full') =>
+        (createCard(makeCall(), variant).nativeElement as HTMLElement).querySelector('.panels') as HTMLElement;
 
       // Only one panel renders on either half, so the 2-up grid would strand it beside an empty
       // column - .single collapses the grid to one full-width track (see styles.scss's .panels).
-      expect(expandedPanels('request').classList.contains('single')).toBe(true);
-      expect(expandedPanels('response').classList.contains('single')).toBe(true);
-      // A full row still renders both panels side by side, unchanged.
-      expect(expandedPanels().classList.contains('single')).toBe(false);
+      expect(panelsOf('request').classList.contains('single')).toBe(true);
+      expect(panelsOf('response').classList.contains('single')).toBe(true);
+      // A full row still lists both panels side by side, unchanged.
+      expect(panelsOf().classList.contains('single')).toBe(false);
     });
 
-    it('gives a full row\'s request panel the whole width while the call is still in progress, with no response panel to sit beside', () => {
-      const fixture = createCard(makeCall({ state: 'IN_PROGRESS', response: undefined }));
-      const host: HTMLElement = fixture.nativeElement;
-      (host.querySelector('.expand-toggle') as HTMLButtonElement).click();
-      fixture.detectChanges();
+    it("gives a full row's request panel the whole width while the call is still in progress, with no response panel to sit beside", () => {
+      const host: HTMLElement = createCard(makeCall({ state: 'IN_PROGRESS', response: undefined })).nativeElement;
 
-      httpMock.expectOne((r) => r.url.includes('/calls/call-1/detail')).flush({ request: { headers: {}, body: 'req-body' } });
-      fixture.detectChanges();
-
+      // There is no response to open yet, so no Response panel is listed at all.
       expect(host.querySelector('.panels')?.classList.contains('single')).toBe(true);
-      expect(host.querySelectorAll('.panel').length).toBe(1);
+      expect(Array.from(host.querySelectorAll('.panel-title')).map((t) => t.textContent?.trim())).toEqual(['Request']);
     });
   });
 

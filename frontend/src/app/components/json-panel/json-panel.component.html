@@ -1,5 +1,26 @@
 <details class="block" [open]="open()" (toggle)="onToggle($event)">
-  <summary>{{ label() }}</summary>
+  <summary>
+    {{ label() }}
+    @switch (loadState()) {
+      @case ('idle') {
+        <span class="block-load-hint">not loaded</span>
+      }
+      @case ('loading') {
+        <span class="block-load-hint">loading&hellip;</span>
+      }
+      @case ('error') {
+        <span class="block-load-hint block-load-failed">failed</span>
+      }
+    }
+  </summary>
+  @if (loadState() === 'loading') {
+    <div class="detail-placeholder">Loading {{ label().toLowerCase() }}&hellip;</div>
+  } @else if (loadState() === 'error') {
+    <div class="error-banner">
+      Failed to load {{ label().toLowerCase() }}.
+      <button type="button" class="action-btn" (click)="retryLoad()">Retry</button>
+    </div>
+  } @else if (loadState() === 'loaded') {
   <div class="json-wrap">
     <div class="block-toolbar">
       @if (parsed().kind === 'json') {
@@ -80,4 +101,5 @@
       }
     </div>
   </div>
+  }
 </details>
