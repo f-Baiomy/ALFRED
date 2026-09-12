@@ -93,6 +93,7 @@ export class JsonPanelComponent {
   readonly activeMatchIndex = signal(0);
 
   readonly contentRoot = viewChild<ElementRef<HTMLElement>>('contentRoot');
+  private readonly flatView = viewChild(JsonFlatViewComponent);
   private lastSeenCollapseAllVersion = -1;
 
   /**
@@ -173,6 +174,23 @@ export class JsonPanelComponent {
   });
 
   readonly matchCount = computed(() => this.allLines().flat().filter((t) => t.highlighted).length);
+
+  /**
+   * Where the active match sits in displayLines() - a POSITION in that array, not a LineTokens.index,
+   * because "Lines only" filtering makes the two diverge. -1 when the active match is on a line the
+   * filter is currently hiding.
+   *
+   * Derived from the tokens rather than from the DOM: once the flat view windows a large body, the
+   * <mark> for a match further down has never been rendered, so there is nothing to querySelector.
+   */
+  private readonly activeMatchRow = computed<number>(() => {
+    const active = this.activeMatchIndex();
+    const lines = this.displayLines();
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].tokens.some((t) => t.highlighted && t.matchIndex === active)) return i;
+    }
+    return -1;
+  });
   readonly copyFeedback = signal(false);
 
   readonly comments = computed(() =>
@@ -327,6 +345,13 @@ export class JsonPanelComponent {
   private scrollToActiveMatch(): void {
     afterNextRender(
       () => {
+        // A windowed flat view can't be navigated through the DOM - the target match's row may not
+        // be rendered at all - so ask it to scroll by row position instead. It reports false when
+        // it isn't windowing, in which case the original DOM-based path below still applies. The
+        // active <mark> needs no patching here either way: flat mode binds [class.active] off
+        // activeMatchIndex reactively (see json-tokens.component.html).
+        if (this.effectiveViewMode() !== 'tree' && this.flatView()?.scrollToRow(this.activeMatchRow())) return;
+
         const root = this.contentRoot()?.nativeElement;
         if (!root) return;
         const marks = root.querySelectorAll<HTMLElement>('mark.hl');

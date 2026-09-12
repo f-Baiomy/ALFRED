@@ -2005,6 +2005,49 @@ details.block {
   padding: 0.5rem 0.75rem;
 }
 
+// Windowed mode (JsonFlatViewComponent past WINDOWING_LINE_THRESHOLD): only the rows near the
+// viewport exist, with .code-spacer standing in for the rest. That spacer maths needs every row's
+// height KNOWN IN ADVANCE, so the three heights below are pinned here and mirrored as constants in
+// json-flat-view.component.ts - change one without the other and rows drift out of step with the
+// scrollbar.
+.code-lines.windowed {
+  .code-line {
+    height: 19px;
+  }
+
+  // A comment can be any length, so it scrolls inside its fixed box rather than growing the row.
+  .comment-card {
+    height: 44px;
+    overflow: auto;
+  }
+
+  .comment-composer {
+    height: 92px;
+  }
+
+  // border-box so the pinned height IS the laid-out height, and no vertical margins because the
+  // offset table reserves exactly these constants - the default 0.15rem/0.5rem margins measured a
+  // 10px-per-open-composer drift between the content and the scrollbar.
+  .comment-card,
+  .comment-composer {
+    box-sizing: border-box;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+}
+
+// Wrapping makes a row's height depend on its content and on the container's width, which the
+// offset table can't know - so a windowed plain-text body scrolls sideways like a JSON one does.
+// Only applies past the threshold; ordinary plain-text bodies still wrap as they always have.
+.scrollable.plain.windowed {
+  white-space: pre;
+  word-break: normal;
+}
+
+.code-spacer {
+  flex: none;
+}
+
 .code-line {
   display: flex;
   align-items: flex-start;
