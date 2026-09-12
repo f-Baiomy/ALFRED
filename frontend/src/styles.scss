@@ -1047,6 +1047,17 @@ main {
 
 // ---------- Nested view (design A) ----------
 
+// This list was never given a rule, so its <app-call-tree-node> hosts stayed display:inline and the
+// root calls stacked with a measured 0px between them - the one view where separation matters MOST,
+// since a root here can contain a whole subtree and the reader has to see where one call's story
+// ends. The gap is larger than the flat list's 0.6rem for that reason: it has to beat .tree-children
+// (0.35rem) and .call-nested (0.55rem), or a sibling root reads as one more nested child.
+.calls-tree-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
 // The rail is what makes containment legible once a card is inside another card; the indent is
 // capped in depthRailPx rather than here, so a deep chain stops eating width without the data
 // itself being flattened.
