@@ -1,6 +1,7 @@
 import { Component, computed, input, signal } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import { CallDepthInfo, CallTreeNode, depthRailPx } from '../../shared/utils/call-tree';
+
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
 import { CallCardComponent } from '../call-card/call-card.component';
 
@@ -15,6 +16,21 @@ import { CallCardComponent } from '../call-card/call-card.component';
  */
 type WaterfallRowKind = 'single' | 'request' | 'response';
 
+/**
+ * How a parent's own window divides up, as 0-1 fractions of the root: the stretch before its first
+ * child fired, the stretch any child was in flight, and the stretch after the last one came back.
+ * The middle is time it spent WAITING; the two ends are its own work. Drawn on the closing row,
+ * where it answers the question the duration alone never does - "what was it doing for 12 seconds
+ * when its suppliers only took 5?"
+ */
+interface SelfTimeSplit {
+  readonly leadPercent: string;
+  readonly waitPercent: string;
+  readonly tailPercent: string;
+  readonly waitingMs: number;
+  readonly selfMs: number;
+}
+
 /** One flattened waterfall line - a call, how deep it sits, and where its bar goes. */
 interface WaterfallRow {
   readonly call: CallRecord;
@@ -24,7 +40,17 @@ interface WaterfallRow {
   readonly offsetPercent: string;
   readonly widthPercent: string;
   readonly hasBar: boolean;
+  /** A call with no measurable duration (a connect failure, say) - drawn as a tick at its own start
+   * rather than a floored sliver that would read like a very short success. */
+  readonly isInstant: boolean;
   readonly label: string;
+  /** When this line happened, relative to its root's start: a call's own start, or for a closing
+   * row the moment the group finished. Empty when there's no measurable root to measure against. */
+  readonly offsetLabel: string;
+  /** Only on a group's opening row - the root's own total, for the axis drawn above it. */
+  readonly axisTotalLabel: string | null;
+  /** Only on a closing row that has children to have waited on. */
+  readonly selfTime: SelfTimeSplit | null;
   /** Distinct from call.id, which a bracketing pair shares - used for tracking and for expanding
    * one half without the other. */
   readonly rowKey: string;
@@ -57,6 +83,19 @@ interface WaterfallRow {
           [class.waterfall-open]="row.kind === 'request'"
           [class.waterfall-close]="row.kind === 'response'"
         >
+          @if (row.axisTotalLabel) {
+            <!-- One scale per group: every row between this opener and its closing row is measured
+                 against this same root window, so the quarter marks read across all of them. -->
+            <div class="waterfall-axis" aria-hidden="true">
+              <span class="waterfall-axis-track">
+                <span class="waterfall-axis-mark" style="left: 0">0</span>
+                <span class="waterfall-axis-mark" style="left: 25%">&#8942;</span>
+                <span class="waterfall-axis-mark" style="left: 50%">&#8942;</span>
+                <span class="waterfall-axis-mark" style="left: 75%">&#8942;</span>
+                <span class="waterfall-axis-mark waterfall-axis-end">{{ row.axisTotalLabel }}</span>
+              </span>
+            </div>
+          }
           <button type="button" class="waterfall-row" (click)="toggle(row.rowKey)">
             <span class="waterfall-rail" [style.width.px]="row.railPx" aria-hidden="true"></span>
             @if (row.kind === 'single') {
@@ -78,6 +117,7 @@ interface WaterfallRow {
               <span class="badge" [class]="statusClassOf(row.call)">{{ row.call.response?.status ?? '?' }}</span>
             }
             <span class="waterfall-label">{{ row.label }}</span>
+            <span class="waterfall-offset">{{ row.offsetLabel }}</span>
             <span class="waterfall-track" aria-hidden="true">
               @if (row.hasBar) {
                 @if (row.kind === 'request') {
@@ -85,15 +125,24 @@ interface WaterfallRow {
                        and hasn't come back yet. The closing row below draws the span it took. -->
                   <span class="waterfall-tick" [style.margin-left]="row.offsetPercent"></span>
                   <span class="waterfall-pending"></span>
+                } @else if (row.isInstant) {
+                  <span class="waterfall-tick" [class.waterfall-tick-error]="!!row.call.error" [style.margin-left]="row.offsetPercent"></span>
                 } @else {
-                  <span class="waterfall-bar" [style.margin-left]="row.offsetPercent" [style.width]="row.widthPercent"></span>
+                  @if (row.selfTime; as split) {
+                    <!-- Waiting on children vs its own work - see SelfTimeSplit. -->
+                    <span class="waterfall-bar waterfall-self" [style.margin-left]="row.offsetPercent" [style.width]="split.leadPercent"></span>
+                    <span class="waterfall-bar" [style.width]="split.waitPercent"></span>
+                    <span class="waterfall-bar waterfall-self" [style.width]="split.tailPercent"></span>
+                  } @else {
+                    <span class="waterfall-bar" [style.margin-left]="row.offsetPercent" [style.width]="row.widthPercent"></span>
+                  }
                   @if (row.kind === 'response') {
                     <span class="waterfall-tick"></span>
                   }
                 }
               }
             </span>
-            <span class="waterfall-duration" [class]="durationClassOf(row.call)">
+            <span class="waterfall-duration" [class]="durationClassOf(row.call)" [title]="durationTitle(row)">
               @if (row.kind === 'request') {
                 sent
               } @else {
@@ -126,6 +175,7 @@ export class CallWaterfallComponent {
     const walk = (node: CallTreeNode): void => {
       const info = depths.get(node.call.id);
       const hasBar = info?.spanStart != null && info.spanWidth != null;
+      const durationMs = node.call.duration_ms ?? 0;
       const base = {
         call: node.call,
         depth: node.depth,
@@ -134,7 +184,11 @@ export class CallWaterfallComponent {
         // Floored so a very short call inside a very long root is still visible as more than a line.
         widthPercent: `${Math.max((info?.spanWidth ?? 0) * 100, 0.8).toFixed(2)}%`,
         hasBar,
+        isInstant: durationMs <= 0,
         label: labelFor(node.call),
+        offsetLabel: formatOffset(info?.offsetMs ?? null),
+        axisTotalLabel: null as string | null,
+        selfTime: null as SelfTimeSplit | null,
       };
 
       if (node.children.length === 0) {
@@ -142,9 +196,22 @@ export class CallWaterfallComponent {
         return;
       }
 
-      out.push({ ...base, kind: 'request', rowKey: `${node.call.id}:request` });
+      out.push({
+        ...base,
+        kind: 'request',
+        rowKey: `${node.call.id}:request`,
+        // Only a group opener draws an axis - its children are all measured against this same root,
+        // so one scale covers everything between this row and its closing row.
+        axisTotalLabel: node.depth === 0 ? formatOffset(info?.rootDurationMs ?? null) : null,
+      });
       for (const child of node.children) walk(child);
-      out.push({ ...base, kind: 'response', rowKey: `${node.call.id}:response` });
+      out.push({
+        ...base,
+        kind: 'response',
+        rowKey: `${node.call.id}:response`,
+        offsetLabel: formatOffset(info?.offsetMs != null ? info.offsetMs + durationMs : null),
+        selfTime: selfTimeOf(node, info ?? null, depths),
+      });
     };
 
     for (const root of this.nodes()) walk(root);
@@ -156,6 +223,14 @@ export class CallWaterfallComponent {
   readonly durationClassOf = (call: CallRecord) => durationClass(call.duration_ms);
   readonly inProgress = (call: CallRecord) => isInProgress(call);
 
+  /** Spells out the self-time split in words on hover, so the two bar shades don't need a legend
+   * repeated above every group. */
+  durationTitle(row: WaterfallRow): string {
+    const split = row.selfTime;
+    if (!split) return '';
+    return `${split.waitingMs} ms waiting on nested calls, ${split.selfMs} ms of its own work`;
+  }
+
   isExpanded(id: string): boolean {
     return this.expandedIds().has(id);
   }
@@ -165,6 +240,47 @@ export class CallWaterfallComponent {
     if (!next.delete(id)) next.add(id);
     this.expandedIds.set(next);
   }
+}
+
+/** "+1.85s" / "+340ms" - sub-second offsets keep millisecond precision, since that's exactly the
+ * scale at which a track a few hundred pixels wide stops being able to show a difference. */
+function formatOffset(ms: number | null): string {
+  if (ms == null) return '';
+  if (ms < 1000) return `+${Math.round(ms)}ms`;
+  return `+${(ms / 1000).toFixed(2)}s`;
+}
+
+/**
+ * Splits a parent's window into lead / waiting / tail against its DIRECT children only - a
+ * grandchild is inside a child's own window, so it can never widen the waiting stretch.
+ */
+function selfTimeOf(
+  node: CallTreeNode,
+  info: CallDepthInfo | null,
+  depths: ReadonlyMap<string, CallDepthInfo>
+): SelfTimeSplit | null {
+  if (!info || info.spanStart == null || info.spanWidth == null || info.rootDurationMs == null) return null;
+
+  const childSpans = node.children
+    .map((child) => depths.get(child.call.id))
+    .filter((child): child is CallDepthInfo => child?.spanStart != null && child.spanWidth != null);
+  if (childSpans.length === 0) return null;
+
+  const ownStart = info.spanStart;
+  const ownEnd = info.spanStart + info.spanWidth;
+  const waitStart = Math.max(ownStart, Math.min(...childSpans.map((c) => c.spanStart!)));
+  const waitEnd = Math.min(ownEnd, Math.max(...childSpans.map((c) => c.spanStart! + c.spanWidth!)));
+  if (waitEnd <= waitStart) return null;
+
+  const rootMs = info.rootDurationMs;
+  const waitingMs = Math.round((waitEnd - waitStart) * rootMs);
+  return {
+    leadPercent: `${((waitStart - ownStart) * 100).toFixed(2)}%`,
+    waitPercent: `${((waitEnd - waitStart) * 100).toFixed(2)}%`,
+    tailPercent: `${((ownEnd - waitEnd) * 100).toFixed(2)}%`,
+    waitingMs,
+    selfMs: Math.max(0, Math.round((node.call.duration_ms ?? 0) - waitingMs)),
+  };
 }
 
 /** "core-service · api/pricing/quote" for an attributed call, host-qualified for an external one -

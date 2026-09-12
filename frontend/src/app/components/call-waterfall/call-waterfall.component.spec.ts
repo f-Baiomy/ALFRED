@@ -121,12 +121,69 @@ describe('CallWaterfallComponent', () => {
     expect(lines[0].querySelector('.waterfall-tick')).toBeTruthy();
     expect(lines[0].querySelector('.waterfall-pending')).toBeTruthy();
 
-    const rootClose = lines[4].querySelector('.waterfall-bar') as HTMLElement;
-    expect(parseFloat(rootClose.style.width)).toBeCloseTo(100, 3);
-    // core-service starts 2s into odeysys's 10s and runs 4s of it.
-    const coreClose = lines[3].querySelector('.waterfall-bar') as HTMLElement;
-    expect(parseFloat(coreClose.style.marginLeft)).toBeCloseTo(20, 3);
-    expect(parseFloat(coreClose.style.width)).toBeCloseTo(40, 3);
+    // The childless supplier call draws one plain bar: 0.5s into a 10s root, running 1s of it.
+    const leaf = lines[2].querySelector('.waterfall-bar') as HTMLElement;
+    expect(parseFloat(leaf.style.marginLeft)).toBeCloseTo(25, 3);
+    expect(parseFloat(leaf.style.width)).toBeCloseTo(10, 3);
+  });
+
+  it('splits a parent\'s closing bar into what it waited on and what it did itself', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const lines = Array.from(host.querySelectorAll('.waterfall-line'));
+
+    // odeysys runs the whole 10s root: 2s before core-service started, 4s waiting on it, 4s after.
+    const rootSegments = Array.from(lines[4].querySelectorAll('.waterfall-bar')) as HTMLElement[];
+    expect(rootSegments.length).toBe(3);
+    expect(parseFloat(rootSegments[0].style.width)).toBeCloseTo(20, 3);
+    expect(parseFloat(rootSegments[1].style.width)).toBeCloseTo(40, 3);
+    expect(parseFloat(rootSegments[2].style.width)).toBeCloseTo(40, 3);
+    // Only the middle stretch is "waiting" - the two ends are the call's own work.
+    expect(rootSegments[0].classList).toContain('waterfall-self');
+    expect(rootSegments[1].classList).not.toContain('waterfall-self');
+    expect(rootSegments[2].classList).toContain('waterfall-self');
+
+    // Spelled out in words on hover rather than needing a legend above every group.
+    expect(lines[4].querySelector('.waterfall-duration')?.getAttribute('title')).toBe(
+      '4000 ms waiting on nested calls, 6000 ms of its own work'
+    );
+  });
+
+  it('prints how far into the root each call started, at millisecond resolution', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const offsets = Array.from(host.querySelectorAll('.waterfall-offset')).map((el) => el.textContent?.trim());
+
+    // The root opens at zero; core-service 2s in; the supplier call 500ms after that. A closing row
+    // reports when the group FINISHED, not when it started.
+    expect(offsets[0]).toBe('+0ms');
+    expect(offsets[1]).toBe('+2.00s');
+    expect(offsets[2]).toBe('+2.50s');
+    expect(offsets[3]).toBe('+6.00s');
+    expect(offsets[4]).toBe('+10.00s');
+  });
+
+  it('draws one axis per group, on its opening row only, labelled with that root\'s own total', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const lines = Array.from(host.querySelectorAll('.waterfall-line'));
+
+    expect(lines[0].querySelector('.waterfall-axis')).toBeTruthy();
+    expect(lines[0].querySelector('.waterfall-axis-end')?.textContent?.trim()).toBe('+10.00s');
+    // A nested group shares its root's scale, so it doesn't draw a second, conflicting one.
+    expect(lines[1].querySelector('.waterfall-axis')).toBeNull();
+    expect(lines[4].querySelector('.waterfall-axis')).toBeNull();
+  });
+
+  it('marks a call with no measurable duration as a tick, not a floored sliver', () => {
+    const failed = [
+      call('odeysys', 0, 10000, { service_name: 'odeysys' }),
+      call('dead', 2000, 0, { source: 'external', error: 'boom', response: undefined }),
+    ];
+    const host: HTMLElement = createWaterfall(failed).nativeElement;
+    const deadLine = Array.from(host.querySelectorAll('.waterfall-line'))[1];
+
+    expect(deadLine.querySelector('.waterfall-bar')).toBeNull();
+    const tick = deadLine.querySelector('.waterfall-tick') as HTMLElement;
+    expect(tick.classList).toContain('waterfall-tick-error');
+    expect(parseFloat(tick.style.marginLeft)).toBeCloseTo(20, 3);
   });
 
   it('expands the full call card on click, and collapses it again', () => {

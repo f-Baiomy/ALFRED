@@ -71,6 +71,15 @@ export interface CallDepthInfo {
    * instantly), in which case the card renders no bar rather than a misleading full-width one. */
   readonly spanStart: number | null;
   readonly spanWidth: number | null;
+  /**
+   * The same position as `spanStart`, in milliseconds after the root call began, and the root's own
+   * total duration - the two numbers a fraction can't convey on its own. A track only a few hundred
+   * pixels wide cannot show that four calls started 80ms apart on a 12-second call; printing "+1.85s"
+   * next to each one can, and it also surfaces how long the root spent before calling anything at
+   * all. Null under the same no-measurable-root condition as the fractions above.
+   */
+  readonly offsetMs: number | null;
+  readonly rootDurationMs: number | null;
   /** True when this call sits inside more than one call that could equally claim it and none of
    * those contains the others - so it stays at root level, flagged, rather than being guessed into
    * somebody's subtree. Mirrors the ambiguity veto in call-utils.ts's computeSplitCallIds. */
@@ -214,6 +223,8 @@ export function indexCallTree(calls: readonly CallRecord[]): ReadonlyMap<string,
       descendantCount: countDescendants(node),
       spanStart: measurable ? clamp01((own.start - rootWindow.start) / rootDuration) : null,
       spanWidth: measurable ? clamp01((own.end - own.start) / rootDuration) : null,
+      offsetMs: measurable ? Math.max(0, own.start - rootWindow.start) : null,
+      rootDurationMs: measurable ? rootDuration : null,
       ambiguous: ambiguousIds.has(node.call.id),
     });
 

@@ -283,6 +283,8 @@ describe('CallCardComponent', () => {
         descendantCount: 0,
         spanStart: 0.25,
         spanWidth: 0.4,
+        offsetMs: 2500,
+        rootDurationMs: 10000,
         ambiguous: false,
         ...overrides,
       };

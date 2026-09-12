@@ -925,14 +925,69 @@ main {
   color: var(--text-dim);
 }
 
+// Quarter-window gridlines behind every bar. Without them a bar's position carries no information
+// on its own - you can see that two calls line up, but not where in the parent's window they are.
 .waterfall-track {
   flex: none;
   width: 170px;
   height: 12px;
   display: flex;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--purple) 10%, transparent);
+  background:
+    repeating-linear-gradient(
+        90deg,
+        transparent 0 calc(25% - 1px),
+        color-mix(in srgb, var(--purple) 28%, transparent) calc(25% - 1px) 25%
+      )
+      no-repeat,
+    color-mix(in srgb, var(--purple) 10%, transparent);
   overflow: hidden;
+}
+
+// How far into its root's window this call starts - the only way to see that four calls began 80ms
+// apart on a twelve-second one, which no track a few hundred pixels wide can draw.
+.waterfall-offset {
+  flex: none;
+  width: 56px;
+  text-align: right;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+// The scale for one group, drawn once above its opening row - every row down to the matching
+// closing row is measured against this same window.
+.waterfall-axis {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 10px 1px 0;
+}
+
+.waterfall-axis-track {
+  position: relative;
+  width: 170px;
+  height: 11px;
+  margin-right: 68px;
+}
+
+.waterfall-axis-mark {
+  position: absolute;
+  top: 0;
+  font-size: 0.62rem;
+  line-height: 1;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.waterfall-axis-end {
+  right: 0;
+}
+
+@media (max-width: 880px) {
+  .waterfall-offset,
+  .waterfall-axis {
+    display: none;
+  }
 }
 
 .waterfall-bar {
@@ -957,6 +1012,13 @@ main {
   border-top: 1px dashed color-mix(in srgb, var(--purple) 45%, transparent);
 }
 
+// The parts of a parent's span it was NOT waiting on anything - before its first child fired and
+// after the last one came back. Muted against the solid "waiting" stretch, so a call that spent
+// most of its time working rather than waiting reads as mostly-muted at a glance.
+.waterfall-self {
+  background: color-mix(in srgb, var(--purple) 45%, transparent);
+}
+
 // Start/end markers - a call's own edge in time, as opposed to the span between them.
 .waterfall-tick {
   flex: none;
@@ -964,6 +1026,12 @@ main {
   height: 100%;
   background: var(--purple-light);
   border-radius: 2px;
+}
+
+// A call with no measurable duration (a connect failure, say) - a tick rather than a floored
+// sliver, which would otherwise be indistinguishable from a very fast success.
+.waterfall-tick-error {
+  background: var(--red);
 }
 
 // "Started, hasn't come back yet" - the opening row deliberately doesn't draw the span, which is
