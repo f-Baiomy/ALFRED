@@ -903,15 +903,18 @@ main {
   }
 }
 
+// Sits immediately after the chips rather than pushed to the far edge - it acts on them, so it
+// belongs beside them. Borderless and dimmer than a chip, since it isn't one of the four.
 .blocks-collapse {
-  margin-left: auto;
+  margin-left: 0.45rem;
   padding: 0.12rem 0.4rem;
   font-family: inherit;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   color: var(--text-dim);
   background: none;
   border: none;
   cursor: pointer;
+  white-space: nowrap;
 
   &:hover {
     color: var(--purple-light);

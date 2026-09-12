@@ -287,7 +287,10 @@ describe('CallCardComponent', () => {
       openBlock(fixture, 1);
       httpMock.expectOne((r) => r.params.get('part') === 'request-body').flush({ request: { body: 'b' } });
       fixture.detectChanges();
-      expect(host.querySelector('.blocks-collapse')?.textContent).toContain('2 open');
+      const collapseAll = host.querySelector('.blocks-collapse') as HTMLButtonElement;
+      expect(collapseAll.textContent).toContain('collapse all');
+      // The count lives in the title rather than the label, to keep the button small.
+      expect(collapseAll.getAttribute('title')).toBe('Collapse all 2 open blocks');
 
       (host.querySelector('.block-panel-close') as HTMLButtonElement).click();
       fixture.detectChanges();
