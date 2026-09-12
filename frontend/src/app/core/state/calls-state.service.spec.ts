@@ -101,11 +101,11 @@ describe('CallsStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('defaults to newest sort and a 100-item page on the first fetch', fakeAsync(() => {
+  it('defaults to newest sort and a 200-item page on the first fetch', fakeAsync(() => {
     const { queries } = setup([makeCall()]);
     tick();
 
-    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 100, sessionId: '', operationId: '', requestId: '' });
+    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 200, sessionId: '', operationId: '', requestId: '' });
     discardPeriodicTasks();
   }));
 

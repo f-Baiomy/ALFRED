@@ -76,6 +76,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   constructor() {
     this.view = createCallListView(computed(() => new Set(this.pinService.pinned().keys())), {
+      pageSize: 200,
       defaultSortMode: 'oldest-call',
       customOrder: this.customOrder,
       liveCalls: this.liveCalls,

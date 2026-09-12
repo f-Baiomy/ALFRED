@@ -11,6 +11,7 @@ const LIMIT_OPTIONS: readonly SelectOption[] = [
   { value: '25', label: '25 per page' },
   { value: '50', label: '50 per page' },
   { value: '100', label: '100 per page' },
+  { value: '200', label: '200 per page' },
 ];
 
 const SORT_OPTIONS: readonly SelectOption[] = [
