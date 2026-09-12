@@ -1,4 +1,4 @@
-import { Component, ElementRef, computed, input, output, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, effect, input, output, signal, viewChild } from '@angular/core';
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { HighlightToken } from '../../shared/utils/json-tokenizer';
 import { Comment } from '../../core/models/comment.model';
@@ -30,13 +30,21 @@ export interface NewCommentEvent {
 export const WINDOWING_LINE_THRESHOLD = 2000;
 
 /**
- * Windowed mode needs every row's height up front to place the scroll spacers, so these are pinned
- * in CSS (.code-lines.windowed) rather than left to the content. Change one and you must change
- * the other, or rows will drift out of step with the scrollbar.
+ * Windowed mode needs every row's height up front to place the scroll spacers, so these two are
+ * pinned in CSS (.code-lines.windowed) rather than left to the content. Change one and you must
+ * change the other, or rows will drift out of step with the scrollbar.
  */
 const LINE_HEIGHT_PX = 19;
 const COMMENT_CARD_HEIGHT_PX = 44;
-const COMPOSER_HEIGHT_PX = 92;
+
+/**
+ * The composer is NOT pinned - it's measured (see composerHeight). Pinning it to a guessed 92px
+ * was wrong: its textarea and button row need 102px, and with overflow visible the contents spilled
+ * over the code lines above and below it. Its real height depends on the theme's font and button
+ * padding, so any constant here would be a guess that some theme eventually breaks. This value is
+ * only the reservation used before the first measurement lands.
+ */
+const COMPOSER_FALLBACK_HEIGHT_PX = 104;
 
 /** Rendered beyond the viewport on each side, so a fast scroll doesn't expose blank rows. */
 const OVERSCAN_PX = 200;
@@ -74,8 +82,32 @@ export class JsonFlatViewComponent {
   readonly draftText = signal('');
 
   private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
+  private readonly composerEl = viewChild<ElementRef<HTMLElement>>('composer');
   private readonly scrollTop = signal(0);
   private readonly viewportHeight = signal(ASSUMED_VIEWPORT_PX);
+
+  /** The open composer's measured height - see COMPOSER_FALLBACK_HEIGHT_PX for why it isn't pinned. */
+  private readonly composerHeight = signal(COMPOSER_FALLBACK_HEIGHT_PX);
+
+  constructor() {
+    // Measured rather than assumed, and re-measured on resize, so the offset table always reserves
+    // what the composer actually occupies. It keeps its last measurement after the composer closes
+    // or scrolls out of the window, which is exactly what the next open wants to reserve.
+    effect(
+      (onCleanup) => {
+        const el = this.composerEl()?.nativeElement;
+        if (!el) return;
+        const measure = () => {
+          if (el.offsetHeight > 0) this.composerHeight.set(el.offsetHeight);
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        onCleanup(() => observer.disconnect());
+      },
+      { allowSignalWrites: true }
+    );
+  }
 
   readonly windowed = computed(() => this.lines().length > WINDOWING_LINE_THRESHOLD);
 
@@ -93,7 +125,7 @@ export class JsonFlatViewComponent {
     for (let i = 0; i < lines.length; i++) {
       const index = lines[i].index;
       let height = LINE_HEIGHT_PX;
-      if (composerLine === index) height += COMPOSER_HEIGHT_PX;
+      if (composerLine === index) height += this.composerHeight();
       height += (comments.get(index)?.length ?? 0) * COMMENT_CARD_HEIGHT_PX;
       offsets[i + 1] = offsets[i] + height;
     }
@@ -128,13 +160,17 @@ export class JsonFlatViewComponent {
     return this.windowed() ? this.lines().slice(start, end) : this.lines();
   });
 
+  /** Total height of every row, rendered or not - what the spacers plus the window must add up to. */
+  readonly contentHeightPx = computed(() => {
+    const offsets = this.rowOffsets();
+    return offsets[offsets.length - 1];
+  });
+
   readonly spacerTopPx = computed(() => (this.windowed() ? this.rowOffsets()[this.range().start] : 0));
 
-  readonly spacerBottomPx = computed(() => {
-    if (!this.windowed()) return 0;
-    const offsets = this.rowOffsets();
-    return offsets[offsets.length - 1] - offsets[this.range().end];
-  });
+  readonly spacerBottomPx = computed(() =>
+    this.windowed() ? this.contentHeightPx() - this.rowOffsets()[this.range().end] : 0
+  );
 
   onScroll(): void {
     const el = this.viewport()?.nativeElement;

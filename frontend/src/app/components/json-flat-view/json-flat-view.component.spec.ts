@@ -87,6 +87,24 @@ describe('JsonFlatViewComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.comment-card').length).toBe(1);
   });
 
+  it('reserves the composer height it measures, not a hardcoded guess', async () => {
+    const count = WINDOWING_LINE_THRESHOLD + 1000;
+    await render(count);
+    expect(component.contentHeightPx()).toBe(count * 19);
+
+    fixture.nativeElement.querySelectorAll('.code-line')[0].querySelector('.line-comment-btn').click();
+    fixture.detectChanges();
+    // The measurement arrives via ResizeObserver, which fires outside Angular's own scheduling.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    fixture.detectChanges();
+
+    const measured = fixture.nativeElement.querySelector('.comment-composer').offsetHeight;
+    expect(measured).toBeGreaterThan(0);
+    // Pinning this to 92px, as an earlier version did, squashed a control needing 102px and let it
+    // spill over the code lines around it - so the table must follow the element, not the reverse.
+    expect(component.contentHeightPx()).toBe(count * 19 + measured);
+  });
+
   it('scrollToRow reports false when not windowing, so the caller can fall back to the DOM', async () => {
     await render(50);
 

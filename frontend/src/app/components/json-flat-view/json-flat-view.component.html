@@ -19,7 +19,7 @@
     </div>
 
     @if (openCommentLineIndex() === line.index) {
-      <div class="comment-composer">
+      <div class="comment-composer" #composer>
         <textarea
           rows="2"
           [value]="draftText()"

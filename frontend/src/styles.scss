@@ -2021,13 +2021,14 @@ details.block {
     overflow: auto;
   }
 
-  .comment-composer {
-    height: 92px;
-  }
+  // The composer is deliberately NOT given a height here - it is measured at runtime and the
+  // offset table reserves whatever it actually needs. Pinning it to a guessed 92px squashed a
+  // control that needs 102px, and since overflow is visible the textarea and buttons spilled out
+  // over the code lines around it.
 
-  // border-box so the pinned height IS the laid-out height, and no vertical margins because the
-  // offset table reserves exactly these constants - the default 0.15rem/0.5rem margins measured a
-  // 10px-per-open-composer drift between the content and the scrollbar.
+  // border-box so a pinned height IS the laid-out height, and no vertical margins because
+  // offsetHeight (what the offset table reserves) doesn't include them - the default
+  // 0.15rem/0.5rem margins measured a 10px-per-open-composer drift against the scrollbar.
   .comment-card,
   .comment-composer {
     box-sizing: border-box;
