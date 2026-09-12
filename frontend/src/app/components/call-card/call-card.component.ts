@@ -130,6 +130,40 @@ export class CallCardComponent {
     return new Date(new Date(call.timestamp).getTime() + (call.duration_ms ?? 0)).toLocaleString();
   });
 
+  /**
+   * The single line the from/to pair collapses to, or null when it can't collapse and both lines
+   * have to stay. Three cases, and the rule is the same in all of them - render what actually
+   * DIFFERS, once:
+   *
+   * - Identical urls (every external call: the forward proxy never rewrites, confirmed across all
+   *   50 loaded here): the whole url, host and all. The host is the supplier, and it's the single
+   *   most useful thing on the line.
+   * - Same path and query, different host (every internal call: localhost:<listenPort> ->
+   *   host.docker.internal:<upstreamPort>): the shared path, with the host hop behind the toggle.
+   *   The hosts come from this project's internal_call_services entry, so they're identical on
+   *   every card and re-reading them 50 times buys nothing.
+   * - Anything else - a genuine path rewrite - returns null and both lines stay. Doesn't happen
+   *   with today's proxies, and if that ever changes it must be visible rather than folded away.
+   */
+  readonly foldedUrl = computed<string | null>(() => {
+    const call = this.call();
+    if (call.original_url === call.url) return call.url;
+
+    const from = parseUrl(call.original_url);
+    const to = parseUrl(call.url);
+    if (!from || !to) return null;
+    if (from.pathname + from.search !== to.pathname + to.search) return null;
+    return to.pathname + to.search;
+  });
+
+  /** True only for the collapsed-but-not-identical case, i.e. there really is a host hop tucked
+   * away. An external call's folded line hides nothing, so it gets no toggle at all - which makes
+   * the toggle's presence itself mean "this one was forwarded somewhere else". */
+  readonly hostHop = computed(() => this.foldedUrl() !== null && this.call().original_url !== this.call().url);
+  /** Click to toggle rather than reveal on hover: hover is unreachable on touch, and the urls have
+   * always been selectable text that can be copied out - which a tooltip wouldn't be. */
+  readonly hostsShown = signal(false);
+
   /** Which id chip (if any) just got copied, briefly showing "Copied!" in its place - see copyChip(). Cleared automatically after the flash, and whenever the underlying call's id chips change identity (a different call rendered into this same card instance would otherwise show a stale flash). */
   readonly copiedChip = signal<'request' | 'session' | 'operation' | null>(null);
 
@@ -312,6 +346,10 @@ export class CallCardComponent {
     });
   }
 
+  toggleHosts(): void {
+    this.hostsShown.update((shown) => !shown);
+  }
+
   onRevealParent(): void {
     const parentId = this.depth()?.parentId;
     if (parentId) this.revealParent.emit(parentId);
@@ -371,5 +409,15 @@ function valueOfPart(detail: CallDetail, part: CallDetailPart): unknown {
       return detail.response?.headers;
     case 'response-body':
       return detail.response?.body;
+  }
+}
+
+/** `new URL()` throws on anything malformed - a url Alfred logged verbatim from the wire is not
+ * guaranteed to parse, and a card must render regardless. */
+function parseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
   }
 }

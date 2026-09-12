@@ -1,13 +1,36 @@
 <ng-template #urlsBlock>
   <div class="call-urls">
-    <div class="uri-row">
-      <span class="uri-label from">From</span>
-      <span class="uri-value from">{{ call().original_url }}</span>
-    </div>
-    <div class="uri-row">
-      <span class="uri-label to">To</span>
-      <span class="uri-value to">{{ call().url }}</span>
-    </div>
+    @if (foldedUrl(); as folded) {
+      <div class="uri-row">
+        <span class="uri-label to">URL</span>
+        <span class="uri-value to">{{ folded }}</span>
+        @if (hostHop()) {
+          <button
+            type="button"
+            class="uri-hosts-toggle"
+            [class.open]="hostsShown()"
+            [attr.aria-expanded]="hostsShown()"
+            title="This call arrived on one address and was forwarded to another - show both"
+            (click)="toggleHosts()"
+          >&#8674; hosts</button>
+        }
+      </div>
+      @if (hostsShown()) {
+        <div class="uri-hosts">
+          <div><span class="uri-label from">From</span><span class="uri-value from">{{ call().original_url }}</span></div>
+          <div><span class="uri-label to">To</span><span class="uri-value to">{{ call().url }}</span></div>
+        </div>
+      }
+    } @else {
+      <div class="uri-row">
+        <span class="uri-label from">From</span>
+        <span class="uri-value from">{{ call().original_url }}</span>
+      </div>
+      <div class="uri-row">
+        <span class="uri-label to">To</span>
+        <span class="uri-value to">{{ call().url }}</span>
+      </div>
+    }
   </div>
 </ng-template>
 

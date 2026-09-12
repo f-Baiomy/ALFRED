@@ -372,4 +372,80 @@ describe('CallCardComponent', () => {
       expect((createWithDepth(depthInfo(), 'response').nativeElement as HTMLElement).querySelector('#call-row-call-1')).toBeNull();
     });
   });
+
+  describe('url line', () => {
+    function urlRow(call: CallRecord): HTMLElement {
+      return (createCard(call).nativeElement as HTMLElement).querySelector('.call-urls') as HTMLElement;
+    }
+
+    it('folds an external call to one line carrying the whole url, host included', () => {
+      // The forward proxy never rewrites, so from and to are byte-identical on every external call.
+      const row = urlRow(makeCall({ original_url: 'https://sup.example.com/api/x', url: 'https://sup.example.com/api/x' }));
+
+      expect(row.querySelectorAll('.uri-row').length).toBe(1);
+      expect(row.querySelector('.uri-label')?.textContent?.trim()).toBe('URL');
+      expect(row.querySelector('.uri-value')?.textContent?.trim()).toBe('https://sup.example.com/api/x');
+      // Nothing is tucked away, so there is nothing to reveal.
+      expect(row.querySelector('.uri-hosts-toggle')).toBeNull();
+    });
+
+    it('folds an internal call to its shared path, with the host hop behind a toggle', () => {
+      const row = urlRow(
+        makeCall({
+          source: 'internal',
+          original_url: 'http://localhost:9001/odeysysadmin/downloadPortalFile?url=/fstore/EK.jpg',
+          url: 'http://host.docker.internal:8080/odeysysadmin/downloadPortalFile?url=/fstore/EK.jpg',
+        })
+      );
+
+      expect(row.querySelectorAll('.uri-row').length).toBe(1);
+      expect(row.querySelector('.uri-value')?.textContent?.trim()).toBe('/odeysysadmin/downloadPortalFile?url=/fstore/EK.jpg');
+      expect(row.querySelector('.uri-hosts-toggle')).toBeTruthy();
+      // Collapsed by default - the hosts are identical on every card, so they aren't what you read.
+      expect(row.querySelector('.uri-hosts')).toBeNull();
+    });
+
+    it('reveals both full urls on click, and hides them again', () => {
+      const fixture = createCard(
+        makeCall({
+          source: 'internal',
+          original_url: 'http://localhost:9001/a',
+          url: 'http://host.docker.internal:8080/a',
+        })
+      );
+      const host: HTMLElement = fixture.nativeElement;
+      const toggle = host.querySelector('.uri-hosts-toggle') as HTMLButtonElement;
+
+      toggle.click();
+      fixture.detectChanges();
+      const revealed = host.querySelector('.uri-hosts') as HTMLElement;
+      expect(revealed.textContent).toContain('http://localhost:9001/a');
+      expect(revealed.textContent).toContain('http://host.docker.internal:8080/a');
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+      toggle.click();
+      fixture.detectChanges();
+      expect(host.querySelector('.uri-hosts')).toBeNull();
+    });
+
+    it('keeps both lines when more than the host differs - a rewrite is never folded away', () => {
+      const row = urlRow(
+        makeCall({
+          source: 'internal',
+          original_url: 'http://localhost:9001/legacy/search',
+          url: 'http://host.docker.internal:8080/v2/search',
+        })
+      );
+
+      expect(row.querySelectorAll('.uri-row').length).toBe(2);
+      expect(Array.from(row.querySelectorAll('.uri-label')).map((l) => l.textContent?.trim())).toEqual(['From', 'To']);
+      expect(row.querySelector('.uri-hosts-toggle')).toBeNull();
+    });
+
+    it('keeps both lines when a url cannot be parsed, rather than dropping one', () => {
+      const row = urlRow(makeCall({ original_url: 'not a url', url: 'http://host/x' }));
+
+      expect(row.querySelectorAll('.uri-row').length).toBe(2);
+    });
+  });
 });
