@@ -1,4 +1,5 @@
 import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTreeComponent } from '../json-tree/json-tree.component';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
@@ -21,6 +22,16 @@ export type PanelLoadState = 'idle' | 'loading' | 'loaded' | 'error';
  */
 export type PanelLoadTrigger = 'user' | 'bulk';
 
+/**
+ * Which chrome wraps this block's content.
+ *
+ * - 'details' (the default): its own collapsible <details> with a summary, which is how the
+ *   standalone json-view page and any pre-existing caller use it.
+ * - 'panel': no collapsible wrapper at all - something outside owns open/closed (a call card's chip
+ *   strip) and only renders this when it's open, so the block carries just a title bar and a close.
+ */
+export type PanelChrome = 'details' | 'panel';
+
 type ParsedValue =
   | { kind: 'json'; value: unknown }
   | { kind: 'xml'; text: string }
@@ -41,7 +52,7 @@ type ParsedValue =
 @Component({
   selector: 'app-json-panel',
   standalone: true,
-  imports: [JsonFlatViewComponent, JsonTreeComponent],
+  imports: [JsonFlatViewComponent, JsonTreeComponent, NgTemplateOutlet],
   templateUrl: './json-panel.component.html',
 })
 export class JsonPanelComponent {
@@ -68,6 +79,9 @@ export class JsonPanelComponent {
   readonly loadState = input<PanelLoadState>('loaded');
   /** Emitted the first time this block is opened while still 'idle', and again on a retry click. */
   readonly loadRequested = output<PanelLoadTrigger>();
+  readonly chrome = input<PanelChrome>('details');
+  /** Only meaningful in 'panel' chrome - the close button in the block's own title bar. */
+  readonly closeRequested = output<void>();
 
   /** Starts closed and is set on the first collapse-all sync (see the constructor): an eagerly
    * supplied block opens as it always has, a lazily-loaded one stays shut until asked for. Starting
@@ -184,6 +198,7 @@ export class JsonPanelComponent {
     // counter actually changes, not on every read.
     effect(
       () => {
+        if (this.chrome() === 'panel') return;
         const version = this.state.collapseAllVersion();
         const firstSync = this.lastSeenCollapseAllVersion === -1;
         if (!firstSync && version === this.lastSeenCollapseAllVersion) return;

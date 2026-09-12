@@ -120,13 +120,13 @@ describe('CallTreeNodeComponent', () => {
       call('core', 2000, 4000, { service_name: 'core-service' }),
     ]).nativeElement;
 
-    const summariesIn = (selector: string) =>
-      Array.from(host.querySelectorAll(selector + ' .panel details.block summary')).map((s) => (s.textContent ?? '').trim().split(/\s+/)[0]);
+    const chipsIn = (selector: string) =>
+      Array.from(host.querySelectorAll(selector + ' .block-chip')).map((c) => (c.textContent ?? '').trim());
 
-    expect(summariesIn('.call-band-request')).toEqual(['Headers', 'Body']);
-    expect(summariesIn('.call-band-response')).toEqual(['Headers', 'Body']);
-    // Every block starts closed and unfetched - listing them costs no requests at all.
-    expect(Array.from(host.querySelectorAll('details.block')).every((d) => !(d as HTMLDetailsElement).open)).toBe(true);
+    expect(chipsIn('.call-band-request')).toEqual(['▸ Headers', '▸ Body']);
+    expect(chipsIn('.call-band-response')).toEqual(['▸ Headers', '▸ Body']);
+    // Nothing open, so no panel exists and nothing has been fetched.
+    expect(host.querySelector('.block-panel')).toBeNull();
     httpMock.expectNone((r) => r.url.includes('/detail'));
   });
 
@@ -136,10 +136,9 @@ describe('CallTreeNodeComponent', () => {
       call('core', 2000, 4000, { service_name: 'core-service' }),
     ]);
     const host: HTMLElement = fixture.nativeElement;
-    const responseBody = host.querySelectorAll('.call-band-response details.block')[1] as HTMLDetailsElement;
+    const responseBody = host.querySelectorAll('.call-band-response .block-chip')[1] as HTMLButtonElement;
 
-    responseBody.open = true;
-    responseBody.dispatchEvent(new Event('toggle'));
+    responseBody.click();
     fixture.detectChanges();
 
     const req = httpMock.expectOne((r) => r.url.includes('/odeysys/detail') && r.params.get('part') === 'response-body');
@@ -156,7 +155,7 @@ describe('CallTreeNodeComponent', () => {
 
     expect(host.querySelector('.call.sandwich')).toBeNull();
     expect(host.querySelector('.call-band')).toBeNull();
-    expect(host.querySelectorAll('details.block').length).toBe(4);
+    expect(host.querySelectorAll('.block-chip').length).toBe(4);
     httpMock.expectNone((r) => r.url.includes('/detail'));
   });
 

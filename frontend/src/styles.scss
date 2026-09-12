@@ -824,6 +824,147 @@ main {
   border: 1px solid var(--border);
 }
 
+// ---------- Block chip strip ----------
+// The four blocks as one line instead of two titled panels with four rows - see call-card's
+// blockChips(). Each chip is an independent toggle, so any combination can be open at once.
+
+.blocks-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.blocks-group {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-right: 0.1rem;
+
+  // Breathing room between the REQ group and the RES group, without a separator element.
+  &:not(:first-child) {
+    margin-left: 0.45rem;
+  }
+}
+
+.block-chip {
+  padding: 0.12rem 0.5rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    color: var(--purple-light);
+    border-color: color-mix(in srgb, var(--purple) 45%, transparent);
+  }
+
+  // Open: filled, because at a glance you want to know which blocks are already showing.
+  &.open {
+    color: #0b0e22;
+    background: var(--purple);
+    border-color: var(--purple);
+  }
+
+  &.loading {
+    color: var(--purple-light);
+    border-color: color-mix(in srgb, var(--purple) 55%, transparent);
+  }
+
+  &.failed {
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 45%, transparent);
+  }
+
+  // Dashed = the call is still running, so this block doesn't exist yet. It keeps its slot so
+  // nothing reflows when the response lands.
+  &.pending {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--purple) 45%, transparent);
+  }
+
+  // Armed: clicked while pending, and will open itself the moment the response arrives.
+  &.armed {
+    color: var(--purple-light);
+    background: color-mix(in srgb, var(--purple) 14%, transparent);
+  }
+
+  // The call failed - there is no response and never will be, so this isn't a control at all.
+  &.unavailable,
+  &:disabled {
+    color: var(--text-dim);
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
+.blocks-collapse {
+  margin-left: auto;
+  padding: 0.12rem 0.4rem;
+  font-family: inherit;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--purple-light);
+  }
+}
+
+.blocks-open {
+  margin-top: 0.4rem;
+
+  > app-json-panel {
+    display: block;
+    min-width: 0;
+  }
+}
+
+// An open block in chip mode has no collapsed summary to read, so its own title bar is the only
+// thing naming it - see JsonPanelComponent's 'panel' chrome.
+.block-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.block-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--purple-light);
+  background: color-mix(in srgb, var(--purple) 8%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.block-panel-close {
+  margin-left: auto;
+  padding: 0 0.25rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--purple-light);
+  }
+}
+
 // ---------- Per-block load hints ----------
 // All four blocks are listed from the start, so each summary has to say whether there's anything
 // behind it yet - see JsonPanelComponent.loadState.
@@ -1586,7 +1727,10 @@ app-json-panel {
 
 .panels {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  // minmax(0, …) rather than a bare 1fr: a track's default min-width is auto, so one very long
+  // unwrapped JSON line stretches its column to the width of that line - measured at 73,660px
+  // before this was clamped.
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.85rem;
   margin-top: 0.35rem;
 
@@ -1595,11 +1739,11 @@ app-json-panel {
   // column with a permanently empty second one, so it spans the card instead. See the call-card
   // component's singlePanel().
   &.single {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   @media (max-width: 880px) {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

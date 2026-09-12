@@ -15,6 +15,30 @@ import {
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
+
+type BlockGroup = 'REQ' | 'RES';
+
+/** Can this block be shown at all, and if not, why not - see blockChips. */
+type BlockAvailability = 'ready' | 'pending' | 'none';
+
+export interface BlockChip {
+  readonly part: CallDetailPart;
+  readonly group: BlockGroup;
+  readonly label: string;
+  /** What the open panel's own title bar reads, since the collapsed strip has no group headings. */
+  readonly title: string;
+  readonly state: PanelLoadState;
+  readonly availability: BlockAvailability;
+  readonly open: boolean;
+  readonly armed: boolean;
+}
+
+const BLOCK_DEFINITIONS: readonly { part: CallDetailPart; group: BlockGroup; label: string; title: string }[] = [
+  { part: 'request-headers', group: 'REQ', label: 'Headers', title: 'Request headers' },
+  { part: 'request-body', group: 'REQ', label: 'Body', title: 'Request body' },
+  { part: 'response-headers', group: 'RES', label: 'Headers', title: 'Response headers' },
+  { part: 'response-body', group: 'RES', label: 'Body', title: 'Response body' },
+];
 import { CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { copyToClipboard } from '../../shared/utils/clipboard';
@@ -266,6 +290,35 @@ export class CallCardComponent {
     this.observer.observe(this.hostRef.nativeElement);
     this.destroyRef.onDestroy(() => this.observer?.disconnect());
 
+    // "Expand all"/"Collapse all". The card owns this now that the chip strip owns open/closed.
+    // Expanding opens HEADERS only: opening every body on a full page would fire fifty large
+    // fetches off one click, whereas headers are a few hundred bytes and are what's worth scanning
+    // in bulk. The first run is this card catching up with current state, not a bulk click - acting
+    // on it would make every card fetch the moment it rendered.
+    let lastSeenCollapseAllVersion = -1;
+    effect(
+      () => {
+        const version = this.controlsState.collapseAllVersion();
+        if (lastSeenCollapseAllVersion === -1) {
+          lastSeenCollapseAllVersion = version;
+          return;
+        }
+        if (version === lastSeenCollapseAllVersion) return;
+        lastSeenCollapseAllVersion = version;
+
+        if (!this.controlsState.expanded()) {
+          this.closeBlocks();
+          return;
+        }
+        for (const chip of this.blockChips()) {
+          if (chip.availability !== 'ready' || chip.part.endsWith('-body')) continue;
+          this.openParts.update((open) => toggled(open, chip.part, true));
+          this.loadPart(chip.part, 'bulk');
+        }
+      },
+      { allowSignalWrites: true }
+    );
+
     // If a block was opened while the call was still IN_PROGRESS, what it fetched has no response
     // in it - the live WebSocket push that later completes the call replaces call() with a new
     // object (see calls-state.service.ts), but nothing tells this card to re-fetch, so a response
@@ -282,11 +335,118 @@ export class CallCardComponent {
           for (const [part, state] of Object.entries(this.partStates()) as [CallDetailPart, PanelLoadState][]) {
             if (state === 'loaded') this.refetchPart(part);
           }
+          // Anything armed while the call was still running opens itself now that there's something
+          // to open - the point of arming a chip is not having to come back and click it.
+          for (const part of this.armedParts()) {
+            this.openParts.update((open) => toggled(open, part, true));
+            this.loadPart(part, 'user');
+          }
+          this.armedParts.set(new Set());
         }
         wasInProgress = false;
       },
       { allowSignalWrites: true }
     );
+  }
+
+  /**
+   * The four chips, in fixed order. Position never depends on click order or on which blocks
+   * happen to exist, so the same block is always in the same place from one card to the next.
+   *
+   * `availability` is the part a chip can't show on its own:
+   * - 'pending': the call is still running, so the response genuinely hasn't happened yet. The chip
+   *   keeps its slot (nothing reflows when it lands) and clicking ARMS it - see armedParts.
+   * - 'none': the call failed outright, so there will never be a response. Verified against a real
+   *   errored call: ?part=response-body returns {"request":null,"response":null}.
+   */
+  readonly blockChips = computed<readonly BlockChip[]>(() => {
+    const inProgress = this.inProgress();
+    const failed = !inProgress && !!this.call().error;
+    const open = this.openParts();
+    const armed = this.armedParts();
+
+    return BLOCK_DEFINITIONS.filter((block) => this.showsGroup(block.group))
+      // A failed call has no response at all, so its two response blocks collapse to ONE inert
+      // chip - two of them would be twice the noise for the same "nothing here" message.
+      .filter((block) => !(failed && block.part === 'response-body'))
+      .map((block) => ({
+        ...block,
+        state: this.partStates()[block.part],
+        availability: block.group === 'RES' ? (inProgress ? 'pending' : failed ? 'none' : 'ready') : 'ready',
+        open: open.has(block.part),
+        armed: armed.has(block.part),
+      }));
+  });
+
+  /** Whether a group's chips appear at all - a split row shows only its own half (see variant). */
+  private showsGroup(group: BlockGroup): boolean {
+    return group === 'REQ' ? this.showsRequestPanel() : this.variant() !== 'request';
+  }
+
+  /**
+   * The chips for one strip. A sandwich card draws two strips - its request band carries REQ and its
+   * response band RES - while every other card draws one strip with everything on it.
+   */
+  chipsFor(group?: BlockGroup): readonly BlockChip[] {
+    return group ? this.blockChips().filter((chip) => chip.group === group) : this.blockChips();
+  }
+
+  /** Open blocks for one strip, in the same fixed order as the chips - so two cards with the same
+   * blocks open lay out identically regardless of what was clicked first. A lone one spans the
+   * card; two or more pair up, request left and response right. */
+  openBlocksFor(group?: BlockGroup): readonly BlockChip[] {
+    return this.chipsFor(group).filter((chip) => chip.open);
+  }
+
+  closeBlocks(group?: BlockGroup): void {
+    const closing = new Set(this.openBlocksFor(group).map((chip) => chip.part));
+    this.openParts.update((open) => new Set([...open].filter((part) => !closing.has(part))));
+  }
+
+  private readonly openParts = signal<ReadonlySet<CallDetailPart>>(new Set());
+  /** Response blocks clicked while the call was still running: fetched and opened by themselves the
+   * moment it resolves, so a slow call can be armed and left alone. */
+  private readonly armedParts = signal<ReadonlySet<CallDetailPart>>(new Set());
+
+  /** Clicking a chip. A 'none' chip is inert - there is nothing to show and never will be. */
+  toggleBlock(chip: BlockChip): void {
+    if (chip.availability === 'none') return;
+    if (chip.availability === 'pending') {
+      this.armedParts.update((armed) => toggled(armed, chip.part));
+      return;
+    }
+    const isOpen = this.openParts().has(chip.part);
+    this.openParts.update((open) => toggled(open, chip.part));
+    if (!isOpen) this.loadPart(chip.part, 'user');
+  }
+
+  /** Whether this chip opens a new group, so REQ/RES is printed once rather than per chip. */
+  startsGroup(chips: readonly BlockChip[], index: number): boolean {
+    return index === 0 || chips[index - 1].group !== chips[index].group;
+  }
+
+  /** The chip's own text. Availability is stated rather than implied - a blank-looking chip that
+   * does nothing would just read as broken. */
+  chipLabel(chip: BlockChip): string {
+    if (chip.availability === 'none') return '— none';
+    if (chip.availability === 'pending') return `⏳ ${chip.label}`;
+    if (chip.state === 'loading') return `◌ ${chip.label}`;
+    return `${chip.open ? '▾' : '▸'} ${chip.label}`;
+  }
+
+  chipTitle(chip: BlockChip): string {
+    if (chip.availability === 'none') return 'The call failed before any response - there is nothing to show';
+    if (chip.availability === 'pending') {
+      return chip.armed
+        ? 'Armed - this opens by itself as soon as the response arrives'
+        : 'The call is still running. Click to open this the moment the response arrives';
+    }
+    if (chip.state === 'error') return `${chip.title} failed to load - open to retry`;
+    return chip.title;
+  }
+
+  closeBlock(part: CallDetailPart): void {
+    this.openParts.update((open) => toggled(open, part, false));
   }
 
   partState(part: CallDetailPart): PanelLoadState {
@@ -395,6 +555,19 @@ export class CallCardComponent {
   onWindowMouseUp(): void {
     this.state.endDragSelect();
   }
+}
+
+/** Adds or removes a part, returning a fresh set (signals compare by reference). */
+function toggled(
+  parts: ReadonlySet<CallDetailPart>,
+  part: CallDetailPart,
+  force?: boolean
+): ReadonlySet<CallDetailPart> {
+  const next = new Set(parts);
+  const shouldAdd = force ?? !next.has(part);
+  if (shouldAdd) next.add(part);
+  else next.delete(part);
+  return next;
 }
 
 /** Pulls one block's raw value out of a per-part detail response - the backend populates only the

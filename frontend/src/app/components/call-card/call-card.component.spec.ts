@@ -76,11 +76,9 @@ describe('CallCardComponent', () => {
     return fixture;
   }
 
-  /** Opens one of the four blocks the way a user does - <details> fires `toggle` on open. */
+  /** Clicks one of the four block chips - req headers, req body, res headers, res body. */
   function openBlock(fixture: ReturnType<typeof createCard>, index: number): void {
-    const block = (fixture.nativeElement as HTMLElement).querySelectorAll('details.block')[index] as HTMLDetailsElement;
-    block.open = true;
-    block.dispatchEvent(new Event('toggle'));
+    ((fixture.nativeElement as HTMLElement).querySelectorAll('.block-chip')[index] as HTMLButtonElement).click();
     fixture.detectChanges();
   }
 
@@ -88,10 +86,12 @@ describe('CallCardComponent', () => {
     const fixture = createCard();
     const host: HTMLElement = fixture.nativeElement;
 
-    const blocks = Array.from(host.querySelectorAll('details.block'));
-    expect(blocks.length).toBe(4);
-    expect(blocks.every((b) => !(b as HTMLDetailsElement).open)).toBe(true);
-    expect(host.textContent).toContain('not loaded');
+    const chips = Array.from(host.querySelectorAll('.block-chip'));
+    expect(chips.map((c) => c.textContent?.trim())).toEqual(['▸ Headers', '▸ Body', '▸ Headers', '▸ Body']);
+    // Grouped once each, rather than repeating the word on every chip.
+    expect(Array.from(host.querySelectorAll('.blocks-group')).map((g) => g.textContent?.trim())).toEqual(['REQ', 'RES']);
+    // Nothing is open, so no panel is rendered and nothing has been fetched.
+    expect(host.querySelector('.block-panel')).toBeNull();
     httpMock.expectNone((req) => req.url.includes('/detail'));
   });
 
@@ -117,13 +117,8 @@ describe('CallCardComponent', () => {
     httpMock.expectOne((r) => r.params.get('part') === 'request-headers').flush({ request: { headers: { accept: 'x' } } });
     fixture.detectChanges();
 
-    const block = (fixture.nativeElement as HTMLElement).querySelector('details.block') as HTMLDetailsElement;
-    block.open = false;
-    block.dispatchEvent(new Event('toggle'));
-    fixture.detectChanges();
-    block.open = true;
-    block.dispatchEvent(new Event('toggle'));
-    fixture.detectChanges();
+    openBlock(fixture, 0); // close
+    openBlock(fixture, 0); // and reopen
 
     httpMock.expectNone((r) => r.url.includes('/detail'));
   });
@@ -151,7 +146,7 @@ describe('CallCardComponent', () => {
     httpMock.expectOne((r) => r.params.get('part') === 'response-headers').flush('nope', { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
-    expect(host.textContent).toContain('Failed to load headers');
+    expect(host.textContent).toContain('Failed to load response headers');
     (host.querySelector('.error-banner .action-btn') as HTMLButtonElement).click();
     fixture.detectChanges();
 
@@ -251,32 +246,56 @@ describe('CallCardComponent', () => {
 
     it('lists only the request blocks on a request row, and only the response blocks on a response row', () => {
       const requestRow: HTMLElement = createCard(makeCall(), 'request').nativeElement;
-      expect(Array.from(requestRow.querySelectorAll('.panel-title')).map((t) => t.textContent?.trim())).toEqual(['Request']);
-      expect(requestRow.querySelectorAll('details.block').length).toBe(2);
+      expect(Array.from(requestRow.querySelectorAll('.blocks-group')).map((g) => g.textContent?.trim())).toEqual(['REQ']);
+      expect(requestRow.querySelectorAll('.block-chip').length).toBe(2);
 
       const responseRow: HTMLElement = createCard(makeCall(), 'response').nativeElement;
-      expect(Array.from(responseRow.querySelectorAll('.panel-title')).map((t) => t.textContent?.trim())).toEqual(['Response']);
-      expect(responseRow.querySelectorAll('details.block').length).toBe(2);
+      expect(Array.from(responseRow.querySelectorAll('.blocks-group')).map((g) => g.textContent?.trim())).toEqual(['RES']);
+      expect(responseRow.querySelectorAll('.block-chip').length).toBe(2);
     });
 
-    it("gives a split row's lone panel the card's full width, while a full row keeps the 2-up grid", () => {
-      const panelsOf = (variant?: 'request' | 'response' | 'full') =>
-        (createCard(makeCall(), variant).nativeElement as HTMLElement).querySelector('.panels') as HTMLElement;
+    it('gives a lone open block the whole card, and pairs two or more side by side', () => {
+      const fixture = createCard();
+      const host: HTMLElement = fixture.nativeElement;
 
-      // Only one panel renders on either half, so the 2-up grid would strand it beside an empty
-      // column - .single collapses the grid to one full-width track (see styles.scss's .panels).
-      expect(panelsOf('request').classList.contains('single')).toBe(true);
-      expect(panelsOf('response').classList.contains('single')).toBe(true);
-      // A full row still lists both panels side by side, unchanged.
-      expect(panelsOf().classList.contains('single')).toBe(false);
+      openBlock(fixture, 0);
+      httpMock.expectOne((r) => r.params.get('part') === 'request-headers').flush({ request: { headers: {} } });
+      fixture.detectChanges();
+      expect(host.querySelector('.blocks-open')?.classList.contains('single')).toBe(true);
+
+      openBlock(fixture, 2);
+      httpMock.expectOne((r) => r.params.get('part') === 'response-headers').flush({ response: { status: 200, headers: {} } });
+      fixture.detectChanges();
+      // Two open: the 2-up grid, request on the left and response on the right.
+      expect(host.querySelector('.blocks-open')?.classList.contains('single')).toBe(false);
+      expect(host.querySelectorAll('.block-panel').length).toBe(2);
+      expect(Array.from(host.querySelectorAll('.block-panel-title span')).map((t) => t.textContent?.trim())).toEqual([
+        'Request headers',
+        'Response headers',
+      ]);
     });
 
-    it("gives a full row's request panel the whole width while the call is still in progress, with no response panel to sit beside", () => {
-      const host: HTMLElement = createCard(makeCall({ state: 'IN_PROGRESS', response: undefined })).nativeElement;
+    it('closes one open block from its own title bar, and all of them from the strip', () => {
+      const fixture = createCard();
+      const host: HTMLElement = fixture.nativeElement;
 
-      // There is no response to open yet, so no Response panel is listed at all.
-      expect(host.querySelector('.panels')?.classList.contains('single')).toBe(true);
-      expect(Array.from(host.querySelectorAll('.panel-title')).map((t) => t.textContent?.trim())).toEqual(['Request']);
+      openBlock(fixture, 0);
+      httpMock.expectOne((r) => r.params.get('part') === 'request-headers').flush({ request: { headers: {} } });
+      openBlock(fixture, 1);
+      httpMock.expectOne((r) => r.params.get('part') === 'request-body').flush({ request: { body: 'b' } });
+      fixture.detectChanges();
+      expect(host.querySelector('.blocks-collapse')?.textContent).toContain('2 open');
+
+      (host.querySelector('.block-panel-close') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(host.querySelectorAll('.block-panel').length).toBe(1);
+
+      (host.querySelector('.blocks-collapse') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(host.querySelector('.block-panel')).toBeNull();
+      // Closing doesn't discard what was fetched - reopening costs no request.
+      openBlock(fixture, 0);
+      httpMock.expectNone((r) => r.url.includes('/detail'));
     });
   });
 
@@ -446,6 +465,58 @@ describe('CallCardComponent', () => {
       const row = urlRow(makeCall({ original_url: 'not a url', url: 'http://host/x' }));
 
       expect(row.querySelectorAll('.uri-row').length).toBe(2);
+    });
+  });
+
+  describe('blocks with no content to show', () => {
+    it('keeps the response chips in place while the call is running, marked pending', () => {
+      const host: HTMLElement = createCard(makeCall({ state: 'IN_PROGRESS', response: undefined })).nativeElement;
+      const chips = Array.from(host.querySelectorAll('.block-chip'));
+
+      // All four slots stay, so nothing reflows when the response lands.
+      expect(chips.length).toBe(4);
+      expect(chips.slice(2).every((c) => c.classList.contains('pending'))).toBe(true);
+      expect(chips.slice(0, 2).some((c) => c.classList.contains('pending'))).toBe(false);
+      expect(chips[2].textContent?.trim()).toBe('⏳ Headers');
+    });
+
+    it('arms a pending chip instead of opening it, then opens it by itself once the call resolves', () => {
+      const fixture = createCard(makeCall({ state: 'IN_PROGRESS', response: undefined }));
+      const host: HTMLElement = fixture.nativeElement;
+
+      (host.querySelectorAll('.block-chip')[3] as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      // Armed, not open - there is nothing to fetch yet.
+      expect(host.querySelectorAll('.block-chip')[3].classList.contains('armed')).toBe(true);
+      expect(host.querySelector('.block-panel')).toBeNull();
+      httpMock.expectNone((r) => r.url.includes('/detail'));
+
+      // The WebSocket push that completes the call replaces the record.
+      fixture.componentRef.setInput('call', makeCall({ state: 'COMPLETED', response: { status: 200 } }));
+      fixture.detectChanges();
+
+      httpMock.expectOne((r) => r.params.get('part') === 'response-body').flush({ response: { status: 200, body: 'landed' } });
+      fixture.detectChanges();
+
+      expect(host.querySelector('.block-panel-title span')?.textContent?.trim()).toBe('Response body');
+      expect(host.textContent).toContain('landed');
+    });
+
+    it('marks the response as never-coming on a failed call, and refuses to open it', () => {
+      const fixture = createCard(makeCall({ error: 'boom', response: undefined }));
+      const host: HTMLElement = fixture.nativeElement;
+      const chips = Array.from(host.querySelectorAll('.block-chip')) as HTMLButtonElement[];
+
+      // The two response blocks collapse to a single inert chip - twice the noise otherwise, for a
+      // response that genuinely does not exist (?part=response-body returns nulls for these).
+      expect(chips.map((c) => c.textContent?.trim())).toEqual(['▸ Headers', '▸ Body', '— none']);
+      expect(chips[2].disabled).toBe(true);
+
+      chips[2].click();
+      fixture.detectChanges();
+      expect(host.querySelector('.block-panel')).toBeNull();
+      httpMock.expectNone((r) => r.url.includes('/detail'));
     });
   });
 });

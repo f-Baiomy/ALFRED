@@ -1,105 +1,122 @@
-<details class="block" [open]="open()" (toggle)="onToggle($event)">
-  <summary>
-    {{ label() }}
-    @switch (loadState()) {
-      @case ('idle') {
-        <span class="block-load-hint">not loaded</span>
-      }
-      @case ('loading') {
-        <span class="block-load-hint">loading&hellip;</span>
-      }
-      @case ('error') {
-        <span class="block-load-hint block-load-failed">failed</span>
-      }
-    }
-  </summary>
-  @if (loadState() === 'loading') {
-    <div class="detail-placeholder">Loading {{ label().toLowerCase() }}&hellip;</div>
-  } @else if (loadState() === 'error') {
-    <div class="error-banner">
-      Failed to load {{ label().toLowerCase() }}.
-      <button type="button" class="action-btn" (click)="retryLoad()">Retry</button>
-    </div>
-  } @else if (loadState() === 'loaded') {
-  <div class="json-wrap">
-    <div class="block-toolbar">
-      @if (parsed().kind === 'json') {
-        <div class="block-view-tabs">
-          <button
-            type="button"
-            class="block-view-tab"
-            [class.active]="effectiveViewMode() === 'flat'"
-            (click)="setViewMode('flat')"
-          >Flat</button>
-          <button
-            type="button"
-            class="block-view-tab"
-            [class.active]="effectiveViewMode() === 'tree'"
-            (click)="setViewMode('tree')"
-          >Tree</button>
-        </div>
-      }
-
-      <input
-        type="text"
-        class="block-search"
-        placeholder="Find in block..."
-        [value]="searchQuery()"
-        (input)="onSearchInput($any($event.target).value)"
-        (keydown.enter)="nextMatch(1)"
-        (keydown.shift.enter)="nextMatch(-1)"
-      />
-      <span class="block-search-count">
-        @if (searchQuery()) {
-          {{ matchCount() > 0 ? activeMatchIndex() + 1 + '/' + matchCount() : '0/0' }}
-        }
-      </span>
-      <button type="button" class="block-search-nav" title="Previous match" (click)="nextMatch(-1)">&lsaquo;</button>
-      <button type="button" class="block-search-nav" title="Next match" (click)="nextMatch(1)">&rsaquo;</button>
-
-      @if (effectiveViewMode() === 'flat') {
+<ng-template #blockBody>
+@if (loadState() === 'loading') {
+  <div class="detail-placeholder">Loading {{ label().toLowerCase() }}&hellip;</div>
+} @else if (loadState() === 'error') {
+  <div class="error-banner">
+    Failed to load {{ label().toLowerCase() }}.
+    <button type="button" class="action-btn" (click)="retryLoad()">Retry</button>
+  </div>
+} @else if (loadState() === 'loaded') {
+<div class="json-wrap">
+  <div class="block-toolbar">
+    @if (parsed().kind === 'json') {
+      <div class="block-view-tabs">
         <button
           type="button"
-          class="block-search-mode"
-          [class.active]="filterLinesOnly()"
-          title="Toggle: show only matching lines"
-          (click)="toggleFilterMode()"
-        >Lines only</button>
-      }
+          class="block-view-tab"
+          [class.active]="effectiveViewMode() === 'flat'"
+          (click)="setViewMode('flat')"
+        >Flat</button>
+        <button
+          type="button"
+          class="block-view-tab"
+          [class.active]="effectiveViewMode() === 'tree'"
+          (click)="setViewMode('tree')"
+        >Tree</button>
+      </div>
+    }
 
-      @if (effectiveViewMode() === 'tree') {
-        <button type="button" class="block-search-mode" title="Expand every node in this tree" (click)="setAllTreeNodesOpen(true)">Expand all</button>
-        <button type="button" class="block-search-mode" title="Collapse every node in this tree" (click)="setAllTreeNodesOpen(false)">Collapse all</button>
+    <input
+      type="text"
+      class="block-search"
+      placeholder="Find in block..."
+      [value]="searchQuery()"
+      (input)="onSearchInput($any($event.target).value)"
+      (keydown.enter)="nextMatch(1)"
+      (keydown.shift.enter)="nextMatch(-1)"
+    />
+    <span class="block-search-count">
+      @if (searchQuery()) {
+        {{ matchCount() > 0 ? activeMatchIndex() + 1 + '/' + matchCount() : '0/0' }}
       }
+    </span>
+    <button type="button" class="block-search-nav" title="Previous match" (click)="nextMatch(-1)">&lsaquo;</button>
+    <button type="button" class="block-search-nav" title="Next match" (click)="nextMatch(1)">&rsaquo;</button>
 
+    @if (effectiveViewMode() === 'flat') {
       <button
         type="button"
         class="block-search-mode"
-        title="Open this block in a big new tab - same search/tree/flat/comment features, just more room"
-        (click)="openInNewTab()"
-      >Open in new tab &#10697;</button>
-
-      <button type="button" class="copy-btn" (click)="copyContent()">{{ copyFeedback() ? 'Copied!' : 'Copy' }}</button>
-    </div>
-
-    @if (hiddenLinesNote()) {
-      <div class="hidden-lines-note">{{ hiddenLinesNote() }}</div>
+        [class.active]="filterLinesOnly()"
+        title="Toggle: show only matching lines"
+        (click)="toggleFilterMode()"
+      >Lines only</button>
     }
-    <div #contentRoot>
-      @if (effectiveViewMode() === 'tree') {
-        <app-json-tree [value]="treeValue()" [searchQuery]="searchQuery()" [scrollId]="panelId()" />
-      } @else {
-        <app-json-flat-view
-          [lines]="displayLines()"
-          [variant]="parsed().kind === 'text' ? 'plain' : 'json'"
-          [activeMatchIndex]="activeMatchIndex()"
-          [scrollId]="panelId()"
-          [commentsByLine]="commentsByLine()"
-          (addComment)="onAddComment($event)"
-          (deleteComment)="onDeleteComment($event)"
-        />
-      }
-    </div>
+
+    @if (effectiveViewMode() === 'tree') {
+      <button type="button" class="block-search-mode" title="Expand every node in this tree" (click)="setAllTreeNodesOpen(true)">Expand all</button>
+      <button type="button" class="block-search-mode" title="Collapse every node in this tree" (click)="setAllTreeNodesOpen(false)">Collapse all</button>
+    }
+
+    <button
+      type="button"
+      class="block-search-mode"
+      title="Open this block in a big new tab - same search/tree/flat/comment features, just more room"
+      (click)="openInNewTab()"
+    >Open in new tab &#10697;</button>
+
+    <button type="button" class="copy-btn" (click)="copyContent()">{{ copyFeedback() ? 'Copied!' : 'Copy' }}</button>
   </div>
+
+  @if (hiddenLinesNote()) {
+    <div class="hidden-lines-note">{{ hiddenLinesNote() }}</div>
   }
-</details>
+  <div #contentRoot>
+    @if (effectiveViewMode() === 'tree') {
+      <app-json-tree [value]="treeValue()" [searchQuery]="searchQuery()" [scrollId]="panelId()" />
+    } @else {
+      <app-json-flat-view
+        [lines]="displayLines()"
+        [variant]="parsed().kind === 'text' ? 'plain' : 'json'"
+        [activeMatchIndex]="activeMatchIndex()"
+        [scrollId]="panelId()"
+        [commentsByLine]="commentsByLine()"
+        (addComment)="onAddComment($event)"
+        (deleteComment)="onDeleteComment($event)"
+      />
+    }
+  </div>
+</div>
+}
+</ng-template>
+
+@if (chrome() === 'panel') {
+  <!-- Chip-strip mode: the card's chip is the toggle, so this renders open with a title bar of its
+       own. With several blocks open at once and no collapsed summaries to read, that title is the
+       only thing saying which of the four you're looking at. -->
+  <div class="block-panel">
+    <div class="block-panel-title">
+      <span>{{ label() }}</span>
+      <button type="button" class="block-panel-close" title="Close this block" aria-label="Close this block" (click)="closeRequested.emit()">&times;</button>
+    </div>
+    <ng-container [ngTemplateOutlet]="blockBody" />
+  </div>
+} @else {
+  <details class="block" [open]="open()" (toggle)="onToggle($event)">
+    <summary>
+      {{ label() }}
+      @switch (loadState()) {
+        @case ('idle') {
+          <span class="block-load-hint">not loaded</span>
+        }
+        @case ('loading') {
+          <span class="block-load-hint">loading&hellip;</span>
+        }
+        @case ('error') {
+          <span class="block-load-hint block-load-failed">failed</span>
+        }
+      }
+    </summary>
+    <ng-container [ngTemplateOutlet]="blockBody" />
+  </details>
+}

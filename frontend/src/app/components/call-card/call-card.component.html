@@ -52,52 +52,50 @@
   </div>
 </ng-template>
 
-<ng-template #requestPanel>
-  <div class="panel">
-    <div class="panel-title">Request</div>
-    <app-json-panel
-      label="Headers"
-      [rawValue]="partValue('request-headers')"
-      [loadState]="partState('request-headers')"
-      (loadRequested)="loadPart('request-headers', $event)"
-      [panelId]="idBase() + '-req-headers'"
-      [callId]="call().id"
-      block="request-headers"
-    />
-    <app-json-panel
-      label="Body"
-      [rawValue]="partValue('request-body')"
-      [loadState]="partState('request-body')"
-      (loadRequested)="loadPart('request-body', $event)"
-      [panelId]="idBase() + '-req-body'"
-      [callId]="call().id"
-      block="request-body"
-    />
+<ng-template #blocksStrip let-group>
+  <div class="blocks-strip">
+    @for (chip of chipsFor(group); track chip.part) {
+      @if (startsGroup(chipsFor(group), $index)) {
+        <span class="blocks-group">{{ chip.group }}</span>
+      }
+      <button
+        type="button"
+        class="block-chip"
+        [class.open]="chip.open"
+        [class.armed]="chip.armed"
+        [class.pending]="chip.availability === 'pending'"
+        [class.unavailable]="chip.availability === 'none'"
+        [class.loading]="chip.state === 'loading'"
+        [class.failed]="chip.state === 'error'"
+        [disabled]="chip.availability === 'none'"
+        [title]="chipTitle(chip)"
+        (click)="toggleBlock(chip)"
+      >{{ chipLabel(chip) }}</button>
+    }
+    @if (openBlocksFor(group).length > 0) {
+      <button type="button" class="blocks-collapse" (click)="closeBlocks(group)">
+        {{ openBlocksFor(group).length }} open · collapse
+      </button>
+    }
   </div>
-</ng-template>
 
-<ng-template #responsePanel>
-  <div class="panel">
-    <div class="panel-title">Response</div>
-    <app-json-panel
-      label="Headers"
-      [rawValue]="partValue('response-headers')"
-      [loadState]="partState('response-headers')"
-      (loadRequested)="loadPart('response-headers', $event)"
-      [panelId]="idBase() + '-res-headers'"
-      [callId]="call().id"
-      block="response-headers"
-    />
-    <app-json-panel
-      label="Body"
-      [rawValue]="partValue('response-body')"
-      [loadState]="partState('response-body')"
-      (loadRequested)="loadPart('response-body', $event)"
-      [panelId]="idBase() + '-res-body'"
-      [callId]="call().id"
-      block="response-body"
-    />
-  </div>
+  @if (openBlocksFor(group).length > 0) {
+    <div class="panels blocks-open" [class.single]="openBlocksFor(group).length < 2">
+      @for (chip of openBlocksFor(group); track chip.part) {
+        <app-json-panel
+          chrome="panel"
+          [label]="chip.title"
+          [rawValue]="partValue(chip.part)"
+          [loadState]="partState(chip.part)"
+          (loadRequested)="loadPart(chip.part, $event)"
+          (closeRequested)="closeBlock(chip.part)"
+          [panelId]="idBase() + '-' + chip.part"
+          [callId]="call().id"
+          [block]="chip.part"
+        />
+      }
+    </div>
+  }
 </ng-template>
 
 <ng-template #inProgressBadge>
@@ -158,11 +156,7 @@
       <ng-container [ngTemplateOutlet]="urlsBlock" />
       <ng-container [ngTemplateOutlet]="idsBlock" />
 
-      @if (showsRequestPanel()) {
-        <div class="panels single">
-          <ng-container [ngTemplateOutlet]="requestPanel" />
-        </div>
-      }
+      <ng-container [ngTemplateOutlet]="blocksStrip" [ngTemplateOutletContext]="{ $implicit: 'REQ' }" />
     </div>
 
     <div class="call-nested">
@@ -193,11 +187,7 @@
         <div class="error-banner">&#9888; {{ call().error }}</div>
       }
 
-      @if (showsResponsePanel()) {
-        <div class="panels single">
-          <ng-container [ngTemplateOutlet]="responsePanel" />
-        </div>
-      }
+      <ng-container [ngTemplateOutlet]="blocksStrip" [ngTemplateOutletContext]="{ $implicit: 'RES' }" />
     </div>
   } @else {
     <div class="call-top">
@@ -258,13 +248,6 @@
       <div class="error-banner">&#9888; {{ call().error }}</div>
     }
 
-    <div class="panels" [class.single]="singlePanel()">
-      @if (showsRequestPanel()) {
-        <ng-container [ngTemplateOutlet]="requestPanel" />
-      }
-      @if (showsResponsePanel()) {
-        <ng-container [ngTemplateOutlet]="responsePanel" />
-      }
-    </div>
+    <ng-container [ngTemplateOutlet]="blocksStrip" />
   }
 </div>
