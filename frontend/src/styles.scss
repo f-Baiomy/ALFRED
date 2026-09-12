@@ -950,6 +950,17 @@ main {
   border-bottom: 1px solid var(--border);
 }
 
+// The 'details' chrome gets this spacing from its own <summary>'s padding; a panel's title bar is
+// a flush-edged strip, so without a top margin here the toolbar sits directly against it with a
+// measured 0px gap.
+.block-panel .json-wrap {
+  margin-top: 0.6rem;
+}
+
+.block-panel .error-banner {
+  margin: 0.6rem 0.75rem 0.75rem;
+}
+
 .block-panel-close {
   margin-left: auto;
   padding: 0 0.25rem;
