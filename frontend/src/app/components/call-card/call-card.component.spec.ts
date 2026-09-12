@@ -254,20 +254,23 @@ describe('CallCardComponent', () => {
       expect(responseRow.querySelectorAll('.block-chip').length).toBe(2);
     });
 
-    it('gives a lone open block the whole card, and pairs two or more side by side', () => {
+    it('stacks open blocks vertically, each spanning the card', () => {
       const fixture = createCard();
       const host: HTMLElement = fixture.nativeElement;
 
       openBlock(fixture, 0);
       httpMock.expectOne((r) => r.params.get('part') === 'request-headers').flush({ request: { headers: {} } });
       fixture.detectChanges();
-      expect(host.querySelector('.blocks-open')?.classList.contains('single')).toBe(true);
+      expect(host.querySelectorAll('.block-panel').length).toBe(1);
 
       openBlock(fixture, 2);
       httpMock.expectOne((r) => r.params.get('part') === 'response-headers').flush({ response: { status: 200, headers: {} } });
       fixture.detectChanges();
-      // Two open: the 2-up grid, request on the left and response on the right.
-      expect(host.querySelector('.blocks-open')?.classList.contains('single')).toBe(false);
+
+      // One per row, in the chips' own fixed order - never side by side, where each panel gets half
+      // the width and its toolbar wraps onto three rows.
+      const open = host.querySelector('.blocks-open') as HTMLElement;
+      expect(open.classList.contains('panels')).toBe(false);
       expect(host.querySelectorAll('.block-panel').length).toBe(2);
       expect(Array.from(host.querySelectorAll('.block-panel-title span')).map((t) => t.textContent?.trim())).toEqual([
         'Request headers',

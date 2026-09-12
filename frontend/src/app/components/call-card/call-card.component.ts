@@ -218,14 +218,6 @@ export class CallCardComponent {
   /** Whether the Response panel renders at all: never on a 'request' half, and not on a call that
    * hasn't resolved yet - there is no response to open. */
   readonly showsResponsePanel = computed(() => this.variant() !== 'request' && !this.inProgress());
-  /**
-   * True when exactly one of the two panels renders - either half of a split internal call (see
-   * splitCallsForDisplay() in call-utils.ts), or a full card still waiting on its response. The
-   * panels grid is 2-up by default, which would leave a permanently empty second column in both
-   * cases, so the lone panel is given the card's full width instead (see .panels.single).
-   */
-  readonly singlePanel = computed(() => this.showsRequestPanel() !== this.showsResponsePanel());
-
   /** The depth badge's text: a parent names what it contains, a child names what it sits inside.
    * Null for a call with no proven relations - an isolated call gets no badge at all rather than a
    * meaningless "L1". A 'response' row carries no badge either; the request row opening the pair
@@ -392,8 +384,9 @@ export class CallCardComponent {
   }
 
   /** Open blocks for one strip, in the same fixed order as the chips - so two cards with the same
-   * blocks open lay out identically regardless of what was clicked first. A lone one spans the
-   * card; two or more pair up, request left and response right. */
+   * blocks open lay out identically regardless of what was clicked first. They stack vertically,
+   * each spanning the card: side by side, two panels each get half the width, which is enough to
+   * wrap their own toolbars onto three rows and squeeze the content that's actually being read. */
   openBlocksFor(group?: BlockGroup): readonly BlockChip[] {
     return this.chipsFor(group).filter((chip) => chip.open);
   }

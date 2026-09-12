@@ -918,7 +918,13 @@ main {
   }
 }
 
+// Open blocks stack, each spanning the card. Two side by side get half the width apiece, which is
+// too narrow for a block's own toolbar (Flat/Tree, search, Lines only, Open in new tab, Copy) - it
+// wrapped onto three rows and left the content it's meant to serve squeezed underneath.
 .blocks-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   margin-top: 0.4rem;
 
   > app-json-panel {

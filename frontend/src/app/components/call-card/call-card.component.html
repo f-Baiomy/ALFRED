@@ -80,7 +80,7 @@
   </div>
 
   @if (openBlocksFor(group).length > 0) {
-    <div class="panels blocks-open" [class.single]="openBlocksFor(group).length < 2">
+    <div class="blocks-open">
       @for (chip of openBlocksFor(group); track chip.part) {
         <app-json-panel
           chrome="panel"
