@@ -188,10 +188,15 @@ public class SessionCyclesController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    /** The full request/response (headers+bodies) for one captured call - fetched only once it's actually expanded. */
+    /**
+     * The request/response (headers+bodies) for one captured call - fetched only once it's actually
+     * expanded. {@code part} narrows it to a single block, exactly as on GET /calls/{id}/detail;
+     * omitted, the whole detail comes back as before.
+     */
     @GetMapping("/{id}/calls/{callId}/detail")
-    public ResponseEntity<CallDetail> getDetail(@PathVariable String id, @PathVariable String callId) {
+    public ResponseEntity<CallDetail> getDetail(@PathVariable String id, @PathVariable String callId, @RequestParam(required = false) String part) {
         return getCapturedCallDetailUseCase.getDetail(id, callId)
+                .map(detail -> detail.part(part))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -246,10 +251,11 @@ public class SessionCyclesController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    /** The full request/response (headers+bodies) for one captured internal call - fetched only once it's actually expanded. */
+    /** As GET /{id}/calls/{callId}/detail above, for a captured internal call. */
     @GetMapping("/{id}/internal-calls/{callId}/detail")
-    public ResponseEntity<com.fathy.alfred.backend.internalcalls.domain.model.CallDetail> getInternalCallDetail(@PathVariable String id, @PathVariable String callId) {
+    public ResponseEntity<com.fathy.alfred.backend.internalcalls.domain.model.CallDetail> getInternalCallDetail(@PathVariable String id, @PathVariable String callId, @RequestParam(required = false) String part) {
         return getCapturedInternalCallDetailUseCase.getDetail(id, callId)
+                .map(detail -> detail.part(part))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

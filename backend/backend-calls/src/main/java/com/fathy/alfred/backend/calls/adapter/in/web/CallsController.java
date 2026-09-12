@@ -37,10 +37,19 @@ public class CallsController {
         return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId));
     }
 
-    /** The full request/response (headers+bodies) for one call - fetched only once it's actually expanded, not up front with every call in the list. */
+    /**
+     * The request/response (headers+bodies) for one call - fetched only once it's actually expanded,
+     * not up front with every call in the list.
+     *
+     * {@code part} narrows the payload to one of request-headers/request-body/response-headers/
+     * response-body, for a client that expanded a single block (see CallDetail.part). Omitted - or
+     * unrecognised - returns the whole detail exactly as before, which is what the export path and
+     * every pre-existing caller relies on.
+     */
     @GetMapping("/calls/{id}/detail")
-    public ResponseEntity<CallDetail> getDetail(@PathVariable String id) {
+    public ResponseEntity<CallDetail> getDetail(@PathVariable String id, @RequestParam(required = false) String part) {
         return getCallDetailUseCase.getDetail(id)
+                .map(detail -> detail.part(part))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

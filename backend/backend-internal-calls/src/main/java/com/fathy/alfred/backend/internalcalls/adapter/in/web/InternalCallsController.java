@@ -38,10 +38,17 @@ public class InternalCallsController {
         return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId, serviceNames));
     }
 
-    /** The full request/response (headers+bodies) for one call - fetched only once it's actually expanded. */
+    /**
+     * The request/response (headers+bodies) for one call - fetched only once it's actually expanded.
+     *
+     * {@code part} narrows the payload to one of request-headers/request-body/response-headers/
+     * response-body (see CallDetail.part). Omitted - or unrecognised - returns the whole detail
+     * exactly as before.
+     */
     @GetMapping("/internal-calls/{id}/detail")
-    public ResponseEntity<CallDetail> getDetail(@PathVariable String id) {
+    public ResponseEntity<CallDetail> getDetail(@PathVariable String id, @RequestParam(required = false) String part) {
         return getCallDetailUseCase.getDetail(id)
+                .map(detail -> detail.part(part))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
