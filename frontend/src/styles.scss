@@ -824,6 +824,49 @@ main {
   border: 1px solid var(--border);
 }
 
+// ---------- Sandwich card (nested view's parents) ----------
+// One card, opened by a request band and closed by a response band, with its own children between
+// them - see CallCardComponent's 'sandwich' variant. The bands are tinted and dashed-divided so
+// they read as the two halves of one call rather than as separate cards.
+
+.call.sandwich {
+  padding: 0;
+  overflow: hidden;
+}
+
+.call-band {
+  padding: 0.6rem 0.85rem;
+  background: color-mix(in srgb, var(--purple) 9%, transparent);
+}
+
+.call-band-request {
+  border-bottom: 1px dashed color-mix(in srgb, var(--purple) 45%, transparent);
+}
+
+.call-band-response {
+  border-top: 1px dashed color-mix(in srgb, var(--purple) 45%, transparent);
+}
+
+// Which half this band (or waterfall row) is - small, quiet, and always in the same place, so the
+// eye can pick out where a group opens and closes while scanning past it.
+.band-marker {
+  margin-left: auto;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--purple-light);
+  white-space: nowrap;
+}
+
+// The call-top inside a band already ends with .band-marker, so the timestamp can't also claim
+// margin-left:auto - it sits right after it instead.
+.call-band .call-top .call-time {
+  margin-left: 0.6rem;
+}
+
+.call-nested {
+  padding: 0.55rem 0.85rem;
+}
+
 // ---------- Nested view (design A) ----------
 
 // The rail is what makes containment legible once a card is inside another card; the indent is
@@ -897,6 +940,43 @@ main {
   height: 100%;
   border-radius: 3px;
   background: var(--purple);
+}
+
+// The opening and closing rows of a bracketed call - tinted like the sandwich card's bands, and
+// carrying the rail down their own left edge so the pair visibly wraps the children between them.
+.waterfall-open > .waterfall-row,
+.waterfall-close > .waterfall-row {
+  background: color-mix(in srgb, var(--purple) 9%, transparent);
+}
+
+.waterfall-open > .waterfall-row {
+  border-bottom-style: dashed;
+}
+
+.waterfall-close > .waterfall-row {
+  border-top: 1px dashed color-mix(in srgb, var(--purple) 45%, transparent);
+}
+
+// Start/end markers - a call's own edge in time, as opposed to the span between them.
+.waterfall-tick {
+  flex: none;
+  width: 3px;
+  height: 100%;
+  background: var(--purple-light);
+  border-radius: 2px;
+}
+
+// "Started, hasn't come back yet" - the opening row deliberately doesn't draw the span, which is
+// the closing row's job.
+.waterfall-pending {
+  flex: 1;
+  align-self: center;
+  height: 2px;
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--purple) 45%, transparent) 0 4px,
+    transparent 4px 8px
+  );
 }
 
 .waterfall-duration {

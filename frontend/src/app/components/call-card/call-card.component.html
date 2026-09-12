@@ -1,71 +1,4 @@
-<div class="call" [attr.id]="anchorId()" [class.pinned]="pinned()" [class.selected]="isSelected()" [class.in-progress]="inProgress()" [class.has-error]="hasError()" [class.has-warning]="hasWarning()">
-  <div class="call-top">
-    @if (dragHandle()) {
-      <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-label="Drag to reorder">&#9776;</span>
-    }
-    <label class="call-select-wrap" title="Select for bulk export">
-      <input
-        type="checkbox"
-        class="call-select"
-        [checked]="isSelected()"
-        (change)="toggleSelected()"
-      />
-    </label>
-    <span class="badge" [class]="methodClass()">{{ call().method }}</span>
-    @if (variant() === 'request') {
-      @if (inProgress()) {
-        <span class="badge status-pending">
-          <span class="spinner" aria-hidden="true"><span></span><span></span><span></span></span>
-          In progress
-        </span>
-      } @else {
-        <span class="badge status-sent">Sent</span>
-      }
-    } @else {
-      @if (inProgress()) {
-        <span class="badge status-pending">
-          <span class="spinner" aria-hidden="true"><span></span><span></span><span></span></span>
-          In progress
-        </span>
-      } @else if (call().error) {
-        <span class="badge status-err">ERROR</span>
-      } @else {
-        <span class="badge" [class]="statusClass()">{{ call().response?.status ?? '?' }}</span>
-      }
-      @if (inProgress()) {
-        <span class="duration">&hellip;</span>
-      } @else if (call().duration_ms != null) {
-        <span class="duration" [class]="durationClass()">{{ call().duration_ms }} ms</span>
-      }
-    }
-    @if (call().supplierName) {
-      <span class="badge supplier-badge">{{ call().supplierName }}</span>
-    }
-    <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
-    @if (depthLabel(); as label) {
-      @if (linksToParent()) {
-        <button
-          type="button"
-          class="badge depth-badge depth-badge-link"
-          title="Scroll to the call this one happened inside"
-          (click)="onRevealParent()"
-        >{{ label }}</button>
-      } @else {
-        <span class="badge depth-badge" [class.depth-badge-orphan]="depth()?.ambiguous">{{ label }}</span>
-      }
-    }
-    @if (showsSpanBar()) {
-      <span class="span-bar" [title]="spanBarTitle()" aria-hidden="true">
-        <span class="span-bar-fill" [style.margin-left]="spanOffsetPercent()" [style.width]="spanWidthPercent()"></span>
-      </span>
-    }
-    <app-call-actions [call]="call()" />
-    @if (removalState) {
-      <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
-    }
-    <span class="call-time">{{ formattedTime() }}</span>
-  </div>
-
+<ng-template #urlsBlock>
   <div class="call-urls">
     <div class="uri-row">
       <span class="uri-label from">From</span>
@@ -76,7 +9,9 @@
       <span class="uri-value to">{{ call().url }}</span>
     </div>
   </div>
+</ng-template>
 
+<ng-template #idsBlock>
   <div class="call-ids-row">
     <button type="button" class="call-id-chip" [class.copied]="copiedChip() === 'request'" title="Request id (click to copy) - {{ call().id }}" (click)="copyChip('request', call().id)">
       Request: {{ copiedChip() === 'request' ? 'Copied!' : shortId(call().id) }}
@@ -92,45 +27,226 @@
       </button>
     }
   </div>
+</ng-template>
 
-  @if (call().error) {
-    <div class="error-banner">&#9888; {{ call().error }}</div>
+<ng-template #requestPanel>
+  <div class="panel">
+    <div class="panel-title">Request</div>
+    <app-json-panel label="Headers" [rawValue]="displayCall().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="call().id" block="request-headers" />
+    <app-json-panel label="Body" [rawValue]="displayCall().request!.body" [panelId]="idBase() + '-req-body'" [callId]="call().id" block="request-body" />
+  </div>
+</ng-template>
+
+<ng-template #responsePanel>
+  <div class="panel">
+    <div class="panel-title">Response</div>
+    <app-json-panel label="Headers" [rawValue]="displayCall().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="call().id" block="response-headers" />
+    <app-json-panel label="Body" [rawValue]="displayCall().response!.body" [panelId]="idBase() + '-res-body'" [callId]="call().id" block="response-body" />
+  </div>
+</ng-template>
+
+<ng-template #inProgressBadge>
+  <span class="badge status-pending">
+    <span class="spinner" aria-hidden="true"><span></span><span></span><span></span></span>
+    In progress
+  </span>
+</ng-template>
+
+<ng-template #selectControls>
+  @if (dragHandle()) {
+    <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-label="Drag to reorder">&#9776;</span>
   }
+  <label class="call-select-wrap" title="Select for bulk export">
+    <input
+      type="checkbox"
+      class="call-select"
+      [checked]="isSelected()"
+      (change)="toggleSelected()"
+    />
+  </label>
+</ng-template>
 
-  @switch (detailState()) {
-    @case ('collapsed') {
-      <button type="button" class="expand-toggle" (click)="onExpandClick()">&#9656; Show request / response</button>
-    }
-    @case ('pending') {
-      <div class="detail-placeholder">Loading request / response&hellip;</div>
-    }
-    @case ('loading') {
-      <div class="detail-placeholder">Loading request / response&hellip;</div>
-    }
-    @case ('error') {
-      <div class="error-banner">
-        Failed to load request / response.
-        <button type="button" class="action-btn" (click)="onExpandClick()">Retry</button>
-      </div>
-    }
-    @case ('loaded') {
-      <div class="panels" [class.single]="singlePanel()">
-        @if (showsRequestPanel()) {
-          <div class="panel">
-            <div class="panel-title">Request</div>
-            <app-json-panel label="Headers" [rawValue]="displayCall().request!.headers" [panelId]="idBase() + '-req-headers'" [callId]="call().id" block="request-headers" />
-            <app-json-panel label="Body" [rawValue]="displayCall().request!.body" [panelId]="idBase() + '-req-body'" [callId]="call().id" block="request-body" />
-          </div>
+<div
+  class="call"
+  [attr.id]="anchorId()"
+  [class.sandwich]="isSandwich()"
+  [class.pinned]="pinned()"
+  [class.selected]="isSelected()"
+  [class.in-progress]="inProgress()"
+  [class.has-error]="hasError()"
+  [class.has-warning]="hasWarning()"
+>
+  @if (isSandwich()) {
+    <!-- The opening half: everything known when the call was SENT. Its own children render
+         between the two bands, so the card reads top to bottom in the order things happened. -->
+    <div class="call-band call-band-request">
+      <div class="call-top">
+        <ng-container [ngTemplateOutlet]="selectControls" />
+        <span class="badge" [class]="methodClass()">{{ call().method }}</span>
+        @if (inProgress()) {
+          <ng-container [ngTemplateOutlet]="inProgressBadge" />
+        } @else {
+          <span class="badge status-sent">Sent</span>
         }
+        @if (call().supplierName) {
+          <span class="badge supplier-badge">{{ call().supplierName }}</span>
+        }
+        <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
+        <app-call-actions [call]="call()" />
+        @if (removalState) {
+          <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
+        }
+        <span class="band-marker">&#8595; request</span>
+        <span class="call-time">{{ formattedTime() }}</span>
+      </div>
 
-        @if (showsResponsePanel()) {
-          <div class="panel">
-            <div class="panel-title">Response</div>
-            <app-json-panel label="Headers" [rawValue]="displayCall().response!.headers" [panelId]="idBase() + '-res-headers'" [callId]="call().id" block="response-headers" />
-            <app-json-panel label="Body" [rawValue]="displayCall().response!.body" [panelId]="idBase() + '-res-body'" [callId]="call().id" block="response-body" />
-          </div>
+      <ng-container [ngTemplateOutlet]="urlsBlock" />
+      <ng-container [ngTemplateOutlet]="idsBlock" />
+
+      @if (!requestOpen()) {
+        <button type="button" class="expand-toggle" (click)="openHalf('request')">&#9656; Show request</button>
+      } @else if (detailState() === 'error') {
+        <div class="error-banner">
+          Failed to load request.
+          <button type="button" class="action-btn" (click)="openHalf('request')">Retry</button>
+        </div>
+      } @else if (detailState() !== 'loaded') {
+        <div class="detail-placeholder">Loading request&hellip;</div>
+      } @else if (showsRequestPanel()) {
+        <div class="panels single">
+          <ng-container [ngTemplateOutlet]="requestPanel" />
+        </div>
+      }
+    </div>
+
+    <div class="call-nested">
+      <ng-content select="[callChildren]" />
+    </div>
+
+    <!-- The closing half: the status, how long the whole thing took, and when it finished -
+         deliberately BELOW the children it waited on, which is the point of the sandwich. -->
+    <div class="call-band call-band-response">
+      <div class="call-top">
+        @if (inProgress()) {
+          <ng-container [ngTemplateOutlet]="inProgressBadge" />
+        } @else if (call().error) {
+          <span class="badge status-err">ERROR</span>
+        } @else {
+          <span class="badge" [class]="statusClass()">{{ call().response?.status ?? '?' }}</span>
         }
+        @if (inProgress()) {
+          <span class="duration">&hellip;</span>
+        } @else if (call().duration_ms != null) {
+          <span class="duration" [class]="durationClass()">{{ call().duration_ms }} ms</span>
+        }
+        <span class="band-marker">&#8593; response</span>
+        <span class="call-time">{{ endTime() }}</span>
       </div>
+
+      @if (call().error) {
+        <div class="error-banner">&#9888; {{ call().error }}</div>
+      }
+
+      @if (!responseOpen()) {
+        <button type="button" class="expand-toggle" (click)="openHalf('response')">&#9656; Show response</button>
+      } @else if (detailState() === 'error') {
+        <div class="error-banner">
+          Failed to load response.
+          <button type="button" class="action-btn" (click)="openHalf('response')">Retry</button>
+        </div>
+      } @else if (detailState() !== 'loaded') {
+        <div class="detail-placeholder">Loading response&hellip;</div>
+      } @else if (showsResponsePanel()) {
+        <div class="panels single">
+          <ng-container [ngTemplateOutlet]="responsePanel" />
+        </div>
+      }
+    </div>
+  } @else {
+    <div class="call-top">
+      <ng-container [ngTemplateOutlet]="selectControls" />
+      <span class="badge" [class]="methodClass()">{{ call().method }}</span>
+      @if (variant() === 'request') {
+        @if (inProgress()) {
+          <ng-container [ngTemplateOutlet]="inProgressBadge" />
+        } @else {
+          <span class="badge status-sent">Sent</span>
+        }
+      } @else {
+        @if (inProgress()) {
+          <ng-container [ngTemplateOutlet]="inProgressBadge" />
+        } @else if (call().error) {
+          <span class="badge status-err">ERROR</span>
+        } @else {
+          <span class="badge" [class]="statusClass()">{{ call().response?.status ?? '?' }}</span>
+        }
+        @if (inProgress()) {
+          <span class="duration">&hellip;</span>
+        } @else if (call().duration_ms != null) {
+          <span class="duration" [class]="durationClass()">{{ call().duration_ms }} ms</span>
+        }
+      }
+      @if (call().supplierName) {
+        <span class="badge supplier-badge">{{ call().supplierName }}</span>
+      }
+      <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
+      @if (depthLabel(); as label) {
+        @if (linksToParent()) {
+          <button
+            type="button"
+            class="badge depth-badge depth-badge-link"
+            title="Scroll to the call this one happened inside"
+            (click)="onRevealParent()"
+          >{{ label }}</button>
+        } @else {
+          <span class="badge depth-badge" [class.depth-badge-orphan]="depth()?.ambiguous">{{ label }}</span>
+        }
+      }
+      @if (showsSpanBar()) {
+        <span class="span-bar" [title]="spanBarTitle()" aria-hidden="true">
+          <span class="span-bar-fill" [style.margin-left]="spanOffsetPercent()" [style.width]="spanWidthPercent()"></span>
+        </span>
+      }
+      <app-call-actions [call]="call()" />
+      @if (removalState) {
+        <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
+      }
+      <span class="call-time">{{ formattedTime() }}</span>
+    </div>
+
+    <ng-container [ngTemplateOutlet]="urlsBlock" />
+    <ng-container [ngTemplateOutlet]="idsBlock" />
+
+    @if (call().error) {
+      <div class="error-banner">&#9888; {{ call().error }}</div>
+    }
+
+    @switch (detailState()) {
+      @case ('collapsed') {
+        <button type="button" class="expand-toggle" (click)="onExpandClick()">&#9656; Show request / response</button>
+      }
+      @case ('pending') {
+        <div class="detail-placeholder">Loading request / response&hellip;</div>
+      }
+      @case ('loading') {
+        <div class="detail-placeholder">Loading request / response&hellip;</div>
+      }
+      @case ('error') {
+        <div class="error-banner">
+          Failed to load request / response.
+          <button type="button" class="action-btn" (click)="onExpandClick()">Retry</button>
+        </div>
+      }
+      @case ('loaded') {
+        <div class="panels" [class.single]="singlePanel()">
+          @if (showsRequestPanel()) {
+            <ng-container [ngTemplateOutlet]="requestPanel" />
+          }
+          @if (showsResponsePanel()) {
+            <ng-container [ngTemplateOutlet]="responsePanel" />
+          }
+        </div>
+      }
     }
   }
 </div>

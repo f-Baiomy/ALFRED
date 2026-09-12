@@ -66,37 +66,67 @@ describe('CallWaterfallComponent', () => {
     return fixture;
   }
 
-  it('flattens the tree parent-first, one row per call', () => {
+  it('brackets every call that called others, and leaves a childless call as one row', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
-    const labels = Array.from(host.querySelectorAll('.waterfall-label')).map((el) => el.textContent?.trim());
+    const rows = Array.from(host.querySelectorAll('.waterfall-line'));
 
-    expect(labels.length).toBe(3);
+    // odeysys opens, core-service opens, the supplier call sits alone, then both close in turn.
+    expect(rows.length).toBe(5);
+    expect(rows.map((r) => (r.classList.contains('waterfall-open') ? 'open' : r.classList.contains('waterfall-close') ? 'close' : 'single'))).toEqual([
+      'open',
+      'open',
+      'single',
+      'close',
+      'close',
+    ]);
+
+    const labels = Array.from(host.querySelectorAll('.waterfall-label')).map((el) => el.textContent?.trim());
     expect(labels[0]).toContain('odeysys');
     expect(labels[1]).toContain('core-service');
     expect(labels[2]).toContain('path');
+    // The closing rows name the same calls as their openers.
+    expect(labels[3]).toContain('core-service');
+    expect(labels[4]).toContain('odeysys');
+  });
+
+  it('marks which half each bracketing row is, and keeps the status on the closing one', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const rows = Array.from(host.querySelectorAll('.waterfall-line'));
+
+    expect(rows[0].querySelector('.band-marker')?.textContent).toContain('request');
+    expect(rows[0].querySelector('.status-sent')).toBeTruthy();
+    expect(rows[0].querySelector('.waterfall-duration')?.textContent?.trim()).toBe('sent');
+
+    expect(rows[4].querySelector('.band-marker')?.textContent).toContain('response');
+    expect(rows[4].querySelector('.waterfall-duration')?.textContent).toContain('10000');
+    // A childless row keeps its method badge and carries no half marker at all.
+    expect(rows[2].querySelector('.band-marker')).toBeNull();
+    expect(rows[2].textContent).toContain('POST');
   });
 
   it('indents each level and measures every bar against the root call\'s window', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
     const rails = Array.from(host.querySelectorAll('.waterfall-rail')) as HTMLElement[];
-    const bars = Array.from(host.querySelectorAll('.waterfall-bar')) as HTMLElement[];
 
     expect(parseFloat(rails[0].style.width || '0')).toBe(0);
     expect(parseFloat(rails[1].style.width)).toBeGreaterThan(0);
     expect(parseFloat(rails[2].style.width)).toBeGreaterThan(parseFloat(rails[1].style.width));
+    // The closing rows sit back at their own call's depth, level with their openers.
+    expect(rails[3].style.width).toBe(rails[1].style.width);
+    expect(rails[4].style.width || '0px').toBe(rails[0].style.width || '0px');
 
-    // The root spans its whole track; core-service starts 2s into 10s and runs 4s of it.
-    expect(parseFloat(bars[0].style.width)).toBeCloseTo(100, 3);
-    expect(parseFloat(bars[1].style.marginLeft)).toBeCloseTo(20, 3);
-    expect(parseFloat(bars[1].style.width)).toBeCloseTo(40, 3);
-  });
+    // Only a CLOSING (or childless) row draws a span; an opening row is a start tick trailing off.
+    const lines = Array.from(host.querySelectorAll('.waterfall-line'));
+    expect(lines[0].querySelector('.waterfall-bar')).toBeNull();
+    expect(lines[0].querySelector('.waterfall-tick')).toBeTruthy();
+    expect(lines[0].querySelector('.waterfall-pending')).toBeTruthy();
 
-  it('renders no request/response split - one row per call, whatever its depth', () => {
-    const host: HTMLElement = createWaterfall().nativeElement;
-
-    expect(host.textContent).not.toContain('· request');
-    expect(host.textContent).not.toContain('· response');
-    expect(host.querySelectorAll('.waterfall-row').length).toBe(3);
+    const rootClose = lines[4].querySelector('.waterfall-bar') as HTMLElement;
+    expect(parseFloat(rootClose.style.width)).toBeCloseTo(100, 3);
+    // core-service starts 2s into odeysys's 10s and runs 4s of it.
+    const coreClose = lines[3].querySelector('.waterfall-bar') as HTMLElement;
+    expect(parseFloat(coreClose.style.marginLeft)).toBeCloseTo(20, 3);
+    expect(parseFloat(coreClose.style.width)).toBeCloseTo(40, 3);
   });
 
   it('expands the full call card on click, and collapses it again', () => {

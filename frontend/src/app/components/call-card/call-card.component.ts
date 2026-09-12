@@ -1,5 +1,6 @@
 import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, output, signal } from '@angular/core';
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
+import { NgTemplateOutlet } from '@angular/common';
 import { CallDetail, CallRecord } from '../../core/models/call.model';
 import {
   EXTERNAL_SOURCE_KEY,
@@ -38,7 +39,7 @@ type DetailState = 'collapsed' | 'pending' | 'loading' | 'loaded' | 'error';
 @Component({
   selector: 'app-call-card',
   standalone: true,
-  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle],
+  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet],
   templateUrl: './call-card.component.html',
 })
 export class CallCardComponent {
@@ -63,8 +64,14 @@ export class CallCardComponent {
    * shows error/warning styling or a status/duration (that's the response row's job) and settles
    * to a plain "Sent" badge once resolved; a 'response' row is never in-progress (it only exists
    * once resolved) and shows the real status/duration exactly like a 'full' row does today.
+   *
+   * 'sandwich' is the nested view's parent card: ONE card split into a request band and a response
+   * band with its own children projected between them (see the [callChildren] slot). Same idea as
+   * the request/response pair, but held together in a single card so containment stays literal -
+   * and it puts the status, duration and end time BELOW the children the call waited on, instead
+   * of at the top where they read as if the parent had finished before its children began.
    */
-  readonly variant = input<'request' | 'response' | 'full'>('full');
+  readonly variant = input<'request' | 'response' | 'full' | 'sandwich'>('full');
   /**
    * This call's place in the tree, for the flat-depth view's depth badge and timing bar (see
    * CallDepthInfo). Null in the nested and waterfall views, which show the same facts structurally
@@ -74,6 +81,17 @@ export class CallCardComponent {
   /** Emitted when the depth badge's parent name is clicked - the list scrolls that parent into view
    * and flashes it, which is how hierarchy stays navigable in a view that never indents. */
   readonly revealParent = output<string>();
+
+  readonly isSandwich = computed(() => this.variant() === 'sandwich');
+  /**
+   * Which halves the user has opened on a sandwich card. Both share ONE underlying fetch (there is
+   * only one detail endpoint per call), but each band reveals only its own half - opening the
+   * request shouldn't drop the response panel on you underneath a pile of children you then have
+   * to scroll past.
+   */
+  private readonly openHalves = signal<ReadonlySet<'request' | 'response'>>(new Set());
+  readonly requestOpen = computed(() => this.openHalves().has('request'));
+  readonly responseOpen = computed(() => this.openHalves().has('response'));
 
   readonly idBase = computed(() => callKey(this.call()));
   readonly methodClass = computed(() => methodClassOf(this.call().method));
@@ -115,6 +133,13 @@ export class CallCardComponent {
   readonly formattedTime = computed(() => {
     const ts = this.call().timestamp;
     return ts ? new Date(ts).toLocaleString() : '';
+  });
+  /** When the call actually finished - the response band's own timestamp on a sandwich card, so the
+   * gap between the two bands is readable rather than implied. Empty while still in progress. */
+  readonly endTime = computed(() => {
+    const call = this.call();
+    if (!call.timestamp || this.inProgress()) return '';
+    return new Date(new Date(call.timestamp).getTime() + (call.duration_ms ?? 0)).toLocaleString();
   });
 
   /** Which id chip (if any) just got copied, briefly showing "Copied!" in its place - see copyChip(). Cleared automatically after the flash, and whenever the underlying call's id chips change identity (a different call rendered into this same card instance would otherwise show a stale flash). */
@@ -301,6 +326,16 @@ export class CallCardComponent {
       this.copiedChip.set(chip);
       setTimeout(() => this.copiedChip.set(null), 1000);
     });
+  }
+
+  /** Opens one half of a sandwich card, fetching the (single, shared) detail if it isn't loaded
+   * yet - so clicking Response on a card whose Request is already open costs no second request. */
+  openHalf(half: 'request' | 'response'): void {
+    const next = new Set(this.openHalves());
+    next.add(half);
+    this.openHalves.set(next);
+    if (this.detailState() === 'loaded') return;
+    this.onExpandClick();
   }
 
   onRevealParent(): void {
