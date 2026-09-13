@@ -54,6 +54,10 @@ interface WaterfallRow {
   readonly offsetLabel: string;
   /** Only on a group's opening row - the root's own total, for the axis drawn above it. */
   readonly axisTotalLabel: string | null;
+  /** The first row of a ROOT call's group - where one call's whole story begins. Drives the divider
+   * between groups, which used to be the axis's job; the axis is hidden below 880px, so on a narrow
+   * window every group ran flush into the next. */
+  readonly startsRootGroup: boolean;
   /** Only on a closing row that has children to have waited on. */
   readonly selfTime: SelfTimeSplit | null;
   /** Whether this row offers a selection checkbox - true for a leaf row and for the OPENING half of
@@ -107,6 +111,7 @@ interface WaterfallRow {
           [class.expanded]="isExpanded(row.rowKey)"
           [class.waterfall-open]="row.kind === 'request'"
           [class.waterfall-close]="row.kind === 'response'"
+          [class.waterfall-root-start]="row.startsRootGroup"
         >
           @if (row.axisTotalLabel) {
             <!-- One scale per group: every row between this opener and its closing row is measured
@@ -284,6 +289,9 @@ export class CallWaterfallComponent {
         label: labelFor(node.call),
         offsetLabel: formatOffset(info?.offsetMs ?? null),
         axisTotalLabel: null as string | null,
+        // Set on whichever row opens the group below, never on a closing one - a group is divided
+        // from the one before it, not from its own second half.
+        startsRootGroup: false,
         selfTime: null as SelfTimeSplit | null,
         indexLabel: childIndexLabel,
         selectable: true,
@@ -294,7 +302,7 @@ export class CallWaterfallComponent {
       };
 
       if (node.children.length === 0) {
-        out.push({ ...base, kind: 'single', rowKey: node.call.id });
+        out.push({ ...base, kind: 'single', rowKey: node.call.id, startsRootGroup: node.depth === 0 });
         return;
       }
 
@@ -306,6 +314,7 @@ export class CallWaterfallComponent {
         // Only a group opener draws an axis - its children are all measured against this same root,
         // so one scale covers everything between this row and its closing row.
         axisTotalLabel: node.depth === 0 ? formatOffset(info?.rootDurationMs ?? null) : null,
+        startsRootGroup: node.depth === 0,
         diagnosticsNode: node,
         foldable: true,
         folded,

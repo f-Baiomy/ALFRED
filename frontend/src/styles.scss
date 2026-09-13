@@ -1599,6 +1599,16 @@ main {
   flex-direction: column;
 }
 
+// Where one root call's whole story begins. The axis used to be the only thing marking this, and the
+// media query below hides the axis under 880px - so on a narrow window every group ran flush into
+// the next and a list of folded calls read as one undifferentiated block. Not on the FIRST group:
+// there is nothing above it to be divided from.
+.waterfall-root-start:not(:first-child) {
+  margin-top: 0.85rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-strong);
+}
+
 // Now a wrapper holding the selection checkbox beside the clickable row, rather than the button
 // itself - a checkbox cannot live inside a <button>, and clicking it would have opened the row too.
 // It keeps the class name so the four `.waterfall-line > .waterfall-row` rules below still apply.

@@ -237,6 +237,21 @@ describe('CallWaterfallComponent', () => {
     expect((host.querySelector('.call-select') as HTMLInputElement).checked).toBe(true);
   });
 
+  it('marks where each root call\'s group begins, so groups stay apart without the axis', () => {
+    const twoRoots = [
+      ...CALLS,
+      call('other', 20000, 500, { service_name: 'odeysys' }),
+    ];
+    const host: HTMLElement = createWaterfall(twoRoots).nativeElement;
+    const marked = Array.from(host.querySelectorAll('.waterfall-line')).map((l) =>
+      l.classList.contains('waterfall-root-start')
+    );
+
+    // Only the row that OPENS a root group - not its closing half, and not a nested call's opener.
+    // The axis carried this on its own until now, and it is hidden below 880px.
+    expect(marked).toEqual([true, false, false, false, false, true]);
+  });
+
   it('draws one guide line per ancestor level, each in that level\'s own hue', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
     const tintsPerLine = Array.from(host.querySelectorAll('.waterfall-line')).map((line) =>
