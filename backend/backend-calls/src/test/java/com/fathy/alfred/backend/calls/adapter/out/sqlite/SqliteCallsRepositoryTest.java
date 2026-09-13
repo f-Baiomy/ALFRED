@@ -78,6 +78,36 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
+    void phaseTimingsRideAlongWithTheSummarySoTheWaterfallGetsThemForEveryCall() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        repo.complete(id, new ResponseData(200, null, "ok"), null, 900.0,
+                new com.fathy.alfred.backend.calls.domain.model.CallTiming(12.5, 30.0, 800.0, 55.0, false));
+        repo.readAll();
+
+        CallSummary summary = repo.query("", "", "newest", 0, 10, true).items().get(0);
+        assertThat(summary.timing()).isNotNull();
+        assertThat(summary.timing().ttfbMs()).isEqualTo(800.0);
+        assertThat(summary.timing().downloadMs()).isEqualTo(55.0);
+        assertThat(summary.timing().reusedConnection()).isFalse();
+    }
+
+    @Test
+    void aCallWithNoMeasuredTimingReportsNullRatherThanZeroes() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        // An older proxy sends no timing at all. Zeroes would read as "measured, and instant".
+        repo.complete(id, new ResponseData(200, null, "ok"), null, 900.0, null);
+        repo.readAll();
+
+        assertThat(repo.query("", "", "newest", 0, 10, true).items().get(0).timing()).isNull();
+    }
+
+    @Test
     void findByIdReturnsEmptyForAnUnknownId() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
 
@@ -527,7 +557,7 @@ class SqliteCallsRepositoryTest {
         String id = UUID.randomUUID().toString();
         repo.save(preparedCall(id, "https://a.com/x"));
 
-        boolean updated = repo.complete(id, new ResponseData(200, null, "{\"ok\":true}"), null, 42.0);
+        boolean updated = repo.complete(id, new ResponseData(200, null, "{\"ok\":true}"), null, 42.0, null);
 
         assertThat(updated).isTrue();
         CallRecord found = repo.findById(id).orElseThrow();
@@ -543,7 +573,7 @@ class SqliteCallsRepositoryTest {
         String id = UUID.randomUUID().toString();
         repo.save(preparedCall(id, "https://a.com/x"));
 
-        repo.complete(id, null, "connection refused", null);
+        repo.complete(id, null, "connection refused", null, null);
 
         CallRecord found = repo.findById(id).orElseThrow();
         assertThat(found.state()).isEqualTo(CallLifecycleStatus.ERROR);
@@ -561,7 +591,7 @@ class SqliteCallsRepositoryTest {
         String id = UUID.randomUUID().toString();
         repo.save(preparedCall(id, "https://a.com/x"));
 
-        repo.complete(id, new ResponseData(200, null, "{\"booked\":true}"), "client disconnected", 3500.0);
+        repo.complete(id, new ResponseData(200, null, "{\"booked\":true}"), "client disconnected", 3500.0, null);
 
         CallRecord found = repo.findById(id).orElseThrow();
         assertThat(found.state()).isEqualTo(CallLifecycleStatus.ERROR);
@@ -580,7 +610,7 @@ class SqliteCallsRepositoryTest {
 
         assertThat(repo.query("needle-in-response", "", "newest", 0, 10, true).items()).isEmpty();
 
-        repo.complete(id, new ResponseData(200, null, "needle-in-response"), null, 1.0);
+        repo.complete(id, new ResponseData(200, null, "needle-in-response"), null, 1.0, null);
 
         var page = repo.query("needle-in-response", "", "newest", 0, 10, true);
         assertThat(page.items()).extracting(CallSummary::id).containsExactly(id);
@@ -592,7 +622,7 @@ class SqliteCallsRepositoryTest {
     void completingAnUnknownIdReturnsFalseWithoutThrowing() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
 
-        boolean updated = repo.complete("does-not-exist", new ResponseData(200, null, null), null, 1.0);
+        boolean updated = repo.complete("does-not-exist", new ResponseData(200, null, null), null, 1.0, null);
 
         assertThat(updated).isFalse();
     }
@@ -603,8 +633,8 @@ class SqliteCallsRepositoryTest {
         String id = UUID.randomUUID().toString();
         repo.save(preparedCall(id, "https://a.com/x"));
 
-        repo.complete(id, new ResponseData(200, null, "first"), null, 10.0);
-        boolean secondUpdated = repo.complete(id, new ResponseData(500, null, "second"), null, 20.0);
+        repo.complete(id, new ResponseData(200, null, "first"), null, 10.0, null);
+        boolean secondUpdated = repo.complete(id, new ResponseData(500, null, "second"), null, 20.0, null);
 
         assertThat(secondUpdated).isTrue();
         CallRecord found = repo.findById(id).orElseThrow();

@@ -22,6 +22,22 @@ export interface CallResponse extends HttpMessageData {
  * equivalent) - always a real network call, never cached client-side, even if this same call's
  * detail was already fetched before.
  */
+/**
+ * One call's network phases, as measured by the proxy - what turns "this took 5.7s" into a reason.
+ *
+ * A large `ttfb_ms` means the upstream is thinking; a large `download_ms` means the payload is big;
+ * a large connect+TLS share means connections are not being reused, which is a fix on our side.
+ * `reused_connection` is why connect/TLS are usually null: mitmproxy reuses server connections, and
+ * the handshake then belongs to some earlier call rather than this one.
+ */
+export interface CallTiming {
+  readonly connect_ms?: number | null;
+  readonly tls_ms?: number | null;
+  readonly ttfb_ms?: number | null;
+  readonly download_ms?: number | null;
+  readonly reused_connection?: boolean | null;
+}
+
 export interface CallRecord {
   readonly id: string;
   readonly original_url: string;
@@ -50,6 +66,13 @@ export interface CallRecord {
    * sourceKeyOf()/sourceLabelOf() in call-utils.ts - sourceLabelOf renders a non-null value on an
    * external call as "External · via <Project>".
    */
+  /**
+   * How the proxy measured this call's own network phases (see backend CallTiming). Every field is
+   * independently nullable: connect/TLS are absent on a reused connection, and the whole object is
+   * absent for a call logged before the proxy reported any of this. Absent means NOT MEASURED,
+   * never zero.
+   */
+  readonly timing?: CallTiming | null;
   readonly service_name?: string | null;
   /** Which backend endpoint this call was fetched from - stamped client-side in toCallRecord(), never part of the wire shape. Undefined only for a CapturedCall's wrapped CallRecord (session-cycles never captures 'internal' calls, so it's always implicitly 'external' there). Needed so getCallDetail() knows whether to fetch GET /calls/{id}/detail or GET /internal-calls/{id}/detail once a call from a merged 'both' list is expanded. */
   readonly source?: CallEndpointSource;

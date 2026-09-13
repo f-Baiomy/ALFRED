@@ -1384,6 +1384,45 @@ main {
   }
 }
 
+.diag-phase-row td {
+  padding-bottom: 0.4rem !important;
+}
+
+.diag-phases {
+  display: inline-flex;
+  width: 100%;
+  max-width: 22rem;
+  height: 8px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg-2);
+  vertical-align: middle;
+}
+
+.diag-phase {
+  height: 100%;
+}
+// Connect and TLS share a warm hue on purpose: together they are the "connection churn" signal, and
+// what matters is their combined share rather than which of the two dominates.
+.diag-phase-connect {
+  background: color-mix(in srgb, var(--amber) 75%, transparent);
+}
+.diag-phase-tls {
+  background: color-mix(in srgb, var(--amber) 45%, transparent);
+}
+.diag-phase-ttfb {
+  background: color-mix(in srgb, var(--red) 55%, transparent);
+}
+.diag-phase-download {
+  background: color-mix(in srgb, var(--cyan, #38bdf8) 55%, transparent);
+}
+
+.diag-phase-legend {
+  margin-left: 0.6rem;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+}
+
 .diag-parallel {
   color: var(--text-faint);
   margin-bottom: 0.5rem;

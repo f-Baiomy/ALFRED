@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
@@ -99,7 +100,7 @@ public class SqliteCallsRepository {
     private int savesSinceLastSizeCheck;
 
     /** The outcome half of a two-phase call, awaiting write via {@link #completionWriter} - see {@link #complete}. */
-    private record PendingCompletion(String id, ResponseData response, String error, Double durationMs) {}
+    private record PendingCompletion(String id, ResponseData response, String error, Double durationMs, CallTiming timing) {}
 
     @PostConstruct
     void init() {
@@ -232,6 +233,7 @@ public class SqliteCallsRepository {
                 """);
         addSessionOperationColumnsIfMissing();
         addServiceNameColumnIfMissing();
+        addTimingColumnsIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS call_request (
                   call_id TEXT PRIMARY KEY REFERENCES call_metadata(id) ON DELETE CASCADE,
@@ -261,6 +263,19 @@ public class SqliteCallsRepository {
         }
         if (!columns.contains("operation_id")) {
             jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN operation_id TEXT");
+        }
+    }
+
+    /** The four phase timings postdate every other column - added the same ALTER TABLE way, and nullable because a call logged before the proxy reported them has no measurement (never zero). */
+    private void addTimingColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        for (String column : List.of("connect_ms", "tls_ms", "ttfb_ms", "download_ms")) {
+            if (!columns.contains(column)) {
+                jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN " + column + " REAL");
+            }
+        }
+        if (!columns.contains("reused_connection")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN reused_connection INTEGER");
         }
     }
 
@@ -469,6 +484,7 @@ public class SqliteCallsRepository {
     private static final String UPDATE_METADATA_SQL = """
             UPDATE call_metadata SET
               status = ?, status_rank = ?, error = ?, duration_ms = ?, status_state = ?,
+              connect_ms = ?, tls_ms = ?, ttfb_ms = ?, download_ms = ?, reused_connection = ?,
               haystack = substr(COALESCE(request_haystack, '') || ' ' || ?, 1, ?)
             WHERE id = ?
             """;
@@ -476,12 +492,12 @@ public class SqliteCallsRepository {
     private static final String UPDATE_RESPONSE_SQL = "UPDATE call_response SET headers = ?, body = ? WHERE call_id = ?";
 
     /** Second half of two-phase logging - fills in a previously-{@link #save prepared} call's outcome. @return true if a row with this id existed to update. */
-    public boolean complete(String id, ResponseData response, String error, Double durationMs) {
+    public boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing) {
         Integer existing = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM call_metadata WHERE id = ?", Integer.class, id);
         if (existing == null || existing == 0) {
             return false;
         }
-        completionWriter.submit(new PendingCompletion(id, response, error, durationMs));
+        completionWriter.submit(new PendingCompletion(id, response, error, durationMs, timing));
         return true;
     }
 
@@ -505,9 +521,32 @@ public class SqliteCallsRepository {
             ps.setNull(4, Types.DOUBLE);
         }
         ps.setString(5, state.name());
-        ps.setString(6, buildResponseHaystackFragment(response, error));
-        ps.setInt(7, MAX_HAYSTACK_LENGTH);
-        ps.setString(8, pending.id());
+
+        // Every phase timing is independently nullable - see CallTiming. A reused connection has no
+        // connect/TLS time of its own to report, and a call logged before the proxy measured any of
+        // this has none at all, so writing 0 would be a measurement that never happened.
+        CallTiming timing = pending.timing();
+        setNullableDouble(ps, 6, timing != null ? timing.connectMs() : null);
+        setNullableDouble(ps, 7, timing != null ? timing.tlsMs() : null);
+        setNullableDouble(ps, 8, timing != null ? timing.ttfbMs() : null);
+        setNullableDouble(ps, 9, timing != null ? timing.downloadMs() : null);
+        if (timing != null && timing.reusedConnection() != null) {
+            ps.setInt(10, timing.reusedConnection() ? 1 : 0);
+        } else {
+            ps.setNull(10, Types.INTEGER);
+        }
+
+        ps.setString(11, buildResponseHaystackFragment(response, error));
+        ps.setInt(12, MAX_HAYSTACK_LENGTH);
+        ps.setString(13, pending.id());
+    }
+
+    private static void setNullableDouble(PreparedStatement ps, int index, Double value) throws SQLException {
+        if (value != null) {
+            ps.setDouble(index, value);
+        } else {
+            ps.setNull(index, Types.DOUBLE);
+        }
     }
 
     private void bindCompletionResponse(PreparedStatement ps, PendingCompletion pending) throws SQLException {
@@ -625,7 +664,7 @@ public class SqliteCallsRepository {
      * Detail view (findById) still needs the full 3-way join.
      */
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -982,8 +1021,31 @@ public class SqliteCallsRepository {
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
                 rs.getString("session_id"),
                 rs.getString("operation_id"),
-                rs.getString("service_name"));
+                rs.getString("service_name"),
+                timingOf(rs));
     };
+
+    /**
+     * The phase timings ride along with the SUMMARY, not the detail: the waterfall needs them for
+     * every call in the list at once, and five numbers per row cost far less than the bodies the
+     * summary deliberately leaves behind. Returns null rather than a record of nulls when nothing
+     * was measured, so "not measured" stays distinguishable from "measured as zero".
+     */
+    private static CallTiming timingOf(ResultSet rs) throws SQLException {
+        Double connect = nullableDouble(rs, "connect_ms");
+        Double tls = nullableDouble(rs, "tls_ms");
+        Double ttfb = nullableDouble(rs, "ttfb_ms");
+        Double download = nullableDouble(rs, "download_ms");
+        Object reusedObj = rs.getObject("reused_connection");
+        Boolean reused = reusedObj == null ? null : rs.getInt("reused_connection") != 0;
+        CallTiming timing = new CallTiming(connect, tls, ttfb, download, reused);
+        return timing.isEmpty() ? null : timing;
+    }
+
+    private static Double nullableDouble(ResultSet rs, String column) throws SQLException {
+        Object value = rs.getObject(column);
+        return value == null ? null : rs.getDouble(column);
+    }
 
     /** Undoes the ""-instead-of-NULL storage trick from bindMetadata - external behavior stays "null when there's no supplier name", exactly as CallSummary.of() always returned. */
     private static String nullIfEmpty(String value) {

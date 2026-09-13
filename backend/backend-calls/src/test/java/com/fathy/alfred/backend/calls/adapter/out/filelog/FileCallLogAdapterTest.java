@@ -204,7 +204,7 @@ class FileCallLogAdapterTest {
         adapter.prepare(new CallRecord(id, "https://a.com-proxy/x", "https://a.com/x", "GET",
                 new RequestData(null, null), "t", null, null, null, CallLifecycleStatus.IN_PROGRESS));
 
-        boolean wasPending = adapter.complete(id, new ResponseData(200, null, "ok"), null, 42.0);
+        boolean wasPending = adapter.complete(id, new ResponseData(200, null, "ok"), null, 42.0, null);
 
         assertThat(wasPending).isTrue();
         assertThat(adapter.readAll()).hasSize(1);
@@ -219,7 +219,7 @@ class FileCallLogAdapterTest {
     void completeWithoutAMatchingPrepareStillPersistsWhateverThePayloadAloneOffers() throws Exception {
         FileCallLogAdapter adapter = adapterFor(tempDir.resolve("RECENT_CALLS.log"));
 
-        boolean wasPending = adapter.complete("never-prepared", new ResponseData(500, null, "oops"), null, 1.0);
+        boolean wasPending = adapter.complete("never-prepared", new ResponseData(500, null, "oops"), null, 1.0, null);
 
         assertThat(wasPending).isFalse();
         assertThat(adapter.readAll()).hasSize(1);
@@ -233,7 +233,7 @@ class FileCallLogAdapterTest {
         adapter.prepare(new CallRecord(id, "https://a.com-proxy/x", "https://a.com/x", "GET",
                 null, "t", null, null, null, CallLifecycleStatus.IN_PROGRESS));
 
-        adapter.complete(id, null, "connection refused", null);
+        adapter.complete(id, null, "connection refused", null, null);
 
         CallRecord saved = adapter.readAll().get(0);
         assertThat(saved.error()).isEqualTo("connection refused");

@@ -13,6 +13,7 @@ import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.CallsPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
@@ -143,8 +144,8 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
      * updated.
      */
     @Override
-    public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs) {
-        boolean updated = callLogPort.complete(id, response, error, durationMs);
+    public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs, CallTiming timing) {
+        boolean updated = callLogPort.complete(id, response, error, durationMs, timing);
         if (!updated) {
             log.warn("Received a completion for unknown/already-trimmed call id {}", id);
             return false;

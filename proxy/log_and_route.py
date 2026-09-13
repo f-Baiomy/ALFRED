@@ -204,6 +204,7 @@ class RouteAndLog:
                 'body': self._safe_body(flow.response),
             },
             'duration_ms': duration_ms,
+            'timing': self._phase_timing(flow),
         }
         self._write(call_id, data)
 
@@ -251,6 +252,53 @@ class RouteAndLog:
             return int(flow.client_conn.sockname[1])
         except (AttributeError, IndexError, TypeError, ValueError):
             return -1
+
+    def _phase_timing(self, flow):
+        """Splits one call's duration into connect / TLS / waiting / download.
+
+        This is the difference between "the supplier took 5.7s" and knowing WHY: a big
+        time-to-first-byte means the upstream is thinking, a big download means the payload is
+        large, and a big connect+TLS share means connections aren't being reused - which is a fix
+        on our side, not theirs.
+
+        Every field is optional and any of them may come back None. In particular, mitmproxy
+        REUSES server connections: when it does, server_conn's handshake timestamps are from
+        whenever that connection was first opened, which can be many calls ago. Attributing them to
+        this call would invent connect/TLS time that this request never spent, so they're reported
+        only when the handshake actually happened after this request began. `reused_connection`
+        says which case it was, since "no connect time because we reused a socket" is itself worth
+        knowing (it's the healthy case, and its absence explains connection churn).
+        """
+        try:
+            request = flow.request
+            response = flow.response
+            server = flow.server_conn
+            request_start = getattr(request, 'timestamp_start', None)
+
+            def span(earlier, later):
+                if earlier is None or later is None or later < earlier:
+                    return None
+                return round((later - earlier) * 1000, 2)
+
+            tcp_setup = getattr(server, 'timestamp_tcp_setup', None)
+            fresh = (
+                request_start is not None
+                and tcp_setup is not None
+                and tcp_setup >= request_start
+            )
+
+            return {
+                'connect_ms': span(getattr(server, 'timestamp_start', None), tcp_setup) if fresh else None,
+                'tls_ms': span(tcp_setup, getattr(server, 'timestamp_tls_setup', None)) if fresh else None,
+                # From "request fully sent" to "first byte back" - the upstream's own think time.
+                'ttfb_ms': span(getattr(request, 'timestamp_end', None), getattr(response, 'timestamp_start', None)),
+                'download_ms': span(getattr(response, 'timestamp_start', None), getattr(response, 'timestamp_end', None)),
+                'reused_connection': not fresh,
+            }
+        except Exception:
+            # Timing is a diagnostic extra; never let a missing attribute on some exotic flow stop
+            # the call itself being logged.
+            return None
 
     def _safe_body(self, message, limit=BODY_LIMIT):
         try:

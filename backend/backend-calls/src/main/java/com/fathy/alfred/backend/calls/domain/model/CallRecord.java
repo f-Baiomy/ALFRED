@@ -45,13 +45,21 @@ public record CallRecord(
         CallLifecycleStatus state,
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
-        @JsonProperty("service_name") String serviceName
+        @JsonProperty("service_name") String serviceName,
+        CallTiming timing
 ) {
+    /** Pre-timing shape - the newest field, added the same backward-compatible way as serviceName before it. Null means "not measured" (a call logged before the proxy reported phase timings), never zero. */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId, String serviceName) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, null);
+    }
+
     /** Pre-service-name shape - kept so a call site built before that field existed doesn't need to touch a new required argument. serviceName is null (treated as "unknown" by every reader). */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null, null);
     }
 
     /**

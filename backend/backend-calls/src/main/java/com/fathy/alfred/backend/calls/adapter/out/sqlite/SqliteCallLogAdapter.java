@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
@@ -100,8 +101,8 @@ public class SqliteCallLogAdapter implements CallLogPort {
     }
 
     @Override
-    public boolean complete(String id, ResponseData response, String error, Double durationMs) {
-        return repository.complete(id, response, error, durationMs);
+    public boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing) {
+        return repository.complete(id, response, error, durationMs, timing);
     }
 
     @Override

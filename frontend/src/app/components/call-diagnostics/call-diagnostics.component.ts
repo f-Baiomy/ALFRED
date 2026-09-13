@@ -71,6 +71,21 @@ import { uriPath } from '../../shared/utils/call-utils';
                       @if (t.failed) { failed } @else if (t.onCriticalPath) { critical path }
                     </td>
                   </tr>
+                  @if (phases(t); as ph) {
+                    <!-- WHY the call took what it took, when the proxy measured it. Absent for a
+                         call logged before phase timings existed - the row simply doesn't appear,
+                         rather than showing zeroes that would read as "measured, and instant". -->
+                    <tr class="diag-phase-row">
+                      <td colspan="6">
+                        <span class="diag-phases" aria-hidden="true">
+                          @for (seg of ph.segments; track seg.kind) {
+                            <span class="diag-phase" [class]="'diag-phase-' + seg.kind" [style.width]="seg.width" [title]="seg.title"></span>
+                          }
+                        </span>
+                        <span class="diag-phase-legend">{{ ph.summary }}</span>
+                      </td>
+                    </tr>
+                  }
                 }
               </table>
             }
@@ -136,5 +151,54 @@ export class CallDiagnosticsComponent {
     return uriPath(call.url);
   }
 
-  readonly isCritical = (timing: CallTiming) => timing.onCriticalPath;
+  /**
+   * Splits one call's duration into the phases the proxy measured, plus a plain-English summary of
+   * which one dominates - the sentence is the point, the bar just shows the proportions.
+   *
+   * Returns null when nothing was measured. Connect and TLS are normally absent because the
+   * connection was reused, which is the healthy case and is said so explicitly; their PRESENCE is
+   * the finding, since paying for a handshake on every call means connections aren't being pooled.
+   */
+  phases(timing: CallTiming): { segments: PhaseSegment[]; summary: string } | null {
+    const measured = timing.call.timing;
+    if (!measured) return null;
+
+    const total = timing.durationMs || 1;
+    const connect = measured.connect_ms ?? 0;
+    const tls = measured.tls_ms ?? 0;
+    // Connect and TLS happen INSIDE the time-to-first-byte window, not before it - mitmproxy opens
+    // the upstream connection lazily, after the request hook has already fired. Treating all four
+    // as consecutive segments double-counts the handshake: measured live, connect 74.5 + TLS 57.0
+    // + TTFB 193.8 + download 2.8 came to 328ms for a call that took 196.6ms, a bar 167% wide.
+    // Subtracting leaves the upstream's own think time, and the four then sum to the duration.
+    const thinking = Math.max(0, (measured.ttfb_ms ?? 0) - connect - tls);
+    const parts: { kind: string; value: number; label: string }[] = [
+      { kind: 'connect', value: connect, label: 'connect' },
+      { kind: 'tls', value: tls, label: 'TLS' },
+      { kind: 'ttfb', value: thinking, label: 'upstream thinking' },
+      { kind: 'download', value: measured.download_ms ?? 0, label: 'download' },
+    ].filter((part) => part.value > 0);
+    if (parts.length === 0) return null;
+
+    const segments = parts.map((part) => ({
+      kind: part.kind,
+      width: `${((part.value / total) * 100).toFixed(2)}%`,
+      title: `${part.label} ${formatMs(part.value)}`,
+    }));
+
+    const biggest = parts.reduce((best, part) => (part.value > best.value ? part : best));
+    const handshake = connect + tls;
+    const summary =
+      handshake / total >= 0.3
+        ? `${Math.round((handshake / total) * 100)}% of this call is connect and TLS - the connection is not being reused`
+        : `mostly ${biggest.label} (${formatMs(biggest.value)})${measured.reused_connection ? ', on a reused connection' : ''}`;
+
+    return { segments, summary };
+  }
+}
+
+interface PhaseSegment {
+  readonly kind: string;
+  readonly width: string;
+  readonly title: string;
 }

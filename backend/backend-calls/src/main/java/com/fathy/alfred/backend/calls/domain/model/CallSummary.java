@@ -31,8 +31,16 @@ public record CallSummary(
         CallLifecycleStatus state,
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
-        @JsonProperty("service_name") String serviceName
+        @JsonProperty("service_name") String serviceName,
+        CallTiming timing
 ) {
+    /** Pre-timing shape - a call site built before phase timings existed gets null, which every reader treats as "not measured". */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId, String serviceName) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, null);
+    }
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     /** Pre-service-name shape - every call site built before that field existed gets null (treated as "unknown" by every reader). */
@@ -58,7 +66,7 @@ public record CallSummary(
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing());
     }
 
     /**
