@@ -1226,6 +1226,199 @@ main {
   border-left: 2px solid color-mix(in srgb, var(--purple) 30%, transparent);
 }
 
+// ---------- Call diagnostics panel ----------
+
+.diag {
+  margin: 0.5rem 0 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-inner);
+  overflow: hidden;
+}
+
+.diag-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-family: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.diag-total {
+  font-size: 0.82rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.diag-verdict {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 26rem;
+
+  &.diag-problem {
+    color: var(--red);
+    background: color-mix(in srgb, var(--red) 14%, transparent);
+  }
+  &.diag-watch {
+    color: var(--amber);
+    background: color-mix(in srgb, var(--amber) 14%, transparent);
+  }
+  &.diag-good {
+    color: var(--green);
+    background: color-mix(in srgb, var(--green) 14%, transparent);
+  }
+}
+
+// The whole point of the panel in one element: four segments that always add up to the call's own
+// duration, so "the suppliers are fine, it's the 17s afterwards" is visible without reading a number.
+.diag-bar {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 6rem;
+  height: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg-2);
+}
+
+.diag-seg {
+  height: 100%;
+}
+.diag-setup {
+  background: color-mix(in srgb, var(--cyan, #38bdf8) 55%, transparent);
+}
+.diag-upstream {
+  background: color-mix(in srgb, var(--green) 60%, transparent);
+}
+.diag-between {
+  background: color-mix(in srgb, var(--amber) 60%, transparent);
+}
+.diag-tail {
+  background: color-mix(in srgb, var(--red) 60%, transparent);
+}
+
+.diag-toggle {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.diag-body {
+  padding: 0.2rem 0.7rem 0.7rem;
+  font-size: 0.74rem;
+}
+
+.diag-ledger {
+  margin-bottom: 0.6rem;
+}
+
+.diag-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5rem 3rem;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+  color: var(--text-dim);
+
+  span:nth-child(2),
+  span:nth-child(3) {
+    text-align: right;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  }
+}
+
+.diag-row-head {
+  color: var(--text);
+}
+.diag-row-split {
+  border-top: 1px solid var(--border);
+  margin-top: 0.15rem;
+  padding-top: 0.3rem;
+}
+.diag-sub {
+  padding-left: 0.9rem;
+  color: var(--text-faint);
+}
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.6rem;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: 0.72rem;
+
+  th {
+    text-align: left;
+    font-weight: 400;
+    color: var(--text-faint);
+    padding: 0.2rem 0.4rem 0.2rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 0.2rem 0.4rem 0.2rem 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .diag-call {
+    max-width: 22rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .diag-critical td {
+    color: var(--text);
+  }
+  .diag-failed td {
+    color: var(--red);
+  }
+  .diag-note {
+    color: var(--text-faint);
+  }
+}
+
+.diag-parallel {
+  color: var(--text-faint);
+  margin-bottom: 0.5rem;
+}
+
+.diag-finding {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  color: var(--text-dim);
+  line-height: 1.5;
+
+  b {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .diag-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-top: 0.35rem;
+  }
+  &.diag-problem .diag-dot {
+    background: var(--red);
+  }
+  &.diag-watch .diag-dot {
+    background: var(--amber);
+  }
+  &.diag-good .diag-dot {
+    background: var(--green);
+  }
+}
+
 // ---------- Waterfall view (design B) ----------
 
 .waterfall {

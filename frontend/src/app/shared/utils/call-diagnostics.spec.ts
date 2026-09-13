@@ -1,0 +1,158 @@
+import { CallRecord } from '../../core/models/call.model';
+import { CallTreeNode } from './call-tree';
+import { analyzeCall } from './call-diagnostics';
+
+const T0 = Date.parse('2026-01-01T00:00:00.000Z');
+
+function call(id: string, startMs: number, durationMs: number, overrides: Partial<CallRecord> = {}): CallRecord {
+  return {
+    id,
+    original_url: `https://host/${id}`,
+    url: `https://host/${id}`,
+    method: 'POST',
+    timestamp: new Date(T0 + startMs).toISOString(),
+    duration_ms: durationMs,
+    response: { status: 200 },
+    source: 'external',
+    state: 'COMPLETED',
+    ...overrides,
+  } as CallRecord;
+}
+
+function node(root: CallRecord, children: readonly CallRecord[]): CallTreeNode {
+  return {
+    call: root,
+    depth: 0,
+    children: children.map((child) => ({ call: child, depth: 1, children: [] })),
+  };
+}
+
+describe('analyzeCall', () => {
+  it('assigns every millisecond of the root to exactly one bucket', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const result = analyzeCall(node(root, [call('a', 1000, 2000), call('b', 5000, 1000)]))!;
+    const { setupMs, upstreamMs, betweenMs, tailMs, durationMs } = result.ledger;
+
+    expect(setupMs + upstreamMs + betweenMs + tailMs).toBe(durationMs);
+  });
+
+  it('counts overlapping calls once, so parallel work cannot claim more time than the request took', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    // Three calls, all inside 1000-4000ms. Summed they are 6500ms - more than the window they sit in.
+    const result = analyzeCall(
+      node(root, [call('a', 1000, 3000), call('b', 1500, 2000), call('c', 2000, 1500)])
+    )!;
+
+    expect(result.ledger.upstreamMs).toBe(3000);
+    expect(result.parallelism!.sumOfDurationsMs).toBe(6500);
+    expect(result.ledger.setupMs + result.ledger.upstreamMs + result.ledger.betweenMs + result.ledger.tailMs)
+      .toBe(10_000);
+  });
+
+  it('reports gaps as the stretches with nothing in flight, not as per-pair differences', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    // a and b overlap (no gap between them); c starts 1000ms after b ends.
+    const result = analyzeCall(
+      node(root, [call('a', 1000, 1000), call('b', 1500, 1000), call('c', 3500, 500)])
+    )!;
+
+    expect(result.ledger.gaps.length).toBe(1);
+    expect(result.ledger.gaps[0].durationMs).toBe(1000);
+    expect(result.ledger.betweenMs).toBe(1000);
+  });
+
+  it('measures the real trace: 3.69s setup, 5.79s upstream, 17.24s tail', () => {
+    // The Amadeus/Travelport/Sabre fan-out from a live 26.72s odeysys search.
+    const root = call('odeysys', 0, 26_721, { source: 'internal' });
+    const result = analyzeCall(
+      node(root, [
+        call('sabre', 3690, 2108),
+        call('travelport-1', 3690, 2609),
+        call('ndc-1', 3730, 5749),
+        call('ndc-2', 3730, 4729),
+        call('travelport-2', 4070, 2093),
+      ])
+    )!;
+
+    expect(result.ledger.setupMs).toBe(3690);
+    expect(result.ledger.upstreamMs).toBe(5789);
+    expect(result.ledger.betweenMs).toBe(0);
+    expect(result.ledger.tailMs).toBe(17_242);
+    // Two thirds of the request happens after every supplier has already answered.
+    expect(result.findings.some((f) => f.level === 'problem' && /after every response/.test(f.title))).toBe(true);
+  });
+
+  it('gives slack to every call except the one that finishes last', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const result = analyzeCall(node(root, [call('slow', 1000, 4000), call('quick', 1000, 1000)]))!;
+
+    const slow = result.timings.find((t) => t.call.id === 'slow')!;
+    const quick = result.timings.find((t) => t.call.id === 'quick')!;
+    expect(slow.onCriticalPath).toBe(true);
+    expect(slow.slackMs).toBe(0);
+    expect(quick.onCriticalPath).toBe(false);
+    expect(quick.slackMs).toBe(3000);
+  });
+
+  it('flags a sequential fan-out, which is what an await in a loop looks like', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const result = analyzeCall(
+      node(root, [call('a', 0, 1000), call('b', 1000, 1000), call('c', 2000, 1000)])
+    )!;
+
+    expect(result.parallelism!.maxConcurrent).toBe(1);
+    expect(result.findings.some((f) => /run one at a time/.test(f.title))).toBe(true);
+  });
+
+  it('does not call back-to-back calls concurrent when one ends exactly as the next begins', () => {
+    const root = call('root', 0, 5000, { source: 'internal' });
+    const result = analyzeCall(node(root, [call('a', 0, 1000), call('b', 1000, 1000)]))!;
+
+    expect(result.parallelism!.maxConcurrent).toBe(1);
+  });
+
+  it('reports identical requests close together as something to look at, not as a defect', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const url = 'https://ndc.example.com/api/FlightSearch/Search';
+    const result = analyzeCall(
+      node(root, [call('a', 1000, 2000, { url }), call('b', 1040, 2000, { url })])
+    )!;
+
+    const duplicate = result.findings.find((f) => /identical requests/.test(f.title))!;
+    expect(duplicate.level).toBe('watch');
+    expect(duplicate.title).toContain('40ms apart');
+  });
+
+  it('does not report the same endpoint called again much later as a duplicate', () => {
+    const root = call('root', 0, 20_000, { source: 'internal' });
+    const url = 'https://ndc.example.com/api/FlightSearch/Search';
+    const result = analyzeCall(
+      node(root, [call('a', 1000, 500, { url }), call('b', 9000, 500, { url })])
+    )!;
+
+    expect(result.findings.some((f) => /identical requests/.test(f.title))).toBe(false);
+  });
+
+  it('says so plainly when a call made no logged outbound requests at all', () => {
+    const root = call('root', 0, 4000, { source: 'internal' });
+    const result = analyzeCall(node(root, []))!;
+
+    expect(result.ledger.unaccountedMs).toBe(4000);
+    expect(result.ledger.upstreamMs).toBe(0);
+    expect(result.findings[0].title).toContain('No outbound calls');
+  });
+
+  it('ignores in-progress children, which have no end to place on a timeline', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const result = analyzeCall(
+      node(root, [call('done', 1000, 1000), call('pending', 2000, 0, { state: 'IN_PROGRESS' })])
+    )!;
+
+    expect(result.timings.length).toBe(1);
+    expect(result.ledger.upstreamMs).toBe(1000);
+  });
+
+  it('returns nothing for a root that has no measurable window of its own', () => {
+    expect(analyzeCall(node(call('root', 0, 0, { state: 'IN_PROGRESS' }), []))).toBeNull();
+  });
+});

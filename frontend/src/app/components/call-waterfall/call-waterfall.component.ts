@@ -4,6 +4,7 @@ import { CallDepthInfo, CallTreeNode, depthRailPx } from '../../shared/utils/cal
 
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
 import { CallCardComponent } from '../call-card/call-card.component';
+import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
 
 /**
  * What a given line is showing:
@@ -51,6 +52,9 @@ interface WaterfallRow {
   readonly axisTotalLabel: string | null;
   /** Only on a closing row that has children to have waited on. */
   readonly selfTime: SelfTimeSplit | null;
+  /** Set only on a ROOT group's opening row - the node the diagnostics panel analyses. Null
+   * everywhere else, so one panel appears per root rather than one per nested parent. */
+  readonly diagnosticsNode: CallTreeNode | null;
   /** Distinct from call.id, which a bracketing pair shares - used for tracking and for expanding
    * one half without the other. */
   readonly rowKey: string;
@@ -73,7 +77,7 @@ interface WaterfallRow {
 @Component({
   selector: 'app-call-waterfall',
   standalone: true,
-  imports: [CallCardComponent],
+  imports: [CallCardComponent, CallDiagnosticsComponent],
   template: `
     <div class="waterfall">
       @for (row of rows(); track row.rowKey) {
@@ -83,6 +87,11 @@ interface WaterfallRow {
           [class.waterfall-open]="row.kind === 'request'"
           [class.waterfall-close]="row.kind === 'response'"
         >
+          @if (row.diagnosticsNode) {
+            <!-- One per root group, above its axis: what the bars below cannot show on their own,
+                 which is where the time went when nothing was in flight. -->
+            <app-call-diagnostics [node]="row.diagnosticsNode" />
+          }
           @if (row.axisTotalLabel) {
             <!-- One scale per group: every row between this opener and its closing row is measured
                  against this same root window, so the quarter marks read across all of them. -->
@@ -189,6 +198,7 @@ export class CallWaterfallComponent {
         offsetLabel: formatOffset(info?.offsetMs ?? null),
         axisTotalLabel: null as string | null,
         selfTime: null as SelfTimeSplit | null,
+        diagnosticsNode: null as CallTreeNode | null,
       };
 
       if (node.children.length === 0) {
@@ -203,6 +213,7 @@ export class CallWaterfallComponent {
         // Only a group opener draws an axis - its children are all measured against this same root,
         // so one scale covers everything between this row and its closing row.
         axisTotalLabel: node.depth === 0 ? formatOffset(info?.rootDurationMs ?? null) : null,
+        diagnosticsNode: node.depth === 0 ? node : null,
       });
       for (const child of node.children) walk(child);
       out.push({
