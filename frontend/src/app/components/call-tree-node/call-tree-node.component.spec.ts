@@ -231,6 +231,33 @@ describe('CallTreeNodeComponent', () => {
     expect(host.querySelector('.tree-children .tree-fold-summary')!.textContent).toContain('1 call folded');
   });
 
+  it('offers diagnose on a parent card only, and shows the panel on top of the card when pressed', () => {
+    const fixture = createNode(threeDeep());
+    const host: HTMLElement = fixture.nativeElement;
+
+    // Two parents, so two buttons - and nothing analysed until one is asked.
+    expect(host.querySelectorAll('.diag-btn').length).toBe(2);
+    expect(host.querySelector('app-call-diagnostics')).toBeNull();
+
+    (host.querySelector('.diag-btn') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const card = host.querySelector('.call.sandwich')!;
+    // First child of the card: above the request band, inside the card it describes.
+    expect(Array.from(card.children).map((el) => el.className.split(' ')[0])).toEqual([
+      'call-diag',
+      'call-band',
+      'call-nested',
+      'call-band',
+    ]);
+  });
+
+  it('a leaf card offers no diagnose button, having made no calls to account for', () => {
+    const host: HTMLElement = createNode([call('solo', 0, 100, { service_name: 'odeysys' })]).nativeElement;
+
+    expect(host.querySelector('.diag-btn')).toBeNull();
+  });
+
   it('a leaf card offers no fold control, having nothing to fold', () => {
     const host: HTMLElement = createNode([call('solo', 0, 100, { service_name: 'odeysys' })]).nativeElement;
 

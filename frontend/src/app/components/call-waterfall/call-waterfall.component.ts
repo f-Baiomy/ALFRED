@@ -73,9 +73,6 @@ interface WaterfallRow {
    * got one.
    */
   readonly diagnosticsNode: CallTreeNode | null;
-  /** Indent for the diagnostics panel: one level deeper than the row it belongs to, so it lines up
-   * with the children it is accounting for rather than with its parent's own row. */
-  readonly diagnosticsRailPx: number;
   /** Distinct from call.id, which a bracketing pair shares - used for tracking and for expanding
    * one half without the other. */
   readonly rowKey: string;
@@ -121,11 +118,24 @@ interface WaterfallRow {
               </span>
             </div>
           }
+          @if (row.diagnosticsNode && diagOpen(row.call.id)) {
+            <!-- Directly above its own row and joined to it (see .waterfall-diag), so it reads as
+                 that call's header rather than as a banner over the whole group. Only ever rendered
+                 once the button has been pressed: the panel answers a question, and most rows are
+                 not being asked it. Below the axis, which belongs to the root's scale, not to a call. -->
+            <div class="waterfall-diag">
+              <app-call-diagnostics [node]="row.diagnosticsNode" />
+            </div>
+          }
           <!-- The checkbox is a SIBLING of the row button, not inside it: a checkbox nested in a
                button is invalid, and clicking it would toggle the row open as well. Only on rows
                that open a call ('single' and the opening half of a bracketed pair), so a call that
                spans two rows still offers exactly one checkbox. -->
-          <div class="waterfall-row" [class.waterfall-row-selected]="row.selectable && isSelected(row.call)">
+          <div
+            class="waterfall-row"
+            [class.waterfall-row-selected]="row.selectable && isSelected(row.call)"
+            [class.waterfall-row-diag]="row.diagnosticsNode && diagOpen(row.call.id)"
+          >
             @if (row.foldable) {
               <button
                 type="button"
@@ -211,16 +221,17 @@ interface WaterfallRow {
               }
             </span>
             </button>
+            @if (row.diagnosticsNode) {
+              <button
+                type="button"
+                class="diag-btn"
+                [class.on]="diagOpen(row.call.id)"
+                [attr.aria-expanded]="diagOpen(row.call.id)"
+                title="Where this call's time actually went"
+                (click)="toggleDiag(row.call.id)"
+              >diagnose</button>
+            }
           </div>
-          @if (row.diagnosticsNode) {
-            <!-- BELOW the opening row and indented to its children's level, not stacked on top of
-                 the row: the panel accounts for what happens INSIDE this call, so it belongs with
-                 the calls it is accounting for. Sitting flush above the row it read as a banner
-                 attached to that one line. -->
-            <div class="waterfall-diag" [style.margin-left.px]="row.diagnosticsRailPx">
-              <app-call-diagnostics [node]="row.diagnosticsNode" />
-            </div>
-          }
           @if (isExpanded(row.rowKey)) {
             <div class="waterfall-detail">
               <app-call-card [call]="row.call" [variant]="row.kind === 'single' ? 'full' : row.kind" />
@@ -238,6 +249,9 @@ export class CallWaterfallComponent {
   readonly depths = input.required<ReadonlyMap<string, CallDepthInfo>>();
 
   private readonly expandedIds = signal<ReadonlySet<string>>(new Set());
+  /** Which calls are currently showing their diagnostics panel, by call id - nothing shows one until
+   * asked. Keyed on the call rather than the row, so a bracketed pair can't end up with two. */
+  private readonly diagIds = signal<ReadonlySet<string>>(new Set());
 
   readonly rows = computed<readonly WaterfallRow[]>(() => {
     const depths = this.depths();
@@ -270,7 +284,6 @@ export class CallWaterfallComponent {
         folded: false,
         foldedCount: 0,
         diagnosticsNode: null as CallTreeNode | null,
-        diagnosticsRailPx: depthRailPx(node.depth + 1),
       };
 
       if (node.children.length === 0) {
@@ -357,6 +370,16 @@ export class CallWaterfallComponent {
     const next = new Set(this.expandedIds());
     if (!next.delete(id)) next.add(id);
     this.expandedIds.set(next);
+  }
+
+  diagOpen(callId: string): boolean {
+    return this.diagIds().has(callId);
+  }
+
+  toggleDiag(callId: string): void {
+    const next = new Set(this.diagIds());
+    if (!next.delete(callId)) next.add(callId);
+    this.diagIds.set(next);
   }
 }
 

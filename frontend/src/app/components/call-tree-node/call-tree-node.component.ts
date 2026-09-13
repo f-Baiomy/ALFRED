@@ -1,6 +1,7 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { CallTreeNode } from '../../shared/utils/call-tree';
 import { CallCardComponent } from '../call-card/call-card.component';
+import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 
 /**
@@ -25,7 +26,7 @@ import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens
 @Component({
   selector: 'app-call-tree-node',
   standalone: true,
-  imports: [CallCardComponent],
+  imports: [CallCardComponent, CallDiagnosticsComponent],
   template: `
     @if (hasChildren()) {
       <app-call-card
@@ -35,7 +36,13 @@ import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens
         [foldable]="true"
         [folded]="folded()"
         (foldToggle)="toggleFold()"
+        [diagnosable]="true"
+        [diagOpen]="diagOpen()"
+        (diagToggle)="diagOpen.set(!diagOpen())"
       >
+        @if (diagOpen()) {
+          <app-call-diagnostics callDiagnostics [node]="node()" />
+        }
         <div callChildren>
           @if (folded()) {
             <button type="button" class="tree-fold-summary" (click)="toggleFold()">
@@ -64,6 +71,9 @@ export class CallTreeNodeComponent {
   readonly hasChildren = computed(() => this.node().children.length > 0);
   readonly folded = computed(() => this.state.foldedIds().has(this.node().call.id));
   readonly hiddenCount = computed(() => countDescendants(this.node()));
+  /** Local rather than in the shared list state: showing a breakdown is a momentary "what happened
+   * here", not a property of the list worth keeping in step across views. */
+  readonly diagOpen = signal(false);
 
   /**
    * Folding takes every parent underneath this one with it, so re-opening gives back ONE level

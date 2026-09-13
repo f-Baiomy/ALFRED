@@ -144,6 +144,14 @@
   [class.has-warning]="hasWarning()"
 >
   @if (isSandwich()) {
+    @if (diagOpen()) {
+      <!-- On top of the card and inside it: the breakdown is this call's own header, so it sits
+           above the request band rather than floating between two cards where it would be unclear
+           which one it belongs to. Nothing is projected here until the button is pressed. -->
+      <div class="call-diag">
+        <ng-content select="[callDiagnostics]" />
+      </div>
+    }
     <!-- The opening half: everything known when the call was SENT. Its own children render
          between the two bands, so the card reads top to bottom in the order things happened. -->
     <div class="call-band call-band-request">
@@ -162,6 +170,19 @@
         <app-call-actions [call]="call()" />
         @if (removalState) {
           <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
+        }
+        @if (diagnosable()) {
+          <!-- With the other per-call actions rather than at the far right as in the waterfall: this
+               band's right edge is the request/response marker, and the timestamp after it already
+               wraps to its own line, so a button out there would read as belonging to the date. -->
+          <button
+            type="button"
+            class="diag-btn"
+            [class.on]="diagOpen()"
+            [attr.aria-expanded]="diagOpen()"
+            title="Where this call's time actually went"
+            (click)="toggleDiag()"
+          >diagnose</button>
         }
         <span class="band-marker">&#8595; request</span>
         <span class="call-time">{{ formattedTime() }}</span>

@@ -231,24 +231,54 @@ describe('CallWaterfallComponent', () => {
     expect((host.querySelector('.call-select') as HTMLInputElement).checked).toBe(true);
   });
 
-  it('gives every call that made calls of its own a diagnostics panel, not just the root', () => {
+  it('offers a diagnose button on every call that made calls, and shows no panel until pressed', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
 
-    // odeysys called core-service, which called sabre - two callers, so two breakdowns. The middle
-    // one is usually the interesting one: it is the service that actually did the fanning out.
-    expect(host.querySelectorAll('app-call-diagnostics').length).toBe(2);
-    expect(host.querySelectorAll('.waterfall-line')[2].querySelector('app-call-diagnostics')).toBeNull();
+    // odeysys called core-service, which called sabre - two callers, so two buttons. The middle one
+    // is usually the interesting one: it is the service that actually did the fanning out.
+    expect(host.querySelectorAll('.diag-btn').length).toBe(2);
+    expect(host.querySelectorAll('.waterfall-line')[2].querySelector('.diag-btn')).toBeNull();
+    expect(host.querySelector('app-call-diagnostics')).toBeNull();
   });
 
-  it('puts a panel below its opening row and indented to its children, not stacked on the row', () => {
-    const host: HTMLElement = createWaterfall().nativeElement;
-    const line = host.querySelectorAll('.waterfall-line')[0];
-    const parts = Array.from(line.children).map((el) => el.className.split(' ')[0]);
+  it('opens the panel directly above its own row, and closes it again', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
 
-    // Axis, then the row, then the panel - a panel rendered first read as a banner on that one line.
-    expect(parts).toEqual(['waterfall-axis', 'waterfall-row', 'waterfall-diag']);
-    const nested = host.querySelectorAll('.waterfall-diag')[1] as HTMLElement;
-    expect(parseFloat(nested.style.marginLeft)).toBeGreaterThan(0);
+    (host.querySelectorAll('.diag-btn')[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // The panel belongs to core-service's line, not to the root's, and sits directly before its row.
+    const line = host.querySelectorAll('.waterfall-line')[1];
+    expect(Array.from(line.children).map((el) => el.className.split(' ')[0])).toEqual(['waterfall-diag', 'waterfall-row']);
+    expect(host.querySelectorAll('app-call-diagnostics').length).toBe(1);
+
+    (host.querySelectorAll('.diag-btn')[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('app-call-diagnostics')).toBeNull();
+  });
+
+  it('marks the row as joined to its panel, so the two share an edge', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
+
+    (host.querySelectorAll('.diag-btn')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const rows = host.querySelectorAll('.waterfall-row');
+    expect(rows[0].classList).toContain('waterfall-row-diag');
+    // Only the row the panel opened above - the rest keep their ordinary borders.
+    expect(rows[1].classList).not.toContain('waterfall-row-diag');
+  });
+
+  it('pressing diagnose does not expand the row\'s call card', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
+
+    (host.querySelectorAll('.diag-btn')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('app-call-card')).toBeNull();
   });
 
   it('folds a group down to its bracket, counting what it hid', () => {

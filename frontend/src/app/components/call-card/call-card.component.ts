@@ -111,6 +111,16 @@ export class CallCardComponent {
   readonly foldable = input<boolean>(false);
   readonly folded = input<boolean>(false);
   readonly foldToggle = output<void>();
+  /**
+   * Whether this card offers a "diagnose" button, and whether its panel is currently showing. The
+   * panel itself is PROJECTED (see the [callDiagnostics] slot) rather than built here: only the
+   * nested view holds a CallTreeNode, and only that has the children the breakdown is computed from.
+   * The parent projects nothing while `diagOpen` is false, so a page of parents costs no analysis
+   * until one is actually asked.
+   */
+  readonly diagnosable = input<boolean>(false);
+  readonly diagOpen = input<boolean>(false);
+  readonly diagToggle = output<void>();
   /** Emitted when the depth badge's parent name is clicked - the list scrolls that parent into view
    * and flashes it, which is how hierarchy stays navigable in a view that never indents. */
   readonly revealParent = output<string>();
@@ -545,6 +555,10 @@ export class CallCardComponent {
 
   toggleFold(): void {
     this.foldToggle.emit();
+  }
+
+  toggleDiag(): void {
+    this.diagToggle.emit();
   }
 
   async remove(): Promise<void> {
