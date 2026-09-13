@@ -1368,10 +1368,14 @@ main {
     color: var(--text-dim);
     white-space: nowrap;
   }
+  // Full urls, so this column takes whatever the fixed numeric columns leave and wraps rather than
+  // truncating: the distinguishing part of a supplier url is often at the END (a double slash, a
+  // different host, a query string), which is exactly what an ellipsis would cut off.
   .diag-call {
-    max-width: 22rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    width: 100%;
+    max-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .diag-critical td {
     color: var(--text);

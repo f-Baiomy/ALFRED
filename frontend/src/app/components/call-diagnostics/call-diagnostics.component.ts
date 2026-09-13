@@ -3,7 +3,6 @@ import { CallBaseline, CallRecord } from '../../core/models/call.model';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallTreeNode } from '../../shared/utils/call-tree';
 import { CallDiagnostics, CallTiming, analyzeCall, formatMs } from '../../shared/utils/call-diagnostics';
-import { uriPath } from '../../shared/utils/call-utils';
 
 /** Below this many completed calls, a percentile is not a baseline and the panel says so instead. */
 const MIN_BASELINE_SAMPLE = 5;
@@ -69,7 +68,7 @@ const SLOW_AGAINST_BASELINE = 1.5;
                 </tr>
                 @for (t of d.timings; track t.call.id) {
                   <tr [class.diag-critical]="t.onCriticalPath" [class.diag-failed]="t.failed">
-                    <td class="diag-call">{{ path(t.call) }}</td>
+                    <td class="diag-call" [title]="t.call.method + ' ' + path(t.call)">{{ path(t.call) }}</td>
                     <td>+{{ ms(t.offsetMs) }}</td>
                     <td>{{ ms(t.durationMs) }}</td>
                     <td>+{{ ms(t.endMs) }}</td>
@@ -194,8 +193,9 @@ export class CallDiagnosticsComponent {
     return total > 0 ? `${((value / total) * 100).toFixed(2)}%` : '0%';
   }
 
+  /** The full url - see call-diagnostics.ts's pathOf for why a path alone is not enough here. */
   path(call: CallRecord): string {
-    return uriPath(call.url);
+    return call.url;
   }
 
   /**

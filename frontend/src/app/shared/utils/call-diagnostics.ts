@@ -330,12 +330,13 @@ function longestOf(timings: readonly CallTiming[]): number {
   return timings.reduce((longest, timing) => Math.max(longest, timing.durationMs), 0);
 }
 
+/**
+ * The FULL url, not just the path. Two calls in the same fan-out routinely share a path and differ
+ * only by host - and a path alone hid the one case where that difference was the bug, a supplier
+ * URL built with a double slash (uAPI//AirService) sitting next to the working uAPI/AirService.
+ */
 function pathOf(call: CallRecord): string {
-  try {
-    return new URL(call.url).pathname;
-  } catch {
-    return call.url;
-  }
+  return call.url;
 }
 
 function percent(part: number, total: number): string {
