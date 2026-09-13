@@ -89,6 +89,46 @@ function setupWithSources(
   return { state: TestBed.inject(CallsStateService), calls };
 }
 
+/** N calls on consecutive seconds of one day, newest last - enough to span several pages. */
+function pagedCalls(prefix: string, count: number, day: string): CallRecord[] {
+  return Array.from({ length: count }, (_, i) =>
+    makeCall({ id: `${prefix}-${i}`, timestamp: new Date(`${day}T00:00:00.000Z`).toISOString().replace('00:00:00', timeAt(i)) })
+  );
+}
+
+function timeAt(index: number): string {
+  const h = String(Math.floor(index / 3600)).padStart(2, '0');
+  const m = String(Math.floor((index % 3600) / 60)).padStart(2, '0');
+  const s = String(index % 60).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+/**
+ * Like setupWithSources, but the stub actually honours offset/limit per source - which is the
+ * entire point when the thing under test is how two independently-paginated backends are walked.
+ */
+function setupPaged(
+  externalCalls: CallRecord[],
+  internalCalls: CallRecord[]
+): { state: CallsStateService; asked: Array<{ source: string; offset: number }> } {
+  const asked: Array<{ source: string; offset: number }> = [];
+  const apiStub: Pick<CallsApiService, 'getCalls' | 'getCallOverlaps'> = {
+    getCalls: (query, source = 'external') => {
+      asked.push({ source, offset: query.offset });
+      const all = source === 'internal' ? internalCalls : externalCalls;
+      return of({ calls: all.slice(query.offset, query.offset + query.limit), total: all.length });
+    },
+    getCallOverlaps: () => of([]),
+  };
+  TestBed.configureTestingModule({
+    providers: [
+      { provide: CallsApiService, useValue: apiStub },
+      { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
+    ],
+  });
+  return { state: TestBed.inject(CallsStateService), asked };
+}
+
 describe('CallsStateService', () => {
   afterEach(() => localStorage.removeItem(PIN_STORAGE_KEY));
 
@@ -292,7 +332,9 @@ describe('CallsStateService', () => {
     discardPeriodicTasks();
   }));
 
-  it('merging both sources trims the merged page back down to the requested limit', fakeAsync(() => {
+  it('keeps every call of a merged page instead of trimming it to the limit', fakeAsync(() => {
+    // Trimming lost calls for good: the only handle on a dropped call is an offset into a source
+    // that the next page has already read past, so it can never be asked for again.
     const external = [makeCall({ id: 'ext-1', timestamp: '2026-01-01T00:00:00.000Z' })];
     const internal = [makeCall({ id: 'int-1', timestamp: '2026-01-02T00:00:00.000Z' })];
     const { state } = setupWithSources(external, internal);
@@ -303,7 +345,58 @@ describe('CallsStateService', () => {
     state.toggleSource('odeysys');
     tick();
 
-    expect(state.calls().length).toBe(1);
+    expect(state.calls().map((c) => c.id)).toEqual(['int-1', 'ext-1']);
+    discardPeriodicTasks();
+  }));
+
+  it('asks each source for its OWN offset, so neither is skipped past', fakeAsync(() => {
+    // Reported live: 178 external calls and 200 internal ones. Page one merged 378 and trimmed to
+    // the 200 limit; page two then asked BOTH backends for offset 200, where external has nothing
+    // left and internal has nothing left. The 178 trimmed calls became unreachable, the list stuck
+    // at 140 visible rows, and every further "load more" fetched an empty page forever.
+    const external = pagedCalls('ext', 300, '2026-01-01');
+    const internal = pagedCalls('int', 250, '2026-01-02');
+    const { state, asked } = setupPaged(external, internal);
+    tick();
+    state.toggleSource('odeysys');
+    tick();
+
+    // One page of 200 from each - nothing trimmed, so a merged page is up to twice the limit.
+    expect(state.calls().length).toBe(400);
+    asked.length = 0;
+
+    state.loadMore();
+    tick();
+
+    // Each source resumes from where IT stopped (200), not from the 400 loaded across both.
+    expect(asked).toEqual([
+      { source: 'external', offset: 200 },
+      { source: 'internal', offset: 200 },
+    ]);
+    expect(state.calls().length).toBe(550);
+    expect(new Set(state.calls().map((c) => c.id)).size).toBe(550);
+    expect(state.remainingCount()).toBe(0);
+    discardPeriodicTasks();
+  }));
+
+  it('restarts both cursors when a fetch begins from the top again', fakeAsync(() => {
+    const { state, asked } = setupPaged(pagedCalls('ext', 300, '2026-01-01'), pagedCalls('int', 250, '2026-01-02'));
+    tick();
+    state.toggleSource('odeysys');
+    tick();
+    state.loadMore();
+    tick();
+    asked.length = 0;
+
+    // A filter change replaces the window - both sources must go back to offset 0, or the first
+    // page of the new result set would be read from halfway down.
+    state.setSupplierFilter('acme');
+    tick();
+
+    expect(asked).toEqual([
+      { source: 'external', offset: 0 },
+      { source: 'internal', offset: 0 },
+    ]);
     discardPeriodicTasks();
   }));
 

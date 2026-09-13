@@ -74,6 +74,14 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    */
   readonly selectedSources = signal<ReadonlySet<SourceKey>>(new Set([EXTERNAL_SOURCE_KEY]));
 
+  /**
+   * How far into EACH backend the merged (external + internal) list has read. Reset whenever a
+   * fetch starts from offset 0 - a replace, a filter change, resetSource - and otherwise advanced
+   * by however many calls each source actually returned. See fetchPageForSource for why a single
+   * shared offset cannot work here.
+   */
+  private mergedCursor = { external: 0, internal: 0 };
+
   /** Live WebSocket subscriptions for the currently-selected source(s) - torn down and rebuilt whenever selectedSources changes, one socket per distinct backend store actually needed (never more than two: /ws/calls for 'external', /ws/internal-calls for any internal name). */
   private wsSubscriptions: Subscription[] = [];
 
@@ -109,15 +117,24 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    * Fetches one page for whatever source(s) are currently selected. External-only or
    * internal-only (any number of named projects) is a straight passthrough to the matching REST
    * resource, with the selected internal names sent as a server-side filter. Selecting both kinds
-   * fetches the same offset/limit from each of the two independent, independently-paginated
-   * backends in parallel, merges the two pages, and re-sorts the combination with sortCalls
-   * (shared with the session-cycle "custom order" view). The merged page is then trimmed back
-   * down to `query.limit` so `loadMore`'s offset math (based on how many calls are loaded so far)
-   * keeps advancing by a consistent page size - this is a pragmatic compromise, not an exact
-   * global page: because the two sources are paginated independently, a page boundary can
-   * occasionally skip or (rarely) repeat a call when the two sources' recent-call rates differ a
-   * lot. `total` is the sum of both sources' totals, so "N remaining" stays a reasonable (if not
-   * exact once trimming has occurred) estimate. Selecting nothing at all fetches nothing.
+   * fetches from each of the two independent, independently-paginated backends in parallel and
+   * merges the two pages, re-sorted with sortCalls (shared with the session-cycle "custom order"
+   * view). `total` is the sum of both sources' totals.
+   *
+   * Each source keeps its OWN offset ({@link mergedCursor}), advanced by how many calls that source
+   * actually returned. The caller's `query.offset` is only read as "is this a fresh start" - it
+   * counts calls already loaded across BOTH sources, which is meaningless to either backend on its
+   * own. Sharing it was a real bug: with 178 external and 200 internal calls, page one merged 378
+   * and trimmed to the 200-call limit, then page two asked BOTH backends for offset 200 - where
+   * external has nothing left and internal has nothing left - so the 178 calls trimmed out of page
+   * one were permanently unreachable, the list stopped at 140 visible rows, and every further
+   * "load more" fetched an empty page forever.
+   *
+   * Nothing is trimmed now, so a merged page can be up to twice `limit`. That is the point: a call
+   * dropped from a page can never be asked for again, because the only handle on it is an offset
+   * into a source that has already moved past it. Cross-page ordering stays approximate (page two's
+   * calls all sort after page one's, even if one source ran out early) - but approximate order is a
+   * far smaller problem than missing calls. Selecting nothing at all fetches nothing.
    *
    * 'newest'/'oldest' are substituted with 'newest-call'/'oldest-call' for the merge only: those
    * two modes normally rely on "whatever order this one backend already returned it in" (its own
@@ -137,10 +154,22 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     if (!wantExternal && !wantInternal) return of({ calls: [], total: 0 });
 
     const mergeSort: SortMode = query.sort === 'newest' ? 'newest-call' : query.sort === 'oldest' ? 'oldest-call' : query.sort;
-    return forkJoin([this.api.getCalls(query, 'external'), this.api.getCalls(query, 'internal', internalNames)]).pipe(
+    if (query.offset === 0) this.mergedCursor = { external: 0, internal: 0 };
+    const cursor = this.mergedCursor;
+
+    return forkJoin([
+      this.api.getCalls({ ...query, offset: cursor.external }, 'external'),
+      this.api.getCalls({ ...query, offset: cursor.internal }, 'internal', internalNames),
+    ]).pipe(
       map(([external, internal]) => {
-        const merged = sortCalls([...external.calls, ...internal.calls], mergeSort);
-        return { calls: merged.slice(0, query.limit), total: external.total + internal.total };
+        this.mergedCursor = {
+          external: cursor.external + external.calls.length,
+          internal: cursor.internal + internal.calls.length,
+        };
+        return {
+          calls: sortCalls([...external.calls, ...internal.calls], mergeSort),
+          total: external.total + internal.total,
+        };
       })
     );
   }
