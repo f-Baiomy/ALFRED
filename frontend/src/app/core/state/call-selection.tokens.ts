@@ -11,9 +11,28 @@ import { CallListView } from './call-list-view';
 export interface CallSelectionState {
   isSelected(call: CallRecord): boolean;
   toggleSelected(call: CallRecord): void;
-  startDragSelect(call: CallRecord): void;
+  /** `subtree` (set by the tree views) paints whole subtrees for the rest of the drag, so crossing a
+   * parent means the same thing as ticking its checkbox. Latched at drag start rather than asked per
+   * card, so one drag can't be half one rule and half the other. */
+  startDragSelect(call: CallRecord, subtree?: boolean): void;
   dragSelectOver(call: CallRecord): void;
   endDragSelect(): void;
+  /**
+   * How much of `call` plus everything nested under it is selected - what a tree view's checkbox
+   * renders as empty / half-filled / filled. 'some' means at least one call in the subtree is
+   * selected and at least one isn't, so a parent left selected after one child was unticked reads
+   * as half-filled rather than as fully selected.
+   *
+   * A call with no children can only ever be 'none' or 'all', which is why the flat view (which
+   * shows no hierarchy) never needs this and keeps using isSelected().
+   */
+  subtreeSelection(call: CallRecord): 'none' | 'some' | 'all';
+  /**
+   * Selects or deselects `call` AND everything nested under it, in one step - the tree views'
+   * checkbox and drag-paint both go through here. A subtree that's currently folded shut is
+   * included: folding hides calls, it doesn't exclude them from what the user just asked for.
+   */
+  setSubtreeSelected(call: CallRecord, selected: boolean): void;
 }
 
 /** The bulk-selection surface BulkActionsBarComponent needs, for the same reason as above. */

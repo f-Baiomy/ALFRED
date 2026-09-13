@@ -11,7 +11,9 @@ import {
   DEFAULT_CALL_VIEW_MODE,
   TREE_FALLBACK_SORT_MODE,
   buildCallTree,
+  foldableIds,
   indexCallTree,
+  indexDescendants,
   isTreeSortMode,
   requiresChronologicalSort,
 } from '../../shared/utils/call-tree';
@@ -173,6 +175,17 @@ export interface CallListView {
   /** Per-call depth/parent/span annotations for the flat-depth view's badge and timing bar, keyed
    * by call id - every call in `mainListCalls()` has an entry, roots included. */
   readonly callDepths: Signal<ReadonlyMap<string, CallDepthInfo>>;
+  /** Everything nested under each call, at any depth, keyed by call id - see indexDescendants. What
+   * a tree view's checkbox acts on and counts over. */
+  readonly descendants: Signal<ReadonlyMap<string, readonly CallRecord[]>>;
+  /**
+   * Which calls have had their subtree FOLDED shut in the tree views, by call id. Nothing to do with
+   * `expanded`/`collapseAllVersion` above, which are about a card's own request/response blocks -
+   * this hides a parent's children, not its payload. Deliberately not persisted: it describes one
+   * particular set of loaded calls, and restoring it against a different page would fold calls the
+   * user never folded.
+   */
+  readonly foldedIds: Signal<ReadonlySet<string>>;
   /**
    * The batch of overlap candidates fetched for whatever time range `mainListCalls()` currently
    * spans, under the currently-active filters - `undefined` while that fetch for the current range
@@ -201,6 +214,15 @@ export interface CallListView {
    * parent away from its children (see CallViewMode's doc). */
   setViewMode(mode: CallViewMode): void;
   toggleExpanded(): void;
+  /**
+   * Folds or unfolds a set of calls' subtrees at once. Folding passes the parent PLUS every foldable
+   * call under it, so re-opening it gives back one level rather than the whole subtree that was
+   * there before; unfolding passes just the one call, leaving anything inside it as the user left it.
+   * Callers hold the CallTreeNode and so already know both sets - see CallTreeNodeComponent.
+   */
+  setFolded(callIds: readonly string[], folded: boolean): void;
+  foldAll(): void;
+  unfoldAll(): void;
   loadMore(): void;
   /** Re-fetches the currently-loaded window (offset 0 through however many calls are loaded) and replaces it wholesale - used both for the manual "Refresh" button and to reconcile a WebSocket push, since there's no polling to fall back on. */
   refresh(): void;
@@ -249,6 +271,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const viewMode = signal<CallViewMode>(loadViewMode());
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
+  const foldedIds = signal<ReadonlySet<string>>(new Set());
   const loading = signal(false);
 
   const loadedCalls = signal<readonly CallRecord[]>([]);
@@ -429,6 +452,9 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     };
   });
 
+  /** Declared here rather than inline below because `descendants` and the fold helpers all read it. */
+  const callTree = computed(() => buildCallTree(mainListCalls()));
+
   return {
     searchQuery,
     limit: pageSize,
@@ -457,8 +483,10 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
         : mainListCalls().map((call) => ({ call, variant: 'full' as const, rowKey: call.id }))
     ),
     viewMode,
-    callTree: computed(() => buildCallTree(mainListCalls())),
+    callTree,
     callDepths: computed(() => indexCallTree(mainListCalls())),
+    descendants: computed(() => indexDescendants(callTree())),
+    foldedIds,
     overlapCandidates,
     remainingCount: computed(() => Math.max(0, totalCount() - loadedCalls().length)),
     groupedCalls: computed<SupplierGroup[]>(() => {
@@ -527,6 +555,20 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     toggleExpanded() {
       expanded.set(!expanded());
       collapseAllVersion.set(collapseAllVersion() + 1);
+    },
+    setFolded(callIds: readonly string[], folded: boolean) {
+      const next = new Set(foldedIds());
+      for (const id of callIds) {
+        if (folded) next.add(id);
+        else next.delete(id);
+      }
+      foldedIds.set(next);
+    },
+    foldAll() {
+      foldedIds.set(new Set(foldableIds(callTree())));
+    },
+    unfoldAll() {
+      foldedIds.set(new Set());
     },
     loadMore() {
       fetch(loadedCalls().length, pageSize(), false);

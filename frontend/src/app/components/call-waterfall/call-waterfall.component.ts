@@ -3,7 +3,7 @@ import { CallRecord } from '../../core/models/call.model';
 import { CallDepthInfo, CallTreeNode, depthRailPx } from '../../shared/utils/call-tree';
 
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
-import { CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
+import { CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { CallCardComponent } from '../call-card/call-card.component';
 import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
 
@@ -56,6 +56,12 @@ interface WaterfallRow {
   /** Whether this row offers a selection checkbox - true for a leaf row and for the OPENING half of
    * a bracketed pair, so a call spanning two rows still has exactly one. */
   readonly selectable: boolean;
+  /** Whether this row offers a fold control - the opening half of a bracketed pair, which is the only
+   * row with anything underneath it to fold. */
+  readonly foldable: boolean;
+  readonly folded: boolean;
+  /** How many calls this row is currently hiding - 0 unless folded. */
+  readonly foldedCount: number;
   /** The call's #N among its parent's outbound calls, or empty at a root - matches the number the
    * diagnostics table and findings use, so "#3 decides the total" points at a row you can see. */
   readonly indexLabel: string;
@@ -117,12 +123,25 @@ interface WaterfallRow {
                that open a call ('single' and the opening half of a bracketed pair), so a call that
                spans two rows still offers exactly one checkbox. -->
           <div class="waterfall-row" [class.waterfall-row-selected]="row.selectable && isSelected(row.call)">
+            @if (row.foldable) {
+              <button
+                type="button"
+                class="fold-toggle"
+                [attr.aria-expanded]="!row.folded"
+                [title]="row.folded ? 'Show the calls made inside this one' : 'Hide the calls made inside this one'"
+                [attr.aria-label]="row.folded ? 'Unfold nested calls' : 'Fold nested calls'"
+                (click)="toggleFold(row)"
+              >{{ row.folded ? '▸' : '▾' }}</button>
+            } @else {
+              <span class="waterfall-fold-spacer" aria-hidden="true"></span>
+            }
             @if (row.selectable) {
-              <label class="call-select-wrap" title="Select for bulk export">
+              <label class="call-select-wrap" title="Select this call and everything it called">
                 <input
                   type="checkbox"
                   class="call-select"
-                  [checked]="isSelected(row.call)"
+                  [checked]="subtreeSelection(row.call) === 'all'"
+                  [indeterminate]="subtreeSelection(row.call) === 'some'"
                   (change)="toggleSelected(row.call)"
                 />
               </label>
@@ -153,6 +172,9 @@ interface WaterfallRow {
               <span class="waterfall-index">{{ row.indexLabel }}</span>
             }
             <span class="waterfall-label">{{ row.label }}</span>
+            @if (row.foldedCount > 0) {
+              <span class="waterfall-folded-count">{{ row.foldedCount }} folded</span>
+            }
             <span class="waterfall-offset">{{ row.offsetLabel }}</span>
             <span class="waterfall-track" aria-hidden="true">
               @if (row.hasBar) {
@@ -207,6 +229,7 @@ export class CallWaterfallComponent {
 
   readonly rows = computed<readonly WaterfallRow[]>(() => {
     const depths = this.depths();
+    const foldedIds = this.listState.foldedIds();
     const out: WaterfallRow[] = [];
 
     // childIndex is the call's 1-based position among its parent's outbound calls - the same number
@@ -231,6 +254,9 @@ export class CallWaterfallComponent {
         selfTime: null as SelfTimeSplit | null,
         indexLabel: childIndexLabel,
         selectable: true,
+        foldable: false,
+        folded: false,
+        foldedCount: 0,
         diagnosticsNode: null as CallTreeNode | null,
       };
 
@@ -239,6 +265,7 @@ export class CallWaterfallComponent {
         return;
       }
 
+      const folded = foldedIds.has(node.call.id);
       out.push({
         ...base,
         kind: 'request',
@@ -247,8 +274,13 @@ export class CallWaterfallComponent {
         // so one scale covers everything between this row and its closing row.
         axisTotalLabel: node.depth === 0 ? formatOffset(info?.rootDurationMs ?? null) : null,
         diagnosticsNode: node.depth === 0 ? node : null,
+        foldable: true,
+        folded,
+        foldedCount: folded ? countDescendants(node) : 0,
       });
-      node.children.forEach((child, i) => walk(child, i + 1));
+      // Folded: the bracket stays (it's two lines, and it's what carries the timing), but everything
+      // between the halves goes - which on a deep trace is the whole point.
+      if (!folded) node.children.forEach((child, i) => walk(child, i + 1));
       out.push({
         ...base,
         kind: 'response',
@@ -268,13 +300,27 @@ export class CallWaterfallComponent {
   /** Selection is shared state, so a call ticked here is ticked in the flat and nested views too -
    * and the bulk actions bar counts it - rather than this view keeping a second list of its own. */
   private readonly selection = inject(CALL_SELECTION_STATE);
+  /** For the fold set, which the nested view shares - folding a call in one tree view folds it in
+   * the other, since they're two drawings of the same tree rather than two different trees. */
+  private readonly listState = inject(CALL_LIST_CONTROLS_STATE);
 
   isSelected(call: CallRecord): boolean {
     return this.selection.isSelected(call);
   }
 
+  /** Like the nested view, a row's checkbox takes the call AND everything nested under it - a
+   * bracketed row's whole span is its subtree, so anything narrower would contradict the bar. */
+  subtreeSelection(call: CallRecord): 'none' | 'some' | 'all' {
+    return this.selection.subtreeSelection(call);
+  }
+
   toggleSelected(call: CallRecord): void {
-    this.selection.toggleSelected(call);
+    this.selection.setSubtreeSelected(call, this.subtreeSelection(call) !== 'all');
+  }
+
+  toggleFold(row: WaterfallRow): void {
+    if (row.folded) this.listState.setFolded([row.call.id], false);
+    else this.listState.setFolded(foldableIdsUnder(row.call.id, this.nodes()), true);
   }
 
   readonly methodClassOf = (call: CallRecord) => methodClass(call.method);
@@ -340,6 +386,32 @@ function selfTimeOf(
     waitingMs,
     selfMs: Math.max(0, Math.round((node.call.duration_ms ?? 0) - waitingMs)),
   };
+}
+
+function countDescendants(node: CallTreeNode): number {
+  return node.children.reduce((total, child) => total + 1 + countDescendants(child), 0);
+}
+
+/**
+ * The call `callId` plus every call under it that has children of its own - what folding takes with
+ * it, so re-opening gives back one level. Found by walking `nodes` rather than threaded through the
+ * row, since a row only carries its CallRecord.
+ */
+function foldableIdsUnder(callId: string, nodes: readonly CallTreeNode[]): string[] {
+  const find = (list: readonly CallTreeNode[]): CallTreeNode | null => {
+    for (const node of list) {
+      if (node.call.id === callId) return node;
+      const hit = find(node.children);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const target = find(nodes);
+  if (!target) return [callId];
+
+  const below = (node: CallTreeNode): string[] =>
+    node.children.flatMap((child) => (child.children.length > 0 ? [child.call.id, ...below(child)] : below(child)));
+  return [callId, ...below(target)];
 }
 
 /** "core-service · api/pricing/quote" for an attributed call, host-qualified for an external one -

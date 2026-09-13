@@ -198,6 +198,43 @@ export function buildCallTree(calls: readonly CallRecord[]): readonly CallTreeNo
 }
 
 /**
+ * Every call nested under each call in `tree`, at ANY depth, keyed by the containing call's id -
+ * what "select this call and everything it caused" needs, and what a parent's tri-state checkbox
+ * counts over. Every call gets an entry, leaves included (an empty array), so a caller never has to
+ * distinguish "no descendants" from "not in this tree".
+ *
+ * Returns CallRecords rather than ids because selection is keyed by `callKey()` (a content hash),
+ * not by `call.id` - see call-utils.ts.
+ */
+export function indexDescendants(tree: readonly CallTreeNode[]): ReadonlyMap<string, readonly CallRecord[]> {
+  const index = new Map<string, readonly CallRecord[]>();
+
+  const collect = (node: CallTreeNode): CallRecord[] => {
+    const below = node.children.flatMap((child) => [child.call, ...collect(child)]);
+    index.set(node.call.id, below);
+    return below;
+  };
+
+  for (const root of tree) collect(root);
+  return index;
+}
+
+/**
+ * The ids of every call in `tree` that has children - the calls a fold control appears on, and the
+ * complete set "collapse all" collapses. A call with no children has nothing to fold, so putting it
+ * in the collapsed set would be a no-op that "expand all" then has to clean up.
+ */
+export function foldableIds(tree: readonly CallTreeNode[]): readonly string[] {
+  const ids: string[] = [];
+  const walk = (node: CallTreeNode): void => {
+    if (node.children.length > 0) ids.push(node.call.id);
+    node.children.forEach(walk);
+  };
+  tree.forEach(walk);
+  return ids;
+}
+
+/**
  * Flattens the forest into per-call annotations for the flat-depth view, which renders no hierarchy
  * of its own and so needs every fact stated on the card itself. Keyed by call id.
  */

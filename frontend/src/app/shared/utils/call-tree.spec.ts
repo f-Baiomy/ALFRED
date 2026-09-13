@@ -1,5 +1,5 @@
 import { CallRecord, SortMode } from '../../core/models/call.model';
-import { buildCallTree, depthRailPx, indexCallTree, isTreeSortMode, requiresChronologicalSort } from './call-tree';
+import { buildCallTree, depthRailPx, foldableIds, indexCallTree, indexDescendants, isTreeSortMode, requiresChronologicalSort } from './call-tree';
 
 /** Start times are ms offsets from this instant, so a test reads as "starts at +4s, runs 2s". */
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
@@ -176,5 +176,29 @@ describe('view mode helpers', () => {
     expect(depthRailPx(0)).toBe(0);
     expect(depthRailPx(3)).toBe(depthRailPx(9));
     expect(depthRailPx(1)).toBeLessThan(depthRailPx(3));
+  });
+});
+
+describe('indexDescendants', () => {
+  it('gives each call everything below it at ANY depth, not just its direct children', () => {
+    const index = indexDescendants(buildCallTree(chainFixture()));
+
+    // odeysys called core-service, which called three suppliers - all four are odeysys's work.
+    expect(index.get('odeysys')!.map((c) => c.id)).toEqual(['core', 'travelport', 'sabre', 'ndc']);
+    expect(index.get('core')!.map((c) => c.id)).toEqual(['travelport', 'sabre', 'ndc']);
+  });
+
+  it('gives a leaf an empty list rather than nothing, so callers need not special-case it', () => {
+    const index = indexDescendants(buildCallTree(chainFixture()));
+
+    expect(index.get('sabre')).toEqual([]);
+    expect(index.has('sabre')).toBe(true);
+  });
+});
+
+describe('foldableIds', () => {
+  it('names only the calls that have something to fold', () => {
+    // The three suppliers are leaves: folding one would hide nothing and then need cleaning up.
+    expect(foldableIds(buildCallTree(chainFixture()))).toEqual(['odeysys', 'core']);
   });
 });

@@ -40,6 +40,14 @@
       }
     </div>
 
+    @if (isTreeView()) {
+      <!-- Only the two tree views have anything to fold; in the flat view these would be dead. -->
+      <div class="segmented" role="group" aria-label="Fold nested calls">
+        <button type="button" class="segmented-option" title="Fold every call's nested calls out of sight" (click)="state.foldAll()">Fold all</button>
+        <button type="button" class="segmented-option" title="Show every call's nested calls again" (click)="state.unfoldAll()">Unfold all</button>
+      </div>
+    }
+
     <span class="toolbar-divider" aria-hidden="true"></span>
 
     <app-select-picker [options]="sortOptions()" [value]="state.sortMode()" (valueChange)="onSortChange($event)" />

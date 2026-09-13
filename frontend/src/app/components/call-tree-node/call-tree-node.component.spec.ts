@@ -159,6 +159,84 @@ describe('CallTreeNodeComponent', () => {
     httpMock.expectNone((r) => r.url.includes('/detail'));
   });
 
+  /** odeysys > core-service > sabre - two levels of parent, so "does this bubble" is answerable. */
+  function threeDeep(): CallRecord[] {
+    return [
+      call('odeysys', 0, 10000, { service_name: 'odeysys' }),
+      call('core', 2000, 4000, { service_name: 'core-service' }),
+      call('sabre', 2500, 1000, { source: 'external', service_name: 'core-service' }),
+    ];
+  }
+
+  it('a press on a nested card selects THAT call, not every card it happens to sit inside', () => {
+    const fixture = createNode(threeDeep());
+    const host: HTMLElement = fixture.nativeElement;
+    const selection = TestBed.inject(CALL_SELECTION_STATE);
+    const spy = spyOn(selection, 'startDragSelect').and.callThrough();
+
+    // Measured before this was fixed: mousedown bubbles, and every ancestor card ran the same
+    // handler, so pressing one supplier call at depth 2 selected it, its parent AND its grandparent.
+    const deepest = host.querySelectorAll('app-call-card')[2];
+    deepest.querySelector('.call-top')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+
+    expect(spy.calls.count()).toBe(1);
+    expect(spy.calls.mostRecent().args[0].id).toBe('sabre');
+    // ...and it asks for subtree painting, which is what the nested view's checkbox means too.
+    expect(spy.calls.mostRecent().args[1]).toBe(true);
+  });
+
+  it('a parent\'s checkbox takes its whole subtree, not just the parent', () => {
+    const fixture = createNode(threeDeep());
+    const host: HTMLElement = fixture.nativeElement;
+    const selection = TestBed.inject(CALL_SELECTION_STATE);
+    const spy = spyOn(selection, 'setSubtreeSelected').and.callThrough();
+
+    (host.querySelector('.call-select') as HTMLInputElement).click();
+
+    expect(spy.calls.mostRecent().args[0].id).toBe('odeysys');
+    expect(spy.calls.mostRecent().args[1]).toBe(true);
+  });
+
+  it('folding a parent hides its children behind a count, and unfolds again from that same chip', () => {
+    const fixture = createNode(threeDeep());
+    const host: HTMLElement = fixture.nativeElement;
+
+    expect(host.querySelector('.tree-children')).toBeTruthy();
+
+    (host.querySelector('.fold-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.tree-children')).toBeNull();
+    // Both descendants counted, not just the direct child - the chip stands in for the whole subtree.
+    expect(host.querySelector('.tree-fold-summary')!.textContent).toContain('2 calls folded');
+    expect(host.querySelectorAll('app-call-card').length).toBe(1);
+
+    (host.querySelector('.tree-fold-summary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.tree-children')).toBeTruthy();
+  });
+
+  it('folding a parent folds the parents inside it too, so reopening gives back one level', () => {
+    const fixture = createNode(threeDeep());
+    const host: HTMLElement = fixture.nativeElement;
+
+    (host.querySelector('.fold-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    (host.querySelector('.tree-fold-summary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // core-service came back folded, so one click undid one level rather than the whole subtree.
+    expect(host.querySelectorAll('app-call-card').length).toBe(2);
+    expect(host.querySelector('.tree-children .tree-fold-summary')!.textContent).toContain('1 call folded');
+  });
+
+  it('a leaf card offers no fold control, having nothing to fold', () => {
+    const host: HTMLElement = createNode([call('solo', 0, 100, { service_name: 'odeysys' })]).nativeElement;
+
+    expect(host.querySelector('.fold-toggle')).toBeNull();
+  });
+
   it('carries no depth badge or span bar - the nesting itself is the statement', () => {
     const host: HTMLElement = createNode([
       call('odeysys', 0, 10000, { service_name: 'odeysys' }),

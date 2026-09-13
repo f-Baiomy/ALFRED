@@ -2,7 +2,7 @@ import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, inpu
 import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/call-selection.tokens';
 import { SortMode, SourceKey } from '../../core/models/call.model';
 import { InternalCallServiceDto } from '../../core/services/internal-logging-api.service';
-import { CallViewMode } from '../../shared/utils/call-tree';
+import { CallViewMode, requiresChronologicalSort } from '../../shared/utils/call-tree';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { SourcesBarComponent } from '../sources-bar/sources-bar.component';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
@@ -84,6 +84,8 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
 
   readonly limitOptions = LIMIT_OPTIONS;
   readonly viewModeOptions = VIEW_MODE_OPTIONS;
+  /** Nested and waterfall both draw the tree, so both can fold - see CallViewMode. */
+  readonly isTreeView = computed(() => requiresChronologicalSort(this.state.viewMode()));
   readonly sortOptions = computed<readonly SelectOption[]>(() =>
     this.reorderState ? [...SORT_OPTIONS, { value: 'custom', label: 'Custom order' }] : SORT_OPTIONS
   );

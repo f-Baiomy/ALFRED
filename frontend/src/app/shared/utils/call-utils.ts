@@ -265,6 +265,23 @@ export function callKey(call: CallRecord): string {
   return key;
 }
 
+/**
+ * How much of `call` plus everything nested under it is selected - see
+ * CallSelectionState.subtreeSelection. Shared by both concrete selection states rather than written
+ * twice, since a tri-state checkbox that disagrees between the dashboard and a session cycle would
+ * be worse than no tri-state at all.
+ */
+export function subtreeSelectionOf(
+  call: CallRecord,
+  descendants: ReadonlyMap<string, readonly CallRecord[]>,
+  selectedIds: ReadonlySet<string>
+): 'none' | 'some' | 'all' {
+  const subtree = [call, ...(descendants.get(call.id) ?? [])];
+  const selected = subtree.filter((c) => selectedIds.has(callKey(c))).length;
+  if (selected === 0) return 'none';
+  return selected === subtree.length ? 'all' : 'some';
+}
+
 export function statusRank(call: CallRecord): number {
   if (call.error) return 999;
   return call.response?.status ?? -1;

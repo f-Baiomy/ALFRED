@@ -836,8 +836,12 @@ main {
   }
 }
 
+// :indeterminate belongs here alongside :checked - a half-filled parent is the state that MOST needs
+// to stay visible (something inside it is selected and you can't see it), and it matches neither
+// :checked nor :not(:checked)'s intent, so leaving it out hid it until hover.
 .call:hover .call-select-wrap,
-.call-select-wrap:has(.call-select:checked) {
+.call-select-wrap:has(.call-select:checked),
+.call-select-wrap:has(.call-select:indeterminate) {
   opacity: 1;
   transform: scale(1);
 }
@@ -1226,6 +1230,47 @@ main {
   border-left: 2px solid color-mix(in srgb, var(--purple) 30%, transparent);
 }
 
+// The fold control, on a nested-view parent card and on a waterfall opening row. Deliberately NOT
+// hover-revealed the way .call-select-wrap is: a folded card has to advertise that it can be opened
+// again even when the pointer is nowhere near it, or the hidden calls are hidden for good.
+.fold-toggle {
+  flex: 0 0 auto;
+  width: 1.1rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--purple-light);
+  }
+}
+
+// What a folded parent shows where its children were. A button rather than a label so the subtree
+// can be reopened from the gap it left, not only from the chevron up in the band.
+.tree-fold-summary {
+  display: block;
+  width: 100%;
+  margin: 0.35rem 0 0.1rem 0.75rem;
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+  background: color-mix(in srgb, var(--purple) 8%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--purple) 30%, transparent);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  font-style: italic;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--purple-light);
+    border-color: var(--border-strong);
+  }
+}
+
 // ---------- Call diagnostics panel ----------
 
 .diag {
@@ -1502,9 +1547,27 @@ main {
 
 // A closing row has no checkbox of its own (the opening row owns the pair's selection), so it gets
 // the checkbox's width back as empty space - otherwise the two halves of one call would not line up.
+// Same reasoning for the fold control, which only the OPENING row carries.
 .waterfall-select-spacer {
   flex: 0 0 auto;
   width: 28px;
+}
+
+.waterfall-fold-spacer {
+  flex: 0 0 auto;
+  width: 1.1rem;
+}
+
+// How many calls a folded row is standing in for. Without it a folded parent looks identical to a
+// call that simply never called anything, which is the one thing folding must not be able to imply.
+.waterfall-folded-count {
+  flex: none;
+  font-size: 0.68rem;
+  color: var(--purple-light);
+  background: color-mix(in srgb, var(--purple) 16%, transparent);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  white-space: nowrap;
 }
 
 .waterfall-row-selected {

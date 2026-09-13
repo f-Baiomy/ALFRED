@@ -433,4 +433,115 @@ describe('CallsStateService', () => {
       discardPeriodicTasks();
     }));
   });
+
+  describe('subtree selection', () => {
+    /** One internal parent with one external call inside it - the minimal real tree. */
+    function parentAndChild(): { parent: CallRecord; child: CallRecord } {
+      return {
+        parent: makeCall({ id: 'parent', source: 'internal', service_name: 'odeysys', state: 'COMPLETED', timestamp: '2026-01-01T00:00:00.000Z', duration_ms: 10000 }),
+        child: makeCall({ id: 'child', source: 'external', service_name: null, timestamp: '2026-01-01T00:00:01.000Z', duration_ms: 2000 }),
+      };
+    }
+
+    it('selects a parent and everything nested under it in one step', fakeAsync(() => {
+      const { parent, child } = parentAndChild();
+      const { state } = setup([parent, child]);
+      tick();
+
+      state.setSubtreeSelected(parent, true);
+
+      expect(state.isSelected(parent)).toBe(true);
+      expect(state.isSelected(child)).toBe(true);
+      expect(state.subtreeSelection(parent)).toBe('all');
+      discardPeriodicTasks();
+    }));
+
+    it('reports a parent as partially selected once one of its children is unticked', fakeAsync(() => {
+      const { parent, child } = parentAndChild();
+      const { state } = setup([parent, child]);
+      tick();
+
+      state.setSubtreeSelected(parent, true);
+      state.toggleSelected(child);
+
+      // The parent itself is still selected and still exports - 'some' is what makes that visible
+      // rather than the checkbox claiming the whole subtree is in.
+      expect(state.isSelected(parent)).toBe(true);
+      expect(state.subtreeSelection(parent)).toBe('some');
+      discardPeriodicTasks();
+    }));
+
+    it('deselecting a parent takes its children with it', fakeAsync(() => {
+      const { parent, child } = parentAndChild();
+      const { state } = setup([parent, child]);
+      tick();
+
+      state.setSubtreeSelected(parent, true);
+      state.setSubtreeSelected(parent, false);
+
+      expect(state.selectedCalls()).toEqual([]);
+      expect(state.subtreeSelection(parent)).toBe('none');
+      discardPeriodicTasks();
+    }));
+
+    it('a leaf is only ever fully in or fully out', fakeAsync(() => {
+      const { parent, child } = parentAndChild();
+      const { state } = setup([parent, child]);
+      tick();
+
+      expect(state.subtreeSelection(child)).toBe('none');
+      state.setSubtreeSelected(child, true);
+      expect(state.subtreeSelection(child)).toBe('all');
+      // Selecting the child alone must not drag its parent in - the tree selects downwards only.
+      expect(state.isSelected(parent)).toBe(false);
+      discardPeriodicTasks();
+    }));
+
+    it('a drag started on a half-filled parent fills the subtree rather than clearing it', fakeAsync(() => {
+      const { parent, child } = parentAndChild();
+      const { state } = setup([parent, child]);
+      tick();
+
+      state.setSubtreeSelected(child, true);
+      expect(state.subtreeSelection(parent)).toBe('some');
+
+      state.startDragSelect(parent, true);
+      state.endDragSelect();
+
+      expect(state.subtreeSelection(parent)).toBe('all');
+      discardPeriodicTasks();
+    }));
+
+    it('a drag in the flat view still paints one call at a time', fakeAsync(() => {
+      const { parent, child } = parentAndChild();
+      const { state } = setup([parent, child]);
+      tick();
+
+      state.startDragSelect(parent);
+      state.endDragSelect();
+
+      expect(state.isSelected(parent)).toBe(true);
+      expect(state.isSelected(child)).toBe(false);
+      discardPeriodicTasks();
+    }));
+  });
+
+  describe('folding', () => {
+    it('folds and unfolds by call id, and fold-all reaches only the calls that have children', fakeAsync(() => {
+      const parent = makeCall({ id: 'parent', source: 'internal', service_name: 'odeysys', state: 'COMPLETED', timestamp: '2026-01-01T00:00:00.000Z', duration_ms: 10000 });
+      const child = makeCall({ id: 'child', source: 'external', service_name: null, timestamp: '2026-01-01T00:00:01.000Z', duration_ms: 2000 });
+      const { state } = setup([parent, child]);
+      tick();
+
+      state.foldAll();
+      expect([...state.foldedIds()]).toEqual(['parent']);
+
+      state.unfoldAll();
+      expect(state.foldedIds().size).toBe(0);
+
+      state.setFolded(['parent'], true);
+      expect(state.foldedIds().has('parent')).toBe(true);
+      discardPeriodicTasks();
+    }));
+  });
 });

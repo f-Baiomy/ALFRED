@@ -19,7 +19,7 @@ import { PinService } from '../services/pin.service';
 import { AppConfigService } from '../services/app-config.service';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { CallViewMode } from '../../shared/utils/call-tree';
-import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, toCallRecord } from '../../shared/utils/call-utils';
+import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
 
@@ -301,6 +301,12 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get callDepths() {
     return this.view.callDepths;
   }
+  get descendants() {
+    return this.view.descendants;
+  }
+  get foldedIds() {
+    return this.view.foldedIds;
+  }
   get overlapCandidates() {
     return this.view.overlapCandidates;
   }
@@ -373,6 +379,18 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     this.view.toggleExpanded();
   }
 
+  setFolded(callIds: readonly string[], folded: boolean): void {
+    this.view.setFolded(callIds, folded);
+  }
+
+  foldAll(): void {
+    this.view.foldAll();
+  }
+
+  unfoldAll(): void {
+    this.view.unfoldAll();
+  }
+
   loadMore(): void {
     this.view.loadMore();
   }
@@ -428,6 +446,8 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   /** Whether a drag-select is in progress, and which state (select/deselect) it's painting - set by the card the drag started on, applied to every card the pointer subsequently enters. */
   private dragSelectValue: boolean | null = null;
+  /** Whether the in-progress drag paints whole subtrees - see CallSelectionState.startDragSelect. */
+  private dragSelectSubtree = false;
 
   isSelected(call: CallRecord): boolean {
     return this.selectedIds().has(callKey(call));
@@ -437,32 +457,52 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     this.setSelected(call, !this.isSelected(call));
   }
 
+  subtreeSelection(call: CallRecord): 'none' | 'some' | 'all' {
+    return subtreeSelectionOf(call, this.view.descendants(), this.selectedIds());
+  }
+
+  setSubtreeSelected(call: CallRecord, selected: boolean): void {
+    this.setManySelected([call, ...(this.view.descendants().get(call.id) ?? [])], selected);
+  }
+
   private setSelected(call: CallRecord, selected: boolean): void {
-    const id = callKey(call);
+    this.setManySelected([call], selected);
+  }
+
+  private setManySelected(calls: readonly CallRecord[], selected: boolean): void {
     const next = new Set(this.selectedIds());
-    if (selected) {
-      next.add(id);
-    } else {
-      next.delete(id);
+    for (const call of calls) {
+      if (selected) next.add(callKey(call));
+      else next.delete(callKey(call));
     }
     this.selectedIds.set(next);
   }
 
   /** Call on mousedown on a card: flips that card and remembers the resulting state so a subsequent drag paints the same state onto every card the pointer passes over. */
-  startDragSelect(call: CallRecord): void {
-    this.dragSelectValue = !this.isSelected(call);
-    this.setSelected(call, this.dragSelectValue);
+  startDragSelect(call: CallRecord, subtree = false): void {
+    this.dragSelectSubtree = subtree;
+    // In a tree view the drag's direction comes from the whole subtree, not the parent alone - a
+    // parent that's selected while some child isn't reads as half-filled, and pressing on it should
+    // fill it rather than clear it, exactly as clicking its checkbox does.
+    this.dragSelectValue = subtree ? this.subtreeSelection(call) !== 'all' : !this.isSelected(call);
+    this.paintDragSelect(call);
   }
 
   /** Call on mouseenter while a drag-select is active. */
   dragSelectOver(call: CallRecord): void {
     if (this.dragSelectValue === null) return;
-    this.setSelected(call, this.dragSelectValue);
+    this.paintDragSelect(call);
+  }
+
+  private paintDragSelect(call: CallRecord): void {
+    if (this.dragSelectSubtree) this.setSubtreeSelected(call, this.dragSelectValue!);
+    else this.setSelected(call, this.dragSelectValue!);
   }
 
   /** Call on mouseup/dragend anywhere, to end the drag regardless of where the pointer was released. */
   endDragSelect(): void {
     this.dragSelectValue = null;
+    this.dragSelectSubtree = false;
   }
 
   clearSelection(): void {

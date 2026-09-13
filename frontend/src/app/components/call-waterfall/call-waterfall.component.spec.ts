@@ -231,6 +231,56 @@ describe('CallWaterfallComponent', () => {
     expect((host.querySelector('.call-select') as HTMLInputElement).checked).toBe(true);
   });
 
+  it('folds a group down to its bracket, counting what it hid', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
+
+    expect(host.querySelectorAll('.waterfall-line').length).toBe(5);
+
+    // The outermost group's fold control - odeysys, the first opening row.
+    (host.querySelectorAll('.fold-toggle')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // Its bracket survives (it carries the timing); everything between the halves is gone.
+    expect(host.querySelectorAll('.waterfall-line').length).toBe(2);
+    expect(host.querySelector('.waterfall-folded-count')!.textContent).toContain('2 folded');
+  });
+
+  it('only an opening row carries a fold control, and a childless row carries none', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+
+    // Two bracketed calls, so two fold controls - not one per row, and none on the supplier leaf.
+    expect(host.querySelectorAll('.fold-toggle').length).toBe(2);
+    expect(host.querySelectorAll('.waterfall-line')[2].querySelector('.fold-toggle')).toBeNull();
+    expect(host.querySelectorAll('.waterfall-fold-spacer').length).toBe(3);
+  });
+
+  it('unfolding restores one level, leaving the parents inside it folded', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
+
+    (host.querySelectorAll('.fold-toggle')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    (host.querySelectorAll('.fold-toggle')[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // odeysys is open again; core-service came back folded, so its own two rows are all that's added.
+    expect(host.querySelectorAll('.waterfall-line').length).toBe(4);
+    expect(host.querySelector('.waterfall-folded-count')!.textContent).toContain('1 folded');
+  });
+
+  it('a row\'s checkbox takes the call and everything nested under it', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
+    const selection = TestBed.inject(CALL_SELECTION_STATE);
+    const spy = spyOn(selection, 'setSubtreeSelected').and.callThrough();
+
+    (host.querySelector('.call-select') as HTMLInputElement).click();
+
+    expect(spy.calls.mostRecent().args[0].id).toBe('odeysys');
+    expect(spy.calls.mostRecent().args[1]).toBe(true);
+  });
+
   it('does not expand the row when the checkbox is clicked', () => {
     const fixture = createWaterfall();
     const host: HTMLElement = fixture.nativeElement;

@@ -24,7 +24,7 @@ import { InternalCallServiceDto, InternalLoggingApiService } from '../services/i
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
 import { CallViewMode } from '../../shared/utils/call-tree';
-import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, toCallRecord } from '../../shared/utils/call-utils';
+import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
 
 /**
  * Per-open-cycle state for the session-cycle detail page - component-provided (see
@@ -66,6 +66,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   readonly selectedIds = signal<ReadonlySet<string>>(new Set());
 
   private dragSelectValue: boolean | null = null;
+  private dragSelectSubtree = false;
 
   /** Manually drag-and-drop arranged order (callKeys), persisted to localStorage per cycle so it
    * survives a reload - see CALL_REORDER_STATE. Only ever populated on this page; the dashboard
@@ -476,6 +477,12 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get callDepths() {
     return this.view.callDepths;
   }
+  get descendants() {
+    return this.view.descendants;
+  }
+  get foldedIds() {
+    return this.view.foldedIds;
+  }
   get overlapCandidates() {
     return this.view.overlapCandidates;
   }
@@ -548,6 +555,18 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     this.view.toggleExpanded();
   }
 
+  setFolded(callIds: readonly string[], folded: boolean): void {
+    this.view.setFolded(callIds, folded);
+  }
+
+  foldAll(): void {
+    this.view.foldAll();
+  }
+
+  unfoldAll(): void {
+    this.view.unfoldAll();
+  }
+
   loadMore(): void {
     this.view.loadMore();
   }
@@ -562,29 +581,48 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     this.setSelected(call, !this.isSelected(call));
   }
 
+  subtreeSelection(call: CallRecord): 'none' | 'some' | 'all' {
+    return subtreeSelectionOf(call, this.view.descendants(), this.selectedIds());
+  }
+
+  setSubtreeSelected(call: CallRecord, selected: boolean): void {
+    this.setManySelected([call, ...(this.view.descendants().get(call.id) ?? [])], selected);
+  }
+
   private setSelected(call: CallRecord, selected: boolean): void {
-    const key = callKey(call);
+    this.setManySelected([call], selected);
+  }
+
+  private setManySelected(calls: readonly CallRecord[], selected: boolean): void {
     const next = new Set(this.selectedIds());
-    if (selected) {
-      next.add(key);
-    } else {
-      next.delete(key);
+    for (const call of calls) {
+      if (selected) next.add(callKey(call));
+      else next.delete(callKey(call));
     }
     this.selectedIds.set(next);
   }
 
-  startDragSelect(call: CallRecord): void {
-    this.dragSelectValue = !this.isSelected(call);
-    this.setSelected(call, this.dragSelectValue);
+  /** See CallsStateService's identical pair - `subtree` latches the tree views' whole-subtree
+   * painting for the rest of the drag. */
+  startDragSelect(call: CallRecord, subtree = false): void {
+    this.dragSelectSubtree = subtree;
+    this.dragSelectValue = subtree ? this.subtreeSelection(call) !== 'all' : !this.isSelected(call);
+    this.paintDragSelect(call);
   }
 
   dragSelectOver(call: CallRecord): void {
     if (this.dragSelectValue === null) return;
-    this.setSelected(call, this.dragSelectValue);
+    this.paintDragSelect(call);
+  }
+
+  private paintDragSelect(call: CallRecord): void {
+    if (this.dragSelectSubtree) this.setSubtreeSelected(call, this.dragSelectValue!);
+    else this.setSelected(call, this.dragSelectValue!);
   }
 
   endDragSelect(): void {
     this.dragSelectValue = null;
+    this.dragSelectSubtree = false;
   }
 
   // ---- BulkSelectionState ----

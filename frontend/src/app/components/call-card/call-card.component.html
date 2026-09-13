@@ -112,11 +112,22 @@
   @if (dragHandle()) {
     <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-label="Drag to reorder">&#9776;</span>
   }
-  <label class="call-select-wrap" title="Select for bulk export">
+  @if (foldable()) {
+    <button
+      type="button"
+      class="fold-toggle"
+      [attr.aria-expanded]="!folded()"
+      [title]="folded() ? 'Show the calls made inside this one' : 'Hide the calls made inside this one'"
+      [attr.aria-label]="folded() ? 'Unfold nested calls' : 'Fold nested calls'"
+      (click)="toggleFold()"
+    >{{ folded() ? '▸' : '▾' }}</button>
+  }
+  <label class="call-select-wrap" [title]="subtreeSelect() ? 'Select this call and everything it called' : 'Select for bulk export'">
     <input
       type="checkbox"
       class="call-select"
-      [checked]="isSelected()"
+      [checked]="subtreeSelect() ? subtreeSelection() === 'all' : isSelected()"
+      [indeterminate]="isPartiallySelected()"
       (change)="toggleSelected()"
     />
   </label>

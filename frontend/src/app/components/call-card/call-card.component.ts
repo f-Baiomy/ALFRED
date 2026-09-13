@@ -100,6 +100,17 @@ export class CallCardComponent {
    * and would only be repeating themselves, and null for a call that has no proven relations at all.
    */
   readonly depth = input<CallDepthInfo | null>(null);
+  /**
+   * True in the nested view, where this card's own children are rendered inside it and so the
+   * checkbox is the only sensible handle on "this call and the work it caused". Selecting then acts
+   * on the whole subtree and the checkbox goes tri-state; the flat view leaves this false, since it
+   * draws no hierarchy and a half-filled checkbox there would refer to nothing on screen.
+   */
+  readonly subtreeSelect = input<boolean>(false);
+  /** Whether this card offers a fold control - only a nested-view parent that actually has children. */
+  readonly foldable = input<boolean>(false);
+  readonly folded = input<boolean>(false);
+  readonly foldToggle = output<void>();
   /** Emitted when the depth badge's parent name is clicked - the list scrolls that parent into view
    * and flashes it, which is how hierarchy stays navigable in a view that never indents. */
   readonly revealParent = output<string>();
@@ -512,8 +523,28 @@ export class CallCardComponent {
     return this.state.isSelected(this.call());
   }
 
+  /** 'none' outside the nested view - a flat card's checkbox is only ever empty or filled. */
+  subtreeSelection(): 'none' | 'some' | 'all' {
+    return this.subtreeSelect() ? this.state.subtreeSelection(this.call()) : 'none';
+  }
+
+  /** Half-filled: some of this call's subtree is selected and some isn't. */
+  isPartiallySelected(): boolean {
+    return this.subtreeSelection() === 'some';
+  }
+
   toggleSelected(): void {
-    this.state.toggleSelected(this.call());
+    if (!this.subtreeSelect()) {
+      this.state.toggleSelected(this.call());
+      return;
+    }
+    // A half-filled parent fills rather than clears - the same thing every file tree does, and the
+    // only reading that lets one click finish a partly-made selection.
+    this.state.setSubtreeSelected(this.call(), this.subtreeSelection() !== 'all');
+  }
+
+  toggleFold(): void {
+    this.foldToggle.emit();
   }
 
   async remove(): Promise<void> {
@@ -528,6 +559,12 @@ export class CallCardComponent {
    * its selection, and dragging from there across other cards paints the
    * same selection state onto each one - the checkbox stays as a small,
    * precise alternative to this larger "click the row" target.
+   *
+   * `stopPropagation` is load-bearing in the nested view, where cards are rendered INSIDE one
+   * another: mousedown bubbles, so without it a click on a child ran this handler again on every
+   * card it sits inside. Measured on a real trace, clicking one supplier call at depth 2 selected
+   * three calls - itself, its parent and its grandparent - so the tree selected UPWARDS, which is
+   * the exact opposite of what selecting a parent is supposed to mean.
    */
   @HostListener('mousedown', ['$event'])
   onMouseDown(event: MouseEvent): void {
@@ -536,7 +573,8 @@ export class CallCardComponent {
     if (target.closest(SELECTION_EXEMPT_SELECTOR)) return;
 
     event.preventDefault();
-    this.state.startDragSelect(this.call());
+    event.stopPropagation();
+    this.state.startDragSelect(this.call(), this.subtreeSelect());
   }
 
   @HostListener('mouseenter')
