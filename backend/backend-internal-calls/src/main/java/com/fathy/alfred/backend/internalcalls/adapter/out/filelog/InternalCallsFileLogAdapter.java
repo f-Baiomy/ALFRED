@@ -65,7 +65,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
      * tens of megabytes of read-modify-write per request at four figures. Raising it much further
      * wants a real store, not a bigger flat file.
      */
-    @Value("${alfred.internal-calls.retention-rows:1000}")
+    @Value("${alfred.internal-calls.retention-rows:1500}")
     private int retentionRows;
 
     /**
