@@ -1469,23 +1469,46 @@ main {
   flex-direction: column;
 }
 
+// Now a wrapper holding the selection checkbox beside the clickable row, rather than the button
+// itself - a checkbox cannot live inside a <button>, and clicking it would have opened the row too.
+// It keeps the class name so the four `.waterfall-line > .waterfall-row` rules below still apply.
 .waterfall-row {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: none;
-  border: none;
+  gap: 4px;
+  padding-left: 6px;
   border-bottom: 1px solid var(--border);
-  text-align: left;
-  cursor: pointer;
-  color: inherit;
-  font: inherit;
 
   &:hover {
     background: color-mix(in srgb, var(--purple) 8%, transparent);
   }
+}
+
+.waterfall-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 4px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+// A closing row has no checkbox of its own (the opening row owns the pair's selection), so it gets
+// the checkbox's width back as empty space - otherwise the two halves of one call would not line up.
+.waterfall-select-spacer {
+  flex: 0 0 auto;
+  width: 28px;
+}
+
+.waterfall-row-selected {
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
 }
 
 .waterfall-line.expanded > .waterfall-row {

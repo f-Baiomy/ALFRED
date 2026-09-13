@@ -192,11 +192,11 @@ describe('CallWaterfallComponent', () => {
 
     expect(host.querySelector('app-call-card')).toBeNull();
 
-    (host.querySelectorAll('.waterfall-row')[1] as HTMLButtonElement).click();
+    (host.querySelectorAll('.waterfall-row-main')[1] as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(host.querySelectorAll('app-call-card').length).toBe(1);
 
-    (host.querySelectorAll('.waterfall-row')[1] as HTMLButtonElement).click();
+    (host.querySelectorAll('.waterfall-row-main')[1] as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(host.querySelector('app-call-card')).toBeNull();
   });
@@ -207,5 +207,39 @@ describe('CallWaterfallComponent', () => {
 
     expect(host.querySelector('.status-err')?.textContent).toContain('ERROR');
     expect(host.querySelector('.waterfall-duration')?.textContent).toContain('err');
+  });
+
+  it('offers one checkbox per call, not one per row, so a bracketed pair is selected once', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+
+    // odeysys and core-service are each bracketed into two rows, sabre is one: 5 rows, 3 calls.
+    expect(host.querySelectorAll('.waterfall-row').length).toBe(5);
+    expect(host.querySelectorAll('.call-select').length).toBe(3);
+    // The closing halves keep the checkbox's width as empty space, so both halves still line up.
+    expect(host.querySelectorAll('.waterfall-select-spacer').length).toBe(2);
+  });
+
+  it('ticks a call through the shared selection state, so other views agree', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
+    const selection = TestBed.inject(CALL_SELECTION_STATE);
+
+    (host.querySelector('.call-select') as HTMLInputElement).click();
+    fixture.detectChanges();
+
+    expect(selection.isSelected(CALLS[0])).toBe(true);
+    expect((host.querySelector('.call-select') as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('does not expand the row when the checkbox is clicked', () => {
+    const fixture = createWaterfall();
+    const host: HTMLElement = fixture.nativeElement;
+
+    (host.querySelector('.call-select') as HTMLInputElement).click();
+    fixture.detectChanges();
+
+    // Selecting and opening are separate intents - a checkbox inside the row button would have
+    // done both at once.
+    expect(host.querySelector('app-call-card')).toBeNull();
   });
 });

@@ -1,8 +1,9 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import { CallDepthInfo, CallTreeNode, depthRailPx } from '../../shared/utils/call-tree';
 
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
+import { CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 import { CallCardComponent } from '../call-card/call-card.component';
 import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
 
@@ -52,6 +53,9 @@ interface WaterfallRow {
   readonly axisTotalLabel: string | null;
   /** Only on a closing row that has children to have waited on. */
   readonly selfTime: SelfTimeSplit | null;
+  /** Whether this row offers a selection checkbox - true for a leaf row and for the OPENING half of
+   * a bracketed pair, so a call spanning two rows still has exactly one. */
+  readonly selectable: boolean;
   /** The call's #N among its parent's outbound calls, or empty at a root - matches the number the
    * diagnostics table and findings use, so "#3 decides the total" points at a row you can see. */
   readonly indexLabel: string;
@@ -108,7 +112,24 @@ interface WaterfallRow {
               </span>
             </div>
           }
-          <button type="button" class="waterfall-row" (click)="toggle(row.rowKey)">
+          <!-- The checkbox is a SIBLING of the row button, not inside it: a checkbox nested in a
+               button is invalid, and clicking it would toggle the row open as well. Only on rows
+               that open a call ('single' and the opening half of a bracketed pair), so a call that
+               spans two rows still offers exactly one checkbox. -->
+          <div class="waterfall-row" [class.waterfall-row-selected]="row.selectable && isSelected(row.call)">
+            @if (row.selectable) {
+              <label class="call-select-wrap" title="Select for bulk export">
+                <input
+                  type="checkbox"
+                  class="call-select"
+                  [checked]="isSelected(row.call)"
+                  (change)="toggleSelected(row.call)"
+                />
+              </label>
+            } @else {
+              <span class="waterfall-select-spacer" aria-hidden="true"></span>
+            }
+            <button type="button" class="waterfall-row-main" (click)="toggle(row.rowKey)">
             <span class="waterfall-rail" [style.width.px]="row.railPx" aria-hidden="true"></span>
             @if (row.kind === 'single') {
               <span class="badge" [class]="methodClassOf(row.call)">{{ row.call.method }}</span>
@@ -164,7 +185,8 @@ interface WaterfallRow {
                 {{ row.call.error ? 'err' : row.call.duration_ms + ' ms' }}
               }
             </span>
-          </button>
+            </button>
+          </div>
           @if (isExpanded(row.rowKey)) {
             <div class="waterfall-detail">
               <app-call-card [call]="row.call" [variant]="row.kind === 'single' ? 'full' : row.kind" />
@@ -208,6 +230,7 @@ export class CallWaterfallComponent {
         axisTotalLabel: null as string | null,
         selfTime: null as SelfTimeSplit | null,
         indexLabel: childIndexLabel,
+        selectable: true,
         diagnosticsNode: null as CallTreeNode | null,
       };
 
@@ -232,12 +255,27 @@ export class CallWaterfallComponent {
         rowKey: `${node.call.id}:response`,
         offsetLabel: formatOffset(info?.offsetMs != null ? info.offsetMs + durationMs : null),
         selfTime: selfTimeOf(node, info ?? null, depths),
+        // The opening row already carries this call's checkbox - a second one here would be two
+        // controls for one selection, able to disagree with each other on screen.
+        selectable: false,
       });
     };
 
     for (const root of this.nodes()) walk(root, 0);
     return out;
   });
+
+  /** Selection is shared state, so a call ticked here is ticked in the flat and nested views too -
+   * and the bulk actions bar counts it - rather than this view keeping a second list of its own. */
+  private readonly selection = inject(CALL_SELECTION_STATE);
+
+  isSelected(call: CallRecord): boolean {
+    return this.selection.isSelected(call);
+  }
+
+  toggleSelected(call: CallRecord): void {
+    this.selection.toggleSelected(call);
+  }
 
   readonly methodClassOf = (call: CallRecord) => methodClass(call.method);
   readonly statusClassOf = (call: CallRecord) => statusClass(call.response?.status ?? null);
