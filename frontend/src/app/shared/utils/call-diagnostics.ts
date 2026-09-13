@@ -87,6 +87,8 @@ export interface CallDiagnostics {
   readonly timings: readonly CallTiming[];
   readonly parallelism: Parallelism | null;
   readonly findings: readonly Finding[];
+  /** Same method and url, close together - NOT yet known to be identical. See findDuplicateCandidates. */
+  readonly duplicateCandidates: readonly DuplicateCandidate[];
 }
 
 function startMs(call: CallRecord): number {
@@ -168,6 +170,7 @@ export function analyzeCall(node: CallTreeNode): CallDiagnostics | null {
       },
       timings: [],
       parallelism: null,
+      duplicateCandidates: [],
       findings: [
         {
           level: 'watch',
@@ -236,7 +239,13 @@ export function analyzeCall(node: CallTreeNode): CallDiagnostics | null {
     .filter((call) => !!call.error || (call.response?.status ?? 0) >= 500)
     .map((call) => ({ call, index: indexByCallId.get(call.id) ?? 0 }));
 
-  return { ledger, timings, parallelism, findings: buildFindings(ledger, timings, parallelism, failures) };
+  return {
+    ledger,
+    timings,
+    parallelism,
+    findings: buildFindings(ledger, timings, parallelism, failures),
+    duplicateCandidates: findDuplicateCandidates(timings),
+  };
 }
 
 function buildFindings(
@@ -304,10 +313,6 @@ function buildFindings(
     });
   }
 
-  for (const duplicate of findDuplicates(timings)) {
-    findings.push(duplicate);
-  }
-
   const withSlack = timings.filter((timing) => !timing.onCriticalPath && timing.slackMs > 0);
   if (timings.length > 1 && withSlack.length === timings.length - 1) {
     const critical = timings.find((timing) => timing.onCriticalPath);
@@ -324,34 +329,43 @@ function buildFindings(
 }
 
 /**
- * Same method and path, started within DUPLICATE_WINDOW_MS of each other.
+ * Calls that MIGHT be duplicates: same method, same full url, started within DUPLICATE_WINDOW_MS of
+ * each other. Candidates only - deliberately not a finding.
  *
- * Reported as something to look at rather than as a defect: fanning the same search out to several
- * suppliers is normal and legitimate, and this rule cannot tell that apart from genuinely doing the
- * work twice. It says what it saw and leaves the judgement to the reader.
+ * Matching method and url is not enough to call two requests identical, and saying so when they are
+ * not is a false accusation about the reader's code. A supplier fan-out routinely posts to the same
+ * search endpoint several times with DIFFERENT payloads - one per carrier, per cabin, per leg - and
+ * that is the normal case, not duplicated work.
+ *
+ * The request body settles it, and the body is not in the list payload (CallSummary carries no
+ * headers or bodies, by design). So this stops at "worth checking" and the caller confirms it by
+ * fetching the bodies - see CallDiagnosticsComponent.confirmDuplicates.
  */
-function findDuplicates(timings: readonly CallTiming[]): Finding[] {
+export function findDuplicateCandidates(timings: readonly CallTiming[]): readonly DuplicateCandidate[] {
   const groups = new Map<string, CallTiming[]>();
   for (const timing of timings) {
     const key = `${timing.call.method} ${timing.call.url}`;
     groups.set(key, [...(groups.get(key) ?? []), timing]);
   }
 
-  const findings: Finding[] = [];
+  const candidates: DuplicateCandidate[] = [];
   for (const [key, group] of groups) {
     if (group.length < 2) continue;
     const sorted = [...group].sort((a, b) => a.offsetMs - b.offsetMs);
-    const closest = Math.min(
+    const closestMs = Math.min(
       ...sorted.slice(1).map((timing, index) => timing.offsetMs - sorted[index].offsetMs)
     );
-    if (closest > DUPLICATE_WINDOW_MS) continue;
-    findings.push({
-      level: 'watch',
-      title: `${group.length} identical requests, ${formatMs(closest)} apart`,
-      detail: `${sorted.map((timing) => `#${timing.index}`).join(' and ')} - ${key}. Deliberate fan-out, or the same work done twice?`,
-    });
+    if (closestMs > DUPLICATE_WINDOW_MS) continue;
+    candidates.push({ key, timings: sorted, closestMs });
   }
-  return findings;
+  return candidates;
+}
+
+export interface DuplicateCandidate {
+  /** "METHOD url" - what is already known to match before the bodies are compared. */
+  readonly key: string;
+  readonly timings: readonly CallTiming[];
+  readonly closestMs: number;
 }
 
 function longestOf(timings: readonly CallTiming[]): number {

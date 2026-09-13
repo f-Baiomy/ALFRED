@@ -1,9 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { CallDiagnosticsComponent } from './call-diagnostics.component';
 import { CallRecord, CallTiming } from '../../core/models/call.model';
 import { CallTiming as Timing } from '../../shared/utils/call-diagnostics';
+import { CallTreeNode } from '../../shared/utils/call-tree';
 
 function timingFor(measured: CallTiming | null, durationMs: number): Timing {
   return {
@@ -15,6 +16,39 @@ function timingFor(measured: CallTiming | null, durationMs: number): Timing {
     slackMs: 0,
     onCriticalPath: true,
     failed: false,
+  };
+}
+
+const T0 = Date.parse('2026-01-01T00:00:00.000Z');
+
+function child(id: string, startMs: number, durationMs: number, url: string): CallRecord {
+  return {
+    id,
+    original_url: url,
+    url,
+    method: 'POST',
+    timestamp: new Date(T0 + startMs).toISOString(),
+    duration_ms: durationMs,
+    response: { status: 200 },
+    source: 'external',
+    state: 'COMPLETED',
+  } as unknown as CallRecord;
+}
+
+/** A root whose two outbound calls hit the same endpoint 40ms apart - candidates, not yet a claim. */
+function sameUrlTwice(): CallTreeNode {
+  const url = 'https://ndc.example.com/api/FlightSearch/Search';
+  const root = {
+    ...child('root', 0, 10_000, 'https://app.local/search'),
+    source: 'internal',
+  } as unknown as CallRecord;
+  return {
+    call: root,
+    depth: 0,
+    children: [
+      { call: child('a', 1000, 2000, url), depth: 1, children: [] },
+      { call: child('b', 1040, 2000, url), depth: 1, children: [] },
+    ],
   };
 }
 
@@ -69,6 +103,54 @@ describe('CallDiagnosticsComponent phases', () => {
 
     expect(result.summary).toContain('reused connection');
     expect(result.segments.some((segment) => segment.kind === 'connect')).toBe(false);
+  });
+
+  it('claims two requests are identical only once their bodies have been compared', () => {
+    const fixture = TestBed.createComponent(CallDiagnosticsComponent);
+    fixture.componentRef.setInput('node', sameUrlTwice());
+    fixture.detectChanges();
+
+    fixture.componentInstance.toggle();
+    const httpMock = TestBed.inject(HttpTestingController);
+    const requests = httpMock.match((r) => /\/detail/.test(r.url));
+    expect(requests.length).toBe(2);
+    // Nothing is claimed until the bodies come back.
+    expect(fixture.componentInstance.duplicateFindings().length).toBe(0);
+
+    requests.forEach((request) => request.flush({ request: { body: '{"carrier":"EK"}' } }));
+
+    const finding = fixture.componentInstance.duplicateFindings()[0];
+    expect(finding.title).toContain('2 identical requests');
+    expect(finding.detail).toContain('same method, url and request body');
+  });
+
+  it('stays silent when two calls to the same url carried different payloads', () => {
+    const fixture = TestBed.createComponent(CallDiagnosticsComponent);
+    fixture.componentRef.setInput('node', sameUrlTwice());
+    fixture.detectChanges();
+
+    fixture.componentInstance.toggle();
+    const httpMock = TestBed.inject(HttpTestingController);
+    const requests = httpMock.match((r) => /\/detail/.test(r.url));
+    // A supplier fan-out: one search endpoint, one payload per carrier. Not duplicated work.
+    requests[0].flush({ request: { body: '{"carrier":"EK"}' } });
+    requests[1].flush({ request: { body: '{"carrier":"QR"}' } });
+
+    expect(fixture.componentInstance.duplicateFindings().length).toBe(0);
+  });
+
+  it('claims nothing when a body could not be fetched', () => {
+    const fixture = TestBed.createComponent(CallDiagnosticsComponent);
+    fixture.componentRef.setInput('node', sameUrlTwice());
+    fixture.detectChanges();
+
+    fixture.componentInstance.toggle();
+    const httpMock = TestBed.inject(HttpTestingController);
+    // Only the first is flushed: forkJoin cancels its siblings the moment one errors, so the
+    // second request is already dead and flushing it would throw.
+    httpMock.match((r) => /\/detail/.test(r.url))[0].flush('nope', { status: 500, statusText: 'Server Error' });
+
+    expect(fixture.componentInstance.duplicateFindings().length).toBe(0);
   });
 
   it('renders nothing at all for a call logged before the proxy measured phases', () => {

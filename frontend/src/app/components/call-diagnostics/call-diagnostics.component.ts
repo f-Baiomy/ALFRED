@@ -2,7 +2,8 @@ import { Component, computed, inject, input, signal } from '@angular/core';
 import { CallBaseline, CallRecord } from '../../core/models/call.model';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallTreeNode } from '../../shared/utils/call-tree';
-import { CallDiagnostics, CallTiming, analyzeCall, formatMs } from '../../shared/utils/call-diagnostics';
+import { forkJoin } from 'rxjs';
+import { CallDiagnostics, CallTiming, Finding, analyzeCall, formatMs } from '../../shared/utils/call-diagnostics';
 
 /** Below this many completed calls, a percentile is not a baseline and the panel says so instead. */
 const MIN_BASELINE_SAMPLE = 5;
@@ -116,6 +117,16 @@ const SLOW_AGAINST_BASELINE = 1.5;
                 <span><b>{{ finding.title }}</b> {{ finding.detail }}</span>
               </div>
             }
+
+            <!-- Only ever rendered once the request bodies have actually been compared - see
+                 confirmDuplicates. Until then there is nothing to say, because matching method and
+                 url alone does not make two requests identical. -->
+            @for (finding of duplicateFindings(); track finding.title) {
+              <div class="diag-finding" [class]="'diag-' + finding.level">
+                <span class="diag-dot" aria-hidden="true"></span>
+                <span><b>{{ finding.title }}</b> {{ finding.detail }}</span>
+              </div>
+            }
           </div>
         }
       </div>
@@ -168,9 +179,58 @@ export class CallDiagnosticsComponent {
     return { text: `Normal for this endpoint - ${comparison}`, slow: false };
   });
 
+  readonly duplicateFindings = signal<readonly Finding[]>([]);
+
+  /**
+   * Turns "same method and url, close together" into an actual claim, by fetching both request
+   * bodies and comparing them.
+   *
+   * Without this the panel called a fan-out duplicated work. Posting to one search endpoint several
+   * times with different payloads - one per carrier, per cabin, per leg - is the normal shape of
+   * supplier integration, and method plus url cannot tell it apart from genuinely doing the same
+   * thing twice. Only the body can.
+   *
+   * Bodies are not in the list payload (CallSummary deliberately carries none), so this fetches
+   * them - but only on expand, and only for calls that already match on method and url inside the
+   * window, which is a handful at most. If a fetch fails, nothing is claimed.
+   *
+   * Headers are deliberately NOT compared: they routinely carry a per-request id or a freshly
+   * signed token, so two genuinely duplicated calls would differ there and the check would never
+   * fire.
+   */
+  private confirmDuplicates(): void {
+    const candidates = this.diagnostics()?.duplicateCandidates ?? [];
+    if (candidates.length === 0) return;
+    const source = this.node().call.source ?? 'external';
+
+    for (const candidate of candidates) {
+      forkJoin(
+        candidate.timings.map((timing) => this.api.getDetail(timing.call.id, source, 'request-body'))
+      ).subscribe({
+        next: (details) => {
+          const bodies = details.map((detail) => detail.request?.body ?? '');
+          const allIdentical = bodies.every((body) => body === bodies[0]);
+          if (!allIdentical) return;
+          this.duplicateFindings.update((existing) => [
+            ...existing,
+            {
+              level: 'watch' as const,
+              title: `${candidate.timings.length} identical requests, ${formatMs(candidate.closestMs)} apart`,
+              detail: `${candidate.timings.map((timing) => `#${timing.index}`).join(' and ')} - same method, url and request body. ${candidate.key}. Deliberate fan-out, or the same work done twice?`,
+            },
+          ]);
+        },
+        error: () => undefined,
+      });
+    }
+  }
+
   toggle(): void {
     const opening = !this.open();
     this.open.set(opening);
+    if (opening && this.duplicateFindings().length === 0) {
+      this.confirmDuplicates();
+    }
     if (opening && this.baselineData() === null) {
       // Inbound roots live in a different store from outbound calls, so the endpoint follows the
       // call rather than being fixed - see CallsApiService.getBaseline.

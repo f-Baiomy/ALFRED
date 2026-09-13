@@ -125,15 +125,14 @@ describe('analyzeCall', () => {
     expect(failure.detail).toContain('#2');
   });
 
-  it('names both numbers when it reports identical requests', () => {
+  it('carries the numbers on a duplicate candidate so the confirmed finding can name them', () => {
     const root = call('root', 0, 10_000, { source: 'internal' });
     const url = 'https://ndc.example.com/api/FlightSearch/Search';
     const result = analyzeCall(
-      node(root, [call('a', 1000, 2000, { url }), call('b', 1040, 2000, { url }), call('c', 1100, 100)])
+      node(root, [call('a', 1000, 2000, { url }), call('c', 1100, 100), call('b', 1140, 2000, { url })])
     )!;
 
-    const duplicate = result.findings.find((f) => /identical requests/.test(f.title))!;
-    expect(duplicate.detail).toContain('#1 and #2');
+    expect(result.duplicateCandidates[0].timings.map((t) => t.index)).toEqual([1, 3]);
   });
 
   it('gives slack to every call except the one that finishes last', () => {
@@ -165,26 +164,42 @@ describe('analyzeCall', () => {
     expect(result.parallelism!.maxConcurrent).toBe(1);
   });
 
-  it('reports identical requests close together as something to look at, not as a defect', () => {
+  it('offers same-url calls as CANDIDATES only, never as a finding claiming they are identical', () => {
     const root = call('root', 0, 10_000, { source: 'internal' });
     const url = 'https://ndc.example.com/api/FlightSearch/Search';
     const result = analyzeCall(
       node(root, [call('a', 1000, 2000, { url }), call('b', 1040, 2000, { url })])
     )!;
 
-    const duplicate = result.findings.find((f) => /identical requests/.test(f.title))!;
-    expect(duplicate.level).toBe('watch');
-    expect(duplicate.title).toContain('40ms apart');
+    // Matching method and url proves nothing on its own: a supplier fan-out posts to one search
+    // endpoint repeatedly with different payloads. Only comparing the bodies settles it, and the
+    // bodies are not in the list payload - so nothing is claimed here.
+    expect(result.findings.some((f) => /identical/.test(f.title))).toBe(false);
+    expect(result.duplicateCandidates.length).toBe(1);
+    expect(result.duplicateCandidates[0].closestMs).toBe(40);
+    expect(result.duplicateCandidates[0].timings.map((t) => t.index)).toEqual([1, 2]);
   });
 
-  it('does not report the same endpoint called again much later as a duplicate', () => {
+  it('does not even offer the same endpoint called again much later as a candidate', () => {
     const root = call('root', 0, 20_000, { source: 'internal' });
     const url = 'https://ndc.example.com/api/FlightSearch/Search';
     const result = analyzeCall(
       node(root, [call('a', 1000, 500, { url }), call('b', 9000, 500, { url })])
     )!;
 
-    expect(result.findings.some((f) => /identical requests/.test(f.title))).toBe(false);
+    expect(result.duplicateCandidates.length).toBe(0);
+  });
+
+  it('does not offer calls to different urls as candidates, however close together', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const result = analyzeCall(
+      node(root, [
+        call('a', 1000, 500, { url: 'https://one.example.com/search' }),
+        call('b', 1001, 500, { url: 'https://two.example.com/search' }),
+      ])
+    )!;
+
+    expect(result.duplicateCandidates.length).toBe(0);
   });
 
   it('says so plainly when a call made no logged outbound requests at all', () => {
