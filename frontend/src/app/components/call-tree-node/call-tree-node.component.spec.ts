@@ -252,6 +252,20 @@ describe('CallTreeNodeComponent', () => {
     ]);
   });
 
+  it('tints each level of the tree differently, and points a rail at the level it introduces', () => {
+    const fixture = createNode(threeDeep());
+    const host: HTMLElement = fixture.nativeElement;
+
+    // The host carries its own level; the rail below it carries the NEXT one, so a card's wash and
+    // the rail leading into it never claim to be the same depth.
+    expect(host.className).toContain('depth-tint-0');
+    const rails = host.querySelectorAll('.tree-children');
+    expect(rails[0].className).toContain('depth-tint-1');
+    expect(rails[1].className).toContain('depth-tint-2');
+    // The nested node re-sets the variable for its own subtree.
+    expect(host.querySelectorAll('app-call-tree-node')[0].className).toContain('depth-tint-1');
+  });
+
   it('a leaf card offers no diagnose button, having made no calls to account for', () => {
     const host: HTMLElement = createNode([call('solo', 0, 100, { service_name: 'odeysys' })]).nativeElement;
 

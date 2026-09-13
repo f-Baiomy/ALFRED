@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
-import { CallDepthInfo, CallTreeNode, depthRailPx } from '../../shared/utils/call-tree';
+import { CallDepthInfo, CallTreeNode, depthRailPx, depthTintClass } from '../../shared/utils/call-tree';
 
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
 import { CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
@@ -39,6 +39,9 @@ interface WaterfallRow {
   readonly kind: WaterfallRowKind;
   readonly depth: number;
   readonly railPx: number;
+  /** Which hue this row's rail takes - one per level of nesting, cycling (see depthTintClass).
+   * Indenting stops distinguishing levels once depthRailPx hits its cap; colour doesn't. */
+  readonly depthClass: string;
   readonly offsetPercent: string;
   readonly widthPercent: string;
   readonly hasBar: boolean;
@@ -162,7 +165,7 @@ interface WaterfallRow {
               <span class="waterfall-select-spacer" aria-hidden="true"></span>
             }
             <button type="button" class="waterfall-row-main" (click)="toggle(row.rowKey)">
-            <span class="waterfall-rail" [style.width.px]="row.railPx" aria-hidden="true"></span>
+            <span class="waterfall-rail" [class]="row.depthClass" [style.width.px]="row.railPx" aria-hidden="true"></span>
             @if (row.kind === 'single') {
               <span class="badge" [class]="methodClassOf(row.call)">{{ row.call.method }}</span>
             } @else {
@@ -269,6 +272,7 @@ export class CallWaterfallComponent {
         call: node.call,
         depth: node.depth,
         railPx: depthRailPx(node.depth),
+        depthClass: depthTintClass(node.depth),
         offsetPercent: `${((info?.spanStart ?? 0) * 100).toFixed(2)}%`,
         // Floored so a very short call inside a very long root is still visible as more than a line.
         widthPercent: `${Math.max((info?.spanWidth ?? 0) * 100, 0.8).toFixed(2)}%`,

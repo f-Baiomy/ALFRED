@@ -1,5 +1,5 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
-import { CallTreeNode } from '../../shared/utils/call-tree';
+import { CallTreeNode, depthTintClass } from '../../shared/utils/call-tree';
 import { CallCardComponent } from '../call-card/call-card.component';
 import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
@@ -27,6 +27,9 @@ import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens
   selector: 'app-call-tree-node',
   standalone: true,
   imports: [CallCardComponent, CallDiagnosticsComponent],
+  // Sets --depth-color for this whole subtree; the nested node inside re-sets it for its own level,
+  // so a card always reads the tint of the level it is actually at without being told its depth.
+  host: { '[class]': 'tintClass()' },
   template: `
     @if (hasChildren()) {
       <app-call-card
@@ -49,7 +52,7 @@ import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens
               {{ hiddenCount() }} {{ hiddenCount() === 1 ? 'call' : 'calls' }} folded &mdash; show
             </button>
           } @else {
-            <div class="tree-children">
+            <div class="tree-children" [class]="childTintClass()">
               @for (child of node().children; track child.call.id) {
                 <app-call-tree-node [node]="child" />
               }
@@ -74,6 +77,10 @@ export class CallTreeNodeComponent {
   /** Local rather than in the shared list state: showing a breakdown is a momentary "what happened
    * here", not a property of the list worth keeping in step across views. */
   readonly diagOpen = signal(false);
+  readonly tintClass = computed(() => depthTintClass(this.node().depth));
+  /** The rail introduces the level BELOW this one, so it takes the children's hue rather than this
+   * card's - the same rule the waterfall follows, where a rail is drawn on the child's own row. */
+  readonly childTintClass = computed(() => depthTintClass(this.node().depth + 1));
 
   /**
    * Folding takes every parent underneath this one with it, so re-opening gives back ONE level

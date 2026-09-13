@@ -1,5 +1,5 @@
 import { CallRecord, SortMode } from '../../core/models/call.model';
-import { buildCallTree, depthRailPx, foldableIds, indexCallTree, indexDescendants, isTreeSortMode, requiresChronologicalSort } from './call-tree';
+import { buildCallTree, depthRailPx, depthTintClass, foldableIds, indexCallTree, indexDescendants, isTreeSortMode, requiresChronologicalSort } from './call-tree';
 
 /** Start times are ms offsets from this instant, so a test reads as "starts at +4s, runs 2s". */
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
@@ -200,5 +200,23 @@ describe('foldableIds', () => {
   it('names only the calls that have something to fold', () => {
     // The three suppliers are leaves: folding one would hide nothing and then need cleaning up.
     expect(foldableIds(buildCallTree(chainFixture()))).toEqual(['odeysys', 'core']);
+  });
+});
+
+describe('depthTintClass', () => {
+  it('gives each level its own hue and cycles rather than running out', () => {
+    expect(depthTintClass(0)).toBe('depth-tint-0');
+    expect(depthTintClass(3)).toBe('depth-tint-3');
+    // Depth is uncapped in the data, so the ramp has to wrap somewhere - four levels apart is far
+    // enough down the page that two rows sharing a hue can't be mistaken for the same level.
+    expect(depthTintClass(4)).toBe('depth-tint-0');
+    expect(depthTintClass(9)).toBe('depth-tint-1');
+  });
+
+  it('keeps colouring levels the indent has stopped distinguishing', () => {
+    // depthRailPx caps at MAX_INDENT_LEVELS, so 3 and 9 are drawn at the same x - the hue is the
+    // only thing left that tells them apart.
+    expect(depthRailPx(3)).toBe(depthRailPx(9));
+    expect(depthTintClass(3)).not.toBe(depthTintClass(9));
   });
 });

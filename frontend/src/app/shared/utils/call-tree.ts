@@ -290,3 +290,22 @@ const MAX_INDENT_LEVELS = 3;
 export function depthRailPx(depth: number): number {
   return Math.min(depth, MAX_INDENT_LEVELS) * INDENT_PER_LEVEL_PX;
 }
+
+/** How many hues the depth ramp cycles through before repeating - see depthTintClass. */
+const DEPTH_TINTS = 4;
+
+/**
+ * The class carrying this depth's rail colour (`depth-tint-0` .. `depth-tint-3`, cycling), defined
+ * in styles.scss as a `--depth-color` custom property.
+ *
+ * Depth used to be conveyed by indent alone, and `depthRailPx` caps indenting at MAX_INDENT_LEVELS -
+ * so past that point two different levels were drawn identically. Colour keeps working where the
+ * indent has stopped, and it makes a chain of callers (a parent whose child is itself a parent)
+ * readable at a glance rather than by counting pixels.
+ *
+ * Cycling rather than running out: a hue repeats every 4 levels, by which point the two levels
+ * sharing it are far enough apart vertically to not be confusable.
+ */
+export function depthTintClass(depth: number): string {
+  return `depth-tint-${((depth % DEPTH_TINTS) + DEPTH_TINTS) % DEPTH_TINTS}`;
+}

@@ -231,6 +231,19 @@ describe('CallWaterfallComponent', () => {
     expect((host.querySelector('.call-select') as HTMLInputElement).checked).toBe(true);
   });
 
+  it('tints each row\'s rail by its own depth, so a closing row matches its opener', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const rails = Array.from(host.querySelectorAll('.waterfall-rail'));
+
+    expect(rails.map((r) => r.className.replace('waterfall-rail ', ''))).toEqual([
+      'depth-tint-0',
+      'depth-tint-1',
+      'depth-tint-2',
+      'depth-tint-1',
+      'depth-tint-0',
+    ]);
+  });
+
   it('offers a diagnose button on every call that made calls, and shows no panel until pressed', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
 

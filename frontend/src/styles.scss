@@ -1175,13 +1175,16 @@ main {
   overflow: hidden;
 }
 
+// A sandwich's two bands carry the level's hue as a wash, rather than the card's border carrying it:
+// .call's border-color and box-shadow are already spoken for by selected/pinned/error/warning, and a
+// depth tint competing with those would lose an argument it shouldn't be having.
 .call-band {
   padding: 0.6rem 0.85rem;
-  background: color-mix(in srgb, var(--purple) 9%, transparent);
+  background: color-mix(in srgb, var(--depth-color, var(--purple)) 9%, transparent);
 }
 
 .call-band-request {
-  border-bottom: 1px dashed color-mix(in srgb, var(--purple) 45%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--depth-color, var(--purple)) 45%, transparent);
 }
 
 .call-band-response {
@@ -1215,6 +1218,28 @@ main {
 // since a root here can contain a whole subtree and the reader has to see where one call's story
 // ends. The gap is larger than the flat list's 0.6rem for that reason: it has to beat .tree-children
 // (0.35rem) and .call-nested (0.55rem), or a sibling root reads as one more nested child.
+// ---------- Depth tints ----------
+
+// One hue per level of nesting, cycling every four (see depthTintClass). Indent alone stops
+// distinguishing levels once depthRailPx hits its cap, and a chain - a parent whose child is itself
+// a parent - was previously only countable by eye.
+//
+// Green, amber and red are deliberately absent: they mean status and duration everywhere else in
+// Alfred (badges, durations, the diagnose bar), so a level-2 rail in green would read as a health
+// signal. These four carry no existing meaning.
+.depth-tint-0 {
+  --depth-color: #8b5cf6;
+}
+.depth-tint-1 {
+  --depth-color: #38bdf8;
+}
+.depth-tint-2 {
+  --depth-color: #e879f9;
+}
+.depth-tint-3 {
+  --depth-color: #818cf8;
+}
+
 .calls-tree-list {
   display: flex;
   flex-direction: column;
@@ -1224,10 +1249,12 @@ main {
 // The rail is what makes containment legible once a card is inside another card; the indent is
 // capped in depthRailPx rather than here, so a deep chain stops eating width without the data
 // itself being flattened.
+// The rail takes the colour of the level it introduces - the children's own depth, not the parent's,
+// so a card's left edge and the rail leading into it never claim to be the same level.
 .tree-children {
   margin: 0.35rem 0 0.1rem 0.75rem;
   padding-left: 0.7rem;
-  border-left: 2px solid color-mix(in srgb, var(--purple) 30%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--depth-color, var(--purple)) 45%, transparent);
 }
 
 // The fold control, on a nested-view parent card and on a waterfall opening row. Deliberately NOT
@@ -1639,7 +1666,7 @@ main {
 .waterfall-rail {
   flex: none;
   align-self: stretch;
-  border-left: 2px solid color-mix(in srgb, var(--purple) 30%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--depth-color, var(--purple)) 55%, transparent);
 }
 
 .waterfall-label {
