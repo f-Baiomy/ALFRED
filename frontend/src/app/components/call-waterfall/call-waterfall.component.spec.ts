@@ -231,6 +231,26 @@ describe('CallWaterfallComponent', () => {
     expect((host.querySelector('.call-select') as HTMLInputElement).checked).toBe(true);
   });
 
+  it('gives every call that made calls of its own a diagnostics panel, not just the root', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+
+    // odeysys called core-service, which called sabre - two callers, so two breakdowns. The middle
+    // one is usually the interesting one: it is the service that actually did the fanning out.
+    expect(host.querySelectorAll('app-call-diagnostics').length).toBe(2);
+    expect(host.querySelectorAll('.waterfall-line')[2].querySelector('app-call-diagnostics')).toBeNull();
+  });
+
+  it('puts a panel below its opening row and indented to its children, not stacked on the row', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const line = host.querySelectorAll('.waterfall-line')[0];
+    const parts = Array.from(line.children).map((el) => el.className.split(' ')[0]);
+
+    // Axis, then the row, then the panel - a panel rendered first read as a banner on that one line.
+    expect(parts).toEqual(['waterfall-axis', 'waterfall-row', 'waterfall-diag']);
+    const nested = host.querySelectorAll('.waterfall-diag')[1] as HTMLElement;
+    expect(parseFloat(nested.style.marginLeft)).toBeGreaterThan(0);
+  });
+
   it('folds a group down to its bracket, counting what it hid', () => {
     const fixture = createWaterfall();
     const host: HTMLElement = fixture.nativeElement;

@@ -1273,6 +1273,15 @@ main {
 
 // ---------- Call diagnostics panel ----------
 
+// Holds the panel away from the row above it. Every call that made calls of its own now gets one, so
+// several can appear in a single trace - the breathing room and the indent are what keep each one
+// reading as "this belongs to the group starting here" rather than as a banner welded to one line.
+.waterfall-diag {
+  margin: 0.3rem 0 0.55rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid color-mix(in srgb, var(--purple) 26%, transparent);
+}
+
 .diag {
   margin: 0.5rem 0 0.3rem;
   border: 1px solid var(--border);

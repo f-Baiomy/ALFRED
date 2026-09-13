@@ -65,9 +65,17 @@ interface WaterfallRow {
   /** The call's #N among its parent's outbound calls, or empty at a root - matches the number the
    * diagnostics table and findings use, so "#3 decides the total" points at a row you can see. */
   readonly indexLabel: string;
-  /** Set only on a ROOT group's opening row - the node the diagnostics panel analyses. Null
-   * everywhere else, so one panel appears per root rather than one per nested parent. */
+  /**
+   * The node the diagnostics panel analyses - set on the opening row of EVERY call that made calls
+   * of its own, at any depth, not just a root. analyzeCall has always worked against any node's
+   * direct children; only this row builder was gating it on depth 0, which meant the one call whose
+   * breakdown you usually want - the service in the middle that actually did the fanning out - never
+   * got one.
+   */
   readonly diagnosticsNode: CallTreeNode | null;
+  /** Indent for the diagnostics panel: one level deeper than the row it belongs to, so it lines up
+   * with the children it is accounting for rather than with its parent's own row. */
+  readonly diagnosticsRailPx: number;
   /** Distinct from call.id, which a bracketing pair shares - used for tracking and for expanding
    * one half without the other. */
   readonly rowKey: string;
@@ -100,11 +108,6 @@ interface WaterfallRow {
           [class.waterfall-open]="row.kind === 'request'"
           [class.waterfall-close]="row.kind === 'response'"
         >
-          @if (row.diagnosticsNode) {
-            <!-- One per root group, above its axis: what the bars below cannot show on their own,
-                 which is where the time went when nothing was in flight. -->
-            <app-call-diagnostics [node]="row.diagnosticsNode" />
-          }
           @if (row.axisTotalLabel) {
             <!-- One scale per group: every row between this opener and its closing row is measured
                  against this same root window, so the quarter marks read across all of them. -->
@@ -209,6 +212,15 @@ interface WaterfallRow {
             </span>
             </button>
           </div>
+          @if (row.diagnosticsNode) {
+            <!-- BELOW the opening row and indented to its children's level, not stacked on top of
+                 the row: the panel accounts for what happens INSIDE this call, so it belongs with
+                 the calls it is accounting for. Sitting flush above the row it read as a banner
+                 attached to that one line. -->
+            <div class="waterfall-diag" [style.margin-left.px]="row.diagnosticsRailPx">
+              <app-call-diagnostics [node]="row.diagnosticsNode" />
+            </div>
+          }
           @if (isExpanded(row.rowKey)) {
             <div class="waterfall-detail">
               <app-call-card [call]="row.call" [variant]="row.kind === 'single' ? 'full' : row.kind" />
@@ -258,6 +270,7 @@ export class CallWaterfallComponent {
         folded: false,
         foldedCount: 0,
         diagnosticsNode: null as CallTreeNode | null,
+        diagnosticsRailPx: depthRailPx(node.depth + 1),
       };
 
       if (node.children.length === 0) {
@@ -273,7 +286,7 @@ export class CallWaterfallComponent {
         // Only a group opener draws an axis - its children are all measured against this same root,
         // so one scale covers everything between this row and its closing row.
         axisTotalLabel: node.depth === 0 ? formatOffset(info?.rootDurationMs ?? null) : null,
-        diagnosticsNode: node.depth === 0 ? node : null,
+        diagnosticsNode: node,
         foldable: true,
         folded,
         foldedCount: folded ? countDescendants(node) : 0,
