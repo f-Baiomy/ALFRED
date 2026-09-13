@@ -1663,10 +1663,23 @@ main {
   background: color-mix(in srgb, var(--purple) 12%, transparent);
 }
 
+// A row draws one line per ancestor level plus its own (see depthRails), so the nesting is a
+// continuous coloured tree down the page. The ancestors are held well back - they are context, and
+// at full strength four of them would out-shout the row's own level and the timings beside it.
+.waterfall-rails {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+}
+
 .waterfall-rail {
   flex: none;
   align-self: stretch;
-  border-left: 2px solid color-mix(in srgb, var(--depth-color, var(--purple)) 55%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--depth-color, var(--purple)) 26%, transparent);
+}
+
+.waterfall-rail-own {
+  border-left-color: color-mix(in srgb, var(--depth-color, var(--purple)) 90%, transparent);
 }
 
 .waterfall-label {

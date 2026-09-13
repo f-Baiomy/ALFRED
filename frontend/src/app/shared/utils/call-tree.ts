@@ -309,3 +309,35 @@ const DEPTH_TINTS = 4;
 export function depthTintClass(depth: number): string {
   return `depth-tint-${((depth % DEPTH_TINTS) + DEPTH_TINTS) % DEPTH_TINTS}`;
 }
+
+/** One vertical guide line on a waterfall row - see depthRails. */
+export interface DepthRail {
+  readonly tint: string;
+  /** How far the NEXT line sits from this one; 0 on the last, which is only a line. */
+  readonly widthPx: number;
+  /** The last rail: this row's own level. Ancestor guides are drawn dimmer than it. */
+  readonly own: boolean;
+}
+
+/**
+ * The full stack of guide lines for a row at `depth`: one per ancestor level, then the row's own.
+ *
+ * A single line at the row's own indent (which is all this used to draw) says how far in a call sits
+ * but nothing about what it sits inside - so a depth-2 row was one short tick floating in space, and
+ * the level colours it was supposed to carry had nothing beside them to be read against. Drawing the
+ * ancestors too makes the nesting a continuous line down the page, which is what a tree view is for.
+ *
+ * Widths come from depthRailPx so the total indent is unchanged: the lines are added inside the
+ * space that was already being reserved, not on top of it.
+ */
+export function depthRails(depth: number): readonly DepthRail[] {
+  const levels = Math.min(Math.max(depth, 0), MAX_INDENT_LEVELS);
+  const rails: DepthRail[] = [];
+  for (let level = 0; level < levels; level++) {
+    rails.push({ tint: depthTintClass(level), widthPx: INDENT_PER_LEVEL_PX, own: false });
+  }
+  // Past MAX_INDENT_LEVELS the ancestors stop getting their own lines (there is no room), but the
+  // row's own level still colours the last one - otherwise depth 4 would be drawn as depth 3.
+  rails.push({ tint: depthTintClass(depth), widthPx: 0, own: true });
+  return rails;
+}

@@ -1,5 +1,5 @@
 import { CallRecord, SortMode } from '../../core/models/call.model';
-import { buildCallTree, depthRailPx, depthTintClass, foldableIds, indexCallTree, indexDescendants, isTreeSortMode, requiresChronologicalSort } from './call-tree';
+import { buildCallTree, depthRailPx, depthRails, depthTintClass, foldableIds, indexCallTree, indexDescendants, isTreeSortMode, requiresChronologicalSort } from './call-tree';
 
 /** Start times are ms offsets from this instant, so a test reads as "starts at +4s, runs 2s". */
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
@@ -218,5 +218,29 @@ describe('depthTintClass', () => {
     // only thing left that tells them apart.
     expect(depthRailPx(3)).toBe(depthRailPx(9));
     expect(depthTintClass(3)).not.toBe(depthTintClass(9));
+  });
+});
+
+describe('depthRails', () => {
+  it('draws one line per ancestor level, then the row\'s own', () => {
+    expect(depthRails(0).map((r) => r.tint)).toEqual(['depth-tint-0']);
+    expect(depthRails(2).map((r) => r.tint)).toEqual(['depth-tint-0', 'depth-tint-1', 'depth-tint-2']);
+    expect(depthRails(2).map((r) => r.own)).toEqual([false, false, true]);
+  });
+
+  it('adds the lines inside the indent that was already reserved, not on top of it', () => {
+    for (const depth of [0, 1, 2, 3, 7]) {
+      const total = depthRails(depth).reduce((sum, rail) => sum + rail.widthPx, 0);
+      expect(total).toBe(depthRailPx(depth));
+    }
+  });
+
+  it('keeps colouring the row\'s own level past the indent cap, where ancestors run out of room', () => {
+    const deep = depthRails(5);
+    // Three ancestor lines is all the capped indent has space for - but the last one still carries
+    // level 5's hue, or depth 5 would be drawn as depth 3.
+    expect(deep.length).toBe(4);
+    expect(deep[deep.length - 1].tint).toBe(depthTintClass(5));
+    expect(deep[deep.length - 1].own).toBe(true);
   });
 });

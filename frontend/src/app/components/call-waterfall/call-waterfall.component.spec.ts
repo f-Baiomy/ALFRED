@@ -106,14 +106,20 @@ describe('CallWaterfallComponent', () => {
 
   it('indents each level and measures every bar against the root call\'s window', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
-    const rails = Array.from(host.querySelectorAll('.waterfall-rail')) as HTMLElement[];
+    // A row's indent is now the sum of its guide lines, one per ancestor level plus its own.
+    const indents = Array.from(host.querySelectorAll('.waterfall-line')).map((line) =>
+      Array.from(line.querySelectorAll('.waterfall-rail')).reduce(
+        (total, rail) => total + parseFloat((rail as HTMLElement).style.width || '0'),
+        0
+      )
+    );
 
-    expect(parseFloat(rails[0].style.width || '0')).toBe(0);
-    expect(parseFloat(rails[1].style.width)).toBeGreaterThan(0);
-    expect(parseFloat(rails[2].style.width)).toBeGreaterThan(parseFloat(rails[1].style.width));
+    expect(indents[0]).toBe(0);
+    expect(indents[1]).toBeGreaterThan(0);
+    expect(indents[2]).toBeGreaterThan(indents[1]);
     // The closing rows sit back at their own call's depth, level with their openers.
-    expect(rails[3].style.width).toBe(rails[1].style.width);
-    expect(rails[4].style.width || '0px').toBe(rails[0].style.width || '0px');
+    expect(indents[3]).toBe(indents[1]);
+    expect(indents[4]).toBe(indents[0]);
 
     // Only a CLOSING (or childless) row draws a span; an opening row is a start tick trailing off.
     const lines = Array.from(host.querySelectorAll('.waterfall-line'));
@@ -231,17 +237,30 @@ describe('CallWaterfallComponent', () => {
     expect((host.querySelector('.call-select') as HTMLInputElement).checked).toBe(true);
   });
 
-  it('tints each row\'s rail by its own depth, so a closing row matches its opener', () => {
+  it('draws one guide line per ancestor level, each in that level\'s own hue', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
-    const rails = Array.from(host.querySelectorAll('.waterfall-rail'));
+    const tintsPerLine = Array.from(host.querySelectorAll('.waterfall-line')).map((line) =>
+      Array.from(line.querySelectorAll('.waterfall-rail')).map((rail) =>
+        rail.className.replace('waterfall-rail ', '').replace(' waterfall-rail-own', '')
+      )
+    );
 
-    expect(rails.map((r) => r.className.replace('waterfall-rail ', ''))).toEqual([
-      'depth-tint-0',
-      'depth-tint-1',
-      'depth-tint-2',
-      'depth-tint-1',
-      'depth-tint-0',
+    // A depth-2 row shows all three levels, not just its own - a lone tick at an indent says how far
+    // in a call sits but nothing about what it sits inside.
+    expect(tintsPerLine).toEqual([
+      ['depth-tint-0'],
+      ['depth-tint-0', 'depth-tint-1'],
+      ['depth-tint-0', 'depth-tint-1', 'depth-tint-2'],
+      ['depth-tint-0', 'depth-tint-1'],
+      ['depth-tint-0'],
     ]);
+  });
+
+  it('marks only the last guide line as the row\'s own level, so ancestors can be drawn back', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const rails = Array.from(host.querySelectorAll('.waterfall-line')[2].querySelectorAll('.waterfall-rail'));
+
+    expect(rails.map((r) => r.classList.contains('waterfall-rail-own'))).toEqual([false, false, true]);
   });
 
   it('offers a diagnose button on every call that made calls, and shows no panel until pressed', () => {
