@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.filestore;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
@@ -222,7 +223,7 @@ public class JsonFileCapturedCallsStoreAdapter implements CapturedCallsStorePort
 
     /** Never called in practice (see {@link #supportsTwoPhaseCapture()}) - implemented defensively rather than throwing, in case that invariant is ever violated. */
     @Override
-    public synchronized boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs) {
+    public synchronized boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing) {
         log.warn("completeCapturedCall called on the file adapter (cycle {}, call {}) - this adapter doesn't support two-phase capture and should never receive this call", cycleId, callId);
         return false;
     }

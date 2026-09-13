@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.application.port.out;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
@@ -71,7 +72,12 @@ public interface CapturedCallsStorePort {
      * {@link #append}ed in state IN_PROGRESS, identified by the underlying CallRecord's id (not
      * the CapturedCall wrapper's own id) within one specific cycle. Only ever called when
      * {@link #supportsTwoPhaseCapture()} is true.
+     *
+     * <p>{@code timing} arrives here and nowhere else: the phase measurements only exist once the
+     * call has resolved, and the row was appended while it was still in flight. Dropping it was
+     * why a cycle's diagnostics panel rendered no per-call phase bars while the identical panel on
+     * the live list did.
      * @return true if a captured call with this call id existed in this cycle and was updated.
      */
-    boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs);
+    boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing);
 }

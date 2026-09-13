@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
@@ -253,7 +254,7 @@ class SqliteSessionCyclesRepositoryTest {
         String callId = UUID.randomUUID().toString();
         repo.append("c1", preparedCall(callId, "https://a.com/x"));
 
-        boolean updated = repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "{\"ok\":true}"), null, 42.0);
+        boolean updated = repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "{\"ok\":true}"), null, 42.0, null);
 
         assertThat(updated).isTrue();
         CapturedCall found = repo.findAllByCycle("c1").get(0);
@@ -263,12 +264,47 @@ class SqliteSessionCyclesRepositoryTest {
     }
 
     @Test
+    void completingACapturedCallPersistsThePhaseTimingsMeasuredAtCompletion() throws Exception {
+        // These were dropped entirely until now, which is why a cycle's diagnostics panel drew no
+        // per-call phase bars while the identical panel on the live list did - same component, one
+        // side simply had nothing to draw. They only exist at completion: the row was written while
+        // the call was still in flight.
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        String callId = UUID.randomUUID().toString();
+        repo.append("c1", preparedCall(callId, "https://a.com/x"));
+
+        repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "{}"), null, 196.62,
+                new CallTiming(74.5, 57.03, 193.82, 2.77, false));
+
+        CallTiming timing = repo.findAllByCycle("c1").get(0).call().timing();
+        assertThat(timing).isNotNull();
+        assertThat(timing.connectMs()).isEqualTo(74.5);
+        assertThat(timing.tlsMs()).isEqualTo(57.03);
+        assertThat(timing.ttfbMs()).isEqualTo(193.82);
+        assertThat(timing.downloadMs()).isEqualTo(2.77);
+        assertThat(timing.reusedConnection()).isFalse();
+    }
+
+    @Test
+    void aCapturedCallWithNothingMeasuredReportsNoTimingAtAllRatherThanZeroes() throws Exception {
+        // "Not measured" and "measured as instant" have to stay distinguishable - a call captured
+        // before these columns existed must not read as a call that took no time to connect.
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        String callId = UUID.randomUUID().toString();
+        repo.append("c1", preparedCall(callId, "https://a.com/x"));
+
+        repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "{}"), null, 10.0, null);
+
+        assertThat(repo.findAllByCycle("c1").get(0).call().timing()).isNull();
+    }
+
+    @Test
     void completingACapturedCallWithAnErrorFlipsStateToError() throws Exception {
         SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
         String callId = UUID.randomUUID().toString();
         repo.append("c1", preparedCall(callId, "https://a.com/x"));
 
-        repo.completeCapturedCall("c1", callId, null, "connection refused", null);
+        repo.completeCapturedCall("c1", callId, null, "connection refused", null, null);
 
         CapturedCall found = repo.findAllByCycle("c1").get(0);
         assertThat(found.call().state()).isEqualTo(CallLifecycleStatus.ERROR);
@@ -283,7 +319,7 @@ class SqliteSessionCyclesRepositoryTest {
 
         assertThat(repo.query("c1", "needle-in-response", "", "newest", 0, 10, true).items()).isEmpty();
 
-        repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "needle-in-response"), null, 1.0);
+        repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "needle-in-response"), null, 1.0, null);
 
         var page = repo.query("c1", "needle-in-response", "", "newest", 0, 10, true);
         assertThat(page.items()).extracting(c -> c.call().id()).containsExactly(callId);
@@ -297,7 +333,7 @@ class SqliteSessionCyclesRepositoryTest {
         repo.append("c1", preparedCall(callId, "https://a.com/x"));
         repo.append("c2", preparedCall(callId, "https://a.com/x"));
 
-        repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "ok"), null, 1.0);
+        repo.completeCapturedCall("c1", callId, new ResponseData(200, null, "ok"), null, 1.0, null);
 
         assertThat(repo.findAllByCycle("c1").get(0).call().state()).isEqualTo(CallLifecycleStatus.COMPLETED);
         assertThat(repo.findAllByCycle("c2").get(0).call().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
@@ -307,7 +343,7 @@ class SqliteSessionCyclesRepositoryTest {
     void completingAnUnknownCycleOrCallReturnsFalseWithoutThrowing() throws Exception {
         SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
 
-        assertThat(repo.completeCapturedCall("missing-cycle", "missing-call", new ResponseData(200, null, null), null, 1.0)).isFalse();
+        assertThat(repo.completeCapturedCall("missing-cycle", "missing-call", new ResponseData(200, null, null), null, 1.0, null)).isFalse();
     }
 
     @Test

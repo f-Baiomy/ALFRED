@@ -108,8 +108,8 @@ class SessionCycleCaptureAdapterTest {
         List<String> updated = adapter.onCallCompleted(call);
 
         assertThat(updated).containsExactlyInAnyOrder("recording-1", "recording-2");
-        verify(capturedCallsStore).completeCapturedCall("recording-1", call.id(), call.response(), call.error(), call.durationMs());
-        verify(capturedCallsStore).completeCapturedCall("recording-2", call.id(), call.response(), call.error(), call.durationMs());
+        verify(capturedCallsStore).completeCapturedCall("recording-1", call.id(), call.response(), call.error(), call.durationMs(), call.timing());
+        verify(capturedCallsStore).completeCapturedCall("recording-2", call.id(), call.response(), call.error(), call.durationMs(), call.timing());
     }
 
     @Test
@@ -124,7 +124,8 @@ class SessionCycleCaptureAdapterTest {
         assertThat(updated).isEmpty();
         verify(capturedCallsStore, never()).completeCapturedCall(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

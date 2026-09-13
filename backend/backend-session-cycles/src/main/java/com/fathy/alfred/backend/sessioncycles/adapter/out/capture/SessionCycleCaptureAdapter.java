@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.capture;
 
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
@@ -75,7 +76,10 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
             // Wasn't captured at prepare time (no cycle was recording then) - nothing to update.
             return List.of();
         }
-        cycleIds.forEach(cycleId -> capturedCallsStore.completeCapturedCall(cycleId, call.id(), call.response(), call.error(), call.durationMs()));
+        // call.timing() is the whole reason this signature takes a sixth argument: the phase
+        // measurements are only known now, at completion, and the captured row was written while
+        // the call was still in flight.
+        cycleIds.forEach(cycleId -> capturedCallsStore.completeCapturedCall(cycleId, call.id(), call.response(), call.error(), call.durationMs(), call.timing()));
         return cycleIds;
     }
 

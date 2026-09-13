@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.adapter.out.sqlite.BatchWriter;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
@@ -123,7 +124,7 @@ public class SqliteSessionCyclesRepository {
     private record PendingCapturedCall(String cycleId, CapturedCall captured) {}
 
     /** The outcome half of a two-phase captured call, awaiting write via {@link #completionWriter} - see {@link #completeCapturedCall}. */
-    private record PendingCapturedCallCompletion(String cycleId, String callId, ResponseData response, String error, Double durationMs) {}
+    private record PendingCapturedCallCompletion(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing) {}
 
     @PostConstruct
     void init() {
@@ -209,10 +210,16 @@ public class SqliteSessionCyclesRepository {
                   status_state TEXT NOT NULL DEFAULT 'COMPLETED',
                   request_haystack TEXT,
                   session_id TEXT,
-                  operation_id TEXT
+                  operation_id TEXT,
+                  connect_ms REAL,
+                  tls_ms REAL,
+                  ttfb_ms REAL,
+                  download_ms REAL,
+                  reused_connection INTEGER
                 )
                 """);
         addSessionOperationColumnsIfMissing();
+        addTimingColumnsIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS captured_call_request (
                   captured_call_id TEXT PRIMARY KEY REFERENCES captured_call_metadata(id) ON DELETE CASCADE,
@@ -240,6 +247,25 @@ public class SqliteSessionCyclesRepository {
         }
         if (!columns.contains("operation_id")) {
             jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN operation_id TEXT");
+        }
+    }
+
+    /**
+     * See SqliteCallsRepository's identical method. Captured calls dropped the phase timings
+     * entirely until now, which is why a cycle's diagnostics panel showed no per-call phase bars
+     * while the same panel on the live list did - same component, same code, one side just had no
+     * data to draw. Nullable for the same reason as there: a call captured before this existed has
+     * no measurement, and that is not the same as measuring zero.
+     */
+    private void addTimingColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(captured_call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        for (String column : List.of("connect_ms", "tls_ms", "ttfb_ms", "download_ms")) {
+            if (!columns.contains(column)) {
+                jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN " + column + " REAL");
+            }
+        }
+        if (!columns.contains("reused_connection")) {
+            jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN reused_connection INTEGER");
         }
     }
 
@@ -414,6 +440,7 @@ public class SqliteSessionCyclesRepository {
             SELECT cm.id, cm.cycle_id, cm.captured_at, cm.call_id, cm.original_url, cm.url, cm.method,
                    cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id,
+                   cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM captured_call_metadata cm
@@ -441,8 +468,9 @@ public class SqliteSessionCyclesRepository {
             INSERT INTO captured_call_metadata (id, cycle_id, captured_at, call_id, original_url, url, method,
                                  timestamp, timestamp_millis, duration_ms, status, status_rank,
                                  supplier, supplier_name, error, haystack, status_state, request_haystack,
-                                 session_id, operation_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                 session_id, operation_id,
+                                 connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO captured_call_request (captured_call_id, headers, body) VALUES (?,?,?)";
@@ -490,6 +518,35 @@ public class SqliteSessionCyclesRepository {
         ps.setString(18, requestHaystack);
         ps.setString(19, call.sessionId());
         ps.setString(20, call.operationId());
+        bindTiming(ps, 21, call.timing());
+    }
+
+    /**
+     * Binds the five phase-timing columns from position {@code first}. A captured call is usually
+     * appended while still IN_PROGRESS, so there is nothing measured yet and these go in as NULL;
+     * {@link #completeCapturedCall} fills them in. A call captured already-resolved (file-mode's
+     * single-shot path, or a copy-to-cycle) carries them here instead.
+     */
+    private static void bindTiming(PreparedStatement ps, int first, CallTiming timing) throws SQLException {
+        Double[] values = {
+                timing == null ? null : timing.connectMs(),
+                timing == null ? null : timing.tlsMs(),
+                timing == null ? null : timing.ttfbMs(),
+                timing == null ? null : timing.downloadMs(),
+        };
+        for (int i = 0; i < values.length; i++) {
+            if (values[i] != null) {
+                ps.setDouble(first + i, values[i]);
+            } else {
+                ps.setNull(first + i, Types.DOUBLE);
+            }
+        }
+        Boolean reused = timing == null ? null : timing.reusedConnection();
+        if (reused != null) {
+            ps.setInt(first + 4, reused ? 1 : 0);
+        } else {
+            ps.setNull(first + 4, Types.INTEGER);
+        }
     }
 
     /** Binds one pending captured call's request-table row - always inserted (headers/body null if there is no request data). */
@@ -511,6 +568,7 @@ public class SqliteSessionCyclesRepository {
     private static final String UPDATE_METADATA_SQL = """
             UPDATE captured_call_metadata SET
               status = ?, status_rank = ?, error = ?, duration_ms = ?, status_state = ?,
+              connect_ms = ?, tls_ms = ?, ttfb_ms = ?, download_ms = ?, reused_connection = ?,
               haystack = substr(COALESCE(request_haystack, '') || ' ' || ?, 1, ?)
             WHERE cycle_id = ? AND call_id = ?
             """;
@@ -521,13 +579,13 @@ public class SqliteSessionCyclesRepository {
             """;
 
     /** Second half of two-phase capture - fills in a previously-{@link #append}ed captured call's outcome, scoped to one cycle (SessionCycleCaptureAdapter calls this once per cycle it captured the call into at prepare time). @return true if a matching row existed. */
-    public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs) {
+    public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing) {
         Integer existing = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM captured_call_metadata WHERE cycle_id = ? AND call_id = ?", Integer.class, cycleId, callId);
         if (existing == null || existing == 0) {
             return false;
         }
-        completionWriter.submit(new PendingCapturedCallCompletion(cycleId, callId, response, error, durationMs));
+        completionWriter.submit(new PendingCapturedCallCompletion(cycleId, callId, response, error, durationMs, timing));
         return true;
     }
 
@@ -551,10 +609,13 @@ public class SqliteSessionCyclesRepository {
             ps.setNull(4, Types.DOUBLE);
         }
         ps.setString(5, state.name());
-        ps.setString(6, buildResponseHaystackFragment(response, error));
-        ps.setInt(7, MAX_HAYSTACK_LENGTH);
-        ps.setString(8, pending.cycleId());
-        ps.setString(9, pending.callId());
+        // The phase timings only exist at completion - the row was appended while the call was
+        // still in flight, so this is the only chance to record them.
+        bindTiming(ps, 6, pending.timing());
+        ps.setString(11, buildResponseHaystackFragment(response, error));
+        ps.setInt(12, MAX_HAYSTACK_LENGTH);
+        ps.setString(13, pending.cycleId());
+        ps.setString(14, pending.callId());
     }
 
     private void bindCompletionResponse(PreparedStatement ps, PendingCapturedCallCompletion pending) throws SQLException {
@@ -601,7 +662,8 @@ public class SqliteSessionCyclesRepository {
 
     /** See SqliteCallsRepository.SUMMARY_SQL's identical comment - list/search views never need request/response bodies. */
     private static final String SUMMARY_SQL =
-            "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id FROM ";
+            "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, "
+                    + "connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection FROM ";
 
     public CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(cycleId, search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -803,7 +865,8 @@ public class SqliteSessionCyclesRepository {
         CallRecord call = new CallRecord(
                 rs.getString("call_id"), rs.getString("original_url"), rs.getString("url"), rs.getString("method"),
                 request, rs.getString("timestamp"), durationMs, response, rs.getString("error"),
-                CallLifecycleStatus.valueOf(rs.getString("status_state")), rs.getString("session_id"), rs.getString("operation_id"));
+                CallLifecycleStatus.valueOf(rs.getString("status_state")), rs.getString("session_id"), rs.getString("operation_id"),
+                null, timingOf(rs));
 
         return new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
     };
@@ -825,10 +888,32 @@ public class SqliteSessionCyclesRepository {
                 rs.getString("error"),
                 nullIfEmpty(rs.getString("supplier_name")),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
-                rs.getString("session_id"), rs.getString("operation_id"));
+                rs.getString("session_id"), rs.getString("operation_id"), null, timingOf(rs));
 
         return new CapturedCallSummary(rs.getString("id"), rs.getString("captured_at"), callSummary);
     };
+
+    /**
+     * See SqliteCallsRepository's identical method - the timings ride along with the SUMMARY,
+     * because the waterfall and its diagnostics panel need them for every call in a cycle at once.
+     * Null rather than a record of nulls when nothing was measured, so a call captured before these
+     * columns existed stays distinguishable from one measured as instant.
+     */
+    private static CallTiming timingOf(ResultSet rs) throws SQLException {
+        Double connect = nullableDouble(rs, "connect_ms");
+        Double tls = nullableDouble(rs, "tls_ms");
+        Double ttfb = nullableDouble(rs, "ttfb_ms");
+        Double download = nullableDouble(rs, "download_ms");
+        Object reusedObj = rs.getObject("reused_connection");
+        Boolean reused = reusedObj == null ? null : rs.getInt("reused_connection") != 0;
+        CallTiming timing = new CallTiming(connect, tls, ttfb, download, reused);
+        return timing.isEmpty() ? null : timing;
+    }
+
+    private static Double nullableDouble(ResultSet rs, String column) throws SQLException {
+        Object value = rs.getObject(column);
+        return value == null ? null : rs.getDouble(column);
+    }
 
     /** Reads a row of the OLD (pre-split) single-table {@code captured_calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. */
     private static final RowMapper<PendingCapturedCall> LEGACY_ROW_MAPPER = (rs, rowNum) -> {
