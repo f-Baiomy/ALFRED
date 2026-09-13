@@ -3901,3 +3901,15 @@ mark.hl.active {
   color: var(--text);
   margin: 0 0 0.15rem;
 }
+
+// How this call compares to the same endpoint's own history - the difference between "26.72s" and
+// "26.72s where this endpoint's p50 is 3.4s". Reads as a problem only when it is actually slower
+// than usual; "normal for this endpoint" is just as useful an answer and shouldn't look alarming.
+.diag-baseline {
+  padding: 0.3rem 0;
+  color: var(--text-dim);
+
+  &.diag-problem {
+    color: var(--red);
+  }
+}

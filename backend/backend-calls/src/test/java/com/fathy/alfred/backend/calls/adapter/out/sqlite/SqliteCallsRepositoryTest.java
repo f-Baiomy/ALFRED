@@ -108,6 +108,47 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
+    void baselineReportsPercentilesForOneEndpoint() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        for (double duration : new double[] {100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}) {
+            repo.save(call("https://a.com/search", "t", duration, 200, null));
+        }
+        repo.save(call("https://other.com/x", "t", 99_999.0, 200, null));
+        repo.readAll();
+
+        var baseline = repo.baselineFor("https://a.com/search");
+
+        assertThat(baseline.sampleSize()).isEqualTo(10);
+        assertThat(baseline.p50Ms()).isEqualTo(600.0);
+        assertThat(baseline.p95Ms()).isEqualTo(1000.0);
+    }
+
+    @Test
+    void baselineIgnoresFailedAndInProgressCallsWhoseDurationIsNotASampleOfHowLongTheEndpointTakes() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String url = "https://a.com/search";
+        repo.save(call(url, "t", 100.0, 200, null));
+        repo.save(call(url, "t", 5000.0, null, "connection refused"));
+        repo.save(preparedCall(UUID.randomUUID().toString(), url));
+        repo.readAll();
+
+        var baseline = repo.baselineFor(url);
+
+        assertThat(baseline.sampleSize()).isEqualTo(1);
+        assertThat(baseline.p50Ms()).isEqualTo(100.0);
+    }
+
+    @Test
+    void baselineSaysNothingRatherThanInventingAPercentileForAnUnseenEndpoint() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+
+        var baseline = repo.baselineFor("https://never-called.com/x");
+
+        assertThat(baseline.sampleSize()).isZero();
+        assertThat(baseline.p50Ms()).isNull();
+    }
+
+    @Test
     void findByIdReturnsEmptyForAnUnknownId() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
 

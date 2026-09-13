@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
@@ -729,6 +730,36 @@ public class SqliteCallsRepository {
                 SUMMARY_ROW_MAPPER, pageParams.toArray());
 
         return new CallListSupport.Page<>(items, total);
+    }
+
+    /**
+     * p50/p95 of every COMPLETED call to this exact url.
+     *
+     * <p>SQLite has no percentile function, so this takes the value at the ordered offset - which is
+     * exactly what a percentile is, and lets the existing index do the ordering rather than pulling
+     * every duration into memory to sort. Only completed calls count: an in-progress one has no
+     * duration yet, and a failed one's duration measures how long it took to fail, which is not a
+     * sample of how long this endpoint takes to answer.
+     */
+    public CallBaseline baselineFor(String url) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM call_metadata WHERE url = ? AND status_state = 'COMPLETED' AND duration_ms IS NOT NULL",
+                Integer.class, url);
+        if (count == null || count == 0) {
+            return CallBaseline.empty(url);
+        }
+        return new CallBaseline(url, count, durationAtPercentile(url, count, 0.50), durationAtPercentile(url, count, 0.95));
+    }
+
+    private Double durationAtPercentile(String url, int count, double percentile) {
+        int offset = Math.min(count - 1, Math.max(0, (int) Math.floor(count * percentile)));
+        return jdbcTemplate.query(
+                """
+                SELECT duration_ms FROM call_metadata
+                WHERE url = ? AND status_state = 'COMPLETED' AND duration_ms IS NOT NULL
+                ORDER BY duration_ms LIMIT 1 OFFSET ?
+                """,
+                rs -> rs.next() ? rs.getDouble(1) : null, url, offset);
     }
 
     public int count() {

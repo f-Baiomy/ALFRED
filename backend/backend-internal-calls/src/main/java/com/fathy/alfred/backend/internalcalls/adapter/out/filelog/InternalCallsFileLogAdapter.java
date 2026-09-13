@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.internalcalls.adapter.out.filelog;
 import com.fathy.alfred.backend.internalcalls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.internalcalls.application.service.CallListSupport;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
@@ -366,5 +367,29 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
         } catch (IOException e) {
             return null;
         }
+    }
+
+    /**
+     * Percentiles over the in-memory cache this adapter already keeps. The file is ring-buffered at
+     * alfred.internal-calls.max-limit, so this is a baseline over recent traffic rather than all of
+     * history - sorting a few hundred doubles is cheap, and there is no index here to lean on.
+     */
+    @Override
+    public CallBaseline baselineFor(String url) {
+        List<Double> durations = readAll().stream()
+                .filter(call -> url.equals(call.url()))
+                .filter(call -> call.state() != CallLifecycleStatus.IN_PROGRESS && call.durationMs() != null)
+                .map(CallRecord::durationMs)
+                .sorted()
+                .toList();
+        if (durations.isEmpty()) {
+            return CallBaseline.empty(url);
+        }
+        return new CallBaseline(url, durations.size(), at(durations, 0.50), at(durations, 0.95));
+    }
+
+    private static Double at(List<Double> sorted, double percentile) {
+        int index = Math.min(sorted.size() - 1, Math.max(0, (int) Math.floor(sorted.size() * percentile)));
+        return sorted.get(index);
     }
 }

@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.internalcalls.application.port.out;
 
 import com.fathy.alfred.backend.internalcalls.application.service.CallListSupport;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
@@ -69,4 +70,7 @@ public interface CallLogPort {
 
     /** All logged calls, in file order (oldest first). */
     List<CallRecord> readAll();
+
+    /** Completed calls to this exact url only - see CallBaseline. */
+    CallBaseline baselineFor(String url);
 }

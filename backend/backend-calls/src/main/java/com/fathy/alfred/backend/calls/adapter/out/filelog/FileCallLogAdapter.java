@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.calls.adapter.out.filelog;
 
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
@@ -183,6 +184,30 @@ public class FileCallLogAdapter implements CallLogPort {
                 : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null, timing);
         save(resolved);
         return wasPending;
+    }
+
+    /**
+     * Same percentiles as the SQLite adapter, over the in-memory cache this adapter already keeps.
+     * A ring-buffered file holds at most alfred.calls.max-limit calls, so sorting them is cheap -
+     * there is deliberately no index to lean on here.
+     */
+    @Override
+    public CallBaseline baselineFor(String url) {
+        List<Double> durations = readAll().stream()
+                .filter(call -> url.equals(call.url()))
+                .filter(call -> call.state() != CallLifecycleStatus.IN_PROGRESS && call.durationMs() != null)
+                .map(CallRecord::durationMs)
+                .sorted()
+                .toList();
+        if (durations.isEmpty()) {
+            return CallBaseline.empty(url);
+        }
+        return new CallBaseline(url, durations.size(), at(durations, 0.50), at(durations, 0.95));
+    }
+
+    private static Double at(List<Double> sorted, double percentile) {
+        int index = Math.min(sorted.size() - 1, Math.max(0, (int) Math.floor(sorted.size() * percentile)));
+        return sorted.get(index);
     }
 
     /** Returns the cached lines, re-reading and re-parsing only when the file's size/mtime no longer match what was cached. */

@@ -33,6 +33,7 @@ export function toCallRecord(dto: CallSummaryDto, source?: CallEndpointSource): 
     session_id: dto.session_id,
     operation_id: dto.operation_id,
     service_name: dto.service_name,
+    timing: dto.timing,
     source,
   };
 }

@@ -1,7 +1,9 @@
 package com.fathy.alfred.backend.calls.adapter.in.web;
 
+import com.fathy.alfred.backend.calls.application.port.in.GetCallBaselineUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
+import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallsPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
@@ -16,10 +18,13 @@ public class CallsController {
 
     private final GetCallsUseCase getCallsUseCase;
     private final GetCallDetailUseCase getCallDetailUseCase;
+    private final GetCallBaselineUseCase getCallBaselineUseCase;
 
-    public CallsController(GetCallsUseCase getCallsUseCase, GetCallDetailUseCase getCallDetailUseCase) {
+    public CallsController(GetCallsUseCase getCallsUseCase, GetCallDetailUseCase getCallDetailUseCase,
+                            GetCallBaselineUseCase getCallBaselineUseCase) {
         this.getCallsUseCase = getCallsUseCase;
         this.getCallDetailUseCase = getCallDetailUseCase;
+        this.getCallBaselineUseCase = getCallBaselineUseCase;
     }
 
     /** Server-side filtered/sorted/paginated - {@code offset}/{@code limit} drive "Load more" instead of the client re-slicing an already-fully-fetched array. Returns CallSummary (no request/response headers/bodies) - see GET /calls/{id}/detail for those. */
@@ -35,6 +40,16 @@ public class CallsController {
             @RequestParam(defaultValue = "") String requestId
     ) {
         return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId));
+    }
+
+    /**
+     * How this endpoint normally performs, so the diagnostics panel can say whether a given call is
+     * slow FOR IT rather than just slow. Query param rather than a path segment because the value is
+     * a full url - see CallBaseline for why it is not normalised to a path.
+     */
+    @GetMapping("/calls/baseline")
+    public CallBaseline getBaseline(@RequestParam String url) {
+        return getCallBaselineUseCase.getBaseline(url);
     }
 
     /**

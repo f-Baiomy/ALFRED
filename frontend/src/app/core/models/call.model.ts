@@ -14,21 +14,15 @@ export interface CallResponse extends HttpMessageData {
 }
 
 /**
- * One logged request/response pair. `request`/`response.headers`/`response.body` are undefined
- * until hydrated - GET /calls and GET /session-cycles/{id}/calls return only the summary fields
- * (id, both urls, method, timestamp, duration_ms, response.status, error), since headers/bodies
- * routinely dominate a call's size and most calls in a list are scanned, never opened. The rest is
- * fetched only once a call is actually expanded, via GET /calls/{id}/detail (or the session-cycles
- * equivalent) - always a real network call, never cached client-side, even if this same call's
- * detail was already fetched before.
- */
-/**
  * One call's network phases, as measured by the proxy - what turns "this took 5.7s" into a reason.
  *
  * A large `ttfb_ms` means the upstream is thinking; a large `download_ms` means the payload is big;
  * a large connect+TLS share means connections are not being reused, which is a fix on our side.
  * `reused_connection` is why connect/TLS are usually null: mitmproxy reuses server connections, and
  * the handshake then belongs to some earlier call rather than this one.
+ *
+ * Note that connect and TLS happen INSIDE the `ttfb_ms` window rather than before it, so the
+ * upstream's own think time is `ttfb_ms - connect_ms - tls_ms` (see CallDiagnosticsComponent.phases).
  */
 export interface CallTiming {
   readonly connect_ms?: number | null;
@@ -38,6 +32,15 @@ export interface CallTiming {
   readonly reused_connection?: boolean | null;
 }
 
+/**
+ * One logged request/response pair. `request`/`response.headers`/`response.body` are undefined
+ * until hydrated - GET /calls and GET /session-cycles/{id}/calls return only the summary fields
+ * (id, both urls, method, timestamp, duration_ms, response.status, error), since headers/bodies
+ * routinely dominate a call's size and most calls in a list are scanned, never opened. The rest is
+ * fetched only once a call is actually expanded, via GET /calls/{id}/detail (or the session-cycles
+ * equivalent) - always a real network call, never cached client-side, even if this same call's
+ * detail was already fetched before.
+ */
 export interface CallRecord {
   readonly id: string;
   readonly original_url: string;
@@ -66,6 +69,7 @@ export interface CallRecord {
    * sourceKeyOf()/sourceLabelOf() in call-utils.ts - sourceLabelOf renders a non-null value on an
    * external call as "External · via <Project>".
    */
+  readonly service_name?: string | null;
   /**
    * How the proxy measured this call's own network phases (see backend CallTiming). Every field is
    * independently nullable: connect/TLS are absent on a reused connection, and the whole object is
@@ -73,7 +77,6 @@ export interface CallRecord {
    * never zero.
    */
   readonly timing?: CallTiming | null;
-  readonly service_name?: string | null;
   /** Which backend endpoint this call was fetched from - stamped client-side in toCallRecord(), never part of the wire shape. Undefined only for a CapturedCall's wrapped CallRecord (session-cycles never captures 'internal' calls, so it's always implicitly 'external' there). Needed so getCallDetail() knows whether to fetch GET /calls/{id}/detail or GET /internal-calls/{id}/detail once a call from a merged 'both' list is expanded. */
   readonly source?: CallEndpointSource;
 }
@@ -107,6 +110,8 @@ export interface CallSummaryDto {
   readonly session_id?: string | null;
   readonly operation_id?: string | null;
   readonly service_name?: string | null;
+  /** Rides along with the summary rather than the detail - the waterfall needs phase timings for every call in the list at once, and five numbers per row are cheap. */
+  readonly timing?: CallTiming | null;
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle
@@ -185,4 +190,16 @@ export interface CallOverlapCandidate {
   readonly durationMs: number;
   readonly status: number | null;
   readonly error: string | null;
+}
+
+/**
+ * How one endpoint normally performs, so a single duration can be judged rather than just read.
+ * `sampleSize` is part of the answer: a p50 over three calls is not a baseline, and the UI must say
+ * so rather than present it as one.
+ */
+export interface CallBaseline {
+  readonly url: string;
+  readonly sampleSize: number;
+  readonly p50Ms: number | null;
+  readonly p95Ms: number | null;
 }

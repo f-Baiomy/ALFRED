@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.internalcalls.application.service;
 
+import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallBaselineUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsInRangeUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase;
@@ -10,6 +11,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.out.CallNotificat
 import com.fathy.alfred.backend.internalcalls.application.port.out.NewInternalCallObserverPort;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallDetail;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsPage;
@@ -32,7 +34,7 @@ import java.util.UUID;
  * since this slice has no two-phase capture concept at all.
  */
 @Service
-public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCase,
+public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase,
         ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(InternalCallsService.class);
@@ -135,5 +137,11 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
 
     private static String valueOrGenerated(String value) {
         return (value != null && !value.isBlank()) ? value : UUID.randomUUID().toString();
+    }
+
+    /** Mirrors backend-calls' CallsService.getBaseline, for inbound endpoints. */
+    @Override
+    public CallBaseline getBaseline(String url) {
+        return url == null || url.isBlank() ? CallBaseline.empty(url) : callLogPort.baselineFor(url);
     }
 }

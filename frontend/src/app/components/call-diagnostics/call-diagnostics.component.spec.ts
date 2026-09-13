@@ -1,4 +1,6 @@
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { CallDiagnosticsComponent } from './call-diagnostics.component';
 import { CallRecord, CallTiming } from '../../core/models/call.model';
 import { CallTiming as Timing } from '../../shared/utils/call-diagnostics';
@@ -19,7 +21,11 @@ describe('CallDiagnosticsComponent phases', () => {
   let component: CallDiagnosticsComponent;
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [CallDiagnosticsComponent] }).compileComponents();
+    // The component fetches an endpoint baseline on expand, so it injects CallsApiService.
+    await TestBed.configureTestingModule({
+      imports: [CallDiagnosticsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    }).compileComponents();
     component = TestBed.createComponent(CallDiagnosticsComponent).componentInstance;
   });
 

@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.calls.application.service;
 
+import com.fathy.alfred.backend.calls.application.port.in.GetCallBaselineUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsInRangeUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
@@ -12,6 +13,7 @@ import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
+import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
@@ -29,7 +31,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, ReceiveNewCallUseCase,
+public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase, ReceiveNewCallUseCase,
         ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(CallsService.class);
@@ -74,6 +76,12 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, Rece
     @Override
     public Optional<CallDetail> getDetail(String callId) {
         return callLogPort.findById(callId).map(CallDetail::of);
+    }
+
+    /** Delegates to the port - each storage type answers this the way it can (indexed aggregate vs in-memory scan). */
+    @Override
+    public CallBaseline getBaseline(String url) {
+        return url == null || url.isBlank() ? CallBaseline.empty(url) : callLogPort.baselineFor(url);
     }
 
     /** Delegates straight to the port - see {@link GetCallsInRangeUseCase}'s doc for what this is for. */

@@ -1,8 +1,15 @@
-import { Component, computed, input, signal } from '@angular/core';
-import { CallRecord } from '../../core/models/call.model';
+import { Component, computed, inject, input, signal } from '@angular/core';
+import { CallBaseline, CallRecord } from '../../core/models/call.model';
+import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallTreeNode } from '../../shared/utils/call-tree';
 import { CallDiagnostics, CallTiming, analyzeCall, formatMs } from '../../shared/utils/call-diagnostics';
 import { uriPath } from '../../shared/utils/call-utils';
+
+/** Below this many completed calls, a percentile is not a baseline and the panel says so instead. */
+const MIN_BASELINE_SAMPLE = 5;
+
+/** How much slower than the endpoint's own p50 counts as "slow for this endpoint" rather than noise. */
+const SLOW_AGAINST_BASELINE = 1.5;
 
 /**
  * The "where did the time actually go" panel for one root call.
@@ -90,6 +97,10 @@ import { uriPath } from '../../shared/utils/call-utils';
               </table>
             }
 
+            @if (baseline(); as b) {
+              <div class="diag-baseline" [class.diag-problem]="b.slow">{{ b.text }}</div>
+            }
+
             @if (d.parallelism; as p) {
               <div class="diag-parallel">
                 {{ p.factor.toFixed(1) }}&times; parallel &middot; up to {{ p.maxConcurrent }} at once &middot;
@@ -110,6 +121,8 @@ import { uriPath } from '../../shared/utils/call-utils';
   `,
 })
 export class CallDiagnosticsComponent {
+  private readonly api = inject(CallsApiService);
+
   readonly node = input.required<CallTreeNode>();
 
   readonly open = signal(false);
@@ -129,8 +142,42 @@ export class CallDiagnosticsComponent {
     return findings.length > 0 ? { text: findings[0].title, level: findings[0].level } : null;
   });
 
+  /**
+   * How this endpoint normally performs. Fetched lazily on first expand, never with the list: a
+   * page of 200 calls would otherwise fire 200 aggregate queries nobody asked for.
+   */
+  private readonly baselineData = signal<CallBaseline | null>(null);
+
+  readonly baseline = computed<{ text: string; slow: boolean } | null>(() => {
+    const data = this.baselineData();
+    const duration = this.diagnostics()?.ledger.durationMs;
+    if (!data || duration == null) return null;
+
+    // A percentile over a handful of calls is not a baseline. Say what it is rather than dress it up.
+    if (data.sampleSize < MIN_BASELINE_SAMPLE || data.p50Ms == null) {
+      return { text: `Only ${data.sampleSize} completed ${data.sampleSize === 1 ? 'call' : 'calls'} to this endpoint so far - not enough to compare against`, slow: false };
+    }
+
+    const ratio = duration / data.p50Ms;
+    const comparison = `${formatMs(duration)} against a p50 of ${formatMs(data.p50Ms)} over ${data.sampleSize} calls`;
+    if (ratio >= SLOW_AGAINST_BASELINE) {
+      return { text: `${ratio.toFixed(1)}x slower than usual for this endpoint - ${comparison}`, slow: true };
+    }
+    return { text: `Normal for this endpoint - ${comparison}`, slow: false };
+  });
+
   toggle(): void {
-    this.open.set(!this.open());
+    const opening = !this.open();
+    this.open.set(opening);
+    if (opening && this.baselineData() === null) {
+      // Inbound roots live in a different store from outbound calls, so the endpoint follows the
+      // call rather than being fixed - see CallsApiService.getBaseline.
+      this.api.getBaseline(this.node().call.url, this.node().call.source ?? 'external').subscribe({
+        next: (data) => this.baselineData.set(data),
+        // A missing baseline is not worth an error state - the rest of the panel is unaffected.
+        error: () => undefined,
+      });
+    }
   }
 
   ms(value: number): string {

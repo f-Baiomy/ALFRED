@@ -1,7 +1,9 @@
 package com.fathy.alfred.backend.internalcalls.adapter.in.web;
 
+import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallBaselineUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallDetail;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsPage;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
@@ -16,10 +18,13 @@ public class InternalCallsController {
 
     private final GetCallsUseCase getCallsUseCase;
     private final GetCallDetailUseCase getCallDetailUseCase;
+    private final GetCallBaselineUseCase getCallBaselineUseCase;
 
-    public InternalCallsController(GetCallsUseCase getCallsUseCase, GetCallDetailUseCase getCallDetailUseCase) {
+    public InternalCallsController(GetCallsUseCase getCallsUseCase, GetCallDetailUseCase getCallDetailUseCase,
+                                    GetCallBaselineUseCase getCallBaselineUseCase) {
         this.getCallsUseCase = getCallsUseCase;
         this.getCallDetailUseCase = getCallDetailUseCase;
+        this.getCallBaselineUseCase = getCallBaselineUseCase;
     }
 
     /** Server-side filtered/sorted/paginated - {@code offset}/{@code limit} drive "Load more". Returns CallSummary (no request/response headers/bodies) - see GET /internal-calls/{id}/detail for those. */
@@ -51,5 +56,11 @@ public class InternalCallsController {
                 .map(detail -> detail.part(part))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Mirrors GET /calls/baseline for inbound endpoints - see backend-calls' CallsController. */
+    @GetMapping("/internal-calls/baseline")
+    public CallBaseline getBaseline(@RequestParam String url) {
+        return getCallBaselineUseCase.getBaseline(url);
     }
 }

@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { AppConfigService } from './app-config.service';
 import { CallOverlapQuery, CallsPageResult, CallsQuery } from '../state/call-list-view';
-import { CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallSummaryDto } from '../models/call.model';
+import { CallBaseline, CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallSummaryDto } from '../models/call.model';
 import { toCallRecord } from '../../shared/utils/call-utils';
 
 interface CallsPageDto {
@@ -56,6 +56,17 @@ export class CallsApiService {
    * response body across with it. Omitted, the whole detail comes back exactly as before - which is
    * what the export path still wants.
    */
+  /**
+   * How this endpoint normally performs - only ever fetched when a diagnostics panel is actually
+   * expanded, since a list of 200 calls would otherwise fire 200 aggregate queries nobody asked for.
+   * Outbound calls only: the baseline is per supplier endpoint, which is a backend-calls concept.
+   */
+  getBaseline(url: string, source: CallEndpointSource = 'external'): Observable<CallBaseline> {
+    return this.http.get<CallBaseline>(`${this.config.backendUrl}/${endpointFor(source)}/baseline`, {
+      params: new HttpParams().set('url', url),
+    });
+  }
+
   getDetail(callId: string, source: CallEndpointSource = 'external', part?: CallDetailPart): Observable<CallDetail> {
     const options = part ? { params: new HttpParams().set('part', part) } : {};
     return this.http.get<CallDetail>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/detail`, options);
