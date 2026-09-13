@@ -64,10 +64,13 @@ const SLOW_AGAINST_BASELINE = 1.5;
             @if (d.timings.length > 0) {
               <table class="diag-table">
                 <tr>
-                  <th>call</th><th>start</th><th>took</th><th>ended</th><th>slack</th><th></th>
+                  <th></th><th>call</th><th>start</th><th>took</th><th>ended</th><th>slack</th><th></th>
                 </tr>
                 @for (t of d.timings; track t.call.id) {
                   <tr [class.diag-critical]="t.onCriticalPath" [class.diag-failed]="t.failed">
+                    <!-- The same number the waterfall row above carries, so a finding naming "#3"
+                         points at one row rather than at a url two calls share. -->
+                    <td class="diag-index">#{{ t.index }}</td>
                     <td class="diag-call" [title]="t.call.method + ' ' + path(t.call)">{{ path(t.call) }}</td>
                     <td>+{{ ms(t.offsetMs) }}</td>
                     <td>{{ ms(t.durationMs) }}</td>
@@ -82,7 +85,7 @@ const SLOW_AGAINST_BASELINE = 1.5;
                          call logged before phase timings existed - the row simply doesn't appear,
                          rather than showing zeroes that would read as "measured, and instant". -->
                     <tr class="diag-phase-row">
-                      <td colspan="6">
+                      <td colspan="7">
                         <span class="diag-phases" aria-hidden="true">
                           @for (seg of ph.segments; track seg.kind) {
                             <span class="diag-phase" [class]="'diag-phase-' + seg.kind" [style.width]="seg.width" [title]="seg.title"></span>

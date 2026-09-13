@@ -52,6 +52,9 @@ interface WaterfallRow {
   readonly axisTotalLabel: string | null;
   /** Only on a closing row that has children to have waited on. */
   readonly selfTime: SelfTimeSplit | null;
+  /** The call's #N among its parent's outbound calls, or empty at a root - matches the number the
+   * diagnostics table and findings use, so "#3 decides the total" points at a row you can see. */
+  readonly indexLabel: string;
   /** Set only on a ROOT group's opening row - the node the diagnostics panel analyses. Null
    * everywhere else, so one panel appears per root rather than one per nested parent. */
   readonly diagnosticsNode: CallTreeNode | null;
@@ -125,6 +128,9 @@ interface WaterfallRow {
             } @else {
               <span class="badge" [class]="statusClassOf(row.call)">{{ row.call.response?.status ?? '?' }}</span>
             }
+            @if (row.indexLabel) {
+              <span class="waterfall-index">{{ row.indexLabel }}</span>
+            }
             <span class="waterfall-label">{{ row.label }}</span>
             <span class="waterfall-offset">{{ row.offsetLabel }}</span>
             <span class="waterfall-track" aria-hidden="true">
@@ -181,7 +187,10 @@ export class CallWaterfallComponent {
     const depths = this.depths();
     const out: WaterfallRow[] = [];
 
-    const walk = (node: CallTreeNode): void => {
+    // childIndex is the call's 1-based position among its parent's outbound calls - the same number
+    // analyzeCall assigns, since both walk children in the order buildCallTree sorted them.
+    const walk = (node: CallTreeNode, childIndex = 0): void => {
+      const childIndexLabel = childIndex > 0 ? `#${childIndex}` : '';
       const info = depths.get(node.call.id);
       const hasBar = info?.spanStart != null && info.spanWidth != null;
       const durationMs = node.call.duration_ms ?? 0;
@@ -198,6 +207,7 @@ export class CallWaterfallComponent {
         offsetLabel: formatOffset(info?.offsetMs ?? null),
         axisTotalLabel: null as string | null,
         selfTime: null as SelfTimeSplit | null,
+        indexLabel: childIndexLabel,
         diagnosticsNode: null as CallTreeNode | null,
       };
 
@@ -215,7 +225,7 @@ export class CallWaterfallComponent {
         axisTotalLabel: node.depth === 0 ? formatOffset(info?.rootDurationMs ?? null) : null,
         diagnosticsNode: node.depth === 0 ? node : null,
       });
-      for (const child of node.children) walk(child);
+      node.children.forEach((child, i) => walk(child, i + 1));
       out.push({
         ...base,
         kind: 'response',
@@ -225,7 +235,7 @@ export class CallWaterfallComponent {
       });
     };
 
-    for (const root of this.nodes()) walk(root);
+    for (const root of this.nodes()) walk(root, 0);
     return out;
   });
 

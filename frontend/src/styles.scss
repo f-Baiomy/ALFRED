@@ -3917,3 +3917,23 @@ mark.hl.active {
     color: var(--red);
   }
 }
+
+// The call's #N, carried identically on its waterfall row and its diagnostics table row - a finding
+// naming "#3" has to point at something findable, and a url cannot do that when a fan-out sends the
+// same method and path twice.
+.waterfall-index,
+.diag-index {
+  flex: none;
+  color: var(--text-faint);
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  white-space: nowrap;
+}
+
+.waterfall-index {
+  font-size: 0.7rem;
+  min-width: 1.8rem;
+}
+
+.diag-index {
+  padding-right: 0.5rem !important;
+}

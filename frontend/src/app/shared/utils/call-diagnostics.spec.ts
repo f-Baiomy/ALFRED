@@ -82,6 +82,60 @@ describe('analyzeCall', () => {
     expect(result.findings.some((f) => f.level === 'problem' && /after every response/.test(f.title))).toBe(true);
   });
 
+  it('numbers the outbound calls in the order they were made, and names them in the findings', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const result = analyzeCall(
+      node(root, [call('first', 1000, 500), call('second', 1500, 4000), call('third', 2000, 500)])
+    )!;
+
+    expect(result.timings.map((t) => t.index)).toEqual([1, 2, 3]);
+    // The findings have to name a number, not just a url: a fan-out routinely sends the same method
+    // and path twice, and then "this call decides the total" points at two rows.
+    const critical = result.findings.find((f) => /critical path/.test(f.title))!;
+    expect(critical.title).toContain('#2');
+    expect(critical.detail).toContain('#2');
+  });
+
+  it('keeps numbering aligned with the waterfall when a call never got a duration', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    // The middle call died before it was timed. The waterfall still gives it a numbered row, so if
+    // this numbered only the measurable ones, its table would call the third call "#2".
+    const result = analyzeCall(
+      node(root, [
+        call('ok', 1000, 500),
+        call('refused', 1200, 0, { error: 'connection refused', response: undefined }),
+        call('also-ok', 1500, 500),
+      ])
+    )!;
+
+    expect(result.timings.map((t) => t.index)).toEqual([1, 3]);
+  });
+
+  it('reports a failure that never got a duration, which has no timing row to be found in', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const result = analyzeCall(
+      node(root, [
+        call('ok', 1000, 500),
+        call('refused', 1200, 0, { error: 'connection refused', response: undefined }),
+      ])
+    )!;
+
+    const failure = result.findings.find((f) => /failed/.test(f.title))!;
+    expect(failure.title).toBe('1 outbound call failed');
+    expect(failure.detail).toContain('#2');
+  });
+
+  it('names both numbers when it reports identical requests', () => {
+    const root = call('root', 0, 10_000, { source: 'internal' });
+    const url = 'https://ndc.example.com/api/FlightSearch/Search';
+    const result = analyzeCall(
+      node(root, [call('a', 1000, 2000, { url }), call('b', 1040, 2000, { url }), call('c', 1100, 100)])
+    )!;
+
+    const duplicate = result.findings.find((f) => /identical requests/.test(f.title))!;
+    expect(duplicate.detail).toContain('#1 and #2');
+  });
+
   it('gives slack to every call except the one that finishes last', () => {
     const root = call('root', 0, 10_000, { source: 'internal' });
     const result = analyzeCall(node(root, [call('slow', 1000, 4000), call('quick', 1000, 1000)]))!;

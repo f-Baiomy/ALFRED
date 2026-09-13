@@ -39,6 +39,14 @@ export interface Gap {
 
 export interface CallTiming {
   readonly call: CallRecord;
+  /**
+   * 1-based position among the root's outbound calls, in the order they were made.
+   *
+   * Exists so the findings can name a specific call - "#3 decides the total" - and you can find
+   * that same #3 on the waterfall row above. A url alone is not enough: a fan-out routinely sends
+   * the same method and path to the same host twice, and then the sentence points at two rows.
+   */
+  readonly index: number;
   readonly offsetMs: number;
   readonly durationMs: number;
   readonly endMs: number;
@@ -67,6 +75,11 @@ export interface Finding {
   readonly level: FindingLevel;
   readonly title: string;
   readonly detail: string;
+}
+
+interface FailedCall {
+  readonly call: CallRecord;
+  readonly index: number;
 }
 
 export interface CallDiagnostics {
@@ -133,7 +146,14 @@ export function analyzeCall(node: CallTreeNode): CallDiagnostics | null {
 
   const rootStart = startMs(root);
   const durationMs = root.duration_ms ?? 0;
-  const children = node.children.map((child) => child.call).filter(isMeasurable);
+
+  // Numbered across EVERY child, then filtered - not numbered after filtering. A call that never
+  // got a duration (a connect failure, say) still occupies a numbered row in the waterfall, so
+  // skipping it here would shift every number after it and the two views would disagree about
+  // which call "#3" is.
+  const allChildren = node.children.map((child) => child.call);
+  const indexByCallId = new Map(allChildren.map((call, index) => [call.id, index + 1]));
+  const children = allChildren.filter(isMeasurable);
 
   if (children.length === 0) {
     return {
@@ -184,6 +204,7 @@ export function analyzeCall(node: CallTreeNode): CallDiagnostics | null {
     const window = windows[index];
     return {
       call,
+      index: indexByCallId.get(call.id) ?? index + 1,
       offsetMs: window.start - rootStart,
       durationMs: call.duration_ms ?? 0,
       endMs: window.end - rootStart,
@@ -211,13 +232,18 @@ export function analyzeCall(node: CallTreeNode): CallDiagnostics | null {
     gaps,
   };
 
-  return { ledger, timings, parallelism, findings: buildFindings(ledger, timings, parallelism) };
+  const failures = allChildren
+    .filter((call) => !!call.error || (call.response?.status ?? 0) >= 500)
+    .map((call) => ({ call, index: indexByCallId.get(call.id) ?? 0 }));
+
+  return { ledger, timings, parallelism, findings: buildFindings(ledger, timings, parallelism, failures) };
 }
 
 function buildFindings(
   ledger: TimeLedger,
   timings: readonly CallTiming[],
-  parallelism: Parallelism
+  parallelism: Parallelism,
+  failures: readonly FailedCall[]
 ): readonly Finding[] {
   const findings: Finding[] = [];
   const total = ledger.durationMs || 1;
@@ -267,12 +293,14 @@ function buildFindings(
     });
   }
 
-  const failures = timings.filter((timing) => timing.failed);
+  // From every child, not just the timed ones: a call that failed before it got a duration - a
+  // connect refusal, a TLS failure - is exactly the kind of failure worth reporting, and filtering
+  // on "has a measurable window" would drop it silently.
   if (failures.length > 0) {
     findings.push({
       level: 'problem',
       title: `${failures.length} outbound ${failures.length === 1 ? 'call' : 'calls'} failed`,
-      detail: failures.map((timing) => `${timing.call.method} ${pathOf(timing.call)}`).join(', '),
+      detail: failures.map((failure) => `#${failure.index} ${failure.call.method} ${pathOf(failure.call)}`).join(', '),
     });
   }
 
@@ -286,8 +314,8 @@ function buildFindings(
     if (critical) {
       findings.push({
         level: 'watch',
-        title: `Only 1 of ${timings.length} calls is on the critical path`,
-        detail: `${critical.call.method} ${pathOf(critical.call)} (${formatMs(critical.durationMs)}) decides the total. The other ${withSlack.length} have slack, so making them faster changes nothing.`,
+        title: `Only #${critical.index} of ${timings.length} calls is on the critical path`,
+        detail: `#${critical.index} ${critical.call.method} ${pathOf(critical.call)} (${formatMs(critical.durationMs)}) decides the total. The other ${withSlack.length} have slack, so making them faster changes nothing.`,
       });
     }
   }
@@ -320,7 +348,7 @@ function findDuplicates(timings: readonly CallTiming[]): Finding[] {
     findings.push({
       level: 'watch',
       title: `${group.length} identical requests, ${formatMs(closest)} apart`,
-      detail: `${key} - deliberate fan-out, or the same work done twice?`,
+      detail: `${sorted.map((timing) => `#${timing.index}`).join(' and ')} - ${key}. Deliberate fan-out, or the same work done twice?`,
     });
   }
   return findings;

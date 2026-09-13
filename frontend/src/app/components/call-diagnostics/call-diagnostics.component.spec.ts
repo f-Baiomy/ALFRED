@@ -8,6 +8,7 @@ import { CallTiming as Timing } from '../../shared/utils/call-diagnostics';
 function timingFor(measured: CallTiming | null, durationMs: number): Timing {
   return {
     call: { id: 'c', url: 'https://host/x', method: 'POST', timing: measured } as unknown as CallRecord,
+    index: 1,
     offsetMs: 0,
     durationMs,
     endMs: durationMs,
