@@ -50,9 +50,23 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
     @Value("${INTERNAL_CALLS_FILE:/appdata/internal-calls.log}")
     private String internalCallsFile;
 
-    /** Same property InternalCallsService clamps GET /internal-calls with - kept in sync by construction since both read the one property. */
-    @Value("${alfred.internal-calls.max-limit:200}")
-    private int maxLimit;
+    /**
+     * How many calls the ring buffer keeps - this slice's only retention mechanism.
+     *
+     * <p>Deliberately NOT {@code alfred.internal-calls.max-limit}, which is the largest page GET
+     * /internal-calls will serve. One property used to do both jobs, which meant the live inbound
+     * list could never hold more calls than a single page: raising retention raised the page size
+     * and vice versa, and inbound traffic silently evicted calls that were still recent. Confirmed
+     * live - a call logged 90 minutes earlier had already been pushed out by newer traffic while
+     * the list still claimed to be showing everything.
+     *
+     * <p>Kept modest on purpose. The whole file is loaded and rewritten on every single call (see
+     * {@link #save}), and on real traffic a call averages ~55 KB of headers and bodies, so this is
+     * tens of megabytes of read-modify-write per request at four figures. Raising it much further
+     * wants a real store, not a bigger flat file.
+     */
+    @Value("${alfred.internal-calls.retention-rows:1000}")
+    private int retentionRows;
 
     /**
      * One line of the file together with its parsed form ({@code null} when that line failed to
@@ -107,9 +121,9 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
     }
 
     /**
-     * internal-calls.log is a ring buffer, not an unbounded append log: once it holds maxLimit
-     * calls, adding one more drops the oldest line first. Synchronized so concurrent webhook calls
-     * can't interleave their read-modify-write and lose an entry.
+     * internal-calls.log is a ring buffer, not an unbounded append log: once it holds
+     * {@link #retentionRows} calls, adding one more drops the oldest line first. Synchronized so
+     * concurrent webhook calls can't interleave their read-modify-write and lose an entry.
      */
     private synchronized void save(CallRecord call) {
         Path path = Path.of(internalCallsFile);
@@ -120,8 +134,8 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
 
             List<CachedLine> next = new ArrayList<>(loadLines());
             next.add(new CachedLine(objectMapper.writeValueAsString(call), call));
-            if (next.size() > maxLimit) {
-                next = new ArrayList<>(next.subList(next.size() - maxLimit, next.size()));
+            if (next.size() > retentionRows) {
+                next = new ArrayList<>(next.subList(next.size() - retentionRows, next.size()));
             }
 
             StringBuilder content = new StringBuilder();

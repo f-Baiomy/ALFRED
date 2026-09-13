@@ -21,16 +21,16 @@ class InternalCallsFileLogAdapterTest {
     @TempDir
     Path tempDir;
 
-    private static final int TEST_MAX_LIMIT = 500;
+    private static final int TEST_RETENTION_ROWS = 500;
 
     private InternalCallsFileLogAdapter adapterFor(Path file) throws Exception {
-        return adapterFor(file, TEST_MAX_LIMIT);
+        return adapterFor(file, TEST_RETENTION_ROWS);
     }
 
-    private InternalCallsFileLogAdapter adapterFor(Path file, int maxLimit) throws Exception {
+    private InternalCallsFileLogAdapter adapterFor(Path file, int retentionRows) throws Exception {
         InternalCallsFileLogAdapter adapter = new InternalCallsFileLogAdapter();
         setField(adapter, "internalCallsFile", file.toString());
-        setField(adapter, "maxLimit", maxLimit);
+        setField(adapter, "retentionRows", retentionRows);
         return adapter;
     }
 
@@ -107,7 +107,10 @@ class InternalCallsFileLogAdapterTest {
     }
 
     @Test
-    void dropsTheOldestLineOnceMaxLimitIsExceeded() throws Exception {
+    void dropsTheOldestLineOnceRetentionRowsIsExceeded() throws Exception {
+        // Retention is its own property now. It used to be alfred.internal-calls.max-limit, which
+        // is the largest PAGE the API serves - so the store could never hold more calls than one
+        // request was allowed to return, and inbound calls were evicted within minutes.
         InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"), 3);
 
         for (String id : List.of("1", "2", "3", "4")) {

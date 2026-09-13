@@ -25,6 +25,10 @@ import java.util.List;
 public class DatabaseStatsController {
 
     private final CallLogPort callLogPort;
+    /** The INBOUND slice's own port - a different interface that happens to share the simple name
+     * CallLogPort, hence the fully-qualified type. Outbound and inbound are separate stores with
+     * separate retention, which is exactly what this table has to make visible. */
+    private final com.fathy.alfred.backend.internalcalls.application.port.out.CallLogPort internalCallLogPort;
     private final CallNotificationPort callNotificationPort;
     private final SessionCycleMetadataStorePort sessionCycleMetadataStorePort;
     private final CapturedCallsStorePort capturedCallsStorePort;
@@ -35,6 +39,7 @@ public class DatabaseStatsController {
 
     public DatabaseStatsController(
             CallLogPort callLogPort,
+            com.fathy.alfred.backend.internalcalls.application.port.out.CallLogPort internalCallLogPort,
             CallNotificationPort callNotificationPort,
             SessionCycleMetadataStorePort sessionCycleMetadataStorePort,
             CapturedCallsStorePort capturedCallsStorePort,
@@ -44,6 +49,7 @@ public class DatabaseStatsController {
             FilterSettingsStorePort filterSettingsStorePort
     ) {
         this.callLogPort = callLogPort;
+        this.internalCallLogPort = internalCallLogPort;
         this.callNotificationPort = callNotificationPort;
         this.sessionCycleMetadataStorePort = sessionCycleMetadataStorePort;
         this.capturedCallsStorePort = capturedCallsStorePort;
@@ -62,6 +68,11 @@ public class DatabaseStatsController {
 
         List<DatabaseFileStats> files = List.of(
                 new DatabaseFileStats("calls.db", callLogPort.statusBreakdown().total(), callLogPort.storageSizeBytes()),
+                // Inbound calls live in a flat ring-buffer file, not a .db, and were missing from
+                // this table entirely - which made them impossible to account for: the file was the
+                // third-largest store on disk and the busiest evictor, while the page showed neither
+                // its size nor the fact that it was full and dropping calls.
+                new DatabaseFileStats("internal-calls.log", internalCallLogPort.statusBreakdown().total(), internalCallLogPort.storageSizeBytes()),
                 new DatabaseFileStats("session-cycles.db", cycleCount + capturedCallCount, capturedCallsStorePort.storageSizeBytes()),
                 new DatabaseFileStats("profiles.db", profileStorePort.findAll().size(), profileStorePort.storageSizeBytes()),
                 new DatabaseFileStats("comments.db", commentsStorePort.findAll().size(), commentsStorePort.storageSizeBytes()),

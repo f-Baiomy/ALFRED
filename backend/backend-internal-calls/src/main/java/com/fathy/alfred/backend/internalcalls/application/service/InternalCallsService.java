@@ -43,7 +43,13 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
     private final CallNotificationPort notificationPort;
     private final List<NewInternalCallObserverPort> observers;
 
-    /** Upper bound on a single page's size regardless of what the caller asks for, so a request can't force an unbounded read/response. Same property InternalCallsFileLogAdapter uses to ring-buffer its file, so the two stay in sync by construction. */
+    /**
+     * Upper bound on a single PAGE, regardless of what the caller asks for, so a request can't
+     * force an unbounded read/response. Nothing to do with how many calls are kept - that is
+     * InternalCallsFileLogAdapter's {@code alfred.internal-calls.retention-rows}. The two used to
+     * be one property, which capped retention at one page: the store could never hold more calls
+     * than a single request was allowed to return.
+     */
     @Value("${alfred.internal-calls.max-limit:200}")
     private int maxLimit;
 
