@@ -68,14 +68,10 @@ function responseTimestamp(call: CallRecord): string {
 }
 
 /**
- * Same 4-check containment + ownership + blocking-signature + ambiguity-veto algorithm as
- * call-utils.ts's qualifiesAsEvidence/computeSplitCallIds - re-implemented here per this codebase's
+ * Same 3-check containment + ownership + ambiguity-veto algorithm as call-utils.ts's
+ * qualifiesAsEvidence/computeSplitCallIds - re-implemented here per this codebase's
  * mirror-per-consumer convention (see markdown-builder.ts/html-builder.ts's identical copies).
  */
-const MIN_COVERAGE_RATIO = 0.3;
-const MIN_TAIL_MS = 250;
-const TAIL_RATIO = 0.1;
-
 function targetWindow(target: CallRecord): { start: number; end: number } {
   const start = new Date(target.timestamp).getTime();
   return { start, end: start + (target.duration_ms ?? 0) };
@@ -117,29 +113,9 @@ function passesOwnershipCheck(target: CallRecord, candidate: CallOverlapCandidat
   return candidate.serviceName === targetServiceName;
 }
 
-/** The single-child blocking signature - see call-utils.ts's passesBlockingSignature. */
-function passesBlockingSignature(target: CallRecord, candidate: CallOverlapCandidate): boolean {
-  const targetDurationMs = target.duration_ms ?? 0;
-  if (targetDurationMs <= 0) return false;
-
-  const t = targetWindow(target);
-  const c = candidateWindow(candidate);
-  const coverage = candidate.durationMs / targetDurationMs;
-  const tail = t.end - c.end;
-
-  return coverage >= MIN_COVERAGE_RATIO && tail <= Math.max(MIN_TAIL_MS, targetDurationMs * TAIL_RATIO);
-}
-
 /** Checks 1-2 combined - see call-utils.ts's qualifiesAsNestedChild. */
 function qualifiesAsNestedChild(target: CallRecord, candidate: CallOverlapCandidate): boolean {
   return isStrictlyContained(target, candidate) && passesOwnershipCheck(target, candidate);
-}
-
-/** Check 3 of 4, applied to the whole surviving SET rather than per candidate - see call-utils.ts's
- * hasBlockingEvidence for why a fan-out parent can't be held to the single-child signature. */
-function hasBlockingEvidence(target: CallRecord, survivors: readonly CallOverlapCandidate[]): boolean {
-  if (survivors.length >= 2) return true;
-  return survivors.length === 1 && passesBlockingSignature(target, survivors[0]);
 }
 
 /** Mirrors call-utils.ts's candidateMatchesStatusFilter - see its doc. */
@@ -184,9 +160,8 @@ function computeSplitCallIds(
   }
 
   const staysSplit = new Set<string>();
-  const callsById = new Map(internalCalls.map((call) => [call.id, call]));
   for (const [callId, survivors] of survivorsByCallId) {
-    if (hasBlockingEvidence(callsById.get(callId)!, survivors)) staysSplit.add(callId);
+    if (survivors.length > 0) staysSplit.add(callId);
   }
   return staysSplit;
 }

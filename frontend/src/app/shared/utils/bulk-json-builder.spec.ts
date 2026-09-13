@@ -14,8 +14,7 @@ function makeCandidate(overrides: Partial<CallOverlapCandidate> = {}): CallOverl
     id: 'nested-candidate',
     source: 'external',
     serviceName: null,
-    // Same start as the default makeCall()'s 100ms duration, covering 80% of it with a 20ms tail -
-    // comfortably past both MIN_COVERAGE_RATIO and MIN_TAIL_MS/TAIL_RATIO.
+    // Same start as the default makeCall()'s 100ms duration, covering 80% of it with a 20ms tail.
     timestamp: '2026-08-07T13:45:51.965328+00:00',
     durationMs: 80,
     status: 200,
@@ -148,23 +147,34 @@ describe('buildBulkExportPayload', () => {
     expect(payload.events[0].type).toBe('call');
   });
 
-  it('a resolved internal call stays split for a fan-out of children that each individually fail the single-child blocking signature', () => {
+  it('a resolved internal call stays split for a fan-out of children', () => {
     // Mirrors call-utils.spec.ts's fan-out case - the parent farmed work out to several suppliers in
-    // parallel and then post-processed for longer than any one of them took, so no single candidate
-    // clears MIN_COVERAGE_RATIO or the tail window, but the nesting is real. Keep in step with
-    // call-utils.ts's hasBlockingEvidence, which this file deliberately re-implements.
+    // parallel and then post-processed for longer than any one of them took.
     const call = makeCall({ source: 'internal', service_name: 'odeysys', timestamp: '2026-08-07T10:00:00.000Z', duration_ms: 27000 });
     const suppliers = [1780, 1141, 1683].map((durationMs, i) =>
       makeCandidate({ id: `supplier-${i}`, timestamp: '2026-08-07T10:00:04.000Z', durationMs })
     );
 
-    for (const supplier of suppliers) {
-      const alone = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', [supplier], 'all');
-      expect(alone.events.length).toBe(1);
-      expect(alone.events[0].type).toBe('call');
-    }
-
     const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', suppliers, 'all');
+    expect(payload.events.map((e) => e.type)).toEqual(['request', 'response']);
+  });
+
+  it('stays split for a LONE child that accounts for only a fraction of the parent', () => {
+    // Reported from a real export: a 24.84s odeysys call whose single child was a 2.86s core-service
+    // call came out as one unsplit "call" event while the waterfall bracketed it, because the child
+    // covered 11.5% of the parent and a since-removed "blocking signature" check demanded >=30%.
+    // That 11.5% is the finding - odeysys spent 80% of itself before calling anything - not grounds
+    // for hiding the structure. Split == has children now, exactly as call-tree.ts decides it.
+    const call = makeCall({ source: 'internal', service_name: 'odeysys', timestamp: '2026-08-07T10:00:00.000Z', duration_ms: 24841 });
+    const child = makeCandidate({
+      id: 'core-service',
+      source: 'internal',
+      serviceName: 'core-service',
+      timestamp: '2026-08-07T10:00:19.770Z',
+      durationMs: 2856,
+    });
+
+    const payload = buildBulkExportPayload([call], makeForm(), new Map(), '2026-08-07T18:00:00Z', [child], 'all');
     expect(payload.events.map((e) => e.type)).toEqual(['request', 'response']);
   });
 

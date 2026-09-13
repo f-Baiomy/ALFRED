@@ -4,20 +4,18 @@ import { Comment } from '../../core/models/comment.model';
 import { buildBulkExportMarkdown, buildExportMarkdown, bulkExportFilename, exportFilename } from './markdown-builder';
 
 /**
- * A candidate genuinely contained in a call's [timestamp, timestamp + duration_ms] window, from a
- * different service, AND with a genuine blocking signature (see markdown-builder.ts's own
- * qualifiesAsEvidence: coverage >= MIN_COVERAGE_RATIO, tail <= MIN_TAIL_MS/TAIL_RATIO) - the minimal
- * fixture that makes buildBulkExportMarkdown keep an internal/resolved call split. Callers whose
- * target call has a different duration/timestamp than the default `makeCall()` must override
- * `timestamp`/`durationMs` themselves so checks 1 and 3 still hold against THEIR target.
+ * A candidate genuinely contained in a call's [timestamp, timestamp + duration_ms] window and from a
+ * different service - the minimal fixture that makes buildBulkExportMarkdown keep an
+ * internal/resolved call split. Callers whose target call has a different duration/timestamp than
+ * the default `makeCall()` must override `timestamp`/`durationMs` themselves so the containment
+ * check still holds against THEIR target.
  */
 function makeCandidate(overrides: Partial<CallOverlapCandidate> = {}): CallOverlapCandidate {
   return {
     id: 'nested-candidate',
     source: 'internal',
     serviceName: 'a-different-service',
-    // Same start as the default makeCall() below, covering 91% of its default 2965.59ms duration
-    // with a 265.59ms tail - comfortably past both MIN_COVERAGE_RATIO and MIN_TAIL_MS/TAIL_RATIO.
+    // Same start as the default makeCall() below, sitting wholly inside its 2965.59ms duration.
     timestamp: '2026-08-07T13:45:51.965328+00:00',
     durationMs: 2700,
     status: 200,
@@ -317,10 +315,11 @@ describe('buildBulkExportMarkdown', () => {
     expect((md.match(/<details open>/g) ?? []).length).toBe(1);
   });
 
-  it('splits a resolved internal call for a fan-out of children that each individually fail the single-child blocking signature', () => {
+  it('splits a resolved internal call for a fan-out of children, and for a lone small one', () => {
     // Mirrors call-utils.spec.ts's fan-out case: several suppliers called in parallel, then a long
-    // post-processing tail, so no candidate clears MIN_COVERAGE_RATIO or the tail window alone.
-    // Keep in step with call-utils.ts's hasBlockingEvidence, re-implemented in this file.
+    // post-processing tail. A since-removed "blocking signature" check also merged the parent when
+    // only ONE such child was contained in it - see call-utils.ts's computeSplitCallIds for the
+    // 24.84s/2.86s export this was reported from - so assert the single-child case here too.
     const call = makeCall({
       source: 'internal',
       service_name: 'odeysys',
@@ -331,8 +330,8 @@ describe('buildBulkExportMarkdown', () => {
       makeCandidate({ id: `supplier-${i}`, timestamp: '2026-08-07T13:45:55.965328+00:00', durationMs })
     );
 
-    const mergedAlone = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT, [suppliers[0]], 'all');
-    expect(mergedAlone).not.toContain('· request');
+    const lone = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT, [suppliers[0]], 'all');
+    expect(lone).toContain('<summary><b>Call 1</b> · request');
 
     const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT, suppliers, 'all');
     expect(md).toContain('<summary><b>Call 1</b> · request');

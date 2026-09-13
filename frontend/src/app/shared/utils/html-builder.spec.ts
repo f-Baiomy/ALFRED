@@ -9,8 +9,7 @@ function makeCandidate(overrides: Partial<CallOverlapCandidate> = {}): CallOverl
     id: 'nested-candidate',
     source: 'internal',
     serviceName: 'a-different-service',
-    // Same start as the default makeCall() above, covering 91% of its default 2965.59ms duration
-    // with a 265.59ms tail - comfortably past both MIN_COVERAGE_RATIO and MIN_TAIL_MS/TAIL_RATIO.
+    // Same start as the default makeCall() above, sitting wholly inside its 2965.59ms duration.
     timestamp: '2026-08-07T13:45:51.965328+00:00',
     durationMs: 2700,
     status: 200,
@@ -304,10 +303,11 @@ describe('buildBulkExportHtml', () => {
     expect((html.match(/<a id="call-1[^"]*"/g) ?? [])).toEqual(['<a id="call-1"']);
   });
 
-  it('splits a resolved internal call for a fan-out of children that each individually fail the single-child blocking signature', () => {
+  it('splits a resolved internal call for a fan-out of children, and for a lone small one', () => {
     // Mirrors call-utils.spec.ts's fan-out case: several suppliers called in parallel, then a long
-    // post-processing tail, so no candidate clears MIN_COVERAGE_RATIO or the tail window alone.
-    // Keep in step with call-utils.ts's hasBlockingEvidence, re-implemented in this file.
+    // post-processing tail. A since-removed "blocking signature" check also merged the parent when
+    // only ONE such child was contained in it - see call-utils.ts's computeSplitCallIds for the
+    // 24.84s/2.86s export this was reported from - so assert the single-child case here too.
     const call = makeCall({
       source: 'internal',
       service_name: 'odeysys',
@@ -318,8 +318,8 @@ describe('buildBulkExportHtml', () => {
       makeCandidate({ id: `supplier-${i}`, timestamp: '2026-08-07T13:45:55.965328+00:00', durationMs })
     );
 
-    const mergedAlone = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT, [suppliers[0]], 'all');
-    expect(mergedAlone).not.toContain('&middot; request');
+    const lone = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT, [suppliers[0]], 'all');
+    expect(lone).toContain('<b>Call 1</b> &middot; request');
 
     const html = buildBulkExportHtml([call], makeForm(), new Map(), EXPORTED_AT, suppliers, 'all');
     expect(html).toContain('<b>Call 1</b> &middot; request');

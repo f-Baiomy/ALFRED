@@ -7,3 +7,4 @@
 
 C:\Program Files\Java\jdk1.8.0_191
 C:\work\java-upgrade\jdk-11.0.0.2
+C:\Users\work\.jdks\openjdk-26.0.2.1
