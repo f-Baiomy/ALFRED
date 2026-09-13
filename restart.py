@@ -265,6 +265,25 @@ def _forward_proxy_port_map_env(services):
     )
 
 
+DEFAULT_INBOUND_RETENTION_ROWS = "1500"
+
+
+def _inbound_retention_rows(settings):
+    """Same as start.py's function of the same name - see its docstring for why an unusable value
+    falls back rather than being passed through."""
+    raw = settings.get("inbound_calls_retention_rows", "").strip()
+    try:
+        rows = int(raw)
+    except ValueError:
+        if raw:
+            print(f"  [warn] inbound_calls_retention_rows={raw!r} is not a number - using {DEFAULT_INBOUND_RETENTION_ROWS}")
+        return DEFAULT_INBOUND_RETENTION_ROWS
+    if rows < 1:
+        print(f"  [warn] inbound_calls_retention_rows={rows} would keep nothing - using {DEFAULT_INBOUND_RETENTION_ROWS}")
+        return DEFAULT_INBOUND_RETENTION_ROWS
+    return str(rows)
+
+
 def _parse_settings_properties():
     """Extracts every key=value line from settings.properties (see its own doc) - blank lines,
     lines starting with #, and anything without an "=" are ignored."""
@@ -326,6 +345,7 @@ def sync_env_from_settings():
     env["REVERSE_PROXY_ENABLED"] = "true" if reverse_proxy_enabled else "false"
     env["INTERNAL_CALL_SERVICES"] = services
     env["FORWARD_PROXY_PORT_MAP"] = forward_proxy_port_map
+    env["INTERNAL_CALLS_RETENTION_ROWS"] = _inbound_retention_rows(settings)
     if reverse_proxy_enabled:
         env["COMPOSE_PROFILES"] = "inbound-logging"
     else:
@@ -335,6 +355,7 @@ def sync_env_from_settings():
     print(f"Inbound logging feature: {'enabled' if reverse_proxy_enabled else 'disabled'}, "
           f"projects: {services or '(none configured)'} (settings.properties - edit and re-run to change)")
     print(f"Outbound attribution: {forward_proxy_port_map or '(none configured)'}")
+    print(f"Inbound call retention: {env['INTERNAL_CALLS_RETENTION_ROWS']} calls kept in the live list")
 
     sync_compose_override(services, reverse_proxy_enabled)
 

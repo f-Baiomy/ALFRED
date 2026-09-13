@@ -189,6 +189,13 @@ services:
       # same CallRecord/CallSummary JSON shape as calls.db, kept apart so inbound traffic never
       # mixes with external supplier-call history.
       - INTERNAL_CALLS_FILE=/appdata/internal-calls.log
+      # How many inbound calls that ring-buffer file keeps. Deploy-time setting from
+      # settings.properties's inbound_calls_retention_rows (baked into .env by start.py/
+      # restart.py, single source of truth) - don't set it here, edit settings.properties. The
+      # fallback only applies to a deployment whose .env predates this setting; start.py always
+      # writes it. NOT the same as alfred.internal-calls.max-limit, which is only the largest
+      # page GET /internal-calls will serve - see docs/architecture.md.
+      - INTERNAL_CALLS_RETENTION_ROWS=${INTERNAL_CALLS_RETENTION_ROWS:-1500}
       # Same file reverse-proxy's TOGGLE_FILE points at (bind-mounted a second time here,
       # at a different in-container path) - lets GET/POST /internal-calls/services/{name}/
       # logging-enabled flip the same per-project lines toggle-wildfly-reverse-proxy.sh/.bat
