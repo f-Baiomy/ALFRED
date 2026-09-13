@@ -252,6 +252,20 @@ describe('CallWaterfallComponent', () => {
     expect(marked).toEqual([true, false, false, false, false, true]);
   });
 
+  it('washes a bracketing row in its own level\'s hue, not one shared colour for every parent', () => {
+    const host: HTMLElement = createWaterfall().nativeElement;
+    const lines = Array.from(host.querySelectorAll('.waterfall-line'));
+
+    // The tint sits on the LINE, so --depth-color reaches the row's background. A root and the call
+    // nested inside it sit directly above one another when folded - one colour for both is the one
+    // case where they most need telling apart.
+    expect(lines[0].classList).toContain('depth-tint-0');
+    expect(lines[1].classList).toContain('depth-tint-1');
+    // ...and a closing row matches the opener it belongs to.
+    expect(lines[3].classList).toContain('depth-tint-1');
+    expect(lines[4].classList).toContain('depth-tint-0');
+  });
+
   it('draws one guide line per ancestor level, each in that level\'s own hue', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
     const tintsPerLine = Array.from(host.querySelectorAll('.waterfall-line')).map((line) =>

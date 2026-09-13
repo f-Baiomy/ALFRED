@@ -1777,17 +1777,22 @@ main {
 
 // The opening and closing rows of a bracketed call - tinted like the sandwich card's bands, and
 // carrying the rail down their own left edge so the pair visibly wraps the children between them.
+//
+// The wash takes the LEVEL's hue, exactly as the nested view's bands do. Hardcoded to --purple it
+// painted a root and the call nested inside it identically, which is the one place the two parents
+// most need telling apart - they sit directly above one another with the children hidden when folded.
 .waterfall-open > .waterfall-row,
 .waterfall-close > .waterfall-row {
-  background: color-mix(in srgb, var(--purple) 9%, transparent);
+  background: color-mix(in srgb, var(--depth-color, var(--purple)) 9%, transparent);
 }
 
 .waterfall-open > .waterfall-row {
   border-bottom-style: dashed;
+  border-bottom-color: color-mix(in srgb, var(--depth-color, var(--purple)) 45%, transparent);
 }
 
 .waterfall-close > .waterfall-row {
-  border-top: 1px dashed color-mix(in srgb, var(--purple) 45%, transparent);
+  border-top: 1px dashed color-mix(in srgb, var(--depth-color, var(--purple)) 45%, transparent);
 }
 
 // The parts of a parent's span it was NOT waiting on anything - before its first child fired and

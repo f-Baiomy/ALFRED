@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
-import { CallDepthInfo, CallTreeNode, DepthRail, depthRails } from '../../shared/utils/call-tree';
+import { CallDepthInfo, CallTreeNode, DepthRail, depthRails, depthTintClass } from '../../shared/utils/call-tree';
 
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
 import { CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
@@ -42,6 +42,10 @@ interface WaterfallRow {
    * level's hue, so the nesting reads as a continuous coloured tree down the page rather than as a
    * single tick whose indent you have to measure by eye. */
   readonly rails: readonly DepthRail[];
+  /** This row's own level tint, set on the LINE so `--depth-color` is available to everything in it -
+   * chiefly a bracketing row's background wash, which otherwise painted every parent the same purple
+   * no matter how deep it sat. The rails inside re-set the variable for each ancestor they draw. */
+  readonly ownTint: string;
   readonly offsetPercent: string;
   readonly widthPercent: string;
   readonly hasBar: boolean;
@@ -108,6 +112,7 @@ interface WaterfallRow {
       @for (row of rows(); track row.rowKey) {
         <div
           class="waterfall-line"
+          [class]="row.ownTint"
           [class.expanded]="isExpanded(row.rowKey)"
           [class.waterfall-open]="row.kind === 'request'"
           [class.waterfall-close]="row.kind === 'response'"
@@ -281,6 +286,7 @@ export class CallWaterfallComponent {
         call: node.call,
         depth: node.depth,
         rails: depthRails(node.depth),
+        ownTint: depthTintClass(node.depth),
         offsetPercent: `${((info?.spanStart ?? 0) * 100).toFixed(2)}%`,
         // Floored so a very short call inside a very long root is still visible as more than a line.
         widthPercent: `${Math.max((info?.spanWidth ?? 0) * 100, 0.8).toFixed(2)}%`,
