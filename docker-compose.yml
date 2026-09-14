@@ -44,6 +44,29 @@ services:
       # in which case only the default listener above is active, exactly as before this feature
       # existed.
       - FORWARD_PROXY_PORT_MAP=${FORWARD_PROXY_PORT_MAP:-}
+    # Resolve supplier hostnames through explicit public DNS rather than Docker Desktop's relay to
+    # the host's own resolvers. WHY: Windows assigns most interfaces the legacy site-local
+    # placeholders fec0:0:0:ffff::1/2/3 (and link-local fe80::1), which answer nothing - only the
+    # active interface carries a real resolver. Windows itself never notices, because it orders
+    # resolvers by interface metric; Docker Desktop's relay does not, so a container lookup that
+    # lands on a dead placeholder just times out. That surfaces as mitmproxy reporting
+    # "[Errno -3] Temporary failure in name resolution" (EAI_AGAIN - the query timed out, NOT
+    # NXDOMAIN, which would be -2) for a supplier host that resolves perfectly well seconds later.
+    # Intermittent by nature, and invisible on the direct path: a JVM bypassing this proxy resolves
+    # via Windows (correct resolver order, plus an OS-level DNS cache absorbing any blip), whereas
+    # this container has no DNS cache at all - glibc doesn't cache and there's no nscd in the image
+    # - so every single lookup is exposed to the relay live.
+    #
+    # Does NOT break container-name resolution (backend:5000 for the webhook above): alfred-net is
+    # a user-defined bridge, so /etc/resolv.conf still points at Docker's embedded resolver
+    # 127.0.0.11, which keeps answering service names itself and only forwards what it can't answer
+    # on to these. Verified: `backend` still resolves after this was applied.
+    #
+    # Swap these for your own internal DNS if a supplier host ever needs split-horizon resolution
+    # that public resolvers can't see.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
       - ./proxy/forward-proxy-entrypoint.sh:/home/mitmproxy/forward-proxy-entrypoint.sh:ro
