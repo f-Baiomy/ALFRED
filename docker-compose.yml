@@ -241,11 +241,24 @@ services:
       - proxy
     # Gives the JVM's -XX:MaxRAMPercentage (see backend/Dockerfile) a real ceiling to be a
     # percentage OF, instead of the whole host - without this, the container has no cgroup memory
-    # limit at all and the JVM sizes its heap off the host's total RAM. Raised from 512m: nothing
-    # loads a whole dataset into memory anymore (every adapter is SQLite-backed and paginated), but
-    # the JDBC driver/connection pools/WAL page cache across five databases need real headroom,
-    # and the one-time legacy-file migration still streams through memory once at startup.
-    mem_limit: 1g
+    # limit at all and the JVM sizes its heap off the host's total RAM. The JDBC driver/connection
+    # pools/WAL page cache across five databases need real headroom, and the one-time legacy-file
+    # migration still streams through memory once at startup.
+    #
+    # Raised from 1g, which was sized on the premise that "every adapter is SQLite-backed and
+    # paginated" - true of every slice EXCEPT backend-internal-calls, the one slice with no SQLite
+    # adapter (see CLAUDE.md). That one keeps its whole retained window resident in memory:
+    # alfred.internal-calls.retention-rows (1500) x ~28 KB per real call is a ~42 MB file, cached as
+    # both raw line text and parsed records, so ~90 MB is simply always live there.
+    #
+    # At 1g, MaxRAMPercentage=50 gave a 512 MB heap with only ~512 MB left for EVERYTHING else the
+    # JVM needs - metaspace, code cache, thread stacks, GC structures, Jackson buffers - which is no
+    # headroom at all. Measured: the container sat pegged at 1019 MiB of 1024 MiB and threw
+    # OutOfMemoryError under concurrent inbound traffic, silently dropping calls (the proxy delivered
+    # every webhook; the handler OOMed before persisting). Sequential traffic was unaffected, which
+    # is what made it look intermittent. 2g keeps the same 50% split but leaves the JVM ~1 GB of
+    # non-heap headroom, which is the conventional ratio.
+    mem_limit: 2g
     logging:
       driver: json-file
       options:

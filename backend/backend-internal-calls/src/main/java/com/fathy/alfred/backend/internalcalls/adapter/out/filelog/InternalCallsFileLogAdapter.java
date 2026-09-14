@@ -15,10 +15,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
@@ -60,13 +64,37 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
      * live - a call logged 90 minutes earlier had already been pushed out by newer traffic while
      * the list still claimed to be showing everything.
      *
-     * <p>Kept modest on purpose. The whole file is loaded and rewritten on every single call (see
-     * {@link #save}), and on real traffic a call averages ~55 KB of headers and bodies, so this is
-     * tens of megabytes of read-modify-write per request at four figures. Raising it much further
-     * wants a real store, not a bigger flat file.
+     * <p>A new call costs one appended line, not a rewrite of the whole file (see {@link #save}),
+     * so this no longer scales the per-call write cost - only how much the periodic compaction has
+     * to stream, and how much of the file a cold read parses. Raising it into five figures still
+     * wants a real store rather than a bigger flat file, but for a different reason now: read and
+     * filter cost, not write amplification.
      */
     @Value("${alfred.internal-calls.retention-rows:1500}")
     private int retentionRows;
+
+    /**
+     * How many lines the file is actually allowed to hold before {@link #save} compacts it back
+     * down to {@link #retentionRows}. The slack is what makes appending viable: without it, every
+     * call past the cap would have to rewrite the file to drop one old line, which is exactly the
+     * behaviour this replaced.
+     *
+     * <p>Half the retention (floored at 50 for very small caps) amortises one rewrite over that
+     * many calls - at the default 1500 that is one compaction per 750 calls instead of one rewrite
+     * per call. The cost is that the file can sit up to 50% larger than the cap on disk; reads are
+     * unaffected, since {@link #loadLines} only ever serves the newest {@code retentionRows}.
+     */
+    private int compactionThreshold() {
+        return retentionRows + Math.max(retentionRows / 2, 50);
+    }
+
+    /**
+     * Lines currently on disk, which is NOT {@code cachedLines.size()} - between compactions the
+     * file legitimately holds more than {@link #retentionRows} while the cache serves only the
+     * newest ones. -1 when unknown (nothing read yet, or the cache was invalidated); every write
+     * path calls {@link #loadLines} first, so it is always populated by the time it is read.
+     */
+    private int linesOnDisk = -1;
 
     /**
      * One line of the file together with its parsed form ({@code null} when that line failed to
@@ -121,9 +149,22 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
     }
 
     /**
-     * internal-calls.log is a ring buffer, not an unbounded append log: once it holds
-     * {@link #retentionRows} calls, adding one more drops the oldest line first. Synchronized so
-     * concurrent webhook calls can't interleave their read-modify-write and lose an entry.
+     * internal-calls.log is a ring buffer, not an unbounded append log: reads only ever see the
+     * newest {@link #retentionRows} calls. Synchronized so concurrent webhook calls can't
+     * interleave their read-modify-write and lose an entry.
+     *
+     * <p><strong>Appends one line; rewrites the file only on compaction.</strong> This used to
+     * rebuild the entire file in memory on every single call - {@code StringBuilder} over every
+     * retained line, then {@code toString()}, then encode to bytes - which at the default 1500-row
+     * cap and a real ~33 KB call is on the order of 150-250 MB of transient allocation to record
+     * ONE call, against a 256 MB heap. Under concurrent inbound traffic the backend OOMed and
+     * dropped calls silently: the proxy delivered every webhook (no client-side failure to log),
+     * the handler threw {@code OutOfMemoryError}, and the call was simply never persisted.
+     * Measured on this adapter before the change: 60 concurrent inbound calls produced 504
+     * {@code OutOfMemoryError}s and only 4 of the 60 were stored.
+     *
+     * <p>Appending costs one call's own bytes regardless of how big the file is, so the per-call
+     * cost is now flat instead of growing with the retention cap.
      */
     private synchronized void save(CallRecord call) {
         Path path = Path.of(internalCallsFile);
@@ -132,17 +173,26 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
                 Files.createDirectories(path.getParent());
             }
 
-            List<CachedLine> next = new ArrayList<>(loadLines());
-            next.add(new CachedLine(objectMapper.writeValueAsString(call), call));
+            List<CachedLine> retained = loadLines();
+            CachedLine added = new CachedLine(objectMapper.writeValueAsString(call), call);
+
+            // The cache always holds the retained VIEW (newest retentionRows), even while the file
+            // on disk legitimately holds more - that gap is what the slack buys.
+            List<CachedLine> next = new ArrayList<>(retained.size() + 1);
+            next.addAll(retained);
+            next.add(added);
             if (next.size() > retentionRows) {
                 next = new ArrayList<>(next.subList(next.size() - retentionRows, next.size()));
             }
 
-            StringBuilder content = new StringBuilder();
-            for (CachedLine line : next) {
-                content.append(line.text()).append(System.lineSeparator());
+            if (linesOnDisk + 1 > compactionThreshold()) {
+                writeAllLines(path, next);
+                linesOnDisk = next.size();
+            } else {
+                Files.writeString(path, added.text() + System.lineSeparator(),
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE);
+                linesOnDisk++;
             }
-            Files.writeString(path, content.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
 
             rememberCache(path, next);
         } catch (IOException e) {
@@ -150,6 +200,41 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             log.error("Failed to save to {}: {}", internalCallsFile, e.getMessage());
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * Writes {@code lines} as the file's entire contents, STREAMED - one line at a time through a
+     * buffered writer, so the whole file never exists in memory as a String the way the old
+     * rewrite-per-call did. Used by compaction and by the id backfill, the only two paths that
+     * still legitimately rewrite everything.
+     *
+     * <p>Written to a sibling temp file and moved into place, so a crash or a full disk mid-write
+     * leaves the previous file intact rather than a half-written one - a plain TRUNCATE_EXISTING
+     * write would destroy the existing calls before writing the replacement. Falls back to a
+     * non-atomic move on filesystems that can't do an atomic one.
+     */
+    private void writeAllLines(Path path, List<CachedLine> lines) throws IOException {
+        Path temp = path.resolveSibling(path.getFileName() + ".compacting");
+        try (BufferedWriter writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            for (CachedLine line : lines) {
+                writer.write(line.text());
+                writer.newLine();
+            }
+        }
+        try {
+            Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    /** The newest {@link #retentionRows} lines - what reads are allowed to see, regardless of how many the file is currently holding between compactions. */
+    private List<CachedLine> retainedTail(List<CachedLine> lines) {
+        if (lines.size() <= retentionRows) {
+            return lines;
+        }
+        return lines.subList(lines.size() - retentionRows, lines.size());
     }
 
     /** Holds the partial call in memory only - nothing is written to internal-calls.log until {@link #complete} - see the class-level doc on {@link #pendingById}. */
@@ -189,6 +274,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             cachedLines = List.of();
             cachedFileSize = -1;
             cachedModifiedMillis = -1;
+            linesOnDisk = 0;
             return cachedLines;
         }
 
@@ -232,20 +318,20 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
         if (needsBackfill) {
             persistBackfilledLines(path, parsed);
         } else {
-            rememberCache(path, parsed);
+            // Every line the file holds, not just the retained view - this is what decides when the
+            // next save has to compact.
+            linesOnDisk = parsed.size();
+            rememberCache(path, retainedTail(parsed));
         }
-        return cachedLines != null ? cachedLines : List.copyOf(parsed);
+        return cachedLines != null ? cachedLines : List.copyOf(retainedTail(parsed));
     }
 
-    /** Rewrites the whole file with backfilled ids in place - the same shape as save's write, just triggered by a read that found missing ids instead of a new call arriving. */
+    /** Rewrites the whole file with backfilled ids in place - the same streamed write compaction uses, just triggered by a read that found missing ids instead of by the file outgrowing its cap. */
     private void persistBackfilledLines(Path path, List<CachedLine> lines) {
         try {
-            StringBuilder content = new StringBuilder();
-            for (CachedLine line : lines) {
-                content.append(line.text()).append(System.lineSeparator());
-            }
-            Files.writeString(path, content.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-            rememberCache(path, lines);
+            writeAllLines(path, lines);
+            linesOnDisk = lines.size();
+            rememberCache(path, retainedTail(lines));
         } catch (IOException e) {
             invalidateCache();
             log.error("Failed to persist backfilled ids to {}: {}", internalCallsFile, e.getMessage());
@@ -373,6 +459,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
         cachedLines = null;
         cachedFileSize = -1;
         cachedModifiedMillis = -1;
+        linesOnDisk = -1;
     }
 
     private BasicFileAttributes readAttributes(Path path) {

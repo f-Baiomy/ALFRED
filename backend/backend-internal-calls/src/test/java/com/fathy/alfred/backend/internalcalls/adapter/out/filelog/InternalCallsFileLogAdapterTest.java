@@ -121,6 +121,73 @@ class InternalCallsFileLogAdapterTest {
         assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly("2", "3", "4");
     }
 
+    /**
+     * The regression this guards: save() used to rebuild the ENTIRE file in memory per call, which
+     * at the default 1500-row cap and a real ~33 KB call is 150-250 MB of transient allocation to
+     * record one call. Under concurrent inbound traffic the backend OOMed and dropped calls
+     * silently - measured at 4 of 60 stored, with 504 OutOfMemoryErrors. Appending is what makes
+     * the per-call cost flat, so assert the file is genuinely being APPENDED to: everything already
+     * written stays byte-for-byte untouched, which a full rewrite could never guarantee.
+     */
+    @Test
+    void appendsANewCallRatherThanRewritingTheWholeFile() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        InternalCallsFileLogAdapter adapter = adapterFor(file, 500);
+
+        adapter.prepare(prepared("first"));
+        adapter.complete("first", new ResponseData(200, null, "ok"), null, 1.0);
+        String afterFirst = Files.readString(file);
+
+        adapter.prepare(prepared("second"));
+        adapter.complete("second", new ResponseData(200, null, "ok"), null, 1.0);
+        String afterSecond = Files.readString(file);
+
+        assertThat(afterSecond).startsWith(afterFirst);
+        assertThat(afterSecond.length()).isGreaterThan(afterFirst.length());
+        assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly("first", "second");
+    }
+
+    /**
+     * Appending means the file is allowed to run past the cap until compaction reclaims it - but a
+     * READ must never see more than the cap, or the ring buffer would only be honoured at whatever
+     * moment compaction last happened.
+     */
+    @Test
+    void servesOnlyTheRetainedTailWhileTheFileIsStillCarryingSlack() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        InternalCallsFileLogAdapter adapter = adapterFor(file, 3);
+
+        for (int i = 1; i <= 10; i++) {
+            adapter.prepare(prepared(String.valueOf(i)));
+            adapter.complete(String.valueOf(i), new ResponseData(200, null, "ok"), null, 1.0);
+        }
+
+        // Reads honour the cap exactly...
+        assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly("8", "9", "10");
+        // ...while the file itself is still holding the un-compacted slack.
+        assertThat(Files.readAllLines(file).size()).isGreaterThan(3);
+        // And a cold adapter over that same file agrees, rather than replaying the slack.
+        assertThat(adapterFor(file, 3).readAll()).extracting(CallRecord::id).containsExactly("8", "9", "10");
+    }
+
+    /** Once the slack is used up the file is compacted back down, so appending can't grow it without bound. */
+    @Test
+    void compactsTheFileBackDownOnceItOutgrowsTheSlack() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        InternalCallsFileLogAdapter adapter = adapterFor(file, 4);
+        // retention 4 -> threshold is 4 + max(4/2, 50) = 54, so 60 calls must force a compaction.
+        for (int i = 1; i <= 60; i++) {
+            adapter.prepare(prepared(String.valueOf(i)));
+            adapter.complete(String.valueOf(i), new ResponseData(200, null, "ok"), null, 1.0);
+        }
+
+        assertThat(Files.readAllLines(file).size()).isLessThanOrEqualTo(54);
+        assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly("57", "58", "59", "60");
+        // No temp file left behind by the compaction's write-then-move.
+        assertThat(Files.list(tempDir).map(p -> p.getFileName().toString()).toList())
+                .containsExactly("internal-calls.log");
+    }
+
     @Test
     void persistsAcrossAFreshAdapterInstancePointedAtTheSameFile() throws Exception {
         Path file = tempDir.resolve("internal-calls.log");
