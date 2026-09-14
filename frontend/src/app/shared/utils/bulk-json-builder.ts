@@ -1,4 +1,4 @@
-import { CallOverlapCandidate, CallRecord, CallResponse, HttpMessageData } from '../../core/models/call.model';
+import { CallEndpointSource, CallLifecycleState, CallOverlapCandidate, CallRecord, CallResponse, HttpMessageData } from '../../core/models/call.model';
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { CallStatusFilter, isInProgress } from './call-utils';
@@ -8,6 +8,9 @@ import { buildExportNarrative, ExportNarrative } from './export-narrative';
 export interface BulkExportRequestEvent {
   readonly type: 'request';
   readonly callId: string;
+  /** Always 'internal' here (only an internal call is ever split), but stated rather than implied -
+   * see BulkExportCallEvent.source for why this file carries direction explicitly. */
+  readonly source: CallEndpointSource;
   readonly service_name: string | null | undefined;
   readonly method: string;
   readonly original_url: string;
@@ -16,6 +19,10 @@ export interface BulkExportRequestEvent {
   readonly request?: HttpMessageData;
   readonly session_id?: string | null;
   readonly operation_id?: string | null;
+  /** Load-bearing on THIS event in particular: an in-progress internal call emits a request event
+   * and nothing else, so without `state` here the file cannot distinguish a call that was still in
+   * flight when the export was taken from one whose response was simply never recorded. */
+  readonly state?: CallLifecycleState;
   readonly comments: readonly Comment[];
 }
 
@@ -28,12 +35,25 @@ export interface BulkExportResponseEvent {
   readonly duration_ms: number;
   readonly timestamp: string;
   readonly response?: CallResponse;
+  readonly state?: CallLifecycleState;
 }
 
 /** An unsplit call - every external call, or an internal call that isn't resolved yet and shouldn't emit a synthetic response. */
 export interface BulkExportCallEvent {
   readonly type: 'call';
   readonly callId: string;
+  /**
+   * Which side of the app this call is - the single most load-bearing field for anything that reads
+   * this file back, and deliberately NOT left to be inferred from `service_name`.
+   *
+   * It is tempting to infer it: on most captures a non-null service_name does mean inbound. But an
+   * OUTBOUND call legitimately carries a service_name once its project opts into forward-proxy
+   * outbound attribution (see CallRecord.service_name), so the inference silently misfiles exactly
+   * those deployments - and `source` decides both which store a re-import lands in and whether a
+   * call may own children at all (only 'internal' can - see call-tree.ts's canOwn), so getting it
+   * wrong flattens every chain in the file.
+   */
+  readonly source: CallEndpointSource;
   readonly service_name: string | null | undefined;
   readonly method: string;
   readonly original_url: string;
@@ -46,6 +66,9 @@ export interface BulkExportCallEvent {
   readonly response?: CallResponse;
   readonly session_id?: string | null;
   readonly operation_id?: string | null;
+  /** Carried so a re-import can tell a completed call from one exported mid-flight, rather than
+   * having to guess from the presence of a response. */
+  readonly state?: CallLifecycleState;
   readonly comments: readonly Comment[];
 }
 
@@ -204,6 +227,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
   const asCallEvent = (): BulkExportCallEvent => ({
     type: 'call',
     callId: call.id,
+    source: call.source ?? 'external',
     service_name: call.service_name,
     method: call.method,
     original_url: call.original_url,
@@ -216,6 +240,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     response: call.response,
     session_id: call.session_id,
     operation_id: call.operation_id,
+    state: call.state,
     comments,
   });
 
@@ -228,6 +253,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
   const requestEvent: BulkExportRequestEvent = {
     type: 'request',
     callId: call.id,
+    source: 'internal',
     service_name: call.service_name,
     method: call.method,
     original_url: call.original_url,
@@ -236,6 +262,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     request: call.request,
     session_id: call.session_id,
     operation_id: call.operation_id,
+    state: call.state,
     comments,
   };
 
@@ -250,6 +277,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     duration_ms: call.duration_ms,
     timestamp: responseTimestamp(call),
     response: call.response,
+    state: call.state,
   };
   return [requestEvent, responseEvent];
 }

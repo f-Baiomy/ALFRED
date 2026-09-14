@@ -5,6 +5,7 @@ import { ImportCallsDialogService } from '../../core/services/import-calls-dialo
 import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { CallRecord, SessionCycle } from '../../core/models/call.model';
+import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
 
 function makeCall(id: string): CallRecord {
   return {
@@ -73,21 +74,81 @@ describe('ImportCallsDialogComponent', () => {
     expect(component.parseError()).toBeNull();
   });
 
-  it('parses a full bulk-export payload, ignoring metadata/comments', async () => {
-    const json = JSON.stringify({
-      metadata: { supplierName: 'FlyNas' },
-      exportedAt: 't',
-      summary: { callCount: 1, succeeded: 1, failed: 0, totalDurationMs: 1 },
-      calls: [{ ...makeCall('call-1'), comments: [{ id: 'comment-1' }] }],
-    });
-    (component as any).readFile(fileFrom(json));
+  /**
+   * Built by the REAL exporter, not by hand. The test this replaced was named "parses a full
+   * bulk-export payload" and asserted against a `{ calls: [...] }` object that buildBulkExportPayload
+   * has never produced - so it passed while the dialog could not read a single actual export file.
+   */
+  it('parses a real "Export as JSON" payload, merging a split call and ignoring comments', async () => {
+    const parent: CallRecord = {
+      ...makeCall('call-1'),
+      timestamp: '2026-01-01T00:00:00.000Z',
+      duration_ms: 5000,
+      source: 'internal',
+      service_name: 'odeysys',
+      state: 'COMPLETED',
+    };
+    const child: CallRecord = {
+      ...makeCall('call-2'),
+      timestamp: '2026-01-01T00:00:01.000Z',
+      duration_ms: 1000,
+      source: 'external',
+      service_name: null,
+      state: 'COMPLETED',
+    };
+    const overlaps = [parent, child].map((c) => ({
+      id: c.id,
+      timestamp: c.timestamp,
+      durationMs: c.duration_ms ?? 0,
+      source: c.source ?? 'external',
+      serviceName: c.service_name ?? null,
+      status: c.response?.status,
+    }));
+    const payload = buildBulkExportPayload(
+      [parent, child],
+      { supplierName: 'FlyNas' } as never,
+      new Map([['call-1', [{ id: 'comment-1' } as never]]]),
+      't',
+      overlaps as never
+    );
+
+    (component as any).readFile(fileFrom(JSON.stringify(payload)));
     await waitUntil(() => component.parsedCalls() !== null || component.parseError() !== null);
 
-    expect(component.parsedCalls()).toEqual([jasmine.objectContaining({ id: 'call-1' })]);
-    expect((component.parsedCalls()![0] as any).comments).toBeUndefined();
+    expect(component.parseError()).toBeNull();
+    expect(component.parsedCalls()!.map((c) => c.id).sort()).toEqual(['call-1', 'call-2']);
+    // The split parent came back whole - both halves, and its direction intact so it re-imports
+    // into the internal-calls store rather than being filed as outbound.
+    const imported = component.parsedCalls()!.find((c) => c.id === 'call-1')!;
+    expect(imported.source).toBe('internal');
+    expect(imported.response?.status).toBe(200);
+    expect(imported.duration_ms).toBe(5000);
+    expect((imported as any).comments).toBeUndefined();
+    expect(component.parseWarning()).toBeNull();
   });
 
-  it('rejects a file with no calls array', async () => {
+  it('warns, but still imports, when the file predates direction being exported', async () => {
+    const payload = buildBulkExportPayload(
+      [{ ...makeCall('call-1'), timestamp: '2026-01-01T00:00:00.000Z', source: 'external', service_name: null }],
+      {} as never,
+      new Map(),
+      't'
+    );
+    const events = payload.events.map((e) => {
+      const copy = { ...e } as Record<string, unknown>;
+      delete copy['source'];
+      return copy;
+    });
+
+    (component as any).readFile(fileFrom(JSON.stringify({ ...payload, events })));
+    await waitUntil(() => component.parsedCalls() !== null || component.parseError() !== null);
+
+    expect(component.parsedCalls()!.length).toBe(1);
+    expect(component.parseError()).toBeNull();
+    expect(component.parseWarning()).toContain('inferred from the service name');
+  });
+
+  it('rejects a file that is not an export at all', async () => {
     (component as any).readFile(fileFrom(JSON.stringify({ hello: 'world' })));
     await waitUntil(() => component.parsedCalls() !== null || component.parseError() !== null);
 

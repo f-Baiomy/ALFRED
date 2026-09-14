@@ -3042,6 +3042,16 @@ mark.hl.active {
   padding: 0.5rem 0.7rem;
 }
 
+/* Same shape as .dialog-error-note in amber - the import still proceeds, so it must not read as a
+   failure the way the red one does. */
+.dialog-warning-note {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+}
+
 .import-dropzone {
   border: 2px dashed var(--border);
   border-radius: 10px;

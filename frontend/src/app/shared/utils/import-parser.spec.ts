@@ -1,0 +1,193 @@
+import { CallRecord } from '../../core/models/call.model';
+import { buildBulkExportPayload } from './bulk-json-builder';
+import { parseImportedCalls } from './import-parser';
+
+/**
+ * Every fixture here is produced by buildBulkExportPayload and then round-tripped through JSON,
+ * never hand-written. That is the entire point of this file: the importer's previous tests asserted
+ * against a hand-written `{ calls: [...] }` shape that no Alfred export has ever produced, so they
+ * all passed while the feature could not read a single real export.
+ */
+const T0 = Date.parse('2026-01-01T00:00:00.000Z');
+
+function call(overrides: Partial<CallRecord> & { id: string; startMs: number; durationMs: number }): CallRecord {
+  const { id, startMs, durationMs, ...rest } = overrides;
+  return {
+    id,
+    original_url: `http://localhost:9001/${id}`,
+    url: `http://host.docker.internal:8080/${id}`,
+    method: 'POST',
+    request: { headers: { 'Content-Type': 'application/json' }, body: `{"q":"${id}"}` },
+    timestamp: new Date(T0 + startMs).toISOString(),
+    duration_ms: durationMs,
+    response: { status: 200, headers: {}, body: `{"ok":"${id}"}` },
+    state: 'COMPLETED',
+    ...rest,
+  };
+}
+
+/** An inbound call wrapping an outbound one - so the export splits the parent into two events and
+ * emits the child whole, which is exactly the mix that used to come back corrupted. */
+function nestedFixture(): CallRecord[] {
+  return [
+    call({ id: 'parent', startMs: 0, durationMs: 8000, source: 'internal', service_name: 'odeysys', session_id: 'sess-1', operation_id: 'op-1' }),
+    call({ id: 'child', startMs: 1000, durationMs: 4000, source: 'external', service_name: null }),
+  ];
+}
+
+const FORM = { supplierName: '', credentialsUsed: '', apiKey: '', url: '', environment: 'Staging', description: '' };
+
+/** Exports for real, serializes, and reads it back the way the dialog does. */
+function roundTrip(calls: readonly CallRecord[]) {
+  const overlaps = calls.map((c) => ({
+    id: c.id,
+    timestamp: c.timestamp,
+    durationMs: c.duration_ms ?? 0,
+    source: c.source ?? 'external',
+    serviceName: c.service_name ?? null,
+    status: c.response?.status,
+    error: c.error,
+  }));
+  const payload = buildBulkExportPayload(calls, FORM as never, new Map(), new Date().toISOString(), overlaps as never);
+  return { payload, result: parseImportedCalls(JSON.parse(JSON.stringify(payload))) };
+}
+
+describe('parseImportedCalls', () => {
+  it('reads a real export back - the shape the old importer could not see at all', () => {
+    const { payload, result } = roundTrip(nestedFixture());
+
+    // Guards the actual defect: the file has `events`, not `calls`, and keys them by `callId`.
+    expect(Object.keys(payload)).toContain('events');
+    expect(Object.keys(payload)).not.toContain('calls');
+    expect(result.calls.length).toBe(2);
+    expect(result.skippedCount).toBe(0);
+  });
+
+  it('merges a split call back into one record, keeping BOTH halves', () => {
+    const { payload, result } = roundTrip(nestedFixture());
+
+    // The parent really was exported as two events - otherwise this test proves nothing.
+    expect(payload.events.filter((e) => e.callId === 'parent').length).toBe(2);
+
+    const parent = result.calls.find((c) => c.id === 'parent')!;
+    // From the request half...
+    expect(parent.url).toBe('http://host.docker.internal:8080/parent');
+    expect(parent.method).toBe('POST');
+    expect(parent.request?.body).toBe('{"q":"parent"}');
+    // ...and from the response half, which carries no url/method and used to be dropped entirely.
+    expect(parent.response?.status).toBe(200);
+    expect(parent.response?.body).toBe('{"ok":"parent"}');
+    expect(parent.duration_ms).toBe(8000);
+  });
+
+  it('dates a split call at its REQUEST, not its response', () => {
+    const { result } = roundTrip(nestedFixture());
+
+    // The response event's timestamp is start+duration, and events are file-ordered by timestamp,
+    // so a naive merge would date the parent 8s late and destroy the containment that nests the child.
+    expect(result.calls.find((c) => c.id === 'parent')!.timestamp).toBe(new Date(T0).toISOString());
+  });
+
+  it('preserves direction, which decides which store a call is re-imported into', () => {
+    const { result } = roundTrip(nestedFixture());
+
+    expect(result.calls.find((c) => c.id === 'parent')!.source).toBe('internal');
+    expect(result.calls.find((c) => c.id === 'child')!.source).toBe('external');
+    expect(result.inferredDirectionCount).toBe(0);
+  });
+
+  it('preserves service and correlation ids', () => {
+    const { result } = roundTrip(nestedFixture());
+    const parent = result.calls.find((c) => c.id === 'parent')!;
+
+    expect(parent.service_name).toBe('odeysys');
+    expect(parent.session_id).toBe('sess-1');
+    expect(parent.operation_id).toBe('op-1');
+  });
+
+  it('round-trips an OUTBOUND call that carries a service name, which inference would misfile', () => {
+    // Forward-proxy outbound attribution: external, but with a service_name. This is the case that
+    // makes "service_name means inbound" unsafe, so the export states `source` outright.
+    const attributed = [call({ id: 'attributed', startMs: 0, durationMs: 100, source: 'external', service_name: 'odeysys' })];
+    const { result } = roundTrip(attributed);
+
+    expect(result.calls[0].source).toBe('external');
+    expect(result.calls[0].service_name).toBe('odeysys');
+    expect(result.inferredDirectionCount).toBe(0);
+  });
+
+  it('keeps an in-progress internal call, which exports as a request event with no response', () => {
+    const inFlight = [
+      call({ id: 'pending', startMs: 0, durationMs: 0, source: 'internal', service_name: 'odeysys', state: 'IN_PROGRESS', response: undefined }),
+    ];
+    const { result } = roundTrip(inFlight);
+
+    expect(result.calls.length).toBe(1);
+    expect(result.calls[0].response).toBeUndefined();
+    expect(result.calls[0].state).toBe('IN_PROGRESS');
+  });
+
+  describe('older files, exported before direction was recorded', () => {
+    /** Strips `source` from every event, reproducing a file exported before this fix. */
+    function withoutSource(calls: readonly CallRecord[]) {
+      const { payload } = roundTrip(calls);
+      const events = payload.events.map((e) => {
+        const copy = { ...e } as Record<string, unknown>;
+        delete copy['source'];
+        return copy;
+      });
+      return parseImportedCalls({ ...payload, events });
+    }
+
+    it('still imports them, inferring direction and reporting how many it guessed', () => {
+      const result = withoutSource(nestedFixture());
+
+      expect(result.calls.length).toBe(2);
+      expect(result.calls.find((c) => c.id === 'parent')!.source).toBe('internal');
+      expect(result.calls.find((c) => c.id === 'child')!.source).toBe('external');
+      expect(result.inferredDirectionCount).toBe(2);
+    });
+
+    it('gets an attributed outbound call WRONG - which is why the count is surfaced, not swallowed', () => {
+      const result = withoutSource([call({ id: 'attributed', startMs: 0, durationMs: 100, source: 'external', service_name: 'odeysys' })]);
+
+      // Documenting the known limit of the fallback rather than pretending it is lossless.
+      expect(result.calls[0].source).toBe('internal');
+      expect(result.inferredDirectionCount).toBe(1);
+    });
+  });
+
+  describe('other shapes', () => {
+    it('still accepts a bare array of call-shaped objects', () => {
+      const result = parseImportedCalls([{ id: 'a', url: 'http://x/a', method: 'GET', source: 'external' }]);
+
+      expect(result.calls.map((c) => c.id)).toEqual(['a']);
+    });
+
+    it('still accepts { calls: [...] }', () => {
+      const result = parseImportedCalls({ calls: [{ id: 'a', url: 'http://x/a', source: 'external' }] });
+
+      expect(result.calls.map((c) => c.id)).toEqual(['a']);
+    });
+
+    it('returns nothing for a file that is not an export', () => {
+      expect(parseImportedCalls({ hello: 'world' }).calls.length).toBe(0);
+      expect(parseImportedCalls(null).calls.length).toBe(0);
+      expect(parseImportedCalls(42).calls.length).toBe(0);
+    });
+
+    it('skips unusable entries rather than failing the whole import', () => {
+      const result = parseImportedCalls({ events: [{ type: 'call', callId: 'ok', url: 'http://x/a', source: 'external' }, null, { type: 'call' }] });
+
+      expect(result.calls.map((c) => c.id)).toEqual(['ok']);
+      expect(result.skippedCount).toBe(2);
+    });
+
+    it('skips a response half whose request is not in the file, instead of inventing a urlless call', () => {
+      const result = parseImportedCalls({ events: [{ type: 'response', callId: 'orphan', status: 200, duration_ms: 5 }] });
+
+      expect(result.calls.length).toBe(0);
+      expect(result.skippedCount).toBe(1);
+    });
+  });
+});

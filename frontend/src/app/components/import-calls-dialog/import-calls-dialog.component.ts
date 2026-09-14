@@ -4,12 +4,13 @@ import { ImportCallsDialogService } from '../../core/services/import-calls-dialo
 import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { CallRecord, SessionCycle } from '../../core/models/call.model';
+import { parseImportedCalls } from '../../shared/utils/import-parser';
 import { ProfilePickerComponent } from '../profile-picker/profile-picker.component';
 
 /**
  * Lets a previously-exported calls JSON file (the same file "Export as JSON" in the bulk actions
- * bar produces - either the full bulk-export payload, `{ calls: [...] }`, or a bare array of
- * call-shaped objects) be imported into any number of session cycles, existing or newly created
+ * bar produces - the full bulk-export payload's `events`, or a bare array of call-shaped objects)
+ * be imported into any number of session cycles, existing or newly created
  * right here - same cycle-picker/create-cycle shape as CopyToCyclesDialogComponent, since import
  * is really "duplicate to cycles" with the calls coming from a file instead of a live selection.
  * Deliberately session-cycles-only (see ImportCallsDialogService) - there's no equivalent
@@ -35,6 +36,9 @@ export class ImportCallsDialogComponent {
   readonly fileName = signal<string | null>(null);
   readonly parsedCalls = signal<CallRecord[] | null>(null);
   readonly parseError = signal<string | null>(null);
+  /** Set when the file predates `source` being exported and directions had to be guessed - see
+   * ImportParseResult.inferredDirectionCount. Not an error: the import still proceeds. */
+  readonly parseWarning = signal<string | null>(null);
 
   readonly selectedCycleIds = signal<ReadonlySet<string>>(new Set());
   readonly importing = signal(false);
@@ -89,10 +93,12 @@ export class ImportCallsDialogComponent {
     this.parsedCalls.set(null);
     this.fileName.set(null);
     this.parseError.set(null);
+    this.parseWarning.set(null);
   }
 
   private readFile(file: File): void {
     this.parseError.set(null);
+    this.parseWarning.set(null);
     this.resultMessage.set(null);
     if (!file.name.toLowerCase().endsWith('.json')) {
       this.parseError.set('Only .json files are supported.');
@@ -107,13 +113,21 @@ export class ImportCallsDialogComponent {
         this.parseError.set('This file is not valid JSON.');
         return;
       }
-      const calls = extractCalls(parsed);
+      const { calls, inferredDirectionCount } = parseImportedCalls(parsed);
       if (calls.length === 0) {
         this.parseError.set('No calls found in this file - expected an export produced by "Export as JSON".');
         return;
       }
-      this.parsedCalls.set(calls);
+      this.parsedCalls.set([...calls]);
       this.fileName.set(file.name);
+      if (inferredDirectionCount > 0) {
+        // Worth saying out loud rather than importing quietly: a wrong guess files an inbound call
+        // as outbound, which loses its service and flattens anything nested under it.
+        this.parseWarning.set(
+          `${inferredDirectionCount} call${inferredDirectionCount === 1 ? '' : 's'} in this file predate Alfred recording inbound/outbound direction, ` +
+            'so it was inferred from the service name. Re-export to import them exactly.'
+        );
+      }
     };
     reader.onerror = () => this.parseError.set('Could not read this file.');
     reader.readAsText(file);
@@ -172,37 +186,4 @@ export class ImportCallsDialogComponent {
     this.newCycleName.set('');
     this.newCycleAssignedTo.set(null);
   }
-}
-
-/**
- * Accepts either the full bulk-export payload (`{ calls: [...] }`) or a bare array of call-shaped
- * objects, and maps each entry down to exactly the fields CallRecord/the backend's copy endpoint
- * need - dropping export-only extras (e.g. a per-call `comments` array) rather than sending them
- * through and relying on the backend to silently ignore unknown JSON properties. Anything missing
- * the bare minimum to identify a call (id/url) is skipped rather than failing the whole import.
- */
-function extractCalls(parsed: unknown): CallRecord[] {
-  const rawCalls = Array.isArray(parsed) ? parsed : (parsed as { calls?: unknown })?.calls;
-  if (!Array.isArray(rawCalls)) return [];
-
-  const calls: CallRecord[] = [];
-  for (const item of rawCalls) {
-    if (!item || typeof item !== 'object') continue;
-    const raw = item as Record<string, unknown>;
-    if (typeof raw['id'] !== 'string' || typeof raw['url'] !== 'string') continue;
-    calls.push({
-      id: raw['id'] as string,
-      original_url: (raw['original_url'] as string) ?? (raw['url'] as string),
-      url: raw['url'] as string,
-      method: (raw['method'] as string) ?? 'GET',
-      request: raw['request'] as CallRecord['request'],
-      timestamp: (raw['timestamp'] as string) ?? '',
-      duration_ms: raw['duration_ms'] as number,
-      response: raw['response'] as CallRecord['response'],
-      error: raw['error'] as string | undefined,
-      supplierName: raw['supplierName'] as string | null | undefined,
-      state: raw['state'] as CallRecord['state'],
-    });
-  }
-  return calls;
 }
