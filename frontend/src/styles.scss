@@ -3130,6 +3130,11 @@ mark.hl.active {
   }
 }
 
+.dialog-hint {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
 .copy-cycle-list {
   display: flex;
   flex-direction: column;

@@ -53,6 +53,12 @@
         <textarea rows="3" [value]="description()" (input)="description.set($any($event.target).value)" placeholder="Any context worth noting..."></textarea>
       </label>
 
+      <label class="dialog-field">
+        <span>File Name <em>(optional)</em></span>
+        <input type="text" [value]="fileName()" (input)="fileName.set($any($event.target).value)" placeholder="Leave blank to auto-generate" />
+        <small class="dialog-hint">{{ formatExtension() }} is added automatically if you leave it off.</small>
+      </label>
+
       @if (!isRawExportMode()) {
         <fieldset class="dialog-radio-group">
           <legend>Format</legend>

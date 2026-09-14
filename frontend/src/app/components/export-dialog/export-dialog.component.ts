@@ -6,7 +6,7 @@ import { buildExportHtml, buildBulkExportHtml, exportHtmlFilename, bulkExportHtm
 import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
 import { buildBulkPostmanCollection, bulkPostmanFilename } from '../../shared/utils/postman-builder';
 import { buildDiscordReport } from '../../shared/utils/discord-report-builder';
-import { downloadText, downloadJson } from '../../shared/utils/download';
+import { downloadText, downloadJson, resolveExportFilename } from '../../shared/utils/download';
 import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
 
 /** The two report formats a user can toggle between inside the dialog - distinct from
@@ -37,6 +37,10 @@ export class ExportDialogComponent {
   readonly url = signal('');
   readonly environment = signal<Environment>('Staging');
   readonly description = signal('');
+  /** Optional - blank means "use the generated name", exactly as before this field existed. See
+   * resolveExportFilename() for how a non-blank value is turned into the actual downloaded name
+   * (sanitized, and always given the export's real extension regardless of what was typed). */
+  readonly fileName = signal('');
 
   /** Which of Markdown/HTML is currently toggled in the dialog - independent of the format the
    * caller originally opened it with (state().format), which is now just the initial value; a
@@ -78,6 +82,7 @@ export class ExportDialogComponent {
         this.url.set(current.metadata?.url ?? firstCall?.url ?? '');
         this.environment.set('Staging');
         this.description.set('');
+        this.fileName.set('');
         this.reportFormat.set(current.format === 'html' ? 'html' : 'markdown');
       },
       { allowSignalWrites: true }
@@ -161,31 +166,41 @@ export class ExportDialogComponent {
 
     if (format === 'json') {
       const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
-      return { isJson: true, payload, filename: bulkExportFilename(calls, 'json') };
+      return { isJson: true, payload, filename: this.resolveFilename(bulkExportFilename(calls, 'json'), format) };
     }
 
     if (format === 'postman') {
       const payload = buildBulkPostmanCollection(calls, form, new Date().toISOString());
-      return { isJson: true, payload, filename: bulkPostmanFilename(calls) };
+      return { isJson: true, payload, filename: this.resolveFilename(bulkPostmanFilename(calls), format) };
     }
 
     if (format === 'html') {
       if (calls.length === 1) {
         const call = calls[0];
         const html = buildExportHtml(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
-        return { isJson: false, content: html, filename: exportHtmlFilename(call), mimeType: 'text/html' };
+        return { isJson: false, content: html, filename: this.resolveFilename(exportHtmlFilename(call), format), mimeType: 'text/html' };
       }
       const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
-      return { isJson: false, content: html, filename: bulkExportHtmlFilename(calls), mimeType: 'text/html' };
+      return { isJson: false, content: html, filename: this.resolveFilename(bulkExportHtmlFilename(calls), format), mimeType: 'text/html' };
     }
 
     if (calls.length === 1) {
       const call = calls[0];
       const markdown = buildExportMarkdown(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
-      return { isJson: false, content: markdown, filename: exportFilename(call), mimeType: 'text/markdown' };
+      return { isJson: false, content: markdown, filename: this.resolveFilename(exportFilename(call), format), mimeType: 'text/markdown' };
     }
 
     const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
-    return { isJson: false, content: markdown, filename: bulkExportFilename(calls, 'md'), mimeType: 'text/markdown' };
+    return { isJson: false, content: markdown, filename: this.resolveFilename(bulkExportFilename(calls, 'md'), format), mimeType: 'text/markdown' };
+  }
+
+  /** Applies whatever the user typed into the optional filename field, if anything, to a builder's
+   * generated name - see resolveExportFilename(). `format`, not the generated name, decides the
+   * real extension (FORMAT_EXTENSIONS), since a generated name routinely has its own dots earlier
+   * in it (e.g. a supplier host like `host.docker.internal`) that make parsing "the" extension out
+   * of the string itself unreliable. Copy-to-clipboard never downloads a file, so it has no
+   * filename to resolve; only confirmExport()'s buildContent() call needs this. */
+  private resolveFilename(defaultFilename: string, format: ExportFormat): string {
+    return resolveExportFilename(this.fileName(), defaultFilename, ExportDialogComponent.FORMAT_EXTENSIONS[format]);
   }
 }
