@@ -172,7 +172,7 @@ export class ExportDialogComponent {
     if (format === 'html') {
       if (calls.length === 1) {
         const call = calls[0];
-        const html = buildExportHtml(call, form, commentsByCallId.get(call.id) ?? []);
+        const html = buildExportHtml(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
         return { isJson: false, content: html, filename: exportHtmlFilename(call), mimeType: 'text/html' };
       }
       const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
@@ -181,7 +181,7 @@ export class ExportDialogComponent {
 
     if (calls.length === 1) {
       const call = calls[0];
-      const markdown = buildExportMarkdown(call, form, commentsByCallId.get(call.id) ?? []);
+      const markdown = buildExportMarkdown(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
       return { isJson: false, content: markdown, filename: exportFilename(call), mimeType: 'text/markdown' };
     }
 

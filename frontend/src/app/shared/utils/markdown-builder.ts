@@ -3,6 +3,7 @@ import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
+import { buildExportNarrative, depthSentence, ExportNarrative } from './export-narrative';
 
 function metadataValue(value: string): string {
   return value && value.trim().length > 0 ? value : '_(none provided)_';
@@ -30,6 +31,58 @@ function formatMs(ms: number): string {
 
 function commentsForBlock(comments: readonly Comment[], block: CommentBlock): Comment[] {
   return comments.filter((c) => c.block === block).sort((a, b) => a.lineIndex - b.lineIndex);
+}
+
+/**
+ * The "About This Document" section - see export-narrative.ts for why it exists and what it says.
+ * This file only decides how to draw it: the topology goes in a plain fence rather than a Mermaid
+ * diagram so it survives being pasted anywhere, and each slot is skipped entirely when the narrative
+ * has nothing for it rather than rendering an empty heading.
+ */
+function aboutSectionMarkdown(narrative: ExportNarrative): string[] {
+  const lines: string[] = ['## 📖 About This Document', ''];
+
+  lines.push(`**What this is.** ${narrative.description}`, '');
+
+  const depth = depthSentence(narrative);
+  if (narrative.treeLines.length > 0 || narrative.flowSummary || depth) {
+    lines.push(`**Who called whom.** ${depth ?? ''}`.trimEnd(), '');
+    if (narrative.treeLines.length > 0) {
+      lines.push('```', ...narrative.treeLines, '```', '');
+    }
+    if (narrative.flowSummary) {
+      lines.push(narrative.flowSummary, '');
+    }
+  }
+
+  if (narrative.caveats.length > 0) {
+    lines.push('**⚠️ Caveats for this capture.**', '');
+    for (const caveat of narrative.caveats) lines.push(`- ${caveat}`);
+    lines.push('');
+  }
+
+  if (narrative.timingRows.length > 0) {
+    lines.push('**Where the time went.**', '');
+    lines.push('| # | Call | Total | Waiting on downstream | Own work |', '|---|---|---|---|---|');
+    for (const row of narrative.timingRows) {
+      const downstream = row.downstreamMs != null ? formatMs(row.downstreamMs) : '— _(leaf)_';
+      const own = row.selfMs != null ? `**${formatMs(row.selfMs)}**` : formatMs(row.durationMs);
+      lines.push(`| ${row.number} | ${row.label} | ${formatMs(row.durationMs)} | ${downstream} | ${own} |`);
+    }
+    lines.push('');
+    if (narrative.timingNote) lines.push(narrative.timingNote, '');
+  } else if (narrative.timingNote) {
+    lines.push(`**Where the time went.** ${narrative.timingNote}`, '');
+  }
+
+  if (narrative.orderingNote) {
+    lines.push(`**How the list below is ordered.** ${narrative.orderingNote}`, '');
+  }
+
+  lines.push(`**Flagged lines (comments).** ${narrative.commentsNote}`, '');
+  lines.push('---', '');
+
+  return lines;
 }
 
 /**
@@ -116,10 +169,27 @@ function flaggedIssuesSection(comments: readonly Comment[], level = 2): string {
   return lines.join('\n');
 }
 
-export function buildExportMarkdown(call: CallRecord, form: ExportFormData, comments: readonly Comment[] = []): string {
+/**
+ * `overlapCandidates` is optional and used for one thing only: letting the About section say what
+ * this call sat inside and what ran inside it, neither of which is in the file. A single-call export
+ * is the one place a reader has no way to discover that from the document itself, and "this call is
+ * 22s but 17s of that was someone else's work" is exactly the context they open the file for.
+ */
+export function buildExportMarkdown(
+  call: CallRecord,
+  form: ExportFormData,
+  comments: readonly Comment[] = [],
+  overlapCandidates: readonly CallOverlapCandidate[] = []
+): string {
   const lines: string[] = [];
+  const narrative = buildExportNarrative({
+    calls: [call],
+    commentsByCallId: new Map([[call.id, comments]]),
+    overlapCandidates,
+  });
 
   lines.push('# 📄 API Call Export', '');
+  lines.push(...aboutSectionMarkdown(narrative));
   lines.push('## 🧾 Metadata', '');
   lines.push(...metadataTable(form));
   lines.push('', '---', '');
@@ -308,7 +378,11 @@ function isResolvedInternalCall(call: CallRecord): boolean {
  * export-dialog.component.ts) under whatever filters were active at export time; `statusFilter` is
  * the status-pill bucket active then too.
  */
-function buildRenderBlocks(sortedCalls: readonly CallRecord[], overlapCandidates: readonly CallOverlapCandidate[], statusFilter: CallStatusFilter): RenderBlock[] {
+function buildRenderBlocks(
+  sortedCalls: readonly CallRecord[],
+  overlapCandidates: readonly CallOverlapCandidate[],
+  statusFilter: CallStatusFilter
+): { blocks: RenderBlock[]; staysSplitIds: ReadonlySet<string> } {
   const resolvedInternalCalls = sortedCalls.filter(isResolvedInternalCall);
   const staysSplitIds = computeSplitCallIds(resolvedInternalCalls, overlapCandidates, statusFilter);
 
@@ -324,7 +398,7 @@ function buildRenderBlocks(sortedCalls: readonly CallRecord[], overlapCandidates
     }
   });
   blocks.sort((a, b) => a.sortTime - b.sortTime);
-  return blocks;
+  return { blocks, staysSplitIds };
 }
 
 function blockAnchor(block: RenderBlock): string {
@@ -434,7 +508,8 @@ export function buildBulkExportMarkdown(
   // pinned-first/supplier-grouped/custom-drag order, which would otherwise interleave nonsensically
   // once a call is split into two blocks. Sort a local copy; never mutate/reorder for the caller.
   const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const blocks = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
+  const { blocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
+  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds });
 
   lines.push(`# 📋 API Calls Export — ${calls.length} ${callWord}`, '');
   lines.push(
@@ -442,6 +517,8 @@ export function buildBulkExportMarkdown(
     ''
   );
   lines.push('---', '');
+
+  lines.push(...aboutSectionMarkdown(narrative));
 
   lines.push('## 🧾 Metadata', '');
   lines.push(...metadataTable(form));

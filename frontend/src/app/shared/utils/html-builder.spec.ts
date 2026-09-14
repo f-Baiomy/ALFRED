@@ -58,6 +58,15 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
 }
 
 describe('buildExportHtml', () => {
+  it('opens with the About section, describing the one call it contains', () => {
+    const html = buildExportHtml(makeCall(), makeForm());
+
+    expect(html).toContain('<section class="about">');
+    expect(html).toContain('📖 About This Document');
+    expect(html).toContain('a single HTTP call');
+    expect(html.indexOf('<section class="about">')).toBeLessThan(html.indexOf('🧾 Metadata'));
+  });
+
   it('produces a self-contained document with a doctype, styles, and closing tags', () => {
     const html = buildExportHtml(makeCall(), makeForm());
     expect(html).toContain('<!DOCTYPE html>');
@@ -137,9 +146,10 @@ describe('buildExportHtml', () => {
     expect(buildExportHtml(makeCall({ duration_ms: undefined }), makeForm())).not.toContain('<b>Duration:</b>');
   });
 
+  // Asserts on the HEADING, not the words - see markdown-builder.spec.ts's identical note.
   it('omits the Flagged Issues section entirely when there are no comments', () => {
     const html = buildExportHtml(makeCall(), makeForm(), []);
-    expect(html).not.toContain('Flagged Issues');
+    expect(html).not.toContain('<h3>🚩 Flagged Issues');
   });
 
   it('lists flagged lines in a dedicated summary section, grouped by block', () => {
@@ -193,6 +203,17 @@ describe('exportHtmlFilename', () => {
 
 describe('buildBulkExportHtml', () => {
   const EXPORTED_AT = '2026-08-07T18:00:00.000Z';
+
+  // The narrative's own content is exercised in export-narrative.spec.ts - this pins that the
+  // section is rendered here, above the data, and that its prose is escaped like everything else.
+  it('opens with the About section, before the metadata table', () => {
+    const html = buildBulkExportHtml([makeCall(), makeCall({ timestamp: 't2' })], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(html).toContain('<section class="about">');
+    expect(html).toContain('📖 About This Document');
+    expect(html).toContain('<b>Flagged lines (comments).</b>');
+    expect(html.indexOf('<section class="about">')).toBeLessThan(html.indexOf('🧾 Metadata'));
+  });
 
   it('includes every call in a numbered summary table with anchors', () => {
     const calls = [

@@ -51,6 +51,15 @@ function makeForm(overrides: Partial<ExportFormData> = {}): ExportFormData {
 }
 
 describe('buildExportMarkdown', () => {
+  it('opens with the About section, describing the one call it contains', () => {
+    const md = buildExportMarkdown(makeCall(), makeForm());
+
+    expect(md).toContain('## 📖 About This Document');
+    expect(md).toContain('a single HTTP call');
+    expect(md).toContain('**Flagged lines (comments).**');
+    expect(md.indexOf('## 📖 About This Document')).toBeLessThan(md.indexOf('## 🧾 Metadata'));
+  });
+
   it('includes every metadata field in a table', () => {
     const md = buildExportMarkdown(makeCall(), makeForm());
     expect(md).toContain('| Supplier Name | FlyNas |');
@@ -129,9 +138,12 @@ describe('buildExportMarkdown', () => {
     expect(buildExportMarkdown(makeCall({ duration_ms: undefined }), makeForm())).not.toContain('**Duration:**');
   });
 
+  // Asserts on the HEADING, not the words: the About section's comments explainer names the
+  // "🚩 Flagged Issues" section in prose whether or not any lines are flagged, which is the point of
+  // explaining it. What must not appear is the section itself, standing empty.
   it('omits the Flagged Issues section entirely when there are no comments', () => {
     const md = buildExportMarkdown(makeCall(), makeForm(), []);
-    expect(md).not.toContain('Flagged Issues');
+    expect(md).not.toContain('## 🚩 Flagged Issues');
   });
 
   function makeComment(overrides: Partial<Comment> = {}): Comment {
@@ -205,6 +217,17 @@ describe('buildBulkExportMarkdown', () => {
       ...overrides,
     };
   }
+
+  // The narrative's own content is exercised in export-narrative.spec.ts; this only pins that the
+  // section is rendered here at all, and above the data rather than buried under it.
+  it('opens with the About section, before the metadata table', () => {
+    const md = buildBulkExportMarkdown([makeCall(), makeCall({ timestamp: 't2' })], makeForm(), new Map(), EXPORTED_AT);
+
+    expect(md).toContain('## 📖 About This Document');
+    expect(md).toContain('**What this is.**');
+    expect(md).toContain('**Flagged lines (comments).**');
+    expect(md.indexOf('## 📖 About This Document')).toBeLessThan(md.indexOf('## 🧾 Metadata'));
+  });
 
   it('includes every call in a numbered summary table with anchors', () => {
     const calls = [

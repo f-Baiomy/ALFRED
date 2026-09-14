@@ -3,6 +3,7 @@ import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
+import { buildExportNarrative, depthSentence, ExportNarrative } from './export-narrative';
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -32,6 +33,59 @@ function formatMs(ms: number): string {
 
 function commentsForBlock(comments: readonly Comment[], block: CommentBlock): Comment[] {
   return comments.filter((c) => c.block === block).sort((a, b) => a.lineIndex - b.lineIndex);
+}
+
+/**
+ * The "About This Document" section - see export-narrative.ts for why it exists. Rendered as one
+ * bordered card rather than a run of <h2>s so it reads as a preface to the report rather than as its
+ * first chapter, and the topology goes in a <pre> so it can be copied out with its alignment intact.
+ */
+function aboutSectionHtml(narrative: ExportNarrative): string {
+  const parts: string[] = ['<section class="about">', '<h2>📖 About This Document</h2>'];
+
+  parts.push(`<p><b>What this is.</b> ${escapeHtml(narrative.description)}</p>`);
+
+  const depth = depthSentence(narrative);
+  if (narrative.treeLines.length > 0 || narrative.flowSummary || depth) {
+    parts.push(`<p><b>Who called whom.</b> ${depth ? escapeHtml(depth) : ''}</p>`);
+    if (narrative.treeLines.length > 0) {
+      parts.push(`<pre class="about-tree">${escapeHtml(narrative.treeLines.join('\n'))}</pre>`);
+    }
+    if (narrative.flowSummary) parts.push(`<p>${escapeHtml(narrative.flowSummary)}</p>`);
+  }
+
+  if (narrative.caveats.length > 0) {
+    parts.push('<div class="about-caveats"><b>⚠️ Caveats for this capture.</b><ul>');
+    for (const caveat of narrative.caveats) parts.push(`<li>${escapeHtml(caveat)}</li>`);
+    parts.push('</ul></div>');
+  }
+
+  if (narrative.timingRows.length > 0) {
+    parts.push('<p><b>Where the time went.</b></p>');
+    parts.push(
+      '<table class="metadata about-timing"><tr><td>#</td><td>Call</td><td>Total</td><td>Waiting on downstream</td><td>Own work</td></tr>'
+    );
+    for (const row of narrative.timingRows) {
+      const downstream = row.downstreamMs != null ? formatMs(row.downstreamMs) : '<em>— leaf</em>';
+      const own = row.selfMs != null ? `<b>${formatMs(row.selfMs)}</b>` : formatMs(row.durationMs);
+      parts.push(
+        `<tr><td>${row.number}</td><td>${escapeHtml(row.label)}</td><td>${formatMs(row.durationMs)}</td><td>${downstream}</td><td>${own}</td></tr>`
+      );
+    }
+    parts.push('</table>');
+    if (narrative.timingNote) parts.push(`<p class="about-note">${escapeHtml(narrative.timingNote)}</p>`);
+  } else if (narrative.timingNote) {
+    parts.push(`<p><b>Where the time went.</b> ${escapeHtml(narrative.timingNote)}</p>`);
+  }
+
+  if (narrative.orderingNote) {
+    parts.push(`<p><b>How the list below is ordered.</b> ${escapeHtml(narrative.orderingNote)}</p>`);
+  }
+
+  parts.push(`<p><b>Flagged lines (comments).</b> ${escapeHtml(narrative.commentsNote)}</p>`);
+  parts.push('</section>');
+
+  return parts.join('');
 }
 
 const BLOCK_ORDER: readonly CommentBlock[] = ['request-headers', 'request-body', 'response-headers', 'response-body'];
@@ -112,6 +166,17 @@ table.metadata td:first-child { color: var(--text-dim); width: 220px; font-weigh
 .flagged .note { font-size: 0.85rem; margin: 0.7rem 0; }
 .flagged .note code { background: rgba(255,255,255,0.06); padding: 0.1rem 0.35rem; border-radius: 4px; }
 .flagged .note blockquote { margin: 0.35rem 0 0; padding-left: 0.75rem; border-left: 2px solid var(--amber); color: var(--text-dim); }
+.about { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.25rem 1.25rem 1rem; margin-bottom: 1.5rem; font-size: 0.9rem; }
+.about h2 { margin-top: 1.1rem; }
+.about p { color: var(--text-dim); }
+.about p b { color: var(--text); }
+.about-tree { background: var(--card-inner); border-radius: 8px; padding: 0.85rem 1rem; overflow-x: auto; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.65; color: var(--text); }
+.about-caveats { background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 8px; padding: 0.8rem 1rem; margin: 0.9rem 0; }
+.about-caveats ul { margin: 0.5rem 0 0; padding-left: 1.1rem; color: var(--text-dim); }
+.about-caveats li { margin-bottom: 0.3rem; }
+.about-timing { margin-bottom: 0.75rem; }
+.about-timing td:first-child { width: 3rem; }
+.about-note { font-size: 0.82rem; color: var(--text-faint) !important; }
 hr { border: none; border-top: 1px solid var(--border); margin: 1.75rem 0; }
 footer { text-align: center; color: var(--text-faint); font-size: 0.8rem; margin-top: 2rem; }
 summary.call-summary { cursor: pointer; font-weight: 600; color: var(--purple-light); list-style: none; padding: 0.9rem 1.1rem; }
@@ -404,12 +469,25 @@ function responseSectionHtml(call: CallRecord, comments: readonly Comment[], idP
   return responsePartHtml(call, comments, idPrefix, false, receivedAt);
 }
 
-export function buildExportHtml(call: CallRecord, form: ExportFormData, comments: readonly Comment[] = []): string {
+/** `overlapCandidates` serves the About section only - see buildExportMarkdown's doc for why a
+ * single-call export takes it. */
+export function buildExportHtml(
+  call: CallRecord,
+  form: ExportFormData,
+  comments: readonly Comment[] = [],
+  overlapCandidates: readonly CallOverlapCandidate[] = []
+): string {
   const { html: sectionHtml, blocks } = callSectionHtml(call, comments, 'call');
+  const narrative = buildExportNarrative({
+    calls: [call],
+    commentsByCallId: new Map([[call.id, comments]]),
+    overlapCandidates,
+  });
 
   const body = [
     '<h1>📄 API Call Export</h1>',
     `<div class="exported-line">Exported from Alfred/Frontend</div>`,
+    aboutSectionHtml(narrative),
     '<h2>🧾 Metadata</h2>',
     metadataTableHtml(form),
     flaggedIssuesHtml(comments),
@@ -544,7 +622,11 @@ function isResolvedInternalCall(call: CallRecord): boolean {
  * block. Splitting is computed up front across every resolved internal call in `sortedCalls` at
  * once (see computeSplitCallIds - the ambiguity veto needs the whole picture first).
  */
-function buildRenderBlocks(sortedCalls: readonly CallRecord[], overlapCandidates: readonly CallOverlapCandidate[], statusFilter: CallStatusFilter): RenderBlock[] {
+function buildRenderBlocks(
+  sortedCalls: readonly CallRecord[],
+  overlapCandidates: readonly CallOverlapCandidate[],
+  statusFilter: CallStatusFilter
+): { blocks: RenderBlock[]; staysSplitIds: ReadonlySet<string> } {
   const resolvedInternalCalls = sortedCalls.filter(isResolvedInternalCall);
   const staysSplitIds = computeSplitCallIds(resolvedInternalCalls, overlapCandidates, statusFilter);
 
@@ -560,7 +642,7 @@ function buildRenderBlocks(sortedCalls: readonly CallRecord[], overlapCandidates
     }
   });
   blocks.sort((a, b) => a.sortTime - b.sortTime);
-  return blocks;
+  return { blocks, staysSplitIds };
 }
 
 function blockAnchorId(block: RenderBlock): string {
@@ -605,7 +687,8 @@ export function buildBulkExportHtml(
   // Same forced-chronological reasoning as markdown-builder.ts: the split only reads sensibly in
   // real time order, regardless of whatever order the caller passed in.
   const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const blocks = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
+  const { blocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
+  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds });
 
   const allBlocks: JsonBlockConfig[] = [];
   const summaryRows: string[] = [];
@@ -654,6 +737,7 @@ export function buildBulkExportHtml(
   const body = [
     `<h1>📋 API Calls Export — ${calls.length} ${callWord}</h1>`,
     `<div class="exported-line">Exported: ${escapeHtml(exportedAt)} &nbsp;•&nbsp; Succeeded: ${succeeded} ✅ &nbsp;•&nbsp; Failed: ${failed} ❌ &nbsp;•&nbsp; Total duration: ${formatMs(totalDurationMs)}</div>`,
+    aboutSectionHtml(narrative),
     '<h2>🧾 Metadata</h2>',
     metadataTableHtml(form),
     '<h2>📊 Summary</h2>',

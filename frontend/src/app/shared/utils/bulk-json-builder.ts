@@ -2,6 +2,7 @@ import { CallOverlapCandidate, CallRecord, CallResponse, HttpMessageData } from 
 import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { CallStatusFilter, isInProgress } from './call-utils';
+import { buildExportNarrative, ExportNarrative } from './export-narrative';
 
 /** A request-side event, emitted for every internal call that gets split (see buildBulkExportPayload). */
 export interface BulkExportRequestEvent {
@@ -51,6 +52,14 @@ export interface BulkExportCallEvent {
 export type BulkExportEvent = BulkExportRequestEvent | BulkExportResponseEvent | BulkExportCallEvent;
 
 export interface BulkExportPayload {
+  /**
+   * What this document is, who called whom, and what the comments are - the .json counterpart to the
+   * "About This Document" section the .md/.html exports open with. First key in the file on purpose:
+   * an agent handed this payload reads the narrative before it reaches a single event, and
+   * `about.description` alone is enough to orient without parsing anything else. See
+   * export-narrative.ts.
+   */
+  readonly about: ExportNarrative;
   readonly metadata: ExportFormData;
   readonly exportedAt: string;
   readonly summary: {
@@ -278,6 +287,7 @@ export function buildBulkExportPayload(
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   return {
+    about: buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, overlapCandidates }),
     metadata: form,
     exportedAt,
     summary: {

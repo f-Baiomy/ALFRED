@@ -63,6 +63,37 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
 }
 
 describe('buildBulkExportPayload', () => {
+  // Content is exercised in export-narrative.spec.ts - this pins that `about` reaches the payload,
+  // survives JSON.stringify (it is what the file actually gets written as) and stays readable
+  // standalone, which is the whole reason an agent is given `description`.
+  it('carries the About narrative as the payload’s own first-class section', () => {
+    const payload = buildBulkExportPayload([makeCall()], makeForm(), new Map(), '2026-08-07T18:00:00Z');
+
+    expect(payload.about.documentType).toBe('alfred-call-export');
+    expect(payload.about.scope).toBe('single');
+    expect(payload.about.description).toContain('a single HTTP call');
+    expect(payload.about.readingGuide.comments).toContain('lineIndex is 0-based');
+    expect(JSON.parse(JSON.stringify(payload)).about.description).toBe(payload.about.description);
+  });
+
+  it('describes the topology it emitted events for', () => {
+    const parent = makeCall({
+      id: 'parent',
+      source: 'internal',
+      service_name: 'odeysys',
+      state: 'COMPLETED',
+      timestamp: '2026-08-07T13:45:51.965328+00:00',
+      duration_ms: 100,
+    });
+    const child = makeCall({ id: 'child', timestamp: '2026-08-07T13:45:51.985328+00:00', duration_ms: 50 });
+    const payload = buildBulkExportPayload([parent, child], makeForm(), new Map(), '2026-08-07T18:00:00Z', [makeCandidate({ id: 'child' })]);
+
+    expect(payload.about.scope).toBe('multi');
+    expect(payload.about.depth).toBe(2);
+    expect(payload.about.shape).toBe('inbound -> outbound');
+    expect(payload.about.topology[0].children[0].callId).toBe('child');
+  });
+
   it('carries the metadata form and exportedAt through verbatim', () => {
     const form = makeForm({ supplierName: 'FlyNas' });
     const payload = buildBulkExportPayload([makeCall()], form, new Map(), '2026-08-07T18:00:00Z');
