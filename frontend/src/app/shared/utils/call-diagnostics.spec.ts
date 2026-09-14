@@ -27,6 +27,22 @@ function node(root: CallRecord, children: readonly CallRecord[]): CallTreeNode {
   };
 }
 
+/** Builds a tree with one relay level between the root and its real leaf calls - odeysys ->
+ * core-service -> [sabre calls], the shape a live 2-level-deep capture actually has. */
+function nodeWithRelay(root: CallRecord, relay: CallRecord, leaves: readonly CallRecord[]): CallTreeNode {
+  return {
+    call: root,
+    depth: 0,
+    children: [
+      {
+        call: relay,
+        depth: 1,
+        children: leaves.map((leaf) => ({ call: leaf, depth: 2, children: [] })),
+      },
+    ],
+  };
+}
+
 describe('analyzeCall', () => {
   it('assigns every millisecond of the root to exactly one bucket', () => {
     const root = call('root', 0, 10_000, { source: 'internal' });
@@ -223,5 +239,64 @@ describe('analyzeCall', () => {
 
   it('returns nothing for a root that has no measurable window of its own', () => {
     expect(analyzeCall(node(call('root', 0, 0, { state: 'IN_PROGRESS' }), []))).toBeNull();
+  });
+
+  describe('calls nested more than one level deep', () => {
+    // The bug this section guards: opening diagnose on a call two levels above its real suppliers
+    // (odeysys -> core-service -> the two Sabre calls) used to show a single opaque row for
+    // core-service and nothing about what it actually called - "full call data" was missing for
+    // anyone above the immediate relay. leafDescendants flattens through the relay so the root's own
+    // diagnose sees what it actually talked to, however many hops down that sits.
+    it('sees straight through a relay to the calls it actually made', () => {
+      const root = call('odeysys', 0, 22_000, { source: 'internal' });
+      const relay = call('core-service', 4000, 17_000, { source: 'internal' });
+      const leaf1 = call('sabre-getBooking', 4200, 9300);
+      const leaf2 = call('sabre-checkTickets', 13_600, 7300);
+
+      const result = analyzeCall(nodeWithRelay(root, relay, [leaf1, leaf2]))!;
+
+      // The relay itself never appears as a row - only what it actually called does.
+      expect(result.timings.map((t) => t.call.id)).toEqual(['sabre-getBooking', 'sabre-checkTickets']);
+      expect(result.ledger.upstreamMs).toBe(16_600);
+      expect(result.ledger.setupMs).toBe(4200);
+      expect(result.ledger.betweenMs).toBe(100);
+      expect(result.ledger.tailMs).toBe(1100);
+      expect(result.ledger.setupMs + result.ledger.upstreamMs + result.ledger.betweenMs + result.ledger.tailMs)
+        .toBe(22_000);
+    });
+
+    it('numbers a leaf by its position under its OWN direct parent, not by its position in the flattened list', () => {
+      const root = call('root', 0, 20_000, { source: 'internal' });
+      const relayA = call('relay-a', 1000, 5000, { source: 'internal' });
+      const leafA1 = call('a1', 1200, 4000);
+      const relayB = call('relay-b', 7000, 8000, { source: 'internal' });
+      const leafB1 = call('b1', 7200, 3000);
+      const leafB2 = call('b2', 10_500, 3000);
+
+      const tree: CallTreeNode = {
+        call: root,
+        depth: 0,
+        children: [
+          { call: relayA, depth: 1, children: [{ call: leafA1, depth: 2, children: [] }] },
+          {
+            call: relayB,
+            depth: 1,
+            children: [
+              { call: leafB1, depth: 2, children: [] },
+              { call: leafB2, depth: 2, children: [] },
+            ],
+          },
+        ],
+      };
+
+      const result = analyzeCall(tree)!;
+      const indexById = new Map(result.timings.map((t) => [t.call.id, t.index]));
+
+      // leafA1 is relayA's only child (local #1); leafB1/leafB2 are relayB's 1st and 2nd - NOT a
+      // fresh 1/2/3 count across the flattened table, which would number leafB1 as "#2".
+      expect(indexById.get('a1')).toBe(1);
+      expect(indexById.get('b1')).toBe(1);
+      expect(indexById.get('b2')).toBe(2);
+    });
   });
 });

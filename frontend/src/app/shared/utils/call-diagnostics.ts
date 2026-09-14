@@ -40,11 +40,15 @@ export interface Gap {
 export interface CallTiming {
   readonly call: CallRecord;
   /**
-   * 1-based position among the root's outbound calls, in the order they were made.
+   * 1-based position among the outbound calls made by whichever call DIRECTLY made this one, in the
+   * order they were made - not a fresh count across everything analyzeCall flattened in. When this
+   * call was reached through a relay (see leafDescendants), that's the relay's children, not the
+   * root being analysed.
    *
    * Exists so the findings can name a specific call - "#3 decides the total" - and you can find
-   * that same #3 on the waterfall row above. A url alone is not enough: a fan-out routinely sends
-   * the same method and path to the same host twice, and then the sentence points at two rows.
+   * that same #3 on the waterfall row above, since the waterfall numbers a row the same way: against
+   * its own direct parent. A url alone is not enough: a fan-out routinely sends the same method and
+   * path to the same host twice, and then the sentence points at two rows.
    */
   readonly index: number;
   readonly offsetMs: number;
@@ -137,10 +141,30 @@ const UPSTREAM_DOMINANT_FRACTION = 0.6;
 const DUPLICATE_WINDOW_MS = 150;
 
 /**
- * Analyses ONE root call against its direct children.
+ * Every call under `node` that made no calls of its own - what it ACTUALLY talked to, flattened
+ * through any nested relay so a root's diagnose panel shows the real suppliers however many hops
+ * down they sit, not just the one immediate child that happened to forward the work. `index` is the
+ * leaf's position among its OWN direct parent's children (not a fresh count across the flattened
+ * list), matching the "#N" already printed on that call's own waterfall row - so a finding built
+ * from this list still points at a row you can find on screen, at any depth.
  *
- * Direct children only, deliberately: a grandchild happened inside a child, so it belongs to that
- * child's own accounting. Mixing depths would double-count the same wall clock.
+ * This does not double-count wall clock the way including an intermediate parent's own window
+ * alongside its children's would: a leaf's window is never inside another leaf's window (a call
+ * with children can't be a leaf), so every millisecond here is claimed by at most one entry. An
+ * intermediate call's own overhead - its setup before its first call, dead time between its own
+ * calls, its tail after its last response - stops being invisible; it now shows up as `setup`/
+ * `between`/`tail` time at whichever ancestor is being analysed, instead of being silently rolled
+ * into "waiting upstream" as if the relay itself were the supplier.
+ */
+function leafDescendants(node: CallTreeNode): readonly { readonly call: CallRecord; readonly index: number }[] {
+  return node.children.flatMap((child, i) =>
+    child.children.length === 0 ? [{ call: child.call, index: i + 1 }] : leafDescendants(child)
+  );
+}
+
+/**
+ * Analyses ONE root call against every call actually made under it - see leafDescendants for why
+ * that is the full descendant leaf set, not just direct children.
  */
 export function analyzeCall(node: CallTreeNode): CallDiagnostics | null {
   const root = node.call;
@@ -149,12 +173,13 @@ export function analyzeCall(node: CallTreeNode): CallDiagnostics | null {
   const rootStart = startMs(root);
   const durationMs = root.duration_ms ?? 0;
 
-  // Numbered across EVERY child, then filtered - not numbered after filtering. A call that never
-  // got a duration (a connect failure, say) still occupies a numbered row in the waterfall, so
-  // skipping it here would shift every number after it and the two views would disagree about
-  // which call "#3" is.
-  const allChildren = node.children.map((child) => child.call);
-  const indexByCallId = new Map(allChildren.map((call, index) => [call.id, index + 1]));
+  // Numbered across EVERY leaf, then filtered - not numbered after filtering. A call that never got
+  // a duration (a connect failure, say) still occupies a numbered row in the waterfall, so skipping
+  // it here would shift every number after it and the two views would disagree about which call
+  // "#3" is.
+  const leaves = leafDescendants(node);
+  const allChildren = leaves.map((leaf) => leaf.call);
+  const indexByCallId = new Map(leaves.map((leaf) => [leaf.call.id, leaf.index]));
   const children = allChildren.filter(isMeasurable);
 
   if (children.length === 0) {
