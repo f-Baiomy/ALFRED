@@ -149,4 +149,58 @@ describe('createCallListView', () => {
       expect(view.mainListCalls().map((c) => c.id)).toEqual(['preflight']);
     });
   });
+
+  describe('nestedOnly', () => {
+    /** One internal call (0 -> 5s) wrapping one external call, plus a standalone external call
+     * well outside it. Real timestamps, unlike the fixtures above - nesting is derived by comparing
+     * windows, so it can't be exercised with unparseable ones. */
+    const T0 = Date.parse('2026-01-01T00:00:00.000Z');
+    const nestedPage = () => [
+      makeCall({ id: 'parent', source: 'internal', state: 'COMPLETED', service_name: 'odeysys', timestamp: new Date(T0).toISOString(), duration_ms: 5000 }),
+      makeCall({ id: 'child', source: 'external', service_name: null, timestamp: new Date(T0 + 1000).toISOString(), duration_ms: 500 }),
+      makeCall({ id: 'standalone', source: 'external', service_name: null, timestamp: new Date(T0 + 60000).toISOString(), duration_ms: 500 }),
+    ];
+
+    it('defaults to off and shows everything', () => {
+      const { view } = makeView([nestedPage()]);
+
+      expect(view.nestedOnly()).toBe(false);
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['parent', 'child', 'standalone']);
+    });
+
+    it('keeps a parent and its children, and drops a call involved in no nesting', () => {
+      const { view } = makeView([nestedPage()]);
+
+      view.setNestedOnly(true);
+
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['parent', 'child']);
+    });
+
+    it('leaves the stat-pill counts alone, so turning it on cannot shrink the totals it is read against', () => {
+      const { view } = makeView([nestedPage()]);
+
+      view.setNestedOnly(true);
+
+      expect(view.stats().total).toBe(3);
+      expect(view.supplierOptions().reduce((sum, s) => sum + s.count, 0)).toBe(3);
+    });
+
+    it('narrows without refetching - it re-filters the window already in hand', () => {
+      const { view, queries } = makeView([nestedPage()]);
+
+      view.setNestedOnly(true);
+
+      expect(queries.length).toBe(1);
+      expect(view.callTree().length).toBe(1);
+    });
+
+    it('setNestedOnly(false) puts the standalone call back', () => {
+      const { view } = makeView([nestedPage()]);
+
+      view.setNestedOnly(true);
+      view.setNestedOnly(false);
+
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['parent', 'child', 'standalone']);
+    });
+  });
 });

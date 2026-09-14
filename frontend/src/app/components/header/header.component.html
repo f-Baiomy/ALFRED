@@ -103,6 +103,14 @@
       <button type="button" class="filter-option-item" (click)="toggleShowOptionsCalls()">
         {{ state.showOptionsCalls() ? 'Hide OPTIONS calls' : 'Show OPTIONS calls' }}
       </button>
+      <button
+        type="button"
+        class="filter-option-item"
+        title="Hide standalone calls - keep only calls that have nested calls, and everything nested under them"
+        (click)="toggleNestedOnly()"
+      >
+        {{ state.nestedOnly() ? 'Show standalone calls' : 'Only calls with nested calls' }}
+      </button>
       <button type="button" class="filter-option-item" (click)="toggleExpanded()">
         {{ state.expanded() ? 'Collapse all' : 'Expand all' }}
       </button>

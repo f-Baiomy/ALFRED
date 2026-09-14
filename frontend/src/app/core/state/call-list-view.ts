@@ -15,6 +15,7 @@ import {
   indexCallTree,
   indexDescendants,
   isTreeSortMode,
+  nestedCallIds,
   requiresChronologicalSort,
 } from '../../shared/utils/call-tree';
 
@@ -147,6 +148,22 @@ export interface CallListView {
    * SHOW_OPTIONS_CALLS_KEY), persisted across reloads. Client-side only, like statusFilter -
    * narrows the already-loaded window rather than refetching. */
   readonly showOptionsCalls: Signal<boolean>;
+  /**
+   * Narrows the list to calls that are part of a nesting relationship - a call with nested calls
+   * under it, plus everything under it (see nestedCallIds). Off by default.
+   *
+   * Client-side only, like statusFilter: it re-filters the already-loaded window rather than
+   * refetching, since "has children" isn't a property of a call the backend could index - it's
+   * derived by comparing every loaded call's window against every other (see buildCallTree), so it
+   * can only ever be answered over the calls actually in hand. That also means it narrows to
+   * whatever nesting is visible in the CURRENT page: a parent whose children haven't loaded yet
+   * reads as childless until they do.
+   *
+   * Deliberately NOT persisted across reloads (unlike showOptionsCalls): it can hide most of a
+   * list, and a preference that survives a reload would silently explain an almost-empty page on a
+   * later visit. It shows as a removable chip in the header for the same reason.
+   */
+  readonly nestedOnly: Signal<boolean>;
   readonly expanded: Signal<boolean>;
   readonly collapseAllVersion: Signal<number>;
   readonly loading: Signal<boolean>;
@@ -209,6 +226,9 @@ export interface CallListView {
   setStatusFilter(filter: CallStatusFilter): void;
   toggleGroupBySupplier(): void;
   toggleShowOptionsCalls(): void;
+  /** See `nestedOnly`. Takes an explicit value rather than toggling so the header's "clear this
+   * filter" chip and its menu item can't drift apart about what "off" means. */
+  setNestedOnly(value: boolean): void;
   /** Picking a tree view ('nested'/'waterfall') while a non-chronological sort is active also moves
    * the list back to a chronological sort - a tree can't be drawn over an order that scatters a
    * parent away from its children (see CallViewMode's doc). */
@@ -268,6 +288,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const statusFilter = signal<CallStatusFilter>('all');
   const groupBySupplier = signal(false);
   const showOptionsCalls = signal(loadShowOptionsCalls());
+  const nestedOnly = signal(false);
   const viewMode = signal<CallViewMode>(loadViewMode());
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
@@ -377,9 +398,27 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     return filter === 'all' ? withoutPinned() : withoutPinned().filter((c) => matchesStatusFilter(c, filter));
   });
 
+  /**
+   * statusFiltered narrowed to calls involved in nesting, when that filter is on - see `nestedOnly`.
+   *
+   * Sits here, AFTER the pin/status narrowing and BEFORE the sort, for two reasons: the tree must be
+   * built over exactly the calls the list would otherwise show (building it earlier would find
+   * parents among calls that are filtered out, and keep children whose parent isn't there), and
+   * `stats()`/`supplierOptions()` are scoped further up on purpose, so turning this on never makes
+   * the stat pills' own counts shrink underneath it.
+   *
+   * The extra buildCallTree here is only paid while the filter is actually on.
+   */
+  const nestingFiltered = computed(() => {
+    const calls = statusFiltered();
+    if (!nestedOnly()) return calls;
+    const keep = nestedCallIds(buildCallTree(calls));
+    return calls.filter((c) => keep.has(c.id));
+  });
+
   const mainListCalls = computed(() => {
     const mode = sortMode();
-    return mode === 'custom' ? sortCalls(statusFiltered(), 'custom', options.customOrder?.() ?? []) : [...statusFiltered()];
+    return mode === 'custom' ? sortCalls(nestingFiltered(), 'custom', options.customOrder?.() ?? []) : [...nestingFiltered()];
   });
 
   /**
@@ -466,6 +505,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     statusFilter,
     groupBySupplier,
     showOptionsCalls,
+    nestedOnly,
     expanded,
     collapseAllVersion,
     loading,
@@ -542,6 +582,9 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       const next = !showOptionsCalls();
       showOptionsCalls.set(next);
       saveShowOptionsCalls(next);
+    },
+    setNestedOnly(value: boolean) {
+      nestedOnly.set(value);
     },
     setViewMode(mode: CallViewMode) {
       viewMode.set(mode);

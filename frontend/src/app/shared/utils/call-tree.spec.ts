@@ -1,5 +1,5 @@
 import { CallRecord, SortMode } from '../../core/models/call.model';
-import { buildCallTree, depthRailPx, depthRails, depthTintClass, foldableIds, indexCallTree, indexDescendants, isTreeSortMode, requiresChronologicalSort } from './call-tree';
+import { buildCallTree, depthRailPx, depthRails, depthTintClass, foldableIds, indexCallTree, indexDescendants, isTreeSortMode, nestedCallIds, requiresChronologicalSort } from './call-tree';
 
 /** Start times are ms offsets from this instant, so a test reads as "starts at +4s, runs 2s". */
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
@@ -200,6 +200,34 @@ describe('foldableIds', () => {
   it('names only the calls that have something to fold', () => {
     // The three suppliers are leaves: folding one would hide nothing and then need cleaning up.
     expect(foldableIds(buildCallTree(chainFixture()))).toEqual(['odeysys', 'core']);
+  });
+});
+
+describe('nestedCallIds', () => {
+  it('keeps a parent AND everything under it, so a kept chain is never rendered hollow', () => {
+    // Every call in chainFixture is either a parent or a child, so the whole chain survives - a
+    // rule that dropped the leaves would leave core-service visibly containing nothing.
+    const ids = nestedCallIds(buildCallTree(chainFixture()));
+
+    expect([...ids].sort()).toEqual(['core', 'ndc', 'odeysys', 'sabre', 'travelport']);
+  });
+
+  it('drops only a call that is neither a parent nor a child', () => {
+    const standalone = call({ id: 'alone', startMs: 60000, durationMs: 500, source: 'external', service_name: null });
+    const ids = nestedCallIds(buildCallTree([...chainFixture(), standalone]));
+
+    expect(ids.has('alone')).toBe(false);
+    expect(ids.has('odeysys')).toBe(true);
+    expect(ids.has('sabre')).toBe(true);
+  });
+
+  it('drops every call when nothing is nested in anything', () => {
+    const loners = [
+      call({ id: 'a', startMs: 0, durationMs: 100, source: 'external', service_name: null }),
+      call({ id: 'b', startMs: 5000, durationMs: 100, source: 'external', service_name: null }),
+    ];
+
+    expect(nestedCallIds(buildCallTree(loners)).size).toBe(0);
   });
 });
 

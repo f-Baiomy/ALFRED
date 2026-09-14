@@ -37,7 +37,7 @@ const VIEW_MODE_OPTIONS: readonly SelectOption[] = [
   { value: 'waterfall', label: 'Waterfall' },
 ];
 
-type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request';
+type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request' | 'nested';
 
 interface ActiveFilter {
   readonly key: ActiveFilterKey;
@@ -102,6 +102,9 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
    * and not group-by-supplier or show-OPTIONS, which change presentation rather than what matches.
    * Without this, a filter typed once and forgotten silently explains an empty list, since the ID
    * fields now live behind a popover instead of sitting permanently on screen.
+   *
+   * "Only nested" earns a chip on exactly that test: it lives behind the same overflow menu as
+   * show-OPTIONS but, unlike it, removes calls - and it can easily remove most of them.
    */
   readonly activeFilters = computed<readonly ActiveFilter[]>(() => {
     const chips: ActiveFilter[] = [];
@@ -113,6 +116,7 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
     if (operation) chips.push({ key: 'operation', label: `Operation: ${operation}` });
     const request = this.state.requestIdFilter();
     if (request) chips.push({ key: 'request', label: `Request: ${request}` });
+    if (this.state.nestedOnly()) chips.push({ key: 'nested', label: 'Only calls with nested calls' });
     return chips;
   });
 
@@ -129,6 +133,9 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
         return;
       case 'request':
         this.state.setRequestIdFilter('');
+        return;
+      case 'nested':
+        this.state.setNestedOnly(false);
         return;
     }
   }
@@ -202,6 +209,10 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
 
   toggleShowOptionsCalls(): void {
     this.state.toggleShowOptionsCalls();
+  }
+
+  toggleNestedOnly(): void {
+    this.state.setNestedOnly(!this.state.nestedOnly());
   }
 
   toggleExpanded(): void {

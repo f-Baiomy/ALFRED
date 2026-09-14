@@ -441,6 +441,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get showOptionsCalls() {
     return this.view.showOptionsCalls;
   }
+  get nestedOnly() {
+    return this.view.nestedOnly;
+  }
   get expanded() {
     return this.view.expanded;
   }
@@ -545,6 +548,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   toggleShowOptionsCalls(): void {
     this.view.toggleShowOptionsCalls();
+  }
+
+  setNestedOnly(value: boolean): void {
+    this.view.setNestedOnly(value);
   }
 
   setViewMode(mode: CallViewMode): void {

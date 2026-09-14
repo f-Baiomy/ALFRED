@@ -29,7 +29,19 @@
       @case ('nested') {
         <div class="calls-tree-list">
           @for (node of state.callTree(); track node.call.id) {
-            <app-call-tree-node [node]="node" />
+            <!-- Same reason as the flat list below: a root is built with its whole subtree only
+                 once it scrolls into view, so a page of them can't block the main thread at once.
+                 The placeholder is sized per subtree (see subtreePlaceholderPx) because one root
+                 may stand for one call and the next for a dozen. -->
+            @defer (on viewport) {
+              <app-call-tree-node [node]="node" />
+            } @placeholder {
+              <div
+                class="call-card-placeholder"
+                aria-hidden="true"
+                [style.height.px]="subtreePlaceholderPx(node)"
+              ></div>
+            }
           }
         </div>
       }
@@ -39,15 +51,42 @@
       @default {
         <div class="calls-flat-list" cdkDropList [cdkDropListDisabled]="!dragEnabled()" (cdkDropListDropped)="onDrop($event)">
           @for (row of state.visibleRows(); track trackByRowKey(row)) {
-            <app-call-card
-              [call]="row.call"
-              [variant]="row.variant"
-              [depth]="depthFor(row.call)"
-              (revealParent)="revealParent($event)"
-              [dragHandle]="dragEnabled()"
-              cdkDrag
-              [cdkDragDisabled]="!dragEnabled()"
-            />
+            <!--
+              Building a CallCardComponent costs ~8ms, so a full page of them blocks the main
+              thread for seconds at once: measured 400 cards = a single 3.3s block, during which
+              the browser cannot paint at all (which is what made cards appear half-drawn). The
+              card is only built once its row actually scrolls into view, so that cost is paid a
+              few cards at a time instead of all at once, and the page size stops deciding whether
+              the list is usable.
+
+              Deliberately NOT applied when dragging is enabled (session-cycle custom ordering):
+              cdkDropList has to measure every cdkDrag item to work out drop positions, and an
+              un-built card has nothing to measure.
+            -->
+            @if (dragEnabled()) {
+              <app-call-card
+                [call]="row.call"
+                [variant]="row.variant"
+                [depth]="depthFor(row.call)"
+                (revealParent)="revealParent($event)"
+                [dragHandle]="true"
+                cdkDrag
+              />
+            } @else {
+              @defer (on viewport) {
+                <app-call-card
+                  [call]="row.call"
+                  [variant]="row.variant"
+                  [depth]="depthFor(row.call)"
+                  (revealParent)="revealParent($event)"
+                  [dragHandle]="false"
+                />
+              } @placeholder {
+                <!-- Holds exactly a collapsed card's height so the scrollbar and scroll position
+                     are correct before anything is built - see .call-card-placeholder. -->
+                <div class="call-card-placeholder" aria-hidden="true"></div>
+              }
+            }
           }
         </div>
       }

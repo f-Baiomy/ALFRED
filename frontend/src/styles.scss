@@ -741,6 +741,25 @@ main {
   gap: 0.6rem;
 }
 
+/**
+ * Stands in for a call card that hasn't been built yet - see the @defer in
+ * call-list.component.html for why the cards are built as they scroll into view rather than all at
+ * once.
+ *
+ * The height must match a COLLAPSED card's, or the scrollbar lies and the page jumps as each card
+ * replaces its placeholder. Measured live: every collapsed card is exactly 144px regardless of
+ * content (only an EXPANDED card differs, and @defer never un-builds one, so an expanded card never
+ * returns to a placeholder). If the card's padding or line-height changes, this has to change with
+ * it - there is no way to derive one from the other in CSS.
+ */
+.call-card-placeholder {
+  height: 144px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  opacity: 0.35;
+}
+
 .empty,
 .error-box {
   color: var(--text-dim);

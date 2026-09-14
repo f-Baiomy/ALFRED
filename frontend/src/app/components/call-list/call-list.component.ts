@@ -4,7 +4,12 @@ import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/c
 import { CallRecord } from '../../core/models/call.model';
 import { PinService } from '../../core/services/pin.service';
 import { CallListRow, callKey } from '../../shared/utils/call-utils';
-import { CallDepthInfo } from '../../shared/utils/call-tree';
+import { CallDepthInfo, CallTreeNode } from '../../shared/utils/call-tree';
+
+/** A collapsed call card's height, measured live and identical for every card regardless of its
+ * content. Mirrors .call-card-placeholder's height in styles.scss - change one and you must change
+ * the other, since CSS can't derive it and this can't read it. */
+const COLLAPSED_CARD_HEIGHT_PX = 144;
 import { CallCardComponent } from '../call-card/call-card.component';
 import { CallTreeNodeComponent } from '../call-tree-node/call-tree-node.component';
 import { CallWaterfallComponent } from '../call-waterfall/call-waterfall.component';
@@ -38,6 +43,26 @@ export class CallListComponent {
 
   readonly trackByCallKey = callKey;
   readonly trackByRowKey = (row: CallListRow) => row.rowKey;
+
+  /**
+   * Height to reserve for a nested-view subtree that hasn't been built yet (see the @defer in the
+   * template, and .call-card-placeholder in styles.scss).
+   *
+   * A collapsed card is a uniform 144px whatever it contains - measured live across a full page, so
+   * a subtree's height is simply one card per call in it. The flat view can use a fixed placeholder
+   * for exactly that reason; the nested view can't, because one root may stand for a single call
+   * and the next for a dozen, and reserving 144px for both would make the scrollbar lie badly and
+   * the page jump as each subtree materialised.
+   *
+   * Deliberately an estimate, not a promise: nesting adds a little padding per level that this
+   * doesn't model. Being a few pixels out per subtree costs a small scroll adjustment as it builds;
+   * being 10x out (which a fixed height would be) costs a usable scrollbar.
+   */
+  subtreePlaceholderPx(node: CallTreeNode): number {
+    const countCalls = (n: CallTreeNode): number =>
+      1 + n.children.reduce((total, child) => total + countCalls(child), 0);
+    return countCalls(node) * COLLAPSED_CARD_HEIGHT_PX;
+  }
 
   /** Only the flat-depth view annotates its cards - the other two show depth structurally (see
    * CallViewMode), and a call with no proven relations gets nothing rather than a lone "L1". */
