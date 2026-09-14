@@ -373,16 +373,16 @@ def sync_wildfly_port_offset():
 
 
 def sync_env_from_settings():
-    """Reads reverse_proxy_enabled/internal_call_services from settings.properties and bakes
-    them into .env as COMPOSE_PROFILES/REVERSE_PROXY_ENABLED/INTERNAL_CALL_SERVICES/
-    FORWARD_PROXY_PORT_MAP - docker-compose.yml's reverse-proxy service only starts when the
-    "inbound-logging" profile is active (Compose reads COMPOSE_PROFILES from .env automatically,
-    no --profile flag needed) - many environments only ever need OUTBOUND logging (the
-    always-running "proxy" service) and have no inbound project to front, so this keeps
-    reverse-proxy from starting at all for them rather than starting an idle container. backend
-    reads REVERSE_PROXY_ENABLED to decide whether to report the feature as available at all
-    (hiding Settings' "Inbound logging" panel when it isn't), and INTERNAL_CALL_SERVICES either
-    way (the "name:listenPort:upstreamPort[:outboundProxyHost[:outboundProxyPort]]" list of every
+    """Bakes reverse_proxy_enabled/internal_call_services into .env as COMPOSE_PROFILES/
+    REVERSE_PROXY_ENABLED/INTERNAL_CALL_SERVICES/FORWARD_PROXY_PORT_MAP -
+    docker-compose.yml's reverse-proxy service only starts when the "inbound-logging" profile
+    is active (Compose reads COMPOSE_PROFILES from .env automatically, no --profile flag
+    needed) - many environments only ever need OUTBOUND logging (the always-running "proxy"
+    service) and have no inbound project to front, so this keeps reverse-proxy from starting at
+    all for them rather than starting an idle container. backend reads REVERSE_PROXY_ENABLED to
+    decide whether to report the feature as available at all (hiding Settings' "Inbound
+    logging" panel when it isn't), and INTERNAL_CALL_SERVICES either way (the
+    "name:listenPort:upstreamPort[:outboundProxyHost[:outboundProxyPort]]" list of every
     project reverse-proxy and/or proxy fronts - both docker-compose.yml services read this same
     variable, one source of truth). FORWARD_PROXY_PORT_MAP is derived from the same list's
     optional 4th/5th fields (see _forward_proxy_assignments()) and is independent of
@@ -390,13 +390,22 @@ def sync_env_from_settings():
     no feature flag of their own, since "proxy" always runs regardless. Must run AFTER
     ensure_backend_port(), not before - that function's own "does .env already exist" check
     would otherwise see the file this creates and skip picking a free BACKEND_PORT on a fresh
-    install. Merges into whatever .env already has (preserving BACKEND_PORT, etc.) rather than
-    overwriting it. Deploy-time flags, re-read on every start.py/restart.py run, not live - see
-    settings.properties's own comments; each project's logging on/off state (as opposed to
-    whether the feature/project LIST exists at all) is separately runtime-toggleable via the
-    Settings UI or toggle-wildfly-reverse-proxy.sh/.bat.
+    install.
 
-    Also (re)writes docker-compose.override.yml from the same list - see
+    Each of these settings is only ever taken from settings.properties to fill in a key .env
+    doesn't already have (env.setdefault, below) - .env, not settings.properties, is what's
+    actually running. This is what lets settings.properties be safely reset back to whatever's
+    committed (e.g. by "python3 deploy.py"'s "git reset --hard origin/<branch>", which discards
+    any local edits the same way it discards any other tracked file) without that reset ever
+    reverting an already-deployed setting: nothing already in .env gets overwritten, and a
+    setting added to settings.properties in a newer commit still gets adopted the first time
+    this deployment sees it (it isn't in .env yet, so its settings.properties default is used).
+    The flip side: to deliberately CHANGE a setting that's already running, edit .env directly,
+    or delete just that line from .env and re-run this script so it re-derives it from
+    settings.properties - editing settings.properties alone no longer does it for a setting
+    that's already been adopted once. See settings.properties's own header.
+
+    Also (re)writes docker-compose.override.yml from the effective list - see
     sync_compose_override() for why the proxy containers need an /etc/hosts entry per project
     hostname.
 
@@ -404,20 +413,23 @@ def sync_env_from_settings():
     this must happen before "docker compose up" (called right after this, in main()) ever brings
     reverse-proxy up wanting to own WildFly's usual port, or the two will fight over it."""
     settings = _parse_settings_properties()
-    reverse_proxy_enabled = settings.get("reverse_proxy_enabled", "false").strip().lower() == "true"
-    services = settings.get("internal_call_services", "").strip()
+    env = _read_env_file()
 
+    env.setdefault(
+        "REVERSE_PROXY_ENABLED",
+        "true" if settings.get("reverse_proxy_enabled", "false").strip().lower() == "true" else "false",
+    )
+    env.setdefault("INTERNAL_CALL_SERVICES", settings.get("internal_call_services", "").strip())
     # Outbound attribution (the "proxy" service's per-project forward-mode listeners) has no
     # feature flag of its own - it's independent of reverse_proxy_enabled, since "proxy" always
-    # runs regardless. So unlike INTERNAL_CALL_SERVICES/sync_compose_override's reverse-proxy
-    # half, this always uses the full, unfiltered services string.
-    forward_proxy_port_map = _forward_proxy_port_map_env(services)
+    # runs regardless. Derived from the EFFECTIVE (post-setdefault) services list, not
+    # settings.properties's raw one, so it never drifts from whichever list actually won above.
+    env.setdefault("FORWARD_PROXY_PORT_MAP", _forward_proxy_port_map_env(env["INTERNAL_CALL_SERVICES"]))
+    env.setdefault("INTERNAL_CALLS_RETENTION_ROWS", _inbound_retention_rows(settings))
 
-    env = _read_env_file()
-    env["REVERSE_PROXY_ENABLED"] = "true" if reverse_proxy_enabled else "false"
-    env["INTERNAL_CALL_SERVICES"] = services
-    env["FORWARD_PROXY_PORT_MAP"] = forward_proxy_port_map
-    env["INTERNAL_CALLS_RETENTION_ROWS"] = _inbound_retention_rows(settings)
+    reverse_proxy_enabled = env["REVERSE_PROXY_ENABLED"].strip().lower() == "true"
+    services = env["INTERNAL_CALL_SERVICES"]
+
     if reverse_proxy_enabled:
         env["COMPOSE_PROFILES"] = "inbound-logging"
     else:
@@ -425,8 +437,8 @@ def sync_env_from_settings():
     _write_env_file(env)
 
     print(f"Inbound logging feature: {'enabled' if reverse_proxy_enabled else 'disabled'}, "
-          f"projects: {services or '(none configured)'} (settings.properties - edit and re-run to change)")
-    print(f"Outbound attribution: {forward_proxy_port_map or '(none configured)'}")
+          f"projects: {services or '(none configured)'} (from .env - delete its line there, or edit .env directly, to change an already-adopted setting)")
+    print(f"Outbound attribution: {env['FORWARD_PROXY_PORT_MAP'] or '(none configured)'}")
     print(f"Inbound call retention: {env['INTERNAL_CALLS_RETENTION_ROWS']} calls kept in the live list")
 
     sync_compose_override(services, reverse_proxy_enabled)

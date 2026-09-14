@@ -331,21 +331,31 @@ def sync_wildfly_port_offset():
 
 
 def sync_env_from_settings():
-    """Same as start.py's function of the same name - see its docstring. Also needed here (not
+    """Same as start.py's function of the same name - see its docstring, in particular why each
+    setting is only ever taken from settings.properties to fill in a key .env doesn't already
+    have (env.setdefault), never to overwrite one that's already running. Also needed here (not
     just in start.py) since restart.py is a valid standalone entry point, e.g. after hand-editing
-    settings.properties on an already-running deployment. Must run AFTER ensure_backend_port().
-    Also bakes in FORWARD_PROXY_PORT_MAP (the "proxy" service's per-project outbound-attribution
-    listeners) - independent of reverse_proxy_enabled, since that feature has no flag of its own."""
+    settings.properties on an already-running deployment - in which case, per that same rule,
+    also delete the specific .env line(s) for whatever you just changed, or the edit won't take
+    effect. Must run AFTER ensure_backend_port(). Also bakes in FORWARD_PROXY_PORT_MAP (the
+    "proxy" service's per-project outbound-attribution listeners) - independent of
+    reverse_proxy_enabled, since that feature has no flag of its own."""
     settings = _parse_settings_properties()
-    reverse_proxy_enabled = settings.get("reverse_proxy_enabled", "false").strip().lower() == "true"
-    services = settings.get("internal_call_services", "").strip()
-    forward_proxy_port_map = _forward_proxy_port_map_env(services)
-
     env = _read_env_file()
-    env["REVERSE_PROXY_ENABLED"] = "true" if reverse_proxy_enabled else "false"
-    env["INTERNAL_CALL_SERVICES"] = services
-    env["FORWARD_PROXY_PORT_MAP"] = forward_proxy_port_map
-    env["INTERNAL_CALLS_RETENTION_ROWS"] = _inbound_retention_rows(settings)
+
+    env.setdefault(
+        "REVERSE_PROXY_ENABLED",
+        "true" if settings.get("reverse_proxy_enabled", "false").strip().lower() == "true" else "false",
+    )
+    env.setdefault("INTERNAL_CALL_SERVICES", settings.get("internal_call_services", "").strip())
+    # Derived from the EFFECTIVE (post-setdefault) services list, not settings.properties's raw
+    # one, so it never drifts from whichever list actually won above.
+    env.setdefault("FORWARD_PROXY_PORT_MAP", _forward_proxy_port_map_env(env["INTERNAL_CALL_SERVICES"]))
+    env.setdefault("INTERNAL_CALLS_RETENTION_ROWS", _inbound_retention_rows(settings))
+
+    reverse_proxy_enabled = env["REVERSE_PROXY_ENABLED"].strip().lower() == "true"
+    services = env["INTERNAL_CALL_SERVICES"]
+
     if reverse_proxy_enabled:
         env["COMPOSE_PROFILES"] = "inbound-logging"
     else:
@@ -353,8 +363,8 @@ def sync_env_from_settings():
     _write_env_file(env)
 
     print(f"Inbound logging feature: {'enabled' if reverse_proxy_enabled else 'disabled'}, "
-          f"projects: {services or '(none configured)'} (settings.properties - edit and re-run to change)")
-    print(f"Outbound attribution: {forward_proxy_port_map or '(none configured)'}")
+          f"projects: {services or '(none configured)'} (from .env - delete its line there, or edit .env directly, to change an already-adopted setting)")
+    print(f"Outbound attribution: {env['FORWARD_PROXY_PORT_MAP'] or '(none configured)'}")
     print(f"Inbound call retention: {env['INTERNAL_CALLS_RETENTION_ROWS']} calls kept in the live list")
 
     sync_compose_override(services, reverse_proxy_enabled)
