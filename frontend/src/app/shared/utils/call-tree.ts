@@ -156,6 +156,39 @@ function canOwnWindow(parent: CallWindow, child: CallWindow): boolean {
   return child.service === parent.service;
 }
 
+/**
+ * Whether `outer`'s window STRICTLY encloses `inner`'s, one-directionally. Identical windows enclose
+ * each other, which is ambiguity rather than nesting, so that returns false.
+ *
+ * This asks ONLY about time, with none of canOwnWindow's attribution rules, and that distinction is
+ * the whole point: the two questions are different. "Who may this call be attributed to" has to
+ * refuse an internal call owning another internal call of the SAME service (a service does not call
+ * itself through Alfred). "Are these two owners nested, or do they merely overlap" is a question
+ * about position alone - two odeysys calls, one literally inside the other, are a perfectly nested
+ * chain no matter what the attribution rule says about them.
+ *
+ * Using canOwnWindow here (which is what this used to do) conflated them, and the result was that a
+ * real parent got thrown away as ambiguous. Measured on a live session cycle: a 193-SECOND
+ * `GET /Master2/airline/?status=1` (service odeysys) spans most of the capture, so an external
+ * supplier call had two owners - that long call, and the 5.9s `POST get-upselling-flights` (also
+ * odeysys) that genuinely made it. Asking canOwn whether the long call owns the short one returns
+ * false purely because they share a service, so the owners did not look like a chain, so the veto
+ * fired and the supplier call was orphaned to the root - even though one owner is plainly inside the
+ * other. This is also why the bug showed up in session cycles and not on the dashboard: cycles
+ * disable server-side pagination and load the WHOLE capture, so the long-running call is always
+ * present to trigger it, while a 10/25/50-row dashboard page usually does not contain it.
+ *
+ * call-utils.ts's computeSplitCallIds has always used strict containment for its identical veto
+ * (see strictlyContainsCall); this is the tree catching back up to it, so the tree views and the
+ * split/exports can't disagree about whose downstream work a call was.
+ */
+function strictlyContainsWindow(outer: CallWindow, inner: CallWindow): boolean {
+  if (outer.call.id === inner.call.id) return false;
+  const innerFitsInOuter = inner.start >= outer.start && inner.end <= outer.end;
+  const outerFitsInInner = outer.start >= inner.start && outer.end <= inner.end;
+  return innerFitsInOuter && !outerFitsInInner;
+}
+
 /** Title-cases a service name for display the same way sourceLabelOf does ('odeysys' -> 'Odeysys'). */
 function serviceLabel(call: CallRecord): string {
   const name = call.service_name ?? '';
@@ -182,11 +215,8 @@ function resolveParentWindow(child: CallWindow, windows: readonly CallWindow[]):
   if (owners.length === 0) return { parent: null, ambiguous: false };
 
   const innermost = owners.reduce((best, candidate) => (candidate.durationMs < best.durationMs ? candidate : best));
-  // canOwn in BOTH directions means identical windows, which is ambiguity rather than nesting - so
-  // a chain requires the containment to be one-directional.
-  const chained = owners.every(
-    (owner) => owner.call.id === innermost.call.id || (canOwnWindow(owner, innermost) && !canOwnWindow(innermost, owner))
-  );
+  // Pure WINDOW containment, deliberately not canOwnWindow - see strictlyContainsWindow.
+  const chained = owners.every((owner) => owner.call.id === innermost.call.id || strictlyContainsWindow(owner, innermost));
   return chained ? { parent: innermost.call, ambiguous: false } : { parent: null, ambiguous: true };
 }
 

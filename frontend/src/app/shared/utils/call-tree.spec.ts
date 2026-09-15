@@ -1,4 +1,5 @@
 import { CallRecord, SortMode } from '../../core/models/call.model';
+import { splitCallsForDisplay } from './call-utils';
 import { buildCallTree, depthRailPx, depthRails, depthTintClass, foldableIds, indexCallTree, indexDescendants, isTreeSortMode, nestedCallIds, requiresChronologicalSort } from './call-tree';
 
 /** Start times are ms offsets from this instant, so a test reads as "starts at +4s, runs 2s". */
@@ -200,6 +201,83 @@ describe('foldableIds', () => {
   it('names only the calls that have something to fold', () => {
     // The three suppliers are leaves: folding one would hide nothing and then need cleaning up.
     expect(foldableIds(buildCallTree(chainFixture()))).toEqual(['odeysys', 'core']);
+  });
+});
+
+describe('a long-running same-service call must not orphan a real parent', () => {
+  /**
+   * The live shape this was found on (session cycle 456c336f): a 193-SECOND
+   * `GET /Master2/airline/?status=1` on service odeysys spans most of the capture, so it contains
+   * BOTH the 5.9s `POST get-upselling-flights` (odeysys) and the supplier call that POST actually
+   * made. Two owners - but one is plainly inside the other, so this is a chain, not ambiguity.
+   */
+  function longRunningFixture(): CallRecord[] {
+    return [
+      call({ id: 'long-poll', startMs: 0, durationMs: 193133, service_name: 'odeysys' }),
+      call({ id: 'real-parent', startMs: 135000, durationMs: 5944, service_name: 'odeysys' }),
+      call({ id: 'supplier', startMs: 136321, durationMs: 3440, source: 'external', service_name: null }),
+    ];
+  }
+
+  it('attributes the supplier call to the call that made it, not to the root', () => {
+    const tree = buildCallTree(longRunningFixture());
+
+    // long-poll and real-parent stay SIBLINGS - one odeysys call never nests under another (a
+    // service does not call itself through Alfred). What matters is that the supplier call lands
+    // under real-parent instead of becoming a third root, which is what it did before the fix: the
+    // chain test used canOwn, which refuses one odeysys call owning another, so the two owners did
+    // not look nested, the veto fired, and a real parent was thrown away.
+    expect(tree.map((n) => n.call.id)).toEqual(['long-poll', 'real-parent']);
+    const realParent = tree.find((n) => n.call.id === 'real-parent')!;
+    expect(realParent.children.map((c) => c.call.id)).toEqual(['supplier']);
+  });
+
+  it('does not flag it as ambiguous', () => {
+    const depths = indexCallTree(longRunningFixture());
+
+    expect(depths.get('supplier')!.ambiguous).toBe(false);
+    expect(depths.get('supplier')!.parentLabel).toBe('Odeysys');
+    expect(depths.get('supplier')!.parentId).toBe('real-parent');
+    expect(depths.get('supplier')!.depth).toBe(1);
+  });
+
+  it('still vetoes owners that merely OVERLAP, which is what ambiguity actually means', () => {
+    // Neither of these two contains the other, and both contain the supplier call - there is no way
+    // to tell whose work it was, so it takes no parent and is flagged. This is the case the veto is
+    // for, and it must keep working.
+    const overlapping = [
+      call({ id: 'a', startMs: 0, durationMs: 5000, service_name: 'odeysys' }),
+      call({ id: 'b', startMs: 1000, durationMs: 5000, service_name: 'core-service' }),
+      call({ id: 'supplier', startMs: 2000, durationMs: 500, source: 'external', service_name: null }),
+    ];
+
+    const tree = buildCallTree(overlapping);
+    expect(tree.some((n) => n.call.id === 'supplier')).toBe(true);
+    expect(indexCallTree(overlapping).get('supplier')!.ambiguous).toBe(true);
+  });
+
+  it('agrees with the split algorithm, which has always used strict containment', () => {
+    // The tree and the flat view's request/response split must never disagree about whose
+    // downstream work a call was - see the mirror-per-consumer convention in call-utils.ts. This is
+    // the pair that had drifted: the split got this fixture right the whole time.
+    const calls = longRunningFixture();
+    const candidates = calls.map((c) => ({
+      id: c.id,
+      timestamp: c.timestamp,
+      durationMs: c.duration_ms ?? 0,
+      source: c.source ?? 'external',
+      serviceName: c.service_name ?? null,
+      status: c.response?.status,
+    }));
+
+    // 'real-parent' is bracketed into a request half and a response half, which happens exactly when
+    // the split finds it owns something.
+    const rows = splitCallsForDisplay(calls, 'oldest-call', candidates as never, 'all');
+    expect(rows.filter((r) => r.call.id === 'real-parent').map((r) => r.variant).sort()).toEqual(['request', 'response']);
+
+    // ...and the tree now says the same.
+    const realParent = buildCallTree(calls).find((n) => n.call.id === 'real-parent')!;
+    expect(realParent.children.map((c) => c.call.id)).toEqual(['supplier']);
   });
 });
 
