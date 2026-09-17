@@ -59,6 +59,13 @@ export class ExportDialogComponent {
   readonly reportFormat = signal<ReportFormat>('markdown');
 
   readonly copyFeedback = signal(false);
+  readonly exportFeedback = signal(false);
+  /** Which formats have been downloaded from this dialog session - drives the "Close" label and the hint, and resets when a new export opens (see the effect below). */
+  private readonly exportedFormats = signal<ReadonlySet<ExportFormat>>(new Set());
+  readonly hasExported = computed(() => this.exportedFormats().size > 0);
+  readonly exportedLabel = computed(() =>
+    [...this.exportedFormats()].map((f) => ExportDialogComponent.FORMAT_EXTENSIONS[f]).join(' and ')
+  );
   readonly discordCopyFeedback = signal(false);
 
   private static readonly FORMAT_LABELS: Record<ExportFormat, string> = { markdown: 'Markdown', json: 'JSON', html: 'HTML', postman: 'Postman Collection' };
@@ -93,6 +100,8 @@ export class ExportDialogComponent {
         this.environment.set('Staging');
         this.description.set('');
         this.fileName.set('');
+        this.exportedFormats.set(new Set());
+        this.exportFeedback.set(false);
         this.reportFormat.set(current.format === 'html' ? 'html' : 'markdown');
       },
       { allowSignalWrites: true }
@@ -111,6 +120,14 @@ export class ExportDialogComponent {
     this.dialogService.close();
   }
 
+  /**
+   * Deliberately does NOT close the dialog. One capture is routinely exported more than once - the
+   * .md for a ticket and the .html for someone to actually read, or a second go after correcting a
+   * metadata field - and closing on the first click made each of those a full re-open: reselect the
+   * calls, reopen the dialog, retype the form. Since nothing visibly happens when a browser saves a
+   * file, the button has to say so itself, or the dialog staying put reads as the export having
+   * failed.
+   */
   confirmExport(): void {
     const built = this.buildContent(this.effectiveFormat());
     if (!built) return;
@@ -121,7 +138,9 @@ export class ExportDialogComponent {
       downloadText(built.content, built.filename, built.mimeType);
     }
 
-    this.close();
+    this.exportedFormats.update((formats) => new Set([...formats, this.effectiveFormat()]));
+    this.exportFeedback.set(true);
+    setTimeout(() => this.exportFeedback.set(false), 1600);
   }
 
   /** Always copies Markdown, even when the dialog's toggle is currently on HTML - HTML export is

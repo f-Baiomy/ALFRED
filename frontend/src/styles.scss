@@ -3143,6 +3143,10 @@ mark.hl.active {
 .dialog-redacted-note {
   color: var(--red);
 }
+
+.dialog-exported-note {
+  color: var(--green);
+}
 .import-dropzone {
   border: 2px dashed var(--border);
   border-radius: 10px;

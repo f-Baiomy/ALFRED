@@ -15,6 +15,11 @@
           &#9873; {{ totalFlaggedCount() }} flagged issue{{ totalFlaggedCount() === 1 ? '' : 's' }} will be included in the export.
         </p>
       }
+      @if (hasExported()) {
+        <p class="dialog-sub dialog-exported-note">
+          &#10003; Saved {{ exportedLabel() }}. The dialog stays open so you can export another format or adjust the fields above.
+        </p>
+      }
       @if (redactedValueCount() > 0) {
         <p class="dialog-sub dialog-redacted-note">
           &#9673; {{ redactedValueCount() }} value{{ redactedValueCount() === 1 ? '' : 's' }} you hid will be masked in this export.
@@ -79,14 +84,14 @@
       }
 
       <div class="dialog-actions">
-        <button type="button" class="dialog-btn secondary" (click)="close()">Cancel</button>
+        <button type="button" class="dialog-btn secondary" (click)="close()">{{ hasExported() ? 'Close' : 'Cancel' }}</button>
         <button type="button" class="dialog-btn secondary" (click)="copyAsDiscordReport()">
           {{ discordCopyFeedback() ? 'Copied!' : 'Copy Discord Report' }}
         </button>
         <button type="button" class="dialog-btn secondary" (click)="copyToClipboard()">
           {{ copyFeedback() ? 'Copied!' : 'Copy to Clipboard' }}
         </button>
-        <button type="button" class="dialog-btn primary" (click)="confirmExport()">Export {{ formatExtension() }}</button>
+        <button type="button" class="dialog-btn primary" (click)="confirmExport()">{{ exportFeedback() ? 'Saved!' : 'Export ' + formatExtension() }}</button>
       </div>
     </div>
   </div>
