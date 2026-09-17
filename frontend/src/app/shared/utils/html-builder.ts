@@ -132,7 +132,11 @@ function jsonBlockConfig(id: string, text: string | undefined, lineComments: rea
 }
 
 function jsonBlockHtml(config: JsonBlockConfig, label: string, open: boolean): string {
-  return `<details class="json-block" data-block-id="${config.id}"${open ? ' open' : ''}><summary>${escapeHtml(label)}</summary></details>`;
+  // Stated up front because a block is no longer rendered until it is opened, and some are very
+  // large indeed (a measured 110,152-line response body) - worth knowing before you open one.
+  const lineCount = config.text === '' ? 0 : config.text.split('\n').length;
+  const meta = `<span class="json-block-meta">${lineCount.toLocaleString('en-US')} line${lineCount === 1 ? '' : 's'}</span>`;
+  return `<details class="json-block" data-block-id="${config.id}"${open ? ' open' : ''}><summary>${escapeHtml(label)}${meta}</summary></details>`;
 }
 
 const STYLE = `
@@ -187,6 +191,7 @@ summary.call-summary::-webkit-details-marker { display: none; }
 .json-block summary::-webkit-details-marker { display: none; }
 .json-block summary::before { content: "▸ "; }
 .json-block[open] summary::before { content: "▾ "; }
+.json-block-meta { float: right; font-weight: 400; color: var(--text-faint); font-size: 0.78rem; }
 .json-toolbar { display: flex; gap: 6px; align-items: center; padding: 0 0.9rem 0.6rem; }
 .json-toolbar input[type="text"] { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 6px; font-size: 12px; outline: none; }
 .json-toolbar input[type="text"]:focus { border-color: var(--border-strong); }
@@ -195,6 +200,8 @@ summary.call-summary::-webkit-details-marker { display: none; }
 .json-toolbar button:hover { border-color: var(--border-strong); background: rgba(139, 92, 246, 0.22); }
 .json-toolbar .copy-btn { background: rgba(139, 92, 246, 0.18); border-color: var(--border-strong); }
 .json-lines { background: var(--card-inner); margin: 0 0.9rem 0.9rem; border-radius: 8px; padding: 8px 4px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.7; overflow-x: auto; }
+/* Only a block past VIRTUAL_MIN_LINES becomes its own scroller. Bounding the height is what gives the render window a viewport to measure against, and it also stops a six-figure-line body from burying the rest of the document. */
+.json-lines-virtual { max-height: 60vh; overflow-y: auto; }
 .json-line { display: flex; align-items: flex-start; gap: 6px; padding: 0 6px; border-radius: 4px; }
 .json-line.has-comment { background: rgba(251, 191, 36, 0.07); border-left: 2px solid rgba(251, 191, 36, 0.5); }
 .json-line-num { min-width: 1.8em; text-align: right; color: var(--text-faint); user-select: none; }
@@ -287,11 +294,33 @@ function showToast(message) {
   toast.classList.add('show');
   setTimeout(function () { toast.classList.remove('show'); }, 1500);
 }
-function initJsonBlock(config) {
-  var block = document.querySelector('[data-block-id="' + config.id + '"]');
-  if (!block) return;
+/* Above this many lines a block switches from "render the whole thing" to a real render window:
+   a fixed-height scroller that only ever materialises the rows actually on screen. Below it, a block
+   renders in full exactly as it always did, so a normal header or a small body looks and behaves
+   unchanged - windowing only turns on where it is needed. */
+var VIRTUAL_MIN_LINES = 400;
+var OVERSCAN = 20;
+
+function buildBlock(block, config) {
   var lines = config.text.split('\\n');
-  var matches = [], active = 0;
+  var matches = [], active = 0, query = '';
+  var start = 0, end = 0;
+  var virtual = lines.length > VIRTUAL_MIN_LINES;
+  var lineH = 0;
+
+  /* Every .json-line is exactly one row tall - .json-line-content is white-space:pre and the
+     container scrolls horizontally, so nothing ever wraps. That uniformity is what makes the window
+     arithmetic below exact rather than an estimate. A flagged line is the one exception: it also
+     renders a comment card of unpredictable height, so those are measured after paint and folded
+     into the offsets (see measureCards). Flagged lines are rare, which is why a plain loop over them
+     is cheaper than a full prefix-sum table. */
+  var commentLines = [];
+  for (var key in config.comments) {
+    if (Object.prototype.hasOwnProperty.call(config.comments, key)) commentLines.push(parseInt(key, 10));
+  }
+  commentLines.sort(function (a, b) { return a - b; });
+  var cardH = {};
+  for (var ci = 0; ci < commentLines.length; ci++) cardH[commentLines[ci]] = 34;
 
   var toolbar = document.createElement('div');
   toolbar.className = 'json-toolbar';
@@ -304,55 +333,135 @@ function initJsonBlock(config) {
   block.appendChild(toolbar);
 
   var linesEl = document.createElement('div');
-  linesEl.className = 'json-lines';
+  linesEl.className = 'json-lines' + (virtual ? ' json-lines-virtual' : '');
+  var rowsEl = document.createElement('div');
+  rowsEl.className = 'json-rows';
+  linesEl.appendChild(rowsEl);
   block.appendChild(linesEl);
 
   var searchEl = toolbar.querySelector('.json-search');
   var countEl = toolbar.querySelector('.json-match-count');
 
-  function render(query) {
-    linesEl.innerHTML = '';
-    matches = [];
-    lines.forEach(function (text, i) {
-      if (query && text.toLowerCase().indexOf(query.toLowerCase()) > -1) matches.push(i);
-      var row = document.createElement('div');
-      row.className = 'json-line' + (config.comments[i] ? ' has-comment' : '');
-
-      var num = document.createElement('span');
-      num.className = 'json-line-num';
-      num.textContent = i + 1;
-
-      var flag = document.createElement('span');
-      flag.className = 'json-line-flag' + (config.comments[i] ? '' : ' hidden');
-      flag.textContent = '+';
-
-      var content = document.createElement('span');
-      content.className = 'json-line-content';
-      content.innerHTML = tokensToHtml(tokenizeLine(text), query);
-
-      row.appendChild(num);
-      row.appendChild(flag);
-      row.appendChild(content);
-      linesEl.appendChild(row);
-
-      if (config.comments[i]) {
-        var card = document.createElement('div');
-        card.className = 'json-comment-card';
-        card.textContent = config.comments[i];
-        linesEl.appendChild(card);
-      }
-    });
-    countEl.textContent = query ? (matches.length ? (active + 1) + '/' + matches.length : '0/0') : '';
+  /* One HTML string per window, instead of createElement per line and per token. */
+  function rowHtml(i) {
+    var comment = config.comments[i];
+    var html = '<div class="json-line' + (comment ? ' has-comment' : '') + '" data-line="' + i + '">' +
+      '<span class="json-line-num">' + (i + 1) + '</span>' +
+      '<span class="json-line-flag' + (comment ? '' : ' hidden') + '">+</span>' +
+      '<span class="json-line-content">' + tokensToHtml(tokenizeLine(lines[i]), query) + '</span>' +
+      '</div>';
+    if (comment) html += '<div class="json-comment-card" data-card="' + i + '">' + escapeHtml(comment) + '</div>';
+    return html;
+  }
+  function chunkHtml(from, to) {
+    var out = [];
+    for (var i = from; i < to; i++) out.push(rowHtml(i));
+    return out.join('');
   }
 
-  searchEl.addEventListener('input', function () { active = 0; render(searchEl.value); });
+  function extraBefore(i) {
+    var sum = 0;
+    for (var k = 0; k < commentLines.length && commentLines[k] < i; k++) sum += cardH[commentLines[k]];
+    return sum;
+  }
+  function offsetOf(i) { return i * lineH + extraBefore(i); }
+  function totalHeight() { return lines.length * lineH + extraBefore(lines.length); }
+  function firstVisible(scrollTop) {
+    var lo = 0, hi = lines.length - 1;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (offsetOf(mid + 1) <= scrollTop) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  }
+
+  /* A comment card's real height is only knowable once it is in the document. Correcting it here
+     keeps the scrollbar honest instead of drifting by however far the estimate was off. */
+  function measureCards() {
+    var changed = false;
+    var cards = rowsEl.querySelectorAll('[data-card]');
+    for (var i = 0; i < cards.length; i++) {
+      var idx = parseInt(cards[i].getAttribute('data-card'), 10);
+      var h = cards[i].offsetHeight;
+      if (h > 0 && h !== cardH[idx]) { cardH[idx] = h; changed = true; }
+    }
+    return changed;
+  }
+  function applyPadding() {
+    rowsEl.style.paddingTop = offsetOf(start) + 'px';
+    rowsEl.style.paddingBottom = Math.max(0, totalHeight() - offsetOf(end)) + 'px';
+  }
+
+  function renderWindow(force) {
+    if (!virtual) {
+      start = 0; end = lines.length;
+      rowsEl.innerHTML = chunkHtml(0, lines.length);
+      updateCount();
+      return;
+    }
+    var viewport = linesEl.clientHeight || 400;
+    var first = Math.max(0, firstVisible(linesEl.scrollTop) - OVERSCAN);
+    var count = Math.ceil(viewport / lineH) + OVERSCAN * 2;
+    var last = Math.min(lines.length, first + count);
+    if (!force && first === start && last === end) return;
+    start = first; end = last;
+    rowsEl.innerHTML = chunkHtml(start, end);
+    if (measureCards()) applyPadding(); else applyPadding();
+    updateCount();
+  }
+
+  function updateCount() {
+    countEl.textContent = query
+      ? (matches.length ? (active + 1) + '/' + matches.length : '0/0')
+      : (lines.length + ' lines');
+  }
+
+  /* Matching scans the raw strings, never the DOM, so the count is exact across the WHOLE body even
+     though only a screenful of it is rendered. A case-insensitive RegExp rather than
+     lines[i].toLowerCase().indexOf(q): the latter allocates a lowercased copy of every line on every
+     search, which on a 110k-line body is 110k throwaway strings and most of the cost. */
+  function recomputeMatches() {
+    matches = [];
+    if (!query) return;
+    var re = new RegExp(query.replace(/[-.*+?^{}()|[\\]\\\\$]/g, '\\\\$&'), 'i');
+    for (var i = 0; i < lines.length; i++) {
+      if (re.test(lines[i])) matches.push(i);
+    }
+  }
+  function revealActive() {
+    if (!matches.length) { renderWindow(true); return; }
+    var line = matches[active];
+    if (virtual) {
+      linesEl.scrollTop = Math.max(0, offsetOf(line) - linesEl.clientHeight / 2);
+      renderWindow(true);
+    } else {
+      renderWindow(true);
+      var row = rowsEl.querySelector('[data-line="' + line + '"]');
+      if (row && row.scrollIntoView) row.scrollIntoView({ block: 'center' });
+    }
+  }
+  function runSearch() {
+    query = searchEl.value;
+    active = 0;
+    recomputeMatches();
+    revealActive();
+    updateCount();
+  }
+  /* Debounced: a keystroke used to re-render the entire block synchronously - measured at 5.6s per
+     character on a 110k-line body. */
+  var searchTimer = null;
+  searchEl.addEventListener('input', function () {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, 150);
+  });
   toolbar.querySelector('.json-next').addEventListener('click', function () {
-    if (matches.length) { active = (active + 1) % matches.length; render(searchEl.value); }
+    if (matches.length) { active = (active + 1) % matches.length; revealActive(); updateCount(); }
   });
   toolbar.querySelector('.json-prev').addEventListener('click', function () {
-    if (matches.length) { active = (active - 1 + matches.length) % matches.length; render(searchEl.value); }
+    if (matches.length) { active = (active - 1 + matches.length) % matches.length; revealActive(); updateCount(); }
   });
   toolbar.querySelector('.json-copy').addEventListener('click', function (e) {
+    // Always the COMPLETE block, never just the window on screen - an export never truncates.
     var annotated = lines.map(function (line, i) {
       return config.comments[i] ? (line + '  // FLAGGED: ' + config.comments[i]) : line;
     });
@@ -368,7 +477,53 @@ function initJsonBlock(config) {
     });
   });
 
-  render('');
+  if (virtual) {
+    // One real row, measured rather than derived from the stylesheet, so a browser's own rounding of
+    // font-size x line-height cannot put the window slightly out of step with the scrollbar.
+    rowsEl.innerHTML = '<div class="json-line" data-line="0"><span class="json-line-num">1</span>' +
+      '<span class="json-line-flag hidden">+</span><span class="json-line-content">x</span></div>';
+    lineH = rowsEl.firstChild.offsetHeight || 21;
+    var ticking = false;
+    linesEl.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () { ticking = false; renderWindow(false); });
+    });
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(function () { renderWindow(true); }).observe(linesEl);
+    }
+  }
+  renderWindow(true);
+}
+
+/* Nothing inside a block is built until that block is actually opened.
+   Every block sits in a <details>, and they start CLOSED - yet this used to render all of them at
+   load, so a file spent its entire opening cost on content nobody could see. Measured on a real
+   6.6MB 8-call export: 1,300,952 DOM elements and 170,608 rendered lines before the first paint,
+   3.6s to open and 5.6s per keystroke in the search box. */
+function initJsonBlock(config) {
+  var block = document.querySelector('[data-block-id="' + config.id + '"]');
+  if (!block) return;
+  var built = false;
+  function build() {
+    if (built) return;
+    built = true;
+    buildBlock(block, config);
+  }
+  block.addEventListener('toggle', function () { if (block.open) build(); });
+  if (!block.open) return;
+  // A block that ships open still waits until it is scrolled to, so a long document does not pay for
+  // every one of them up front either.
+  if (typeof IntersectionObserver === 'function') {
+    var io = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting) { io.disconnect(); build(); return; }
+      }
+    }, { rootMargin: '200px' });
+    io.observe(block);
+  } else {
+    build();
+  }
 }
 JSON_BLOCKS.forEach(initJsonBlock);
 `;
