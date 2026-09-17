@@ -157,6 +157,48 @@ describe('parseImportedCalls', () => {
     });
   });
 
+  /**
+   * The .json export is both the agent-facing document AND the re-import format, so the two can
+   * pull in opposite directions: `about` exists to be read, `events` exists to be parsed back. These
+   * pin the boundary - the importer must never come to depend on `about`, so narrative wording can
+   * be improved freely without anyone having to re-test importing.
+   */
+  describe('the importer ignores about/metadata/summary entirely', () => {
+    it('imports identically with the whole narrative stripped out', () => {
+      const { payload, result } = roundTrip(nestedFixture());
+      const stripped = parseImportedCalls({ events: payload.events });
+
+      expect(stripped.calls).toEqual(result.calls as CallRecord[]);
+      expect(stripped.inferredDirectionCount).toBe(0);
+      expect(stripped.skippedCount).toBe(0);
+    });
+
+    it('imports identically when the reading guide changes', () => {
+      const { payload, result } = roundTrip(nestedFixture());
+      const reworded = {
+        ...payload,
+        about: { ...payload.about, readingGuide: { topology: 'x', events: 'y', nesting: 'z', comments: 'w' } },
+      };
+
+      expect(parseImportedCalls(reworded).calls).toEqual(result.calls as CallRecord[]);
+    });
+
+    it('still names about.topology as the structural entry point', () => {
+      // Guards the actual point of the guide: an agent told to iterate `events` sees two half-calls
+      // for every split call, which is the same mistake the old importer made.
+      const { payload } = roundTrip(nestedFixture());
+      const guide = payload.about.readingGuide;
+
+      expect(guide.topology).toContain('about.topology');
+      expect(guide.events).toContain('callId');
+      expect(payload.about.topology.length).toBe(1);
+      expect(payload.about.topology[0].children.length).toBe(1);
+      // topology counts CALLS; events counts request/response halves - they must not be confused.
+      expect(payload.about.counts.calls).toBe(2);
+      expect(payload.events.length).toBe(3);
+    });
+  });
+
   describe('other shapes', () => {
     it('still accepts a bare array of call-shaped objects', () => {
       const result = parseImportedCalls([{ id: 'a', url: 'http://x/a', method: 'GET', source: 'external' }]);

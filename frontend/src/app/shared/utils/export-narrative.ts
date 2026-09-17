@@ -133,7 +133,16 @@ export interface ExportNarrative {
   /** Why a call can appear twice in the list - null when nothing in this export was split. */
   readonly orderingNote: string | null;
   readonly commentsNote: string;
+  /**
+   * How to read this payload, for a consumer that wasn't there - in practice an AI agent handed the
+   * .json. `topology` comes first because it is the answer to almost every structural question, and
+   * because the obvious alternative (iterate `events`) is a trap: see its entry.
+   *
+   * Only the .json export carries this - the .md/.html builders render the prose fields instead, and
+   * an `events` array is a thing only the .json payload has.
+   */
   readonly readingGuide: {
+    readonly topology: string;
     readonly events: string;
     readonly nesting: string;
     readonly comments: string;
@@ -630,8 +639,10 @@ function notIncludedFor(call: CallRecord, candidates: readonly CallOverlapCandid
 }
 
 const READING_GUIDE = {
+  topology:
+    'START HERE for anything structural. about.topology is the call graph: one node per call, already merged and already nested, in the order the calls were made. Each node carries callId, number, depth, direction (inbound|outbound), service, host, method, path, durationMs, downstreamMs (time spent waiting on nested calls, with overlapping children counted once), selfMs (durationMs minus downstreamMs, i.e. this call\'s own work), status, error, inProgress and children. It is self-contained: use it for who called whom, how deep, and where the time went. Drop down to events only when you need an actual request or response payload, and match on callId.',
   events:
-    'One event per request/response, in true chronological order. An inbound call with downstream work emits a separate "request" and "response" event sharing the same callId; group by callId to reconstruct the call. An outbound call always emits a single "call" event.',
+    'The payloads. One event per request/response, in true chronological order. CAUTION: an inbound call with downstream work emits TWO events sharing one callId - a "request" event carrying url/method/request, and a "response" event carrying status/duration_ms/response and NO url or method. Group by callId and merge before treating an event as a call, or that call reads as two half-calls, one of them urlless. There are therefore more events than calls: about.counts.calls and about.topology are authoritative for how many calls this export contains. An outbound call always emits a single "call" event.',
   nesting:
     'Derived from time containment plus service attribution, not from trace headers: a call is shown inside another when its whole window falls within it and a different service made it. A call that two overlapping calls could equally claim is left at top level and flagged as ambiguous rather than guessed into a subtree.',
   comments:
