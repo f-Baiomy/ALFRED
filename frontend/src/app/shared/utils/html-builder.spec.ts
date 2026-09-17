@@ -478,6 +478,16 @@ describe('bulkExportHtmlFilename', () => {
  * exactly the kind of thing a person stops noticing.
  */
 describe('the exported stylesheet is self-contained', () => {
+  it('styles links, rather than leaving them the browser default blue', () => {
+    // The summary table's "#" column is all links. With no `a` rule a browser paints them #0000EE,
+    // and #551A8B once visited - glaring on a dark page, and different on a second opening.
+    const html = buildBulkExportHtml([makeCall(), makeCall({ id: 'c2' })], makeForm(), new Map(), 'now');
+    const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+
+    expect(css).toMatch(/(^|[\s{;}])a\s*\{[^}]*color:/);
+    expect(css).toMatch(/a:visited\s*\{[^}]*color:/);
+  });
+
   it('defines every custom property it references', () => {
     const html = buildExportHtml(makeCall(), makeForm());
     const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));

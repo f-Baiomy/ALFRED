@@ -235,6 +235,13 @@ const STYLE = `
   --tok-key: #8fb2f7; --tok-string: #7ee3a0; --tok-number: #e3a24a; --tok-bool: #e37ec4; --tok-null: #6b6b73;
 }
 * { box-sizing: border-box; }
+/* Without this a browser paints every link its own #0000EE, and the visited ones #551A8B - which on
+   a dark slate page is a row of glaring blue and muddy purple, and is exactly what the summary
+   table's "#" column looked like. :visited is set explicitly for the same reason: leaving it to the
+   default means a link changes colour the second time someone opens the same report. */
+a { color: var(--purple-light); text-decoration: none; border-bottom: 1px solid transparent; }
+a:visited { color: var(--purple-light); }
+a:hover { border-bottom-color: var(--border-strong); }
 body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 2.5rem 1.5rem; line-height: 1.55; }
 .doc { max-width: 880px; margin: 0 auto; }
 h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
