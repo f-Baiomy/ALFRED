@@ -39,6 +39,13 @@ export interface NarrativeCallNode {
   readonly path: string;
   readonly durationMs: number | null;
   /**
+   * When this call started, as milliseconds after the FIRST call in the export began - which is what
+   * turns a list of durations into a waterfall. Without it a reader can see that two children took
+   * 3s and 4s but not whether they ran side by side or one after the other, which is usually the
+   * question worth asking. Null when the timestamp didn't parse.
+   */
+  readonly startOffsetMs: number | null;
+  /**
    * How long this call spent waiting on calls nested inside it - the UNION of its direct children's
    * windows, not their sum: two children that overlap were waited on once, and summing them would
    * invent time the call never spent. Null on a leaf, which has no downstream work by definition.
@@ -256,10 +263,10 @@ function round2(ms: number): number {
   return Math.round(ms * 100) / 100;
 }
 
-function buildNode(node: CallTreeNode, numberByCallId: ReadonlyMap<string, number>): NarrativeCallNode {
+function buildNode(node: CallTreeNode, numberByCallId: ReadonlyMap<string, number>, captureStartMs: number | null): NarrativeCallNode {
   const { call } = node;
   const direction = directionOf(call);
-  const children = node.children.map((child) => buildNode(child, numberByCallId));
+  const children = node.children.map((child) => buildNode(child, numberByCallId, captureStartMs));
   const duration = call.duration_ms ?? null;
   const downstream = node.children.length > 0 ? unionMs(node.children.map((child) => windowOf(child.call))) : null;
 
@@ -273,6 +280,7 @@ function buildNode(node: CallTreeNode, numberByCallId: ReadonlyMap<string, numbe
     method: call.method,
     path: uriPath(call.url),
     durationMs: duration,
+    startOffsetMs: startOffsetOf(call, captureStartMs),
     downstreamMs: downstream,
     selfMs: duration != null && downstream != null ? round2(Math.max(0, duration - downstream)) : null,
     status: statusOf(call),
@@ -280,6 +288,24 @@ function buildNode(node: CallTreeNode, numberByCallId: ReadonlyMap<string, numbe
     inProgress: isInProgress(call),
     children,
   };
+}
+
+/** Clamped at 0 so a call whose clock ran slightly behind the capture start can't produce a negative bar offset. */
+function startOffsetOf(call: CallRecord, captureStartMs: number | null): number | null {
+  if (captureStartMs == null) return null;
+  const start = windowOf(call).start;
+  return Number.isFinite(start) ? round2(Math.max(0, start - captureStartMs)) : null;
+}
+
+/**
+ * callId -> depth, for a builder that needs to indent its own call blocks to match the topology.
+ * A split call emits two blocks (request and response) and both take the same depth, so the pair
+ * lines up around the children sitting between them.
+ */
+export function depthByCallId(topology: readonly NarrativeCallNode[]): ReadonlyMap<string, number> {
+  const depths = new Map<string, number>();
+  for (const node of flattenNodes(topology)) depths.set(node.callId, node.depth);
+  return depths;
 }
 
 function flattenNodes(nodes: readonly NarrativeCallNode[]): NarrativeCallNode[] {
@@ -705,7 +731,7 @@ export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
   if (calls.length === 1) {
     const call = calls[0];
     const notIncluded = notIncludedFor(call, overlapCandidates);
-    const node = buildNode({ call, children: [], depth: 0 }, numberByCallId);
+    const node = buildNode({ call, children: [], depth: 0 }, numberByCallId, dated ? Math.min(...starts) : null);
     return {
       documentType: 'alfred-call-export',
       scope: 'single',
@@ -729,7 +755,7 @@ export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
     };
   }
 
-  const topology = buildCallTree(sorted).map((node) => buildNode(node, numberByCallId));
+  const topology = buildCallTree(sorted).map((node) => buildNode(node, numberByCallId, dated ? Math.min(...starts) : null));
   const allNodes = flattenNodes(topology);
   const depth = Math.max(...allNodes.map((node) => node.depth)) + 1;
   const nests = allNodes.some((node) => node.children.length > 0);

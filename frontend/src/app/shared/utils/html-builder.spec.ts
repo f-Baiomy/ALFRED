@@ -466,3 +466,26 @@ describe('bulkExportHtmlFilename', () => {
     expect(bulkExportHtmlFilename([makeCall()])).toBe('alfred-export-1-calls.html');
   });
 });
+
+/**
+ * The exported document is self-contained: it ships its own palette rather than inheriting the
+ * app's stylesheet. So a rule may only reference a custom property this file also defines.
+ *
+ * Caught a real one: the waterfall bar was written as `var(--purple)`, which every other rule in
+ * this file spells `--purple-light`. The app defines both, so it looked right in review and in the
+ * source - but the export defined only the latter, so the property resolved to nothing and every
+ * bar rendered fully transparent. A missing colour is invisible rather than broken, which is
+ * exactly the kind of thing a person stops noticing.
+ */
+describe('the exported stylesheet is self-contained', () => {
+  it('defines every custom property it references', () => {
+    const html = buildExportHtml(makeCall(), makeForm());
+    const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+
+    const defined = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+    const referenced = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]));
+    const missing = [...referenced].filter((name) => !defined.has(name));
+
+    expect(missing).toEqual([]);
+  });
+});

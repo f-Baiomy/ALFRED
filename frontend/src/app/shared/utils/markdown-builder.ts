@@ -3,7 +3,8 @@ import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
-import { buildExportNarrative, depthSentence, ExportNarrative } from './export-narrative';
+import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
+import { buildWaterfallBands, waterfallAsciiLines } from './waterfall';
 
 function metadataValue(value: string): string {
   return value && value.trim().length > 0 ? value : '_(none provided)_';
@@ -53,6 +54,18 @@ function aboutSectionMarkdown(narrative: ExportNarrative): string[] {
     if (narrative.flowSummary) {
       lines.push(narrative.flowSummary, '');
     }
+  }
+
+  // Only when something actually nests - see buildWaterfallRows. Placed straight after the tree
+  // because it answers the question the tree raises: the tree says call 2 caused calls 3 and 4, and
+  // this says whether they ran together or one after the other.
+  const bands = buildWaterfallBands(narrative);
+  if (bands) {
+    lines.push(
+      "**When each call ran.** One band per call that caused others, each scaled to that call's own window - so bars within a band can be compared to each other, but not across bands. Durations are absolute.",
+      ''
+    );
+    lines.push('```', ...waterfallAsciiLines(bands), '```', '');
   }
 
   if (narrative.caveats.length > 0) {
@@ -538,16 +551,25 @@ export function buildBulkExportMarkdown(
   });
   lines.push('', '---', '');
 
+  const depthsByCallId = depthByCallId(narrative.topology);
+
   lines.push('## 🔗 Calls', '');
 
   blocks.forEach((block) => {
     const { call } = block;
     const allComments = commentsByCallId.get(call.id) ?? [];
 
+    // Indented to match the topology, so the Calls list reads as the tree it already is: a split
+    // parent's request and response sit at one level with everything it caused nested between them.
+    // Drawn with &nbsp; and box characters rather than a style attribute because GitHub and most
+    // other Markdown renderers strip inline CSS but keep both of these.
+    const depth = depthsByCallId.get(call.id) ?? 0;
+    const indent = depth > 0 ? `${'&nbsp;'.repeat(depth * 4)}└─ ` : '';
+
     lines.push(`<a id="${blockAnchor(block)}"></a>`);
     lines.push('<details open>');
     lines.push(
-      `<summary><b>Call ${block.n}</b>${blockSuffix(block)} &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${blockStatusCell(block)}</summary>`,
+      `<summary>${indent}<b>Call ${block.n}</b>${blockSuffix(block)} &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${blockStatusCell(block)}</summary>`,
       ''
     );
 

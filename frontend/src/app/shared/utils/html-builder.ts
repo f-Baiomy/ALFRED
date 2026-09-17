@@ -3,7 +3,8 @@ import { ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
-import { buildExportNarrative, depthSentence, ExportNarrative } from './export-narrative';
+import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
+import { buildWaterfallBands, waterfallBandCaption, waterfallFormatMs, waterfallStatusText } from './waterfall';
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -52,6 +53,31 @@ function aboutSectionHtml(narrative: ExportNarrative): string {
       parts.push(`<pre class="about-tree">${escapeHtml(narrative.treeLines.join('\n'))}</pre>`);
     }
     if (narrative.flowSummary) parts.push(`<p>${escapeHtml(narrative.flowSummary)}</p>`);
+  }
+
+  // Real proportional bars rather than the .md's monospace approximation - same bands, same
+  // per-parent scaling, just a medium that can actually draw them.
+  const bands = buildWaterfallBands(narrative);
+  if (bands) {
+    parts.push(
+      "<p><b>When each call ran.</b> One band per call that caused others, each scaled to that call's own window - so bars within a band can be compared to each other, but not across bands. Durations are absolute.</p>"
+    );
+    for (const band of bands) {
+      parts.push('<div class="about-waterfall">');
+      parts.push(`<div class="wf-caption">${escapeHtml(waterfallBandCaption(band))}</div>`);
+      for (const row of band.rows) {
+        const tone = row.error || row.inProgress || (row.status != null && row.status >= 400) ? ' wf-bad' : '';
+        parts.push(
+          `<div class="wf-row">` +
+            `<span class="wf-label">${escapeHtml(`${row.number}. ${row.label}`)}</span>` +
+            `<span class="wf-track"><span class="wf-bar${tone}" style="margin-left:${(row.startFraction * 100).toFixed(2)}%;width:${(row.widthFraction * 100).toFixed(2)}%"></span></span>` +
+            `<span class="wf-dur">${escapeHtml(waterfallFormatMs(row.durationMs))}</span>` +
+            `<span class="wf-status${tone}">${escapeHtml(waterfallStatusText(row))}</span>` +
+            `</div>`
+        );
+      }
+      parts.push('</div>');
+    }
   }
 
   if (narrative.caveats.length > 0) {
@@ -143,7 +169,7 @@ const STYLE = `
 :root {
   --bg: #0a0e2a; --card: #141a45; --card-inner: #070a24;
   --border: rgba(139, 92, 246, 0.22); --border-strong: rgba(139, 92, 246, 0.45);
-  --purple-light: #c4b5fd; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+  --purple: #8b5cf6; --purple-light: #c4b5fd; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
   --green: #34d399; --amber: #fbbf24; --red: #f87171;
   --tok-key: #c4b5fd; --tok-string: #6ee7d8; --tok-number: #fb923c; --tok-bool: #f472b6; --tok-null: #6b7394;
 }
@@ -175,6 +201,18 @@ table.metadata td:first-child { color: var(--text-dim); width: 220px; font-weigh
 .about p { color: var(--text-dim); }
 .about p b { color: var(--text); }
 .about-tree { background: var(--card-inner); border-radius: 8px; padding: 0.85rem 1rem; overflow-x: auto; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.65; color: var(--text); }
+.about-waterfall { background: var(--card-inner); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11.5px; }
+.wf-caption { color: var(--purple-light); margin-bottom: 0.4rem; }
+.call-nested { position: relative; }
+.call-nested::before { content: ""; position: absolute; left: -14px; top: 0; bottom: 0; width: 1px; background: var(--border-strong); }
+.wf-row { display: flex; align-items: center; gap: 8px; padding: 1px 0; }
+.wf-label { flex: 0 0 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.wf-track { flex: 1 1 auto; min-width: 0; height: 9px; background: rgba(139, 92, 246, 0.12); border-radius: 2px; }
+.wf-bar { display: block; height: 9px; border-radius: 2px; background: var(--purple); }
+.wf-bar.wf-bad { background: var(--red); }
+.wf-dur { flex: 0 0 5.5rem; text-align: right; color: var(--text-dim); }
+.wf-status { flex: 0 0 2.2rem; text-align: right; color: var(--green); }
+.wf-status.wf-bad { color: var(--red); }
 .about-caveats { background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 8px; padding: 0.8rem 1rem; margin: 0.9rem 0; }
 .about-caveats ul { margin: 0.5rem 0 0; padding-left: 1.1rem; color: var(--text-dim); }
 .about-caveats li { margin-bottom: 0.3rem; }
@@ -844,6 +882,7 @@ export function buildBulkExportHtml(
   const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const { blocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
   const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds });
+  const depthsByCallId = depthByCallId(narrative.topology);
 
   const allBlocks: JsonBlockConfig[] = [];
   const summaryRows: string[] = [];
@@ -880,8 +919,14 @@ export function buildBulkExportHtml(
     }
     allBlocks.push(...sectionBlocks);
 
+    // Indented to match the topology, so the Calls list reads as the tree it already is: a split
+    // parent's request and response sit at one level with everything it caused nested between them.
+    // The rail makes the relationship readable when a parent's two halves are screens apart.
+    const depth = depthsByCallId.get(call.id) ?? 0;
+    const nestAttrs = depth > 0 ? ` class="json-block call-nested" style="margin-left:${depth * 26}px"` : ' class="json-block"';
+
     callSections.push(
-      `<a id="${anchor}"></a><details class="json-block"><summary class="call-summary"><b>Call ${block.n}</b>${blockSuffixHtml(
+      `<a id="${anchor}"></a><details${nestAttrs}><summary class="call-summary"><b>Call ${block.n}</b>${blockSuffixHtml(
         block
       )} &nbsp; <code>${escapeHtml(call.method)} ${escapeHtml(uriPath(call.url))}</code> &nbsp; ${blockStatusHtml(
         block
