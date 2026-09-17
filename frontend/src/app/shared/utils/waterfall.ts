@@ -41,6 +41,16 @@ export interface WaterfallBand {
   readonly spanMs: number | null;
   /** How much of `spanMs` the parent spent waiting on these children (union, not sum). */
   readonly downstreamMs: number | null;
+  /**
+   * The parent's own bar, split into the three things it was actually doing: its own work before
+   * anything downstream started, the stretch where children were in flight, and its own work after
+   * the last one came back. Drawn on the parent row so you can see WHERE on the parent its children
+   * sit - a parent whose children run at the very end reads completely differently from one that
+   * fans out immediately, and the plain full-width bar said neither.
+   */
+  readonly ownLeadFraction: number;
+  readonly waitFraction: number;
+  readonly ownTailFraction: number;
   readonly rows: readonly WaterfallRow[];
 }
 
@@ -77,21 +87,29 @@ function rowFor(child: NarrativeCallNode, parent: NarrativeCallNode): WaterfallR
 }
 
 function bandsOf(node: NarrativeCallNode): WaterfallBand[] {
-  const here: WaterfallBand[] =
-    node.children.length > 0
-      ? [
-          {
-            number: node.number,
-            label: labelOf(node),
-            direction: node.direction,
-            depth: node.depth,
-            spanMs: node.durationMs,
-            downstreamMs: node.downstreamMs,
-            rows: node.children.map((child) => rowFor(child, node)),
-          },
-        ]
-      : [];
-  return [...here, ...node.children.flatMap(bandsOf)];
+  if (node.children.length === 0) return [];
+
+  const rows = node.children.map((child) => rowFor(child, node));
+  // The span from the first child starting to the last one finishing. Deliberately the outer
+  // envelope rather than the sum: between two sequential children the parent is still waiting, not
+  // working, so counting only the bars would overstate its own work.
+  const firstStart = Math.min(...rows.map((row) => row.startFraction));
+  const lastEnd = Math.max(...rows.map((row) => row.startFraction + row.widthFraction));
+
+  const band: WaterfallBand = {
+    number: node.number,
+    label: labelOf(node),
+    direction: node.direction,
+    depth: node.depth,
+    spanMs: node.durationMs,
+    downstreamMs: node.downstreamMs,
+    ownLeadFraction: Math.max(0, firstStart),
+    waitFraction: Math.max(0, lastEnd - firstStart),
+    ownTailFraction: Math.max(0, 1 - lastEnd),
+    rows,
+  };
+
+  return [band, ...node.children.flatMap(bandsOf)];
 }
 
 /** Null for a flat capture - with no parent anywhere there is no window to draw anything inside. */
@@ -158,7 +176,12 @@ export function waterfallAsciiLines(bands: readonly WaterfallBand[]): string[] {
     // as free-floating bars whose track the reader has to infer.
     const own = `  ${band.number}. ${band.label}`;
     const ownLabel = own.length > LABEL_CHARS ? `${own.slice(0, LABEL_CHARS - 1)}…` : own.padEnd(LABEL_CHARS);
-    lines.push(`${ownLabel} |${'░'.repeat(TRACK_CHARS)}| ${waterfallFormatMs(band.spanMs).padStart(14)}`);
+    // █ is the parent's own work, ░ the stretch it spent waiting on the calls below it.
+    const lead = Math.round(band.ownLeadFraction * TRACK_CHARS);
+    const wait = Math.max(1, Math.round(band.waitFraction * TRACK_CHARS));
+    const tail = Math.max(0, TRACK_CHARS - lead - wait);
+    const ownTrack = '█'.repeat(lead) + '░'.repeat(wait) + '█'.repeat(tail);
+    lines.push(`${ownLabel} |${ownTrack.slice(0, TRACK_CHARS).padEnd(TRACK_CHARS)}| ${waterfallFormatMs(band.spanMs).padStart(14)}`);
 
     for (const row of band.rows) {
       const label = `    ${row.number}. ${row.label}`;

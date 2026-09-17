@@ -124,10 +124,36 @@ describe('waterfallAsciiLines', () => {
     expect(new Set(bars.map((l) => l.indexOf('|'))).size).toBe(1);
   });
 
-  it('draws the parent span as the track the children sit inside', () => {
+  it('splits the parent bar into its own work and the stretch it spent waiting', () => {
+    // Parent runs 0-10,000 and its one child runs 1,000-8,000, so the parent worked alone for the
+    // first 10%, waited for 70%, then worked alone for the last 20%.
+    const band = buildWaterfallBands(narrativeOf(nested(4_500)))![0];
+
+    expect(band.ownLeadFraction).toBeCloseTo(0.1, 5);
+    expect(band.waitFraction).toBeCloseTo(0.7, 5);
+    expect(band.ownTailFraction).toBeCloseTo(0.2, 5);
+    expect(band.ownLeadFraction + band.waitFraction + band.ownTailFraction).toBeCloseTo(1, 5);
+  });
+
+  it('measures waiting as the envelope of its children, not the sum of them', () => {
+    // Two sequential 3s children inside a 7s parent: the gap between them is still waiting, so the
+    // wait span must cover both plus the gap, not just 6s of bars.
+    const band = buildWaterfallBands(narrativeOf(nested(4_500)))![1];
+
+    expect(band.waitFraction).toBeGreaterThan(band.rows[0].widthFraction + band.rows[1].widthFraction - 0.001);
+  });
+
+  it('shows where on the parent its children ran - late fan-out reads differently from early', () => {
+    const early = buildWaterfallBands(narrativeOf(nested(1_300)))![0];
+    const late = buildWaterfallBands(narrativeOf(nested(6_000)))![0];
+
+    expect(late.waitFraction).toBeGreaterThan(early.waitFraction);
+  });
+
+  it('draws the parent row with both tones, and children solid', () => {
     const lines = waterfallAsciiLines(buildWaterfallBands(narrativeOf(nested(4_500)))!);
 
-    // The parent row is a hollow span, the children solid - so the container reads as a container.
+    expect(lines[1]).toContain('█');
     expect(lines[1]).toContain('░');
     expect(lines[2]).toContain('█');
   });

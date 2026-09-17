@@ -78,10 +78,17 @@ function aboutSectionHtml(narrative: ExportNarrative): string {
 
       // The parent's own span, so children read as sub-tasks inside it rather than as free-floating
       // bars whose track the reader has to infer.
+      const lead = band.ownLeadFraction * 100;
+      const wait = band.waitFraction * 100;
+      const tail = band.ownTailFraction * 100;
       parts.push(
         `<div class="gantt-row gantt-parent">` +
           `<span class="gantt-label">${escapeHtml(`${band.number}. ${band.label}`)}</span>` +
-          `<span class="gantt-track"><span class="gantt-bar gantt-bar-own" style="left:0;width:100%"></span></span>` +
+          `<span class="gantt-track">` +
+          `<span class="gantt-bar gantt-bar-own" title="own work" style="left:0;width:${lead.toFixed(2)}%"></span>` +
+          `<span class="gantt-bar gantt-bar-wait" title="waiting on the calls below" style="left:${lead.toFixed(2)}%;width:${wait.toFixed(2)}%"></span>` +
+          `<span class="gantt-bar gantt-bar-own" title="own work" style="left:${(lead + wait).toFixed(2)}%;width:${tail.toFixed(2)}%"></span>` +
+          `</span>` +
           `<span class="gantt-dur">${escapeHtml(waterfallFormatMs(band.spanMs))}</span>` +
           `<span class="gantt-status"></span>` +
           `</div>`
@@ -108,6 +115,9 @@ function aboutSectionHtml(narrative: ExportNarrative): string {
             `</span><span class="gantt-dur"></span><span class="gantt-status"></span></div>`
         );
       }
+      parts.push(
+        `<div class="gantt-legend">Row ${band.number} is the parent: solid where it was doing its own work, hollow where it was only waiting on the calls below it.</div>`
+      );
       parts.push('</div>');
     }
   }
@@ -239,6 +249,7 @@ table.metadata td:first-child { color: var(--text-dim); width: 220px; font-weigh
 .gantt-row { display: flex; align-items: center; gap: 10px; height: 20px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; }
 .gantt-label { flex: 0 0 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
 .gantt-parent .gantt-label { color: var(--text); }
+.gantt-legend { font-size: 10px; color: var(--text-faint); margin-top: 0.3rem; }
 /* Gridlines at the same 25% steps as the axis ticks, so a bar's start can be read off the chart. */
 .gantt-track { position: relative; flex: 1 1 auto; min-width: 0; height: 14px; border-left: 1px solid var(--border); border-right: 1px solid var(--border);
   background-image: repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), var(--border) calc(25% - 1px) 25%); }
@@ -246,8 +257,14 @@ table.metadata td:first-child { color: var(--text-dim); width: 220px; font-weigh
 .gantt-bar-in { background: var(--purple); }
 .gantt-bar-out { background: var(--cyan); }
 .gantt-bar-bad { background: var(--red); }
-/* The parent's own span: outlined rather than filled, so it reads as the container and not as a fifth task. */
-.gantt-bar-own { background: transparent; border: 1px dashed var(--border-strong); border-radius: 3px; height: 10px; top: 2px; }
+/* The parent's row, split so you can see WHERE its children sit on it. Own work is drawn solid and
+   waiting is drawn hollow, rather than the other way round: the parent's own time is the part you
+   can do something about, and a parent that is almost entirely hollow is saying at a glance that it
+   did nothing itself but wait. */
+.gantt-bar-own { background: var(--purple); height: 10px; top: 2px; }
+.gantt-bar-wait { height: 10px; top: 2px; border-radius: 0; background: transparent;
+  background-image: repeating-linear-gradient(45deg, var(--border) 0 2px, transparent 2px 5px);
+  border: 1px solid var(--border-strong); }
 .gantt-dur { flex: 0 0 5.8rem; text-align: right; color: var(--text-dim); }
 .gantt-status { flex: 0 0 2.2rem; text-align: right; color: var(--green); }
 .gantt-status.gantt-bad { color: var(--red); }
