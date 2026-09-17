@@ -2742,10 +2742,13 @@ details.block {
   }
 }
 
+// Rendered BEFORE .line-content, not after: a header value is routinely hundreds of characters on
+// one non-wrapping line, so a trailing chip sat far off the right edge of a horizontally scrolling
+// box and the user saw no confirmation that anything had happened.
 .redact-chip {
   flex: 0 0 auto;
   align-self: center;
-  margin-left: 0.5rem;
+  margin-right: 0.5rem;
   padding: 0.05rem 0.4rem;
   border-radius: 4px;
   background: color-mix(in srgb, var(--red) 18%, transparent);
@@ -2755,15 +2758,17 @@ details.block {
   user-select: none;
 }
 
-// Absolutely positioned so it never enters the flat view's offset table - that table is measured
-// per line to window a six-figure-line body, and a menu that took up layout height would shift
-// every row below it (see JsonFlatViewComponent's composerHeight, which exists to account for the
-// comment composer precisely because that one IS in flow).
+// position:fixed, with coordinates set from the button's rect in JS.
+//
+// Absolute was wrong twice over: .code-line is static and nothing above it is positioned, so the
+// menu laid out against the document and rendered ~700px above the viewport - clicking the control
+// appeared to do nothing at all. Even with a positioned ancestor it would then be clipped by the
+// lines' own `overflow: auto` scroller. Fixed escapes both, and (like absolute) still keeps the
+// menu out of the windowing offset table, unlike the in-flow comment composer whose height has to
+// be measured and reserved.
 .redact-menu {
-  position: absolute;
-  right: 0.5rem;
-  top: 1.5em;
-  z-index: 40;
+  position: fixed;
+  z-index: 60;
   width: 15rem;
   padding: 0.25rem;
   border-radius: 8px;

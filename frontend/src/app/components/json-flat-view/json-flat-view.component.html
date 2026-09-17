@@ -29,12 +29,12 @@
           (click)="toggleRedact(line, $event)"
         >&#9673;</button>
       }
-      <span class="line-content"><app-json-tokens [tokens]="line.tokens" [activeMatchIndex]="activeMatchIndex()" /></span>
       @if (isRedacted(line)) {
         <span class="redact-chip">hidden on export</span>
       }
-      @if (openRedactLineIndex() === line.index) {
-        <div class="redact-menu" #redactMenu>
+      <span class="line-content"><app-json-tokens [tokens]="line.tokens" [activeMatchIndex]="activeMatchIndex()" /></span>
+      @if (openRedactLineIndex() === line.index && redactMenuPos(); as pos) {
+        <div class="redact-menu" [style.top.px]="pos.top" [style.left.px]="pos.left">
           <button type="button" (click)="chooseRedact(line, 'call')">
             Hide on this call only<small>1 value masked</small>
           </button>

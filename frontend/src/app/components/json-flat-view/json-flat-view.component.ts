@@ -1,4 +1,4 @@
-import { Component, ElementRef, computed, effect, input, output, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { HighlightToken } from '../../shared/utils/json-tokenizer';
 import { Comment } from '../../core/models/comment.model';
@@ -17,6 +17,10 @@ export interface NewCommentEvent {
   readonly lineText: string;
   readonly comment: string;
 }
+
+/** Kept in step with .redact-menu's CSS - only used to decide whether to flip the menu above the button, so being a few px out is harmless. */
+const REDACT_MENU_HEIGHT_PX = 92;
+const REDACT_MENU_WIDTH_PX = 240;
 
 /**
  * Carries the KEY on the clicked line and nothing else. The value never leaves this component -
@@ -97,8 +101,18 @@ export class JsonFlatViewComponent {
 
   readonly openCommentLineIndex = signal<number | null>(null);
   readonly openRedactLineIndex = signal<number | null>(null);
+  /**
+   * Viewport coordinates for the scope menu, because it is position:fixed rather than absolute.
+   * The lines live in an `overflow: auto` scroller, so an absolutely-positioned menu is either
+   * clipped by it or - if no ancestor is positioned, which was the case - laid out against the
+   * document and rendered hundreds of pixels off-screen. Fixed also keeps the menu out of the
+   * windowing offset table entirely, unlike the in-flow comment composer whose height has to be
+   * measured and reserved.
+   */
+  readonly redactMenuPos = signal<{ top: number; left: number } | null>(null);
   readonly draftText = signal('');
 
+  private readonly destroyRef = inject(DestroyRef);
   private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
   private readonly composerEl = viewChild<ElementRef<HTMLElement>>('composer');
   private readonly scrollTop = signal(0);
@@ -108,6 +122,19 @@ export class JsonFlatViewComponent {
   private readonly composerHeight = signal(COMPOSER_FALLBACK_HEIGHT_PX);
 
   constructor() {
+    // A fixed-position menu does not move with anything, so ANY scroll between opening it and
+    // clicking it leaves it stranded next to an unrelated row. Capture-phase catches scrolls in
+    // every ancestor scroller - the page, the call card, the panel - not just this component's own.
+    const closeOnAnyScroll = () => {
+      if (this.openRedactLineIndex() !== null) this.closeRedactMenu();
+    };
+    document.addEventListener('scroll', closeOnAnyScroll, { capture: true });
+    window.addEventListener('resize', closeOnAnyScroll);
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('scroll', closeOnAnyScroll, { capture: true });
+      window.removeEventListener('resize', closeOnAnyScroll);
+    });
+
     // Measured rather than assumed, and re-measured on resize, so the offset table always reserves
     // what the composer actually occupies. It keeps its last measurement after the composer closes
     // or scrolls out of the window, which is exactly what the next open wants to reserve.
@@ -191,6 +218,8 @@ export class JsonFlatViewComponent {
   );
 
   onScroll(): void {
+    // Fixed positioning does not follow this scroller, so the menu would detach from its line.
+    if (this.openRedactLineIndex() !== null) this.closeRedactMenu();
     const el = this.viewport()?.nativeElement;
     if (!el) return;
     this.scrollTop.set(el.scrollTop);
@@ -238,16 +267,33 @@ export class JsonFlatViewComponent {
     if (!name) return;
     if (this.isRedacted(line)) {
       this.toggleRedaction.emit({ name, hide: false, scope: 'call' });
-      this.openRedactLineIndex.set(null);
+      this.closeRedactMenu();
       return;
     }
-    this.openRedactLineIndex.set(this.openRedactLineIndex() === line.index ? null : line.index);
+    if (this.openRedactLineIndex() === line.index) {
+      this.closeRedactMenu();
+      return;
+    }
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    // Flipped above the button when there isn't room below, so a line near the bottom of the
+    // viewport doesn't open a menu that runs off the screen.
+    const flipUp = rect.bottom + REDACT_MENU_HEIGHT_PX > window.innerHeight;
+    this.redactMenuPos.set({
+      top: flipUp ? rect.top - REDACT_MENU_HEIGHT_PX : rect.bottom + 4,
+      left: Math.min(rect.left, window.innerWidth - REDACT_MENU_WIDTH_PX - 8),
+    });
+    this.openRedactLineIndex.set(line.index);
+  }
+
+  closeRedactMenu(): void {
+    this.openRedactLineIndex.set(null);
+    this.redactMenuPos.set(null);
   }
 
   chooseRedact(line: LineTokens, scope: RedactionScope): void {
     const name = this.redactableName(line);
     if (name) this.toggleRedaction.emit({ name, hide: true, scope });
-    this.openRedactLineIndex.set(null);
+    this.closeRedactMenu();
   }
 
   submitComment(line: LineTokens): void {
