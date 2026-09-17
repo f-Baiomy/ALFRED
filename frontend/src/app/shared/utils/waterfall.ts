@@ -30,11 +30,15 @@ export interface WaterfallRow {
   readonly status: number | null;
   readonly error: string | null;
   readonly inProgress: boolean;
+  /** This child caused calls of its own, so it gets its own chart further down - the renderers link the two together rather than leaving the reader to spot the repeated number. */
+  readonly hasOwnChart: boolean;
 }
 
 export interface WaterfallBand {
   readonly number: number;
   readonly label: string;
+  /** The call this one sits inside, or null at the top. Without it each chart reads as an unrelated island, and the same call appearing as a row in one chart and the parent of the next looks like a coincidence. */
+  readonly parentNumber: number | null;
   readonly direction: 'inbound' | 'outbound';
   readonly depth: number;
   /** The window every row in this band is drawn against. */
@@ -83,10 +87,11 @@ function rowFor(child: NarrativeCallNode, parent: NarrativeCallNode): WaterfallR
     status: child.status,
     error: child.error,
     inProgress: child.inProgress,
+    hasOwnChart: child.children.length > 0,
   };
 }
 
-function bandsOf(node: NarrativeCallNode): WaterfallBand[] {
+function bandsOf(node: NarrativeCallNode, parentNumber: number | null = null): WaterfallBand[] {
   if (node.children.length === 0) return [];
 
   const rows = node.children.map((child) => rowFor(child, node));
@@ -99,6 +104,7 @@ function bandsOf(node: NarrativeCallNode): WaterfallBand[] {
   const band: WaterfallBand = {
     number: node.number,
     label: labelOf(node),
+    parentNumber,
     direction: node.direction,
     depth: node.depth,
     spanMs: node.durationMs,
@@ -109,12 +115,15 @@ function bandsOf(node: NarrativeCallNode): WaterfallBand[] {
     rows,
   };
 
-  return [band, ...node.children.flatMap(bandsOf)];
+  return [band, ...node.children.flatMap((child) => bandsOf(child, node.number))];
 }
 
 /** Null for a flat capture - with no parent anywhere there is no window to draw anything inside. */
 export function buildWaterfallBands(narrative: ExportNarrative): readonly WaterfallBand[] | null {
-  const bands = narrative.topology.flatMap(bandsOf);
+  // Wrapped rather than passed by reference: flatMap hands the callback (element, index, array), so
+  // `bandsOf` would take the array index as its parentNumber and every root would claim to sit
+  // inside call 0.
+  const bands = narrative.topology.flatMap((root) => bandsOf(root));
   return bands.length > 0 ? bands : null;
 }
 
@@ -135,7 +144,8 @@ export function waterfallBandCaption(band: WaterfallBand): string {
   const span = waterfallFormatMs(band.spanMs);
   const waiting =
     band.downstreamMs != null ? `, of which ${waterfallFormatMs(band.downstreamMs)} waiting on the calls below` : '';
-  return `Call ${band.number} · ${band.label} — ${span}${waiting}`;
+  const inside = band.parentNumber != null ? ` (inside call ${band.parentNumber})` : '';
+  return `Call ${band.number} · ${band.label}${inside} — ${span}${waiting}`;
 }
 
 /**
@@ -170,7 +180,10 @@ export function waterfallAsciiLines(bands: readonly WaterfallBand[]): string[] {
 
   bands.forEach((band, index) => {
     if (index > 0) lines.push('');
-    lines.push(waterfallBandCaption(band));
+    // Indented by depth and captioned with its parent, so a chart reads as sitting inside the one
+    // above it rather than as an unrelated island that happens to repeat a call number.
+    const nest = '  '.repeat(band.depth);
+    lines.push(`${nest}${waterfallBandCaption(band)}`);
 
     // The parent's own span as the top bar, so the children read as sub-tasks inside it rather than
     // as free-floating bars whose track the reader has to infer.
@@ -191,8 +204,9 @@ export function waterfallAsciiLines(bands: readonly WaterfallBand[]): string[] {
       const width = Math.max(1, Math.round(row.widthFraction * TRACK_CHARS));
       const track = ' '.repeat(lead) + '█'.repeat(Math.min(width, TRACK_CHARS - lead));
 
+      const charted = row.hasOwnChart ? '  ↓ charted below' : '';
       lines.push(
-        `${clipped} |${track.padEnd(TRACK_CHARS)}| ${waterfallFormatMs(row.durationMs).padStart(14)}  ${waterfallStatusText(row)}`
+        `${clipped} |${track.padEnd(TRACK_CHARS)}| ${waterfallFormatMs(row.durationMs).padStart(14)}  ${waterfallStatusText(row)}${charted}`
       );
     }
 

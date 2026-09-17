@@ -66,8 +66,18 @@ function aboutSectionHtml(narrative: ExportNarrative): string {
     );
     for (const band of bands) {
       const ticks = waterfallAxisTicks(band.spanMs);
-      parts.push('<div class="gantt">');
-      parts.push(`<div class="gantt-title">Call ${band.number} &middot; ${escapeHtml(band.label)}</div>`);
+      // Indented and rail-connected to the chart it belongs to, with links both ways. Without that
+      // each chart reads as an island and the same call appearing as a row here and as the parent of
+      // the next chart looks like a coincidence rather than the same call.
+      const nested = band.parentNumber != null;
+      parts.push(
+        `<div class="gantt${nested ? ' gantt-nested' : ''}" id="gantt-${band.number}"${nested ? ` style="margin-left:${band.depth * 22}px"` : ''}>`
+      );
+      parts.push(
+        `<div class="gantt-title">Call ${band.number} &middot; ${escapeHtml(band.label)}` +
+          (nested ? ` <a class="gantt-up" href="#gantt-${band.parentNumber}">&uarr; inside call ${band.parentNumber}</a>` : '') +
+          '</div>'
+      );
       parts.push(
         `<div class="gantt-sub">${escapeHtml(waterfallFormatMs(band.spanMs))} total` +
           (band.downstreamMs != null
@@ -98,9 +108,14 @@ function aboutSectionHtml(narrative: ExportNarrative): string {
         const bad = row.error || row.inProgress || (row.status != null && row.status >= 400);
         const tone = bad ? ' gantt-bar-bad' : row.direction === 'outbound' ? ' gantt-bar-out' : ' gantt-bar-in';
         const title = `starts ${waterfallFormatMs((row.startFraction * (band.spanMs ?? 0)) || 0)} into call ${band.number}`;
+        // A child that caused calls of its own is a link down to its own chart.
+        const rowLabel = escapeHtml(`${row.number}. ${row.label}`);
+        const labelHtml = row.hasOwnChart
+          ? `<a class="gantt-down" href="#gantt-${row.number}">${rowLabel} &darr;</a>`
+          : rowLabel;
         parts.push(
           `<div class="gantt-row">` +
-            `<span class="gantt-label">${escapeHtml(`${row.number}. ${row.label}`)}</span>` +
+            `<span class="gantt-label">${labelHtml}</span>` +
             `<span class="gantt-track"><span class="gantt-bar${tone}" title="${escapeHtml(title)}" style="left:${(row.startFraction * 100).toFixed(2)}%;width:${(row.widthFraction * 100).toFixed(2)}%"></span></span>` +
             `<span class="gantt-dur">${escapeHtml(waterfallFormatMs(row.durationMs))}</span>` +
             `<span class="gantt-status${bad ? ' gantt-bad' : ''}">${escapeHtml(waterfallStatusText(row))}</span>` +
@@ -208,12 +223,16 @@ function jsonBlockHtml(config: JsonBlockConfig, label: string, open: boolean): s
 }
 
 const STYLE = `
+/* Slate, matching styles.scss's [data-theme="slate"] value for value. The translucent surfaces are
+   spelled out as solids here because the export has no theme layer to composite them against - a
+   reader opening this file gets one fixed palette, so each rgba() is pre-flattened over --bg rather
+   than left to resolve differently depending on what it happens to sit on. */
 :root {
-  --bg: #0a0e2a; --card: #141a45; --card-inner: #070a24;
-  --border: rgba(139, 92, 246, 0.22); --border-strong: rgba(139, 92, 246, 0.45);
-  --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
-  --green: #34d399; --amber: #fbbf24; --red: #f87171;
-  --tok-key: #c4b5fd; --tok-string: #6ee7d8; --tok-number: #fb923c; --tok-bool: #f472b6; --tok-null: #6b7394;
+  --bg: #141416; --card: #1b1b1d; --card-inner: #0e0e10;
+  --border: rgba(255, 255, 255, 0.09); --border-strong: rgba(255, 255, 255, 0.18);
+  --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8; --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
+  --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a;
+  --tok-key: #8fb2f7; --tok-string: #7ee3a0; --tok-number: #e3a24a; --tok-bool: #e37ec4; --tok-null: #6b6b73;
 }
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 2.5rem 1.5rem; line-height: 1.55; }
@@ -244,6 +263,13 @@ table.metadata td:first-child { color: var(--text-dim); width: 220px; font-weigh
 .about p b { color: var(--text); }
 .about-tree { background: var(--card-inner); border-radius: 8px; padding: 0.85rem 1rem; overflow-x: auto; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.65; color: var(--text); }
 .gantt { background: var(--card-inner); border-radius: 10px; padding: 0.8rem 1rem 0.6rem; margin-bottom: 0.7rem; border: 1px solid var(--border); }
+/* The rail ties a nested chart back to the row it expands, so the two are read as one thing. */
+.gantt-nested { position: relative; }
+.gantt-nested::before { content: ""; position: absolute; left: -12px; top: -0.7rem; bottom: 0; width: 1px; background: var(--border-strong); }
+.gantt-nested::after { content: ""; position: absolute; left: -12px; top: 1.05rem; width: 10px; height: 1px; background: var(--border-strong); }
+.gantt-up { color: var(--text-faint); text-decoration: none; font-size: 10.5px; margin-left: 0.4rem; }
+.gantt-up:hover, .gantt-down:hover { color: var(--purple-light); }
+.gantt-down { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--border-strong); }
 .gantt-title { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--purple-light); }
 .gantt-sub { font-size: 11px; color: var(--text-faint); margin-bottom: 0.55rem; }
 .gantt-row { display: flex; align-items: center; gap: 10px; height: 20px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; }

@@ -24,6 +24,23 @@ function narrativeOf(calls: readonly CallRecord[]) {
   return buildExportNarrative({ calls, commentsByCallId: new Map() });
 }
 
+/**
+ * A parent with TWO children that are each parents themselves, each with its own children - the
+ * case where "which chart expands which row" stops being obvious by eye and the cross-links have to
+ * carry it.
+ */
+function branching(): CallRecord[] {
+  return [
+    call('root', 0, 20_000),
+    call('a', 1_000, 8_000, { service_name: 'core-service' }),
+    call('a1', 1_500, 3_000, { source: 'external', service_name: null, url: 'https://x.test/a1' }),
+    call('a2', 5_000, 3_000, { source: 'external', service_name: null, url: 'https://x.test/a2' }),
+    call('b', 10_000, 8_000, { service_name: 'billing' }),
+    call('b1', 10_500, 3_000, { source: 'external', service_name: null, url: 'https://x.test/b1' }),
+    call('b2', 14_000, 3_000, { source: 'external', service_name: null, url: 'https://x.test/b2' }),
+  ];
+}
+
 /** The shape from a real capture: a parent, an inbound child, and two outbound grandchildren. */
 function nested(secondChildStart: number): CallRecord[] {
   return [
@@ -186,5 +203,69 @@ describe('waterfallAxisTicks', () => {
   it('has nothing to label when the span is unknown or zero', () => {
     expect(waterfallAxisTicks(null)).toEqual([]);
     expect(waterfallAxisTicks(0)).toEqual([]);
+  });
+});
+
+describe('linking a chart to the one it sits inside', () => {
+  it('names the parent on a nested band, so a chart is not an island', () => {
+    const bands = buildWaterfallBands(narrativeOf(nested(4_500)))!;
+
+    expect(bands[0].parentNumber).toBeNull();
+    expect(bands[1].parentNumber).toBe(bands[0].number);
+  });
+
+  it('flags the row that is expanded further down', () => {
+    const bands = buildWaterfallBands(narrativeOf(nested(4_500)))!;
+
+    // The child has children of its own, so it gets its own chart; the grandchildren are leaves.
+    expect(bands[0].rows[0].hasOwnChart).toBeTrue();
+    expect(bands[1].rows.every((r) => r.hasOwnChart)).toBeFalse();
+  });
+
+  it('says so in the Markdown too, in both directions', () => {
+    const lines = waterfallAsciiLines(buildWaterfallBands(narrativeOf(nested(4_500)))!);
+
+    expect(lines.some((l) => l.includes('charted below'))).toBeTrue();
+    expect(lines.some((l) => l.includes('(inside call'))).toBeTrue();
+  });
+});
+
+describe('a parent with several children that are themselves parents', () => {
+  it('gives every branch its own chart, each pointing back at the right parent', () => {
+    const bands = buildWaterfallBands(narrativeOf(branching()))!;
+    const byNumber = new Map(bands.map((b) => [b.number, b]));
+
+    // root + a + b = three charts; a1/a2/b1/b2 are leaves.
+    expect(bands.length).toBe(3);
+
+    const root = bands[0];
+    expect(root.parentNumber).toBeNull();
+    expect(root.rows.length).toBe(2);
+    expect(root.rows.every((r) => r.hasOwnChart)).toBeTrue();
+
+    // Each branch names ITS OWN parent - not merely "some parent", which a single shared
+    // root would also satisfy and which is the bug worth guarding.
+    for (const row of root.rows) {
+      expect(byNumber.get(row.number)!.parentNumber).toBe(root.number);
+    }
+  });
+
+  it('keeps the two branches independent, each scaled to its own window', () => {
+    const bands = buildWaterfallBands(narrativeOf(branching()))!;
+    const [, a, b] = bands;
+
+    expect(a.number).not.toBe(b.number);
+    expect(a.rows.map((r) => r.number)).not.toEqual(b.rows.map((r) => r.number));
+    // Both branches are 8s wide, so a child of the same length occupies the same fraction in each.
+    expect(a.spanMs).toBe(b.spanMs);
+  });
+
+  it('nests deeper charts further right in the Markdown', () => {
+    const lines = waterfallAsciiLines(buildWaterfallBands(narrativeOf(branching()))!);
+    const captions = lines.filter((l) => l.includes('· POST') || l.includes('· GET'));
+
+    const rootIndent = captions[0].search(/\S/);
+    const branchIndent = captions[1].search(/\S/);
+    expect(branchIndent).toBeGreaterThan(rootIndent);
   });
 });
