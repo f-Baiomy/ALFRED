@@ -21,6 +21,8 @@ import { NarrativeCallNode, ExportNarrative } from './export-narrative';
 export interface WaterfallRow {
   readonly number: number;
   readonly label: string;
+  /** Colours the bar - an inbound call into one of our services reads differently from an outbound one to a third party. */
+  readonly direction: 'inbound' | 'outbound';
   readonly durationMs: number | null;
   /** 0-1 across the PARENT's window - see the band this row belongs to. */
   readonly startFraction: number;
@@ -33,6 +35,7 @@ export interface WaterfallRow {
 export interface WaterfallBand {
   readonly number: number;
   readonly label: string;
+  readonly direction: 'inbound' | 'outbound';
   readonly depth: number;
   /** The window every row in this band is drawn against. */
   readonly spanMs: number | null;
@@ -63,6 +66,7 @@ function rowFor(child: NarrativeCallNode, parent: NarrativeCallNode): WaterfallR
   return {
     number: child.number,
     label: labelOf(child),
+    direction: child.direction,
     durationMs: child.durationMs,
     startFraction,
     widthFraction: Math.min(1 - startFraction, Math.max(MIN_WIDTH_FRACTION, rawWidth)),
@@ -79,6 +83,7 @@ function bandsOf(node: NarrativeCallNode): WaterfallBand[] {
           {
             number: node.number,
             label: labelOf(node),
+            direction: node.direction,
             depth: node.depth,
             spanMs: node.durationMs,
             downstreamMs: node.downstreamMs,
@@ -115,6 +120,25 @@ export function waterfallBandCaption(band: WaterfallBand): string {
   return `Call ${band.number} · ${band.label} — ${span}${waiting}`;
 }
 
+/**
+ * Tick labels along a band's own span, at 0/25/50/75/100%. A Gantt without an axis is a picture of
+ * relative widths: it can say "this one is wider" but not "this started four seconds in", which is
+ * usually the thing being reconstructed from a capture.
+ */
+export function waterfallAxisTicks(spanMs: number | null): string[] {
+  if (spanMs == null || spanMs <= 0) return [];
+  return [0, 0.25, 0.5, 0.75, 1].map((f) => compactMs(spanMs * f));
+}
+
+/** Short enough to sit under a tick without colliding with its neighbours. */
+function compactMs(ms: number): string {
+  if (ms === 0) return '0';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  return `${minutes}m${Math.round((ms % 60_000) / 1000)}s`;
+}
+
 const TRACK_CHARS = 38;
 const LABEL_CHARS = 40;
 
@@ -124,11 +148,20 @@ const LABEL_CHARS = 40;
  */
 export function waterfallAsciiLines(bands: readonly WaterfallBand[]): string[] {
   const lines: string[] = [];
+  const pad = ' '.repeat(LABEL_CHARS);
+
   bands.forEach((band, index) => {
     if (index > 0) lines.push('');
     lines.push(waterfallBandCaption(band));
+
+    // The parent's own span as the top bar, so the children read as sub-tasks inside it rather than
+    // as free-floating bars whose track the reader has to infer.
+    const own = `  ${band.number}. ${band.label}`;
+    const ownLabel = own.length > LABEL_CHARS ? `${own.slice(0, LABEL_CHARS - 1)}…` : own.padEnd(LABEL_CHARS);
+    lines.push(`${ownLabel} |${'░'.repeat(TRACK_CHARS)}| ${waterfallFormatMs(band.spanMs).padStart(14)}`);
+
     for (const row of band.rows) {
-      const label = `  ${row.number}. ${row.label}`;
+      const label = `    ${row.number}. ${row.label}`;
       const clipped = label.length > LABEL_CHARS ? `${label.slice(0, LABEL_CHARS - 1)}…` : label.padEnd(LABEL_CHARS);
 
       const lead = Math.round(row.startFraction * TRACK_CHARS);
@@ -139,6 +172,19 @@ export function waterfallAsciiLines(bands: readonly WaterfallBand[]): string[] {
         `${clipped} |${track.padEnd(TRACK_CHARS)}| ${waterfallFormatMs(row.durationMs).padStart(14)}  ${waterfallStatusText(row)}`
       );
     }
+
+    const ticks = waterfallAxisTicks(band.spanMs);
+    if (ticks.length === 5) {
+      const axis = '├' + '─'.repeat(8) + '┼' + '─'.repeat(8) + '┼' + '─'.repeat(8) + '┼' + '─'.repeat(8) + '┤';
+      lines.push(`${pad} ${axis}`);
+      // Each label is left-aligned under its own tick, except the last which is right-aligned to the
+      // track's end so it can't overflow the row.
+      let scale = ticks[0];
+      for (let i = 1; i < 4; i++) scale = scale.padEnd(i * 9 + 1) + ticks[i];
+      scale = scale.padEnd(TRACK_CHARS + 2 - ticks[4].length) + ticks[4];
+      lines.push(`${pad} ${scale}`);
+    }
   });
+
   return lines;
 }

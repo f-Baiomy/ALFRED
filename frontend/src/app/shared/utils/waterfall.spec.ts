@@ -1,6 +1,6 @@
 import { CallRecord } from '../../core/models/call.model';
 import { buildExportNarrative } from './export-narrative';
-import { buildWaterfallBands, waterfallAsciiLines } from './waterfall';
+import { buildWaterfallBands, waterfallAsciiLines, waterfallAxisTicks } from './waterfall';
 
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 
@@ -124,10 +124,41 @@ describe('waterfallAsciiLines', () => {
     expect(new Set(bars.map((l) => l.indexOf('|'))).size).toBe(1);
   });
 
+  it('draws the parent span as the track the children sit inside', () => {
+    const lines = waterfallAsciiLines(buildWaterfallBands(narrativeOf(nested(4_500)))!);
+
+    // The parent row is a hollow span, the children solid - so the container reads as a container.
+    expect(lines[1]).toContain('░');
+    expect(lines[2]).toContain('█');
+  });
+
+  it('prints a time axis, so a bar says WHEN and not just how wide', () => {
+    const lines = waterfallAsciiLines(buildWaterfallBands(narrativeOf(nested(4_500)))!);
+
+    expect(lines.some((l) => l.includes('┬') || l.includes('┼'))).toBeTrue();
+    expect(lines.some((l) => l.includes('10.0s') || l.includes('10s'))).toBeTrue();
+  });
+
   it('captions each band with its span, since bars are only meaningful against it', () => {
     const lines = waterfallAsciiLines(buildWaterfallBands(narrativeOf(nested(4_500)))!);
 
     expect(lines[0]).toContain('10,000 ms');
     expect(lines[0]).toContain('waiting on the calls below');
+  });
+});
+
+describe('waterfallAxisTicks', () => {
+  it('labels 0/25/50/75/100% of the span', () => {
+    expect(waterfallAxisTicks(10_000)).toEqual(['0', '2.5s', '5.0s', '7.5s', '10s']);
+  });
+
+  it('switches units rather than printing six figures of milliseconds', () => {
+    expect(waterfallAxisTicks(800)).toEqual(['0', '200ms', '400ms', '600ms', '800ms']);
+    expect(waterfallAxisTicks(240_000)[4]).toBe('4m0s');
+  });
+
+  it('has nothing to label when the span is unknown or zero', () => {
+    expect(waterfallAxisTicks(null)).toEqual([]);
+    expect(waterfallAxisTicks(0)).toEqual([]);
   });
 });

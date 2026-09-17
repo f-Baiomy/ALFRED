@@ -4,7 +4,7 @@ import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/c
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
-import { buildWaterfallBands, waterfallBandCaption, waterfallFormatMs, waterfallStatusText } from './waterfall';
+import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -55,25 +55,57 @@ function aboutSectionHtml(narrative: ExportNarrative): string {
     if (narrative.flowSummary) parts.push(`<p>${escapeHtml(narrative.flowSummary)}</p>`);
   }
 
-  // Real proportional bars rather than the .md's monospace approximation - same bands, same
-  // per-parent scaling, just a medium that can actually draw them.
+  // A real Gantt rather than the .md's monospace approximation: same bands and same per-parent
+  // scaling, but with an axis, gridlines and the parent's own span drawn as the track the children
+  // sit inside. Without the axis it is only a picture of relative widths - it can say "this one is
+  // wider", not "this started four seconds in".
   const bands = buildWaterfallBands(narrative);
   if (bands) {
     parts.push(
-      "<p><b>When each call ran.</b> One band per call that caused others, each scaled to that call's own window - so bars within a band can be compared to each other, but not across bands. Durations are absolute.</p>"
+      "<p><b>When each call ran.</b> One chart per call that caused others, each scaled to that call's own window - so bars within a chart can be compared to each other, but not across charts. Durations are absolute.</p>"
     );
     for (const band of bands) {
-      parts.push('<div class="about-waterfall">');
-      parts.push(`<div class="wf-caption">${escapeHtml(waterfallBandCaption(band))}</div>`);
+      const ticks = waterfallAxisTicks(band.spanMs);
+      parts.push('<div class="gantt">');
+      parts.push(`<div class="gantt-title">Call ${band.number} &middot; ${escapeHtml(band.label)}</div>`);
+      parts.push(
+        `<div class="gantt-sub">${escapeHtml(waterfallFormatMs(band.spanMs))} total` +
+          (band.downstreamMs != null
+            ? ` &middot; ${escapeHtml(waterfallFormatMs(band.downstreamMs))} waiting on the calls below`
+            : '') +
+          '</div>'
+      );
+
+      // The parent's own span, so children read as sub-tasks inside it rather than as free-floating
+      // bars whose track the reader has to infer.
+      parts.push(
+        `<div class="gantt-row gantt-parent">` +
+          `<span class="gantt-label">${escapeHtml(`${band.number}. ${band.label}`)}</span>` +
+          `<span class="gantt-track"><span class="gantt-bar gantt-bar-own" style="left:0;width:100%"></span></span>` +
+          `<span class="gantt-dur">${escapeHtml(waterfallFormatMs(band.spanMs))}</span>` +
+          `<span class="gantt-status"></span>` +
+          `</div>`
+      );
+
       for (const row of band.rows) {
-        const tone = row.error || row.inProgress || (row.status != null && row.status >= 400) ? ' wf-bad' : '';
+        const bad = row.error || row.inProgress || (row.status != null && row.status >= 400);
+        const tone = bad ? ' gantt-bar-bad' : row.direction === 'outbound' ? ' gantt-bar-out' : ' gantt-bar-in';
+        const title = `starts ${waterfallFormatMs((row.startFraction * (band.spanMs ?? 0)) || 0)} into call ${band.number}`;
         parts.push(
-          `<div class="wf-row">` +
-            `<span class="wf-label">${escapeHtml(`${row.number}. ${row.label}`)}</span>` +
-            `<span class="wf-track"><span class="wf-bar${tone}" style="margin-left:${(row.startFraction * 100).toFixed(2)}%;width:${(row.widthFraction * 100).toFixed(2)}%"></span></span>` +
-            `<span class="wf-dur">${escapeHtml(waterfallFormatMs(row.durationMs))}</span>` +
-            `<span class="wf-status${tone}">${escapeHtml(waterfallStatusText(row))}</span>` +
+          `<div class="gantt-row">` +
+            `<span class="gantt-label">${escapeHtml(`${row.number}. ${row.label}`)}</span>` +
+            `<span class="gantt-track"><span class="gantt-bar${tone}" title="${escapeHtml(title)}" style="left:${(row.startFraction * 100).toFixed(2)}%;width:${(row.widthFraction * 100).toFixed(2)}%"></span></span>` +
+            `<span class="gantt-dur">${escapeHtml(waterfallFormatMs(row.durationMs))}</span>` +
+            `<span class="gantt-status${bad ? ' gantt-bad' : ''}">${escapeHtml(waterfallStatusText(row))}</span>` +
             `</div>`
+        );
+      }
+
+      if (ticks.length === 5) {
+        parts.push(
+          `<div class="gantt-row gantt-axis"><span class="gantt-label"></span><span class="gantt-track">` +
+            ticks.map((t, i) => `<span class="gantt-tick" style="left:${i * 25}%">${escapeHtml(t)}</span>`).join('') +
+            `</span><span class="gantt-dur"></span><span class="gantt-status"></span></div>`
         );
       }
       parts.push('</div>');
@@ -169,7 +201,7 @@ const STYLE = `
 :root {
   --bg: #0a0e2a; --card: #141a45; --card-inner: #070a24;
   --border: rgba(139, 92, 246, 0.22); --border-strong: rgba(139, 92, 246, 0.45);
-  --purple: #8b5cf6; --purple-light: #c4b5fd; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+  --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
   --green: #34d399; --amber: #fbbf24; --red: #f87171;
   --tok-key: #c4b5fd; --tok-string: #6ee7d8; --tok-number: #fb923c; --tok-bool: #f472b6; --tok-null: #6b7394;
 }
@@ -201,18 +233,29 @@ table.metadata td:first-child { color: var(--text-dim); width: 220px; font-weigh
 .about p { color: var(--text-dim); }
 .about p b { color: var(--text); }
 .about-tree { background: var(--card-inner); border-radius: 8px; padding: 0.85rem 1rem; overflow-x: auto; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.65; color: var(--text); }
-.about-waterfall { background: var(--card-inner); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11.5px; }
-.wf-caption { color: var(--purple-light); margin-bottom: 0.4rem; }
-.call-nested { position: relative; }
-.call-nested::before { content: ""; position: absolute; left: -14px; top: 0; bottom: 0; width: 1px; background: var(--border-strong); }
-.wf-row { display: flex; align-items: center; gap: 8px; padding: 1px 0; }
-.wf-label { flex: 0 0 44%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-.wf-track { flex: 1 1 auto; min-width: 0; height: 9px; background: rgba(139, 92, 246, 0.12); border-radius: 2px; }
-.wf-bar { display: block; height: 9px; border-radius: 2px; background: var(--purple); }
-.wf-bar.wf-bad { background: var(--red); }
-.wf-dur { flex: 0 0 5.5rem; text-align: right; color: var(--text-dim); }
-.wf-status { flex: 0 0 2.2rem; text-align: right; color: var(--green); }
-.wf-status.wf-bad { color: var(--red); }
+.gantt { background: var(--card-inner); border-radius: 10px; padding: 0.8rem 1rem 0.6rem; margin-bottom: 0.7rem; border: 1px solid var(--border); }
+.gantt-title { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--purple-light); }
+.gantt-sub { font-size: 11px; color: var(--text-faint); margin-bottom: 0.55rem; }
+.gantt-row { display: flex; align-items: center; gap: 10px; height: 20px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; }
+.gantt-label { flex: 0 0 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
+.gantt-parent .gantt-label { color: var(--text); }
+/* Gridlines at the same 25% steps as the axis ticks, so a bar's start can be read off the chart. */
+.gantt-track { position: relative; flex: 1 1 auto; min-width: 0; height: 14px; border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+  background-image: repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), var(--border) calc(25% - 1px) 25%); }
+.gantt-bar { position: absolute; top: 3px; height: 8px; border-radius: 3px; background: var(--purple); }
+.gantt-bar-in { background: var(--purple); }
+.gantt-bar-out { background: var(--cyan); }
+.gantt-bar-bad { background: var(--red); }
+/* The parent's own span: outlined rather than filled, so it reads as the container and not as a fifth task. */
+.gantt-bar-own { background: transparent; border: 1px dashed var(--border-strong); border-radius: 3px; height: 10px; top: 2px; }
+.gantt-dur { flex: 0 0 5.8rem; text-align: right; color: var(--text-dim); }
+.gantt-status { flex: 0 0 2.2rem; text-align: right; color: var(--green); }
+.gantt-status.gantt-bad { color: var(--red); }
+.gantt-axis { height: 16px; }
+.gantt-axis .gantt-track { height: 16px; border: none; background: none; }
+.gantt-tick { position: absolute; top: 0; font-size: 9.5px; color: var(--text-faint); transform: translateX(-50%); white-space: nowrap; }
+.gantt-tick:first-child { transform: none; }
+.gantt-tick:last-child { transform: translateX(-100%); }
 .about-caveats { background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 8px; padding: 0.8rem 1rem; margin: 0.9rem 0; }
 .about-caveats ul { margin: 0.5rem 0 0; padding-left: 1.1rem; color: var(--text-dim); }
 .about-caveats li { margin-bottom: 0.3rem; }
