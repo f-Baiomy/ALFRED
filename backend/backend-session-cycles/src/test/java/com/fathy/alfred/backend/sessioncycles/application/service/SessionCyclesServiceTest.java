@@ -68,7 +68,7 @@ class SessionCyclesServiceTest {
     }
 
     @Test
-    void createStartsPausedAndSaves() {
+    void createStartsRecordingAndSaves() {
         when(metadataStore.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         SessionCycle created = service.create(new NewSessionCycle("Repro flight bug", "profile-1"));
@@ -76,7 +76,7 @@ class SessionCyclesServiceTest {
         assertThat(created.id()).isNotBlank();
         assertThat(created.name()).isEqualTo("Repro flight bug");
         assertThat(created.assignedTo()).isEqualTo("profile-1");
-        assertThat(created.status()).isEqualTo(SessionCycleStatus.PAUSED);
+        assertThat(created.status()).isEqualTo(SessionCycleStatus.RECORDING);
         verify(metadataStore).save(created);
         verify(notificationPort).notifySessionCyclesChanged();
     }

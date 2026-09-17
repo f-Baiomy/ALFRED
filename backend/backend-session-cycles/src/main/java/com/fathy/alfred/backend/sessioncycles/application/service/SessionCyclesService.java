@@ -100,7 +100,7 @@ public class SessionCyclesService implements
                 newSessionCycle.name(),
                 Instant.now().toString(),
                 newSessionCycle.assignedTo(),
-                SessionCycleStatus.PAUSED
+                SessionCycleStatus.RECORDING
         );
         SessionCycle saved = metadataStore.save(cycle);
         notificationPort.notifySessionCyclesChanged();
