@@ -70,7 +70,7 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
                         "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
-                        "..backend.calloverlap..")
+                        "..backend.calloverlap..", "..backend.redactions..")
                 .check(classes);
     }
 
@@ -85,7 +85,7 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
-                        "..backend.calloverlap..")
+                        "..backend.calloverlap..", "..backend.redactions..")
                 .check(classes);
     }
 
@@ -95,7 +95,7 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.export..", "..backend.sessioncycles..",
                         "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
-                        "..backend.calloverlap..")
+                        "..backend.calloverlap..", "..backend.redactions..")
                 .check(classes);
     }
 
@@ -112,7 +112,7 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.sessioncycles..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.profiles..",
-                        "..backend.settings..", "..backend.calloverlap..")
+                        "..backend.settings..", "..backend.calloverlap..", "..backend.redactions..")
                 .check(classes);
     }
 
@@ -125,7 +125,7 @@ class HexagonalArchitectureTest {
         noClasses().that().resideInAPackage("..backend.calloverlap..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
-                        "..backend.profiles..", "..backend.settings..")
+                        "..backend.profiles..", "..backend.settings..", "..backend.redactions..")
                 .check(classes);
     }
 
@@ -138,7 +138,7 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.settings..", "..backend.internalcalls..",
-                        "..backend.calloverlap..")
+                        "..backend.calloverlap..", "..backend.redactions..")
                 .check(classes);
     }
 
@@ -152,7 +152,21 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.internalcalls..",
-                        "..backend.calloverlap..")
+                        "..backend.calloverlap..", "..backend.redactions..")
+                .check(classes);
+    }
+
+    // redactions is a leaf slice like profiles/settings: a redaction only ever stores a call's id
+    // as a plain string plus the NAME of a header/body path/query param to mask, so it needs
+    // nothing from backend-calls, and the export-time masking that consumes redactions lives
+    // downstream (frontend today), not inside this slice.
+    @Test
+    void redactionsSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.redactions..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..")
                 .check(classes);
     }
 }

@@ -85,6 +85,8 @@ export interface BulkExportPayload {
   readonly about: ExportNarrative;
   readonly metadata: ExportFormData;
   readonly exportedAt: string;
+  /** How many values the user hid before exporting. Non-zero means this file is deliberately incomplete - the import dialog surfaces that rather than letting it pass silently. */
+  readonly redactedValueCount: number;
   readonly summary: {
     readonly callCount: number;
     readonly succeeded: number;
@@ -296,7 +298,8 @@ export function buildBulkExportPayload(
   commentsByCallId: ReadonlyMap<string, readonly Comment[]>,
   exportedAt: string,
   overlapCandidates: readonly CallOverlapCandidate[] = [],
-  statusFilter: CallStatusFilter = 'all'
+  statusFilter: CallStatusFilter = 'all',
+  redactedValueCount = 0
 ): BulkExportPayload {
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
 
@@ -318,6 +321,10 @@ export function buildBulkExportPayload(
     about: buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, overlapCandidates }),
     metadata: form,
     exportedAt,
+    // Stated at the top level rather than inside `about`, because this is the one fact a
+    // re-importer must act on rather than merely read: this file is deliberately lossy, and the
+    // import dialog warns on it. 0 means the file is a complete capture.
+    redactedValueCount,
     summary: {
       // Stays a count of actual calls, not events - splitting a call into two events must not double it here.
       callCount: calls.length,

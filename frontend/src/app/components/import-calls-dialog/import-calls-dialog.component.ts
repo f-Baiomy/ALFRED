@@ -113,14 +113,22 @@ export class ImportCallsDialogComponent {
         this.parseError.set('This file is not valid JSON.');
         return;
       }
-      const { calls, inferredDirectionCount } = parseImportedCalls(parsed);
+      const { calls, inferredDirectionCount, redactedValueCount } = parseImportedCalls(parsed);
       if (calls.length === 0) {
         this.parseError.set('No calls found in this file - expected an export produced by "Export as JSON".');
         return;
       }
       this.parsedCalls.set([...calls]);
       this.fileName.set(file.name);
-      if (inferredDirectionCount > 0) {
+      if (redactedValueCount > 0) {
+        // Said first, and said even when nothing else is wrong: these calls will LOOK complete once
+        // imported, with ***REDACTED*** sitting where a token was. Nothing else about the file
+        // reveals that, and re-exporting from here would propagate the masked values as if real.
+        this.parseWarning.set(
+          `${redactedValueCount} value${redactedValueCount === 1 ? ' was' : 's were'} hidden before this file was exported, ` +
+            'so those calls import masked rather than complete. Import from an unredacted export if you need the real values.'
+        );
+      } else if (inferredDirectionCount > 0) {
         // Worth saying out loud rather than importing quietly: a wrong guess files an inbound call
         // as outbound, which loses its service and flattens anything nested under it.
         this.parseWarning.set(

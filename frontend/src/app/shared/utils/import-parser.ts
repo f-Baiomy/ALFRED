@@ -43,9 +43,16 @@ export interface ImportParseResult {
   /** Events that named no call at all (no callId/id) - reported so a partially unreadable file
    * doesn't look like a clean import. */
   readonly skippedCount: number;
+  /**
+   * How many values the exporter deliberately masked before writing this file, read from the
+   * payload's own `redactedValueCount`. Surfaced rather than ignored because re-importing a
+   * redacted export is lossy in a way nothing else about the file reveals: the calls land looking
+   * complete, with ***REDACTED*** sitting where a token used to be.
+   */
+  readonly redactedValueCount: number;
 }
 
-const EMPTY: ImportParseResult = { calls: [], inferredDirectionCount: 0, skippedCount: 0 };
+const EMPTY: ImportParseResult = { calls: [], inferredDirectionCount: 0, skippedCount: 0, redactedValueCount: 0 };
 
 /**
  * Accepts every shape Alfred has ever written or documented:
@@ -61,11 +68,16 @@ const EMPTY: ImportParseResult = { calls: [], inferredDirectionCount: 0, skipped
 export function parseImportedCalls(parsed: unknown): ImportParseResult {
   if (!parsed || typeof parsed !== 'object') return EMPTY;
 
+  // Read here rather than in mergeEvents: it is a property of the FILE, not of any event, and
+  // mergeEvents only ever sees the array.
+  const declared = (parsed as { redactedValueCount?: unknown }).redactedValueCount;
+  const redactedValueCount = typeof declared === 'number' && declared > 0 ? declared : 0;
+
   const events = (parsed as { events?: unknown }).events;
-  if (Array.isArray(events)) return mergeEvents(events);
+  if (Array.isArray(events)) return { ...mergeEvents(events), redactedValueCount };
 
   const rawCalls = Array.isArray(parsed) ? parsed : (parsed as { calls?: unknown }).calls;
-  if (Array.isArray(rawCalls)) return mergeEvents(rawCalls);
+  if (Array.isArray(rawCalls)) return { ...mergeEvents(rawCalls), redactedValueCount };
 
   return EMPTY;
 }
@@ -136,7 +148,7 @@ function mergeEvents(events: readonly unknown[]): ImportParseResult {
     });
   }
 
-  return { calls, inferredDirectionCount: inferred, skippedCount: skipped };
+  return { calls, inferredDirectionCount: inferred, skippedCount: skipped, redactedValueCount: 0 };
 }
 
 /** Copies every field this event carries onto the accumulating record, never overwriting one that's

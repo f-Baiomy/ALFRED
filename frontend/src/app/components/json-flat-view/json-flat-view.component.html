@@ -12,10 +12,37 @@
   }
 
   @for (line of visibleLines(); track line.index) {
-    <div class="code-line" [class.has-comment]="(commentsByLine().get(line.index)?.length ?? 0) > 0">
+    <div
+      class="code-line"
+      [class.has-comment]="(commentsByLine().get(line.index)?.length ?? 0) > 0"
+      [class.is-redacted]="isRedacted(line)"
+    >
       <span class="line-number">{{ line.index + 1 }}</span>
       <button type="button" class="line-comment-btn" title="Flag an issue on this line" (click)="toggleAddComment(line.index)">+</button>
+      @if (redactableName(line); as name) {
+        <button
+          type="button"
+          class="line-redact-btn"
+          [class.on]="isRedacted(line)"
+          [title]="isRedacted(line) ? 'Shown in exports again' : 'Hide this value in exports'"
+          [attr.aria-label]="isRedacted(line) ? 'Stop hiding ' + name + ' in exports' : 'Hide ' + name + ' in exports'"
+          (click)="toggleRedact(line, $event)"
+        >&#9673;</button>
+      }
       <span class="line-content"><app-json-tokens [tokens]="line.tokens" [activeMatchIndex]="activeMatchIndex()" /></span>
+      @if (isRedacted(line)) {
+        <span class="redact-chip">hidden on export</span>
+      }
+      @if (openRedactLineIndex() === line.index) {
+        <div class="redact-menu" #redactMenu>
+          <button type="button" (click)="chooseRedact(line, 'call')">
+            Hide on this call only<small>1 value masked</small>
+          </button>
+          <button type="button" (click)="chooseRedact(line, 'all')">
+            Hide everywhere<small>every call, in every export</small>
+          </button>
+        </div>
+      }
     </div>
 
     @if (openCommentLineIndex() === line.index) {

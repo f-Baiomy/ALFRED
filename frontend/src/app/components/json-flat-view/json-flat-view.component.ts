@@ -2,6 +2,8 @@ import { Component, ElementRef, computed, effect, input, output, signal, viewChi
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { HighlightToken } from '../../shared/utils/json-tokenizer';
 import { Comment } from '../../core/models/comment.model';
+import { RedactionScope } from '../../core/models/redaction.model';
+import { redactableNameOf } from '../../shared/utils/redact';
 
 export type FlatViewVariant = 'json' | 'plain';
 
@@ -14,6 +16,17 @@ export interface NewCommentEvent {
   readonly lineIndex: number;
   readonly lineText: string;
   readonly comment: string;
+}
+
+/**
+ * Carries the KEY on the clicked line and nothing else. The value never leaves this component -
+ * storing it would put the secret in a second place and, because exports echo a comment's stored
+ * `lineText` verbatim, would reprint it in the very file the user redacted in order to share.
+ */
+export interface RedactionToggleEvent {
+  readonly name: string;
+  readonly hide: boolean;
+  readonly scope: RedactionScope;
 }
 
 /**
@@ -74,11 +87,16 @@ export class JsonFlatViewComponent {
   readonly activeMatchIndex = input<number>(-1);
   readonly scrollId = input<string | undefined>(undefined);
   readonly commentsByLine = input<ReadonlyMap<number, Comment[]>>(new Map());
+  /** Lowercased key names already hidden for this call+block, so a line can render as hidden without this component knowing what a Redaction is. */
+  readonly redactedNames = input<ReadonlySet<string>>(new Set<string>());
 
   readonly addComment = output<NewCommentEvent>();
   readonly deleteComment = output<string>();
+  /** `name` is the JSON key on that line - never the value, which must not leave this component (see redaction.model.ts). */
+  readonly toggleRedaction = output<RedactionToggleEvent>();
 
   readonly openCommentLineIndex = signal<number | null>(null);
+  readonly openRedactLineIndex = signal<number | null>(null);
   readonly draftText = signal('');
 
   private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
@@ -202,6 +220,34 @@ export class JsonFlatViewComponent {
   cancelAddComment(): void {
     this.openCommentLineIndex.set(null);
     this.draftText.set('');
+  }
+
+  redactableName(line: LineTokens): string | null {
+    return redactableNameOf(line.tokens.map((t) => t.text).join(''));
+  }
+
+  isRedacted(line: LineTokens): boolean {
+    const name = this.redactableName(line);
+    return name !== null && this.redactedNames().has(name.toLowerCase());
+  }
+
+  /** Already hidden, so one click un-hides; otherwise open the scope menu, because "this call" vs "everywhere" is the user's call to make, never inferred. */
+  toggleRedact(line: LineTokens, event: Event): void {
+    event.stopPropagation();
+    const name = this.redactableName(line);
+    if (!name) return;
+    if (this.isRedacted(line)) {
+      this.toggleRedaction.emit({ name, hide: false, scope: 'call' });
+      this.openRedactLineIndex.set(null);
+      return;
+    }
+    this.openRedactLineIndex.set(this.openRedactLineIndex() === line.index ? null : line.index);
+  }
+
+  chooseRedact(line: LineTokens, scope: RedactionScope): void {
+    const name = this.redactableName(line);
+    if (name) this.toggleRedaction.emit({ name, hide: true, scope });
+    this.openRedactLineIndex.set(null);
   }
 
   submitComment(line: LineTokens): void {

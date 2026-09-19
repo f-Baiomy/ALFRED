@@ -37,6 +37,7 @@
     <module>backend-calls</module>
     <module>backend-internal-calls</module>
     <module>backend-comments</module>
+    <module>backend-redactions</module>
     <module>backend-export</module>
     <module>backend-session-cycles</module>
     <module>backend-call-overlap</module>

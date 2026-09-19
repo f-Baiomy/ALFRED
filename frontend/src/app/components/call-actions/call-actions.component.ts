@@ -10,6 +10,8 @@ import { CommentsApiService } from '../../core/services/comments-api.service';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
+import { RedactionsStore } from '../../core/state/redactions-store.service';
+import { redactCall } from '../../shared/utils/redact';
 import { downloadJson } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
 import { copyToClipboard } from '../../shared/utils/clipboard';
@@ -37,6 +39,7 @@ export class CallActionsComponent {
   private readonly exportApi = inject(ExportApiService);
   private readonly exportDialog = inject(ExportDialogService);
   private readonly commentsApi = inject(CommentsApiService);
+  private readonly redactions = inject(RedactionsStore);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
 
   readonly call = input.required<CallRecord>();
@@ -55,7 +58,10 @@ export class CallActionsComponent {
     this.curlLoading.set(true);
     this.hydrated(this.call()).subscribe((call) => {
       this.curlLoading.set(false);
-      copyToClipboard(buildCurlCommand(call)).then(() => {
+      // A cURL command is pasted into tickets and chats as readily as a file is attached, so it
+      // goes through the same masking as every other export format.
+      const { call: safe } = redactCall(call, this.redactions.all());
+      copyToClipboard(buildCurlCommand(safe)).then(() => {
         this.curlCopyFeedback.set(true);
         setTimeout(() => this.curlCopyFeedback.set(false), 1200);
       });
@@ -69,7 +75,8 @@ export class CallActionsComponent {
       .pipe(switchMap((call) => forkJoin({ call: of(call), comments: this.fetchComments(call) })))
       .subscribe(({ call, comments }) => {
         this.downloadLoading.set(false);
-        downloadJson({ ...call, comments }, `${callKey(call)}.json`);
+        const { call: safe } = redactCall(call, this.redactions.all());
+        downloadJson({ ...safe, comments }, `${callKey(call)}.json`);
       });
   }
 

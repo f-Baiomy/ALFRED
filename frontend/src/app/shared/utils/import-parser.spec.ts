@@ -199,6 +199,32 @@ describe('parseImportedCalls', () => {
     });
   });
 
+  describe('a redacted export announces itself', () => {
+    it('reports the count the exporter declared, so the dialog can warn before importing', () => {
+      const { payload } = roundTrip(nestedFixture());
+      const redacted = { ...payload, redactedValueCount: 7 };
+
+      const result = parseImportedCalls(JSON.parse(JSON.stringify(redacted)));
+
+      // The calls still import - a redacted file is usable, just lossy, and saying so is the point.
+      expect(result.calls.length).toBe(2);
+      expect(result.redactedValueCount).toBe(7);
+    });
+
+    it('reports 0 for a normal export, so the warning never fires on a complete capture', () => {
+      const { payload, result } = roundTrip(nestedFixture());
+
+      expect(payload.redactedValueCount).toBe(0);
+      expect(result.redactedValueCount).toBe(0);
+    });
+
+    it('treats a file with no marker at all as unredacted', () => {
+      const result = parseImportedCalls({ events: [{ type: 'call', callId: 'a', url: 'http://x/a', source: 'external' }] });
+
+      expect(result.redactedValueCount).toBe(0);
+    });
+  });
+
   describe('other shapes', () => {
     it('still accepts a bare array of call-shaped objects', () => {
       const result = parseImportedCalls([{ id: 'a', url: 'http://x/a', method: 'GET', source: 'external' }]);

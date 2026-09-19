@@ -44,6 +44,11 @@
     </dependency>
     <dependency>
       <groupId>com.fathy.alfred</groupId>
+      <artifactId>backend-redactions</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fathy.alfred</groupId>
       <artifactId>backend-export</artifactId>
       <version>${project.version}</version>
     </dependency>

@@ -2676,6 +2676,14 @@ details.block {
     background: color-mix(in srgb, var(--amber) 7%, transparent);
     border-left: 2px solid color-mix(in srgb, var(--amber) 50%, transparent);
   }
+  // A redacted line keeps its value fully readable here on purpose: you need the token to debug,
+  // and it is the exported file that leaks, not the screen. The marking says what will happen on
+  // export, it does not hide anything now.
+  &.is-redacted {
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+    border-left: 2px solid color-mix(in srgb, var(--red) 55%, transparent);
+    position: relative;
+  }
 }
 
 .line-number {
@@ -2707,6 +2715,82 @@ details.block {
   }
   &:hover {
     background: color-mix(in srgb, var(--purple) 30%, transparent);
+  }
+}
+
+.line-redact-btn {
+  flex: 0 0 auto;
+  width: 1.3em;
+  height: 1.3em;
+  line-height: 1;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+  font-size: 0.7rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.15s;
+  margin-top: 0.1em;
+
+  .code-line:hover &,
+  &.on {
+    opacity: 1;
+  }
+  &:hover {
+    background: color-mix(in srgb, var(--red) 28%, transparent);
+  }
+}
+
+.redact-chip {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--red) 18%, transparent);
+  color: var(--red);
+  font-size: 0.65rem;
+  white-space: nowrap;
+  user-select: none;
+}
+
+// Absolutely positioned so it never enters the flat view's offset table - that table is measured
+// per line to window a six-figure-line body, and a menu that took up layout height would shift
+// every row below it (see JsonFlatViewComponent's composerHeight, which exists to account for the
+// comment composer precisely because that one IS in flow).
+.redact-menu {
+  position: absolute;
+  right: 0.5rem;
+  top: 1.5em;
+  z-index: 40;
+  width: 15rem;
+  padding: 0.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.4rem 0.5rem;
+    border: none;
+    border-radius: 5px;
+    background: none;
+    color: var(--text);
+    font-size: 0.8rem;
+    cursor: pointer;
+
+    &:hover {
+      background: color-mix(in srgb, var(--purple) 18%, transparent);
+    }
+    small {
+      display: block;
+      color: var(--text-faint);
+      font-size: 0.68rem;
+    }
   }
 }
 
@@ -3051,7 +3135,9 @@ mark.hl.active {
   border-radius: 8px;
   padding: 0.5rem 0.7rem;
 }
-
+.dialog-redacted-note {
+  color: var(--red);
+}
 .import-dropzone {
   border: 2px dashed var(--border);
   border-radius: 10px;

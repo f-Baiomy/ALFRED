@@ -9,6 +9,9 @@ import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
 import { JsonViewMode } from '../../core/models/call.model';
 import { Comment, CommentBlock } from '../../core/models/comment.model';
 import { CommentsStore } from '../../core/state/comments-store.service';
+import { RedactionsStore } from '../../core/state/redactions-store.service';
+import { RedactionKind } from '../../core/models/redaction.model';
+import { RedactionToggleEvent } from '../json-flat-view/json-flat-view.component';
 import { PanelViewLauncherService } from '../../core/services/panel-view-launcher.service';
 import { copyToClipboard } from '../../shared/utils/clipboard';
 
@@ -59,6 +62,7 @@ export class JsonPanelComponent {
   private readonly state = inject(CALL_LIST_CONTROLS_STATE);
   private readonly injector = inject(Injector);
   private readonly commentsStore = inject(CommentsStore);
+  private readonly redactionsStore = inject(RedactionsStore);
   private readonly panelViewLauncher = inject(PanelViewLauncherService);
 
   readonly label = input.required<string>();
@@ -309,6 +313,46 @@ export class JsonPanelComponent {
       lineIndex: event.lineIndex,
       lineText: event.lineText,
       comment: event.comment,
+    });
+  }
+
+  /** Which kind of redaction a pin in THIS block creates - the four panels map one-to-one onto the four targets. */
+  private redactionKind(): RedactionKind {
+    switch (this.block()) {
+      case 'request-headers':
+        return 'request-header';
+      case 'response-headers':
+        return 'response-header';
+      case 'request-body':
+        return 'request-body-key';
+      default:
+        return 'response-body-key';
+    }
+  }
+
+  readonly redactedNames = computed(() => {
+    const kind = this.redactionKind();
+    const callId = this.callId();
+    return new Set(
+      this.redactionsStore
+        .all()
+        .filter((r) => r.kind === kind && (r.scope === 'all' || r.callId === callId))
+        .map((r) => r.name.toLowerCase())
+    );
+  });
+
+  onToggleRedaction(event: RedactionToggleEvent): void {
+    const kind = this.redactionKind();
+    if (!event.hide) {
+      const existing = this.redactionsStore.isRedacted(this.callId(), kind, event.name);
+      if (existing) this.redactionsStore.remove(existing.id);
+      return;
+    }
+    this.redactionsStore.add({
+      scope: event.scope,
+      callId: event.scope === 'call' ? this.callId() : null,
+      kind,
+      name: event.name,
     });
   }
 

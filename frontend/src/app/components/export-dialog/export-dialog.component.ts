@@ -8,6 +8,8 @@ import { buildBulkPostmanCollection, bulkPostmanFilename } from '../../shared/ut
 import { buildDiscordReport } from '../../shared/utils/discord-report-builder';
 import { downloadText, downloadJson, resolveExportFilename } from '../../shared/utils/download';
 import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
+import { RedactionsStore } from '../../core/state/redactions-store.service';
+import { redactCalls } from '../../shared/utils/redact';
 
 /** The two report formats a user can toggle between inside the dialog - distinct from
  * ExportFormat, which also includes 'json' (a separate, non-toggleable export the dialog still
@@ -29,7 +31,15 @@ type ReportFormat = 'markdown' | 'html';
 })
 export class ExportDialogComponent {
   private readonly dialogService = inject(ExportDialogService);
+  private readonly redactions = inject(RedactionsStore);
   readonly state = this.dialogService.state;
+
+  /** How many values the current selection would have masked, so the dialog can say so before the user commits to sending the file. */
+  readonly redactedValueCount = computed(() => {
+    const current = this.state();
+    if (!current) return 0;
+    return redactCalls(current.calls, this.redactions.all()).redactedValueCount;
+  });
 
   readonly supplierName = signal('');
   readonly credentialsUsed = signal('');
@@ -162,10 +172,15 @@ export class ExportDialogComponent {
     if (!current) return null;
 
     const form = this.currentFormData();
-    const { calls, commentsByCallId, overlapCandidates, statusFilter } = current;
+    const { commentsByCallId, overlapCandidates, statusFilter } = current;
+    // The single place any export format gets its calls, so masking here covers markdown, HTML,
+    // JSON and Postman at once - and covers a format added later without its author knowing this
+    // exists. Deliberately not done inside the builders: six implementations is six chances to
+    // forget one, and forgetting ships the user's bearer token to whoever they sent the file to.
+    const { calls, redactedValueCount } = redactCalls(current.calls, this.redactions.all());
 
     if (format === 'json') {
-      const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
+      const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, redactedValueCount);
       return { isJson: true, payload, filename: this.resolveFilename(bulkExportFilename(calls, 'json'), format) };
     }
 

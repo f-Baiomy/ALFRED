@@ -15,6 +15,11 @@
           &#9873; {{ totalFlaggedCount() }} flagged issue{{ totalFlaggedCount() === 1 ? '' : 's' }} will be included in the export.
         </p>
       }
+      @if (redactedValueCount() > 0) {
+        <p class="dialog-sub dialog-redacted-note">
+          &#9673; {{ redactedValueCount() }} value{{ redactedValueCount() === 1 ? '' : 's' }} you hid will be masked in this export.
+        </p>
+      }
 
       <label class="dialog-field">
         <span>Supplier Name</span>

@@ -81,8 +81,10 @@
         [activeMatchIndex]="activeMatchIndex()"
         [scrollId]="panelId()"
         [commentsByLine]="commentsByLine()"
+        [redactedNames]="redactedNames()"
         (addComment)="onAddComment($event)"
         (deleteComment)="onDeleteComment($event)"
+        (toggleRedaction)="onToggleRedaction($event)"
       />
     }
   </div>

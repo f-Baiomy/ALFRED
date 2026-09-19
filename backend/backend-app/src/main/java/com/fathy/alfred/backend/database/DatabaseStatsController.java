@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.comments.application.port.out.CommentsStorePort;
 import com.fathy.alfred.backend.profiles.application.port.out.ProfileStorePort;
+import com.fathy.alfred.backend.redactions.application.port.out.RedactionsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
@@ -17,7 +18,7 @@ import java.util.List;
 /**
  * Backs the Settings page's Database tab: storage size/row-count per slice, a call-status
  * breakdown, and the two "clear all" actions. Lives in backend-app (the composition root), not in
- * any one slice, because it needs to read from all five at once - exactly the same reason
+ * any one slice, because it needs to read from all of them at once - exactly the same reason
  * CommentCallIdMigration lives here (see its class doc): no slice may depend on another
  * (HexagonalArchitectureTest), so only the composition root is allowed to know about all of them.
  */
@@ -35,6 +36,7 @@ public class DatabaseStatsController {
     private final SessionCycleNotificationPort sessionCycleNotificationPort;
     private final ProfileStorePort profileStorePort;
     private final CommentsStorePort commentsStorePort;
+    private final RedactionsStorePort redactionsStorePort;
     private final FilterSettingsStorePort filterSettingsStorePort;
 
     public DatabaseStatsController(
@@ -46,6 +48,7 @@ public class DatabaseStatsController {
             SessionCycleNotificationPort sessionCycleNotificationPort,
             ProfileStorePort profileStorePort,
             CommentsStorePort commentsStorePort,
+            RedactionsStorePort redactionsStorePort,
             FilterSettingsStorePort filterSettingsStorePort
     ) {
         this.callLogPort = callLogPort;
@@ -56,6 +59,7 @@ public class DatabaseStatsController {
         this.sessionCycleNotificationPort = sessionCycleNotificationPort;
         this.profileStorePort = profileStorePort;
         this.commentsStorePort = commentsStorePort;
+        this.redactionsStorePort = redactionsStorePort;
         this.filterSettingsStorePort = filterSettingsStorePort;
     }
 
@@ -76,6 +80,7 @@ public class DatabaseStatsController {
                 new DatabaseFileStats("session-cycles.db", cycleCount + capturedCallCount, capturedCallsStorePort.storageSizeBytes()),
                 new DatabaseFileStats("profiles.db", profileStorePort.findAll().size(), profileStorePort.storageSizeBytes()),
                 new DatabaseFileStats("comments.db", commentsStorePort.findAll().size(), commentsStorePort.storageSizeBytes()),
+                new DatabaseFileStats("redactions.db", redactionsStorePort.findAll().size(), redactionsStorePort.storageSizeBytes()),
                 new DatabaseFileStats("settings.db", filterRuleCount, filterSettingsStorePort.storageSizeBytes())
         );
 
