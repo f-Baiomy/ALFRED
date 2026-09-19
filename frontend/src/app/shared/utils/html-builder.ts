@@ -1,5 +1,5 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
-import { ExportFormData } from '../../core/models/export-metadata.model';
+import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
@@ -962,7 +962,8 @@ export function buildBulkExportHtml(
   commentsByCallId: ReadonlyMap<string, readonly Comment[]>,
   exportedAt: string,
   overlapCandidates: readonly CallOverlapCandidate[] = [],
-  statusFilter: CallStatusFilter = 'all'
+  statusFilter: CallStatusFilter = 'all',
+  cycle: ExportedCycle | null = null
 ): string {
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
   const failed = calls.length - succeeded;
@@ -974,7 +975,7 @@ export function buildBulkExportHtml(
   // real time order, regardless of whatever order the caller passed in.
   const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const { blocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
-  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds });
+  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, cycle });
   const depthsByCallId = depthByCallId(narrative.topology);
 
   const allBlocks: JsonBlockConfig[] = [];

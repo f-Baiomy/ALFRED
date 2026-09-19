@@ -1,5 +1,5 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
-import { ExportFormData } from '../../core/models/export-metadata.model';
+import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
@@ -508,7 +508,8 @@ export function buildBulkExportMarkdown(
   commentsByCallId: ReadonlyMap<string, readonly Comment[]>,
   exportedAt: string,
   overlapCandidates: readonly CallOverlapCandidate[] = [],
-  statusFilter: CallStatusFilter = 'all'
+  statusFilter: CallStatusFilter = 'all',
+  cycle: ExportedCycle | null = null
 ): string {
   const lines: string[] = [];
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
@@ -522,7 +523,7 @@ export function buildBulkExportMarkdown(
   // once a call is split into two blocks. Sort a local copy; never mutate/reorder for the caller.
   const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const { blocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
-  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds });
+  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, cycle });
 
   lines.push(`# 📋 API Calls Export — ${calls.length} ${callWord}`, '');
   lines.push(
@@ -588,4 +589,30 @@ export function buildBulkExportMarkdown(
 
 export function bulkExportFilename(calls: readonly CallRecord[], extension: 'md' | 'json'): string {
   return `alfred-export-${calls.length}-calls.${extension}`;
+}
+
+/**
+ * The filename for a whole-cycle export, which names the cycle rather than just counting calls -
+ * a cycle name is in practice the ticket title, and these files are attached to that ticket
+ * alongside others, where "alfred-export-8-calls.md" three times over is indistinguishable.
+ *
+ * Falls back to the plain counted name when the cycle name has no alphanumerics to slug (a name
+ * of "???" would otherwise produce "alfred-cycle--8-calls.md"). Shared with html-builder so the
+ * .md/.html/.json downloads of one cycle agree on everything but the extension.
+ */
+export function bulkExportCycleFilename(
+  cycle: ExportedCycle | null,
+  calls: readonly CallRecord[],
+  extension: 'md' | 'json' | 'html'
+): string {
+  const slug = cycle
+    ? cycle.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60)
+        .replace(/-+$/g, '')
+    : '';
+  if (!slug) return `alfred-export-${calls.length}-calls.${extension}`;
+  return `alfred-cycle-${slug}-${calls.length}-calls.${extension}`;
 }

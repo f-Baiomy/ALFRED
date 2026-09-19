@@ -1,7 +1,13 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { ExportDialogService, ExportFormat } from '../../core/services/export-dialog.service';
 import { Environment, ExportFormData } from '../../core/models/export-metadata.model';
-import { buildExportMarkdown, buildBulkExportMarkdown, exportFilename, bulkExportFilename } from '../../shared/utils/markdown-builder';
+import {
+  buildExportMarkdown,
+  buildBulkExportMarkdown,
+  exportFilename,
+  bulkExportFilename,
+  bulkExportCycleFilename,
+} from '../../shared/utils/markdown-builder';
 import { buildExportHtml, buildBulkExportHtml, exportHtmlFilename, bulkExportHtmlFilename } from '../../shared/utils/html-builder';
 import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
 import { buildBulkPostmanCollection, bulkPostmanFilename } from '../../shared/utils/postman-builder';
@@ -199,8 +205,9 @@ export class ExportDialogComponent {
     const { calls, redactedValueCount } = redactCalls(current.calls, this.redactions.all());
 
     if (format === 'json') {
-      const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, redactedValueCount);
-      return { isJson: true, payload, filename: this.resolveFilename(bulkExportFilename(calls, 'json'), format) };
+      const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, redactedValueCount, current.cycle);
+      const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'json') : bulkExportFilename(calls, 'json');
+      return { isJson: true, payload, filename: this.resolveFilename(name, format) };
     }
 
     if (format === 'postman') {
@@ -209,23 +216,30 @@ export class ExportDialogComponent {
     }
 
     if (format === 'html') {
-      if (calls.length === 1) {
+      // A whole-cycle export always takes the bulk path, even at one call: the single-call builders
+      // produce a report ABOUT that call, with no place to state which cycle it is or that the
+      // cycle is complete. A one-call cycle whose .json says "the complete cycle X" while its .md
+      // says nothing of the sort is the same capture contradicting itself.
+      if (calls.length === 1 && !current.cycle) {
         const call = calls[0];
         const html = buildExportHtml(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
         return { isJson: false, content: html, filename: this.resolveFilename(exportHtmlFilename(call), format), mimeType: 'text/html' };
       }
-      const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
-      return { isJson: false, content: html, filename: this.resolveFilename(bulkExportHtmlFilename(calls), format), mimeType: 'text/html' };
+      const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, current.cycle);
+      const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'html') : bulkExportHtmlFilename(calls);
+      return { isJson: false, content: html, filename: this.resolveFilename(name, format), mimeType: 'text/html' };
     }
 
-    if (calls.length === 1) {
+    // See the html branch above for why a cycle export never takes this path.
+    if (calls.length === 1 && !current.cycle) {
       const call = calls[0];
       const markdown = buildExportMarkdown(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
       return { isJson: false, content: markdown, filename: this.resolveFilename(exportFilename(call), format), mimeType: 'text/markdown' };
     }
 
-    const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter);
-    return { isJson: false, content: markdown, filename: this.resolveFilename(bulkExportFilename(calls, 'md'), format), mimeType: 'text/markdown' };
+    const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, current.cycle);
+    const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'md') : bulkExportFilename(calls, 'md');
+    return { isJson: false, content: markdown, filename: this.resolveFilename(name, format), mimeType: 'text/markdown' };
   }
 
   /** Applies whatever the user typed into the optional filename field, if anything, to a builder's

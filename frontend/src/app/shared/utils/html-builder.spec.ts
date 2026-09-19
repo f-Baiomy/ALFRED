@@ -1,7 +1,18 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
-import { ExportFormData } from '../../core/models/export-metadata.model';
+import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { buildBulkExportHtml, buildExportHtml, bulkExportHtmlFilename, exportHtmlFilename } from './html-builder';
+
+function makeCycle(overrides: Partial<ExportedCycle> = {}): ExportedCycle {
+  return {
+    id: 'cycle-1',
+    name: 'Booking fails on FlyNas',
+    assignedTo: 'Sara',
+    status: 'open',
+    createdAt: '2026-08-07T13:00:00+00:00',
+    ...overrides,
+  };
+}
 
 /** A candidate genuinely contained in a call's [timestamp, timestamp + duration_ms] window, from a different service - the minimal fixture that makes buildBulkExportHtml keep an internal/resolved call split (see markdown-builder.ts/html-builder.ts's own isSplitInternalCall). */
 function makeCandidate(overrides: Partial<CallOverlapCandidate> = {}): CallOverlapCandidate {
@@ -457,6 +468,22 @@ describe('buildBulkExportHtml', () => {
     expect(requestBlock).not.toContain('response-side issue');
     expect(responseBlock).toContain('response-side issue');
     expect(responseBlock).not.toContain('request-side issue');
+  });
+});
+
+describe('buildBulkExportHtml with a whole session cycle', () => {
+  it('opens by naming the cycle and claiming completeness', () => {
+    const calls = [makeCall(), makeCall({ id: 'call-2' })];
+    const html = buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle());
+
+    expect(html).toContain('This is the complete session cycle &quot;Booking fails on FlyNas&quot;.');
+    expect(html).toContain('All 2 of its captured calls are here');
+  });
+
+  it('says nothing about a cycle for a hand-picked selection', () => {
+    const html = buildBulkExportHtml([makeCall()], makeForm(), new Map(), 'now');
+
+    expect(html).not.toContain('complete session cycle');
   });
 });
 

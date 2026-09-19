@@ -1,5 +1,5 @@
 import { CallEndpointSource, CallLifecycleState, CallOverlapCandidate, CallRecord, CallResponse, HttpMessageData } from '../../core/models/call.model';
-import { ExportFormData } from '../../core/models/export-metadata.model';
+import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { CallStatusFilter, isInProgress } from './call-utils';
 import { buildExportNarrative, ExportNarrative } from './export-narrative';
@@ -299,7 +299,8 @@ export function buildBulkExportPayload(
   exportedAt: string,
   overlapCandidates: readonly CallOverlapCandidate[] = [],
   statusFilter: CallStatusFilter = 'all',
-  redactedValueCount = 0
+  redactedValueCount = 0,
+  cycle: ExportedCycle | null = null
 ): BulkExportPayload {
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
 
@@ -318,7 +319,10 @@ export function buildBulkExportPayload(
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   return {
-    about: buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, overlapCandidates }),
+    // `cycle` rides inside `about` rather than as its own top-level key: it is a fact ABOUT the
+    // document (which capture this is, and that it is complete), which is exactly what `about` is
+    // for, and a re-importer already reads that object. See ExportNarrative.cycle.
+    about: buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, overlapCandidates, cycle }),
     metadata: form,
     exportedAt,
     // Stated at the top level rather than inside `about`, because this is the one fact a

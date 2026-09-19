@@ -1,7 +1,24 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
-import { ExportFormData } from '../../core/models/export-metadata.model';
+import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
-import { buildBulkExportMarkdown, buildExportMarkdown, bulkExportFilename, exportFilename } from './markdown-builder';
+import {
+  buildBulkExportMarkdown,
+  buildExportMarkdown,
+  bulkExportCycleFilename,
+  bulkExportFilename,
+  exportFilename,
+} from './markdown-builder';
+
+function makeCycle(overrides: Partial<ExportedCycle> = {}): ExportedCycle {
+  return {
+    id: 'cycle-1',
+    name: 'Booking fails on FlyNas',
+    assignedTo: 'Sara',
+    status: 'open',
+    createdAt: '2026-08-07T13:00:00+00:00',
+    ...overrides,
+  };
+}
 
 /**
  * A candidate genuinely contained in a call's [timestamp, timestamp + duration_ms] window and from a
@@ -478,9 +495,56 @@ describe('buildBulkExportMarkdown', () => {
   });
 });
 
+describe('buildBulkExportMarkdown with a whole session cycle', () => {
+  it('opens by naming the cycle and claiming completeness', () => {
+    const calls = [makeCall(), makeCall({ id: 'call-2' })];
+    const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle());
+
+    expect(md).toContain('This is the complete session cycle "Booking fails on FlyNas".');
+    expect(md).toContain('All 2 of its captured calls are here');
+  });
+
+  it('says nothing about a cycle for a hand-picked selection', () => {
+    const md = buildBulkExportMarkdown([makeCall()], makeForm(), new Map(), 'now');
+
+    expect(md).not.toContain('complete session cycle');
+  });
+});
+
 describe('bulkExportFilename', () => {
   it('names the file after the call count and extension', () => {
     expect(bulkExportFilename([makeCall(), makeCall()], 'md')).toBe('alfred-export-2-calls.md');
     expect(bulkExportFilename([makeCall()], 'json')).toBe('alfred-export-1-calls.json');
+  });
+});
+
+describe('bulkExportCycleFilename', () => {
+  const calls = [makeCall(), makeCall()];
+
+  it('names the file after the cycle', () => {
+    expect(bulkExportCycleFilename(makeCycle({ name: 'Booking fails on FlyNas' }), calls, 'md')).toBe(
+      'alfred-cycle-booking-fails-on-flynas-2-calls.md'
+    );
+  });
+
+  it('collapses runs of non-alphanumerics into one hyphen and trims the ends', () => {
+    expect(bulkExportCycleFilename(makeCycle({ name: '  ABC-123 :: retry  /  timeout!  ' }), calls, 'json')).toBe(
+      'alfred-cycle-abc-123-retry-timeout-2-calls.json'
+    );
+  });
+
+  it('truncates a very long cycle name to 60 slug characters', () => {
+    const name = 'a'.repeat(80);
+    const filename = bulkExportCycleFilename(makeCycle({ name }), calls, 'html');
+
+    expect(filename).toBe(`alfred-cycle-${'a'.repeat(60)}-2-calls.html`);
+  });
+
+  it('falls back to the plain counted name when the cycle name slugs to nothing', () => {
+    expect(bulkExportCycleFilename(makeCycle({ name: '???' }), calls, 'md')).toBe('alfred-export-2-calls.md');
+  });
+
+  it('falls back to the plain counted name when there is no cycle at all', () => {
+    expect(bulkExportCycleFilename(null, calls, 'md')).toBe('alfred-export-2-calls.md');
   });
 });

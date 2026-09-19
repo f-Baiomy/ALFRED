@@ -179,6 +179,55 @@ describe('ImportCallsDialogComponent', () => {
     expect(component.parsedCalls()).toEqual([jasmine.objectContaining({ id: 'call-1' })]);
   });
 
+  describe('prefilling the new-cycle name from a whole-cycle export', () => {
+    function cycleExport(name: string): string {
+      const payload = buildBulkExportPayload([makeCall('call-1')], {} as never, new Map(), 't', [], 'all', 0, {
+        id: 'cycle-1',
+        name,
+        assignedTo: null,
+        status: 'PAUSED',
+        createdAt: 't',
+      });
+      return JSON.stringify(payload);
+    }
+
+    async function load(name: string): Promise<void> {
+      (component as any).readFile(fileFrom(cycleExport(name)));
+      await waitUntil(() => component.parsedCalls() !== null || component.parseError() !== null);
+    }
+
+    it('offers the exported cycle name as the new cycle name', async () => {
+      await load('Booking fails on FlyNas');
+
+      expect(component.newCycleName()).toBe('Booking fails on FlyNas');
+    });
+
+    it('leaves a name the user already typed alone', async () => {
+      component.newCycleName.set('My own name');
+
+      await load('Booking fails on FlyNas');
+
+      expect(component.newCycleName()).toBe('My own name');
+    });
+
+    it('takes the suggestion back when the file is cleared', async () => {
+      await load('Booking fails on FlyNas');
+
+      component.clearFile();
+
+      expect(component.newCycleName()).toBe('');
+    });
+
+    it('keeps a name the user typed over the suggestion when the file is cleared', async () => {
+      await load('Booking fails on FlyNas');
+      component.newCycleName.set('Edited by hand');
+
+      component.clearFile();
+
+      expect(component.newCycleName()).toBe('Edited by hand');
+    });
+  });
+
   it('import() sends the parsed calls to every selected cycle', () => {
     component.parsedCalls.set([makeCall('call-1')]);
     component.selectedCycleIds.set(new Set(['c1', 'c2']));

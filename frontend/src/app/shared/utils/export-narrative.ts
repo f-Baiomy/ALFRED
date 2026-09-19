@@ -1,5 +1,6 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { Comment } from '../../core/models/comment.model';
+import { ExportedCycle } from '../../core/models/export-metadata.model';
 import { buildCallTree, CallTreeNode, indexCallTree } from './call-tree';
 import { isInProgress, supplierOf, uriPath } from './call-utils';
 
@@ -112,6 +113,13 @@ export interface NarrativeTimingRow {
 export interface ExportNarrative {
   readonly documentType: 'alfred-call-export';
   readonly scope: 'single' | 'multi';
+  /**
+   * The session cycle this is the WHOLE of, or null for a hand-picked selection (including a
+   * selection made inside a cycle). Non-null is a statement about completeness, not just
+   * provenance: it means no call in that cycle was left out, which is the one thing a reader
+   * cannot otherwise tell from the file. See CycleExportService.
+   */
+  readonly cycle: ExportedCycle | null;
   /** The whole "What this is" paragraph as one plain-text string - no markup, safe in any format. */
   readonly description: string;
   readonly capturedFrom: string | null;
@@ -172,6 +180,8 @@ export interface NarrativeInput {
    * themselves.
    */
   readonly overlapCandidates?: readonly CallOverlapCandidate[];
+  /** Set only by a whole-cycle export - see ExportNarrative.cycle. */
+  readonly cycle?: ExportedCycle | null;
 }
 
 function formatMs(ms: number): string {
@@ -675,11 +685,32 @@ const READING_GUIDE = {
     'Human annotations pinned to a specific line of a specific block (request-headers | request-body | response-headers | response-body). lineIndex is 0-based against the pretty-printed text of that block.',
 } as const;
 
+/**
+ * The completeness claim a whole-cycle export opens with, or '' for a hand-picked selection.
+ *
+ * Worth stating outright rather than leaving to the cycle name: every other Alfred export is a
+ * SUBSET the exporter chose, so a reader's default assumption is that calls are missing and that
+ * whatever isn't here was judged irrelevant. For a cycle export that assumption is wrong, and it
+ * changes what the file can be used for - "the supplier never called us back" is only a finding if
+ * you know nothing was filtered out.
+ */
+function cycleSentence(cycle: ExportedCycle | null, callCount: number): string {
+  if (!cycle) return '';
+  const what = callCount === 0 ? 'It is empty - the cycle captured no calls.' : `All ${callCount} of its captured ${plural(callCount, 'call is', 'calls are')} here; nothing was filtered out or left behind.`;
+  return `This is the complete session cycle "${cycle.name}". ${what}`;
+}
+
+function prefixCycle(cycle: ExportedCycle | null, callCount: number, description: string): string {
+  const sentence = cycleSentence(cycle, callCount);
+  return sentence ? `${sentence} ${description}` : description;
+}
+
 /** Nothing to narrate - an export with no calls in it, which the dialog shouldn't produce but which no builder should crash on either. */
 function emptyNarrative(): ExportNarrative {
   return {
     documentType: 'alfred-call-export',
     scope: 'multi',
+    cycle: null,
     description: 'An Alfred export containing no calls.',
     capturedFrom: null,
     capturedTo: null,
@@ -708,8 +739,8 @@ function emptyNarrative(): ExportNarrative {
  * injectables, so every branch of it is directly testable.
  */
 export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
-  const { calls, commentsByCallId, splitCallIds, overlapCandidates = [] } = input;
-  if (calls.length === 0) return emptyNarrative();
+  const { calls, commentsByCallId, splitCallIds, overlapCandidates = [], cycle = null } = input;
+  if (calls.length === 0) return { ...emptyNarrative(), cycle, description: cycleSentence(cycle, 0) || 'An Alfred export containing no calls.' };
 
   const counts = countsOf(calls, commentsByCallId);
   const commentsNote = commentsNoteOf(commentsByCallId);
@@ -735,7 +766,8 @@ export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
     return {
       documentType: 'alfred-call-export',
       scope: 'single',
-      description: singleCallDescription(call, notIncluded),
+      cycle,
+      description: prefixCycle(cycle, calls.length, singleCallDescription(call, notIncluded)),
       capturedFrom: from,
       capturedTo: to,
       wallClockMs,
@@ -794,7 +826,8 @@ export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
   return {
     documentType: 'alfred-call-export',
     scope: 'multi',
-    description: multiCallDescription(calls, counts, from, to, wallClockMs),
+    cycle,
+    description: prefixCycle(cycle, calls.length, multiCallDescription(calls, counts, from, to, wallClockMs)),
     capturedFrom: from,
     capturedTo: to,
     wallClockMs,

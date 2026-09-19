@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { CallRecord } from '../../core/models/call.model';
+import { ExportedCycle } from '../../core/models/export-metadata.model';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { ExportDialogComponent } from './export-dialog.component';
 
@@ -20,9 +21,18 @@ function call(id = 'c1'): CallRecord {
   };
 }
 
+const CYCLE: ExportedCycle = {
+  id: 'cy1',
+  name: '58683 Flight times shifted',
+  assignedTo: null,
+  status: 'PAUSED',
+  createdAt: null,
+};
+
 describe('ExportDialogComponent', () => {
   let dialogService: ExportDialogService;
   let component: ExportDialogComponent;
+  let downloadedNames: string[];
 
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -30,13 +40,26 @@ describe('ExportDialogComponent', () => {
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
     dialogService = TestBed.inject(ExportDialogService);
+    downloadedNames = [];
     // Downloading is the browser's job and would otherwise really fire during the run; the thing
-    // under test is what the dialog does AFTER handing the file over.
-    spyOn(HTMLAnchorElement.prototype, 'click');
+    // under test is what the dialog does AFTER handing the file over. The name it handed over is
+    // recorded rather than discarded - it's the only externally visible evidence of which builder
+    // path a given export took.
+    spyOn(HTMLAnchorElement.prototype, 'click').and.callFake(function (this: HTMLAnchorElement) {
+      downloadedNames.push(this.download);
+    });
   });
 
   function openWith(calls: readonly CallRecord[], format: 'markdown' | 'json' = 'markdown') {
     dialogService.open(calls, null, new Map(), format);
+    const fixture = TestBed.createComponent(ExportDialogComponent);
+    fixture.detectChanges();
+    component = fixture.componentInstance;
+    return fixture;
+  }
+
+  function openCycle(calls: readonly CallRecord[], format: 'markdown' | 'json' = 'markdown') {
+    dialogService.open(calls, null, new Map(), format, [], 'all', CYCLE);
     const fixture = TestBed.createComponent(ExportDialogComponent);
     fixture.detectChanges();
     component = fixture.componentInstance;
@@ -100,6 +123,37 @@ describe('ExportDialogComponent', () => {
 
     expect(component.hasExported()).toBeFalse();
     expect(component.exportedLabel()).toBe('');
+  });
+
+  /**
+   * A cycle holding exactly one call used to fall into the single-call builder, which has nowhere
+   * to state which cycle it is or that the cycle is complete - so the .json claimed "the complete
+   * cycle X" while the .md of the same export said nothing of the sort.
+   */
+  it('reports a one-call cycle as a cycle, not as a lone call', () => {
+    openCycle([call()]);
+
+    component.confirmExport();
+
+    expect(downloadedNames).toEqual(['alfred-cycle-58683-flight-times-shifted-1-calls.md']);
+  });
+
+  it('leaves an ordinary one-call export on the single-call path', () => {
+    openWith([call()]);
+
+    component.confirmExport();
+
+    expect(downloadedNames[0]).not.toContain('alfred-cycle-');
+  });
+
+  it('carries the cycle through to HTML as well as Markdown', () => {
+    const fixture = openCycle([call('c1'), call('c2')]);
+    component.setReportFormat('html');
+    fixture.detectChanges();
+
+    component.confirmExport();
+
+    expect(downloadedNames).toEqual(['alfred-cycle-58683-flight-times-shifted-2-calls.html']);
   });
 
   it('still closes when asked', () => {

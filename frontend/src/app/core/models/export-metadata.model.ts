@@ -6,6 +6,23 @@ export interface ExportMetadata {
   readonly url: string | null;
 }
 
+/**
+ * The session cycle an export was taken from, when it was taken from one whole cycle rather than a
+ * hand-picked selection of calls (see CycleExportService). Carried into the export so the document
+ * can say which capture it is - the cycle name is in practice the ticket title - and so re-importing
+ * the .json can offer to recreate the cycle under that name instead of the user retyping it.
+ *
+ * Deliberately a snapshot of the cycle's own fields rather than a reference to it: the file outlives
+ * the cycle, routinely on someone else's machine, where the id resolves to nothing.
+ */
+export interface ExportedCycle {
+  readonly id: string;
+  readonly name: string;
+  readonly assignedTo: string | null;
+  readonly status: string;
+  readonly createdAt: string | null;
+}
+
 export type Environment = 'Production' | 'Staging';
 
 export interface ExportFormData {

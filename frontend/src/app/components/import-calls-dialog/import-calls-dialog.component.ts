@@ -47,6 +47,9 @@ export class ImportCallsDialogComponent {
   readonly newCycleName = signal('');
   readonly newCycleAssignedTo = signal<string | null>(null);
   readonly creatingCycle = signal(false);
+  /** What we last prefilled newCycleName with from a whole-cycle export, so clearing the file can
+   * take that suggestion back without also wiping a name the user typed over it. */
+  private prefilledCycleName: string | null = null;
 
   constructor() {
     // Pre-checks the cycle this dialog was opened from (session-cycle-detail page) - a no-op when
@@ -94,6 +97,10 @@ export class ImportCallsDialogComponent {
     this.fileName.set(null);
     this.parseError.set(null);
     this.parseWarning.set(null);
+    if (this.prefilledCycleName !== null && this.newCycleName() === this.prefilledCycleName) {
+      this.newCycleName.set('');
+    }
+    this.prefilledCycleName = null;
   }
 
   private readFile(file: File): void {
@@ -113,13 +120,19 @@ export class ImportCallsDialogComponent {
         this.parseError.set('This file is not valid JSON.');
         return;
       }
-      const { calls, inferredDirectionCount, redactedValueCount } = parseImportedCalls(parsed);
+      const { calls, inferredDirectionCount, redactedValueCount, cycleName } = parseImportedCalls(parsed);
       if (calls.length === 0) {
         this.parseError.set('No calls found in this file - expected an export produced by "Export as JSON".');
         return;
       }
       this.parsedCalls.set([...calls]);
       this.fileName.set(file.name);
+      // A whole-cycle export names the cycle it came from, which is almost always the name the
+      // importer wants to recreate it under - offered, never imposed: anything already typed wins.
+      if (cycleName && this.newCycleName().trim().length === 0) {
+        this.newCycleName.set(cycleName);
+        this.prefilledCycleName = cycleName;
+      }
       if (redactedValueCount > 0) {
         // Said first, and said even when nothing else is wrong: these calls will LOOK complete once
         // imported, with ***REDACTED*** sitting where a token was. Nothing else about the file
@@ -162,6 +175,7 @@ export class ImportCallsDialogComponent {
     this.cyclesState.create({ name, assignedTo: this.newCycleAssignedTo() }).subscribe((cycle) => {
       this.creatingCycle.set(false);
       this.newCycleName.set('');
+      this.prefilledCycleName = null;
       this.newCycleAssignedTo.set(null);
       const next = new Set(this.selectedCycleIds());
       next.add(cycle.id);

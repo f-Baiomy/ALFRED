@@ -50,9 +50,19 @@ export interface ImportParseResult {
    * complete, with ***REDACTED*** sitting where a token used to be.
    */
   readonly redactedValueCount: number;
+  /**
+   * The name of the session cycle this file is the complete export of, read from `about.cycle`
+   * (see ExportNarrative.cycle) - null for a hand-picked selection, and for every file exported
+   * before whole-cycle export existed.
+   *
+   * Offered as the default name when importing into a NEW cycle. The name is in practice the ticket
+   * title, and retyping it by hand is both the tedious part of a round-trip and the part that makes
+   * the copy hard to recognise later.
+   */
+  readonly cycleName: string | null;
 }
 
-const EMPTY: ImportParseResult = { calls: [], inferredDirectionCount: 0, skippedCount: 0, redactedValueCount: 0 };
+const EMPTY: ImportParseResult = { calls: [], inferredDirectionCount: 0, skippedCount: 0, redactedValueCount: 0, cycleName: null };
 
 /**
  * Accepts every shape Alfred has ever written or documented:
@@ -72,14 +82,29 @@ export function parseImportedCalls(parsed: unknown): ImportParseResult {
   // mergeEvents only ever sees the array.
   const declared = (parsed as { redactedValueCount?: unknown }).redactedValueCount;
   const redactedValueCount = typeof declared === 'number' && declared > 0 ? declared : 0;
+  const cycleName = cycleNameOf(parsed);
 
   const events = (parsed as { events?: unknown }).events;
-  if (Array.isArray(events)) return { ...mergeEvents(events), redactedValueCount };
+  if (Array.isArray(events)) return { ...mergeEvents(events), redactedValueCount, cycleName };
 
   const rawCalls = Array.isArray(parsed) ? parsed : (parsed as { calls?: unknown }).calls;
-  if (Array.isArray(rawCalls)) return { ...mergeEvents(rawCalls), redactedValueCount };
+  if (Array.isArray(rawCalls)) return { ...mergeEvents(rawCalls), redactedValueCount, cycleName };
 
   return EMPTY;
+}
+
+/**
+ * Digs `about.cycle.name` out of a payload without trusting any of the path to exist - a bare
+ * array, a hand-written `{ calls: [...] }`, and every export predating whole-cycle export all
+ * legitimately have no `about` at all, and none of them is an error.
+ */
+function cycleNameOf(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const about = (parsed as { about?: unknown }).about;
+  if (!about || typeof about !== 'object') return null;
+  const cycle = (about as { cycle?: unknown }).cycle;
+  if (!cycle || typeof cycle !== 'object') return null;
+  return str((cycle as Record<string, unknown>)['name']) ?? null;
 }
 
 /**
@@ -148,7 +173,9 @@ function mergeEvents(events: readonly unknown[]): ImportParseResult {
     });
   }
 
-  return { calls, inferredDirectionCount: inferred, skippedCount: skipped, redactedValueCount: 0 };
+  // redactedValueCount/cycleName are properties of the FILE, not of any event - every caller
+  // overwrites both from the payload itself (see parseImportedCalls).
+  return { calls, inferredDirectionCount: inferred, skippedCount: skipped, redactedValueCount: 0, cycleName: null };
 }
 
 /** Copies every field this event carries onto the accumulating record, never overwriting one that's

@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { ActionMenuComponent } from '../../components/action-menu/action-menu.component';
 import { BulkActionsBarComponent } from '../../components/bulk-actions-bar/bulk-actions-bar.component';
 import { CallListComponent } from '../../components/call-list/call-list.component';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
@@ -10,6 +11,7 @@ import { HeaderComponent } from '../../components/header/header.component';
 import { ImportCallsDialogComponent } from '../../components/import-calls-dialog/import-calls-dialog.component';
 import { StatsBarComponent } from '../../components/stats-bar/stats-bar.component';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { CycleExportService } from '../../core/services/cycle-export.service';
 import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.service';
 import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
 import {
@@ -33,7 +35,7 @@ import { SessionCyclesStateService } from '../../core/state/session-cycles-state
 @Component({
   selector: 'app-session-cycle-detail',
   standalone: true,
-  imports: [RouterLink, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent],
+  imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },
@@ -50,9 +52,20 @@ export class SessionCycleDetailComponent {
   private readonly editDialog = inject(EditCycleDialogService);
   private readonly importDialog = inject(ImportCallsDialogService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  readonly cycleExport = inject(CycleExportService);
 
   readonly cycle = computed(() => this.cyclesState.cycles().find((c) => c.id === this.state.cycleId()) ?? null);
   readonly clearingCalls = signal(false);
+
+  /**
+   * Exports the whole cycle, not the list's current selection/filters - see CycleExportService.
+   * 'markdown' only picks the dialog's initial toggle; Markdown vs. HTML is chosen inside it.
+   */
+  exportCycle(format: 'markdown' | 'json'): void {
+    const cycle = this.cycle();
+    if (!cycle) return;
+    this.cycleExport.exportCycle(cycle, format);
+  }
 
   openImportDialog(): void {
     this.importDialog.open(this.state.cycleId());

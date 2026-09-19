@@ -1,16 +1,19 @@
 import { DatePipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { ActionMenuComponent } from '../../components/action-menu/action-menu.component';
 import { AssignedToFilterComponent } from '../../components/assigned-to-filter/assigned-to-filter.component';
 import { BulkReassignDialogComponent } from '../../components/bulk-reassign-dialog/bulk-reassign-dialog.component';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 import { EditCycleDialogComponent } from '../../components/edit-cycle-dialog/edit-cycle-dialog.component';
+import { ExportDialogComponent } from '../../components/export-dialog/export-dialog.component';
 import { ImportCallsDialogComponent } from '../../components/import-calls-dialog/import-calls-dialog.component';
 import { ProfilePickerComponent } from '../../components/profile-picker/profile-picker.component';
 import { SelectOption, SelectPickerComponent } from '../../components/select-picker/select-picker.component';
 import { SessionCycle } from '../../core/models/call.model';
 import { BulkReassignDialogService } from '../../core/services/bulk-reassign-dialog.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { CycleExportService } from '../../core/services/cycle-export.service';
 import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.service';
 import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
 import { CycleSortMode, SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
@@ -27,8 +30,10 @@ const SORT_OPTIONS: readonly SelectOption[] = [
   standalone: true,
   imports: [
     DatePipe,
+    ActionMenuComponent,
     ConfirmDialogComponent,
     EditCycleDialogComponent,
+    ExportDialogComponent,
     BulkReassignDialogComponent,
     ImportCallsDialogComponent,
     AssignedToFilterComponent,
@@ -44,6 +49,7 @@ export class SessionCyclesListComponent {
   private readonly editDialog = inject(EditCycleDialogService);
   private readonly bulkReassignDialog = inject(BulkReassignDialogService);
   private readonly importDialog = inject(ImportCallsDialogService);
+  readonly cycleExport = inject(CycleExportService);
   readonly state = inject(SessionCyclesStateService);
   readonly profilesState = inject(ProfilesStateService);
 
@@ -116,6 +122,12 @@ export class SessionCyclesListComponent {
 
   open(cycle: SessionCycle): void {
     this.router.navigate(['/cycles', cycle.id]);
+  }
+
+  /** Exports the entire cycle (see CycleExportService), not a selection out of it - stops the click from opening the row. */
+  exportCycle(cycle: SessionCycle, format: 'markdown' | 'json', event: Event): void {
+    event.stopPropagation();
+    this.cycleExport.exportCycle(cycle, format);
   }
 
   openInNewTab(cycle: SessionCycle, event: Event): void {

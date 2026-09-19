@@ -53,6 +53,14 @@
     <div class="bulk-action-message">{{ message }}</div>
   }
 
+  @if (cycleExport.progress(); as progress) {
+    <div class="bulk-action-message">{{ progress }}</div>
+  }
+
+  @if (cycleExport.message(); as message) {
+    <div class="bulk-action-message">{{ message }}</div>
+  }
+
   @if (state.cycles().length === 0) {
     <div class="empty">No session cycles yet - create one above.</div>
   } @else if (state.sortedCycles().length === 0) {
@@ -87,6 +95,24 @@
               </button>
               <button type="button" class="action-btn" (click)="edit(cycle)">Edit</button>
               <button type="button" class="action-btn" title="Open in a new tab" (click)="openInNewTab(cycle, $event)">Open in new tab</button>
+              <app-action-menu [label]="cycleExport.exportingCycleId() === cycle.id ? 'Exporting…' : 'Export'">
+                <button
+                  type="button"
+                  class="filter-option-item"
+                  [disabled]="cycleExport.exportingCycleId() !== null"
+                  (click)="exportCycle(cycle, 'markdown', $event)"
+                >
+                  Export cycle as report...
+                </button>
+                <button
+                  type="button"
+                  class="filter-option-item"
+                  [disabled]="cycleExport.exportingCycleId() !== null"
+                  (click)="exportCycle(cycle, 'json', $event)"
+                >
+                  Export cycle as JSON
+                </button>
+              </app-action-menu>
               <button
                 type="button"
                 class="action-btn"
@@ -115,3 +141,4 @@
 <app-edit-cycle-dialog />
 <app-bulk-reassign-dialog />
 <app-import-calls-dialog />
+<app-export-dialog />

@@ -10,12 +10,37 @@
       </button>
       <button type="button" class="action-btn" (click)="edit()">Edit</button>
       <button type="button" class="action-btn" (click)="openImportDialog()">Import calls</button>
+      <app-action-menu [label]="cycleExport.exportingCycleId() === c.id ? 'Exporting…' : 'Export cycle'">
+        <button
+          type="button"
+          class="filter-option-item"
+          [disabled]="cycleExport.exportingCycleId() !== null"
+          (click)="exportCycle('markdown')"
+        >
+          Export cycle as report...
+        </button>
+        <button
+          type="button"
+          class="filter-option-item"
+          [disabled]="cycleExport.exportingCycleId() !== null"
+          (click)="exportCycle('json')"
+        >
+          Export cycle as JSON
+        </button>
+      </app-action-menu>
+      @if (cycleExport.progress(); as progress) {
+        <span class="muted">{{ progress }}</span>
+      }
       <button type="button" class="action-btn danger" [disabled]="clearingCalls()" (click)="clearAllCalls()">
         {{ clearingCalls() ? 'Clearing…' : 'Clear all calls' }}
       </button>
     </div>
   }
 </div>
+
+@if (cycleExport.message(); as message) {
+  <div class="bulk-action-message">{{ message }}</div>
+}
 
 <app-header
   [title]="cycle()?.name ?? 'Session Cycle'"
