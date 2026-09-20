@@ -568,5 +568,20 @@ describe('CallCardComponent', () => {
 
       expect(spy).toHaveBeenCalled();
     });
+
+    it('lets the browser actually select its text, not only the mousedown handler', () => {
+      // The first fix (above) was not enough on its own. `.call` sets user-select: none for the
+      // whole card so a drag-select paints checkboxes instead of highlighting prose, and that
+      // CSS property is INHERITED - it blocks native selection regardless of what the mousedown
+      // handler does or doesn't do. .uri-value and app-json-panel were already carved back out
+      // to user-select: text for the same reason; app-interception-panel was missing from that
+      // list, so text still could not be selected even once the click-toggle bug was fixed.
+      const fixture = createCard(callWithInterception());
+      const host: HTMLElement = fixture.nativeElement;
+
+      const panel = host.querySelector('app-interception-panel') as HTMLElement;
+
+      expect(getComputedStyle(panel).userSelect).toBe('text');
+    });
   });
 });

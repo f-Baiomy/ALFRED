@@ -2322,10 +2322,17 @@ main {
 }
 
 // The card as a whole is a click/drag selection target (see .call above),
-// but the URLs and JSON panel contents are exactly what a user copies out
-// of this tool most often, so they stay normally text-selectable.
+// but the URLs, JSON panel and before/after diff are exactly what a user copies out of this tool
+// most often, so they stay normally text-selectable.
+//
+// This is the OTHER half of that exemption - the mousedown handler's own SELECTION_EXEMPT_SELECTOR
+// list (call-card.component.ts) stops a click here from toggling the card, but `.call`'s
+// `user-select: none` is inherited regardless of that JS and would still block the browser's
+// native text selection on its own. Both have to name every exempt area, or fixing one half looks
+// like it fixed the bug while the other still blocks it.
 .uri-value,
-app-json-panel {
+app-json-panel,
+app-interception-panel {
   cursor: text;
   user-select: text;
 }
