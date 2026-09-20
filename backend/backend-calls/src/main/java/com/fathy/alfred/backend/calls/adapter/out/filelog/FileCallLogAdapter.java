@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
@@ -166,7 +167,7 @@ public class FileCallLogAdapter implements CallLogPort {
 
     /** Merges the outcome into the pending call (if this process is still the one that prepared it) and performs the one, single-shot disk write - the same write save() always did. */
     @Override
-    public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing) {
+    public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
         CallRecord partial = pendingById.remove(id);
         boolean wasPending = partial != null;
         boolean hasError = error != null && !error.isBlank();
@@ -176,12 +177,12 @@ public class FileCallLogAdapter implements CallLogPort {
                 // own handling of partial.serviceName()) so sessionId/operationId/serviceName all
                 // survive completion rather than being silently dropped by a shorter constructor.
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
-                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName(), timing)
+                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName(), timing, interception)
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
                 // silently dropping it. sessionId/operationId/serviceName unknown too in this
                 // narrow, accepted-gap case.
-                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null, timing);
+                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null, timing, interception);
         save(resolved);
         return wasPending;
     }

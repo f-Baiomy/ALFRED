@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
@@ -101,7 +102,7 @@ public class SqliteCallsRepository {
     private int savesSinceLastSizeCheck;
 
     /** The outcome half of a two-phase call, awaiting write via {@link #completionWriter} - see {@link #complete}. */
-    private record PendingCompletion(String id, ResponseData response, String error, Double durationMs, CallTiming timing) {}
+    private record PendingCompletion(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {}
 
     @PostConstruct
     void init() {
@@ -277,6 +278,12 @@ public class SqliteCallsRepository {
         }
         if (!columns.contains("reused_connection")) {
             jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN reused_connection INTEGER");
+        }
+        // One JSON column rather than a table: an interception record is a variable-length
+        // document that is only ever read back whole with its call, and nothing queries into it.
+        // Nullable because almost every call has none.
+        if (!columns.contains("interception")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN interception TEXT");
         }
     }
 
@@ -486,6 +493,7 @@ public class SqliteCallsRepository {
             UPDATE call_metadata SET
               status = ?, status_rank = ?, error = ?, duration_ms = ?, status_state = ?,
               connect_ms = ?, tls_ms = ?, ttfb_ms = ?, download_ms = ?, reused_connection = ?,
+              interception = ?,
               haystack = substr(COALESCE(request_haystack, '') || ' ' || ?, 1, ?)
             WHERE id = ?
             """;
@@ -493,12 +501,12 @@ public class SqliteCallsRepository {
     private static final String UPDATE_RESPONSE_SQL = "UPDATE call_response SET headers = ?, body = ? WHERE call_id = ?";
 
     /** Second half of two-phase logging - fills in a previously-{@link #save prepared} call's outcome. @return true if a row with this id existed to update. */
-    public boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing) {
+    public boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
         Integer existing = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM call_metadata WHERE id = ?", Integer.class, id);
         if (existing == null || existing == 0) {
             return false;
         }
-        completionWriter.submit(new PendingCompletion(id, response, error, durationMs, timing));
+        completionWriter.submit(new PendingCompletion(id, response, error, durationMs, timing, interception));
         return true;
     }
 
@@ -537,9 +545,11 @@ public class SqliteCallsRepository {
             ps.setNull(10, Types.INTEGER);
         }
 
-        ps.setString(11, buildResponseHaystackFragment(response, error));
-        ps.setInt(12, MAX_HAYSTACK_LENGTH);
-        ps.setString(13, pending.id());
+        ps.setString(11, writeInterception(pending.interception()));
+
+        ps.setString(12, buildResponseHaystackFragment(response, error));
+        ps.setInt(13, MAX_HAYSTACK_LENGTH);
+        ps.setString(14, pending.id());
     }
 
     private static void setNullableDouble(PreparedStatement ps, int index, Double value) throws SQLException {
@@ -665,7 +675,7 @@ public class SqliteCallsRepository {
      * Detail view (findById) still needs the full 3-way join.
      */
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -1053,7 +1063,8 @@ public class SqliteCallsRepository {
                 rs.getString("session_id"),
                 rs.getString("operation_id"),
                 rs.getString("service_name"),
-                timingOf(rs));
+                timingOf(rs),
+                interceptionOf(rs));
     };
 
     /**
@@ -1062,6 +1073,40 @@ public class SqliteCallsRepository {
      * summary deliberately leaves behind. Returns null rather than a record of nulls when nothing
      * was measured, so "not measured" stays distinguishable from "measured as zero".
      */
+    /**
+     * Stored as JSON text, so it round-trips whatever the proxy reported without this repository
+     * needing to know the shape of every action. A row written before this column existed reads
+     * back null, which is correct: no rule touched that call.
+     */
+    private String writeInterception(CallInterception interception) {
+        if (interception == null || interception.isEmpty()) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.writeValueAsString(interception);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.warn("Could not store interception record for a call: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static CallInterception interceptionOf(ResultSet rs) throws SQLException {
+        String json = rs.getString("interception");
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.readValue(json, CallInterception.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            // An unreadable record must not take the call down with it - the call itself is the
+            // thing being logged; this is an annotation on it.
+            return null;
+        }
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper INTERCEPTION_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     private static CallTiming timingOf(ResultSet rs) throws SQLException {
         Double connect = nullableDouble(rs, "connect_ms");
         Double tls = nullableDouble(rs, "tls_ms");

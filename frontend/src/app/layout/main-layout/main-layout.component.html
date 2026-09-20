@@ -2,6 +2,16 @@
   <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Live Calls</a>
   <a routerLink="/cycles" routerLinkActive="active">Session Cycles</a>
   <a routerLink="/profiles" routerLinkActive="active">Profiles</a>
+  <a routerLink="/interception" routerLinkActive="active">
+    Interception
+    <!-- A paused call is a client socket held open right now, so its count has to be visible from
+         every tab, not only from the page that can act on it. -->
+    @if (interception.pausedCount() > 0) {
+      <span class="tab-badge urgent">{{ interception.pausedCount() }} paused</span>
+    } @else if (interception.active()) {
+      <span class="tab-badge">on</span>
+    }
+  </a>
   <a routerLink="/settings" routerLinkActive="active">Settings</a>
   <app-theme-picker />
 </nav>

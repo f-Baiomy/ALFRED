@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alfred — Interception (mockup)</title>
+<style>
+:root{
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  --card:#141a45; --card-elevated: linear-gradient(160deg,#141a45 0%,#101636 100%);
+  --card-inner:#070a24; --panel-bg: rgba(10,14,42,.55); --bg-2:#0f1438;
+  --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-light:#c4b5fd; --cyan:#22d3ee;
+  --text:#e5e9f5; --text-dim:#93a0c2; --text-faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171;
+  --tok-key:#c4b5fd; --tok-string:#6ee7d8; --tok-number:#fb923c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-attachment:fixed;min-height:100vh;
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);font-size:14px}
+.mockbar{background:#1c1340;border-bottom:1px solid var(--border-strong);padding:8px 16px;
+  font-size:12px;color:var(--purple-light);display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.mockbar b{font-weight:600;color:#fff}
+.mockbar button{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit}
+.mockbar button.on{background:var(--purple);color:#fff;border-color:var(--purple)}
+nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;display:flex;gap:4px}
+nav a{padding:13px 15px;font-size:13px;color:var(--text-dim);text-decoration:none;border-bottom:2px solid transparent}
+nav a.active{color:#fff;border-bottom-color:var(--purple)}
+nav a .new{background:var(--purple);color:#fff;font-size:9px;padding:2px 5px;border-radius:4px;margin-left:6px;vertical-align:1px}
+nav a .pcount{background:var(--amber);color:#1a1247;font-size:9px;font-weight:700;padding:2px 6px;border-radius:9px;margin-left:6px;vertical-align:1px}
+.wrap{max-width:1080px;margin:0 auto;padding:22px 20px 60px}
+.brand{display:flex;align-items:center;gap:11px;margin-bottom:5px}
+.logo{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,var(--purple),var(--cyan));
+  display:flex;align-items:center;justify-content:center;font-size:17px}
+.brand h1{margin:0;font-size:21px;letter-spacing:2px;font-weight:600}
+.brand h1 span{color:var(--purple-light)}
+.sub{color:var(--text-dim);font-size:13px;margin:0 0 20px}
+.banner{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  background:rgba(251,191,36,.09);border:1px solid rgba(251,191,36,.42);border-radius:11px;padding:12px 15px;margin-bottom:20px}
+.banner.hot{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.5)}
+.banner .l{display:flex;align-items:center;gap:10px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 9px var(--amber);flex-shrink:0}
+.dot.red{background:var(--red);box-shadow:0 0 9px var(--red);animation:p 1.1s infinite}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.25}}
+.banner b{color:var(--amber);font-weight:600}
+.banner.hot b{color:var(--red)}
+.banner small{color:var(--text-dim);display:block;margin-top:3px;font-size:12px}
+.btn{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:7px;padding:7px 14px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.btn.amber{border-color:rgba(251,191,36,.5);color:var(--amber)}
+.btn.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+.btn.green{background:rgba(52,211,153,.16);border-color:rgba(52,211,153,.5);color:var(--green)}
+.btn.red{border-color:rgba(248,113,113,.45);color:var(--red)}
+.btn.big{padding:10px 17px;font-size:13px;font-weight:600}
+.rowhead{display:flex;align-items:center;justify-content:space-between;margin:0 0 12px}
+.rowhead h2{margin:0;font-size:15px;font-weight:600}
+.rowhead .cnt{color:var(--text-faint);font-size:12px;margin-left:9px;font-weight:400}
+.rule{background:var(--card-elevated);border:1px solid var(--border);border-radius:11px;padding:13px 15px;margin-bottom:9px}
+.rule.off{opacity:.5}
+.rule.hit{border-color:rgba(251,191,36,.45)}
+.rule.brk{border-color:rgba(248,113,113,.45)}
+.rtop{display:flex;align-items:center;gap:12px}
+.grip{color:var(--text-faint);cursor:grab;letter-spacing:-2px;font-size:15px}
+.rname{flex:1;min-width:0}
+.rname b{font-size:14px;font-weight:600;display:block}
+.rmatch{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--text-dim);margin-top:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rmatch em{color:var(--cyan);font-style:normal}
+.sw{width:38px;height:21px;border-radius:11px;background:#2a3166;position:relative;flex-shrink:0;cursor:pointer;border:1px solid var(--border)}
+.sw i{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#6b7394;transition:.15s}
+.sw.on{background:rgba(139,92,246,.35);border-color:var(--purple)}
+.sw.on i{left:19px;background:var(--purple-light)}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px;padding-left:27px;align-items:center}
+.chip{font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(139,92,246,.16);
+  color:var(--purple-light);border:1px solid rgba(139,92,246,.3);white-space:nowrap}
+.chip.red{background:rgba(248,113,113,.14);color:var(--red);border-color:rgba(248,113,113,.35)}
+.chip.amber{background:rgba(251,191,36,.14);color:var(--amber);border-color:rgba(251,191,36,.35)}
+.meta{font-size:11px;color:var(--text-faint);margin-left:auto;white-space:nowrap}
+.editor{background:var(--card-elevated);border:1px solid var(--border-strong);border-radius:13px;margin-top:26px;overflow:hidden}
+.ehead{background:var(--panel-bg);padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.ehead b{font-size:14.5px}
+.ebody{padding:18px}
+.sect{font-size:10.5px;letter-spacing:1.3px;color:var(--text-faint);text-transform:uppercase;margin:0 0 11px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:11px}
+label small{display:block;font-size:11.5px;color:var(--text-dim);margin-bottom:5px}
+.inp{background:var(--card-inner);border:1px solid var(--border);border-radius:7px;padding:8px 11px;
+  font-size:13px;color:var(--text);font-family:ui-monospace,Consolas,monospace}
+.inp.sel{font-family:inherit;display:flex;justify-content:space-between;align-items:center}
+.hint{font-size:11.5px;color:var(--text-faint);margin-top:10px}
+.hint b{color:var(--cyan);font-weight:600}
+.hr{border-top:1px solid var(--border);margin:19px 0}
+.act{background:var(--card-inner);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:9px}
+.act.brk{border-color:rgba(248,113,113,.4)}
+.act.gen{border-color:rgba(34,211,238,.35);background:rgba(34,211,238,.05)}
+.fromtest{font-size:9.5px;font-weight:700;letter-spacing:.6px;background:rgba(34,211,238,.18);
+  color:var(--cyan);border:1px solid rgba(34,211,238,.35);padding:2px 7px;border-radius:5px;margin-left:9px;vertical-align:1px}
+.try{background:var(--card-inner);border:1px solid rgba(34,211,238,.3);border-radius:10px;overflow:hidden}
+.tryhead{padding:13px 14px;border-bottom:1px solid var(--border)}
+.tryflow{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 14px;
+  background:rgba(34,211,238,.05);border-bottom:1px solid var(--border)}
+.tf{font-size:11.5px;white-space:nowrap}
+.tf.done{color:var(--green)}
+.tf.here{color:var(--amber);font-weight:600}
+.tfarr{color:var(--text-faint);font-size:12px}
+.trybody{padding:14px}
+.trytoast{margin-top:11px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.35);
+  border-radius:7px;padding:9px 12px;font-size:11.5px;color:var(--green);line-height:1.6}
+.acthead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.acthead b{font-size:13px;font-weight:600}
+.acthead .num{background:rgba(139,92,246,.2);color:var(--purple-light);font-size:10px;
+  width:19px;height:19px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-right:8px}
+.actrow{display:flex;align-items:center;gap:9px;margin-top:11px;flex-wrap:wrap}
+.actrow span{font-size:12px;color:var(--text-dim)}
+.efoot{background:var(--panel-bg);padding:13px 18px;border-top:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.efoot small{color:var(--text-faint);font-size:11.5px}
+
+/* ---- breakpoint inspector ---- */
+.flow{display:flex;align-items:center;gap:0;background:var(--card-inner);border:1px solid var(--border);
+  border-radius:11px;padding:15px 16px;margin-bottom:18px;overflow-x:auto}
+.node{text-align:center;flex-shrink:0;min-width:96px}
+.node .ico{width:38px;height:38px;border-radius:10px;background:#1a2254;border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;font-size:17px;margin:0 auto 7px}
+.node .nm{font-size:11.5px;color:var(--text-dim);white-space:nowrap}
+.node.done .ico{border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.12)}
+.node.done .nm{color:var(--green)}
+.node.here .ico{border-color:var(--red);background:rgba(248,113,113,.16);animation:p 1.1s infinite}
+.node.here .nm{color:var(--red);font-weight:600}
+.node.wait .ico{opacity:.42}
+.node.wait .nm{color:var(--text-faint)}
+.arr{flex:1;min-width:26px;height:2px;background:linear-gradient(90deg,rgba(52,211,153,.55),rgba(52,211,153,.2));margin:0 3px;margin-bottom:24px}
+.arr.dim{background:rgba(92,102,144,.3)}
+.split{display:grid;grid-template-columns:230px 1fr;gap:16px;align-items:start}
+.queue{background:var(--card-elevated);border:1px solid var(--border);border-radius:11px;overflow:hidden}
+.qhead{padding:11px 13px;border-bottom:1px solid var(--border);font-size:11px;letter-spacing:1.1px;
+  text-transform:uppercase;color:var(--text-faint);font-weight:600}
+.qitem{padding:11px 13px;border-bottom:1px solid var(--border);cursor:pointer;border-left:3px solid transparent}
+.qitem.sel{background:rgba(248,113,113,.09);border-left-color:var(--red)}
+.qitem b{font-size:12px;display:block;font-weight:600}
+.qitem small{font-size:11px;color:var(--text-dim);font-family:ui-monospace,Consolas,monospace;
+  display:block;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qitem .tmr{font-size:10.5px;color:var(--red);margin-top:5px;display:block;font-weight:600}
+.insp{background:var(--card-elevated);border:1px solid rgba(248,113,113,.4);border-radius:11px;overflow:hidden}
+.ihead{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.tabs{display:flex;gap:3px;padding:0 16px;border-bottom:1px solid var(--border);background:var(--panel-bg)}
+.tabs span{padding:10px 13px;font-size:12.5px;color:var(--text-dim);border-bottom:2px solid transparent;cursor:pointer}
+.tabs span.on{color:#fff;border-bottom-color:var(--red)}
+.tabs span.ok{color:var(--green)}
+.pane{padding:15px 16px}
+.kv{display:flex;gap:10px;padding:5px 0;font-family:ui-monospace,Consolas,monospace;font-size:12px;
+  border-bottom:1px solid rgba(139,92,246,.09)}
+.kv .k{color:var(--tok-key);min-width:158px;flex-shrink:0}
+.kv .v{color:var(--text);word-break:break-all}
+.code{background:var(--card-inner);border:1px solid var(--border);border-radius:8px;padding:12px 14px;
+  font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.75;overflow-x:auto}
+.code .ln{display:block;white-space:pre}
+.code .ln.edited{background:rgba(251,191,36,.12);border-left:2px solid var(--amber);
+  margin-left:-14px;padding-left:12px}
+.k2{color:var(--tok-key)} .s2{color:var(--tok-string)} .n2{color:var(--tok-number)}
+.was{color:var(--text-faint);text-decoration:line-through;margin-left:9px;font-size:11.5px}
+.ifoot{padding:14px 16px;border-top:1px solid var(--border);background:var(--panel-bg);
+  display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.ifoot .tleft{margin-left:auto;font-size:11.5px;color:var(--red);font-weight:600;white-space:nowrap}
+.editnote{background:rgba(251,191,36,.09);border:1px solid rgba(251,191,36,.3);border-radius:7px;
+  padding:9px 12px;font-size:11.5px;color:var(--amber);margin-bottom:13px}
+
+/* ---- calls ---- */
+.call{background:var(--card-elevated);border:1px solid var(--border);border-radius:11px;padding:13px 15px;margin-bottom:10px}
+.call.tampered{border-color:rgba(251,191,36,.45)}
+.call.manual{border-color:rgba(248,113,113,.45)}
+.ctop{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.badge{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:5px;letter-spacing:.4px}
+.b-post{background:rgba(34,211,238,.16);color:var(--cyan);border:1px solid rgba(34,211,238,.32)}
+.b-200{background:rgba(52,211,153,.16);color:var(--green);border:1px solid rgba(52,211,153,.32)}
+.b-500{background:rgba(248,113,113,.16);color:var(--red);border:1px solid rgba(248,113,113,.32)}
+.b-int{background:rgba(251,191,36,.16);color:var(--amber);border:1px solid rgba(251,191,36,.35)}
+.b-man{background:rgba(248,113,113,.16);color:var(--red);border:1px solid rgba(248,113,113,.35)}
+.url{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dur{font-size:12px;font-weight:600}
+.dur.slow{color:var(--red)}
+.trace{margin-top:11px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.28);border-radius:8px;padding:11px 13px}
+.trace.man{background:rgba(248,113,113,.07);border-color:rgba(248,113,113,.28)}
+.trace .tl{font-size:11.5px;color:var(--amber);font-weight:600;margin-bottom:8px}
+.trace.man .tl{color:var(--red)}
+.step{display:flex;gap:10px;font-size:11.5px;color:var(--text-dim);padding:3px 0;font-family:ui-monospace,Consolas,monospace}
+.step .k{color:var(--purple-light);min-width:152px;flex-shrink:0}
+.step .v{color:var(--text)}
+.note{background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;padding:13px 16px;
+  font-size:12.5px;color:var(--text-dim);line-height:1.65;margin-top:22px}
+.note b{color:var(--text)}
+.screen{display:none}
+.screen.show{display:block}
+@media(max-width:820px){.split{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>MOCKUP</b> &mdash; static HTML, not wired to anything.
+  <span style="margin-left:auto"></span>
+  <button id="b1" onclick="show('s1',this)">1 &middot; Rules</button>
+  <button class="on" id="b2" onclick="show('s2',this)">2 &middot; Paused call &mdash; edit &amp; release</button>
+  <button id="b3" onclick="show('s3',this)">3 &middot; Live Calls afterwards</button>
+</div>
+
+<nav>
+  <a href="#">Live Calls</a>
+  <a href="#">Session Cycles</a>
+  <a href="#">Profiles</a>
+  <a href="#" class="active">Interception <span class="pcount">2 PAUSED</span></a>
+  <a href="#">Settings</a>
+  <a href="#" style="margin-left:auto">&#127912; Theme</a>
+</nav>
+
+<!-- ============ SCREEN 1 : RULES ============ -->
+<div class="screen" id="s1"><div class="wrap">
+  <div class="brand"><div class="logo">&#9889;</div><h1>AL<span>FRED</span></h1></div>
+  <p class="sub">Intercept matching traffic and manipulate it before it continues</p>
+
+  <div class="banner">
+    <div class="l"><span class="dot"></span>
+      <div><b>Interception is ON &mdash; 3 rules are changing live traffic</b>
+      <small>1 of them pauses calls for manual review. 82 calls affected in the last hour.</small></div>
+    </div>
+    <button class="btn amber">Turn all off</button>
+  </div>
+
+  <div class="rowhead">
+    <h2>Rules <span class="cnt">4 &middot; drag to reorder</span></h2>
+    <button class="btn primary">+ New rule</button>
+  </div>
+
+  <div class="rule brk">
+    <div class="rtop"><span class="grip">&#8942;&#8942;</span>
+      <div class="rname"><b>Review Sabre order responses</b>
+        <div class="rmatch"><em>outbound</em> &middot; POST &middot; *.sabre.com &middot; path contains /order</div></div>
+      <div class="sw on"><i></i></div>
+    </div>
+    <div class="acts">
+      <span class="chip red">&#9208; Pause response &mdash; wait for me</span>
+      <span class="meta">priority 5 &middot; 2 waiting now</span>
+    </div>
+  </div>
+
+  <div class="rule hit">
+    <div class="rtop"><span class="grip">&#8942;&#8942;</span>
+      <div class="rname"><b>Slow Sabre search</b>
+        <div class="rmatch"><em>outbound</em> &middot; POST &middot; *.sabre.com &middot; path contains /flight/search</div></div>
+      <div class="sw on"><i></i></div>
+    </div>
+    <div class="acts"><span class="chip amber">Delay request 10,000 ms</span>
+      <span class="meta">priority 10 &middot; 41 hits</span></div>
+  </div>
+
+  <div class="rule hit">
+    <div class="rtop"><span class="grip">&#8942;&#8942;</span>
+      <div class="rname"><b>Five passengers, in euros</b>
+        <div class="rmatch"><em>outbound</em> &middot; POST &middot; path contains /flight/search</div></div>
+      <div class="sw on"><i></i></div>
+    </div>
+    <div class="acts"><span class="chip">Set passengerCount = 5</span>
+      <span class="chip">Set currency = "EUR"</span>
+      <span class="meta">priority 20 &middot; 41 hits</span></div>
+  </div>
+
+  <div class="rule off">
+    <div class="rtop"><span class="grip">&#8942;&#8942;</span>
+      <div class="rname"><b>Mock supplier 500</b>
+        <div class="rmatch"><em>outbound</em> &middot; any method &middot; *.sabre.com</div></div>
+      <div class="sw"><i></i></div>
+    </div>
+    <div class="acts"><span class="chip red">Mock response 500 &middot; never reaches supplier</span>
+      <span class="meta">priority 30 &middot; disabled</span></div>
+  </div>
+
+  <div class="editor">
+    <div class="ehead"><b>Edit rule &mdash; Review Sabre order responses</b>
+      <span style="color:var(--text-faint);font-size:19px;cursor:pointer">&times;</span></div>
+    <div class="ebody">
+      <p class="sect">Match &mdash; which traffic this affects</p>
+      <div class="grid">
+        <label><small>Direction</small><div class="inp sel">Outbound (to suppliers) <span style="color:var(--text-faint)">&#9662;</span></div></label>
+        <label><small>Project</small><div class="inp sel" style="color:var(--text-faint)">Any project <span>&#9662;</span></div></label>
+        <label><small>Method</small><div class="inp sel">POST <span style="color:var(--text-faint)">&#9662;</span></div></label>
+        <label><small>Host</small><div class="inp">*.sabre.com</div></label>
+        <label style="grid-column:span 2"><small>Path contains</small><div class="inp">/order</div></label>
+      </div>
+      <p class="hint">Empty fields match anything. <b>6 of the last 200 logged calls</b> would match this rule.</p>
+
+      <div class="hr"></div>
+
+      <p class="sect">Try it &mdash; send a real request and build actions from what comes back</p>
+      <div class="try">
+        <div class="tryhead">
+          <div class="actrow" style="margin:0">
+            <div class="inp sel" style="min-width:290px">Replay logged call &middot; POST /v4/order/create <span style="color:var(--text-faint)">&#9662;</span></div>
+            <button class="btn primary">&#9654; Send to target</button>
+          </div>
+        </div>
+
+        <div class="tryflow">
+          <span class="tf done">&#10003; Request sent, with this rule's actions applied</span>
+          <span class="tfarr">&rarr;</span>
+          <span class="tf done">&#10003; Sabre answered 200 in 684 ms</span>
+          <span class="tfarr">&rarr;</span>
+          <span class="tf here">&#9998; Held here for you</span>
+        </div>
+
+        <div class="trybody">
+          <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:9px">
+            The supplier's real response. <b style="color:var(--cyan)">Click any value to change it</b> &mdash;
+            every edit becomes an action on this rule.
+          </div>
+          <div class="code">
+<span class="ln">{</span>
+<span class="ln">  <span class="k2">"orderId"</span>: <span class="s2">"OD-7741-XQ"</span>,</span>
+<span class="ln edited">  <span class="k2">"status"</span>: <span class="s2">"FAILED"</span>,<span class="was">"CONFIRMED"</span></span>
+<span class="ln">  <span class="k2">"itinerary"</span>: {</span>
+<span class="ln">    <span class="k2">"origin"</span>: <span class="s2">"DXB"</span>,</span>
+<span class="ln edited">    <span class="k2">"seatsRemaining"</span>: <span class="n2">0</span><span class="was">14</span></span>
+<span class="ln">  },</span>
+<span class="ln">  <span class="k2">"totalFare"</span>: <span class="n2">1284.50</span></span>
+<span class="ln">}</span>
+          </div>
+          <div class="trytoast">&#10003; 2 actions created from your edits &mdash; added below. Nothing was sent back to a caller; this was a test request you fired.</div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:11px">
+        <p class="sect" style="margin:0">Actions &mdash; run top to bottom</p>
+        <button class="btn">+ Add action</button>
+      </div>
+
+      <div class="act gen">
+        <div class="acthead"><b><span class="num">1</span>Set JSON field in response body <span class="fromtest">from test</span></b>
+          <span style="color:var(--text-faint);cursor:pointer">&#128465;</span></div>
+        <div class="actrow">
+          <div class="inp" style="flex:1;min-width:140px">status</div>
+          <span style="font-size:15px">=</span>
+          <div class="inp" style="width:120px">"FAILED"</div>
+        </div>
+      </div>
+
+      <div class="act gen">
+        <div class="acthead"><b><span class="num">2</span>Set JSON field in response body <span class="fromtest">from test</span></b>
+          <span style="color:var(--text-faint);cursor:pointer">&#128465;</span></div>
+        <div class="actrow">
+          <div class="inp" style="flex:1;min-width:140px">itinerary.seatsRemaining</div>
+          <span style="font-size:15px">=</span>
+          <div class="inp" style="width:120px">0</div>
+        </div>
+      </div>
+
+      <div class="act brk">
+        <div class="acthead"><b><span class="num">3</span>&#9208; Pause and wait for me</b>
+          <span style="color:var(--text-faint);cursor:pointer">&#128465;</span></div>
+        <div class="actrow">
+          <span>Pause at</span>
+          <div class="inp sel" style="min-width:265px">After the supplier answers, before the caller sees it <span style="color:var(--text-faint)">&#9662;</span></div>
+        </div>
+        <div class="actrow">
+          <span>If nobody responds within</span>
+          <div class="inp" style="width:78px">30</div>
+          <span>seconds,</span>
+          <div class="inp sel" style="min-width:210px">release it unchanged <span style="color:var(--text-faint)">&#9662;</span></div>
+        </div>
+        <p class="hint" style="margin-top:10px">The caller's connection is held open the whole time it is paused.
+          <b>Never leave this on for traffic you are not actively watching.</b></p>
+      </div>
+    </div>
+    <div class="efoot">
+      <small>Saved rules reach the proxy immediately &mdash; no restart, no redeploy.</small>
+      <div style="display:flex;gap:9px">
+        <button class="btn red">Delete</button><button class="btn">Cancel</button>
+        <button class="btn primary">Save rule</button>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ============ SCREEN 2 : PAUSED ============ -->
+<div class="screen show" id="s2"><div class="wrap">
+  <div class="brand"><div class="logo">&#9889;</div><h1>AL<span>FRED</span></h1></div>
+  <p class="sub">Paused calls &mdash; the caller is still waiting for each of these</p>
+
+  <div class="banner hot">
+    <div class="l"><span class="dot red"></span>
+      <div><b>2 calls are paused and holding their callers open</b>
+      <small>Each one already reached the supplier and came back. Nothing returns to the caller until you say so.</small></div>
+    </div>
+    <button class="btn red">Release all unchanged</button>
+  </div>
+
+  <div class="flow">
+    <div class="node done"><div class="ico">&#128100;</div><div class="nm">Caller</div></div>
+    <div class="arr"></div>
+    <div class="node done"><div class="ico">&#9889;</div><div class="nm">Alfred</div></div>
+    <div class="arr"></div>
+    <div class="node done"><div class="ico">&#127760;</div><div class="nm">Sabre &#10003;</div></div>
+    <div class="arr"></div>
+    <div class="node here"><div class="ico">&#9208;</div><div class="nm">PAUSED HERE</div></div>
+    <div class="arr dim"></div>
+    <div class="node wait"><div class="ico">&#128100;</div><div class="nm">Caller waiting</div></div>
+  </div>
+
+  <div class="split">
+    <div class="queue">
+      <div class="qhead">Paused &middot; 2</div>
+      <div class="qitem sel">
+        <b>POST 200</b><small>/v4/order/create</small><span class="tmr">&#9203; releases in 24s</span>
+      </div>
+      <div class="qitem">
+        <b>POST 200</b><small>/v4/order/view</small><span class="tmr">&#9203; releases in 28s</span>
+      </div>
+      <div style="padding:11px 13px">
+        <div style="font-size:11px;color:var(--text-faint);line-height:1.6">
+          Matched by rule<br /><span style="color:var(--purple-light)">Review Sabre order responses</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="insp">
+      <div class="ihead">
+        <span class="badge b-post">POST</span>
+        <span class="badge b-200">200 from Sabre</span>
+        <span class="url">api.cert.platform.sabre.com/v4/order/create</span>
+        <span style="font-size:11.5px;color:var(--text-dim)">supplier took 684 ms</span>
+      </div>
+
+      <div class="tabs">
+        <span class="ok">Request sent &#10003;</span>
+        <span class="on">Response &mdash; edit before release</span>
+        <span>Headers</span>
+        <span>Status</span>
+      </div>
+
+      <div class="pane">
+        <div class="editnote">&#9998; You changed 2 lines. The caller will receive the edited version below, not what Sabre sent.</div>
+        <div class="code">
+<span class="ln">{</span>
+<span class="ln">  <span class="k2">"orderId"</span>: <span class="s2">"OD-7741-XQ"</span>,</span>
+<span class="ln edited">  <span class="k2">"status"</span>: <span class="s2">"FAILED"</span>,<span class="was">"CONFIRMED"</span></span>
+<span class="ln">  <span class="itin">"itinerary"</span>: {</span>
+<span class="ln">    <span class="k2">"origin"</span>: <span class="s2">"DXB"</span>,</span>
+<span class="ln">    <span class="k2">"destination"</span>: <span class="s2">"LHR"</span>,</span>
+<span class="ln edited">    <span class="k2">"seatsRemaining"</span>: <span class="n2">0</span><span class="was">14</span></span>
+<span class="ln">  },</span>
+<span class="ln">  <span class="k2">"totalFare"</span>: <span class="n2">1284.50</span>,</span>
+<span class="ln">  <span class="k2">"currency"</span>: <span class="s2">"EUR"</span></span>
+<span class="ln">}</span>
+        </div>
+        <p class="hint">Click any line to edit it. Body, headers and status can all be changed before release.</p>
+      </div>
+
+      <div class="ifoot">
+        <button class="btn green big">&#10003; Send edited response</button>
+        <button class="btn big">Send unchanged</button>
+        <button class="btn red big">Abort connection</button>
+        <button class="btn big" style="border-color:rgba(34,211,238,.45);color:var(--cyan)">+ Save these edits as a rule</button>
+        <span class="tleft">&#9203; auto-releases unchanged in 24s</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>What "paused" actually means:</b> Alfred already forwarded the request and the supplier already answered &mdash;
+    so this is the supplier's real response, not a guess. The proxy is holding the reply while the caller's socket
+    stays open. You can send it back untouched, edit any part of it first, or kill the connection outright.
+    <b>The countdown is not optional:</b> a paused call nobody answers would hang the caller forever, so every
+    breakpoint carries a timeout and a default action.
+  </div>
+</div></div>
+
+<!-- ============ SCREEN 3 : LIVE CALLS ============ -->
+<div class="screen" id="s3"><div class="wrap">
+  <div class="brand"><div class="logo">&#9889;</div><h1>AL<span>FRED</span></h1></div>
+  <p class="sub">Live feed of every call Alfred intercepted, via backend</p>
+
+  <div class="banner" style="margin-bottom:18px">
+    <div class="l"><span class="dot"></span>
+      <div><b>3 interception rules are active</b>
+      <small>Calls changed by a rule are marked below. Click a badge to open the rule that changed it.</small></div>
+    </div>
+    <button class="btn amber">Review rules</button>
+  </div>
+
+  <div class="call manual">
+    <div class="ctop">
+      <span class="badge b-post">POST</span><span class="badge b-200">200</span>
+      <span class="badge b-man">&#9998; EDITED BY HAND</span>
+      <span class="url">api.cert.platform.sabre.com/v4/order/create</span>
+      <span class="dur slow">31,402 ms</span>
+    </div>
+    <div class="trace man">
+      <div class="tl">&#9208; Paused for review, then released edited</div>
+      <div class="step"><span class="k">Review Sabre orders</span><span class="v">PAUSE_RESPONSE &rarr; held 30,718 ms</span></div>
+      <div class="step"><span class="k">Supplier said</span><span class="v">200 &middot; status "CONFIRMED" &middot; seatsRemaining 14</span></div>
+      <div class="step"><span class="k">Caller received</span><span class="v">200 &middot; status "FAILED" &middot; seatsRemaining 0</span></div>
+      <div class="step"><span class="k">Edited by</span><span class="v">f.biomy &middot; 2 fields &middot; both versions stored</span></div>
+    </div>
+  </div>
+
+  <div class="call tampered">
+    <div class="ctop">
+      <span class="badge b-post">POST</span><span class="badge b-200">200</span>
+      <span class="badge b-int">&#9889; INTERCEPTED</span>
+      <span class="url">api.cert.platform.sabre.com/v4/offers/shop</span>
+      <span class="dur slow">10,214 ms</span>
+    </div>
+    <div class="trace">
+      <div class="tl">&#9889; 2 rules applied to this call</div>
+      <div class="step"><span class="k">Slow Sabre search</span><span class="v">DELAY_REQUEST &rarr; held 10,000 ms</span></div>
+      <div class="step"><span class="k">Five passengers</span><span class="v">SET_JSON_FIELD &rarr; passengerCount, currency</span></div>
+      <div class="step"><span class="k">Forwarded</span><span class="v">upstream answered in 214 ms</span></div>
+    </div>
+  </div>
+
+  <div class="call">
+    <div class="ctop">
+      <span class="badge b-post">GET</span><span class="badge b-200">200</span>
+      <span class="url">/api/v1/bookings/SYEA08?supplier=SABRE_NDC</span>
+      <span class="dur" style="color:var(--green)">312 ms</span>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Both versions are kept.</b> A hand-edited call stores what the supplier really sent alongside what the caller
+    really received, so the log never quietly becomes fiction &mdash; and an export of this cycle carries both.
+    A call no rule touched renders exactly as it does today, with no badge and no extra row.
+  </div>
+</div></div>
+
+<script>
+function show(id,btn){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('show')});
+  document.getElementById(id).classList.add('show');
+  document.querySelectorAll('.mockbar button').forEach(function(b){b.classList.remove('on')});
+  btn.classList.add('on');window.scrollTo(0,0);
+}
+document.querySelectorAll('.sw').forEach(function(s){
+  s.addEventListener('click',function(){s.classList.toggle('on')});
+});
+document.querySelectorAll('.qitem').forEach(function(q){
+  q.addEventListener('click',function(){
+    document.querySelectorAll('.qitem').forEach(function(x){x.classList.remove('sel')});
+    q.classList.add('sel');
+  });
+});
+</script>
+</body>
+</html>

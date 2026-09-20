@@ -46,20 +46,32 @@ public record CallRecord(
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
-        CallTiming timing
+        CallTiming timing,
+        CallInterception interception
 ) {
+    /**
+     * Pre-interception shape - the newest field, added the same backward-compatible way as timing
+     * and serviceName before it. Null means no interception rule touched this call, which is the
+     * overwhelmingly common case and the reason the field is nullable rather than an empty object.
+     */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId, String serviceName, CallTiming timing) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, timing, null);
+    }
+
     /** Pre-timing shape - the newest field, added the same backward-compatible way as serviceName before it. Null means "not measured" (a call logged before the proxy reported phase timings), never zero. */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId, String serviceName) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, null, null);
     }
 
     /** Pre-service-name shape - kept so a call site built before that field existed doesn't need to touch a new required argument. serviceName is null (treated as "unknown" by every reader). */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null, null, null);
     }
 
     /**

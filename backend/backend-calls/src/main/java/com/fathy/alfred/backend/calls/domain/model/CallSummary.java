@@ -32,13 +32,22 @@ public record CallSummary(
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
-        CallTiming timing
+        CallTiming timing,
+        /** Null unless an interception rule touched this call - rides on the SUMMARY so the badge shows on a collapsed card with no detail fetch, same reasoning as timing. */
+        CallInterception interception
 ) {
+    /** Pre-interception shape. */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId, String serviceName, CallTiming timing) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, timing, null);
+    }
+
     /** Pre-timing shape - a call site built before phase timings existed gets null, which every reader treats as "not measured". */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
                         String sessionId, String operationId, String serviceName) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, null, null);
     }
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -66,7 +75,7 @@ public record CallSummary(
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception());
     }
 
     /**

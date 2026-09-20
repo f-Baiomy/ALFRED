@@ -50,6 +50,7 @@ dropped, the call is simply never recorded (proxying itself is never
 affected either way).
 """
 
+import asyncio
 import json
 import os
 import queue
@@ -59,7 +60,10 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-from mitmproxy import ctx
+from mitmproxy import ctx, http
+
+import breakpoints
+import interception
 
 # Max characters to log per body. 0 (the default) means no truncation -
 # full request/response bodies are always logged in full. Override with
@@ -132,9 +136,12 @@ if WEBHOOK_URL:
     threading.Thread(target=_webhook_worker, daemon=True).start()
 
 
+ENGINE = interception.InterceptionEngine('outbound')
+
+
 class RouteAndLog:
 
-    def request(self, flow):
+    async def request(self, flow):
         flow.metadata['start_time'] = time.time()
 
         # Which of this process's listeners the flow arrived on - the default/shared listener
@@ -146,7 +153,15 @@ class RouteAndLog:
         if service_name:
             flow.metadata['service_name'] = service_name
 
+        # Interception runs BEFORE the call is logged, so what gets recorded is what was actually
+        # sent upstream rather than what the client originally wrote - the log has to agree with
+        # the traffic. It also runs regardless of WEBHOOK_URL: a deployment with no backend still
+        # proxies, and a rule the user configured must still apply.
+        verdict = ENGINE.apply_request(flow, service_name)
+        flow.metadata['interception'] = verdict
+
         if not WEBHOOK_URL:
+            await self._carry_out(flow, verdict, None, service_name)
             return
 
         # Reuses the client's own X-Request-Id if it sent one (case-insensitive
@@ -188,10 +203,83 @@ class RouteAndLog:
         # rather than noisily sending service_name: null for the common case.
         if service_name:
             call_log['service_name'] = service_name
+        # Only present when a rule actually did something, so an untouched call's payload is
+        # byte-identical to what it was before this feature existed.
+        applied = verdict.as_log()
+        if applied:
+            call_log['interception'] = applied
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
-    def response(self, flow):
+        await self._carry_out(flow, verdict, call_id, service_name)
+
+    async def _carry_out(self, flow, verdict, call_id, service_name):
+        """Everything in a request verdict that needs the event loop, in the order a client
+        experiences it: wait, then short-circuit, then hold for a human.
+
+        asyncio.sleep, never time.sleep - mitmproxy runs ONE event loop for every connection it is
+        proxying, so a blocking sleep here would freeze every unrelated call in flight for the
+        duration. This is the single most important line in the feature.
+        """
+        if verdict.delay_ms:
+            await asyncio.sleep(min(verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
+
+        if verdict.terminal == 'MOCK_RESPONSE':
+            mock = verdict.mock or {}
+            flow.response = http.Response.make(
+                mock.get('status', 200),
+                (mock.get('body') or '').encode('utf-8'),
+                mock.get('headers') or {},
+            )
+            return
+
+        if verdict.terminal == 'ABORT_REQUEST':
+            flow.kill()
+            return
+
+        if verdict.pause and verdict.pause.get('phase') == 'request' and call_id:
+            decision = await breakpoints.wait_for_decision(
+                flow, 'request', call_id, verdict.pause, 'outbound', service_name)
+            self._record_decision(flow, verdict, 'request', decision)
+
+    def _record_decision(self, flow, verdict, phase, decision):
+        if (decision or {}).get('action') == 'abort':
+            verdict.applied.append(interception.Applied(
+                verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
+                'BREAKPOINT_ABORT', (decision or {}).get('reason') or 'aborted by user'))
+            flow.kill()
+            return
+        summary = interception.apply_decision(flow, phase, decision or {})
+        verdict.applied.append(interception.Applied(
+            verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
+            'BREAKPOINT_RELEASE', summary))
+
+    async def response(self, flow):
         call_id = flow.metadata.get('call_id')
+        verdict = flow.metadata.get('interception') or interception.Verdict()
+
+        # Response-phase rules apply whether or not this call is being logged - same reasoning as
+        # the request side.
+        response_verdict = ENGINE.apply_response(flow, flow.metadata.get('service_name'))
+        verdict.applied.extend(response_verdict.applied)
+        if response_verdict.delay_ms:
+            await asyncio.sleep(min(response_verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
+        if response_verdict.pause and call_id:
+            verdict.pause = response_verdict.pause
+            decision = await breakpoints.wait_for_decision(
+                flow, 'response', call_id, response_verdict.pause, 'outbound',
+                flow.metadata.get('service_name'))
+            # Captured BEFORE the decision is applied: a hand-edited call must keep what the
+            # supplier really sent alongside what the caller really received, or the log quietly
+            # becomes fiction - which is the one thing a traffic logger must never do.
+            flow.metadata['upstream_response'] = {
+                'status': flow.response.status_code,
+                'headers': dict(flow.response.headers),
+                'body': self._safe_body(flow.response),
+            }
+            self._record_decision(flow, verdict, 'response', decision)
+            if flow.response is None:
+                return
+
         if not call_id:
             return
 
@@ -206,6 +294,12 @@ class RouteAndLog:
             'duration_ms': duration_ms,
             'timing': self._phase_timing(flow),
         }
+        applied = verdict.as_log()
+        if applied:
+            upstream = flow.metadata.get('upstream_response')
+            if upstream:
+                applied['upstreamResponse'] = upstream
+            data['interception'] = applied
         self._write(call_id, data)
 
         # Ties this addon's own per-call line to mitmdump's own -q/-v flags
@@ -221,6 +315,13 @@ class RouteAndLog:
             return
 
         data = {'error': str(flow.error)}
+        # A call killed by ABORT_REQUEST or by a breakpoint abort lands here rather than in
+        # response(), so the interception record has to be attached on this path too - otherwise
+        # the most drastic thing a rule can do is the one thing the log never mentions.
+        verdict = flow.metadata.get('interception')
+        applied = verdict.as_log() if verdict else None
+        if applied:
+            data['interception'] = applied
         # This hook fires whenever mitmproxy couldn't deliver a response to
         # the client that made the original request - most commonly because
         # that client gave up and disconnected before the reply arrived, or

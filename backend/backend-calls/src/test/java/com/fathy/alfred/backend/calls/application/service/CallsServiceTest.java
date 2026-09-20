@@ -346,16 +346,16 @@ class CallsServiceTest {
         NewCallObserverPort observer = mock(NewCallObserverPort.class);
         CallRecord completed = call("https://example.com/api/x");
         ResponseData response = new ResponseData(200, null, "{}");
-        when(port.complete("call-1", response, null, 42.0, null)).thenReturn(true);
+        when(port.complete("call-1", response, null, 42.0, null, null)).thenReturn(true);
         when(port.findById("call-1")).thenReturn(Optional.of(completed));
         when(observer.onCallCompleted(completed)).thenReturn(List.of("cycle-1"));
         CallsService service = serviceWith(port, notificationPort, List.of(observer));
 
-        boolean result = service.receiveCompletedCall("call-1", response, null, 42.0, null);
+        boolean result = service.receiveCompletedCall("call-1", response, null, 42.0, null, null);
 
         assertThat(result).isTrue();
         var order = inOrder(port, observer, notificationPort);
-        order.verify(port).complete("call-1", response, null, 42.0, null);
+        order.verify(port).complete("call-1", response, null, 42.0, null, null);
         order.verify(port).findById("call-1");
         order.verify(observer).onCallCompleted(completed);
         order.verify(notificationPort).notifyCallCompleted(completed, List.of("cycle-1"));
@@ -370,14 +370,14 @@ class CallsServiceTest {
         CallLogPort port = mock(CallLogPort.class);
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);
         ResponseData response = new ResponseData(200, null, "{\"booked\":true}");
-        when(port.complete("call-1", response, "client disconnected", 42.0, null)).thenReturn(true);
+        when(port.complete("call-1", response, "client disconnected", 42.0, null, null)).thenReturn(true);
         when(port.findById("call-1")).thenReturn(Optional.of(call("https://example.com/api/x")));
         CallsService service = serviceWith(port, notificationPort, List.of());
 
-        boolean result = service.receiveCompletedCall("call-1", response, "client disconnected", 42.0, null);
+        boolean result = service.receiveCompletedCall("call-1", response, "client disconnected", 42.0, null, null);
 
         assertThat(result).isTrue();
-        verify(port).complete("call-1", response, "client disconnected", 42.0, null);
+        verify(port).complete("call-1", response, "client disconnected", 42.0, null, null);
     }
 
     @Test
@@ -385,10 +385,10 @@ class CallsServiceTest {
         CallLogPort port = mock(CallLogPort.class);
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);
         NewCallObserverPort observer = mock(NewCallObserverPort.class);
-        when(port.complete("missing", null, "timeout", null, null)).thenReturn(false);
+        when(port.complete("missing", null, "timeout", null, null, null)).thenReturn(false);
         CallsService service = serviceWith(port, notificationPort, List.of(observer));
 
-        boolean result = service.receiveCompletedCall("missing", null, "timeout", null, null);
+        boolean result = service.receiveCompletedCall("missing", null, "timeout", null, null, null);
 
         assertThat(result).isFalse();
         verify(port, never()).findById(org.mockito.ArgumentMatchers.any());

@@ -16,6 +16,7 @@ COPY backend-export/pom.xml backend-export/pom.xml
 COPY backend-session-cycles/pom.xml backend-session-cycles/pom.xml
 COPY backend-profiles/pom.xml backend-profiles/pom.xml
 COPY backend-settings/pom.xml backend-settings/pom.xml
+COPY backend-interception/pom.xml backend-interception/pom.xml
 COPY backend-app/pom.xml backend-app/pom.xml
 COPY backend-architecture-test/pom.xml backend-architecture-test/pom.xml
 RUN mvn -B dependency:go-offline

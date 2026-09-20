@@ -1,0 +1,292 @@
+<div class="dialog-backdrop" (click)="cancel()"></div>
+
+<div class="dialog rule-editor" role="dialog" aria-label="Edit interception rule">
+  <div class="dialog-head">
+    <h2>{{ isNew() ? 'New interception rule' : 'Edit rule' }}</h2>
+    <button type="button" class="icon-btn" aria-label="Close" (click)="cancel()">×</button>
+  </div>
+
+  <div class="dialog-body">
+    @if (state.problems().length > 0) {
+      <div class="rule-problems">
+        <strong>This rule could not be saved:</strong>
+        <ul>
+          @for (problem of state.problems(); track $index) {
+            <li>{{ problem }}</li>
+          }
+        </ul>
+      </div>
+    }
+
+    <div class="field-grid">
+      <label class="field span-2">
+        <span>Name</span>
+        <input type="text" [value]="name()" (input)="name.set($any($event.target).value)" placeholder="Slow Sabre search" />
+      </label>
+      <label class="field span-2">
+        <span>Description <em>optional</em></span>
+        <input
+          type="text"
+          [value]="description()"
+          (input)="description.set($any($event.target).value)"
+          placeholder="Why this rule exists, for whoever finds it later"
+        />
+      </label>
+    </div>
+
+    <h3 class="section-title">Match — which traffic this affects</h3>
+    <p class="section-hint">Every field is optional. An empty field matches anything.</p>
+
+    <div class="field-grid">
+      <div class="field">
+        <span class="field-label">Direction</span>
+        <app-select-picker
+          [options]="directionOptions"
+          [value]="source()"
+          (valueChange)="source.set($any($event))"
+        />
+      </div>
+
+      <label class="field">
+        <span>Project <em>optional</em></span>
+        <input type="text" [value]="serviceName()" (input)="serviceName.set($any($event.target).value)" placeholder="Core-service" />
+      </label>
+
+      <label class="field">
+        <span>Host</span>
+        <input type="text" [value]="host()" (input)="host.set($any($event.target).value)" placeholder="*.sabre.com" />
+      </label>
+
+      <label class="field">
+        <span>Path contains</span>
+        <input type="text" [value]="pathContains()" (input)="pathContains.set($any($event.target).value)" placeholder="/flight/search" />
+      </label>
+
+      <label class="field span-2">
+        <span>Path regex <em>optional</em></span>
+        <input type="text" [value]="pathRegex()" (input)="pathRegex.set($any($event.target).value)" placeholder="/v\d+/order" />
+      </label>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Methods</span>
+      <div class="method-pills">
+        @for (method of methods; track method) {
+          <button type="button" class="pill" [class.on]="methodSelected(method)" (click)="toggleMethod(method)">
+            {{ method }}
+          </button>
+        }
+      </div>
+      @if (selectedMethods().length === 0) {
+        <small class="muted">No method selected — this rule matches every method.</small>
+      }
+    </div>
+
+    <h3 class="section-title">Pipeline — what happens to a matching call</h3>
+
+    @if (conflictHint(); as hint) {
+      <div class="rule-warning">{{ hint }}</div>
+    }
+    @if (holdsCaller()) {
+      <div class="rule-warning danger">
+        This rule pauses a call, which holds the caller's connection open until you answer or the
+        timeout fires. Don't leave it enabled on traffic you aren't watching.
+      </div>
+    }
+
+    <!-- Drawn as request → host → response rather than one flat list, because the order actions run
+         in is not the only thing that matters: whether the call ever reaches the host decides
+         whether the response half runs at all. A rule that mocks and then tries to edit the
+         response is a common mistake, and this makes it visible instead of puzzling. -->
+    <div class="pipeline">
+      <div class="pipeline-lane">
+        <div class="pipeline-lane-head">
+          <span class="pipeline-step">1</span>
+          Request — before it leaves Alfred
+        </div>
+        @for (step of requestSteps(); track step.index) {
+          <ng-container *ngTemplateOutlet="actionCard; context: { $implicit: step }"></ng-container>
+        } @empty {
+          <p class="pipeline-empty">Nothing — the request is forwarded as it arrived.</p>
+        }
+        <div class="add-action-group">
+          @for (type of requestActionTypes(); track type) {
+            <button type="button" class="pill add" (click)="addAction(type)">+ {{ actionLabels[type] }}</button>
+          }
+        </div>
+      </div>
+
+      <div class="pipeline-host" [class.blocked]="!reachesHost()">
+        @if (reachesHost()) {
+          <span class="pipeline-host-icon">→</span>
+          <div>
+            <strong>The host</strong>
+            <small>The real request goes out and the real answer comes back.</small>
+          </div>
+        } @else {
+          <span class="pipeline-host-icon">✕</span>
+          <div>
+            <strong>The host is never contacted</strong>
+            <small>This rule short-circuits, so nothing below can run.</small>
+          </div>
+        }
+      </div>
+
+      <div class="pipeline-lane" [class.unreachable]="!reachesHost()">
+        <div class="pipeline-lane-head">
+          <span class="pipeline-step">2</span>
+          Response — after the host answers
+        </div>
+        @for (step of responseSteps(); track step.index) {
+          <ng-container *ngTemplateOutlet="actionCard; context: { $implicit: step }"></ng-container>
+        } @empty {
+          <p class="pipeline-empty">Nothing — the caller gets exactly what the host sent.</p>
+        }
+        <div class="add-action-group">
+          @for (type of responseActionTypes(); track type) {
+            <button type="button" class="pill add" (click)="addAction(type)">+ {{ actionLabels[type] }}</button>
+          }
+        </div>
+      </div>
+    </div>
+
+    <label class="checkbox-field">
+      <input type="checkbox" [checked]="stopProcessing()" (change)="stopProcessing.set($any($event.target).checked)" />
+      <span>Stop after this rule — don't evaluate any rule below it for a matching call</span>
+    </label>
+  </div>
+
+  <div class="dialog-foot">
+    <small class="muted">Saved rules reach the proxy immediately — no restart.</small>
+    <div class="dialog-foot-actions">
+      <button type="button" class="action-btn" (click)="cancel()">Cancel</button>
+      <button type="button" class="action-btn primary" [disabled]="state.saving()" (click)="save()">
+        {{ state.saving() ? 'Saving…' : 'Save rule' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- One definition, rendered into both lanes. `step.index` is the action's position in the real
+     list, so move/remove still act on the right one even though the lanes are filtered views. -->
+<ng-template #actionCard let-step>
+  <div
+    class="action-card"
+    [class.danger]="isPause(step.action.type) || step.action.type === 'ABORT_REQUEST' || isMock(step.action.type)"
+    [class.host]="step.action.type === 'SEND_TO_HOST'"
+  >
+    <div class="action-head">
+      <span class="action-index">{{ step.index + 1 }}</span>
+      <span class="action-title">{{ labelFor(step.action.type) }}</span>
+      <span class="action-controls">
+        <button type="button" class="icon-btn" title="Move up" [disabled]="step.index === 0" (click)="moveAction(step.index, -1)">▲</button>
+        <button type="button" class="icon-btn" title="Move down" [disabled]="step.index === actions().length - 1" (click)="moveAction(step.index, 1)">▼</button>
+        <button type="button" class="icon-btn danger" title="Remove" (click)="removeAction(step.index)">×</button>
+      </span>
+    </div>
+
+    @if (!isBare(step.action.type)) {
+      <div class="action-fields">
+        @if (isDelay(step.action.type)) {
+          <label class="inline-field">
+            <span>Hold for</span>
+            <input type="number" min="0" [value]="step.action.durationMs" (input)="onNumber(step.index, 'durationMs', $event)" />
+            <em>ms</em>
+          </label>
+        }
+
+        @if (isHeaderSet(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Name</span>
+            <input type="text" [value]="step.action.name" (input)="onText(step.index, 'name', $event)" />
+          </label>
+          <label class="inline-field grow">
+            <span>Value</span>
+            <input type="text" [value]="valueText(step.action)" (input)="onValue(step.index, $event, false)" />
+          </label>
+        }
+
+        @if (isNameOnly(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Name</span>
+            <input type="text" [value]="step.action.name" (input)="onText(step.index, 'name', $event)" />
+          </label>
+        }
+
+        @if (isJsonField(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Field path</span>
+            <input type="text" [value]="step.action.path" (input)="onText(step.index, 'path', $event)" placeholder="itinerary.seatsRemaining" />
+          </label>
+          <label class="inline-field">
+            <span>Set to</span>
+            <input type="text" [value]="valueText(step.action)" (input)="onValue(step.index, $event, true)" placeholder="0" />
+          </label>
+          <small class="muted span-all">
+            Dotted path. <code>segments[0].cabin</code> and <code>segments[*].cabin</code> both work.
+            A value is read as JSON where it can be, so <code>5</code> is a number and <code>EUR</code> is text.
+          </small>
+        }
+
+        @if (isStatus(step.action.type)) {
+          <label class="inline-field">
+            <span>Status</span>
+            <input type="number" min="100" max="599" [value]="step.action.status" (input)="onNumber(step.index, 'status', $event)" />
+          </label>
+        }
+
+        @if (isBodyOnly(step.action.type)) {
+          <label class="inline-field grow span-all">
+            <span>Body</span>
+            <textarea rows="3" [value]="step.action.body" (input)="onText(step.index, 'body', $event)"></textarea>
+          </label>
+          <small class="muted span-all">Replaces the whole body, whatever its content type. Leave empty to blank it.</small>
+        }
+
+        @if (isMock(step.action.type) || isReplace(step.action.type)) {
+          <label class="inline-field">
+            <span>Status</span>
+            <input type="number" min="100" max="599" [value]="step.action.status" (input)="onNumber(step.index, 'status', $event)" />
+          </label>
+          <label class="inline-field grow span-all">
+            <span>Body</span>
+            <textarea rows="3" [value]="step.action.body" (input)="onText(step.index, 'body', $event)"></textarea>
+          </label>
+          <small class="muted span-all">
+            @if (isMock(step.action.type)) {
+              The host is never contacted — nothing after this action runs, and the supplier never sees the call.
+            } @else {
+              The host <strong>is</strong> really called and logged; only what the caller receives is swapped.
+              Leave a field empty to keep what the host sent.
+            }
+          </small>
+        }
+
+        @if (isPause(step.action.type)) {
+          <label class="inline-field">
+            <span>Wait up to</span>
+            <input type="number" min="1" max="300" [value]="step.action.timeoutSeconds" (input)="onNumber(step.index, 'timeoutSeconds', $event)" />
+            <em>seconds</em>
+          </label>
+          <div class="inline-field">
+            <span>If nobody answers</span>
+            <app-select-picker
+              [options]="onTimeoutOptions"
+              [value]="step.action.onTimeout ?? 'release'"
+              (valueChange)="onTimeoutChange(step.index, $event)"
+            />
+          </div>
+          <small class="muted span-all">The caller's connection is held open the whole time it is paused.</small>
+        }
+      </div>
+    } @else {
+      <p class="action-bare">
+        @if (step.action.type === 'SEND_TO_HOST') {
+          Forwards the call for real, and refuses any later rule that would mock or abort it.
+        } @else {
+          Kills the connection immediately — the caller sees a network failure, not a status code.
+        }
+      </p>
+    }
+  </div>
+</ng-template>

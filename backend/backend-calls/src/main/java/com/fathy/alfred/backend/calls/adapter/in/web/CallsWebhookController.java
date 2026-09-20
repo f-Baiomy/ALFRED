@@ -91,7 +91,7 @@ public class CallsWebhookController {
         if (!secretMatches(providedSecret)) {
             return ResponseEntity.status(401).build();
         }
-        boolean found = receiveCompletedCallUseCase.receiveCompletedCall(id, body.response(), body.error(), body.durationMs(), body.timing());
+        boolean found = receiveCompletedCallUseCase.receiveCompletedCall(id, body.response(), body.error(), body.durationMs(), body.timing(), body.interception());
         return found ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 

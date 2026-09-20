@@ -27,6 +27,7 @@ name's toggle state - turning a project's logging off never stops its traffic, o
 calls get recorded; other projects' toggles are unaffected.
 """
 
+import asyncio
 import json
 import os
 import queue
@@ -36,7 +37,10 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-from mitmproxy import ctx
+from mitmproxy import ctx, http
+
+import breakpoints
+import interception
 
 BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
 
@@ -131,9 +135,12 @@ class _ToggleState:
 _toggle = _ToggleState()
 
 
+ENGINE = interception.InterceptionEngine('inbound')
+
+
 class RouteAndLog:
 
-    def request(self, flow):
+    async def request(self, flow):
         flow.metadata['start_time'] = time.time()
 
         # Identify the project by the port this flow ARRIVED on - each listener was created with
@@ -144,7 +151,15 @@ class RouteAndLog:
         name, upstream_port = PORT_MAP.get(listen_port, (UNKNOWN_NAME, None))
         flow.metadata['service_name'] = name
 
+        # Interception is independent of the per-project LOGGING toggle: turning a project's
+        # recording off means "don't write this down", not "stop applying the rules I configured".
+        # It also runs before the call is logged, so what is recorded is what was actually
+        # forwarded upstream.
+        verdict = ENGINE.apply_request(flow, name)
+        flow.metadata['interception'] = verdict
+
         if not WEBHOOK_URL or not _toggle.enabled(name):
+            await self._carry_out(flow, verdict, None, name)
             return
 
         client_request_id = (flow.request.headers.get('X-Request-Id') or '').strip()
@@ -179,10 +194,72 @@ class RouteAndLog:
             # each call and filter by source without re-deriving it from the URL/port.
             'service_name': name,
         }
+        applied = verdict.as_log()
+        if applied:
+            call_log['interception'] = applied
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
-    def response(self, flow):
+        await self._carry_out(flow, verdict, call_id, name)
+
+    async def _carry_out(self, flow, verdict, call_id, service_name):
+        """See log_and_route.py's identical method for why every wait here is asyncio.sleep and
+        never time.sleep: one blocked hook freezes every other connection this process is
+        proxying."""
+        if verdict.delay_ms:
+            await asyncio.sleep(min(verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
+
+        if verdict.terminal == 'MOCK_RESPONSE':
+            mock = verdict.mock or {}
+            flow.response = http.Response.make(
+                mock.get('status', 200),
+                (mock.get('body') or '').encode('utf-8'),
+                mock.get('headers') or {},
+            )
+            return
+
+        if verdict.terminal == 'ABORT_REQUEST':
+            flow.kill()
+            return
+
+        if verdict.pause and verdict.pause.get('phase') == 'request' and call_id:
+            decision = await breakpoints.wait_for_decision(
+                flow, 'request', call_id, verdict.pause, 'inbound', service_name)
+            self._record_decision(flow, verdict, 'request', decision)
+
+    def _record_decision(self, flow, verdict, phase, decision):
+        if (decision or {}).get('action') == 'abort':
+            verdict.applied.append(interception.Applied(
+                verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
+                'BREAKPOINT_ABORT', (decision or {}).get('reason') or 'aborted by user'))
+            flow.kill()
+            return
+        summary = interception.apply_decision(flow, phase, decision or {})
+        verdict.applied.append(interception.Applied(
+            verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
+            'BREAKPOINT_RELEASE', summary))
+
+    async def response(self, flow):
         call_id = flow.metadata.get('call_id')
+        verdict = flow.metadata.get('interception') or interception.Verdict()
+        service_name = flow.metadata.get('service_name')
+
+        response_verdict = ENGINE.apply_response(flow, service_name)
+        verdict.applied.extend(response_verdict.applied)
+        if response_verdict.delay_ms:
+            await asyncio.sleep(min(response_verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
+        if response_verdict.pause and call_id:
+            verdict.pause = response_verdict.pause
+            decision = await breakpoints.wait_for_decision(
+                flow, 'response', call_id, response_verdict.pause, 'inbound', service_name)
+            flow.metadata['upstream_response'] = {
+                'status': flow.response.status_code,
+                'headers': dict(flow.response.headers),
+                'body': self._safe_body(flow.response),
+            }
+            self._record_decision(flow, verdict, 'response', decision)
+            if flow.response is None:
+                return
+
         if not call_id:
             return
 
@@ -196,6 +273,12 @@ class RouteAndLog:
             },
             'duration_ms': duration_ms,
         }
+        applied = verdict.as_log()
+        if applied:
+            upstream = flow.metadata.get('upstream_response')
+            if upstream:
+                applied['upstreamResponse'] = upstream
+            data['interception'] = applied
         self._write(call_id, data)
 
         if ctx.options.flow_detail > 0:
@@ -208,6 +291,10 @@ class RouteAndLog:
             return
 
         data = {'error': str(flow.error)}
+        verdict = flow.metadata.get('interception')
+        applied = verdict.as_log() if verdict else None
+        if applied:
+            data['interception'] = applied
         if flow.response is not None:
             start_time = flow.metadata.get('start_time', time.time())
             data['duration_ms'] = round((time.time() - start_time) * 1000, 2)

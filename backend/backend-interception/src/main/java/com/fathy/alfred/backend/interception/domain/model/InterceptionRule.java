@@ -1,0 +1,64 @@
+package com.fathy.alfred.backend.interception.domain.model;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+import java.util.List;
+
+/**
+ * One interception rule: what to match, and what to do about it.
+ *
+ * <p>{@code priority} decides the order rules run in when several match the same call - ascending,
+ * ties broken by the stored order, which is the order the UI lists them in. ALL matching rules
+ * apply; a rule does not consume a call. That is the least surprising reading of "delay this
+ * supplier" plus "tag every call from this project", which are two independent intentions about
+ * the same request, and it is what {@code stopProcessing} exists to override when a user really
+ * does want one rule to be the last word.
+ *
+ * <p>{@code hitCount}/{@code lastHitAt} are NOT maintained here - the proxy is the only thing that
+ * knows a rule fired, and it reports that through the existing call webhook rather than writing
+ * back into this store on every request. The UI derives them from logged calls.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record InterceptionRule(
+        String id,
+        String name,
+        String description,
+        boolean enabled,
+        int priority,
+        /** Stop evaluating further rules for this call once this one has matched. */
+        boolean stopProcessing,
+        RuleMatch match,
+        List<RuleAction> actions,
+        String createdAt,
+        String updatedAt) {
+
+    public InterceptionRule {
+        match = match == null ? RuleMatch.empty() : match;
+        actions = actions == null ? List.of() : List.copyOf(actions);
+    }
+
+    public InterceptionRule withId(String newId) {
+        return new InterceptionRule(newId, name, description, enabled, priority, stopProcessing,
+                match, actions, createdAt, updatedAt);
+    }
+
+    public InterceptionRule withEnabled(boolean value) {
+        return new InterceptionRule(id, name, description, value, priority, stopProcessing,
+                match, actions, createdAt, updatedAt);
+    }
+
+    public InterceptionRule withPriority(int value) {
+        return new InterceptionRule(id, name, description, enabled, value, stopProcessing,
+                match, actions, createdAt, updatedAt);
+    }
+
+    public InterceptionRule withTimestamps(String created, String updated) {
+        return new InterceptionRule(id, name, description, enabled, priority, stopProcessing,
+                match, actions, created, updated);
+    }
+
+    /** Whether this rule can hold a caller's connection open waiting for a human. */
+    public boolean pauses() {
+        return actions.stream().anyMatch(a -> a.type() != null && a.type().isPause());
+    }
+}

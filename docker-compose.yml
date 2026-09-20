@@ -44,6 +44,18 @@ services:
       # in which case only the default listener above is active, exactly as before this feature
       # existed.
       - FORWARD_PROXY_PORT_MAP=${FORWARD_PROXY_PORT_MAP:-}
+      # Traffic interception / fault injection. Rules are evaluated ENTIRELY inside this container
+      # against the snapshot backend writes into the shared ./proxy/interception directory - a
+      # proxied request never costs a backend round trip or a database query, and rules keep
+      # applying while backend is down. Absent or empty file = no interception at all, byte for
+      # byte the behaviour this container had before the feature existed. See
+      # proxy/interception.py and backend-interception's FileRulesPublisherAdapter.
+      - INTERCEPTION_RULES_FILE=/home/mitmproxy/interception/rules.json
+      # Where a PAUSED call goes to wait for a human. Derived from WEBHOOK_URL when unset; stated
+      # here because the breakpoint path is the one thing in this feature that does talk to
+      # backend on the request path (see proxy/breakpoints.py for why that is acceptable there
+      # and nowhere else).
+      - INTERCEPTION_API_URL=http://backend:5000
     # Resolve supplier hostnames through explicit public DNS rather than Docker Desktop's relay to
     # the host's own resolvers. WHY: Windows assigns most interfaces the legacy site-local
     # placeholders fec0:0:0:ffff::1/2/3 (and link-local fe80::1), which answer nothing - only the
@@ -69,6 +81,13 @@ services:
       - 1.1.1.1
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
+      - ./proxy/interception.py:/home/mitmproxy/interception.py:ro
+      - ./proxy/breakpoints.py:/home/mitmproxy/breakpoints.py:ro
+      # The DIRECTORY, not the file. backend publishes the snapshot by writing a temp file beside
+      # it and moving it into place, which is what stops a proxy ever reading a half-written rule
+      # set - and a single-file bind mount cannot survive that, since the move swaps the inode the
+      # mount is pinned to and updates would silently stop arriving.
+      - ./proxy/interception:/home/mitmproxy/interception:ro
       - ./proxy/forward-proxy-entrypoint.sh:/home/mitmproxy/forward-proxy-entrypoint.sh:ro
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
     working_dir: /home/mitmproxy
@@ -129,8 +148,17 @@ services:
       # this compose stack - host.docker.internal resolves to the host from inside the container.
       # Override only if some project's upstream lives elsewhere.
       - REVERSE_PROXY_UPSTREAM_HOST=host.docker.internal
+      # Same interception rule set as the forward proxy - one file, both directions. A rule scopes
+      # itself to a direction with its own `source` matcher rather than by living in a different
+      # file (see proxy/interception.py's Match).
+      - INTERCEPTION_RULES_FILE=/home/mitmproxy/interception/rules.json
+      - INTERCEPTION_API_URL=http://backend:5000
     volumes:
       - ./proxy/log_and_route_reverse.py:/home/mitmproxy/log_and_route_reverse.py:ro
+      - ./proxy/interception.py:/home/mitmproxy/interception.py:ro
+      - ./proxy/breakpoints.py:/home/mitmproxy/breakpoints.py:ro
+      # See the forward proxy's identical mount for why this is the directory and not the file.
+      - ./proxy/interception:/home/mitmproxy/interception:ro
       - ./proxy/reverse-proxy-entrypoint.sh:/home/mitmproxy/reverse-proxy-entrypoint.sh:ro
       - ./proxy/reverse-proxy-enabled.flag:/home/mitmproxy/reverse-proxy-enabled.flag
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
@@ -234,9 +262,18 @@ services:
       # "Inbound logging" panel entirely; reverse-proxy itself is gated separately, by the
       # profiles: key above - both read the same setting, kept in sync by start.py/restart.py.
       - REVERSE_PROXY_ENABLED=${REVERSE_PROXY_ENABLED:-false}
+      # Interception rules: authored and stored here, published as a snapshot both proxies read.
+      # The .db is the store of record (it keeps disabled rules, descriptions and timestamps);
+      # rules.json holds only what the engine needs to evaluate, and is rewritten on every change
+      # plus once at startup, so a lost or stale file can never leave the UI and the traffic
+      # disagreeing about what is running.
+      - INTERCEPTION_DB_FILE=/appdata/interception.db
+      - INTERCEPTION_RULES_FILE=/appdata/interception/rules.json
     volumes:
       - ./backend/data:/appdata
       - ./proxy/reverse-proxy-enabled.flag:/appdata/reverse-proxy-enabled.flag
+      # Writable here, read-only in both proxies - backend is the only writer.
+      - ./proxy/interception:/appdata/interception
     depends_on:
       - proxy
     # Gives the JVM's -XX:MaxRAMPercentage (see backend/Dockerfile) a real ceiling to be a

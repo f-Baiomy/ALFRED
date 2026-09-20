@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { MainLayoutComponent } from './layout/main-layout/main-layout.component';
 import { DashboardComponent } from './pages/dashboard/dashboard.component';
+import { InterceptionComponent } from './pages/interception/interception.component';
 import { JsonViewPageComponent } from './pages/json-view/json-view-page.component';
 import { ProfilesListComponent } from './pages/profiles-list/profiles-list.component';
 import { SessionCyclesListComponent } from './pages/session-cycles-list/session-cycles-list.component';
@@ -16,6 +17,7 @@ export const routes: Routes = [
       { path: 'cycles', component: SessionCyclesListComponent },
       { path: 'cycles/:id', component: SessionCycleDetailComponent },
       { path: 'profiles', component: ProfilesListComponent },
+      { path: 'interception', component: InterceptionComponent },
       { path: 'settings', component: SettingsComponent },
     ],
   },

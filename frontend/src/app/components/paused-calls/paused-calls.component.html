@@ -1,0 +1,205 @@
+<!-- Renders nothing at all when nothing is paused: this panel is an interruption by design, and an
+     empty version of it sitting on the page permanently would defeat that. -->
+@if (state.pausedCalls().length > 0) {
+  <section class="paused-panel">
+    <div class="paused-banner">
+      <div class="intercept-banner-text">
+        <span class="intercept-dot live"></span>
+        <div>
+          <strong>
+            {{ state.pausedCount() }}
+            {{ state.pausedCount() === 1 ? 'call is' : 'calls are' }}
+            paused and holding
+            {{ state.pausedCount() === 1 ? 'its caller' : 'their callers' }}
+            open
+          </strong>
+          <small>
+            Nothing goes back to the caller until you decide, or the countdown runs out.
+            @if (state.heldCount() > 0) {
+              {{ state.heldCount() }} under your control — not counting down.
+            }
+          </small>
+        </div>
+      </div>
+      <button type="button" class="action-btn danger" [disabled]="busy()" (click)="releaseAll()">
+        Release all unchanged
+      </button>
+    </div>
+
+    <div class="paused-split">
+      <div class="paused-queue">
+        <div class="paused-queue-head">Waiting · {{ state.pausedCount() }}</div>
+        @for (call of state.pausedCalls(); track trackByCallId($index, call)) {
+          <button
+            type="button"
+            class="paused-queue-item"
+            [class.selected]="isSelected(call)"
+            [class.urgent]="urgent(call)"
+            (click)="select(call)"
+          >
+            <span class="paused-queue-method">{{ call.method }}</span>
+            @if (call.response?.status; as status) {
+              <span class="paused-queue-status">{{ status }}</span>
+            }
+            <span class="paused-queue-url">{{ call.url }}</span>
+            @if (held(call)) {
+              <span class="paused-queue-timer held">◉ yours · {{ heldFor(call) }}</span>
+            } @else {
+              <span class="paused-queue-timer">{{ secondsLeft(call) }}s · then {{ timeoutLabel(call) }}</span>
+            }
+          </button>
+        }
+      </div>
+
+      @if (selected(); as call) {
+        <div class="paused-inspector">
+          <!-- States where the call physically is, because "paused" alone does not say whether the
+               supplier was ever contacted - and that is the difference between editing a real
+               response and inventing one. -->
+          <div class="paused-flow">
+            <span class="flow-node done">Caller</span>
+            <span class="flow-arrow"></span>
+            <span class="flow-node done">Alfred</span>
+            <span class="flow-arrow"></span>
+            @if (call.phase === 'response') {
+              <span class="flow-node done">Upstream answered</span>
+              <span class="flow-arrow"></span>
+              <span class="flow-node here">Paused here</span>
+              <span class="flow-arrow dim"></span>
+              <span class="flow-node waiting">Caller waiting</span>
+            } @else {
+              <span class="flow-node here">Paused here</span>
+              <span class="flow-arrow dim"></span>
+              <span class="flow-node waiting">Upstream not yet contacted</span>
+            }
+          </div>
+
+          <div class="paused-head">
+            <span class="paused-queue-method">{{ call.method }}</span>
+            @if (call.response?.status; as status) {
+              <span class="paused-queue-status">{{ status }} from upstream</span>
+            }
+            <span class="paused-url">{{ call.url }}</span>
+            <span class="paused-rule">matched “{{ call.ruleName }}”</span>
+            @if (held(call)) {
+              <span class="paused-held-tag">◉ under your control</span>
+            }
+          </div>
+
+          <div class="paused-tabs">
+            <button type="button" [class.on]="tab() === 'response'" (click)="tab.set('response')">
+              {{ call.phase === 'response' ? 'Response — edit before release' : 'Request — edit before forwarding' }}
+            </button>
+            <button type="button" [class.on]="tab() === 'headers'" (click)="tab.set('headers')">
+              Headers ({{ headerRows().length }})
+            </button>
+            @if (call.phase === 'response') {
+              <button type="button" [class.on]="tab() === 'request'" (click)="tab.set('request')">
+                Request sent
+              </button>
+            }
+          </div>
+
+          <!-- The countdown is a grace period for somebody to NOTICE this call, not a deadline for
+               deciding what to do with it. Taking control stops it, so reading a large body and
+               editing it is not a race. Any edit claims it automatically, since typing is proof
+               enough that somebody is here. -->
+          @if (!held(call)) {
+            <div class="paused-claim">
+              <div>
+                <strong>This call {{ timeoutLabel(call) }} in {{ secondsLeft(call) }}s</strong>
+                <small>Take control to stop the clock and keep it waiting until you decide.</small>
+              </div>
+              <button type="button" class="action-btn primary" [disabled]="busy()" (click)="takeControl(call)">
+                Take control
+              </button>
+            </div>
+          } @else {
+            <div class="paused-claim held">
+              <div>
+                <strong>◉ You have control — the clock is stopped</strong>
+                <small>
+                  Held {{ heldFor(call) }}. The caller is still waiting; it stays that way until you
+                  send or abort.
+                </small>
+              </div>
+            </div>
+          }
+
+          <div class="paused-pane">
+            @if (tab() === 'response') {
+              @if (dirty()) {
+                <div class="paused-edited">
+                  You have edited this {{ call.phase }}. The caller will receive your version, not what
+                  upstream sent — both are kept in the call log.
+                  <button type="button" class="link-btn" (click)="revert()">Revert</button>
+                </div>
+              }
+              @if (call.phase === 'response') {
+                <label class="paused-status-row">
+                  <span>Status</span>
+                  <input
+                    type="number"
+                    min="100"
+                    max="599"
+                    [value]="currentStatus()"
+                    (input)="onStatusInput($event)"
+                  />
+                  @if (currentStatus() !== originalStatus()) {
+                    <span class="paused-was">was {{ originalStatus() }}</span>
+                  }
+                </label>
+              }
+              <textarea
+                class="paused-body"
+                spellcheck="false"
+                [value]="currentBody()"
+                (input)="onBodyInput($event)"
+              ></textarea>
+            } @else if (tab() === 'headers') {
+              <div class="paused-headers">
+                @for (row of headerRows(); track row.name) {
+                  <div class="paused-header-row">
+                    <span class="paused-header-name">{{ row.name }}</span>
+                    <span class="paused-header-value">{{ row.value }}</span>
+                  </div>
+                } @empty {
+                  <div class="empty">No headers.</div>
+                }
+              </div>
+            } @else {
+              <div class="paused-headers">
+                @for (row of requestHeaderRows(); track row.name) {
+                  <div class="paused-header-row">
+                    <span class="paused-header-name">{{ row.name }}</span>
+                    <span class="paused-header-value">{{ row.value }}</span>
+                  </div>
+                }
+              </div>
+              <pre class="paused-readonly-body">{{ call.request?.body }}</pre>
+            }
+          </div>
+
+          <div class="paused-foot">
+            <button type="button" class="action-btn primary" [disabled]="busy() || !dirty()" (click)="release(true)">
+              Send edited {{ call.phase }}
+            </button>
+            <button type="button" class="action-btn" [disabled]="busy()" (click)="release(false)">
+              Send unchanged
+            </button>
+            <button type="button" class="action-btn danger" [disabled]="busy()" (click)="abort()">
+              Abort connection
+            </button>
+            @if (held(call)) {
+              <span class="paused-countdown held">◉ held {{ heldFor(call) }} · no timeout</span>
+            } @else {
+              <span class="paused-countdown" [class.urgent]="urgent(call)">
+                {{ secondsLeft(call) }}s left · then {{ timeoutLabel(call) }}
+              </span>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  </section>
+}

@@ -17,12 +17,17 @@ backend-session-cycles    depends on backend-calls AND backend-internal-calls (i
 backend-profiles          leaf slice, no deps either direction
 backend-settings          call-filter whitelist/blacklist/mode config (CallFilterSettings) - which supplier
                           calls get logged in the first place, NOT the internal-calls logging toggle above
+backend-interception      traffic interception/fault-injection rules + the paused-call (breakpoint) registry.
+                          Leaf slice. Does NOT evaluate rules - matching/mutation happen inside the mitmproxy
+                          addons against a snapshot this slice publishes to a file both proxies read; the record
+                          of what a rule did travels back on the EXISTING call webhook into backend-calls, so the
+                          two slices meet in the payload, not in code. See docs/interception.md.
 backend-app               composition root, owns spring-boot-maven-plugin repackage, DatabaseStatsController,
                           the CallFilterAdapter bridging calls→settings, CommentCallIdMigration
 backend-architecture-test test-only, holds the ArchUnit suite (see docs/testing.md)
 ```
 
-Each slice: `domain.model` / `application.port.in|out` / `application.service` / `adapter.in.web` / `adapter.out.*`. Maven module boundaries make any cross-slice import not listed below a compile error; ArchUnit enforces intra-slice layering direction, domain purity (no Spring; Jackson is allowed), and slice isolation. Current isolation rules (`HexagonalArchitectureTest`): `calls`, `internal-calls`, `comments`, `profiles`, and `settings` are each fully isolated from every other slice; the only allowed cross-slice edges are `export→calls`, `session-cycles→calls`, and `session-cycles→internal-calls` (session-cycles is the one slice allowed to depend on more than one other).
+Each slice: `domain.model` / `application.port.in|out` / `application.service` / `adapter.in.web` / `adapter.out.*`. Maven module boundaries make any cross-slice import not listed below a compile error; ArchUnit enforces intra-slice layering direction, domain purity (no Spring; Jackson is allowed), and slice isolation. Current isolation rules (`HexagonalArchitectureTest`): `calls`, `internal-calls`, `comments`, `profiles`, and `settings` are each fully isolated from every other slice; the only allowed cross-slice edges are `export→calls`, `session-cycles→calls`, and `session-cycles→internal-calls` (`interception` is isolated from every slice, including `calls`) (session-cycles is the one slice allowed to depend on more than one other).
 
 **DTO vs. reusing the domain type directly:** reuse the domain record (`CallRecord`, `Comment`, `ExportMetadata`) when the wire shape matches exactly. Add a `dto` type only when the boundary needs something the domain type shouldn't carry (e.g. `CommentRequestDto`'s Bean Validation annotations).
 

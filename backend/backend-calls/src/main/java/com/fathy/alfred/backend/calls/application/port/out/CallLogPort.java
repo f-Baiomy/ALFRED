@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.application.port.out;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
@@ -37,7 +38,7 @@ public interface CallLogPort {
      * false if not (already trimmed by retention, or never prepared - the caller should treat this
      * as a 404).
      */
-    boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing);
+    boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception);
 
     /** Completed calls to this exact url only - see CallBaseline for why the url is not normalised. */
     CallBaseline baselineFor(String url);
