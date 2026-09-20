@@ -1,6 +1,13 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { CallInterception, OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
-import { HttpDiff, buildHttpDiff } from '../../shared/utils/interception-diff';
+import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
+import { copyToClipboard } from '../../shared/utils/clipboard';
+import {
+  HttpDiff,
+  buildHttpDiff,
+  copyableView,
+  searchView,
+} from '../../shared/utils/interception-diff';
 
 /** Which side of the change the user is looking at. */
 export type InterceptView = 'diff' | 'original' | 'final';
@@ -22,6 +29,7 @@ export type InterceptView = 'diff' | 'original' | 'final';
 @Component({
   selector: 'app-interception-panel',
   standalone: true,
+  imports: [JsonTokensComponent],
   templateUrl: './interception-panel.component.html',
 })
 export class InterceptionPanelComponent {
@@ -146,6 +154,9 @@ export class InterceptionPanelComponent {
 
   show(view: InterceptView): void {
     this.view.set(view);
+    // The query survives - you switch sides to look for the same thing - but the position in the
+    // results does not, because a different view has a different number of them.
+    this.matchIndex.set(0);
   }
 
   /** The body to render when showing one side rather than the diff. */
@@ -162,4 +173,117 @@ export class InterceptionPanelComponent {
     const keep = this.view() === 'original' ? 'added' : 'removed';
     return diff.headers.filter((row) => row.kind !== keep);
   });
+
+  // ---- reading it: search, copy, and what is actually on screen ----------------------------
+
+  readonly query = signal('');
+  readonly matchIndex = signal(0);
+  readonly copied = signal(false);
+
+  /** Whichever side the view buttons chose - everything below works on THIS, not on the call. */
+  private readonly shownHeaders = computed(() =>
+    this.view() === 'diff' ? this.computed()?.headers ?? [] : this.sideHeaders()
+  );
+
+  private readonly shownBody = computed(() =>
+    this.view() === 'diff' ? this.computed()?.body ?? [] : this.sideLines()
+  );
+
+  /**
+   * Headers and body with the query marked, numbered in reading order down the panel.
+   *
+   * One call for both, because the numbering has to be continuous across them: a match count
+   * that restarted at the body would make "3 of 7" ambiguous about which 3.
+   */
+  private readonly searched = computed(() =>
+    searchView(this.shownHeaders(), this.shownBody(), this.query())
+  );
+
+  readonly searchedHeaders = computed(() => this.searched().headers);
+  readonly searchedBody = computed(() => this.searched().body);
+
+  readonly matchLabel = computed(() => {
+    const total = this.searched().matchCount;
+    if (!this.query()) return '';
+    return total === 0 ? 'no matches' : `${Math.min(this.matchIndex() + 1, total)}/${total}`;
+  });
+
+  /** Which match the token renderer should draw as the current one. */
+  readonly activeMatch = computed(() => (this.searched().matchCount === 0 ? -1 : this.matchIndex()));
+
+  /** JSON, XML or nothing worth naming - stated, so the reader never has to guess why it is plain. */
+  readonly kindLabel = computed(() => {
+    const kind = this.computed()?.kind;
+    return kind === 'json' ? 'JSON' : kind === 'xml' ? 'XML' : '';
+  });
+
+  readonly bodyStats = computed(() => {
+    const lines = this.shownBody().length;
+    if (lines === 0) return '';
+    const bytes = this.shownBody().reduce((total, line) => total + line.text.length + 1, 0);
+    return `${lines.toLocaleString()} ${lines === 1 ? 'line' : 'lines'} · ${(bytes / 1024).toFixed(1)} KB`;
+  });
+
+  /** True once a body is big enough that it is deliberately not being coloured - see MAX_COLOURED_LINES. */
+  readonly monochrome = computed(() => {
+    const body = this.shownBody();
+    return body.length > 0 && this.kindLabel() !== '' && body.every((line) => line.tokens === null);
+  });
+
+  onQuery(event: Event): void {
+    this.query.set((event.target as HTMLInputElement).value);
+    this.matchIndex.set(0);
+  }
+
+  step(delta: number): void {
+    const total = this.searched().matchCount;
+    if (total === 0) return;
+    this.matchIndex.set((this.matchIndex() + delta + total) % total);
+    this.scrollToActiveMatch();
+  }
+
+  /**
+   * Puts the current match on screen. The token renderer marks it with `.active`, so finding it
+   * is a query for that class rather than arithmetic over line heights - which would be wrong
+   * the moment a line wraps.
+   */
+  private scrollToActiveMatch(): void {
+    queueMicrotask(() => {
+      const active = document.querySelector('.intercept-panel-body mark.hl.active');
+      active?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    });
+  }
+
+  /**
+   * Copies exactly what is on screen: status, headers and body of the current view.
+   *
+   * Body alone would drop the status change, which on most of these panels is the headline -
+   * "200 → 500" is usually the whole reason somebody opened this.
+   */
+  copy(): void {
+    const diff = this.computed();
+    if (!diff) return;
+    const text = copyableView({
+      statusChange: diff.statusChange,
+      urlChange: diff.urlChange,
+      headers: this.shownHeaders(),
+      body: this.shownBody(),
+      // A single side is copied clean, with no markers, so it can be replayed as-is.
+      showMarkers: this.view() === 'diff',
+    });
+    copyToClipboard(text).then(
+      () => this.flashCopied(),
+      () => undefined
+    );
+  }
+
+  private flashCopied(): void {
+    this.copied.set(true);
+    setTimeout(() => this.copied.set(false), 1600);
+  }
+
+  copyLabel(): string {
+    if (this.copied()) return '✓ Copied';
+    return this.view() === 'diff' ? '⧉ Copy diff' : '⧉ Copy';
+  }
 }

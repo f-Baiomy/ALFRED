@@ -39,6 +39,38 @@
         </div>
 
         @if (diff(); as d) {
+          <!-- Search and copy act on what is SHOWN, not on the underlying call: searching a side
+               that is not on screen would report matches nobody can see. -->
+          <div class="intercept-tools">
+            @if (kindLabel()) {
+              <span class="it-kind">{{ kindLabel() }}</span>
+            }
+            <div class="it-find">
+              <input
+                type="text"
+                placeholder="Find in this view…"
+                spellcheck="false"
+                [value]="query()"
+                (input)="onQuery($event)"
+                (keydown.enter)="step(1)"
+              />
+              @if (matchLabel()) {
+                <span class="it-count">{{ matchLabel() }}</span>
+                <button type="button" class="icon-btn" title="Previous match" (click)="step(-1)">‹</button>
+                <button type="button" class="icon-btn" title="Next match" (click)="step(1)">›</button>
+              }
+            </div>
+            <button type="button" class="action-btn" [class.copied]="copied()" (click)="copy()">
+              {{ copyLabel() }}
+            </button>
+            <span class="it-stats">
+              @if (monochrome()) {
+                <span class="it-mono" title="Colouring a body this large would cost one DOM node per token">too large to colour</span>
+              }
+              {{ bodyStats() }}
+            </span>
+          </div>
+
           @if (d.statusChange) {
             <div class="intercept-change-line">
               <span class="icl-k">Status</span>
@@ -56,11 +88,11 @@
 
           <div class="intercept-sub">Headers</div>
           <div class="intercept-headers">
-            @for (row of view() === 'diff' ? d.headers : sideHeaders(); track $index) {
+            @for (row of searchedHeaders(); track $index) {
               <div class="ih-row" [class.removed]="row.kind === 'removed'" [class.added]="row.kind === 'added'">
                 <span class="ih-mark">{{ row.kind === 'removed' ? '−' : row.kind === 'added' ? '+' : '' }}</span>
-                <span class="ih-name">{{ row.name }}</span>
-                <span class="ih-value">{{ row.value }}</span>
+                <span class="ih-name"><app-json-tokens [tokens]="row.nameTokens" [activeMatchIndex]="activeMatch()" /></span>
+                <span class="ih-value"><app-json-tokens [tokens]="row.valueTokens" [activeMatchIndex]="activeMatch()" /></span>
               </div>
             } @empty {
               <div class="intercept-empty">No headers.</div>
@@ -68,10 +100,18 @@
           </div>
 
           <div class="intercept-sub">Body</div>
+          <!-- The same tokens the call cards render, so a SOAP envelope here looks exactly like
+               the one on the card above it. A line with no tokens is interpolated as plain text
+               rather than wrapped in a single token - one DOM node instead of several, which is
+               the whole point of the size limit. -->
           <div class="intercept-body">
-            @for (line of view() === 'diff' ? d.body : sideLines(); track $index) {
+            @for (line of searchedBody(); track $index) {
               <span class="il" [class.removed]="line.kind === 'removed'" [class.added]="line.kind === 'added'"
-                >{{ line.kind === 'removed' ? '−' : line.kind === 'added' ? '+' : ' ' }} {{ line.text }}</span
+                ><span class="il-mark">{{ line.kind === 'removed' ? '−' : line.kind === 'added' ? '+' : ' ' }}</span
+                >@if (line.tokens || query()) {<app-json-tokens
+                  [tokens]="line.highlighted"
+                  [activeMatchIndex]="activeMatch()"
+                />} @else {{{ line.text }}}</span
               >
             } @empty {
               <div class="intercept-empty">No body.</div>

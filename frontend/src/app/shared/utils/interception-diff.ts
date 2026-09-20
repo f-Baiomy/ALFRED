@@ -1,4 +1,8 @@
 import { OriginalHttp } from '../../core/models/interception.model';
+import { BodyKind, detectBodyKind, formatBody } from './body-format';
+import { HighlightToken, JsonToken, tokenizeJsonText } from './json-tokenizer';
+import { splitTokensIntoLines } from './line-tokenizer';
+import { tokenizeXmlText } from './xml-tokenizer';
 
 /**
  * Before/after for a call an interception rule changed.
@@ -17,6 +21,13 @@ export type DiffKind = 'same' | 'removed' | 'added';
 export interface DiffLine {
   readonly kind: DiffKind;
   readonly text: string;
+  /**
+   * The line's syntax tokens, or null when this body is not being coloured - it is plain text,
+   * or it is past {@link MAX_COLOURED_LINES}. Null rather than a single plain token so the
+   * template can fall back to interpolating `text`, which is one DOM node instead of one per
+   * token: the whole reason the limit exists.
+   */
+  readonly tokens: readonly JsonToken[] | null;
 }
 
 export interface HeaderDiffRow {
@@ -29,6 +40,8 @@ export interface HeaderDiffRow {
 export interface HttpDiff {
   readonly headers: readonly HeaderDiffRow[];
   readonly body: readonly DiffLine[];
+  /** What both sides were formatted and coloured as - shown as a badge, so it is never a guess. */
+  readonly kind: BodyKind;
   readonly bodyChanged: boolean;
   readonly headersChanged: boolean;
   /** "200 OK → 500 Internal Server Error", or null when the status did not change. */
@@ -38,21 +51,61 @@ export interface HttpDiff {
 }
 
 /**
- * Pretty-prints JSON before diffing so a one-field change shows as one changed line rather than
- * one enormous one. Anything that is not JSON is diffed as it stands.
+ * Above this many lines a diff is rendered as plain text rather than coloured.
+ *
+ * Colour costs one DOM node per TOKEN instead of one per line. The call view measured 186,734
+ * nodes and a 4,098ms main-thread freeze on a 28,937-line SOAP body, which is why that view
+ * windows; this panel does not window, so it takes the honest trade instead - still
+ * pretty-printed, still searchable, still copyable, just monochrome.
  */
-function toLines(body: string | null | undefined): string[] {
-  const text = body ?? '';
-  if (!text) return [];
-  const trimmed = text.trimStart();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      return JSON.stringify(JSON.parse(text), null, 2).split('\n');
-    } catch {
-      // Not valid JSON despite the leading brace - diff the raw text.
-    }
+export const MAX_COLOURED_LINES = 4000;
+
+/**
+ * One side of the diff, formatted once and tokenized once.
+ *
+ * Both halves come out of the same string, which is what keeps `lines[i]` and `tokenLines[i]`
+ * describing the same line. If they ever disagree the tokens are dropped entirely rather than
+ * used - colours one line out of step with the text they are colouring is worse on a diff than
+ * no colours at all, and silently so.
+ */
+interface DiffSide {
+  readonly lines: readonly string[];
+  readonly tokenLines: readonly (readonly JsonToken[])[] | null;
+}
+
+/**
+ * Pretty-prints before diffing so a one-field change shows as one changed line rather than one
+ * enormous one - the whole point, and until now it happened for JSON only. An XML body was
+ * diffed exactly as it arrived, so a single changed value inside a SOAP envelope was two vast,
+ * visually identical lines.
+ *
+ * The KIND is decided once for both sides by the caller, so the two halves can never be
+ * formatted by different rules and manufacture a difference that is not there.
+ */
+function prepareSide(body: string | null | undefined, kind: BodyKind, colour: boolean): DiffSide {
+  const raw = body ?? '';
+  if (!raw) return { lines: [], tokenLines: null };
+
+  const text = formatBody(raw, kind) ?? raw;
+  const lines = text.split('\n');
+
+  if (!colour || kind === 'text' || lines.length > MAX_COLOURED_LINES) {
+    return { lines, tokenLines: null };
   }
-  return text.split('\n');
+
+  const tokenLines = splitTokensIntoLines(
+    (kind === 'xml' ? tokenizeXmlText(text) : tokenizeJsonText(text)).map((t) => ({ ...t, highlighted: false }))
+  );
+  // The guard described above. Equal lengths is the contract between the two splits, not an
+  // assumption worth making silently.
+  return { lines, tokenLines: tokenLines.length === lines.length ? tokenLines : null };
+}
+
+/** The one kind both sides are formatted as: whichever side is structured, preferring the newer. */
+export function sharedBodyKind(before: string | null | undefined, after: string | null | undefined): BodyKind {
+  const afterKind = detectBodyKind(after);
+  if (afterKind !== 'text') return afterKind;
+  return detectBodyKind(before);
 }
 
 /**
@@ -65,16 +118,23 @@ function toLines(body: string | null | undefined): string[] {
  */
 const MAX_DIFF_LINES = 3000;
 
-export function diffLines(before: string | null | undefined, after: string | null | undefined): DiffLine[] {
-  const a = toLines(before);
-  const b = toLines(after);
+export function diffLines(
+  before: string | null | undefined,
+  after: string | null | undefined,
+  kind: BodyKind = sharedBodyKind(before, after),
+  colour = true
+): DiffLine[] {
+  const sideA = prepareSide(before, kind, colour);
+  const sideB = prepareSide(after, kind, colour);
+  const a = sideA.lines;
+  const b = sideB.lines;
+
+  const lineA = (i: number): DiffLine => ({ kind: 'removed', text: a[i], tokens: sideA.tokenLines?.[i] ?? null });
+  const lineB = (j: number): DiffLine => ({ kind: 'added', text: b[j], tokens: sideB.tokenLines?.[j] ?? null });
 
   if (a.length === 0 && b.length === 0) return [];
   if (a.length > MAX_DIFF_LINES || b.length > MAX_DIFF_LINES) {
-    return [
-      ...a.map((text) => ({ kind: 'removed' as const, text })),
-      ...b.map((text) => ({ kind: 'added' as const, text })),
-    ];
+    return [...a.map((_, i) => lineA(i)), ...b.map((_, j) => lineB(j))];
   }
 
   // Classic LCS table, then walk it back into a line list.
@@ -90,17 +150,19 @@ export function diffLines(before: string | null | undefined, after: string | nul
   let j = 0;
   while (i < a.length && j < b.length) {
     if (a[i] === b[j]) {
-      out.push({ kind: 'same', text: a[i] });
+      // An unchanged line is the same text on both sides, so either side's tokens will do -
+      // the "before" side is used consistently rather than arbitrarily.
+      out.push({ kind: 'same', text: a[i], tokens: sideA.tokenLines?.[i] ?? null });
       i++;
       j++;
     } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
-      out.push({ kind: 'removed', text: a[i++] });
+      out.push(lineA(i++));
     } else {
-      out.push({ kind: 'added', text: b[j++] });
+      out.push(lineB(j++));
     }
   }
-  while (i < a.length) out.push({ kind: 'removed', text: a[i++] });
-  while (j < b.length) out.push({ kind: 'added', text: b[j++] });
+  while (i < a.length) out.push(lineA(i++));
+  while (j < b.length) out.push(lineB(j++));
   return out;
 }
 
@@ -152,7 +214,8 @@ export function buildHttpDiff(
   if (!original) return null;
 
   const headers = diffHeaders(original.headers, current?.headers);
-  const body = diffLines(original.body, current?.body);
+  const kind = sharedBodyKind(original.body, current?.body);
+  const body = diffLines(original.body, current?.body, kind);
 
   const beforeStatus = statusLabel(original);
   const afterStatus = statusLabel(current);
@@ -167,9 +230,145 @@ export function buildHttpDiff(
   return {
     headers,
     body,
+    kind,
     bodyChanged: body.some((line) => line.kind !== 'same'),
     headersChanged: headers.some((row) => row.kind !== 'same'),
     statusChange,
     urlChange,
   };
+}
+
+/* --------------------------------------------------------------------------------------------
+ * Searching and copying what is on screen.
+ *
+ * Both work on the SHOWN view rather than on the underlying call, because that is what the
+ * reader is looking at: searching a side that is not displayed would report matches nobody can
+ * see, and copying one would put something other than what is on screen on the clipboard.
+ * ------------------------------------------------------------------------------------------ */
+
+/** A header row with its matched substrings marked, for the same treatment the body gets. */
+export interface HeaderDiffRowTokens extends HeaderDiffRow {
+  readonly nameTokens: readonly HighlightToken[];
+  readonly valueTokens: readonly HighlightToken[];
+}
+
+export interface DiffLineTokens extends DiffLine {
+  /** Always present: the plain text becomes a single unclassified token when there is nothing to colour. */
+  readonly highlighted: readonly HighlightToken[];
+}
+
+export interface SearchedView {
+  readonly headers: readonly HeaderDiffRowTokens[];
+  readonly body: readonly DiffLineTokens[];
+  readonly matchCount: number;
+}
+
+/**
+ * Marks every occurrence of `query` across the headers and then the body, numbering matches in
+ * READING ORDER down the panel.
+ *
+ * The numbering is the fiddly part and it is worth being explicit about why it is done here
+ * rather than by highlightTokens alone. A diff interleaves lines from two separately-tokenized
+ * sides, and each side would start its own count at zero - so "3 of 7" would point at two
+ * different places. Everything is renumbered once, after interleaving, against the order it is
+ * actually drawn in.
+ */
+export function searchView(
+  headers: readonly HeaderDiffRow[],
+  body: readonly DiffLine[],
+  query: string
+): SearchedView {
+  let next = 0;
+  const mark = (text: string): HighlightToken[] => {
+    const parts = splitOnQuery(text, query);
+    return parts.map((part) =>
+      part.match
+        ? { text: part.text, cls: '' as const, highlighted: true, matchIndex: next++ }
+        : { text: part.text, cls: '' as const, highlighted: false }
+    );
+  };
+
+  const markTokens = (tokens: readonly JsonToken[] | null, text: string): HighlightToken[] => {
+    if (!tokens) return mark(text);
+    const out: HighlightToken[] = [];
+    for (const token of tokens) {
+      for (const part of splitOnQuery(token.text, query)) {
+        out.push(
+          part.match
+            ? { ...token, text: part.text, highlighted: true, matchIndex: next++ }
+            : { ...token, text: part.text, highlighted: false }
+        );
+      }
+    }
+    return out;
+  };
+
+  const searchedHeaders = headers.map((row) => ({
+    ...row,
+    nameTokens: mark(row.name),
+    valueTokens: mark(row.value),
+  }));
+  const searchedBody = body.map((line) => ({ ...line, highlighted: markTokens(line.tokens, line.text) }));
+
+  return { headers: searchedHeaders, body: searchedBody, matchCount: next };
+}
+
+/** Case-insensitive split keeping the original casing of each piece. */
+function splitOnQuery(text: string, query: string): { text: string; match: boolean }[] {
+  if (!query || !text) return text ? [{ text, match: false }] : [];
+  const haystack = text.toLowerCase();
+  const needle = query.toLowerCase();
+  const out: { text: string; match: boolean }[] = [];
+  let from = 0;
+  for (;;) {
+    const at = haystack.indexOf(needle, from);
+    if (at === -1) break;
+    if (at > from) out.push({ text: text.slice(from, at), match: false });
+    out.push({ text: text.slice(at, at + needle.length), match: true });
+    from = at + needle.length;
+  }
+  if (from < text.length) out.push({ text: text.slice(from), match: false });
+  return out;
+}
+
+/**
+ * Everything currently on screen, as text for the clipboard.
+ *
+ * Status and headers as well as the body, because a copy that dropped the status change would
+ * drop the very thing that is usually the point - "200 → 500" is the headline of most of these
+ * panels. In a single-side view the markers are absent, so what lands is that side clean and
+ * ready to replay.
+ */
+export function copyableView(options: {
+  readonly statusChange?: string | null;
+  readonly urlChange?: { from: string; to: string } | null;
+  readonly headers: readonly HeaderDiffRow[];
+  readonly body: readonly DiffLine[];
+  readonly showMarkers: boolean;
+}): string {
+  const mark = (kind: DiffKind) => {
+    if (!options.showMarkers) return '';
+    return kind === 'removed' ? '- ' : kind === 'added' ? '+ ' : '  ';
+  };
+
+  const parts: string[] = [];
+  if (options.statusChange) parts.push(`Status  ${options.statusChange}`);
+  if (options.urlChange) parts.push(`URL     ${options.urlChange.from} → ${options.urlChange.to}`);
+  if (parts.length > 0) parts.push('');
+
+  if (options.headers.length > 0) {
+    parts.push('Headers');
+    for (const row of options.headers) {
+      parts.push(`${mark(row.kind)}${row.name}: ${row.value}`);
+    }
+    parts.push('');
+  }
+
+  if (options.body.length > 0) {
+    parts.push('Body');
+    for (const line of options.body) {
+      parts.push(`${mark(line.kind)}${line.text}`);
+    }
+  }
+  return parts.join('\n');
 }

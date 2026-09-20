@@ -6519,6 +6519,87 @@ h1.page-title {
   margin: 0.7rem 0 0.3rem;
 }
 
+/* Find / copy, acting on whichever view is on screen. */
+.intercept-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.2rem 0 0.1rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--card-inner) 70%, transparent);
+
+  .action-btn {
+    padding: 0.2rem 0.55rem;
+    font-size: 0.7rem;
+  }
+
+  .action-btn.copied {
+    border-color: color-mix(in srgb, var(--green) 50%, transparent);
+    color: var(--green);
+  }
+
+  .icon-btn {
+    width: 1.3rem;
+    height: 1.3rem;
+    font-size: 0.75rem;
+  }
+}
+
+.it-kind {
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--purple-light);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 0.1rem 0.45rem;
+}
+
+.it-find {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+
+  input {
+    background: var(--card-inner);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text);
+    padding: 0.22rem 0.5rem;
+    font-size: 0.72rem;
+    font-family: inherit;
+    width: 10.5rem;
+  }
+}
+
+.it-count {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  min-width: 3.2rem;
+}
+
+.it-stats {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Said rather than left to be discovered - see MAX_COLOURED_LINES. */
+.it-mono {
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  border-radius: 20px;
+  padding: 0.05rem 0.4rem;
+  cursor: help;
+}
+
 .intercept-headers,
 .intercept-body {
   background: var(--card-inner);
@@ -6587,14 +6668,33 @@ h1.page-title {
   padding: 0 0.3rem;
   border-radius: 3px;
 
+  /* The +/- column carries the side. On a coloured line the syntax tokens set their own colours
+     and win over the line's, which is correct: the background tint already says which side this
+     is, and repainting a JSON key red would lose the thing that makes it readable. The flat
+     colours below still apply to a monochrome line, where nothing else would say it. */
+  .il-mark {
+    display: inline-block;
+    width: 0.85rem;
+    user-select: none;
+    color: var(--text-faint);
+  }
+
   &.removed {
     background: color-mix(in srgb, var(--red) 13%, transparent);
     color: #ffd7d7;
+
+    .il-mark {
+      color: var(--red);
+    }
   }
 
   &.added {
     background: color-mix(in srgb, var(--green) 12%, transparent);
     color: #d3ffee;
+
+    .il-mark {
+      color: var(--green);
+    }
   }
 }
 

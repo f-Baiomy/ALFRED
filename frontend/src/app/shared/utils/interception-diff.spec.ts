@@ -1,4 +1,12 @@
-import { buildHttpDiff, diffHeaders, diffLines } from './interception-diff';
+import {
+  MAX_COLOURED_LINES,
+  buildHttpDiff,
+  copyableView,
+  diffHeaders,
+  diffLines,
+  searchView,
+  sharedBodyKind,
+} from './interception-diff';
 
 describe('interception diff', () => {
   describe('diffLines', () => {
@@ -12,11 +20,23 @@ describe('interception diff', () => {
       expect(lines.filter((l) => l.kind === 'same').length).toBeGreaterThan(0);
     });
 
-    it('leaves a non-JSON body alone and diffs it by line', () => {
-      const lines = diffLines('<a>\n<b>one</b>\n</a>', '<a>\n<b>two</b>\n</a>');
+    it('pretty-prints XML too, not only JSON', () => {
+      // This used to reformat JSON and nothing else, so one changed value inside a SOAP envelope
+      // was two vast, visually identical lines and you diffed it by eye.
+      const lines = diffLines('<a><b>one</b></a>', '<a><b>two</b></a>');
 
-      expect(lines.filter((l) => l.kind === 'removed').map((l) => l.text)).toEqual(['<b>one</b>']);
-      expect(lines.filter((l) => l.kind === 'added').map((l) => l.text)).toEqual(['<b>two</b>']);
+      expect(lines.filter((l) => l.kind === 'removed').map((l) => l.text.trim())).toEqual(['<b>one</b>']);
+      expect(lines.filter((l) => l.kind === 'added').map((l) => l.text.trim())).toEqual(['<b>two</b>']);
+      // Re-indented, which is what turns one enormous line into one changed line.
+      expect(lines.some((l) => l.text.startsWith('  '))).toBeTrue();
+    });
+
+    it('diffs text that is neither exactly as it stands', () => {
+      const lines = diffLines('grant_type=a\nscope=read', 'grant_type=b\nscope=read');
+
+      expect(lines.filter((l) => l.kind === 'removed').map((l) => l.text)).toEqual(['grant_type=a']);
+      expect(lines.filter((l) => l.kind === 'added').map((l) => l.text)).toEqual(['grant_type=b']);
+      expect(lines.every((l) => l.tokens === null)).toBeTrue();
     });
 
     it('diffs a body that merely looks like JSON as raw text rather than throwing', () => {
@@ -127,6 +147,149 @@ describe('interception diff', () => {
 
       expect(diff?.headersChanged).toBeTrue();
       expect(diff?.bodyChanged).toBeFalse();
+    });
+  });
+
+  describe('colouring it', () => {
+    it('carries the same tokens the call cards render, per line', () => {
+      const lines = diffLines('{"a":1}', '{"a":2}');
+      const changed = lines.find((l) => l.kind === 'added');
+
+      // Not a lookalike: these are the tokens tokenizeJsonText produces, so `.k`/`.s`/`.n`
+      // resolve to the theme's own --tok-* exactly as they do on the card above this panel.
+      expect(changed?.tokens?.some((t) => t.cls === 'k' && t.text.includes('a'))).toBeTrue();
+      expect(changed?.tokens?.some((t) => t.cls === 'n' && t.text === '2')).toBeTrue();
+    });
+
+    it('colours XML with the XML tokenizer, not the JSON one', () => {
+      const lines = diffLines('<Total currency="AED">1420.00</Total>', '<Total currency="AED">1.00</Total>');
+
+      expect(lines.every((l) => l.tokens !== null)).toBeTrue();
+      expect(lines.flatMap((l) => l.tokens ?? []).some((t) => t.cls !== '')).toBeTrue();
+    });
+
+    it('never colours a body that is not structured', () => {
+      // Colouring a form-encoded body as JSON would be inventing structure that is not there.
+      expect(diffLines('a=1', 'a=2').every((l) => l.tokens === null)).toBeTrue();
+    });
+
+    it('every line of a coloured side reassembles to exactly its own text', () => {
+      // The one that matters. Tokens are attached to lines BY INDEX from a separate split, so a
+      // tokenizer that swallowed or added a newline would paint each line with its neighbour's
+      // colours - wrong, and silently so, on the one screen whose job is to show what changed.
+      const before = JSON.stringify({ a: 1, b: [1, 2, 3], c: { d: 'x' } });
+      const after = JSON.stringify({ a: 9, b: [1, 2, 3], c: { d: 'y' } });
+
+      for (const line of diffLines(before, after)) {
+        if (line.tokens) {
+          expect(line.tokens.map((t) => t.text).join('')).toBe(line.text);
+        }
+      }
+    });
+
+    it('drops colour past the size it would cost more than it is worth', () => {
+      // One DOM node per token instead of one per line; the call view measured a four-second
+      // freeze on a body this shape, which is why it windows. Here the trade is monochrome.
+      const huge = JSON.stringify(Object.fromEntries(Array.from({ length: MAX_COLOURED_LINES + 10 }, (_, i) => [`k${i}`, i])));
+
+      const lines = diffLines(huge, huge.replace('"k0":0', '"k0":1'));
+
+      expect(lines.length).toBeGreaterThan(MAX_COLOURED_LINES);
+      expect(lines.every((l) => l.tokens === null)).toBeTrue();
+      // Still pretty-printed, which is the part that costs nothing.
+      expect(lines.some((l) => l.text.startsWith('  '))).toBeTrue();
+    });
+
+    it('formats both sides by ONE kind so the format itself cannot invent a difference', () => {
+      // A 502 HTML page replacing a JSON body: if each side chose its own formatter the diff
+      // would also report every line of the JSON as reformatted. The structured side decides.
+      expect(sharedBodyKind('{"a":1}', '<html><body>502 Bad Gateway<br>nginx</body></html>')).toBe('json');
+      expect(sharedBodyKind(null, '{"a":1}')).toBe('json');
+      expect(sharedBodyKind('a=1', 'b=2')).toBe('text');
+      // When both are structured the AFTER side wins - a mocked response is the one being read.
+      expect(sharedBodyKind('{"a":1}', '<a><b/></a>')).toBe('xml');
+    });
+  });
+
+  describe('searchView', () => {
+    const headers = () => diffHeaders({ 'x-supplier': 'amadeus' }, { 'x-supplier': 'sabre' });
+    const body = () => diffLines('{"supplier":"amadeus"}', '{"supplier":"sabre"}');
+
+    it('numbers matches in reading order across headers and then body', () => {
+      // A diff interleaves lines from two separately-tokenized sides, each of which would start
+      // its own count at zero - so "3 of 7" would point at two different places.
+      const result = searchView(headers(), body(), 'supplier');
+
+      const indices = [
+        ...result.headers.flatMap((r) => [...r.nameTokens, ...r.valueTokens]),
+        ...result.body.flatMap((l) => l.highlighted),
+      ]
+        .filter((t) => t.highlighted)
+        .map((t) => t.matchIndex);
+
+      expect(indices).toEqual([...indices].sort((a, b) => (a ?? 0) - (b ?? 0)));
+      expect(new Set(indices).size).toBe(indices.length);
+      expect(result.matchCount).toBe(indices.length);
+    });
+
+    it('searches the headers too, not only the body', () => {
+      const result = searchView(headers(), [], 'supplier');
+
+      expect(result.matchCount).toBeGreaterThan(0);
+    });
+
+    it('is case-insensitive but keeps the original casing on screen', () => {
+      const result = searchView([], diffLines('{"Supplier":1}', '{"Supplier":2}'), 'supplier');
+
+      expect(result.matchCount).toBeGreaterThan(0);
+      const marked = result.body.flatMap((l) => l.highlighted).filter((t) => t.highlighted);
+      expect(marked.every((t) => t.text === 'Supplier')).toBeTrue();
+    });
+
+    it('marks nothing for an empty query rather than everything', () => {
+      expect(searchView(headers(), body(), '').matchCount).toBe(0);
+    });
+
+    it('leaves a searched line reassembling to its own text', () => {
+      for (const line of searchView([], body(), 'supplier').body) {
+        expect(line.highlighted.map((t) => t.text).join('')).toBe(line.text);
+      }
+    });
+
+    it('gives an uncoloured line highlight tokens anyway, so plain text is still searchable', () => {
+      const result = searchView([], diffLines('grant_type=a', 'grant_type=b'), 'grant');
+
+      expect(result.matchCount).toBe(2);
+      expect(result.body[0].highlighted.some((t) => t.highlighted)).toBeTrue();
+    });
+  });
+
+  describe('copyableView', () => {
+    it('copies the status change as well as the body, because that is usually the point', () => {
+      const text = copyableView({
+        statusChange: '200 OK -> 500 Internal Server Error',
+        headers: diffHeaders({ a: '1' }, { a: '2' }),
+        body: diffLines('{"x":1}', '{"x":2}'),
+        showMarkers: true,
+      });
+
+      expect(text).toContain('Status  200 OK -> 500');
+      expect(text).toContain('- a: 1');
+      expect(text).toContain('+ a: 2');
+      expect(text).toContain('"x": 1');
+    });
+
+    it('copies a single side clean, with no markers, so it can be replayed as-is', () => {
+      const body = diffLines('{"x":1}', '{"x":1}');
+
+      const text = copyableView({ headers: [], body, showMarkers: false });
+
+      expect(text).not.toMatch(/^[-+] /m);
+      expect(text).toContain('Body');
+    });
+
+    it('says nothing about a section that is not there', () => {
+      expect(copyableView({ headers: [], body: [], showMarkers: true })).toBe('');
     });
   });
 });

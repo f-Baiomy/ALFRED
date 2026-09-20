@@ -106,4 +106,209 @@ describe('InterceptionPanelComponent', () => {
 
     expect(component.actions().map((a) => a.action)).toEqual(['SET_RESPONSE_STATUS']);
   });
+
+  /**
+   * Reading the change, rather than decoding it. The panel used to render every line as plain
+   * interpolated text and pretty-print JSON only - so a SOAP envelope was two vast, identical
+   * lines and there was no way to search or copy any of it.
+   */
+  describe('reading what changed', () => {
+    const jsonChange: CallInterception = {
+      applied,
+      originalResponse: {
+        status: 200,
+        reason: 'OK',
+        headers: { 'x-supplier': 'amadeus' },
+        body: '{"supplier":"amadeus","total":1420}',
+      },
+      finalResponse: {
+        status: 500,
+        reason: 'Internal Server Error',
+        headers: { 'x-supplier': 'sabre' },
+        body: '{"supplier":"sabre","total":1}',
+      },
+    };
+
+    const soap = (total: string) =>
+      `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">` +
+      `<soap:Body><Offer><Total currency="AED">${total}</Total></Offer></soap:Body></soap:Envelope>`;
+
+    let copied: string;
+    let originalClipboard: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      copied = '';
+      // The clipboard is replaced outright rather than spied on. navigator.clipboard is a global
+      // that another spec file legitimately swaps out, so spyOn here depends on the random order
+      // Karma happened to pick - which is how this first failed.
+      originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: (value: string) => {
+            copied = value;
+            return Promise.resolve();
+          },
+        },
+      });
+    });
+
+    afterEach(() => {
+      if (originalClipboard) {
+        Object.defineProperty(navigator, 'clipboard', originalClipboard);
+      } else {
+        delete (navigator as { clipboard?: unknown }).clipboard;
+      }
+    });
+
+    /** Renders and expands. Only toggles when closed - toggling an open panel shuts it. */
+    function open(interception: CallInterception): void {
+      render(interception);
+      if (!component.open()) component.toggle();
+      fixture.detectChanges();
+    }
+
+    const text = () => (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    it('names the format it is showing, so plain text is never a mystery', () => {
+      open(jsonChange);
+      expect(component.kindLabel()).toBe('JSON');
+
+      open({
+        applied,
+        originalResponse: { status: 200, headers: {}, body: soap('1420.00') },
+        finalResponse: { status: 200, headers: {}, body: soap('1.00') },
+      });
+      expect(component.kindLabel()).toBe('XML');
+    });
+
+    it('pretty-prints and colours a SOAP envelope, which used to be two enormous lines', () => {
+      open({
+        applied,
+        originalResponse: { status: 200, headers: {}, body: soap('1420.00') },
+        finalResponse: { status: 200, headers: {}, body: soap('1.00') },
+      });
+
+      const lines = fixture.nativeElement.querySelectorAll('.intercept-body .il');
+      expect(lines.length).toBeGreaterThan(4);
+      // Coloured by the shared token renderer - the same one the call cards use.
+      expect(fixture.nativeElement.querySelector('.intercept-body .il span.k, .intercept-body .il span.s')).not.toBeNull();
+    });
+
+    it('counts matches across the headers and the body as one list', () => {
+      // "3 of 7" has to mean the third thing down the panel, not the third in whichever section
+      // happened to be counted first.
+      open(jsonChange);
+
+      component.query.set('supplier');
+      fixture.detectChanges();
+
+      // x-supplier appears in both header rows, "supplier" in both body lines.
+      expect(component.matchLabel()).toBe('1/4');
+    });
+
+    it('steps through matches and wraps around', () => {
+      open(jsonChange);
+      component.query.set('supplier');
+      fixture.detectChanges();
+
+      component.step(1);
+      expect(component.matchLabel()).toBe('2/4');
+
+      component.step(-1);
+      component.step(-1);
+      expect(component.matchLabel()).toBe('4/4');
+    });
+
+    it('says so rather than showing 0/0 when nothing matches', () => {
+      open(jsonChange);
+      component.query.set('nothing-like-this');
+      fixture.detectChanges();
+
+      expect(component.matchLabel()).toBe('no matches');
+      expect(component.activeMatch()).toBe(-1);
+    });
+
+    it('searches the view on screen, not the half that is hidden', () => {
+      // Searching a side nobody is looking at would report matches that cannot be found.
+      open(jsonChange);
+      component.query.set('amadeus');
+      fixture.detectChanges();
+      const inDiff = component.matchLabel();
+
+      component.show('final');
+      fixture.detectChanges();
+
+      expect(inDiff).not.toBe('no matches');
+      expect(component.matchLabel()).toBe('no matches');
+    });
+
+    it('keeps the query but not the position when the view changes', () => {
+      open(jsonChange);
+      component.query.set('supplier');
+      component.step(1);
+      fixture.detectChanges();
+
+      component.show('original');
+      fixture.detectChanges();
+
+      expect(component.query()).toBe('supplier');
+      expect(component.matchLabel()).toBe('1/2');
+    });
+
+    it('still highlights a plain-text body, which has no tokens to highlight', () => {
+      open({
+        applied,
+        originalResponse: { status: 200, headers: {}, body: 'grant_type=client_credentials' },
+        finalResponse: { status: 200, headers: {}, body: 'grant_type=password' },
+      });
+
+      component.query.set('grant');
+      fixture.detectChanges();
+
+      expect(component.matchLabel()).toBe('1/2');
+      expect(fixture.nativeElement.querySelector('.intercept-body mark.hl')).not.toBeNull();
+    });
+
+    it('copies the status change and the headers, not only the body', () => {
+      // "200 → 500" is the headline of most of these panels; a copy that dropped it would drop
+      // the reason somebody opened the panel in the first place.
+      open(jsonChange);
+      component.copy();
+
+      expect(copied).toContain('200 OK → 500 Internal Server Error');
+      expect(copied).toContain('x-supplier');
+      expect(copied).toContain('"total"');
+      expect(copied).toMatch(/^[-+] /m);
+    });
+
+    it('copies a single side without diff markers, ready to replay', () => {
+      open(jsonChange);
+      component.show('original');
+      fixture.detectChanges();
+      component.copy();
+
+      expect(copied).not.toMatch(/^[-+] /m);
+      expect(copied).toContain('amadeus');
+      expect(copied).not.toContain('sabre');
+    });
+
+    it('confirms a copy happened rather than leaving the button silent', async () => {
+      open(jsonChange);
+      expect(component.copyLabel()).toBe('⧉ Copy diff');
+
+      component.copy();
+      await fixture.whenStable();
+
+      expect(component.copied()).toBeTrue();
+      expect(component.copyLabel()).toBe('✓ Copied');
+    });
+
+    it('reports the size of what is on screen', () => {
+      open(jsonChange);
+
+      expect(component.bodyStats()).toContain('lines');
+      expect(component.monochrome()).toBeFalse();
+    });
+  });
 });

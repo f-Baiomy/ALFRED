@@ -607,6 +607,44 @@ both ends in the record makes it self-contained and independent of when the log 
 Cost: one body string and one header dict, only on a call a rule already matched. Traffic no rule
 matches never reaches the snapshot.
 
+### Reading the panel — pretty-printed, coloured, searchable, copyable
+
+`toLines` used to reformat **JSON only** (`trimmed.startsWith('{')`), so a one-value change inside
+a SOAP envelope was two vast, visually identical lines and you diffed it by eye. Both sides now go
+through `formatBody`, which handles JSON *and* XML, and each line carries the same tokens the call
+cards render — so an envelope in this panel looks exactly like the one on the card above it.
+
+- **One kind for both sides** (`sharedBodyKind`, preferring the newer half). If each side chose its
+  own formatter, a JSON body replaced by an HTML error page would also report every line of the
+  JSON as reformatted. A side that cannot be formatted as that kind is left raw.
+- **Tokens are attached to lines by index**, from a separate split of the same string. If the two
+  splits ever disagree on line count the tokens are dropped for that side — colours one line out
+  of step with the text they colour is worse on a diff than no colours, and silently so. Guarded
+  by a test that reassembles every coloured line back to its own text.
+- **Search covers the headers and the body of the view on screen**, numbered in reading order.
+  The renumbering happens *after* the two sides are interleaved: each side is tokenized
+  separately and would otherwise start its own count at zero, so "3 of 7" would point at two
+  different places.
+- **Copy takes everything shown** — status, headers, body, markers included. Body alone would drop
+  the status change, which on most of these panels is the headline. A single-side view copies
+  clean, with no markers, ready to replay.
+- **Past `MAX_COLOURED_LINES` (4,000) the diff stays monochrome.** Colour is one DOM node per
+  *token* rather than one per line; the call view measured 186,734 nodes and a 4,098 ms freeze on a
+  28,937-line SOAP body, which is why *that* view windows. This one does not, so it takes the
+  honest trade — still pretty-printed, still searchable, still copyable — and says so in the
+  toolbar rather than leaving it to be discovered.
+
+Verified live through the proxy: a JSON response edited by a rule rendered 16 pretty-printed lines
+with 22 coloured spans resolving to the theme's own `--tok-*` (key `rgb(196,181,253)` =
+`#c4b5fd`); searching `a` found 22 matches across 10 in the headers and 12 in the body under one
+continuous numbering, stepping and wrapping correctly with exactly one active mark; Copy produced
+the status line, marked headers and marked body. The same rule returning a SOAP envelope rendered
+10 indented lines with 24 tag / 6 attribute / 8 value spans — one enormous line before this.
+
+> A pre-existing test leak surfaced while writing this: `clipboard.spec.ts` replaced the global
+> `navigator.clipboard` and never restored it, so whichever spec Karma happened to run next
+> inherited it — failing intermittently on nothing but spec order. It restores it now.
+
 ## Safety
 
 - **Off by default.** A feature that can change live traffic is never on because nobody said
