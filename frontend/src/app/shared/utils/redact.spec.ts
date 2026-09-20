@@ -27,6 +27,38 @@ function call(overrides: Partial<CallRecord> = {}): CallRecord {
   };
 }
 
+/**
+ * A call an interception rule touched carries a SECOND copy of both halves - that is the whole
+ * point of the before/after record. Every secret in the fixture above appears again here.
+ */
+function intercepted(): CallRecord {
+  const base = call();
+  return {
+    ...base,
+    interception: {
+      applied: [{ action: 'REPLACE_RESPONSE', detail: '500' }],
+      originalRequest: {
+        method: 'POST',
+        url: base.url,
+        headers: { Authorization: TOKEN, 'x-api-key': APIKEY },
+        body: '{"q":"x"}',
+      },
+      finalRequest: {
+        method: 'POST',
+        url: base.url,
+        headers: { Authorization: TOKEN, 'x-api-key': APIKEY, 'X-Alfred': 'on' },
+        body: '{"q":"x"}',
+      },
+      originalResponse: {
+        status: 200,
+        headers: { 'set-cookie': 'sid=abc; HttpOnly' },
+        body: JSON.stringify({ data: { access_token: 'at_live_9f2' } }),
+      },
+      finalResponse: { status: 500, headers: {}, body: '{"error":"Replaced by Alfred"}' },
+    },
+  };
+}
+
 describe('redactCall', () => {
   it('replaces a header value but keeps the header itself', () => {
     const { call: out, count } = redactCall(call(), [redaction('request-header', 'authorization')]);
@@ -155,7 +187,11 @@ describe('redactCalls', () => {
    */
   it('leaves no trace of any redacted secret anywhere in the call', () => {
     const { calls } = redactCalls(
-      [call()],
+      // The intercepted variant deliberately, because it holds a second copy of both halves - a
+      // redaction that masks `request.headers` and leaves the same token in
+      // `interception.originalRequest.headers` has done nothing except mislead the user into
+      // sending the file.
+      [intercepted()],
       [
         redaction('request-header', 'authorization'),
         redaction('request-header', 'x-api-key'),
@@ -169,5 +205,30 @@ describe('redactCalls', () => {
     for (const secret of [TOKEN, APIKEY, 'hunter2', 'sid=abc', 'at_live_9f2', 'at_live_aa']) {
       expect(serialized).not.toContain(secret);
     }
+  });
+
+  it('masks every interception snapshot with the rule for the half it is a copy of', () => {
+    const { call: out, count } = redactCall(intercepted(), [
+      redaction('request-header', 'authorization'),
+      redaction('response-header', 'set-cookie'),
+    ]);
+
+    expect(out.interception?.originalRequest?.headers?.['Authorization']).toBe(REDACTED);
+    expect(out.interception?.finalRequest?.headers?.['Authorization']).toBe(REDACTED);
+    expect(out.interception?.originalResponse?.headers?.['set-cookie']).toBe(REDACTED);
+    // A request-header redaction must not reach into the response snapshot, and the rest of the
+    // record is untouched.
+    expect(out.interception?.finalRequest?.headers?.['x-api-key']).toBe(APIKEY);
+    expect(out.interception?.applied.length).toBe(1);
+    // Two in the call's own headers, plus every copy: authorization twice more (both request
+    // snapshots) and set-cookie once more (the original response).
+    expect(count).toBe(5);
+  });
+
+  it('keeps an untouched interception record byte-identical', () => {
+    const original = intercepted();
+    const { call: out } = redactCall(original, [redaction('request-header', 'nothing-matches-this')]);
+
+    expect(out).toBe(original);
   });
 });

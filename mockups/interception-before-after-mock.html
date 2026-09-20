@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alfred — before/after an intercepted call (mockup)</title>
+<style>
+:root{
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --nav-bg: linear-gradient(120deg,#1a1247 0%,#0f1438 60%,#1a1247 100%);
+  --card:#141a45; --card-elevated: linear-gradient(160deg,#141a45 0%,#101636 100%);
+  --card-inner:#070a24; --panel-bg: rgba(10,14,42,.55); --bg-2:#0f1438;
+  --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-light:#c4b5fd; --cyan:#22d3ee;
+  --text:#e5e9f5; --text-dim:#93a0c2; --text-faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171;
+  --tok-key:#c4b5fd; --tok-string:#6ee7d8; --tok-number:#fb923c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-attachment:fixed;min-height:100vh;
+  font-family:"Segoe UI",system-ui,sans-serif;color:var(--text);font-size:14px}
+.mockbar{background:#1c1340;border-bottom:1px solid var(--border-strong);padding:8px 16px;
+  font-size:12px;color:var(--purple-light)}
+.mockbar b{color:#fff}
+.wrap{max-width:1000px;margin:0 auto;padding:22px 20px 60px}
+h1{font-size:1.35rem;margin:0 0 .3rem}
+.sub{color:var(--text-dim);font-size:.85rem;margin:0 0 1.4rem}
+
+.call{background:var(--card-elevated);border:1px solid var(--border);border-radius:14px;
+  padding:1rem 1.15rem;margin-bottom:1rem}
+.call.edited{border-color:rgba(248,113,113,.45)}
+.ctop{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.badge{font-size:.65rem;font-weight:600;padding:.18rem .5rem;border-radius:5px;letter-spacing:.3px}
+.b-post{background:rgba(34,211,238,.16);color:var(--cyan);border:1px solid rgba(34,211,238,.32)}
+.b-500{background:rgba(248,113,113,.16);color:var(--red);border:1px solid rgba(248,113,113,.32)}
+.b-int{background:rgba(251,191,36,.16);color:var(--amber);border:1px solid rgba(251,191,36,.35)}
+.b-man{background:rgba(248,113,113,.16);color:var(--red);border:1px solid rgba(248,113,113,.35)}
+.url{font-family:ui-monospace,Consolas,monospace;font-size:.78rem;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dur{font-size:.74rem;color:var(--red);font-weight:600}
+
+.changes{margin-top:.8rem;background:rgba(251,191,36,.07);
+  border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:.7rem .85rem}
+.changes.man{background:rgba(248,113,113,.07);border-color:rgba(248,113,113,.3)}
+.changes-h{font-size:.72rem;font-weight:600;color:var(--amber);margin-bottom:.5rem}
+.changes.man .changes-h{color:var(--red)}
+.chg{display:flex;gap:.6rem;font-size:.72rem;padding:.16rem 0;
+  font-family:ui-monospace,Consolas,monospace;color:var(--text-dim)}
+.chg .k{color:var(--purple-light);min-width:170px;flex-shrink:0}
+.chg .v{color:var(--text)}
+
+.block{margin-top:.9rem;border:1px solid var(--border);border-radius:11px;overflow:hidden}
+.block-h{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;
+  padding:.55rem .8rem;background:var(--panel-bg);border-bottom:1px solid var(--border)}
+.block-h b{font-size:.8rem}
+.block-h .tag{font-size:.62rem;padding:.1rem .4rem;border-radius:5px;
+  background:rgba(248,113,113,.14);color:var(--red);border:1px solid rgba(248,113,113,.33)}
+.seg{margin-left:auto;display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;border:none;color:var(--text-dim);font-size:.68rem;
+  padding:.3rem .65rem;cursor:pointer;font-family:inherit;white-space:nowrap}
+.seg button.on{background:color-mix(in srgb,var(--purple) 28%,transparent);color:#fff}
+.seg button.on.orig{background:rgba(148,163,184,.25);color:#e5e9f5}
+.seg button.on.diff{background:rgba(251,191,36,.25);color:var(--amber)}
+
+.code{background:var(--card-inner);padding:.7rem .85rem;font-family:ui-monospace,Consolas,monospace;
+  font-size:.74rem;line-height:1.75;overflow-x:auto}
+.ln{display:block;white-space:pre}
+.ln.del{background:rgba(248,113,113,.13);border-left:2px solid var(--red);
+  margin-left:-.85rem;padding-left:calc(.85rem - 2px)}
+.ln.add{background:rgba(52,211,153,.12);border-left:2px solid var(--green);
+  margin-left:-.85rem;padding-left:calc(.85rem - 2px)}
+.k2{color:var(--tok-key)}.s2{color:var(--tok-string)}.n2{color:var(--tok-number)}
+.gut{color:var(--text-faint);user-select:none}
+
+.hdrs{background:var(--card-inner);padding:.5rem .85rem}
+.hrow{display:flex;gap:.7rem;padding:.2rem 0;font-family:ui-monospace,Consolas,monospace;
+  font-size:.71rem;border-bottom:1px solid rgba(139,92,246,.08)}
+.hrow .hn{color:var(--tok-key);min-width:190px;flex-shrink:0}
+.hrow .hv{word-break:break-all}
+.hrow.del{background:rgba(248,113,113,.11)}
+.hrow.add{background:rgba(52,211,153,.10)}
+.hrow .mark{width:12px;flex-shrink:0;color:var(--text-faint)}
+
+.note{background:var(--panel-bg);border:1px solid var(--border);border-radius:11px;
+  padding:.85rem 1rem;font-size:.78rem;color:var(--text-dim);line-height:1.7;margin-top:1.4rem}
+.note b{color:var(--text)}
+.note code{background:var(--bg-2);border-radius:4px;padding:.05rem .3rem}
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCKUP</b> — proposed before/after view for an intercepted call. Static HTML, nothing is wired up.</div>
+
+<div class="wrap">
+  <h1>Live Calls — an intercepted call, expanded</h1>
+  <p class="sub">The same card you have today, plus what Alfred changed and the ability to see either side of it</p>
+
+  <div class="call edited">
+    <div class="ctop">
+      <span class="badge b-post">POST</span>
+      <span class="badge b-500">500</span>
+      <span class="badge b-int">&#9889; INTERCEPTED</span>
+      <span class="badge b-man">&#9998; EDITED BY YOU</span>
+      <span class="url">api.cert.platform.sabre.com/v4/order/create?qweqw=zxc</span>
+      <span class="dur">31,402 ms</span>
+    </div>
+
+    <div class="changes man">
+      <div class="changes-h">&#9998; 3 changes on this call — the client and the supplier each saw something different</div>
+      <div class="chg"><span class="k">Five passengers</span><span class="v">request body · passengerCount 1 &rarr; 5</span></div>
+      <div class="chg"><span class="k">all intercept</span><span class="v">query · added qweqw=zxc</span></div>
+      <div class="chg"><span class="k">Review Sabre orders</span><span class="v">paused 30,718 ms, released edited by f.biomy</span></div>
+    </div>
+
+    <!-- REQUEST -->
+    <div class="block">
+      <div class="block-h">
+        <b>Request</b>
+        <span class="tag">modified before sending</span>
+        <div class="seg">
+          <button class="on orig">As the client sent it</button>
+          <button>As Alfred sent it</button>
+          <button class="on diff">Diff</button>
+        </div>
+      </div>
+      <div class="hdrs">
+        <div class="hrow"><span class="mark"></span><span class="hn">content-type</span><span class="hv">application/json</span></div>
+        <div class="hrow add"><span class="mark">+</span><span class="hn">x-alfred-test</span><span class="hv">true</span></div>
+        <div class="hrow"><span class="mark"></span><span class="hn">authorization</span><span class="hv">***REDACTED***</span></div>
+      </div>
+      <div class="code">
+<span class="ln"><span class="gut">  </span>{</span>
+<span class="ln"><span class="gut">  </span>  <span class="k2">"origin"</span>: <span class="s2">"DXB"</span>,</span>
+<span class="ln del"><span class="gut">- </span>  <span class="k2">"passengerCount"</span>: <span class="n2">1</span>,</span>
+<span class="ln add"><span class="gut">+ </span>  <span class="k2">"passengerCount"</span>: <span class="n2">5</span>,</span>
+<span class="ln"><span class="gut">  </span>  <span class="k2">"currency"</span>: <span class="s2">"EUR"</span></span>
+<span class="ln"><span class="gut">  </span>}</span>
+      </div>
+    </div>
+
+    <!-- RESPONSE -->
+    <div class="block">
+      <div class="block-h">
+        <b>Response</b>
+        <span class="tag">edited before the caller saw it</span>
+        <div class="seg">
+          <button class="on orig">As Sabre answered</button>
+          <button>As the caller received it</button>
+          <button class="on diff">Diff</button>
+        </div>
+      </div>
+      <div class="hdrs">
+        <div class="hrow del"><span class="mark">&minus;</span><span class="hn">:status</span><span class="hv">200 OK</span></div>
+        <div class="hrow add"><span class="mark">+</span><span class="hn">:status</span><span class="hv">500 Internal Server Error</span></div>
+        <div class="hrow"><span class="mark"></span><span class="hn">content-type</span><span class="hv">application/json</span></div>
+      </div>
+      <div class="code">
+<span class="ln"><span class="gut">  </span>{</span>
+<span class="ln"><span class="gut">  </span>  <span class="k2">"orderId"</span>: <span class="s2">"OD-7741-XQ"</span>,</span>
+<span class="ln del"><span class="gut">- </span>  <span class="k2">"status"</span>: <span class="s2">"CONFIRMED"</span>,</span>
+<span class="ln add"><span class="gut">+ </span>  <span class="k2">"status"</span>: <span class="s2">"FAILED"</span>,</span>
+<span class="ln"><span class="gut">  </span>  <span class="k2">"itinerary"</span>: {</span>
+<span class="ln del"><span class="gut">- </span>    <span class="k2">"seatsRemaining"</span>: <span class="n2">14</span></span>
+<span class="ln add"><span class="gut">+ </span>    <span class="k2">"seatsRemaining"</span>: <span class="n2">0</span></span>
+<span class="ln"><span class="gut">  </span>  }</span>
+<span class="ln"><span class="gut">  </span>}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Reading it:</b> red is what was really there, green is what the other side actually got.
+    On the request, red is what your app sent and green is what Sabre received. On the response,
+    red is what Sabre really answered and green is what your app received. So
+    &ldquo;the booking failed&rdquo; can be traced to <code>status: FAILED</code> being
+    <em>yours</em>, not Sabre&rsquo;s &mdash; Sabre said <code>CONFIRMED</code>.
+    <br /><br />
+    <b>Both sides are stored, not recomputed.</b> A diff of two stored documents can always be
+    shown; a diff against something that was never captured cannot.
+  </div>
+</div>
+</body>
+</html>

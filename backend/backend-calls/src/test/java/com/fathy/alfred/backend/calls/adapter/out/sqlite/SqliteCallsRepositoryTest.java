@@ -118,7 +118,12 @@ class SqliteCallsRepositoryTest {
         CallInterception interception = new CallInterception(
                 List.of(new CallInterception.Applied("rule-1", "Review orders", "PAUSE_RESPONSE", "waiting for a decision"),
                         new CallInterception.Applied("rule-1", "Review orders", "BREAKPOINT_RELEASE", "released edited: status 500, body")),
-                new CallInterception.Upstream(200, Map.of(), "{\"status\":\"CONFIRMED\"}"));
+                new CallInterception.Http(null, null, "POST", "https://supplier.example.com/order",
+                        Map.of("content-type", "application/json"), "{\"passengerCount\":1}"),
+                new CallInterception.Http(200, "OK", null, null, Map.of(), "{\"status\":\"CONFIRMED\"}"),
+                new CallInterception.Http(null, null, "POST", "https://supplier.example.com/order?probe=1",
+                        Map.of("content-type", "application/json"), "{\"passengerCount\":5}"),
+                new CallInterception.Http(500, "Internal Server Error", null, null, Map.of(), "{\"status\":\"FAILED\"}"));
 
         repo.complete(id, new ResponseData(500, null, "{\"status\":\"FAILED\"}"), null, 30_718.0, null, interception);
         repo.readAll();
@@ -129,9 +134,17 @@ class SqliteCallsRepositoryTest {
         assertThat(summary.interception().applied().get(0).ruleName()).isEqualTo("Review orders");
         // The whole point of keeping the upstream half: the caller got a 500, the supplier sent a
         // 200, and a log that recorded only the first would be claiming the supplier failed.
-        assertThat(summary.interception().upstreamResponse().status()).isEqualTo(200);
-        assertThat(summary.interception().upstreamResponse().body()).contains("CONFIRMED");
+        assertThat(summary.interception().originalResponse().status()).isEqualTo(200);
+        assertThat(summary.interception().originalResponse().body()).contains("CONFIRMED");
         assertThat(summary.status()).isEqualTo(500);
+        // The request half matters just as much: without it a call whose body was rewritten reads
+        // as though the client sent the rewritten version.
+        assertThat(summary.interception().originalRequest().body()).contains("\"passengerCount\":1");
+        assertThat(summary.interception().originalRequest().url()).endsWith("/order");
+        // The request half is logged BEFORE a request breakpoint can edit it, so the final state
+        // has to be carried here or a hand edit would diff as no change at all.
+        assertThat(summary.interception().finalRequest().body()).contains("\"passengerCount\":5");
+        assertThat(summary.interception().finalResponse().status()).isEqualTo(500);
     }
 
     @Test

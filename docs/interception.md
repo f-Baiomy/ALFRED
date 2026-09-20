@@ -246,12 +246,13 @@ loss.
 
 ### Both versions are kept
 
-When a response is released **edited**, the call log records what the caller received *and*
-`interception.upstreamResponse` — what the supplier really sent. Without that, editing a response
-quietly turns Alfred's log into fiction, which is the one thing a traffic logger must never do.
+When a half is released **edited**, the call log records both ends of the change — see
+[Before and after](#before-and-after) below, which is the same mechanism a rule's edit goes
+through. Without it, editing a response quietly turns Alfred's log into fiction, which is the one
+thing a traffic logger must never do.
 
-Verified live: caller saw `599` / `EDITED-BY-ALFRED`, the log recorded `status: 599` with
-`upstreamResponse.status: 307`.
+Verified live: caller saw `599` / `EDITED-BY-ALFRED`, the log recorded `finalResponse.status: 599`
+alongside `originalResponse.status: 307`.
 
 ## Rule precedence
 
@@ -310,6 +311,39 @@ every `.md`/`.html` export — the same constraint `redaction.model.ts` document
 `interception` is **null** for every call no rule touched, so an ordinary call's stored shape is
 unchanged by this feature existing.
 
+### Before and after
+
+A record carries up to four snapshots — `originalRequest`/`finalRequest` and
+`originalResponse`/`finalResponse` — each a `{status, reason, method, url, headers, body}`. They
+are what the UI's before/after panel diffs.
+
+**No action captures them.** The engine snapshots a half once, the moment a rule first matches and
+before any action has run, snapshots it again when the phase is completely finished — rules,
+delay, breakpoint, hand edit — and records both ends only if the two differ
+(`Verdict.observe_*` / `Verdict.finalize_*`). Three consequences are the point of doing it this
+way:
+
+- **A new action gets before/after for free.** Whatever it mutates on the flow, the closing
+  snapshot sees. The earlier design had each action announce its own intent, which worked and
+  meant every future action had to remember to, with a silently missing before/after as the
+  penalty for forgetting. It also cost a real bug: the response-phase verdict's snapshots were
+  dropped by the addon, so *no* response action ever produced a before/after.
+- **An action that changes nothing records nothing.** A delay, or a header set to the value it
+  already had, stores no snapshots — so an export does not double in size for a call nobody
+  really touched.
+- **A mocked response is one-sided, not a diff.** No upstream answer was ever seen, so
+  `originalResponse` is absent and only `finalResponse` is written; the UI says the host was never
+  contacted rather than pretending it answered and we changed the answer. Stated structurally —
+  "a response exists at the end of the request phase" — so anything else that answers early is
+  reported the same way without naming `MOCK_RESPONSE`.
+
+The **request** half cannot use the call log as its "after": the log is written at `prepare` time,
+before the request is forwarded and therefore before a breakpoint lets anyone edit it. Keeping
+both ends in the record makes it self-contained and independent of when the log was written.
+
+Cost: one body string and one header dict, only on a call a rule already matched. Traffic no rule
+matches never reaches the snapshot.
+
 ## Safety
 
 - **Off by default.** A feature that can change live traffic is never on because nobody said
@@ -360,8 +394,15 @@ cd proxy && python -m unittest test_interception -v
    to `REQUEST_ACTIONS` / `RESPONSE_ACTIONS`.
 4. Add a label to `ACTION_LABELS` and a field row to `rule-editor.component.html`.
 5. Add defaults to `defaultsFor()` so a freshly added action is already valid.
+6. Add it to `EveryActionIsCoveredTest.SAMPLES` in `proxy/test_interception.py` — that suite walks
+   `REQUEST_ACTIONS`/`RESPONSE_ACTIONS` themselves, so this is a failing build, not a checklist
+   item you can miss.
 
 The action picker reads `/interception/action-types`, so nothing needs a hardcoded list.
+
+**Do not write any before/after code.** Capture is generic — see
+[Before and after](#before-and-after). If the action mutates the flow, both ends are recorded; if
+it does not, nothing is, and it belongs in that test's `NO_CHANGE` map with the reason.
 
 ### Adding a matcher
 

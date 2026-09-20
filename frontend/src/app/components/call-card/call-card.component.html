@@ -167,6 +167,15 @@
           <span class="badge supplier-badge">{{ call().supplierName }}</span>
         }
         <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
+        <!-- On the COLLAPSED card, because the point is that you should not have to open a call to
+             learn that what you are reading is not what your client actually sent. -->
+        @if (interception(); as intercepted) {
+          <span
+            class="badge intercept-badge"
+            [class.hand]="interceptedByHand()"
+            [title]="interceptTooltip()"
+          >{{ interceptedByHand() ? '✎ edited' : '⚡ intercepted' }}</span>
+        }
         <app-call-actions [call]="call()" />
         @if (removalState) {
           <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
@@ -190,6 +199,15 @@
 
       <ng-container [ngTemplateOutlet]="urlsBlock" />
       <ng-container [ngTemplateOutlet]="idsBlock" />
+
+      @if (interception(); as intercepted) {
+        <app-interception-panel
+          [interception]="intercepted"
+          phase="request"
+          [current]="currentRequest()"
+          (detailNeeded)="loadInterceptionDetail('request')"
+        />
+      }
 
       <ng-container [ngTemplateOutlet]="blocksStrip" [ngTemplateOutletContext]="{ $implicit: 'REQ' }" />
     </div>
@@ -222,6 +240,15 @@
         <div class="error-banner">&#9888; {{ call().error }}</div>
       }
 
+      @if (interception(); as intercepted) {
+        <app-interception-panel
+          [interception]="intercepted"
+          phase="response"
+          [current]="currentResponse()"
+          (detailNeeded)="loadInterceptionDetail('response')"
+        />
+      }
+
       <ng-container [ngTemplateOutlet]="blocksStrip" [ngTemplateOutletContext]="{ $implicit: 'RES' }" />
     </div>
   } @else {
@@ -252,6 +279,15 @@
         <span class="badge supplier-badge">{{ call().supplierName }}</span>
       }
       <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
+      <!-- On the COLLAPSED card, because the point is that you should not have to open a call to
+           learn that what you are reading is not what your client actually sent. -->
+      @if (interception(); as intercepted) {
+        <span
+          class="badge intercept-badge"
+          [class.hand]="interceptedByHand()"
+          [title]="interceptTooltip()"
+        >{{ interceptedByHand() ? '✎ edited' : '⚡ intercepted' }}</span>
+      }
       @if (depthLabel(); as label) {
         @if (linksToParent()) {
           <button
@@ -281,6 +317,23 @@
 
     @if (call().error) {
       <div class="error-banner">&#9888; {{ call().error }}</div>
+    }
+
+    <!-- The single-card variant shows both halves in one card, so both panels sit here, request
+         first - the order things actually happened in. -->
+    @if (interception(); as intercepted) {
+      <app-interception-panel
+        [interception]="intercepted"
+        phase="request"
+        [current]="currentRequest()"
+        (detailNeeded)="loadInterceptionDetail('request')"
+      />
+      <app-interception-panel
+        [interception]="intercepted"
+        phase="response"
+        [current]="currentResponse()"
+        (detailNeeded)="loadInterceptionDetail('response')"
+      />
     }
 
     <ng-container [ngTemplateOutlet]="blocksStrip" />

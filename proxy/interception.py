@@ -75,6 +75,32 @@ def _sensitive(name):
     return (name or '').strip().lower() in SENSITIVE_HEADERS
 
 
+def _snapshot(message, include_target=False):
+    """One half of an exchange, frozen.
+
+    `include_target` adds method and url, which only make sense for a request - and matter,
+    because a rule that rewrites a query parameter changes the url and nothing else, so a
+    snapshot without it would show two identical copies.
+    """
+    try:
+        body = message.get_text(strict=False)
+    except Exception:
+        body = None
+    snapshot = {'headers': dict(message.headers), 'body': body}
+    status = getattr(message, 'status_code', None)
+    if status is not None:
+        snapshot['status'] = status
+        # mitmproxy keeps the upstream's reason; carried so a status diff can show
+        # "200 OK -> 500 Internal Server Error" rather than two bare numbers.
+        reason = getattr(message, 'reason', None)
+        if reason:
+            snapshot['reason'] = reason
+    if include_target:
+        snapshot['method'] = getattr(message, 'method', None)
+        snapshot['url'] = getattr(message, 'pretty_url', None)
+    return snapshot
+
+
 class Match:
     """One rule's matching conditions. Every field is optional; an absent field matches anything,
     so a rule with an empty match applies to all traffic (which is why the UI states the match
@@ -251,7 +277,9 @@ class Verdict:
     waiting on a human - is described here and carried out by the addon's async hook.
     """
 
-    __slots__ = ('delay_ms', 'terminal', 'mock', 'pause', 'applied', 'must_reach_host')
+    __slots__ = ('delay_ms', 'terminal', 'mock', 'pause', 'applied', 'must_reach_host',
+                 'pre_request', 'pre_response', 'synthetic_response',
+                 'original_request', 'original_response', 'final_request', 'final_response')
 
     def __init__(self):
         self.delay_ms = 0
@@ -259,6 +287,21 @@ class Verdict:
         self.mock = None          # {'status':int,'headers':dict,'body':str}
         self.pause = None         # {'phase':'request'|'response','timeoutSeconds':int,'onTimeout':str,'ruleId','ruleName'}
         self.applied = []
+        # Working snapshots: each half as it stood the moment a rule first matched, before any
+        # action ran. Taken by observe_*, compared by finalize_*. Not reported anywhere - they
+        # become original_*/final_* only if the two ends actually differ.
+        self.pre_request = None
+        self.pre_response = None
+        # A response that exists without an upstream one ever having been seen - mocked, and
+        # therefore one-sided: there is no "before" to diff against, only an "instead of".
+        self.synthetic_response = False
+        # What each half looked like BEFORE anything touched it, and after everything had. Both
+        # are set together or not at all, by finalize_*. None means that half came out the way it
+        # went in, which is the overwhelmingly common case.
+        self.original_request = None
+        self.original_response = None
+        self.final_request = None
+        self.final_response = None
         # Set by SEND_TO_HOST. Once true, no later rule may short-circuit this call - see
         # _apply_request_action. This is what makes "always really call this endpoint" expressible
         # as a narrow, high-priority exception to a broad mocking rule.
@@ -271,12 +314,96 @@ class Verdict:
     def record(self, rule, action, detail=None):
         self.applied.append(Applied(rule.id, rule.name, action, detail))
 
+    def observe_request(self, flow):
+        """Freezes the request the moment a rule matches, before any action has run.
+
+        Deliberately NOT called from inside an action. An earlier design had each mutating action
+        announce "I am about to change this" - which worked, and which meant every future action
+        had to remember to say so, with a silently missing before/after as the penalty for
+        forgetting. Snapshotting on both sides of the whole phase and comparing them instead makes
+        the record a property of what actually happened to the flow, so an action added later is
+        covered by construction rather than by diligence.
+
+        Once per phase: a second match must not overwrite the first snapshot with a half-modified
+        one.
+        """
+        if self.pre_request is None:
+            self.pre_request = _snapshot(flow.request, include_target=True)
+
+    def observe_response(self, flow):
+        if self.pre_response is None and flow.response is not None:
+            self.pre_response = _snapshot(flow.response)
+
+    def adopt(self, other):
+        """Folds a response-phase verdict into the one carried on the flow.
+
+        The response phase builds its own Verdict because it has its own delay and its own pause,
+        but the RECORD is one record per call. Copying only `applied` across - which is what this
+        used to do - threw away every response-phase snapshot on the floor, so no response action
+        has ever produced a before/after. Merging state rather than one chosen field is the fix
+        that stays fixed.
+        """
+        self.applied.extend(other.applied)
+        if self.pre_response is None:
+            self.pre_response = other.pre_response
+
+    def finalize_request(self, flow):
+        """Compares the request against its pre-action snapshot, once nothing further will touch it.
+
+        The call log cannot serve as the "after" side on its own. The request half is written to
+        the log at PREPARE time - before the request is forwarded, and therefore before a request
+        breakpoint has let anyone edit it - so a hand-edited request would be recorded exactly as
+        it arrived, and the diff would show no change while the log insisted one had been made.
+        Keeping both ends here makes the record self-contained and independent of when the log was
+        written.
+        """
+        if self.pre_request is not None:
+            after = _snapshot(flow.request, include_target=True)
+            # Nothing recorded when nothing moved: a rule that only delayed the call, or set a
+            # header to the value it already had, leaves the log the size it was.
+            if after != self.pre_request:
+                self.original_request = self.pre_request
+                self.final_request = after
+
+        # A response that exists at the END of the request phase was manufactured here - upstream
+        # was never contacted. Stated as a structural fact about the flow rather than by testing
+        # for MOCK_RESPONSE, so anything else that answers early is reported the same way.
+        if self.pre_response is None and flow.response is not None:
+            self.synthetic_response = True
+            self.final_response = _snapshot(flow.response)
+
+    def finalize_response(self, flow):
+        if flow.response is None:
+            return
+        after = _snapshot(flow.response)
+        if self.synthetic_response:
+            # There is no upstream answer to diff against, so original_response stays absent and
+            # the reader is told the whole thing is Alfred's. Keeping the final side current still
+            # matters: a response rule may have edited the mock after it was made.
+            self.final_response = after
+            return
+        if self.pre_response is not None and after != self.pre_response:
+            self.original_response = self.pre_response
+            self.final_response = after
+
     def as_log(self):
         """The `interception` object that rides on the existing two-phase webhook. Returns None
         when nothing happened, so an untouched call's payload is byte-identical to before."""
         if not self.applied:
             return None
-        return {'applied': [a.as_dict() for a in self.applied]}
+        out = {'applied': [a.as_dict() for a in self.applied]}
+        # Both halves as they were before anything touched them. Present only when that half was
+        # actually modified, so the reader can tell "unchanged" from "not recorded" - and so an
+        # export never doubles in size for a call that was only delayed.
+        if self.original_request is not None:
+            out['originalRequest'] = self.original_request
+        if self.original_response is not None:
+            out['originalResponse'] = self.original_response
+        if self.final_request is not None:
+            out['finalRequest'] = self.final_request
+        if self.final_response is not None:
+            out['finalResponse'] = self.final_response
+        return out
 
 
 def set_status(response, status):
@@ -432,7 +559,12 @@ class InterceptionEngine:
         """Applies every matching rule's request-phase actions, mutating the flow in place for
         everything synchronous. Returns a Verdict describing what the addon still has to do."""
         verdict = Verdict()
-        for rule in self._matching(flow, service_name):
+        matching = self._matching(flow, service_name)
+        if matching:
+            # Once, up front, for the whole phase - see Verdict.observe_request. A call no rule
+            # matches never reaches this line and so never pays for a snapshot.
+            verdict.observe_request(flow)
+        for rule in matching:
             for action in rule.actions:
                 kind = action.get('type')
                 if kind not in REQUEST_ACTIONS:
@@ -550,7 +682,10 @@ class InterceptionEngine:
         verdict = Verdict()
         if flow.response is None:
             return verdict
-        for rule in self._matching(flow, service_name):
+        matching = self._matching(flow, service_name)
+        if matching:
+            verdict.observe_response(flow)
+        for rule in matching:
             for action in rule.actions:
                 kind = action.get('type')
                 if kind not in RESPONSE_ACTIONS:

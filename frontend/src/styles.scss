@@ -5939,3 +5939,276 @@ h1.page-title {
   border-left-color: var(--cyan);
   background: color-mix(in srgb, var(--cyan) 7%, transparent);
 }
+
+/* ==========================================================================
+   The before/after panel on an intercepted call.
+
+   Red is always "what was really there", green is always "what the other side
+   actually got" - the same convention on both halves, so the reader learns it
+   once. That is why the request panel and the response panel look identical
+   despite meaning mirrored things.
+   ========================================================================== */
+
+.intercept-badge {
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 38%, transparent);
+  cursor: help;
+
+  /* A human edited it, not just a rule - a stronger claim, and a stronger colour. */
+  &.hand {
+    background: color-mix(in srgb, var(--red) 16%, transparent);
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  }
+}
+
+.intercept-panel {
+  margin: 0.6rem 0;
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--amber) 6%, transparent);
+  overflow: hidden;
+
+  &.hand {
+    border-color: color-mix(in srgb, var(--red) 38%, transparent);
+    background: color-mix(in srgb, var(--red) 6%, transparent);
+  }
+}
+
+.intercept-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+
+  &:hover {
+    background: color-mix(in srgb, var(--amber) 6%, transparent);
+  }
+}
+
+.intercept-panel-icon {
+  font-size: 0.85rem;
+  color: var(--amber);
+  flex-shrink: 0;
+}
+
+.intercept-panel.hand .intercept-panel-icon {
+  color: var(--red);
+}
+
+.intercept-panel-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+
+  em {
+    font-style: normal;
+    font-weight: 400;
+    color: var(--text-dim);
+    margin-left: 0.5rem;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.72rem;
+  }
+}
+
+.intercept-panel-toggle {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.intercept-panel-body {
+  padding: 0.2rem 0.8rem 0.8rem;
+  border-top: 1px solid color-mix(in srgb, var(--amber) 22%, transparent);
+}
+
+.intercept-actions {
+  margin: 0.6rem 0;
+}
+
+.intercept-action {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  padding: 0.15rem 0;
+
+  .ia-rule {
+    color: var(--purple-light);
+    font-weight: 600;
+    min-width: 150px;
+  }
+
+  .ia-what {
+    font-family: ui-monospace, Consolas, monospace;
+    color: var(--text);
+    font-size: 0.68rem;
+  }
+
+  .ia-detail {
+    color: var(--text-dim);
+  }
+}
+
+.intercept-views {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.7rem 0 0.5rem;
+  flex-wrap: wrap;
+
+  button {
+    font-size: 0.68rem;
+    padding: 0.28rem 0.6rem;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: inherit;
+
+    &:hover {
+      border-color: var(--border-strong);
+    }
+
+    &.on {
+      background: color-mix(in srgb, var(--purple) 25%, transparent);
+      border-color: var(--purple);
+      color: #fff;
+    }
+  }
+}
+
+.intercept-change-line {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.73rem;
+  padding: 0.25rem 0;
+  font-family: ui-monospace, Consolas, monospace;
+
+  .icl-k {
+    color: var(--text-faint);
+    min-width: 54px;
+    flex-shrink: 0;
+  }
+
+  .icl-v {
+    color: var(--text);
+    word-break: break-all;
+  }
+
+  .was {
+    color: var(--red);
+    text-decoration: line-through;
+  }
+}
+
+.intercept-sub {
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 0.7rem 0 0.3rem;
+}
+
+.intercept-headers,
+.intercept-body {
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  /* Bounded rather than unbounded: an intercepted call can carry a very large body, and this
+     panel sits ABOVE the normal blocks - letting it run to full height would push the actual
+     request and response off the screen. */
+  max-height: 340px;
+  overflow: auto;
+}
+
+.ih-row {
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.16rem 0.3rem;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.71rem;
+  border-radius: 4px;
+
+  .ih-mark {
+    width: 10px;
+    flex-shrink: 0;
+    color: var(--text-faint);
+  }
+
+  .ih-name {
+    color: var(--tok-key);
+    min-width: 170px;
+    flex-shrink: 0;
+  }
+
+  .ih-value {
+    word-break: break-all;
+  }
+
+  &.removed {
+    background: color-mix(in srgb, var(--red) 13%, transparent);
+
+    .ih-mark {
+      color: var(--red);
+    }
+  }
+
+  &.added {
+    background: color-mix(in srgb, var(--green) 12%, transparent);
+
+    .ih-mark {
+      color: var(--green);
+    }
+  }
+}
+
+.intercept-body {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.73rem;
+  line-height: 1.7;
+}
+
+.il {
+  display: block;
+  /* `pre` not `pre-wrap`: a diff line that wraps loses the alignment that makes the +/- column
+     readable, and the container already scrolls horizontally. */
+  white-space: pre;
+  padding: 0 0.3rem;
+  border-radius: 3px;
+
+  &.removed {
+    background: color-mix(in srgb, var(--red) 13%, transparent);
+    color: #ffd7d7;
+  }
+
+  &.added {
+    background: color-mix(in srgb, var(--green) 12%, transparent);
+    color: #d3ffee;
+  }
+}
+
+.intercept-empty {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.intercept-legend {
+  margin: 0.6rem 0 0;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  line-height: 1.6;
+}

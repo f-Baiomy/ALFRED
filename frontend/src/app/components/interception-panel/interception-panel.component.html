@@ -1,0 +1,94 @@
+<!-- Renders nothing when this half was never modified. An "unchanged" notice on every intercepted
+     call's other half would be noise, and absent must not be mistaken for unchanged. -->
+@if (hasChange()) {
+  <div class="intercept-panel" [class.hand]="editedByHand()">
+    <button type="button" class="intercept-panel-head" (click)="toggle()">
+      <span class="intercept-panel-icon">{{ editedByHand() ? '✎' : '⚡' }}</span>
+      <span class="intercept-panel-title">
+        {{ label().title }}
+        @if (summary()) {
+          <em>{{ summary() }}</em>
+        }
+      </span>
+      <span class="intercept-panel-toggle">{{ open() ? '▲ hide' : '▼ show what changed' }}</span>
+    </button>
+
+    @if (open()) {
+      <div class="intercept-panel-body">
+        @if (actions().length > 0) {
+          <div class="intercept-actions">
+            @for (action of actions(); track $index) {
+              <div class="intercept-action">
+                <span class="ia-rule">{{ action.ruleName || 'Manual edit' }}</span>
+                <span class="ia-what">{{ action.action }}</span>
+                @if (action.detail) {
+                  <span class="ia-detail">{{ action.detail }}</span>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <div class="intercept-views">
+          <button type="button" [class.on]="view() === 'original'" (click)="show('original')">{{ label().before }}</button>
+          <button type="button" [class.on]="view() === 'final'" (click)="show('final')">{{ label().after }}</button>
+          <button type="button" [class.on]="view() === 'diff'" (click)="show('diff')">Diff</button>
+        </div>
+
+        @if (diff(); as d) {
+          @if (d.statusChange) {
+            <div class="intercept-change-line">
+              <span class="icl-k">Status</span>
+              <span class="icl-v">{{ d.statusChange }}</span>
+            </div>
+          }
+          @if (d.urlChange; as u) {
+            <!-- A query rewrite changes the url and nothing else, so without this the two sides
+                 would look identical and the change would be invisible. -->
+            <div class="intercept-change-line">
+              <span class="icl-k">URL</span>
+              <span class="icl-v"><span class="was">{{ u.from }}</span> → {{ u.to }}</span>
+            </div>
+          }
+
+          <div class="intercept-sub">Headers</div>
+          <div class="intercept-headers">
+            @for (row of view() === 'diff' ? d.headers : sideHeaders(); track $index) {
+              <div class="ih-row" [class.removed]="row.kind === 'removed'" [class.added]="row.kind === 'added'">
+                <span class="ih-mark">{{ row.kind === 'removed' ? '−' : row.kind === 'added' ? '+' : '' }}</span>
+                <span class="ih-name">{{ row.name }}</span>
+                <span class="ih-value">{{ row.value }}</span>
+              </div>
+            } @empty {
+              <div class="intercept-empty">No headers.</div>
+            }
+          </div>
+
+          <div class="intercept-sub">Body</div>
+          <div class="intercept-body">
+            @for (line of view() === 'diff' ? d.body : sideLines(); track $index) {
+              <span class="il" [class.removed]="line.kind === 'removed'" [class.added]="line.kind === 'added'"
+                >{{ line.kind === 'removed' ? '−' : line.kind === 'added' ? '+' : ' ' }} {{ line.text }}</span
+              >
+            } @empty {
+              <div class="intercept-empty">No body.</div>
+            }
+          </div>
+
+          <p class="intercept-legend">
+            @if (synthetic()) {
+              Nothing was sent to the host and nothing came back — the whole reply above is
+              Alfred's.
+            } @else if (phase() === 'request') {
+              Red is what your client actually sent; green is what the host actually received.
+            } @else {
+              Red is what the host actually answered; green is what your client actually received.
+            }
+          </p>
+        } @else if (awaitingDetail()) {
+          <div class="intercept-empty">Loading what was actually sent…</div>
+        }
+      </div>
+    }
+  </div>
+}

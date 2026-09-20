@@ -1,5 +1,6 @@
 import { CallRecord } from '../../core/models/call.model';
 import { Redaction, RedactionKind } from '../../core/models/redaction.model';
+import { OriginalHttp } from '../../core/models/interception.model';
 
 /**
  * Masking every export format goes through this one module, applied ONCE to the calls before any
@@ -131,6 +132,29 @@ export function redactableNameOf(lineText: string): string | null {
   return key.length > 0 ? key : null;
 }
 
+/**
+ * One interception snapshot, masked the same way the call's own halves are.
+ *
+ * These are a second copy of the request and the response - that is their entire purpose - so a
+ * header masked on `call.request` and left intact on `interception.originalRequest` is not a
+ * partial redaction, it is a redaction that did nothing. The user's token would sit in the very
+ * next block of the same export.
+ */
+function redactSnapshot(
+  http: OriginalHttp | null | undefined,
+  headerNames: ReadonlySet<string>,
+  bodyNames: ReadonlySet<string>,
+  urlNames: ReadonlySet<string>
+): { http: OriginalHttp | null | undefined; count: number } {
+  if (!http) return { http, count: 0 };
+  const headers = redactHeaders(http.headers ?? undefined, headerNames);
+  const body = redactBody(http.body ?? undefined, bodyNames);
+  const url = redactUrl(http.url ?? undefined, urlNames);
+  const count = headers.count + body.count + url.count;
+  if (count === 0) return { http, count: 0 };
+  return { http: { ...http, headers: headers.headers, body: body.body, url: url.url ?? http.url }, count };
+}
+
 /** Masks one call. Returns the call unchanged (same reference) when nothing applies, so an export with no redactions costs nothing. */
 export function redactCall(call: CallRecord, redactions: readonly Redaction[]): { call: CallRecord; count: number } {
   if (redactions.length === 0) return { call, count: 0 };
@@ -145,13 +169,44 @@ export function redactCall(call: CallRecord, redactions: readonly Redaction[]): 
   // pre-proxy URL, so redacting only `url` would leave the secret sitting in plain sight one line up.
   const originalUrl = redactUrl(call.original_url, urlNames);
 
+  // The interception snapshots are the same two halves over again. Driven off the same name sets
+  // and the same helpers, so a snapshot added later is masked by construction rather than by
+  // somebody remembering this function exists.
+  const requestHeaderNames = namesOfKind(redactions, call.id, 'request-header');
+  const responseHeaderNames = namesOfKind(redactions, call.id, 'response-header');
+  const requestBodyNames = namesOfKind(redactions, call.id, 'request-body-key');
+  const responseBodyNames = namesOfKind(redactions, call.id, 'response-body-key');
+  const snapshots = call.interception
+    ? {
+        originalRequest: redactSnapshot(call.interception.originalRequest, requestHeaderNames, requestBodyNames, urlNames),
+        finalRequest: redactSnapshot(call.interception.finalRequest, requestHeaderNames, requestBodyNames, urlNames),
+        originalResponse: redactSnapshot(call.interception.originalResponse, responseHeaderNames, responseBodyNames, urlNames),
+        finalResponse: redactSnapshot(call.interception.finalResponse, responseHeaderNames, responseBodyNames, urlNames),
+      }
+    : null;
+  const snapshotCount = snapshots
+    ? snapshots.originalRequest.count + snapshots.finalRequest.count +
+      snapshots.originalResponse.count + snapshots.finalResponse.count
+    : 0;
+
   const count =
-    reqHeaders.count + resHeaders.count + reqBody.count + resBody.count + url.count + originalUrl.count;
+    reqHeaders.count + resHeaders.count + reqBody.count + resBody.count + url.count + originalUrl.count +
+    snapshotCount;
   if (count === 0) return { call, count: 0 };
 
   return {
     call: {
       ...call,
+      interception:
+        call.interception && snapshots && snapshotCount > 0
+          ? {
+              ...call.interception,
+              originalRequest: snapshots.originalRequest.http,
+              finalRequest: snapshots.finalRequest.http,
+              originalResponse: snapshots.originalResponse.http,
+              finalResponse: snapshots.finalResponse.http,
+            }
+          : call.interception,
       url: url.url ?? call.url,
       original_url: originalUrl.url ?? call.original_url,
       request: call.request ? { ...call.request, headers: reqHeaders.headers, body: reqBody.body } : call.request,

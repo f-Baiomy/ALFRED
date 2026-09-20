@@ -1,3 +1,4 @@
+import { CallInterception } from './interception.model';
 /** Which REST resource/store a call came from - selecting sources that span both is handled one level up by requesting 'external' and 'internal' separately and merging (see CallsStateService.fetchPageForSource). */
 export type CallEndpointSource = 'external' | 'internal';
 
@@ -77,6 +78,16 @@ export interface CallRecord {
    * never zero.
    */
   readonly timing?: CallTiming | null;
+  /**
+   * What an interception rule did to this call, and both halves as they were BEFORE it did.
+   * Absent on every call no rule touched, which is almost all of them.
+   *
+   * Part of the SUMMARY, not the detail, for the same reason supplierName and timing are: a card
+   * has to be able to say "this is not what your client sent" without first being expanded.
+   * Otherwise you would have to open a call to discover that what you are reading is not what
+   * actually happened. See docs/interception.md.
+   */
+  readonly interception?: CallInterception | null;
   /** Which backend endpoint this call was fetched from - stamped client-side in toCallRecord(), never part of the wire shape. Undefined only for a CapturedCall's wrapped CallRecord (session-cycles never captures 'internal' calls, so it's always implicitly 'external' there). Needed so getCallDetail() knows whether to fetch GET /calls/{id}/detail or GET /internal-calls/{id}/detail once a call from a merged 'both' list is expanded. */
   readonly source?: CallEndpointSource;
 }
@@ -112,6 +123,8 @@ export interface CallSummaryDto {
   readonly service_name?: string | null;
   /** Rides along with the summary rather than the detail - the waterfall needs phase timings for every call in the list at once, and five numbers per row are cheap. */
   readonly timing?: CallTiming | null;
+  /** Present only for a call an interception rule touched - see CallRecord.interception. */
+  readonly interception?: CallInterception | null;
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle

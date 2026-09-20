@@ -219,7 +219,17 @@ class RouteAndLog:
         asyncio.sleep, never time.sleep - mitmproxy runs ONE event loop for every connection it is
         proxying, so a blocking sleep here would freeze every unrelated call in flight for the
         duration. This is the single most important line in the feature.
+
+        Wrapped in try/finally because this is the LAST point at which the request still exists in
+        its final form, and an aborted or mocked call leaves by one of the early returns. Missing
+        the snapshot on exactly the paths that changed the most would be the wrong failure.
         """
+        try:
+            await self._decide(flow, verdict, call_id, service_name)
+        finally:
+            verdict.finalize_request(flow)
+
+    async def _decide(self, flow, verdict, call_id, service_name):
         if verdict.delay_ms:
             await asyncio.sleep(min(verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
 
@@ -242,6 +252,10 @@ class RouteAndLog:
             self._record_decision(flow, verdict, 'request', decision)
 
     def _record_decision(self, flow, verdict, phase, decision):
+        # No snapshotting here. A pause is itself an action on a matched rule, so the engine
+        # already froze this half before the pause was even decided on - see
+        # Verdict.observe_request - and the finalize at the end of the phase picks up whatever a
+        # human did to it.
         if (decision or {}).get('action') == 'abort':
             verdict.applied.append(interception.Applied(
                 verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
@@ -260,7 +274,10 @@ class RouteAndLog:
         # Response-phase rules apply whether or not this call is being logged - same reasoning as
         # the request side.
         response_verdict = ENGINE.apply_response(flow, flow.metadata.get('service_name'))
-        verdict.applied.extend(response_verdict.applied)
+        # State, not one field: adopt carries the pre-action snapshot across too, which copying
+        # `applied` alone silently dropped - so no response action has ever produced a
+        # before/after. See Verdict.adopt.
+        verdict.adopt(response_verdict)
         if response_verdict.delay_ms:
             await asyncio.sleep(min(response_verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
         if response_verdict.pause and call_id:
@@ -268,17 +285,13 @@ class RouteAndLog:
             decision = await breakpoints.wait_for_decision(
                 flow, 'response', call_id, response_verdict.pause, 'outbound',
                 flow.metadata.get('service_name'))
-            # Captured BEFORE the decision is applied: a hand-edited call must keep what the
-            # supplier really sent alongside what the caller really received, or the log quietly
-            # becomes fiction - which is the one thing a traffic logger must never do.
-            flow.metadata['upstream_response'] = {
-                'status': flow.response.status_code,
-                'headers': dict(flow.response.headers),
-                'body': self._safe_body(flow.response),
-            }
             self._record_decision(flow, verdict, 'response', decision)
             if flow.response is None:
+                verdict.finalize_response(flow)
                 return
+
+        # Everything - rules, delay, a human's edit - has finished with this response.
+        verdict.finalize_response(flow)
 
         if not call_id:
             return
@@ -296,9 +309,6 @@ class RouteAndLog:
         }
         applied = verdict.as_log()
         if applied:
-            upstream = flow.metadata.get('upstream_response')
-            if upstream:
-                applied['upstreamResponse'] = upstream
             data['interception'] = applied
         self._write(call_id, data)
 

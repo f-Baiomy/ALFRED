@@ -13,6 +13,8 @@ import {
   statusClass as statusClassOf,
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
+import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
+import { OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
 
@@ -61,7 +63,7 @@ const SELECTION_EXEMPT_SELECTOR =
 @Component({
   selector: 'app-call-card',
   standalone: true,
-  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet],
+  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent],
   templateUrl: './call-card.component.html',
 })
 export class CallCardComponent {
@@ -74,6 +76,62 @@ export class CallCardComponent {
   readonly removalState = inject(CALL_REMOVAL_STATE, { optional: true });
 
   readonly call = input.required<CallRecord>();
+
+  /**
+   * What an interception rule did to this call, or null for the overwhelming majority that no
+   * rule touched. Rides on the SUMMARY, so a card can say it was modified without first fetching
+   * the detail - which matters because otherwise you would have to expand a call to discover that
+   * what you are looking at is not what your client actually sent.
+   */
+  readonly interception = computed(() => this.call().interception ?? null);
+
+  /** A human edited this call, not only a rule - worth a stronger badge than an automatic change. */
+  readonly interceptedByHand = computed(() => wasEditedByHand(this.interception()));
+
+  readonly interceptTooltip = computed(() => {
+    const applied = this.interception()?.applied ?? [];
+    if (applied.length === 0) return 'Changed by an interception rule';
+    return applied.map((a) => `${a.ruleName || 'Manual edit'}: ${a.action}${a.detail ? ' — ' + a.detail : ''}`).join(String.fromCharCode(10));
+  });
+
+  /**
+   * The "after" side of the interception diff, assembled from the per-part detail this card
+   * fetches lazily. Null until BOTH parts of that half have arrived - the panel shows a loading
+   * line rather than a diff against a half-loaded body, which would render as "everything was
+   * deleted" for a moment and read as a real finding.
+   */
+  readonly currentRequest = computed<OriginalHttp | null>(() => {
+    const headers = this.partValues()['request-headers'];
+    const body = this.partValues()['request-body'];
+    if (headers === undefined && body === undefined) return null;
+    return {
+      method: this.call().method,
+      url: this.call().url,
+      headers: (headers ?? null) as Record<string, string> | null,
+      body: typeof body === 'string' ? body : body == null ? null : JSON.stringify(body),
+    };
+  });
+
+  readonly currentResponse = computed<OriginalHttp | null>(() => {
+    const headers = this.partValues()['response-headers'];
+    const body = this.partValues()['response-body'];
+    if (headers === undefined && body === undefined) return null;
+    return {
+      status: this.call().response?.status ?? null,
+      headers: (headers ?? null) as Record<string, string> | null,
+      body: typeof body === 'string' ? body : body == null ? null : JSON.stringify(body),
+    };
+  });
+
+  /**
+   * The interception panel needs both halves of a phase without the user opening either block, so
+   * it asks and this loads them. loadPart already no-ops for anything loaded or in flight.
+   */
+  loadInterceptionDetail(phase: 'request' | 'response'): void {
+    const parts: CallDetailPart[] =
+      phase === 'request' ? ['request-headers', 'request-body'] : ['response-headers', 'response-body'];
+    for (const part of parts) this.loadPart(part, 'user');
+  }
   readonly pinned = input<boolean>(false);
   /** True only when the parent CallListComponent has cdkDrag enabled on this card's host element
    * (a session-cycle detail page, ungrouped, with CALL_REORDER_STATE bound) - drives whether the

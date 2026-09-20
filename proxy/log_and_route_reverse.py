@@ -204,7 +204,13 @@ class RouteAndLog:
     async def _carry_out(self, flow, verdict, call_id, service_name):
         """See log_and_route.py's identical method for why every wait here is asyncio.sleep and
         never time.sleep: one blocked hook freezes every other connection this process is
-        proxying."""
+        proxying - and for why the finalize is in a finally."""
+        try:
+            await self._decide(flow, verdict, call_id, service_name)
+        finally:
+            verdict.finalize_request(flow)
+
+    async def _decide(self, flow, verdict, call_id, service_name):
         if verdict.delay_ms:
             await asyncio.sleep(min(verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
 
@@ -244,21 +250,21 @@ class RouteAndLog:
         service_name = flow.metadata.get('service_name')
 
         response_verdict = ENGINE.apply_response(flow, service_name)
-        verdict.applied.extend(response_verdict.applied)
+        # See log_and_route.py: state, not one field - copying `applied` alone dropped every
+        # response-phase snapshot.
+        verdict.adopt(response_verdict)
         if response_verdict.delay_ms:
             await asyncio.sleep(min(response_verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
         if response_verdict.pause and call_id:
             verdict.pause = response_verdict.pause
             decision = await breakpoints.wait_for_decision(
                 flow, 'response', call_id, response_verdict.pause, 'inbound', service_name)
-            flow.metadata['upstream_response'] = {
-                'status': flow.response.status_code,
-                'headers': dict(flow.response.headers),
-                'body': self._safe_body(flow.response),
-            }
             self._record_decision(flow, verdict, 'response', decision)
             if flow.response is None:
+                verdict.finalize_response(flow)
                 return
+
+        verdict.finalize_response(flow)
 
         if not call_id:
             return
@@ -275,9 +281,6 @@ class RouteAndLog:
         }
         applied = verdict.as_log()
         if applied:
-            upstream = flow.metadata.get('upstream_response')
-            if upstream:
-                applied['upstreamResponse'] = upstream
             data['interception'] = applied
         self._write(call_id, data)
 

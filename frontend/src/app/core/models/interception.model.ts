@@ -85,6 +85,22 @@ export interface PausedHttp {
 }
 
 /**
+ * One half of an exchange as it was BEFORE anything touched it.
+ *
+ * `status`/`reason` are set for a response only, `method`/`url` for a request only. The url
+ * matters more than it looks: a rule that rewrites a query parameter changes nothing else, so a
+ * snapshot without it would show two identical copies.
+ */
+export interface OriginalHttp {
+  readonly status?: number | null;
+  readonly reason?: string | null;
+  readonly method?: string | null;
+  readonly url?: string | null;
+  readonly headers?: Readonly<Record<string, string>> | null;
+  readonly body?: string | null;
+}
+
+/**
  * A call the proxy is holding open while somebody decides what happens to it.
  *
  * `pausedAt` is stamped by the BACKEND, not the proxy, so the countdown is measured on the same
@@ -144,11 +160,43 @@ export interface AppliedInterception {
 export interface CallInterception {
   readonly applied: readonly AppliedInterception[];
   /**
-   * What the supplier ACTUALLY sent, kept alongside what the caller actually received, whenever a
-   * human edited a paused response. Without it the log quietly becomes fiction - which is the one
-   * thing a traffic logger must never do.
+   * The request as the CLIENT sent it, present whenever a rule or a human changed it before it
+   * went upstream. Absent means the request was never modified - which is not the same as "not
+   * recorded", and the UI must not imply otherwise.
    */
-  readonly upstreamResponse?: PausedHttp | null;
+  readonly originalRequest?: OriginalHttp | null;
+  /** The response as UPSTREAM actually sent it, present whenever anything changed it. */
+  readonly originalResponse?: OriginalHttp | null;
+  /**
+   * The request as it ACTUALLY went upstream, and the response as the caller ACTUALLY received it.
+   *
+   * Present alongside the originals whenever that half was modified. Not redundant with the
+   * logged call: the request half is written to the log at PREPARE time, before a request
+   * breakpoint lets anyone edit it, so diffing against the log would show no change on a
+   * hand-edited request while the record insisted one was made.
+   */
+  readonly finalRequest?: OriginalHttp | null;
+  readonly finalResponse?: OriginalHttp | null;
+}
+
+/** Whether a human, rather than only a rule, changed this call. Drives the stronger badge. */
+export function wasEditedByHand(interception: CallInterception | null | undefined): boolean {
+  return (interception?.applied ?? []).some((a) => a.action.startsWith('BREAKPOINT_'));
+}
+
+/**
+ * Whether there is anything to show a before/after of.
+ *
+ * Either end counts. A mocked response has a final side and no original - the host was never
+ * contacted - and that is the case a test most wants to see, not the one to hide.
+ */
+export function hasBeforeAfter(interception: CallInterception | null | undefined): boolean {
+  return (
+    interception?.originalRequest != null ||
+    interception?.originalResponse != null ||
+    interception?.finalRequest != null ||
+    interception?.finalResponse != null
+  );
 }
 
 /** Metadata for the action picker, served by the backend so the list lives in one place. */

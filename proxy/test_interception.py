@@ -48,6 +48,13 @@ class FakeMessage:
         self.status_code = status
         self.reason = 'OK'
 
+    def get_text(self, strict=True):
+        """mitmproxy's own accessor, which _snapshot uses in preference to .text so an
+        undecodable binary body yields None rather than raising. Backed by the same attribute the
+        mutating actions assign to, so a snapshot taken after an edit would see the edit - which
+        is exactly what capture-once exists to prevent."""
+        return self.text
+
 
 class FakeRequest(FakeMessage):
     def __init__(self, method='GET', host='example.com', path='/', text=None, headers=None, query=None):
@@ -57,7 +64,15 @@ class FakeRequest(FakeMessage):
         self.pretty_host = host
         self.path = path
         self.query = dict(query or {})
-        self.pretty_url = f'https://{host}{path}'
+
+    @property
+    def pretty_url(self):
+        """Derived, as mitmproxy's is. It used to be a plain attribute fixed at construction,
+        which quietly made SET_QUERY_PARAM untestable: the engine rewrote .query and the url the
+        snapshot read never moved, so a query rewrite looked like a no-op to anything comparing
+        two snapshots."""
+        query = '&'.join(f'{k}={v}' for k, v in self.query.items())
+        return f'https://{self.host}{self.path}' + (f'?{query}' if query else '')
 
 
 class FakeFlow:
@@ -435,6 +450,299 @@ class ResponseActionsTest(unittest.TestCase):
     def test_no_response_yet_is_a_no_op(self):
         flow = FakeFlow(FakeRequest(), None)
         self.assertFalse(self.engine([{'type': 'SET_RESPONSE_STATUS', 'status': 500}]).apply_response(flow).touched)
+
+
+class BeforeAfterTest(unittest.TestCase):
+    """Every half must keep what it looked like before anything touched it, and what it looked
+    like after everything had.
+
+    Without this the log actively misleads: a request rewritten by a rule is recorded as though
+    the client sent it that way, so "the booking failed" cannot be traced back to the edit that
+    caused it.
+
+    What this suite is really pinning is HOW that happens. The snapshots are taken by the engine
+    on both sides of a whole phase and compared - no action declares that it is about to change
+    something. An earlier design had each action call capture_*() itself, which meant a new
+    action silently had no before/after until somebody remembered, and a response-phase verdict
+    whose snapshots the addon forgot to carry across lost them all with nothing failing.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, actions):
+        return interception.InterceptionEngine(
+            'outbound', write_rules(self.tmp.name, [rule(actions=actions)]))
+
+    def run_request(self, actions, flow):
+        """What the addon does around a request, minus the event loop."""
+        verdict = self.engine(actions).apply_request(flow)
+        verdict.finalize_request(flow)
+        return verdict
+
+    def run_response(self, actions, flow):
+        verdict = self.engine(actions).apply_response(flow)
+        verdict.finalize_response(flow)
+        return verdict
+
+    def test_an_untouched_call_captures_nothing(self):
+        verdict = self.run_request([{'type': 'DELAY_REQUEST', 'durationMs': 10}],
+                                   FakeFlow(FakeRequest(text='{"a":1}')))
+        # A delay changes no content, so there is nothing to show a before/after of - and storing
+        # two identical copies of every delayed call's body would be pure waste.
+        self.assertIsNone(verdict.original_request)
+        self.assertNotIn('originalRequest', verdict.as_log())
+
+    def test_an_edit_that_changes_nothing_records_nothing(self):
+        # The header is already what the rule sets it to. The action ran and is reported in
+        # `applied`; there is still no difference to show.
+        flow = FakeFlow(FakeRequest(headers={'X-Alfred': 'on'}))
+        verdict = self.run_request([{'type': 'SET_REQUEST_HEADER', 'name': 'X-Alfred', 'value': 'on'}], flow)
+
+        self.assertIsNone(verdict.original_request)
+        self.assertIsNone(verdict.final_request)
+        self.assertTrue(verdict.applied)
+
+    def test_a_rewritten_request_body_keeps_both_ends(self):
+        flow = FakeFlow(FakeRequest(text=json.dumps({'passengerCount': 1})))
+        verdict = self.run_request(
+            [{'type': 'SET_REQUEST_JSON_FIELD', 'path': 'passengerCount', 'value': 5}], flow)
+
+        log = verdict.as_log()
+        self.assertEqual(json.loads(log['originalRequest']['body']), {'passengerCount': 1})
+        self.assertEqual(json.loads(log['finalRequest']['body']), {'passengerCount': 5})
+
+    def test_a_rewritten_header_keeps_the_original_headers(self):
+        flow = FakeFlow(FakeRequest(headers={'content-type': 'application/json'}))
+        verdict = self.run_request([{'type': 'SET_REQUEST_HEADER', 'name': 'X-Alfred', 'value': 'on'}], flow)
+
+        self.assertNotIn('X-Alfred', verdict.original_request['headers'])
+        self.assertIn('X-Alfred', verdict.final_request['headers'])
+
+    def test_a_query_rewrite_is_visible_in_the_url(self):
+        # The url is the ONLY thing a query rewrite changes, so a snapshot without it would show
+        # two identical copies and the change would look like a bug.
+        flow = FakeFlow(FakeRequest(path='/search', query={'passengers': '1'}))
+        verdict = self.run_request([{'type': 'SET_QUERY_PARAM', 'name': 'passengers', 'value': '5'}], flow)
+
+        self.assertEqual(verdict.original_request['url'], 'https://example.com/search?passengers=1')
+        self.assertEqual(verdict.final_request['url'], 'https://example.com/search?passengers=5')
+        self.assertEqual(verdict.original_request['method'], 'GET')
+
+    def test_two_edits_to_one_half_still_report_the_true_original(self):
+        flow = FakeFlow(FakeRequest(text=json.dumps({'a': 1})))
+        verdict = self.run_request([
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'a', 'value': 2},
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'a', 'value': 3},
+        ], flow)
+
+        # Two edits, one original - and it is the value before EITHER of them.
+        self.assertEqual(json.loads(verdict.original_request['body']), {'a': 1})
+        self.assertEqual(json.loads(verdict.final_request['body']), {'a': 3})
+
+    def test_a_rewritten_response_keeps_what_upstream_really_sent(self):
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text=json.dumps({'status': 'CONFIRMED'})))
+        verdict = self.run_response(
+            [{'type': 'SET_RESPONSE_JSON_FIELD', 'path': 'status', 'value': 'FAILED'}], flow)
+
+        self.assertEqual(json.loads(verdict.original_response['body']), {'status': 'CONFIRMED'})
+        self.assertEqual(verdict.original_response['status'], 200)
+        self.assertEqual(json.loads(verdict.final_response['body']), {'status': 'FAILED'})
+
+    def test_a_status_change_keeps_the_original_status_and_reason(self):
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text='{}'))
+        flow.response.reason = 'OK'
+        verdict = self.run_response([{'type': 'SET_RESPONSE_STATUS', 'status': 500}], flow)
+
+        self.assertEqual(verdict.original_response['status'], 200)
+        self.assertEqual(verdict.original_response['reason'], 'OK')
+        self.assertEqual(verdict.final_response['status'], 500)
+
+    def test_replace_response_keeps_the_real_upstream_answer(self):
+        # The case from the field: this produced no before/after at all, because the addon copied
+        # only `applied` off the response verdict and dropped the snapshots with it.
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text='{"real":true}'))
+        verdict = self.run_response([{'type': 'REPLACE_RESPONSE', 'status': 503, 'body': 'nope'}], flow)
+
+        self.assertEqual(verdict.original_response['body'], '{"real":true}')
+        self.assertEqual(verdict.original_response['status'], 200)
+        self.assertEqual(verdict.final_response['body'], 'nope')
+        self.assertEqual(verdict.final_response['status'], 503)
+
+    def test_a_response_verdict_adopted_by_the_flows_verdict_keeps_its_snapshots(self):
+        # Pins the addon's merge directly: the response phase builds its own verdict because it
+        # has its own delay and pause, but the record is one record per call.
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text='{"real":true}'))
+        carried = interception.Verdict()
+        response_verdict = self.engine([{'type': 'SET_RESPONSE_BODY', 'body': 'x'}]).apply_response(flow)
+
+        carried.adopt(response_verdict)
+        carried.finalize_response(flow)
+
+        self.assertEqual(carried.original_response['body'], '{"real":true}')
+        self.assertEqual(carried.final_response['body'], 'x')
+
+    def test_a_rule_edit_followed_by_a_hand_edit_still_records_the_true_original(self):
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text=json.dumps({'status': 'REAL'})))
+        engine = self.engine([{'type': 'SET_RESPONSE_JSON_FIELD', 'path': 'status', 'value': 'RULE'}])
+        verdict = engine.apply_response(flow)
+
+        interception.apply_decision(flow, 'response', {'action': 'release', 'body': '{"status":"HAND"}'})
+        verdict.finalize_response(flow)
+
+        self.assertEqual(json.loads(verdict.original_response['body']), {'status': 'REAL'})
+        self.assertEqual(json.loads(verdict.final_response['body']), {'status': 'HAND'})
+
+    def test_a_hand_edited_request_is_recorded_even_though_the_log_predates_it(self):
+        # The call log cannot be the "after" side for a request: it is written at prepare time,
+        # BEFORE a request breakpoint lets anyone edit. Without both ends here the diff would
+        # show no change while the record insisted one was made - which is what happened on real
+        # traffic.
+        flow = FakeFlow(FakeRequest(text=json.dumps({'a': 1})))
+        engine = self.engine([{'type': 'PAUSE_REQUEST', 'timeoutSeconds': 5}])
+        verdict = engine.apply_request(flow)
+
+        interception.apply_decision(flow, 'request', {'action': 'release', 'body': '{"a":99}'})
+        verdict.finalize_request(flow)
+
+        log = verdict.as_log()
+        self.assertEqual(json.loads(log['originalRequest']['body']), {'a': 1})
+        self.assertEqual(json.loads(log['finalRequest']['body']), {'a': 99})
+
+    def test_a_mocked_response_is_reported_as_one_sided_rather_than_as_a_diff(self):
+        # Upstream was never contacted, so there is no "before" to diff against. Recording the
+        # mock as both sides would claim the host answered and that we changed its answer.
+        flow = FakeFlow(FakeRequest())
+        engine = self.engine([{'type': 'MOCK_RESPONSE', 'status': 418, 'body': 'teapot'}])
+        verdict = engine.apply_request(flow)
+        flow.response = FakeMessage(status=418, text='teapot')  # what the addon does next
+        verdict.finalize_request(flow)
+
+        log = verdict.as_log()
+        self.assertNotIn('originalResponse', log)
+        self.assertEqual(log['finalResponse']['body'], 'teapot')
+        self.assertTrue(verdict.synthetic_response)
+
+    def test_a_rule_that_edits_a_mock_does_not_pass_the_mock_off_as_upstreams_answer(self):
+        flow = FakeFlow(FakeRequest())
+        verdict = interception.Verdict()
+        verdict.synthetic_response = True
+        flow.response = FakeMessage(status=418, text='teapot')
+
+        response_verdict = self.engine([{'type': 'SET_RESPONSE_BODY', 'body': 'edited'}]).apply_response(flow)
+        verdict.adopt(response_verdict)
+        verdict.finalize_response(flow)
+
+        self.assertIsNone(verdict.original_response)
+        self.assertEqual(verdict.final_response['body'], 'edited')
+
+    def test_finalize_is_safe_when_there_is_no_response_at_all(self):
+        verdict = interception.Verdict()
+        flow = FakeFlow(FakeRequest(), None)
+        verdict.finalize_request(flow)
+        verdict.finalize_response(flow)
+        self.assertIsNone(verdict.original_response)
+        self.assertIsNone(verdict.final_response)
+
+
+class EveryActionIsCoveredTest(unittest.TestCase):
+    """Walks the action sets themselves, so adding an action to REQUEST_ACTIONS or
+    RESPONSE_ACTIONS and forgetting about its before/after is a failing build rather than a
+    feature that silently records nothing.
+
+    Capture is generic - the engine snapshots each phase on both sides and compares - so the
+    point is not to re-prove each action individually but to guarantee that the generic path is
+    really exercised by every action there is, including ones added after this was written.
+    """
+
+    # Actions that deliberately record no before/after, with the reason. Anything NOT listed here
+    # must produce both ends.
+    NO_CHANGE = {
+        'DELAY_REQUEST': 'changes when, not what',
+        'DELAY_RESPONSE': 'changes when, not what',
+        'SEND_TO_HOST': 'forwarding already happens; it only refuses a later short-circuit',
+        'ABORT_REQUEST': 'nothing is sent and nothing comes back',
+        'PAUSE_REQUEST': 'the pause changes nothing - the human decision might',
+        'PAUSE_RESPONSE': 'the pause changes nothing - the human decision might',
+    }
+
+    # One action of each type that really does change something, against the fixture below.
+    SAMPLES = {
+        'SET_REQUEST_HEADER': {'type': 'SET_REQUEST_HEADER', 'name': 'X-A', 'value': '1'},
+        'REMOVE_REQUEST_HEADER': {'type': 'REMOVE_REQUEST_HEADER', 'name': 'X-Gone'},
+        'SET_QUERY_PARAM': {'type': 'SET_QUERY_PARAM', 'name': 'q', 'value': '2'},
+        'REMOVE_QUERY_PARAM': {'type': 'REMOVE_QUERY_PARAM', 'name': 'drop'},
+        'SET_REQUEST_JSON_FIELD': {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'a', 'value': 9},
+        'MOCK_RESPONSE': {'type': 'MOCK_RESPONSE', 'status': 418, 'body': 'teapot'},
+        'SET_RESPONSE_STATUS': {'type': 'SET_RESPONSE_STATUS', 'status': 500},
+        'SET_RESPONSE_HEADER': {'type': 'SET_RESPONSE_HEADER', 'name': 'X-A', 'value': '1'},
+        'REMOVE_RESPONSE_HEADER': {'type': 'REMOVE_RESPONSE_HEADER', 'name': 'X-Gone'},
+        'SET_RESPONSE_JSON_FIELD': {'type': 'SET_RESPONSE_JSON_FIELD', 'path': 'a', 'value': 9},
+        'SET_RESPONSE_BODY': {'type': 'SET_RESPONSE_BODY', 'body': 'replaced'},
+        'REPLACE_RESPONSE': {'type': 'REPLACE_RESPONSE', 'status': 503, 'body': 'nope'},
+        'DELAY_REQUEST': {'type': 'DELAY_REQUEST', 'durationMs': 1},
+        'DELAY_RESPONSE': {'type': 'DELAY_RESPONSE', 'durationMs': 1},
+        'SEND_TO_HOST': {'type': 'SEND_TO_HOST'},
+        'ABORT_REQUEST': {'type': 'ABORT_REQUEST'},
+        'PAUSE_REQUEST': {'type': 'PAUSE_REQUEST', 'timeoutSeconds': 1},
+        'PAUSE_RESPONSE': {'type': 'PAUSE_RESPONSE', 'timeoutSeconds': 1},
+    }
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def flow(self, phase):
+        # No response during the REQUEST phase, as in a real flow - mitmproxy has not called
+        # upstream yet. It matters: a response that exists when the request phase ends is how
+        # finalize_request knows one was manufactured.
+        return FakeFlow(
+            FakeRequest(text=json.dumps({'a': 1}), headers={'X-Gone': 'x'}, query={'drop': '1'}),
+            None if phase == 'request'
+            else FakeMessage(status=200, text=json.dumps({'a': 1}), headers={'X-Gone': 'x'}))
+
+    def test_every_action_type_has_a_sample(self):
+        every = interception.REQUEST_ACTIONS | interception.RESPONSE_ACTIONS
+        self.assertEqual(
+            every - set(self.SAMPLES), set(),
+            'a new action type needs an entry in SAMPLES - and in NO_CHANGE if it genuinely '
+            'changes nothing observable')
+
+    def test_every_action_that_changes_something_records_both_ends(self):
+        for kind, action in sorted(self.SAMPLES.items()):
+            with self.subTest(action=kind):
+                phase = 'request' if kind in interception.REQUEST_ACTIONS else 'response'
+                flow = self.flow(phase)
+                engine = interception.InterceptionEngine(
+                    'outbound', write_rules(self.tmp.name, [rule(id=kind, actions=[action])]))
+
+                if phase == 'request':
+                    verdict = engine.apply_request(flow)
+                    if verdict.terminal == 'MOCK_RESPONSE':
+                        # What the addon does with the verdict, so the mock is a real response by
+                        # the time the phase is finalized.
+                        flow.response = FakeMessage(status=verdict.mock['status'], text=verdict.mock['body'])
+                    verdict.finalize_request(flow)
+                    recorded = verdict.original_request is not None or verdict.final_response is not None
+                else:
+                    verdict = engine.apply_response(flow)
+                    verdict.finalize_response(flow)
+                    recorded = verdict.original_response is not None
+
+                if kind in self.NO_CHANGE:
+                    self.assertFalse(
+                        recorded, f'{kind} {self.NO_CHANGE[kind]}, so it should record neither end')
+                    continue
+
+                self.assertTrue(recorded, f'{kind} changed the call but recorded no before/after')
+                # Whatever is recorded must be recorded in full - one end without the other is a
+                # diff the UI cannot draw.
+                log = verdict.as_log()
+                if 'originalRequest' in log:
+                    self.assertIn('finalRequest', log)
+                if 'originalResponse' in log:
+                    self.assertIn('finalResponse', log)
 
 
 class JsonPathTest(unittest.TestCase):

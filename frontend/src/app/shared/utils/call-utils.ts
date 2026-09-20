@@ -34,6 +34,10 @@ export function toCallRecord(dto: CallSummaryDto, source?: CallEndpointSource): 
     operation_id: dto.operation_id,
     service_name: dto.service_name,
     timing: dto.timing,
+    // Explicitly mapped, like every other field: this function builds a NEW object rather than
+    // spreading the DTO, so anything not named here is silently dropped. That is what hid the
+    // before/after of an edited call - the backend sent it and the frontend threw it away.
+    interception: dto.interception,
     source,
   };
 }
