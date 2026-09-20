@@ -28,6 +28,16 @@ public interface BreakpointUseCase {
      */
     Optional<PauseDecision> awaitDecision(String callId, long waitMs) throws InterruptedException;
 
+    /**
+     * Whether this call is still waiting on a decision.
+     *
+     * Exists so the long poll can distinguish "nothing decided yet, ask again" from "this call is
+     * over, stop asking". Without that distinction {@link #awaitDecision} answers an unknown call
+     * instantly, and a polling proxy with no rate floor turns that into a maximum-rate request
+     * loop - measured at 60% CPU in the proxy and 35% in the backend, from ONE call.
+     */
+    boolean isWaiting(String callId);
+
     /** The user's decision from the inspector. False when that call is no longer waiting. */
     boolean decide(String callId, PauseDecision decision);
 

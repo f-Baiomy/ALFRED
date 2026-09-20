@@ -16,7 +16,9 @@ import os
 import tempfile
 import time
 import unittest
+import urllib.error
 
+import breakpoints
 import interception
 
 
@@ -520,6 +522,101 @@ class ConcurrencyTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*[asyncio.sleep(0.2) for _ in range(20)])
         self.assertLess(time.time() - started, 1.0,
                         '20 concurrent 200ms delays must overlap, not sum to 4 seconds')
+
+
+class BreakpointPollRateTest(unittest.IsolatedAsyncioTestCase):
+    """The regression guard for a machine-wide freeze.
+
+    The long poll assumes the backend HOLDS each request for the window it was given. When a call
+    the backend no longer had a handoff for was answered "nothing yet" INSTANTLY instead of "stop
+    asking", this loop re-asked with no delay: measured at 60% CPU in the proxy and 35% in the
+    backend from one paused call, with no cpu limits on either container - enough to stop the host
+    responding. These pin both halves of the fix.
+    """
+
+    def setUp(self):
+        self._real_post = breakpoints._post
+        self._real_get = breakpoints._get
+        self._real_backend = breakpoints.BACKEND
+        breakpoints.BACKEND = 'http://backend.test'
+        breakpoints._post = lambda *a, **k: None
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        breakpoints._post = self._real_post
+        breakpoints._get = self._real_get
+        breakpoints.BACKEND = self._real_backend
+
+    @staticmethod
+    def _pause(timeout=2):
+        return {'phase': 'response', 'timeoutSeconds': timeout, 'onTimeout': 'release',
+                'ruleId': 'r', 'ruleName': 'Rule'}
+
+    async def test_an_instantly_answered_poll_does_not_become_a_hot_loop(self):
+        calls = []
+
+        def instant_204(path, timeout):
+            calls.append(path)
+            return None  # 204: "nothing yet" - returned with no delay at all
+
+        breakpoints._get = instant_204
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text='{}'))
+
+        await breakpoints.wait_for_decision(flow, 'response', 'c1', self._pause(2), 'outbound', None)
+
+        # Two seconds of deadline at a 0.25s floor is ~8 polls. Before the fix this ran as fast as
+        # the event loop allowed - thousands.
+        self.assertLess(len(calls), 40, f'poll loop ran {len(calls)} times in 2s - it is hot')
+        self.assertGreater(len(calls), 1, 'it should still poll more than once')
+
+    async def test_a_404_stops_the_loop_immediately_instead_of_polling_to_the_deadline(self):
+        calls = []
+
+        def gone(path, timeout):
+            calls.append(path)
+            raise urllib.error.HTTPError(path, 404, 'Not Found', None, None)
+
+        breakpoints._get = gone
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text='{}'))
+
+        started = time.time()
+        decision = await breakpoints.wait_for_decision(
+            flow, 'response', 'c1', self._pause(30), 'outbound', None)
+
+        # The backend telling us the call is over must end this at once, not 30 seconds later.
+        self.assertEqual(len(calls), 1)
+        self.assertLess(time.time() - started, 1.0)
+        self.assertEqual(decision['reason'], 'not-registered')
+        self.assertEqual(decision['action'], 'release')
+
+    async def test_a_real_decision_is_returned_without_waiting_for_the_floor(self):
+        breakpoints._get = lambda path, timeout: {'action': 'release', 'body': 'edited'}
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text='{}'))
+
+        started = time.time()
+        decision = await breakpoints.wait_for_decision(
+            flow, 'response', 'c1', self._pause(30), 'outbound', None)
+
+        self.assertEqual(decision['body'], 'edited')
+        self.assertLess(time.time() - started, 1.0, 'the floor must not delay an actual decision')
+
+    async def test_a_hold_extends_the_deadline_without_spinning(self):
+        calls = []
+
+        def hold_then_nothing(path, timeout):
+            calls.append(path)
+            return {'action': 'hold'} if len(calls) == 1 else None
+
+        breakpoints._get = hold_then_nothing
+        original = breakpoints.MAX_HELD_SECONDS
+        breakpoints.MAX_HELD_SECONDS = 2
+        self.addCleanup(lambda: setattr(breakpoints, 'MAX_HELD_SECONDS', original))
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text='{}'))
+
+        await breakpoints.wait_for_decision(flow, 'response', 'c1', self._pause(1), 'outbound', None)
+
+        # A held call polls for up to an hour in production - by far the worst place for a hot loop.
+        self.assertLess(len(calls), 40, f'held-call loop ran {len(calls)} times in 2s - it is hot')
 
 
 if __name__ == '__main__':

@@ -65,6 +65,21 @@ POLL_WINDOW_SECONDS = 5
 # right at the deadline isn't treated as a failure.
 POLL_TIMEOUT_SECONDS = POLL_WINDOW_SECONDS + 3
 
+# Floor on how often this loop may ask, no matter how fast the answer comes back.
+#
+# The long poll assumes the backend HOLDS the request for the window it was given. When that
+# assumption broke - a call the backend no longer had a handoff for was answered "nothing yet"
+# instantly instead of "stop asking" - this loop re-asked with no delay and the proxy and backend
+# spun at maximum request rate until the deadline, which after a take-control is an hour away.
+# Measured at 60% CPU in the proxy and 35% in the backend from a SINGLE paused call, with no cpu
+# limits on either container: enough to make the host, mouse included, stop responding.
+#
+# The backend now answers 404 in that case and this loop gives up on it. This floor exists anyway,
+# because it makes the whole class of bug impossible rather than fixing the one instance: any
+# early answer, from any cause - a proxy in front of the backend, a clamped waitMs, a future code
+# path - costs at most this many requests per second instead of as many as the CPU allows.
+MIN_POLL_INTERVAL_SECONDS = 0.25
+
 # Registering a paused call has to be quick: it is on the path of a call the user is waiting for,
 # and if the backend cannot be told about the pause there is nobody to make a decision anyway.
 REGISTER_TIMEOUT_SECONDS = 3
@@ -172,15 +187,25 @@ async def wait_for_decision(flow, phase, call_id, pause, source, service_name):
             if window <= 0:
                 # Under a second left; one last non-blocking check rather than a pointless sleep.
                 window = 1
+            asked_at = loop.time()
             try:
                 decision = await loop.run_in_executor(
                     None, _get, f'/interception/paused/{call_id}/decision?waitMs={window * 1000}',
                     POLL_TIMEOUT_SECONDS)
             except urllib.error.HTTPError as e:
                 if e.code == 404:
-                    # The backend forgot this call (restart, or its own timeout fired first).
+                    # The backend is no longer holding this call for us - it was resolved, its own
+                    # timeout fired, or the backend restarted. Either way nobody can decide on it
+                    # now, so stop asking and apply the rule's fallback.
                     return {'action': timed_out['action'], 'reason': 'not-registered'}
                 raise
+
+            # Never re-ask faster than the floor, whatever came back or how quickly - see
+            # MIN_POLL_INTERVAL_SECONDS. Placed before the decision checks so it costs nothing on
+            # the path that actually returns.
+            spent = loop.time() - asked_at
+            if spent < MIN_POLL_INTERVAL_SECONDS:
+                await asyncio.sleep(MIN_POLL_INTERVAL_SECONDS - spent)
             if decision and decision.get('action') == 'hold':
                 # Somebody took control. The timeout was only ever a grace period for a human to
                 # NOTICE the call; now that one demonstrably has, releasing it out from under them

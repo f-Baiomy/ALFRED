@@ -61,11 +61,22 @@ public class BreakpointController {
         return breakpoints.pending();
     }
 
-    /** Proxy → backend: park until somebody decides, or until the window closes. 204 means "nothing yet, ask again". */
+    /**
+     * Proxy → backend: park until somebody decides, or until the window closes.
+     *
+     * <p>Three answers, and the difference between the last two is load-bearing: 200 with a
+     * decision, 204 "nothing yet, ask again", 404 "this call is over, stop asking". Answering 204
+     * for a call that is no longer waiting is what froze a whole machine - the proxy cannot tell it
+     * apart from a quiet window, so it re-asks with no delay and the pair spin at maximum request
+     * rate until the deadline, which after a take-control is an hour away.
+     */
     @GetMapping("/paused/{callId}/decision")
     public ResponseEntity<PauseDecision> awaitDecision(@PathVariable String callId,
                                                        @RequestParam(defaultValue = "5000") long waitMs)
             throws InterruptedException {
+        if (!breakpoints.isWaiting(callId)) {
+            return ResponseEntity.notFound().build();
+        }
         return breakpoints.awaitDecision(callId, Math.min(Math.max(waitMs, 0), MAX_WAIT_MS))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());

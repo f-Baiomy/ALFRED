@@ -78,9 +78,18 @@ public class BreakpointService implements BreakpointUseCase {
     }
 
     @Override
+    public boolean isWaiting(String callId) {
+        return handoffs.containsKey(callId);
+    }
+
+    @Override
     public Optional<PauseDecision> awaitDecision(String callId, long waitMs) throws InterruptedException {
         SynchronousQueue<PauseDecision> handoff = handoffs.get(callId);
         if (handoff == null) {
+            // Answering "nothing yet" here is what caused a machine-wide freeze: the caller cannot
+            // tell it apart from a quiet poll window, so it re-asks immediately, forever. The
+            // controller checks isWaiting first and answers 404 instead; this stays defensive for
+            // the race where the call is resolved between that check and this line.
             return Optional.empty();
         }
         return Optional.ofNullable(handoff.poll(waitMs, TimeUnit.MILLISECONDS));

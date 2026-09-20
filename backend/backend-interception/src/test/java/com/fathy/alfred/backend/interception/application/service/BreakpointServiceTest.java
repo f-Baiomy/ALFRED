@@ -264,6 +264,36 @@ class BreakpointServiceTest {
     }
 
     @Test
+    void isWaitingDistinguishesAnOpenCallFromOneThatIsOver() {
+        // The whole point of this predicate: without it the long poll answers an unknown call
+        // instantly, the proxy cannot tell that apart from a quiet window, and the two spin at
+        // maximum request rate. Measured at 60% CPU in the proxy and 35% in the backend from one
+        // call, with no cpu limits on either container.
+        assertThat(service.isWaiting("never-registered")).isFalse();
+
+        service.register(call("c1", 30, "release"));
+        assertThat(service.isWaiting("c1")).isTrue();
+
+        service.resolved("c1");
+        assertThat(service.isWaiting("c1")).isFalse();
+    }
+
+    @Test
+    void aCallStopsBeingWaitedOnOnceItsExpirySweepHasRun() {
+        PausedCall stale = new PausedCall("old", "response", "outbound", null, "r", "Rule",
+                1, "release", "POST", "https://x/y", null, null,
+                System.currentTimeMillis() - 10_000, null);
+        service.register(stale);
+
+        service.expire();
+
+        // expire() calls decide() then resolved(). When decide()'s offer finds no parked poller -
+        // the common case, since the proxy is between polls most of the time - resolved() is what
+        // actually removes the handoff. The proxy must then be told 404, not "nothing yet".
+        assertThat(service.isWaiting("old")).isFalse();
+    }
+
+    @Test
     void timedOutDecisionFollowsTheRulesOnTimeoutSetting() {
         assertThat(PauseDecision.timedOut("abort").isAbort()).isTrue();
         assertThat(PauseDecision.timedOut("release").isAbort()).isFalse();
