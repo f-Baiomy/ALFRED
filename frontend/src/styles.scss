@@ -4744,6 +4744,18 @@ h1.page-title {
     color: var(--red);
     border-color: color-mix(in srgb, var(--red) 32%, transparent);
   }
+
+  /* Still here, not in effect - the same "struck through, not vanished" language the paused-call
+     editor uses for a removed header. A pausing/terminal action loses its danger colour once
+     off, since neither is true of a call this rule no longer holds or ends. */
+  &.off {
+    opacity: 0.55;
+    text-decoration: line-through;
+    border-style: dashed;
+    background: transparent;
+    color: var(--text-faint) !important;
+    border-color: var(--border) !important;
+  }
 }
 
 .rule-priority {
@@ -6038,6 +6050,16 @@ h1.page-title {
     padding: 0.05rem 0.28rem;
     font-size: 0.95em;
   }
+
+  /* Still in the rule, still fully editable - dimmed rather than hidden, because disabling is
+     "skip this for now," not "delete it." Fields stay legible enough to read and fix. */
+  &.is-off {
+    opacity: 0.55;
+
+    &:hover {
+      opacity: 0.8;
+    }
+  }
 }
 
 .action-bare {
@@ -6072,6 +6094,67 @@ h1.page-title {
   border-radius: 6px;
   padding: 0.22rem 0.36rem;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
+
+  /* Sits with move/remove rather than replacing either - a switch, not a fourth kind of delete.
+     Green while on keeps the vocabulary to one colour rather than inventing a second "on" scheme. */
+  &.power {
+    color: var(--text-faint);
+
+    &.on {
+      color: var(--green);
+      border-color: color-mix(in srgb, var(--green) 45%, transparent);
+    }
+
+    &:hover {
+      border-color: var(--border-strong);
+    }
+  }
+}
+
+/* The action's own drag handle, inline in the head row rather than the whole card being a drag
+   source - the card already holds buttons and typed fields, and making the entire surface
+   draggable is exactly what fought text selection in the interception diff panel. */
+.action-head .drag-handle,
+.cond-head .drag-handle {
+  width: 18px;
+  height: 18px;
+  font-size: 0.85rem;
+  margin-right: 0.1rem;
+}
+
+.off-tag {
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 0.02rem 0.4rem;
+}
+
+/* Drop targets for dragging an action between scopes - the two pipeline lanes and every
+   condition's `then`. Padded to a minimum height so an EMPTY one is still something to aim at,
+   and it lights up only while a drag that could actually land here is over it - `cdkDrag` adds
+   `.cdk-drop-list-receiving` to a connected list the moment a compatible drag enters, and CDK's
+   own enterPredicate is what decided "compatible" in the first place (phase and depth, see
+   canDropInto). */
+.lane-drop-list,
+.cond-then-drop-list {
+  min-height: 0.5rem;
+}
+
+.cdk-drop-list-receiving {
+  outline: 1.5px dashed var(--purple);
+  outline-offset: 3px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--purple) 6%, transparent);
+}
+
+/* Every action-card/cond-card sliding into its new position once a drop settles - the same
+   treatment the call list already gives its own draggable rows. */
+.cdk-drop-list-dragging .action-card:not(.cdk-drag-placeholder),
+.cdk-drop-list-dragging .cond-card:not(.cdk-drag-placeholder) {
+  transition: transform 0.2s cubic-bezier(0, 0, 0.2, 1);
 }
 
 /* The empty state carries the only explanation of what a rule is, so it earns real line height. */
@@ -7059,6 +7142,15 @@ h1.page-title {
   background: color-mix(in srgb, var(--cyan) 5%, transparent);
   margin-bottom: 0.5rem;
   overflow: hidden;
+
+  /* Off means the whole subtree - branches, conditions, everything nested - runs nothing. */
+  &.is-off {
+    opacity: 0.5;
+
+    &:hover {
+      opacity: 0.75;
+    }
+  }
 }
 
 .cond-head {

@@ -71,7 +71,11 @@
           }
           <div class="rule-actions">
             @for (action of rule.actions; track $index) {
-              <span class="rule-chip" [class.danger]="action.type === 'ABORT_REQUEST' || action.type === 'MOCK_RESPONSE' || action.type.startsWith('PAUSE_')">
+              <span
+                class="rule-chip"
+                [class.danger]="action.type === 'ABORT_REQUEST' || action.type === 'MOCK_RESPONSE' || action.type.startsWith('PAUSE_')"
+                [class.off]="!isActionEnabled(action)"
+              >
                 {{ describeAction(action) }}
               </span>
             }

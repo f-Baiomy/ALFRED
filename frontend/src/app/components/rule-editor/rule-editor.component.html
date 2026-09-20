@@ -112,11 +112,20 @@
           <span class="pipeline-step">1</span>
           Request — before it leaves Alfred
         </div>
-        @for (step of requestSteps(); track step.index) {
-          <ng-container *ngTemplateOutlet="actionCard; context: { $implicit: step }"></ng-container>
-        } @empty {
-          <p class="pipeline-empty">Nothing — the request is forwarded as it arrived.</p>
-        }
+        <div
+          class="lane-drop-list"
+          cdkDropList
+          [id]="laneListId('request')"
+          [cdkDropListConnectedTo]="dropListIds()"
+          [cdkDropListEnterPredicate]="canDropInto"
+          (cdkDropListDropped)="onActionDropped($event)"
+        >
+          @for (step of requestSteps(); track step.index) {
+            <ng-container *ngTemplateOutlet="actionCard; context: { $implicit: step }"></ng-container>
+          } @empty {
+            <p class="pipeline-empty">Nothing — the request is forwarded as it arrived.</p>
+          }
+        </div>
         <div class="add-action-group">
           @for (type of requestActionTypes(); track type) {
             <button type="button" class="pill add" (click)="addAction(type)">+ {{ actionLabels[type] }}</button>
@@ -145,11 +154,20 @@
           <span class="pipeline-step">2</span>
           Response — after the host answers
         </div>
-        @for (step of responseSteps(); track step.index) {
-          <ng-container *ngTemplateOutlet="actionCard; context: { $implicit: step }"></ng-container>
-        } @empty {
-          <p class="pipeline-empty">Nothing — the caller gets exactly what the host sent.</p>
-        }
+        <div
+          class="lane-drop-list"
+          cdkDropList
+          [id]="laneListId('response')"
+          [cdkDropListConnectedTo]="dropListIds()"
+          [cdkDropListEnterPredicate]="canDropInto"
+          (cdkDropListDropped)="onActionDropped($event)"
+        >
+          @for (step of responseSteps(); track step.index) {
+            <ng-container *ngTemplateOutlet="actionCard; context: { $implicit: step }"></ng-container>
+          } @empty {
+            <p class="pipeline-empty">Nothing — the caller gets exactly what the host sent.</p>
+          }
+        </div>
         <div class="add-action-group">
           @for (type of responseActionTypes(); track type) {
             <button type="button" class="pill add" (click)="addAction(type)">+ {{ actionLabels[type] }}</button>
@@ -181,16 +199,27 @@
   @if (isConditional(step.action.type)) {
     <!-- A condition is a STEP, in the same list as the actions and moved the same way - not a
          property bolted onto each one. Branches are tried in order and the first match wins. -->
-    <div class="cond-card">
+    <div class="cond-card" [class.is-off]="!isActionEnabled(step.action) || step.parentDisabled" cdkDrag [cdkDragData]="step">
       <div class="cond-head">
+        <span class="drag-handle" cdkDragHandle title="Drag to move" aria-label="Drag to move">⠿</span>
         <span class="action-index">{{ step.index + 1 }}</span>
         <span class="action-title">Condition</span>
+        @if (!isActionEnabled(step.action)) {
+          <span class="off-tag">off</span>
+        }
         <app-help-popover
           [entries]="actionHelp(step.action)"
           [summary]="summaryOf(step.action)"
           label="How do conditions work?"
         />
         <span class="action-controls">
+          <button
+            type="button"
+            class="icon-btn power"
+            [class.on]="isActionEnabled(step.action)"
+            [title]="isActionEnabled(step.action) ? 'On — turn off, along with everything inside it' : 'Off — turn on'"
+            (click)="toggleEnabled(step.path)"
+          >⏻</button>
           <button type="button" class="icon-btn" title="Move up" [disabled]="step.index === 0" (click)="moveAt(step.path, -1)">▲</button>
           <button type="button" class="icon-btn" title="Move down" [disabled]="step.index === siblingCount(step.path) - 1" (click)="moveAt(step.path, 1)">▼</button>
           <button type="button" class="icon-btn danger" title="Remove" (click)="removeAt(step.path)">×</button>
@@ -265,14 +294,27 @@
 
           <div class="cond-then">
             <div class="cond-then-label">then</div>
-            @for (nested of branch.actions; track $index; let ni = $index) {
-              <!-- The same template, one level down. One definition however deep it goes. -->
-              <ng-container
-                *ngTemplateOutlet="actionCard; context: { $implicit: { action: nested, index: ni, path: step.path.concat([bi, ni]) } }"
-              ></ng-container>
-            } @empty {
-              <p class="cond-empty">Nothing happens when this matches yet.</p>
-            }
+            <div
+              class="cond-then-drop-list"
+              cdkDropList
+              [id]="listId(step.path.concat([bi]))"
+              [cdkDropListConnectedTo]="dropListIds()"
+              [cdkDropListEnterPredicate]="canDropInto"
+              (cdkDropListDropped)="onActionDropped($event)"
+            >
+              @for (nested of branch.actions; track $index; let ni = $index) {
+                <!-- The same template, one level down. One definition however deep it goes.
+                     parentDisabled carries down whether THIS branch's own condition is off, so a
+                     dimmed card here is honest even though the nested action's own `enabled`
+                     field is untouched - it keeps whatever you set it to for whenever the
+                     condition comes back on. -->
+                <ng-container
+                  *ngTemplateOutlet="actionCard; context: { $implicit: { action: nested, index: ni, path: step.path.concat([bi, ni]), parentDisabled: !isActionEnabled(step.action) || step.parentDisabled } }"
+                ></ng-container>
+              } @empty {
+                <p class="cond-empty">Nothing happens when this matches yet.</p>
+              }
+            </div>
             <div class="add-action-group">
               @for (type of nestableTypes(step.path); track type) {
                 <button type="button" class="pill add" (click)="addBranchAction(step.path, bi, type)">+ {{ actionLabels[type] }}</button>
@@ -290,13 +332,22 @@
         </div>
         <div class="cond-then">
           <div class="cond-then-label">then</div>
-          @for (nested of step.action.otherwise ?? []; track $index; let ni = $index) {
-            <ng-container
-              *ngTemplateOutlet="actionCard; context: { $implicit: { action: nested, index: ni, path: step.path.concat([-1, ni]) } }"
-            ></ng-container>
-          } @empty {
-            <p class="cond-empty">Nothing — the call carries on untouched.</p>
-          }
+          <div
+            class="cond-then-drop-list"
+            cdkDropList
+            [id]="listId(step.path.concat([-1]))"
+            [cdkDropListConnectedTo]="dropListIds()"
+            [cdkDropListEnterPredicate]="canDropInto"
+            (cdkDropListDropped)="onActionDropped($event)"
+          >
+            @for (nested of step.action.otherwise ?? []; track $index; let ni = $index) {
+              <ng-container
+                *ngTemplateOutlet="actionCard; context: { $implicit: { action: nested, index: ni, path: step.path.concat([-1, ni]), parentDisabled: !isActionEnabled(step.action) || step.parentDisabled } }"
+              ></ng-container>
+            } @empty {
+              <p class="cond-empty">Nothing — the call carries on untouched.</p>
+            }
+          </div>
           <div class="add-action-group">
             @for (type of nestableTypes(step.path); track type) {
               <button type="button" class="pill add" (click)="addBranchAction(step.path, -1, type)">+ {{ actionLabels[type] }}</button>
@@ -315,16 +366,30 @@
       isMock(step.action.type)
     "
     [class.host]="step.action.type === 'SEND_TO_HOST'"
+    [class.is-off]="!isActionEnabled(step.action) || step.parentDisabled"
+    cdkDrag
+    [cdkDragData]="step"
   >
     <div class="action-head">
+      <span class="drag-handle" cdkDragHandle title="Drag to move" aria-label="Drag to move">⠿</span>
       <span class="action-index">{{ step.index + 1 }}</span>
       <span class="action-title">{{ labelFor(step.action.type) }}</span>
+      @if (!isActionEnabled(step.action)) {
+        <span class="off-tag">off</span>
+      }
       <app-help-popover
         [entries]="actionHelp(step.action)"
         [summary]="summaryOf(step.action)"
         [label]="'What does ' + labelFor(step.action.type) + ' do?'"
       />
       <span class="action-controls">
+        <button
+          type="button"
+          class="icon-btn power"
+          [class.on]="isActionEnabled(step.action)"
+          [title]="isActionEnabled(step.action) ? 'On — click to disable' : 'Off — click to enable'"
+          (click)="toggleEnabled(step.path)"
+        >⏻</button>
         <button type="button" class="icon-btn" title="Move up" [disabled]="step.index === 0" (click)="moveAt(step.path, -1)">▲</button>
         <button type="button" class="icon-btn" title="Move down" [disabled]="step.index === siblingCount(step.path) - 1" (click)="moveAt(step.path, 1)">▼</button>
         <button type="button" class="icon-btn danger" title="Remove" (click)="removeAt(step.path)">×</button>

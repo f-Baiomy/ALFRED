@@ -241,4 +241,251 @@ describe('RuleEditorComponent', () => {
     request.flush({ ...request.request.body, id: 'new' });
     http.match(`${BACKEND}/interception/rules`).forEach((r) => r.flush([]));
   });
+
+  /**
+   * Turning one action off without deleting it - the request that started this. Every action
+   * defaults to enabled, so nothing here changes what an already-saved rule does until somebody
+   * actually clicks the switch.
+   */
+  describe('enabling and disabling one action', () => {
+    it('defaults every action to enabled', () => {
+      open();
+      component.addAction('DELAY_REQUEST');
+
+      expect(component.isActionEnabled(component.actions()[1])).toBeTrue();
+    });
+
+    it('toggles a top-level action off and back on', () => {
+      open();
+      component.addAction('DELAY_REQUEST');
+
+      component.toggleEnabled([1]);
+      expect(component.actions()[1].enabled).toBeFalse();
+
+      component.toggleEnabled([1]);
+      expect(component.isActionEnabled(component.actions()[1])).toBeTrue();
+    });
+
+    it('toggles a nested action without touching its siblings', () => {
+      open();
+      component.addAction('IF_REQUEST');
+      component.addBranchAction([1], 0, 'DELAY_REQUEST');
+      component.addBranchAction([1], 0, 'SEND_TO_HOST');
+
+      component.toggleEnabled([1, 0, 0]);
+
+      const nested = component.actions()[1].branches?.[0].actions ?? [];
+      expect(nested[0].enabled).toBeFalse();
+      expect(component.isActionEnabled(nested[1])).toBeTrue();
+    });
+
+    it('disabling a conditional only sets its OWN flag - the subtree is skipped by the engine, not edited', () => {
+      // proxy/interception.py never even parses a disabled action's branches - the UI does not
+      // need to (and must not) reach in and flip every nested action too, or a plain action's own
+      // switch would stop meaning what it says the moment an ancestor is re-enabled.
+      open();
+      component.addAction('IF_REQUEST');
+      component.addBranchAction([1], 0, 'DELAY_REQUEST');
+
+      component.toggleEnabled([1]);
+
+      expect(component.actions()[1].enabled).toBeFalse();
+      expect(component.isActionEnabled(component.actions()[1].branches![0].actions[0])).toBeTrue();
+    });
+  });
+
+  /**
+   * Moving an action between scopes - top-level, a branch, an ELSE IF, the ELSE - by dragging it.
+   * onActionDropped/canDropInto are exercised directly with hand-built CDK event shapes rather
+   * than a simulated pointer drag: the logic under test is the tree surgery, which does not care
+   * how the drop arrived.
+   */
+  describe('dragging an action between scopes', () => {
+    /**
+     * Loads a rule with an EXACT action tree, rather than building one up through addAction -
+     * the seeded new-rule DELAY_REQUEST (see ngOnInit) is one action these tests do not want to
+     * have to account for in every path.
+     */
+    function openWith(actions: RuleAction[]): void {
+      open({
+        id: 'r1',
+        name: 'Drag test',
+        enabled: true,
+        priority: 100,
+        stopProcessing: false,
+        match: {},
+        actions,
+      });
+    }
+
+    /** actionAt is private to the module, not the component - read the tree straight from the signal. */
+    function stepAt(path: readonly number[]) {
+      let list: readonly RuleAction[] = component.actions();
+      let action: RuleAction | undefined;
+      let index = 0;
+      const rest = [...path];
+      while (rest.length > 0) {
+        index = rest.shift()!;
+        action = list[index];
+        const branchIndex = rest.shift();
+        if (branchIndex === undefined) break;
+        list = branchIndex < 0 ? action!.otherwise ?? [] : action!.branches?.[branchIndex]?.actions ?? [];
+      }
+      return { action: action!, index, path };
+    }
+
+    function drop(draggedPath: readonly number[], toId: string, currentIndex: number): void {
+      component.onActionDropped({
+        item: { data: stepAt(draggedPath) },
+        container: { id: toId },
+        currentIndex,
+      } as unknown as Parameters<RuleEditorComponent['onActionDropped']>[0]);
+    }
+
+    it('reorders within the same top-level lane', () => {
+      openWith([{ type: 'DELAY_REQUEST', durationMs: 5000 }, { type: 'SEND_TO_HOST' }]);
+
+      drop([0], component.laneListId('request'), 1);
+
+      expect(component.actions().map((a) => a.type)).toEqual(['SEND_TO_HOST', 'DELAY_REQUEST']);
+    });
+
+    it('moves a top-level action into a branch', () => {
+      openWith([
+        { type: 'DELAY_REQUEST', durationMs: 5000 },
+        { type: 'IF_REQUEST', branches: [{ combine: 'ALL', conditions: [], actions: [] }] },
+      ]);
+
+      drop([0], component.listId([1, 0]), 0);
+
+      expect(component.actions().map((a) => a.type)).toEqual(['IF_REQUEST']);
+      expect(component.actions()[0].branches?.[0].actions.map((a) => a.type)).toEqual(['DELAY_REQUEST']);
+    });
+
+    it('moves a nested action back out to the top level, in the right lane', () => {
+      openWith([
+        {
+          type: 'IF_REQUEST',
+          branches: [{ combine: 'ALL', conditions: [], actions: [{ type: 'DELAY_REQUEST', durationMs: 5000 }] }],
+        },
+      ]);
+
+      drop([0, 0, 0], component.laneListId('request'), 0);
+
+      expect(component.actions().map((a) => a.type)).toEqual(['DELAY_REQUEST', 'IF_REQUEST']);
+      expect(component.actions()[1].branches?.[0].actions).toEqual([]);
+    });
+
+    it('moves an action from one branch straight into another', () => {
+      openWith([
+        {
+          type: 'IF_REQUEST',
+          branches: [
+            { combine: 'ALL', conditions: [], actions: [{ type: 'DELAY_REQUEST', durationMs: 5000 }] },
+            { combine: 'ALL', conditions: [], actions: [] },
+          ],
+        },
+      ]);
+
+      drop([0, 0, 0], component.listId([0, 1]), 0);
+
+      expect(component.actions()[0].branches?.[0].actions).toEqual([]);
+      expect(component.actions()[0].branches?.[1].actions.map((a) => a.type)).toEqual(['DELAY_REQUEST']);
+    });
+
+    it('moves an action into the ELSE', () => {
+      openWith([
+        { type: 'IF_REQUEST', branches: [{ combine: 'ALL', conditions: [], actions: [] }] },
+        { type: 'DELAY_REQUEST', durationMs: 5000 },
+      ]);
+
+      drop([1], component.listId([0, -1]), 0);
+
+      expect(component.actions().map((a) => a.type)).toEqual(['IF_REQUEST']);
+      expect(component.actions()[0].otherwise?.map((a) => a.type)).toEqual(['DELAY_REQUEST']);
+    });
+
+    it('preserves the action being moved, enabled state and all', () => {
+      openWith([
+        { type: 'DELAY_REQUEST', durationMs: 5000, enabled: false },
+        { type: 'IF_REQUEST', branches: [{ combine: 'ALL', conditions: [], actions: [] }] },
+      ]);
+
+      drop([0], component.listId([1, 0]), 0);
+
+      const moved = component.actions()[0].branches?.[0].actions[0];
+      expect(moved?.type).toBe('DELAY_REQUEST');
+      expect(moved?.durationMs).toBe(5000);
+      expect(component.isActionEnabled(moved!)).toBeFalse();
+    });
+
+    describe('canDropInto', () => {
+      const dragOf = (action: RuleAction) => ({ data: { action, index: 0, path: [0] } } as unknown as Parameters<
+        RuleEditorComponent['canDropInto']
+      >[0]);
+      const dropAt = (id: string) => ({ id } as unknown as Parameters<RuleEditorComponent['canDropInto']>[1]);
+
+      it('accepts a request-phase action into the request lane, refuses it in the response lane', () => {
+        openWith([]);
+        const action: RuleAction = { type: 'DELAY_REQUEST', durationMs: 1000 };
+
+        expect(component.canDropInto(dragOf(action), dropAt(component.laneListId('request')))).toBeTrue();
+        expect(component.canDropInto(dragOf(action), dropAt(component.laneListId('response')))).toBeFalse();
+      });
+
+      it('accepts a response-phase action into an IF_RESPONSE branch, refuses it into an IF_REQUEST one', () => {
+        openWith([
+          { type: 'IF_REQUEST', branches: [{ combine: 'ALL', conditions: [], actions: [] }] },
+          { type: 'IF_RESPONSE', branches: [{ combine: 'ALL', conditions: [], actions: [] }] },
+        ]);
+        const responseAction: RuleAction = { type: 'SET_RESPONSE_STATUS', status: 500 };
+
+        expect(component.canDropInto(dragOf(responseAction), dropAt(component.listId([0, 0])))).toBeFalse();
+        expect(component.canDropInto(dragOf(responseAction), dropAt(component.listId([1, 0])))).toBeTrue();
+      });
+
+      it('refuses a conditional dropped past the depth the backend allows', () => {
+        openWith([
+          {
+            type: 'IF_REQUEST',
+            branches: [
+              {
+                combine: 'ALL',
+                conditions: [],
+                actions: [{ type: 'IF_REQUEST', branches: [{ combine: 'ALL', conditions: [], actions: [] }] }],
+              },
+            ],
+          },
+        ]);
+        const conditional: RuleAction = { type: 'IF_REQUEST', branches: [] };
+
+        // One level in is still fine...
+        expect(component.canDropInto(dragOf(conditional), dropAt(component.listId([0, 0])))).toBeTrue();
+        // ...two levels in is the depth the backend refuses to save.
+        expect(component.canDropInto(dragOf(conditional), dropAt(component.listId([0, 0, 0, 0])))).toBeFalse();
+      });
+    });
+
+    it('connects every list currently in the tree, and only those', () => {
+      openWith([
+        {
+          type: 'IF_REQUEST',
+          branches: [
+            { combine: 'ALL', conditions: [], actions: [] },
+            { combine: 'ALL', conditions: [], actions: [] },
+          ],
+          otherwise: [{ type: 'DELAY_REQUEST', durationMs: 5000 }],
+        },
+      ]);
+
+      const ids = component.dropListIds();
+
+      expect(ids).toContain(component.laneListId('request'));
+      expect(ids).toContain(component.laneListId('response'));
+      expect(ids).toContain(component.listId([0, 0]));
+      expect(ids).toContain(component.listId([0, 1]));
+      expect(ids).toContain(component.listId([0, -1]));
+      expect(ids.length).toBe(5);
+    });
+  });
 });

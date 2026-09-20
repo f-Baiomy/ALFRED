@@ -446,6 +446,66 @@ thing a traffic logger must never do.
 Verified live: caller saw `599` / `EDITED-BY-ALFRED`, the log recorded `finalResponse.status: 599`
 alongside `originalResponse.status: 307`.
 
+## Turning one action off without deleting it
+
+Every `RuleAction` carries `enabled` (default true — this is a field you turn *off*, not on, so
+every rule saved before it existed keeps working). A disabled action stays in the rule, still
+fully editable, and is still validated on its own fields — it must be well-formed the moment
+somebody switches it back on. What it does *not* do is run: `proxy/interception.py`'s
+`_prepare_actions` drops it at rule-load time, the same place a malformed action is already
+dropped, so nothing downstream has to know disabling exists at all.
+
+**Disabling an `IF_REQUEST`/`IF_RESPONSE` disables its whole subtree** — its branches are never
+even parsed, so there is nothing nested left to separately skip. A nested action's *own* `enabled`
+field is untouched by an ancestor being switched off, though: the rule editor dims it to say "not
+running right now," not "reset," so whatever you set it to survives for whenever the condition
+comes back on.
+
+The mutual-exclusion checks in `RuleValidator` — two terminal actions, a terminal and a pause —
+**only count enabled actions.** This is the reason the feature exists: without it, disabling one
+of two conflicting actions to try the other would still be refused for a conflict that, with one
+of them off, no longer exists. `pauses(rule)`/`terminal(rule)` on the frontend's rule list follow
+the same rule, so the **"holds the caller"** banner only fires for a pause that is actually live.
+
+Verified live: a rule with a disabled `ABORT_REQUEST` next to an enabled `MOCK_RESPONSE` — which
+would have been rejected as two terminal actions — saved cleanly, and the caller received the
+mocked `418` rather than being aborted. A disabled `IF_REQUEST` with both a matching branch and an
+`ELSE` produced neither the branch's header nor the else's, on real traffic through the proxy.
+
+## Dragging an action between scopes
+
+Every action list in a rule — both pipeline lanes, every branch's `then`, every `ELSE` — is a
+connected Angular CDK drop target at once, so an action can move from top-level into a condition,
+out of one, or from one branch straight into another. A drag handle (⠿), not the whole card: the
+card already holds buttons and typed fields, and making the entire surface a drag source is
+exactly what fought text selection in the interception diff panel two features earlier.
+
+A move is always expressed as **removing the action from its own path, then inserting it at the
+destination** — the same operation whether the two ends are the same list (a reorder) or different
+ones (a move across scopes). Two things this uncovered:
+
+- **Removing an earlier top-level action shifts every later one down by one.** The destination's
+  list-path id is rendered against the tree as it stood before the drop, so dragging a top-level
+  action into a *later* top-level action's own branch left the destination pointing at the wrong
+  index after the removal — found by a test, not a click.
+- **The id encoding for a list path joined indices with `-`, and the ELSE index IS `-1`** — so
+  `[0, -1]` and `[0, 0, 1]` both produced `"0--1"`, an ambiguous string. It joins with `,` instead.
+
+`cdkDropListEnterPredicate` rejects a drop before it happens rather than after saving fails: a
+scope only accepts an action of its own phase, and no deeper than the two levels of nesting the
+backend allows — the same `nestableTypes` check the "+" buttons already use for adding a *new*
+action. It does not recheck the depth of what is *inside* a dragged conditional; that rare edge
+case is left to the save-time validator, which is authoritative regardless.
+
+Verified: 15 tests exercise every scope combination (reorder, top-level into a branch, a branch
+back to top-level, branch to branch, into the ELSE) and the phase/depth predicate, catching both
+bugs above before they reached a browser. Live in the running app, every drop list renders with
+the correct connected id (`top:request`, `top:response`, `list:1,0`, `list:1,-1`, …) and every
+draggable card has its handle attached — confirmed by inspecting the DOM directly, since Angular
+CDK's drag-and-drop did not respond to synthetic pointer/mouse events dispatched through this
+session's browser automation, a known limitation of driving CDK that way rather than a defect
+found in the feature.
+
 ## Rule precedence
 
 All matching rules apply, **ascending by `priority`**, ties broken by stored order (what the UI

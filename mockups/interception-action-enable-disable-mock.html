@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alfred — Enabling and disabling one action (mockup)</title>
+<style>
+:root{
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --card:#141a45; --card-elevated: linear-gradient(160deg,#141a45 0%,#101636 100%);
+  --card-inner:#070a24;
+  --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-light:#c4b5fd; --cyan:#22d3ee;
+  --text:#e5e9f5; --text-dim:#93a0c2; --text-faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-attachment:fixed;min-height:100vh;
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);font-size:14px}
+.mockbar{background:#1c1340;border-bottom:1px solid var(--border-strong);padding:8px 16px;
+  font-size:12px;color:var(--purple-light)}
+.mockbar b{color:#fff}
+.wrap{max-width:920px;margin:0 auto;padding:22px 20px 70px}
+h1{font-size:19px;margin:0 0 4px;letter-spacing:1px}
+.sub{color:var(--text-dim);font-size:13px;margin:0 0 22px}
+h2.sec{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--purple-light);
+  margin:34px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.note{color:var(--text-dim);font-size:12.5px;line-height:1.65;margin:0 0 14px}
+.note b{color:var(--text)} .note code{color:#6ee7d8;font-family:Consolas,monospace;font-size:12px}
+
+/* ---- action card ---- */
+.action-card{border:1px solid var(--border);border-radius:11px;padding:11px 14px;background:var(--card-elevated);margin-bottom:11px}
+.action-card.danger{border-color:rgba(248,113,113,.35)}
+.action-head{display:flex;align-items:center;gap:9px}
+.action-index{width:20px;height:20px;border-radius:50%;background:rgba(139,92,246,.18);color:var(--purple-light);
+  font-size:11px;display:inline-flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0}
+.action-title{font-size:13px;font-weight:600;flex:1}
+.info-dot{width:16px;height:16px;border-radius:50%;border:1px solid var(--border-strong);color:var(--text-faint);
+  font-size:10px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.action-controls{display:flex;align-items:center;gap:5px}
+.icon-btn{width:24px;height:24px;border-radius:6px;border:1px solid var(--border);background:transparent;
+  color:var(--text-dim);cursor:pointer;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.icon-btn:hover{border-color:var(--border-strong);color:var(--text)}
+.icon-btn.danger:hover{border-color:rgba(248,113,113,.5);color:#fca5a5}
+/* the new control */
+.icon-btn.power{font-size:13px}
+.icon-btn.power.on{color:var(--green);border-color:rgba(52,211,153,.45)}
+.icon-btn.power.off{color:var(--text-faint)}
+.action-fields{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12.5px;color:var(--text-dim)}
+.field-box{border:1px solid var(--border);border-radius:8px;padding:6px 10px;background:var(--card-inner)}
+
+/* disabled state */
+.action-card.is-off{opacity:.5}
+.action-card.is-off:hover{opacity:.7}
+.off-tag{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);
+  border:1px solid var(--border);border-radius:20px;padding:1px 7px;margin-left:2px}
+
+/* condition card */
+.cond-card{border:1px solid var(--border-strong);border-radius:12px;padding:12px 14px;background:rgba(139,92,246,.05);margin-bottom:12px}
+.cond-card.is-off{opacity:.45}
+.cond-head{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.cond-branch{border-left:2px solid var(--border-strong);padding-left:11px;margin:9px 0}
+.cond-kw{font-size:10.5px;font-weight:700;letter-spacing:.05em;color:var(--purple-light);
+  background:rgba(139,92,246,.15);border-radius:5px;padding:1px 7px}
+.cond-row{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-dim);margin:5px 0}
+.cond-then{margin:7px 0 0 4px;padding-left:9px;border-left:1px dashed var(--border)}
+.cond-then-label{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.nested .action-card{margin-bottom:8px;padding:8px 11px}
+.nested .action-title{font-size:12px}
+.dim-note{font-size:11px;color:var(--text-faint);font-style:italic;margin-top:6px}
+
+/* rule list chip */
+.rule-row{border:1px solid var(--border);border-radius:12px;background:var(--card-elevated);padding:12px 14px;margin-bottom:10px}
+.rule-name{font-size:13.5px;font-weight:600}
+.rule-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.rule-chip{font-size:11px;border-radius:7px;padding:2px 8px;background:rgba(139,92,246,.13);
+  border:1px solid var(--border);color:var(--purple-light)}
+.rule-chip.danger{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.4);color:#fca5a5}
+.rule-chip.off{opacity:.5;text-decoration:line-through;border-style:dashed}
+.rule-priority{font-size:10.5px;color:var(--text-faint);margin-left:auto}
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCKUP</b> — not the running app. Enabling and disabling one action inside a rule.</div>
+<div class="wrap">
+
+<h1>Turn one action off without deleting it</h1>
+<p class="sub">A rule you are iterating on often has an action you want to try WITHOUT, then bring back exactly as it
+was — swapping "reply with a mock" for "pause and edit by hand" and back, without retyping either one.</p>
+
+<h2 class="sec">1 · The new control — a fourth icon, same row</h2>
+<p class="note">
+  Sits with <b>▲ ▼ ✕</b> rather than replacing any of them — moving, deleting and enabling/disabling are three
+  different questions about the same action. A power icon rather than a checkbox: it reads as a switch at a
+  glance in a row that already has three other icon buttons, and green-when-on avoids a second colour vocabulary.
+</p>
+
+<div class="action-card">
+  <div class="action-head">
+    <span class="action-index">1</span>
+    <span class="action-title">Pause and wait for me (after the supplier answers)</span>
+    <span class="info-dot">i</span>
+    <span class="action-controls">
+      <button class="icon-btn power on" title="On — click to disable">⏻</button>
+      <button class="icon-btn" title="Move up" disabled>▲</button>
+      <button class="icon-btn" title="Move down">▼</button>
+      <button class="icon-btn danger" title="Remove">✕</button>
+    </span>
+  </div>
+  <div class="action-fields">
+    <span class="field-box">Wait up to 30 seconds</span>
+    <span class="field-box">If nobody answers: release it unchanged</span>
+  </div>
+</div>
+
+<h2 class="sec">2 · Disabled — dimmed, not hidden</h2>
+<p class="note">
+  <b>The fields stay visible and editable.</b> You are not deleting the action, you are asking the engine to skip
+  it for now — so you can still fix a typo in a disabled action, or read what it would do, without switching it
+  back on first. The whole card just reads as "this is not currently part of the rule."
+</p>
+
+<div class="action-card is-off">
+  <div class="action-head">
+    <span class="action-index">1</span>
+    <span class="action-title">Pause and wait for me (after the supplier answers)</span>
+    <span class="off-tag">off</span>
+    <span class="info-dot">i</span>
+    <span class="action-controls">
+      <button class="icon-btn power off" title="Off — click to enable">⏻</button>
+      <button class="icon-btn" title="Move up" disabled>▲</button>
+      <button class="icon-btn" title="Move down">▼</button>
+      <button class="icon-btn danger" title="Remove">✕</button>
+    </span>
+  </div>
+  <div class="action-fields">
+    <span class="field-box">Wait up to 30 seconds</span>
+    <span class="field-box">If nobody answers: release it unchanged</span>
+  </div>
+</div>
+
+<div class="action-card">
+  <div class="action-head">
+    <span class="action-index">2</span>
+    <span class="action-title">Reply with a different response</span>
+    <span class="info-dot">i</span>
+    <span class="action-controls">
+      <button class="icon-btn power on" title="On — click to disable">⏻</button>
+      <button class="icon-btn" title="Move up">▲</button>
+      <button class="icon-btn" title="Move down" disabled>▼</button>
+      <button class="icon-btn danger" title="Remove">✕</button>
+    </span>
+  </div>
+  <div class="action-fields">
+    <span class="field-box">Status 418</span>
+    <span class="field-box">1 header</span>
+  </div>
+</div>
+<p class="note">
+  This is the case that motivated it: two actions that would otherwise <b>conflict</b> — a rule can only end a
+  request once, and this pair does — sitting side by side, only one of them actually live. Toggle one off,
+  toggle the other on, without deleting or retyping either.
+</p>
+
+<h2 class="sec">3 · Disabling a condition disables everything inside it</h2>
+<p class="note">
+  One switch for the whole block. A condition's branches and their nested actions are not separately toggleable —
+  turning the <code>IF</code> off is turning off <i>the entire decision</i>, exactly the way removing it would,
+  except it is still there to turn back on. The nested action cards keep their own ▲▼✕ (you can still reorder or
+  delete what is inside while the whole thing is off), just not their own power icon — there is nothing to
+  independently enable inside a block that is not running at all.
+</p>
+
+<div class="cond-card is-off">
+  <div class="cond-head">
+    <span class="action-index">1</span>
+    <span class="action-title">Condition</span>
+    <span class="off-tag">off</span>
+    <span class="info-dot">i</span>
+    <span class="action-controls">
+      <button class="icon-btn power off" title="Off — click to enable">⏻</button>
+      <button class="icon-btn" title="Move up" disabled>▲</button>
+      <button class="icon-btn" title="Move down">▼</button>
+      <button class="icon-btn danger" title="Remove">✕</button>
+    </span>
+  </div>
+  <div class="cond-branch">
+    <div class="cond-row"><span class="cond-kw">IF</span> match all of these</div>
+    <div class="cond-row">Request JSON field <b>supplier</b> contains <b>"travelport"</b></div>
+    <div class="cond-then nested">
+      <div class="cond-then-label">then</div>
+      <div class="action-card">
+        <div class="action-head">
+          <span class="action-index">1</span>
+          <span class="action-title">Set JSON field in request body</span>
+          <span class="action-controls">
+            <button class="icon-btn" title="Move up" disabled>▲</button>
+            <button class="icon-btn" title="Move down" disabled>▼</button>
+            <button class="icon-btn danger" title="Remove">✕</button>
+          </span>
+        </div>
+        <div class="action-fields"><span class="field-box">passengers[*].count = 12</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="dim-note">Neither this condition's branches nor the actions inside them run while it is off.</p>
+</div>
+
+<h2 class="sec">4 · The rules list already shows what a rule does — now it shows what it isn't doing too</h2>
+<p class="note">
+  A disabled action's chip goes <b>dashed and struck through</b> where an active one is solid — the same "still
+  here, not in effect" language the paused-call editor already uses for a removed header. And a rule only reads
+  <b>"holds the caller"</b> when a PAUSE action is actually switched on; a disabled one no longer earns that
+  warning, since nothing is holding anybody.
+</p>
+
+<div class="rule-row">
+  <div class="rule-name">Search debugging <span class="rule-chip danger" style="margin-left:8px">holds the caller</span></div>
+  <div class="rule-actions">
+    <span class="rule-chip off">Pause response — wait 30s</span>
+    <span class="rule-chip danger">Reply with 418, 1 header</span>
+    <span class="rule-priority">priority 100</span>
+  </div>
+</div>
+<p class="note" style="margin-top:-4px">Only <i>one</i> pause/terminal action here is actually live, so the badge is accurate rather than
+  warning about a caller nothing is holding.</p>
+
+<h2 class="sec">5 · Dragging an action into a condition's scope</h2>
+<p class="note">
+  A drag <b>handle</b> (⠿), not the whole card — the card already holds clickable buttons and typed fields, and
+  making the entire surface a drag source is exactly what fought text selection in the diff panel two fixes ago.
+  Drop targets are every action list in the rule at once: the request lane, the response lane, every branch's
+  <code>then</code>, every <code>ELSE</code> — so an action can move from top-level into a branch, out of a
+  branch back to top-level, or from one branch straight into another.
+</p>
+
+<div class="action-card">
+  <div class="action-head">
+    <span class="drag-handle" title="Drag to move">⠿</span>
+    <span class="action-index">2</span>
+    <span class="action-title">Set request header</span>
+    <span class="action-controls">
+      <button class="icon-btn power on">⏻</button>
+      <button class="icon-btn">▲</button>
+      <button class="icon-btn">▼</button>
+      <button class="icon-btn danger">✕</button>
+    </span>
+  </div>
+</div>
+
+<div class="cond-card" style="border-color:rgba(52,211,153,.55);background:rgba(52,211,153,.06)">
+  <div class="cond-head">
+    <span class="action-index">1</span>
+    <span class="action-title">Condition</span>
+  </div>
+  <div class="cond-branch" style="border-left-color:rgba(52,211,153,.5)">
+    <div class="cond-row"><span class="cond-kw">IF</span> match all of these</div>
+    <div class="cond-row">Request JSON field <b>supplier</b> contains <b>"travelport"</b></div>
+    <div class="cond-then nested" style="border:1.5px dashed rgba(52,211,153,.6);border-radius:8px;padding:8px;background:rgba(52,211,153,.05)">
+      <div class="cond-then-label">then — drop here</div>
+    </div>
+  </div>
+</div>
+<p class="note" style="margin-top:-2px">Only a scope of the <b>same phase</b> lights up as a valid target while dragging — a response
+  action cannot land inside an <code>IF_REQUEST</code>, the same rule the "+" buttons already enforce. The two
+  levels of nesting the backend allows are the same limit here: a condition already two deep won't accept another
+  one dropped into it.</p>
+
+<h2 class="sec">What stays true regardless of on/off</h2>
+<p class="note">
+  <b>A disabled action is still validated.</b> If you leave a <code>PAUSE_RESPONSE</code> with no timeout while
+  it is off, saving the rule still refuses it — so switching it back on later never surprises you with an error
+  that was always there, just hidden. What DOES relax: the "two terminal actions" / "terminal and a pause"
+  contradiction checks only count actions that are actually <b>on</b> — that pairing above is the reason this
+  exists, and it would defeat the whole feature if turning one off still tripped the same complaint.
+  <br><br>
+  <b>Default is on.</b> Every action you have ever saved, and everything imported from a file, keeps working
+  exactly as it does today — this is something you turn off, not something you turn on.
+</p>
+
+</div>
+</body>
+</html>

@@ -52,16 +52,43 @@ public record RuleAction(
          */
         List<ConditionBranch> branches,
         /** IF_REQUEST / IF_RESPONSE: what runs when no branch matched. May be empty. */
-        List<RuleAction> otherwise) {
+        List<RuleAction> otherwise,
+        /**
+         * Whether the engine actually runs this action. Defaults true - kept in the rule and
+         * still validated, just skipped, so a user can try a rule without one action (or swap
+         * between two that would otherwise conflict - two terminals, or a terminal and a pause)
+         * without deleting and retyping either. Disabling an IF_REQUEST/IF_RESPONSE disables its
+         * whole subtree: proxy/interception.py's _prepare_actions simply never builds a disabled
+         * action, branches and all, so there is nothing nested left to separately toggle.
+         */
+        Boolean enabled) {
 
     public RuleAction {
         headers = headers == null ? null : Map.copyOf(headers);
         branches = branches == null ? null : List.copyOf(branches);
         otherwise = otherwise == null ? null : List.copyOf(otherwise);
+        enabled = enabled == null ? Boolean.TRUE : enabled;
+    }
+
+    /**
+     * The shape before {@code enabled} existed. Kept rather than updating every call site that
+     * builds a RuleAction positionally (24 of them, mostly in tests) - an action built this way is
+     * always enabled, which is the correct default for anything that predates the field entirely.
+     */
+    public RuleAction(ActionType type, Integer durationMs, String name, Object value, String path,
+                      Integer status, Map<String, String> headers, String body, Integer timeoutSeconds,
+                      String onTimeout, String failure, List<ConditionBranch> branches,
+                      List<RuleAction> otherwise) {
+        this(type, durationMs, name, value, path, status, headers, body, timeoutSeconds, onTimeout, failure,
+                branches, otherwise, true);
     }
 
     public static RuleAction of(ActionType type) {
-        return new RuleAction(type, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new RuleAction(type, null, null, null, null, null, null, null, null, null, null, null, null, true);
+    }
+
+    public boolean isEnabled() {
+        return enabled;
     }
 
     /** Every action this one can lead to, for a validator or a counter that must see them all. */

@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { InterceptionRule } from '../../core/models/interception.model';
+import { InterceptionRule, isActionEnabled } from '../../core/models/interception.model';
 import { describeAction, describeMatch } from '../../core/models/interception.model';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
@@ -35,6 +35,7 @@ export class InterceptionComponent {
 
   readonly describeMatch = describeMatch;
   readonly describeAction = describeAction;
+  readonly isActionEnabled = isActionEnabled;
 
   readonly bannerText = computed(() => {
     const rules = this.state.enabledRuleCount();
@@ -155,12 +156,13 @@ export class InterceptionComponent {
     return rules[rules.length - 1]?.id === rule.id;
   }
 
+  /** Only an ENABLED pause earns the "holds the caller" warning - a disabled one holds nobody. */
   pauses(rule: InterceptionRule): boolean {
-    return rule.actions.some((a) => a.type.startsWith('PAUSE_'));
+    return rule.actions.some((a) => isActionEnabled(a) && a.type.startsWith('PAUSE_'));
   }
 
   terminal(rule: InterceptionRule): boolean {
-    return rule.actions.some((a) => a.type === 'ABORT_REQUEST' || a.type === 'MOCK_RESPONSE');
+    return rule.actions.some((a) => isActionEnabled(a) && (a.type === 'ABORT_REQUEST' || a.type === 'MOCK_RESPONSE'));
   }
 
   trackById(_: number, rule: InterceptionRule): string {

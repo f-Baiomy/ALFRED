@@ -1,4 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 import { Component, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import {
   ACTION_LABELS,
@@ -25,6 +26,7 @@ import {
   RuleAction,
   RuleSource,
   actionPhase,
+  isActionEnabled,
 } from '../../core/models/interception.model';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
@@ -132,6 +134,103 @@ function actionAt(actions: readonly RuleAction[], path: readonly number[]): Rule
   return actionAt(list, rest);
 }
 
+/**
+ * Inserts `item` at `index` in the LIST at `listPath` - the array itself, not an action within
+ * it, so `listPath` is one shorter than the path to an action inside that list ([] for the
+ * top-level array, [actionIndex, branchIndex] for a branch's own actions or its ELSE).
+ *
+ * The drag-and-drop counterpart to `removeAt`: a move is expressed as removing the action from
+ * its source path, then inserting it here - which is also what keeps a same-list reorder and a
+ * move into a completely different scope the same one code path in the component.
+ */
+function insertInList(
+  actions: readonly RuleAction[],
+  listPath: readonly number[],
+  index: number,
+  item: RuleAction
+): RuleAction[] {
+  if (listPath.length === 0) {
+    const next = [...actions];
+    next.splice(index, 0, item);
+    return next;
+  }
+  const [actionIndex, branchIndex, ...rest] = listPath;
+  return actions.map((action, i) =>
+    i === actionIndex ? withBranchList(action, branchIndex, (list) => insertInList(list, rest, index, item)) : action
+  );
+}
+
+/**
+ * Where in the FULL top-level array lane-local position `laneIndex` actually lands.
+ *
+ * The pipeline draws one flat array as two lanes - request-phase steps and response-phase steps -
+ * filtered by `actionPhase`, not two separate arrays (see requestSteps/responseSteps). A drag
+ * within or into a lane reports its drop index in THAT FILTERED VIEW, so it has to be translated
+ * back to a real splice position: the real index of the `laneIndex`'th action whose phase matches,
+ * or the end of the array if the lane has fewer than that many.
+ */
+function realIndexForLanePosition(actions: readonly RuleAction[], phase: ActionPhase, laneIndex: number): number {
+  let seen = 0;
+  for (let i = 0; i < actions.length; i++) {
+    if (actionPhase(actions[i].type) === phase) {
+      if (seen === laneIndex) return i;
+      seen++;
+    }
+  }
+  return actions.length;
+}
+
+/**
+ * Drop-list ids. The two pipeline lanes are named literally, since they are not really separate
+ * arrays (see requestSteps/responseSteps) and so have no path of their own to derive an id from.
+ * Every nested list (a branch's own actions, or an ELSE) gets an id from its list path instead -
+ * `list:` followed by the path joined with a comma, `-1` reading as the ELSE the way it already
+ * does everywhere else in this component.
+ *
+ * A comma, not a dash: the ELSE index IS -1, and joining with `-` made `[0, -1]` and `[0, 0, 1]`
+ * the same string ("0--1" splits back into ['0', '', '1']). Found by a test for exactly the ELSE
+ * case the whole scheme exists to name.
+ */
+const TOP_REQUEST_LIST = 'top:request';
+const TOP_RESPONSE_LIST = 'top:response';
+
+function laneListId(phase: ActionPhase): string {
+  return phase === 'request' ? TOP_REQUEST_LIST : TOP_RESPONSE_LIST;
+}
+
+function nestedListId(listPath: readonly number[]): string {
+  return `list:${listPath.join(',')}`;
+}
+
+function parseNestedListId(id: string): number[] {
+  return id.slice('list:'.length).split(',').map(Number);
+}
+
+/** Every nested list currently in the tree, at any depth - what a drop list connects to besides the two lanes. */
+function collectListIds(actions: readonly RuleAction[], prefix: readonly number[] = []): string[] {
+  const ids: string[] = [];
+  actions.forEach((action, i) => {
+    (action.branches ?? []).forEach((branch, bi) => {
+      const branchPath = [...prefix, i, bi];
+      ids.push(nestedListId(branchPath));
+      ids.push(...collectListIds(branch.actions, branchPath));
+    });
+    if (action.otherwise) {
+      const otherwisePath = [...prefix, i, -1];
+      ids.push(nestedListId(otherwisePath));
+      ids.push(...collectListIds(action.otherwise, otherwisePath));
+    }
+  });
+  return ids;
+}
+
+/** What a `cdkDrag` here carries: enough to find the action again after it moves. */
+interface DragStep {
+  readonly action: RuleAction;
+  readonly index: number;
+  readonly path: readonly number[];
+}
+
 /** Applies a change to one branch's action list, or to the ELSE list when branchIndex is -1. */
 function withBranchList(
   action: RuleAction,
@@ -203,6 +302,9 @@ function defaultCondition(phase: ActionPhase): Condition {
     MultiSelectPickerComponent,
     StatusPickerComponent,
     HelpPopoverComponent,
+    CdkDropList,
+    CdkDrag,
+    CdkDragHandle,
   ],
   templateUrl: './rule-editor.component.html',
 })
@@ -366,6 +468,86 @@ export class RuleEditorComponent implements OnInit {
 
   moveAt(path: readonly number[], delta: number): void {
     this.actions.update((actions) => moveAt(actions, path, delta));
+  }
+
+  /**
+   * Toggles whether the engine runs THIS action. It stays in the rule either way, still fully
+   * editable - disabling is "skip this for now," not "delete and retype it later."
+   *
+   * For a conditional, turning it off skips its whole subtree in one step (see
+   * proxy/interception.py's _prepare_actions) - but a nested action's OWN switch is untouched by
+   * that, which is why one is still shown dimmed rather than hidden: it reports whether IT will
+   * run once its ancestors do, and keeps whatever you set it to for when they come back on.
+   */
+  toggleEnabled(path: readonly number[]): void {
+    this.actions.update((actions) =>
+      updateAt(actions, path, (action) => ({ ...action, enabled: !isActionEnabled(action) }))
+    );
+  }
+
+  isActionEnabled = isActionEnabled;
+
+  // ---- dragging an action between scopes -------------------------------------------------
+  //
+  // Every action list in the rule is a connected drop target at once - both pipeline lanes,
+  // every branch's `then`, every ELSE - so an action can move from top-level into a condition,
+  // out of one, or straight from one branch into another. A move is always expressed as removing
+  // the action from its own real path, then inserting it at the destination: the same operation
+  // whether the two ends are the same list (a reorder) or different ones (a move across scopes).
+
+  /** Every drop list currently on screen, connected to every other one. */
+  readonly dropListIds = computed(() => [TOP_REQUEST_LIST, TOP_RESPONSE_LIST, ...collectListIds(this.actions())]);
+
+  listId(listPath: readonly number[]): string {
+    return nestedListId(listPath);
+  }
+
+  laneListId = laneListId;
+
+  /**
+   * Rejects a drop before it happens rather than after saving fails: a scope only accepts an
+   * action of its own phase, and no deeper than the two levels of nesting the backend allows -
+   * the same two checks `nestableTypes` already applies to the "+" buttons for adding a NEW
+   * action here. It does not re-check the depth of what is INSIDE the dragged action - a
+   * doubly-nested condition dragged one level deeper than this predicate accounts for is a rare
+   * enough case that the save-time validator, which is authoritative regardless, is where it is
+   * actually caught.
+   */
+  canDropInto = (drag: CdkDrag<DragStep>, drop: CdkDropList): boolean => {
+    const dragged = drag.data;
+    if (!dragged) return false;
+    if (drop.id === TOP_REQUEST_LIST) return actionPhase(dragged.action.type) === 'request';
+    if (drop.id === TOP_RESPONSE_LIST) return actionPhase(dragged.action.type) === 'response';
+    const listPath = parseNestedListId(drop.id);
+    return this.nestableTypes(listPath.slice(0, -1)).includes(dragged.action.type);
+  };
+
+  onActionDropped(event: CdkDragDrop<unknown, unknown, DragStep>): void {
+    const dragged = event.item.data;
+    const toId = event.container.id;
+
+    this.actions.update((actions) => {
+      const moved = actionAt(actions, dragged.path);
+      if (!moved) return actions;
+      const without = removeAt(actions, dragged.path);
+
+      if (toId === TOP_REQUEST_LIST || toId === TOP_RESPONSE_LIST) {
+        const phase: ActionPhase = toId === TOP_REQUEST_LIST ? 'request' : 'response';
+        return insertInList(without, [], realIndexForLanePosition(without, phase, event.currentIndex), moved);
+      }
+
+      const listPath = [...parseNestedListId(toId)];
+      // The destination's id was rendered against the tree as it stood BEFORE this drop, so its
+      // leading index is only stale in the one case a removal can actually move a sibling: the
+      // dragged action came from the TOP-LEVEL array, at a position before this destination's own
+      // top-level ancestor. A removal anywhere else in the tree cannot shift another list's
+      // indices - only the array something was spliced out of ever renumbers. Found by a test
+      // that dragged a top-level action into a later top-level action's branch.
+      if (dragged.path.length === 1 && listPath[0] > dragged.path[0]) {
+        listPath[0] -= 1;
+      }
+      return insertInList(without, listPath, event.currentIndex, moved);
+    });
   }
 
   /** How many siblings an action has where it sits - the move buttons need it to disable at the ends. */

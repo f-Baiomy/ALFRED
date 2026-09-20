@@ -127,6 +127,18 @@ export interface RuleAction {
   readonly branches?: readonly ConditionBranch[] | null;
   /** IF_REQUEST / IF_RESPONSE only: what runs when no branch matched. */
   readonly otherwise?: readonly RuleAction[] | null;
+  /**
+   * Whether the engine actually runs this action. Absent or true means enabled - this is
+   * something you turn OFF, not on, so every rule saved before this field existed keeps working.
+   * Disabling an IF_REQUEST/IF_RESPONSE disables its whole subtree; there is no separate flag for
+   * what is nested inside a condition that is not running at all.
+   */
+  readonly enabled?: boolean | null;
+}
+
+/** True unless explicitly set to false - the same default the backend and proxy both use. */
+export function isActionEnabled(action: RuleAction): boolean {
+  return action.enabled !== false;
 }
 
 export interface InterceptionRule {

@@ -479,4 +479,66 @@ class RuleValidatorTest {
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), depth0)))
                 .anyMatch(problem -> problem.contains("nested"));
     }
+
+    // ---- enabling and disabling one action ---------------------------------------------------
+
+    private static RuleAction disabled(RuleAction action) {
+        return new RuleAction(action.type(), action.durationMs(), action.name(), action.value(), action.path(),
+                action.status(), action.headers(), action.body(), action.timeoutSeconds(), action.onTimeout(),
+                action.failure(), action.branches(), action.otherwise(), false);
+    }
+
+    @Test
+    void anActionBuiltTheOldWayIsEnabledByDefault() {
+        // The shape before `enabled` existed - every rule saved before this feature, and every
+        // one of the 24 call sites across this codebase that still build one positionally.
+        assertThat(delay(5000).isEnabled()).isTrue();
+    }
+
+    @Test
+    void disablingOneOfTwoConflictingTerminalsMakesTheRuleValid() {
+        // The whole reason this exists: swap "mock the response" for "pause and edit it" without
+        // deleting either one first.
+        RuleAction abort = disabled(RuleAction.of(ActionType.ABORT_REQUEST));
+        RuleAction mock = new RuleAction(ActionType.MOCK_RESPONSE, null, null, null, null, 500,
+                Map.of(), "{}", null, null, null, null, null);
+
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), abort, mock))).isEmpty();
+    }
+
+    @Test
+    void disablingOneOfTwoConflictingTerminalsThatAreBothAlreadyDisabledStillPasses() {
+        RuleAction abort = disabled(RuleAction.of(ActionType.ABORT_REQUEST));
+        RuleAction mock = disabled(new RuleAction(ActionType.MOCK_RESPONSE, null, null, null, null, 500,
+                Map.of(), "{}", null, null, null, null, null));
+
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), abort, mock))).isEmpty();
+    }
+
+    @Test
+    void twoEnabledTerminalsStillConflict() {
+        // Disabling has to be the thing that resolves the contradiction, not merely having the
+        // field present - the check must not accidentally stop firing altogether.
+        RuleAction abort = RuleAction.of(ActionType.ABORT_REQUEST);
+        RuleAction mock = new RuleAction(ActionType.MOCK_RESPONSE, null, null, null, null, 500,
+                Map.of(), "{}", null, null, null, null, null);
+
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), abort, mock)))
+                .anyMatch(p -> p.contains("only end a request once"));
+    }
+
+    @Test
+    void aDisabledPauseNoLongerConflictsWithATerminal() {
+        RuleAction abort = RuleAction.of(ActionType.ABORT_REQUEST);
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), abort, disabled(pause(30, "release")))))
+                .isEmpty();
+    }
+
+    @Test
+    void aDisabledActionIsStillValidatedOnItsOwnFields() {
+        // It must be well-formed the moment somebody switches it back on - disabling is not an
+        // escape hatch from validation, only from the engine actually running it.
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), disabled(pause(0, "release")))))
+                .anyMatch(p -> p.contains("hold its caller open forever"));
+    }
 }

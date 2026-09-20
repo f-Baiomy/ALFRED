@@ -927,6 +927,81 @@ class ConditionTest(unittest.TestCase):
         self.assertIn('authorization', condition.describe())
 
 
+class DisabledActionTest(unittest.TestCase):
+    """An action with `enabled: false` - kept in the rule, skipped by the engine.
+
+    `_prepare_actions` drops it at load time, the same way it already drops an action with no
+    type - so nothing downstream (apply_request/apply_response/a conditional's branches) has to
+    know disabling exists at all.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, actions):
+        return interception.InterceptionEngine(
+            'outbound', write_rules(self.tmp.name, [rule(actions=actions)]))
+
+    def test_a_disabled_action_never_runs(self):
+        verdict = self.engine([
+            {'type': 'DELAY_REQUEST', 'durationMs': 5000, 'enabled': False},
+        ]).apply_request(FakeFlow())
+        self.assertEqual(verdict.delay_ms, 0)
+
+    def test_an_action_with_no_enabled_field_still_runs(self):
+        # Every rule saved before this feature existed, and every action a proxy this old is
+        # handed by an older backend export - enabled is something you turn OFF, not on.
+        verdict = self.engine([{'type': 'DELAY_REQUEST', 'durationMs': 5000}]).apply_request(FakeFlow())
+        self.assertEqual(verdict.delay_ms, 5000)
+
+    def test_enabled_true_runs_exactly_like_absent(self):
+        verdict = self.engine([
+            {'type': 'DELAY_REQUEST', 'durationMs': 5000, 'enabled': True},
+        ]).apply_request(FakeFlow())
+        self.assertEqual(verdict.delay_ms, 5000)
+
+    def test_a_disabled_action_next_to_an_enabled_one_only_skips_the_disabled_one(self):
+        flow = FakeFlow(FakeRequest(headers={}))
+        self.engine([
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-Off', 'value': 'nope', 'enabled': False},
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-On', 'value': 'yes'},
+        ]).apply_request(flow)
+        self.assertNotIn('X-Off', flow.request.headers)
+        self.assertEqual(flow.request.headers['X-On'], 'yes')
+
+    def test_disabling_an_if_disables_everything_inside_it_branches_and_all(self):
+        # The whole point of one flag rather than a separate toggle per nested action: turning the
+        # condition off has to behave exactly like the condition was never in the rule.
+        flow = FakeFlow(FakeRequest(headers={}))
+        self.engine([{
+            'type': 'IF_REQUEST',
+            'enabled': False,
+            'branches': [{
+                'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'GET'}],
+                'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'yes'}],
+            }],
+            'otherwise': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Else', 'value': 'yes'}],
+        }]).apply_request(flow)
+        self.assertNotIn('X-Branch', flow.request.headers)
+        self.assertNotIn('X-Else', flow.request.headers)
+
+    def test_a_disabled_action_inside_an_enabled_ifs_branch_is_still_individually_skipped(self):
+        flow = FakeFlow(FakeRequest(headers={}))
+        self.engine([{
+            'type': 'IF_REQUEST',
+            'branches': [{
+                'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'GET'}],
+                'actions': [
+                    {'type': 'SET_REQUEST_HEADER', 'name': 'X-Off', 'value': 'nope', 'enabled': False},
+                    {'type': 'SET_REQUEST_HEADER', 'name': 'X-On', 'value': 'yes'},
+                ],
+            }],
+        }]).apply_request(flow)
+        self.assertNotIn('X-Off', flow.request.headers)
+        self.assertEqual(flow.request.headers['X-On'], 'yes')
+
+
 class ConditionalActionTest(unittest.TestCase):
     """The if / else-if / else step itself: which branch runs, and what the log says about it."""
 

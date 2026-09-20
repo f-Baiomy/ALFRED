@@ -60,14 +60,21 @@ public final class RuleValidator {
                 problems.add("Every action needs a type.");
                 continue;
             }
-            if (action.type().isTerminal()) {
-                terminals++;
-            }
-            if (action.type().isPause()) {
-                pauses++;
-            }
-            if (action.type() == ActionType.SEND_TO_HOST) {
-                sendsToHost = true;
+            // Structural checks below count only what actually runs. A disabled action is still
+            // validated on its own fields - it must be well-formed for the moment it is switched
+            // back on - but it takes no part in "can this rule contradict itself", or disabling
+            // one of two conflicting terminals to try the other would still be refused for a
+            // conflict that, with one of them off, no longer exists.
+            if (action.isEnabled()) {
+                if (action.type().isTerminal()) {
+                    terminals++;
+                }
+                if (action.type().isPause()) {
+                    pauses++;
+                }
+                if (action.type() == ActionType.SEND_TO_HOST) {
+                    sendsToHost = true;
+                }
             }
             validateAction(action, problems);
         }

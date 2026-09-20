@@ -207,10 +207,17 @@ def _prepare_actions(raw_actions):
     can be dropped - doing either per request would put the cost on every call the rule matches.
     The private key is stored on the dict we parsed rather than in a side table keyed by identity,
     which would be fragile for no benefit; nothing ever re-serialises these dicts.
+
+    An action with `enabled: false` is dropped here, at load time, rather than checked on every
+    request - the same reasoning as the regex. Dropping it is also what makes disabling a
+    conditional disable everything nested inside it for free: its branches and otherwise are never
+    even parsed, so there is nothing left to separately skip.
     """
     prepared = []
     for action in (raw_actions or []):
         if not isinstance(action, dict) or not action.get('type'):
+            continue
+        if action.get('enabled') is False:
             continue
         if action['type'] in ('IF_REQUEST', 'IF_RESPONSE'):
             action['__branches'] = [Branch(b) for b in (action.get('branches') or []) if isinstance(b, dict)]
