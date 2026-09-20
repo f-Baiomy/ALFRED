@@ -434,6 +434,21 @@ describe('InterceptionPanelComponent', () => {
           .toBe(component.visibleLines().length);
       });
 
+      it('opts the scroller out of CSS scroll anchoring', () => {
+        // Found live: the top spacer's height changes on every 'scroll' event, ABOVE the
+        // viewport - exactly what scroll anchoring watches for. It nudges scrollTop to
+        // compensate, which resizes the spacer again, which gets compensated again, and the
+        // loop accelerates because each correction is bigger than the last. A 5-tick scroll (a
+        // plain ~500px nudge) span the loop open and landed at the very bottom of an 85,600px
+        // body in under a second, with no further input. Karma can't drive a real wheel gesture
+        // to re-run that, but it CAN catch the fix being silently reverted.
+        open(jsonChange);
+
+        const body = fixture.nativeElement.querySelector('.intercept-body') as HTMLElement;
+
+        expect(getComputedStyle(body).overflowAnchor).toBe('none');
+      });
+
       it('leaves an ordinary body rendered exactly as it always was', () => {
         // Below the threshold nothing changes - no spacers, every row present.
         open(jsonChange);

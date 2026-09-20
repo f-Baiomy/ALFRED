@@ -47,7 +47,8 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
-  'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel, .drag-handle';
+  'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel, ' +
+  'app-interception-panel, .drag-handle';
 
 /**
  * One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the

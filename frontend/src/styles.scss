@@ -6715,6 +6715,28 @@ h1.page-title {
   width: 1px;
 }
 
+/*
+ * Without this, scrolling never stops where you released it.
+ *
+ * The top spacer's height changes on every 'scroll' event (it is `range().start * ROW_HEIGHT_PX`,
+ * recomputed from the new scrollTop). That resize happens ABOVE the current viewport, which is
+ * exactly what CSS "scroll anchoring" watches for: the browser nudges scrollTop to compensate, so
+ * the visible rows don't visually jump. But that nudge is itself a scroll, which resizes the
+ * spacer again, which gets compensated again - a feedback loop with no natural floor, and it
+ * accelerates because each correction is larger than the last. Measured live: a 5-tick scroll (a
+ * plain ~500px nudge, confirmed by disabling anchoring and re-measuring) span open the loop and
+ * landed at scrollTop 85,310 - effectively the very bottom of an 85,600px-tall body - in well
+ * under a second, with no further input.
+ *
+ * `overflow-anchor: none` opts this scroller out of the anchoring node search entirely, which is
+ * the standard fix for a virtualized list with spacers on both ends. Set on the container itself,
+ * unconditionally rather than only `&.windowed`, because it costs nothing below the threshold and
+ * a future change to when windowing kicks in should not have to remember to bring this back.
+ */
+.intercept-body {
+  overflow-anchor: none;
+}
+
 .il {
   display: block;
   /* `pre` not `pre-wrap`: a diff line that wraps loses the alignment that makes the +/- column

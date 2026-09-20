@@ -525,4 +525,48 @@ describe('CallCardComponent', () => {
       httpMock.expectNone((r) => r.url.includes('/detail'));
     });
   });
+
+  describe('the before/after panel is exempt from click-to-select', () => {
+    /**
+     * Clicking anywhere on a card toggles its selection (see onMouseDown) - that is the
+     * point of the "click the row" target. But the before/after panel is exactly where
+     * somebody wants to drag-select and copy a piece of a request or response, and mousedown
+     * bubbles: without this exemption, starting that selection also toggled the call and
+     * (via preventDefault) stopped native text selection from starting at all.
+     */
+    function callWithInterception(): CallRecord {
+      return makeCall({
+        interception: {
+          applied: [{ action: 'REPLACE_RESPONSE' }],
+          originalResponse: { status: 200, headers: {}, body: '{"a":1}' },
+          finalResponse: { status: 500, headers: {}, body: '{"a":2}' },
+        },
+      } as Partial<CallRecord>);
+    }
+
+    it('does not toggle selection when the mousedown lands inside it', () => {
+      const fixture = createCard(callWithInterception());
+      const host: HTMLElement = fixture.nativeElement;
+      const selection = TestBed.inject(CALL_SELECTION_STATE);
+      const spy = spyOn(selection, 'startDragSelect').and.callThrough();
+
+      host
+        .querySelector('app-interception-panel')!
+        .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('still toggles selection for a mousedown elsewhere on the card', () => {
+      // The exemption must not swallow the feature it is carved out of.
+      const fixture = createCard(callWithInterception());
+      const host: HTMLElement = fixture.nativeElement;
+      const selection = TestBed.inject(CALL_SELECTION_STATE);
+      const spy = spyOn(selection, 'startDragSelect').and.callThrough();
+
+      host.querySelector('.call-top')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+
+      expect(spy).toHaveBeenCalled();
+    });
+  });
 });

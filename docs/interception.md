@@ -668,6 +668,24 @@ body button produced all 4,507 lines.
 > the *headers* — which are numbered before the body — resolved to body line 0 and scrolled for a
 > match that was never there. Caught by a test written for the offset case.
 
+**A second bug shipped with the windowing itself: scrolling never stopped where you released it.**
+The top spacer's height changes on every `scroll` event — it is `range().start * ROW_HEIGHT_PX`,
+recomputed from the new `scrollTop` — and that resize happens *above* the current viewport, which
+is exactly what CSS scroll anchoring watches for. The browser nudges `scrollTop` to keep the
+visible rows from jumping; that nudge resizes the spacer again; which gets compensated again — a
+feedback loop with no natural floor, accelerating because each correction is bigger than the last.
+
+Measured live: a 5-tick wheel scroll (a plain ~500 px nudge, confirmed by disabling anchoring and
+re-measuring the identical gesture) opened the loop and landed at `scrollTop` 85,310 — effectively
+the very bottom of an 85,600 px body — in well under a second, with no further input. The
+pre-existing flat view, windowed the same way, did **not** reproduce this under the identical
+gesture; the difference was never isolated, but the fix needed no theory about why one was
+affected and the other wasn't. `overflow-anchor: none` on `.intercept-body` opts the scroller out
+of the anchoring node search entirely — the standard fix for a virtualized list with spacers on
+both ends — and the same gesture now settles at exactly 500, then 1,500 after a further 10 ticks,
+proportional and stable. A Karma test can't drive a real wheel gesture to re-run the loop, so the
+regression guard only asserts the computed style, which at least catches the fix being reverted.
+
 Verified live through the proxy: a JSON response edited by a rule rendered 16 pretty-printed lines
 with 22 coloured spans resolving to the theme's own `--tok-*` (key `rgb(196,181,253)` =
 `#c4b5fd`); searching `a` found 22 matches across 10 in the headers and 12 in the body under one
