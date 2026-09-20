@@ -6965,40 +6965,113 @@ h1.page-title {
 }
 
 .body-editor {
+  /* ONE set of metrics for the gutter, the painted layer and the textarea. Written as custom
+     properties rather than repeated three times, because the whole illusion is that the caret
+     sits exactly on top of the coloured glyph underneath it - and three copies of a line-height
+     is three chances for that to drift by a fraction and smear. */
+  --body-font: ui-monospace, Consolas, monospace;
+  --body-size: 0.74rem;
+  --body-line: 1.6;
+  --body-pad: 0.7rem;
+
   display: flex;
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow: hidden;
   background: var(--card-inner);
+
+  /* A DEFINITE height, so the body scrolls inside the editor rather than the editor growing to
+     fit the body. The gutter is a column of one span per line, and as a flex item its natural
+     height is all of them - which silently turned a 200-line payload into a 3,400px-tall box
+     and a 110k-line one into something unusable. Resizable, because 26rem is a guess about how
+     much of a payload somebody wants on screen. */
+  height: 26rem;
+  max-height: 60vh;
+  resize: vertical;
+  overflow: hidden;
+}
+
+/* The two layers, stacked. */
+.body-input-stack {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.body-highlight,
+.body-editor .paused-body {
+  font-family: var(--body-font);
+  font-size: var(--body-size);
+  line-height: var(--body-line);
+  padding: var(--body-pad) 0.8rem;
+  white-space: pre;
+  tab-size: 2;
+  border: 0;
+  margin: 0;
+}
+
+.body-highlight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden; /* scrolled in step with the textarea, never on its own */
+  pointer-events: none;
+  color: var(--text);
+  background: none;
+}
+
+.hl-line {
+  /* An empty line still has to occupy one, or every line below it shifts up relative to the
+     caret sitting on top. */
+  min-height: calc(var(--body-size) * var(--body-line));
+}
+
+/* Transparent glyphs, real caret. The text you read is the painted layer underneath. */
+.body-editor .paused-body.painted {
+  color: transparent;
+  caret-color: var(--text);
+  background: none;
+
+  &::selection {
+    /* The selection rectangle is the only thing that still paints from this layer, so it has to
+       be visible against the colours showing through it. */
+    background: color-mix(in srgb, var(--purple) 45%, transparent);
+  }
 }
 
 .body-gutter {
   display: flex;
   flex-direction: column;
-  padding: 0.7rem 0.45rem 0.7rem 0.6rem;
+  padding: var(--body-pad) 0.45rem var(--body-pad) 0.6rem;
   background: color-mix(in srgb, var(--purple) 7%, transparent);
   border-right: 1px solid var(--border);
   color: var(--text-faint);
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 0.74rem;
-  line-height: 1.6;
+  font-family: var(--body-font);
+  font-size: var(--body-size);
+  line-height: var(--body-line);
   text-align: right;
   user-select: none;
   overflow: hidden;
   flex-shrink: 0;
   min-width: 2.6rem;
+  /* Scrolled in step with the textarea by syncGutter; its own content must never stretch the
+     row it sits in. */
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
 }
 
 .body-editor .paused-body {
-  border: none;
   border-radius: 0;
   background: none;
-  /* Must match the gutter exactly, or the numbers drift from the lines they count. */
-  line-height: 1.6;
-  font-size: 0.74rem;
-  white-space: pre;
   overflow: auto;
   flex: 1;
+  min-width: 0;
+  /* Fills the editor rather than setting its size - see the note on .body-editor's height. */
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  resize: none;
 }
 
 .body-foot {

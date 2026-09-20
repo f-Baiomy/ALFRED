@@ -58,6 +58,13 @@ describe('PausedCallsComponent', () => {
     http.verify({ ignoreCancelled: true });
   });
 
+  // The xmlns matters: a namespace prefix with no declaration is not well-formed XML and
+  // DOMParser rejects it - which is exactly what keeps an HTML error page from being read as a
+  // SOAP envelope. A real supplier response always declares it.
+  const SOAP =
+    '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">' +
+    '<soap:Body><Search><Origin>CAI</Origin></Search></soap:Body></soap:Envelope>';
+
   it('renders nothing at all when nothing is paused', () => {
     load([]);
 
@@ -364,12 +371,6 @@ describe('PausedCallsComponent', () => {
   });
 
   describe('reading and editing the body', () => {
-    // The xmlns matters: a namespace prefix with no declaration is not well-formed XML, and
-    // DOMParser rejects it - which is exactly what keeps an HTML error page from being read as
-    // a SOAP envelope. A real supplier response always declares it.
-    const SOAP =
-      '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">' +
-      '<soap:Body><Search><Origin>CAI</Origin></Search></soap:Body></soap:Envelope>';
 
     it('pretty-prints a minified JSON body on arrival', () => {
       // A 4 KB payload on one line cannot be read, let alone edited.
@@ -485,6 +486,121 @@ describe('PausedCallsComponent', () => {
 
       component.onBodyInput({ target: { value: 'grant_type=x' } } as unknown as Event);
       expect(component.inspectVariant()).toBe('plain');
+    });
+  });
+
+  describe('the coloured editor', () => {
+    const BIG = '{"a":"' + 'x'.repeat(520_000) + '"}';
+
+    it('paints the same tokens Inspect would, so the two cannot disagree', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
+
+      const painted = component.editorLines();
+      component.setBodyMode('inspect');
+      const inspected = component.inspectLines();
+
+      expect(painted.length).toBe(inspected.length);
+      expect(painted[0].tokens.map((t) => [t.cls, t.text]))
+        .toEqual(inspected[0].tokens.map((t) => [t.cls, t.text]));
+    });
+
+    it('colours a JSON key, string and number the way the call cards do', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":"x","b":2}' } })]);
+
+      const classes = component.editorLines().flatMap((line) => line.tokens.map((t) => t.cls));
+
+      expect(classes).toContain('k'); // key -> --tok-key
+      expect(classes).toContain('s'); // string -> --tok-string
+      expect(classes).toContain('n'); // number -> --tok-number
+    });
+
+    it('colours XML through the XML tokenizer, not the JSON one', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: SOAP } })]);
+
+      const tokens = component.editorLines().flatMap((line) => line.tokens);
+
+      expect(tokens.some((t) => t.cls === 'k' && t.text.startsWith('<soap:'))).toBeTrue();
+    });
+
+    it('leaves a plain-text body uncoloured rather than colouring it as JSON', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: 'grant_type=x&scope=read' } })]);
+
+      expect(component.editorLines().flatMap((l) => l.tokens).every((t) => !t.cls)).toBeTrue();
+    });
+
+    it('highlights search matches in the editor, not only in Inspect', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"seats":1}' } })]);
+
+      component.onQuery({ target: { value: 'seats' } } as unknown as Event);
+
+      expect(component.editorLines().flatMap((l) => l.tokens).some((t) => t.highlighted)).toBeTrue();
+    });
+
+    it('switches the paint off for a body too large to retokenize per keystroke', () => {
+      // Worse to make typing unusable than to show monochrome text.
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: BIG } })]);
+
+      expect(component.overlayEnabled()).toBeFalse();
+      expect(component.editorLines()).toEqual([]);
+    });
+
+    it('builds nothing for the layer that is not on screen', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
+
+      expect(component.inspectLines()).toEqual([]);
+      component.setBodyMode('inspect');
+      expect(component.editorLines()).toEqual([]);
+      expect(component.inspectLines().length).toBeGreaterThan(0);
+    });
+
+    it('keeps the editor a fixed size and scrolls the body inside it', () => {
+      // The gutter is one span per line, and as a flex item its natural height is all of them -
+      // which turned a 200-line payload into a 3,400px box and the page, not the editor, into
+      // the thing that scrolled. Caught by measuring, not by looking.
+      load([
+        paused({
+          heldAt: Date.now(),
+          response: {
+            status: 200,
+            headers: {},
+            body: JSON.stringify(Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`k${i}`, i]))),
+          },
+        }),
+      ]);
+
+      const editor = fixture.nativeElement.querySelector('.body-editor') as HTMLElement;
+      const area = fixture.nativeElement.querySelector('.body-editor textarea') as HTMLTextAreaElement;
+
+      expect(component.lineNumbers().length).toBeGreaterThan(190);
+      expect(editor.getBoundingClientRect().height).toBeLessThan(700);
+      expect(area.scrollHeight).toBeGreaterThan(area.clientHeight);
+    });
+
+    it('scrolls the painted layer and the gutter in step with the textarea', () => {
+      // Both axes: the textarea does not wrap, and a horizontal scroll that moved only the caret
+      // would slide the text out from under it.
+      load([
+        paused({
+          heldAt: Date.now(),
+          response: {
+            status: 200,
+            headers: {},
+            body: JSON.stringify(Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`k${i}`, i]))),
+          },
+        }),
+      ]);
+
+      const area = fixture.nativeElement.querySelector('.body-editor textarea') as HTMLTextAreaElement;
+      const pre = fixture.nativeElement.querySelector('.body-highlight') as HTMLElement;
+      const gutter = fixture.nativeElement.querySelector('.body-gutter') as HTMLElement;
+
+      area.scrollTop = 120;
+      area.scrollLeft = 30;
+      component.syncGutter();
+
+      expect(pre.scrollTop).toBe(area.scrollTop);
+      expect(pre.scrollLeft).toBe(area.scrollLeft);
+      expect(gutter.scrollTop).toBe(area.scrollTop);
     });
   });
 });

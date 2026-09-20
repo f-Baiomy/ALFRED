@@ -207,15 +207,27 @@
                       <span>{{ n }}</span>
                     }
                   </div>
-                  <textarea
-                    class="paused-body"
-                    spellcheck="false"
-                    wrap="off"
-                    #bodyArea
-                    [value]="currentBody()"
-                    (input)="onBodyInput($event)"
-                    (scroll)="syncGutter()"
-                  ></textarea>
+                  <!-- Two layers in exact register: the coloured text is painted by a <pre>
+                       underneath, and the textarea on top has transparent glyphs but a real
+                       caret and selection. A textarea cannot colour its own content, and this
+                       is the only way to keep native editing while showing syntax. Their font
+                       metrics come from one set of custom properties on .body-editor precisely
+                       so they cannot drift apart. -->
+                  <div class="body-input-stack">
+                    @if (overlayEnabled()) {
+                      <pre class="body-highlight" aria-hidden="true" #highlight>@for (line of editorLines(); track line.index) {<div class="hl-line"><app-json-tokens [tokens]="line.tokens" [activeMatchIndex]="activeMatch()" /></div>}</pre>
+                    }
+                    <textarea
+                      class="paused-body"
+                      [class.painted]="overlayEnabled()"
+                      spellcheck="false"
+                      wrap="off"
+                      #bodyArea
+                      [value]="currentBody()"
+                      (input)="onBodyInput($event)"
+                      (scroll)="syncGutter()"
+                    ></textarea>
+                  </div>
                 </div>
               } @else {
                 <!-- The very same component the call cards render a body with, told which

@@ -5,11 +5,13 @@ import { PauseDecision, PausedCall } from '../../core/models/interception.model'
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
+import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { highlightTokens, tokenizeJsonText } from '../../shared/utils/json-tokenizer';
 import { tokenizeXmlText } from '../../shared/utils/xml-tokenizer';
 import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
 import {
   BodyKind,
+  LIVE_CHECK_LIMIT,
   detectBodyKind,
   findMatches,
   formatBody,
@@ -49,7 +51,7 @@ type BodyMode = 'edit' | 'inspect';
 @Component({
   selector: 'app-paused-calls',
   standalone: true,
-  imports: [StatusPickerComponent, JsonFlatViewComponent],
+  imports: [StatusPickerComponent, JsonFlatViewComponent, JsonTokensComponent],
   templateUrl: './paused-calls.component.html',
 })
 export class PausedCallsComponent {
@@ -58,6 +60,7 @@ export class PausedCallsComponent {
 
   private readonly bodyArea = viewChild<ElementRef<HTMLTextAreaElement>>('bodyArea');
   private readonly gutter = viewChild<ElementRef<HTMLElement>>('gutter');
+  private readonly highlight = viewChild<ElementRef<HTMLElement>>('highlight');
 
   private readonly selectedId = signal<string | null>(null);
   readonly tab = signal<Tab>('response');
@@ -201,16 +204,34 @@ export class PausedCallsComponent {
   });
 
   /**
-   * The same tokenize → highlight → split pipeline the call cards run, so Inspect is not a
-   * lookalike of that view: it is that view, told which tokenizer to use.
+   * The same tokenize → highlight → split pipeline the call cards run, so neither the editor nor
+   * Inspect is a lookalike of that view - they render the very tokens it renders, told which
+   * tokenizer to use. One computed feeds both layers, so the coloured text behind the caret and
+   * the read-only view can never disagree about what a body says.
    */
-  readonly inspectLines = computed<readonly LineTokens[]>(() => {
-    if (this.bodyMode() !== 'inspect') return [];
+  private readonly tokenizedLines = computed<readonly LineTokens[]>(() => {
     const text = this.currentBody();
     const tokens = this.bodyKind() === 'xml' ? tokenizeXmlText(text) : tokenizeJsonText(text);
     const highlighted = highlightTokens(tokens, this.query()).tokens;
     return splitTokensIntoLines(highlighted).map((tokensOnLine, index) => ({ index, tokens: tokensOnLine }));
   });
+
+  readonly inspectLines = computed<readonly LineTokens[]>(() =>
+    this.bodyMode() === 'inspect' ? this.tokenizedLines() : []
+  );
+
+  /**
+   * Whether the editor paints coloured text behind the caret.
+   *
+   * Off past the same size limit the validity check uses, and for the same reason: re-tokenizing
+   * a 6 MB body on every keystroke would make typing unusable, which is a worse failure than
+   * monochrome text. Inspect still renders it, because that view is windowed.
+   */
+  readonly overlayEnabled = computed(() => this.currentBody().length <= LIVE_CHECK_LIMIT);
+
+  readonly editorLines = computed<readonly LineTokens[]>(() =>
+    this.bodyMode() === 'edit' && this.overlayEnabled() ? this.tokenizedLines() : []
+  );
 
   /** Plain text gets no syntax colouring - pretending otherwise would colour a SOAP fault as JSON. */
   readonly inspectVariant = computed(() => (this.bodyKind() === 'text' ? 'plain' : 'json'));
@@ -372,11 +393,21 @@ export class PausedCallsComponent {
     this.syncGutter();
   }
 
-  /** The gutter is a separate element, so it has to be told where the textarea scrolled to. */
+  /**
+   * The gutter and the coloured layer are separate elements, so both have to be told where the
+   * textarea scrolled to. The overlay needs BOTH axes: the textarea does not wrap, and a
+   * horizontal scroll that moved only the caret would slide the text out from under it.
+   */
   syncGutter(): void {
     const area = this.bodyArea()?.nativeElement;
+    if (!area) return;
     const gutter = this.gutter()?.nativeElement;
-    if (area && gutter) gutter.scrollTop = area.scrollTop;
+    if (gutter) gutter.scrollTop = area.scrollTop;
+    const highlight = this.highlight()?.nativeElement;
+    if (highlight) {
+      highlight.scrollTop = area.scrollTop;
+      highlight.scrollLeft = area.scrollLeft;
+    }
   }
 
   onStatusChange(status: number): void {
