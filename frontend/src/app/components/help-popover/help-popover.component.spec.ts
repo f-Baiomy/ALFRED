@@ -88,4 +88,17 @@ describe('HelpPopoverComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.help-warning')).toBeNull();
   });
+
+  it('sits on a solid surface, not a translucent one', () => {
+    // Glass themes make every other surface variable an rgba over the page background. That is
+    // right for a card resting on the page and unreadable for a panel of dense text resting on
+    // the rule you are in the middle of editing - which is exactly how this shipped first.
+    render([entry()]);
+    component.toggle(new MouseEvent('click'));
+    fixture.detectChanges();
+
+    const panel = fixture.nativeElement.querySelector('.help-panel') as HTMLElement;
+    expect(panel.style.getPropertyValue('background') || getComputedStyle(panel).background)
+      .not.toContain('rgba');
+  });
 });

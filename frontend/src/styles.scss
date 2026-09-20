@@ -54,6 +54,10 @@
   // Set precisely by HeaderComponent via ResizeObserver once it renders - this fallback only
   // matters for the brief instant before that first measurement lands.
   --header-height: 96px;
+  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
+     every other surface variable translucent, which is right for a card resting on the
+     page and unreadable for a popover resting on arbitrary content. */
+  --popover-solid: #161c4a;
 }
 
 * {
@@ -3514,6 +3518,10 @@ mark.hl.active {
   --tok-bool: #be185d;
   --tok-null: #6b7280;
   --card-blur: 0px;
+  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
+     every other surface variable translucent, which is right for a card resting on the
+     page and unreadable for a popover resting on arbitrary content. */
+  --popover-solid: #ffffff;
 }
 
 [data-theme='light-glass'] {
@@ -3542,6 +3550,10 @@ mark.hl.active {
   --tok-bool: #9f1239;
   --tok-null: #475569;
   --card-blur: 10px;
+  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
+     every other surface variable translucent, which is right for a card resting on the
+     page and unreadable for a popover resting on arbitrary content. */
+  --popover-solid: #eef4fb;
 }
 
 [data-theme='easy'] {
@@ -3570,6 +3582,10 @@ mark.hl.active {
   --tok-bool: #000000;
   --tok-null: #333333;
   --card-blur: 0px;
+  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
+     every other surface variable translucent, which is right for a card resting on the
+     page and unreadable for a popover resting on arbitrary content. */
+  --popover-solid: #ffffff;
 }
 
 [data-theme='dracula'] {
@@ -3597,6 +3613,10 @@ mark.hl.active {
   --tok-bool: #50fa7b;
   --tok-null: #6272a4;
   --card-blur: 0px;
+  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
+     every other surface variable translucent, which is right for a card resting on the
+     page and unreadable for a popover resting on arbitrary content. */
+  --popover-solid: #343746;
 }
 
 [data-theme='midnight'] {
@@ -3624,6 +3644,10 @@ mark.hl.active {
   --tok-bool: #f472b6;
   --tok-null: #6b6b6b;
   --card-blur: 0px;
+  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
+     every other surface variable translucent, which is right for a card resting on the
+     page and unreadable for a popover resting on arbitrary content. */
+  --popover-solid: #0d0d0f;
 }
 
 [data-theme='dark-glass'] {
@@ -3651,6 +3675,10 @@ mark.hl.active {
   --tok-bool: #e0a8cc;
   --tok-null: #6b6b7a;
   --card-blur: 6px;
+  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
+     every other surface variable translucent, which is right for a card resting on the
+     page and unreadable for a popover resting on arbitrary content. */
+  --popover-solid: #241f3d;
 }
 
 [data-theme='slate'] {
@@ -3678,6 +3706,10 @@ mark.hl.active {
   --tok-bool: #e37ec4;
   --tok-null: #6b6b73;
   --card-blur: 3px;
+  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
+     every other surface variable translucent, which is right for a card resting on the
+     page and unreadable for a popover resting on arbitrary content. */
+  --popover-solid: #1e1e21;
 }
 
 // ---------- Theme picker (in the tab-nav bar, top right) ----------
@@ -6716,7 +6748,11 @@ h1.page-title {
   max-height: 70vh;
   overflow-y: auto;
   z-index: 200;
-  background: var(--card-elevated, var(--card));
+  /* Solid, not the usual --card-elevated: this panel is dense text laid over the rule the user
+     is reading, and a translucent one puts two paragraphs on top of each other. The other
+     popovers pick a label from a short list and get away with blur; this one cannot. */
+  background: var(--popover-solid);
+  backdrop-filter: none;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55);
