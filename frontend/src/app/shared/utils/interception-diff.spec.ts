@@ -59,14 +59,71 @@ describe('interception diff', () => {
       expect(diffLines(null, null)).toEqual([]);
     });
 
-    it('stays correct rather than minimal on a body too large to diff properly', () => {
-      // The LCS table is O(n*m) and this runs on the main thread. Past the bound the answer is
-      // still truthful - everything changed - which beats locking the tab for a nicer diff.
+    it('trims the matching ends first, so one real edit in a huge body stays a real diff', () => {
+      // Found live: editing ONE field in a 7,368-line intercepted response rendered the WHOLE
+      // body as removed-then-added. The untrimmed body was past MAX_DIFF_LINES, and the bound's
+      // fallback marks everything changed rather than nothing - correct in the sense of never
+      // lying, useless in the sense of being asked to find what changed. A real edit changes a
+      // handful of lines inside a body that is otherwise identical top and bottom; this is that
+      // shape, just past the size the OLD bound tolerated.
+      const before = Array.from({ length: 3500 }, (_, i) => `line ${i}`).join('\n');
+      const after = before.replace('line 1750', 'line CHANGED');
+
+      const lines = diffLines(before, after);
+
+      expect(lines.filter((l) => l.kind === 'same').length).toBe(3499);
+      expect(lines.filter((l) => l.kind === 'removed').map((l) => l.text)).toEqual(['line 1750']);
+      expect(lines.filter((l) => l.kind === 'added').map((l) => l.text)).toEqual(['line CHANGED']);
+    });
+
+    it('still falls back honestly when the CHANGED part itself is too large to diff', () => {
+      // The bound still exists - trimming the matching ends cannot help when most of the body
+      // really did change, and showing it all as different is the honest answer there, not a
+      // compromise.
       const big = Array.from({ length: 3500 }, (_, i) => `line ${i}`).join('\n');
-      const lines = diffLines(big, big + '\nextra');
+      const shuffled = Array.from({ length: 3500 }, (_, i) => `line ${3499 - i}`).join('\n');
+
+      const lines = diffLines(big, shuffled);
 
       expect(lines.some((l) => l.kind === 'same')).toBeFalse();
       expect(lines.filter((l) => l.kind === 'removed').length).toBe(3500);
+      expect(lines.filter((l) => l.kind === 'added').length).toBe(3500);
+    });
+
+    it('trims a common prefix and a common suffix at once, around a single-line edit', () => {
+      const lines = diffLines('a\nb\nc\nd\ne', 'a\nb\nX\nd\ne');
+
+      expect(lines.map((l) => [l.kind, l.text])).toEqual([
+        ['same', 'a'],
+        ['same', 'b'],
+        ['removed', 'c'],
+        ['added', 'X'],
+        ['same', 'd'],
+        ['same', 'e'],
+      ]);
+    });
+
+    it('trims correctly when the two sides are different lengths', () => {
+      // A value growing or shrinking enough to add or remove a pretty-printed line - the suffix
+      // trim has to walk from each side's OWN end, not assume they line up.
+      const lines = diffLines('a\nb\nc\nd', 'a\nb\nX\nY\nc\nd');
+
+      expect(lines.map((l) => [l.kind, l.text])).toEqual([
+        ['same', 'a'],
+        ['same', 'b'],
+        ['added', 'X'],
+        ['added', 'Y'],
+        ['same', 'c'],
+        ['same', 'd'],
+      ]);
+    });
+
+    it('reports two entirely different bodies as entirely different, not as one giant "same"', () => {
+      // A degenerate case for prefix/suffix trimming: nothing at the start or end matches at
+      // all, so the whole thing has to go through the real diff untouched.
+      const lines = diffLines('one\ntwo\nthree', 'uno\ndos\ntres');
+
+      expect(lines.every((l) => l.kind !== 'same')).toBeTrue();
     });
   });
 

@@ -106,14 +106,64 @@ export function sharedBodyKind(before: string | null | undefined, after: string 
 }
 
 /**
- * Longest-common-subsequence line diff.
+ * Longest-common-subsequence line diff, on whatever is left after trimming the common ends off.
  *
- * O(n*m) in memory, which is why it is bounded: two 5,000-line bodies would be 25 million cells,
- * and this runs in the browser on the main thread. Past the bound the caller still gets a correct
- * answer - every line marked changed - just not a minimal one, which is the right trade when the
- * alternative is locking the tab.
+ * O(n*m) in memory over whatever it is given, which is why it only ever runs on the part that
+ * might actually differ (see `diffLines`) rather than the whole body - a bound sized for the WHOLE
+ * body would either be too small to be useful (a real search response is thousands of lines) or
+ * too large to be safe (two 5,000-line bodies is 25 million cells on the main thread).
  */
 const MAX_DIFF_LINES = 3000;
+
+function lcsDiff(
+  a: readonly string[],
+  b: readonly string[],
+  sideA: DiffSide,
+  sideB: DiffSide,
+  aStart: number,
+  bStart: number,
+  aLen: number,
+  bLen: number
+): DiffLine[] {
+  const lineA = (i: number): DiffLine => ({ kind: 'removed', text: a[i], tokens: sideA.tokenLines?.[i] ?? null });
+  const lineB = (j: number): DiffLine => ({ kind: 'added', text: b[j], tokens: sideB.tokenLines?.[j] ?? null });
+
+  if (aLen > MAX_DIFF_LINES || bLen > MAX_DIFF_LINES) {
+    const out: DiffLine[] = [];
+    for (let i = aStart; i < aStart + aLen; i++) out.push(lineA(i));
+    for (let j = bStart; j < bStart + bLen; j++) out.push(lineB(j));
+    return out;
+  }
+
+  // Classic LCS table, sized to this range only, then walk it back into a line list.
+  const lcs: number[][] = Array.from({ length: aLen + 1 }, () => new Array<number>(bLen + 1).fill(0));
+  for (let i = aLen - 1; i >= 0; i--) {
+    for (let j = bLen - 1; j >= 0; j--) {
+      lcs[i][j] =
+        a[aStart + i] === b[bStart + j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+
+  const out: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < aLen && j < bLen) {
+    if (a[aStart + i] === b[bStart + j]) {
+      // An unchanged line is the same text on both sides, so either side's tokens will do -
+      // the "before" side is used consistently rather than arbitrarily.
+      out.push({ kind: 'same', text: a[aStart + i], tokens: sideA.tokenLines?.[aStart + i] ?? null });
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      out.push(lineA(aStart + i++));
+    } else {
+      out.push(lineB(bStart + j++));
+    }
+  }
+  while (i < aLen) out.push(lineA(aStart + i++));
+  while (j < bLen) out.push(lineB(bStart + j++));
+  return out;
+}
 
 export function diffLines(
   before: string | null | undefined,
@@ -126,40 +176,35 @@ export function diffLines(
   const a = sideA.lines;
   const b = sideB.lines;
 
-  const lineA = (i: number): DiffLine => ({ kind: 'removed', text: a[i], tokens: sideA.tokenLines?.[i] ?? null });
-  const lineB = (j: number): DiffLine => ({ kind: 'added', text: b[j], tokens: sideB.tokenLines?.[j] ?? null });
-
   if (a.length === 0 && b.length === 0) return [];
-  if (a.length > MAX_DIFF_LINES || b.length > MAX_DIFF_LINES) {
-    return [...a.map((_, i) => lineA(i)), ...b.map((_, j) => lineB(j))];
-  }
 
-  // Classic LCS table, then walk it back into a line list.
-  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
-  for (let i = a.length - 1; i >= 0; i--) {
-    for (let j = b.length - 1; j >= 0; j--) {
-      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
-    }
-  }
+  /*
+   * Trim the common prefix and suffix before touching the O(n*m) part at all.
+   *
+   * Found live: editing ONE field in a 7,368-line intercepted response rendered the WHOLE body as
+   * removed-then-added, because the untrimmed body was well past MAX_DIFF_LINES and the bound's
+   * fallback marks everything changed rather than nothing. But a real edit - one JSON value, one
+   * header - changes a handful of lines inside a body that is otherwise byte-identical top and
+   * bottom. Stripping the matching ends first turns "diff two 7,368-line arrays" into "diff the
+   * three lines around the edit", which is cheap enough to run properly AND produces the real
+   * diff instead of the size bound's fallback. The bound above still exists for the genuinely
+   * large case - most of a huge body actually rewritten - where showing it all as changed is not
+   * a compromise, it is the honest answer.
+   */
+  const maxCommon = Math.min(a.length, b.length);
+  let prefix = 0;
+  while (prefix < maxCommon && a[prefix] === b[prefix]) prefix++;
+
+  let suffix = 0;
+  const maxSuffix = maxCommon - prefix;
+  while (suffix < maxSuffix && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
+
+  const sameLine = (i: number): DiffLine => ({ kind: 'same', text: a[i], tokens: sideA.tokenLines?.[i] ?? null });
 
   const out: DiffLine[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      // An unchanged line is the same text on both sides, so either side's tokens will do -
-      // the "before" side is used consistently rather than arbitrarily.
-      out.push({ kind: 'same', text: a[i], tokens: sideA.tokenLines?.[i] ?? null });
-      i++;
-      j++;
-    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
-      out.push(lineA(i++));
-    } else {
-      out.push(lineB(j++));
-    }
-  }
-  while (i < a.length) out.push(lineA(i++));
-  while (j < b.length) out.push(lineB(j++));
+  for (let i = 0; i < prefix; i++) out.push(sameLine(i));
+  out.push(...lcsDiff(a, b, sideA, sideB, prefix, prefix, a.length - suffix - prefix, b.length - suffix - prefix));
+  for (let i = a.length - suffix; i < a.length; i++) out.push(sameLine(i));
   return out;
 }
 

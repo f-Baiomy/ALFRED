@@ -632,6 +632,33 @@ cards render — so an envelope in this panel looks exactly like the one on the 
   copied without the surrounding labels, since copying just a body is almost always in order to
   replay it. The button that copied is the one that confirms.
 
+### Diffing a large body without giving up and marking it all changed
+
+`diffLines`' LCS table is O(n·m), so it is bounded (`MAX_DIFF_LINES`) — past the bound the old code
+gave up entirely and returned the *whole* before side marked removed, then the *whole* after side
+marked added, concatenated. That fallback is truthful (nothing it claims changed is wrong) but
+useless the moment it fires on a real edit: **one field changed in a 3,684-line intercepted
+response rendered the entire body, twice over, as one giant deletion followed by one giant
+addition** — because the untouched body was well past the bound, and the bound's fallback has no
+concept of "mostly the same."
+
+The fix is to never hand the O(n·m) part more than it needs. Real edits — one JSON value, one
+renamed key, one header — change a handful of lines inside a body that is otherwise
+byte-identical top and bottom. `diffLines` now strips the **common prefix and common suffix**
+before touching the LCS table at all, so "diff two 3,684-line arrays" becomes "diff the one or two
+lines around the actual edit." The expensive bound still exists and still fires — honestly and
+correctly — when the *middle* itself is too big to diff cheaply, which only happens when most of
+the body genuinely did change; that case has no better answer than "show it all," and now it is
+the true answer instead of the size bound's forced one.
+
+Verified against the exact real call this was found on — a 1,228-journey `FlightSearch/Search`
+response, 215 KB original vs 254 KB final, one field edited by hand in the paused-calls inspector.
+Before the fix the panel reported roughly 7,368 lines (the whole body, twice). After: **3,685
+lines, 3,683 same, 1 removed, 1 added** — the removed/added pair being exactly the field that was
+actually edited (a segment key renamed from `QRs7?QRs6` to `QRs7s`), nothing else in the body
+touched. Confirmed via the panel's own Copy Body button against the live record, not a synthetic
+fixture.
+
 ### Windowing it
 
 The panel built **every line of both halves** into a 340px box that shows about eighteen — and
