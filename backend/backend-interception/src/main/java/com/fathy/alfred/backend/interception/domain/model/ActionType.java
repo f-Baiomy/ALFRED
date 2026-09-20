@@ -43,6 +43,15 @@ public enum ActionType {
      * mocking rule without carving a hole in the broad rule itself.
      */
     SEND_TO_HOST(Phase.REQUEST),
+    /**
+     * Look at the call, then decide. Branches are tried in order and the first match wins; what a
+     * branch may contain is any action of this same phase, including a terminal or a pause.
+     *
+     * <p>Two types rather than one with a phase field, so phase stays derivable from the name the
+     * way every other action's is - which is what lets the editor sort actions into lanes and the
+     * engine skip the wrong half without a special case.
+     */
+    IF_REQUEST(Phase.REQUEST),
 
     DELAY_RESPONSE(Phase.RESPONSE),
     SET_RESPONSE_STATUS(Phase.RESPONSE),
@@ -58,7 +67,9 @@ public enum ActionType {
      * the client under test sees whatever you need it to.
      */
     REPLACE_RESPONSE(Phase.RESPONSE),
-    PAUSE_RESPONSE(Phase.RESPONSE);
+    PAUSE_RESPONSE(Phase.RESPONSE),
+    /** The response-phase counterpart of {@link #IF_REQUEST}. */
+    IF_RESPONSE(Phase.RESPONSE);
 
     public enum Phase { REQUEST, RESPONSE }
 
@@ -92,5 +103,9 @@ public enum ActionType {
 
     public boolean isPause() {
         return this == PAUSE_REQUEST || this == PAUSE_RESPONSE;
+    }
+
+    public boolean isConditional() {
+        return this == IF_REQUEST || this == IF_RESPONSE;
     }
 }

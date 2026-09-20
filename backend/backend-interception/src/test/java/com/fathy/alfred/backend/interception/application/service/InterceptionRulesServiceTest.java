@@ -80,7 +80,7 @@ class InterceptionRulesServiceTest {
 
     private static InterceptionRule delayRule(String name, int priority) {
         return new InterceptionRule(null, name, null, true, priority, false, RuleMatch.empty(),
-                List.of(new RuleAction(ActionType.DELAY_REQUEST, 1000, null, null, null, null, null, null, null, null, null)),
+                List.of(new RuleAction(ActionType.DELAY_REQUEST, 1000, null, null, null, null, null, null, null, null, null, null, null)),
                 null, null);
     }
 

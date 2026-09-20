@@ -24,10 +24,17 @@ import interception
 
 class FakeHeaders(dict):
     """mitmproxy's Headers is case-insensitive; dict is not, and the engine relies on the
-    difference in exactly one place (REMOVE_*_HEADER's membership test)."""
+    difference in two places - REMOVE_*_HEADER's membership test, and a condition looking a
+    header up by a name whose casing is not the caller's to predict."""
 
     def __contains__(self, key):
         return any(k.lower() == key.lower() for k in self.keys())
+
+    def get(self, key, default=None):
+        for existing, value in self.items():
+            if existing.lower() == (key or '').lower():
+                return value
+        return default
 
     def __setitem__(self, key, value):
         for existing in list(self.keys()):
@@ -776,6 +783,325 @@ class SimulateFailureTest(unittest.TestCase):
         self.assertEqual(verdict.as_log()['applied'][0]['detail'], 'empty reply, upstream never contacted')
 
 
+class ConditionTest(unittest.TestCase):
+    """Conditions: "look at the call, then decide".
+
+    Most of these assert one operator against one subject, because the combinations are the whole
+    surface and a quiet wrong answer in any of them sends a call down the wrong branch.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def holds(self, condition, flow):
+        return interception.Condition(condition).holds(flow)
+
+    def request_flow(self, **kwargs):
+        return FakeFlow(FakeRequest(**kwargs))
+
+    # ---- existence ----------------------------------------------------------------------
+
+    def test_exists_and_not_exists_on_a_header(self):
+        flow = self.request_flow(headers={'X-Api-Key': 'abc'})
+        self.assertTrue(self.holds({'subject': 'REQUEST_HEADER', 'name': 'x-api-key', 'operator': 'EXISTS'}, flow))
+        self.assertFalse(self.holds({'subject': 'REQUEST_HEADER', 'name': 'x-api-key', 'operator': 'NOT_EXISTS'}, flow))
+        self.assertTrue(self.holds({'subject': 'REQUEST_HEADER', 'name': 'nope', 'operator': 'NOT_EXISTS'}, flow))
+
+    def test_a_header_is_found_whatever_its_casing(self):
+        # HTTP header names are case-insensitive and the casing a supplier chooses is not the
+        # rule author's to predict.
+        flow = self.request_flow(headers={'X-Api-Key': 'abc'})
+        self.assertTrue(self.holds({'subject': 'REQUEST_HEADER', 'name': 'X-API-KEY', 'operator': 'EXISTS'}, flow))
+
+    def test_an_empty_header_still_exists(self):
+        flow = self.request_flow(headers={'X-Trace': ''})
+        self.assertTrue(self.holds({'subject': 'REQUEST_HEADER', 'name': 'x-trace', 'operator': 'EXISTS'}, flow))
+
+    # ---- the absent-subject rule --------------------------------------------------------
+
+    def test_an_absent_subject_satisfies_the_negative_operators_and_no_others(self):
+        # The one semantic here that surprises people, so it is pinned: a header that was never
+        # sent is not equal to anything, does not contain anything, and matches nothing - which
+        # makes every NOT_ form true.
+        flow = self.request_flow()
+        for operator in ('NOT_EQUALS', 'NOT_CONTAINS', 'NOT_MATCHES'):
+            self.assertTrue(
+                self.holds({'subject': 'REQUEST_HEADER', 'name': 'absent', 'operator': operator, 'value': 'x'}, flow),
+                operator)
+        for operator in ('EQUALS', 'CONTAINS', 'MATCHES', 'AT_LEAST', 'AT_MOST'):
+            self.assertFalse(
+                self.holds({'subject': 'REQUEST_HEADER', 'name': 'absent', 'operator': operator, 'value': '1'}, flow),
+                operator)
+
+    # ---- comparison ---------------------------------------------------------------------
+
+    def test_equals_ignores_case_unless_asked_not_to(self):
+        flow = self.request_flow(headers={'X-Env': 'STAGING'})
+        base = {'subject': 'REQUEST_HEADER', 'name': 'x-env', 'operator': 'EQUALS', 'value': 'staging'}
+        self.assertTrue(self.holds(base, flow))
+        self.assertFalse(self.holds({**base, 'caseSensitive': True}, flow))
+
+    def test_contains_is_a_substring_of_the_value(self):
+        flow = self.request_flow(headers={'User-Agent': 'Java/1.8.0_191'})
+        self.assertTrue(self.holds(
+            {'subject': 'REQUEST_HEADER', 'name': 'user-agent', 'operator': 'CONTAINS', 'value': 'java/1.8'}, flow))
+        self.assertFalse(self.holds(
+            {'subject': 'REQUEST_HEADER', 'name': 'user-agent', 'operator': 'CONTAINS', 'value': 'curl'}, flow))
+
+    def test_matches_uses_a_regex_compiled_once_at_load(self):
+        flow = self.request_flow(headers={'X-Version': 'v4.2.1'})
+        condition = interception.Condition(
+            {'subject': 'REQUEST_HEADER', 'name': 'x-version', 'operator': 'MATCHES', 'value': r'^v\d+\.\d+'})
+        self.assertIsNotNone(condition.pattern)
+        self.assertTrue(condition.holds(flow))
+
+    def test_numeric_comparison_on_a_status(self):
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=503, text=''))
+        self.assertTrue(self.holds({'subject': 'RESPONSE_STATUS', 'operator': 'AT_LEAST', 'value': '500'}, flow))
+        self.assertFalse(self.holds({'subject': 'RESPONSE_STATUS', 'operator': 'AT_MOST', 'value': '499'}, flow))
+
+    def test_a_non_numeric_value_fails_a_numeric_test_rather_than_throwing(self):
+        flow = self.request_flow(headers={'X-Count': 'many'})
+        self.assertFalse(self.holds(
+            {'subject': 'REQUEST_HEADER', 'name': 'x-count', 'operator': 'AT_LEAST', 'value': '1'}, flow))
+
+    # ---- subjects -----------------------------------------------------------------------
+
+    def test_body_url_and_method_subjects(self):
+        flow = self.request_flow(method='POST', path='/v4/order', text='{"currency":"EGP"}')
+        self.assertTrue(self.holds({'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'post'}, flow))
+        self.assertTrue(self.holds({'subject': 'URL', 'operator': 'CONTAINS', 'value': '/v4/order'}, flow))
+        self.assertTrue(self.holds({'subject': 'REQUEST_BODY', 'operator': 'CONTAINS', 'value': 'EGP'}, flow))
+
+    def test_query_parameter_subject(self):
+        flow = self.request_flow(query={'debug': 'true'})
+        self.assertTrue(self.holds({'subject': 'QUERY_PARAM', 'name': 'debug', 'operator': 'EQUALS', 'value': 'true'}, flow))
+        self.assertTrue(self.holds({'subject': 'QUERY_PARAM', 'name': 'other', 'operator': 'NOT_EXISTS'}, flow))
+
+    def test_json_field_subject_reads_a_nested_value(self):
+        flow = self.request_flow(text=json.dumps({'itinerary': {'seatsRemaining': 2}}))
+        self.assertTrue(self.holds(
+            {'subject': 'REQUEST_JSON_FIELD', 'name': 'itinerary.seatsRemaining', 'operator': 'AT_MOST', 'value': '3'},
+            flow))
+
+    def test_a_wildcard_path_holds_when_any_element_matches(self):
+        # `[*]` resolves to several values, so the honest reading of "contains" is "any of them
+        # does" - and its negative is "none of them does", which is the only pairing under which
+        # a condition and its negation cannot both be true.
+        flow = self.request_flow(text=json.dumps({'segments': [{'cabin': 'Y'}, {'cabin': 'J'}]}))
+        self.assertTrue(self.holds(
+            {'subject': 'REQUEST_JSON_FIELD', 'name': 'segments[*].cabin', 'operator': 'EQUALS', 'value': 'J'}, flow))
+        self.assertFalse(self.holds(
+            {'subject': 'REQUEST_JSON_FIELD', 'name': 'segments[*].cabin', 'operator': 'NOT_EQUALS', 'value': 'J'}, flow))
+        self.assertTrue(self.holds(
+            {'subject': 'REQUEST_JSON_FIELD', 'name': 'segments[*].cabin', 'operator': 'NOT_EQUALS', 'value': 'F'}, flow))
+
+    def test_a_missing_json_field_is_absent_not_an_error(self):
+        flow = self.request_flow(text='{"a":1}')
+        self.assertTrue(self.holds({'subject': 'REQUEST_JSON_FIELD', 'name': 'b.c', 'operator': 'NOT_EXISTS'}, flow))
+
+    def test_a_body_that_is_not_json_is_absent_for_a_field_condition(self):
+        flow = self.request_flow(text='<soap:Envelope/>')
+        self.assertTrue(self.holds({'subject': 'REQUEST_JSON_FIELD', 'name': 'a', 'operator': 'NOT_EXISTS'}, flow))
+
+    def test_a_response_subject_read_in_the_request_phase_is_simply_absent(self):
+        # The backend refuses to save this; a hand-edited file must not make it throw.
+        flow = self.request_flow()
+        self.assertFalse(self.holds({'subject': 'RESPONSE_STATUS', 'operator': 'EQUALS', 'value': '200'}, flow))
+
+    def test_an_unknown_subject_or_operator_never_matches(self):
+        # A branch that runs because a typo was ignored is worse than one that never runs.
+        flow = self.request_flow(headers={'X-A': '1'})
+        self.assertFalse(self.holds({'subject': 'WISHFUL', 'operator': 'EXISTS'}, flow))
+        self.assertFalse(self.holds({'subject': 'REQUEST_HEADER', 'name': 'x-a', 'operator': 'SORT_OF'}, flow))
+
+    # ---- describe -----------------------------------------------------------------------
+
+    def test_a_condition_on_a_secret_header_never_logs_its_value(self):
+        # This text is echoed verbatim into every .md/.html export - the same constraint the
+        # actions already follow.
+        condition = interception.Condition(
+            {'subject': 'REQUEST_HEADER', 'name': 'authorization', 'operator': 'EQUALS', 'value': 'Bearer hunter2'})
+        self.assertNotIn('hunter2', condition.describe())
+        self.assertIn('authorization', condition.describe())
+
+
+class ConditionalActionTest(unittest.TestCase):
+    """The if / else-if / else step itself: which branch runs, and what the log says about it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, action):
+        return interception.InterceptionEngine(
+            'outbound', write_rules(self.tmp.name, [rule(actions=[action])]))
+
+    def conditional(self, branches, otherwise=None, kind='IF_REQUEST'):
+        action = {'type': kind, 'branches': branches}
+        if otherwise is not None:
+            action['otherwise'] = otherwise
+        return action
+
+    def test_the_first_matching_branch_wins_and_the_rest_are_skipped(self):
+        action = self.conditional([
+            {'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'POST'}],
+             'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'one'}]},
+            {'conditions': [{'subject': 'URL', 'operator': 'CONTAINS', 'value': 'example'}],
+             'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'two'}]},
+        ])
+        flow = FakeFlow(FakeRequest(method='POST'))
+        self.engine(action).apply_request(flow)
+
+        self.assertEqual(flow.request.headers['X-Branch'], 'one')
+
+    def test_a_later_branch_runs_when_the_first_does_not_match(self):
+        action = self.conditional([
+            {'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'DELETE'}],
+             'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'one'}]},
+            {'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'POST'}],
+             'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'two'}]},
+        ])
+        flow = FakeFlow(FakeRequest(method='POST'))
+        self.engine(action).apply_request(flow)
+
+        self.assertEqual(flow.request.headers['X-Branch'], 'two')
+
+    def test_the_else_runs_when_nothing_matched(self):
+        action = self.conditional(
+            [{'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'DELETE'}],
+              'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'one'}]}],
+            otherwise=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'else'}])
+        flow = FakeFlow(FakeRequest(method='POST'))
+        self.engine(action).apply_request(flow)
+
+        self.assertEqual(flow.request.headers['X-Branch'], 'else')
+
+    def test_nothing_happens_when_nothing_matched_and_there_is_no_else(self):
+        action = self.conditional([{'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'DELETE'}],
+                                    'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'one'}]}])
+        flow = FakeFlow(FakeRequest(method='POST'))
+        verdict = self.engine(action).apply_request(flow)
+
+        self.assertNotIn('X-Branch', flow.request.headers)
+        self.assertEqual(verdict.applied[0].detail, 'no branch matched')
+
+    def test_all_conditions_must_hold_by_default(self):
+        action = self.conditional([{
+            'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'POST'},
+                           {'subject': 'REQUEST_HEADER', 'name': 'x-api-key', 'operator': 'EXISTS'}],
+            'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'one'}]}])
+        flow = FakeFlow(FakeRequest(method='POST'))
+        self.engine(action).apply_request(flow)
+
+        self.assertNotIn('X-Branch', flow.request.headers)
+
+    def test_any_needs_only_one(self):
+        action = self.conditional([{
+            'combine': 'ANY',
+            'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'POST'},
+                           {'subject': 'REQUEST_HEADER', 'name': 'x-api-key', 'operator': 'EXISTS'}],
+            'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'one'}]}])
+        flow = FakeFlow(FakeRequest(method='POST'))
+        self.engine(action).apply_request(flow)
+
+        self.assertEqual(flow.request.headers['X-Branch'], 'one')
+
+    def test_a_branch_with_no_conditions_never_matches(self):
+        # The backend rejects one; a hand-edited file must not get a free "always" that swallows
+        # every branch below it.
+        action = self.conditional([{'conditions': [],
+                                    'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Branch', 'value': 'one'}]}])
+        flow = FakeFlow(FakeRequest())
+        self.engine(action).apply_request(flow)
+
+        self.assertNotIn('X-Branch', flow.request.headers)
+
+    def test_a_terminal_inside_a_branch_ends_the_phase(self):
+        action = self.conditional([{
+            'conditions': [{'subject': 'REQUEST_HEADER', 'name': 'x-api-key', 'operator': 'NOT_EXISTS'}],
+            'actions': [{'type': 'MOCK_RESPONSE', 'status': 401, 'body': 'no key'},
+                        {'type': 'SET_REQUEST_HEADER', 'name': 'X-Never', 'value': '1'}]}])
+        flow = FakeFlow(FakeRequest())
+        verdict = self.engine(action).apply_request(flow)
+
+        self.assertEqual(verdict.terminal, 'MOCK_RESPONSE')
+        self.assertEqual(verdict.mock['status'], 401)
+        self.assertNotIn('X-Never', flow.request.headers)
+
+    def test_a_pause_inside_a_branch_still_pauses(self):
+        action = self.conditional([{
+            'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'GET'}],
+            'actions': [{'type': 'PAUSE_REQUEST', 'timeoutSeconds': 5}]}])
+        verdict = self.engine(action).apply_request(FakeFlow(FakeRequest()))
+
+        self.assertIsNotNone(verdict.pause)
+        self.assertEqual(verdict.pause['phase'], 'request')
+
+    def test_a_response_action_inside_a_request_conditional_is_skipped(self):
+        action = self.conditional([{
+            'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'GET'}],
+            'actions': [{'type': 'SET_RESPONSE_STATUS', 'status': 500}]}])
+        flow = FakeFlow(FakeRequest(), FakeMessage(status=200, text=''))
+        self.engine(action).apply_request(flow)
+
+        self.assertEqual(flow.response.status_code, 200)
+
+    def test_a_conditional_on_the_response_can_read_the_request_too(self):
+        # The main reason to have conditions at all: "if we sent X and got back Y".
+        action = self.conditional([{
+            'conditions': [{'subject': 'RESPONSE_STATUS', 'operator': 'AT_LEAST', 'value': '500'},
+                           {'subject': 'REQUEST_HEADER', 'name': 'x-env', 'operator': 'EQUALS', 'value': 'test'}],
+            'actions': [{'type': 'SET_RESPONSE_STATUS', 'status': 200}]}], kind='IF_RESPONSE')
+        flow = FakeFlow(FakeRequest(headers={'X-Env': 'test'}), FakeMessage(status=503, text='{}'))
+        self.engine(action).apply_response(flow)
+
+        self.assertEqual(flow.response.status_code, 200)
+
+    def test_nesting_one_condition_inside_another(self):
+        inner = self.conditional([{
+            'conditions': [{'subject': 'REQUEST_HEADER', 'name': 'x-env', 'operator': 'EQUALS', 'value': 'test'}],
+            'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Deep', 'value': 'yes'}]}])
+        outer = self.conditional([{
+            'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'POST'}],
+            'actions': [inner]}])
+        flow = FakeFlow(FakeRequest(method='POST', headers={'X-Env': 'test'}))
+        self.engine(outer).apply_request(flow)
+
+        self.assertEqual(flow.request.headers['X-Deep'], 'yes')
+
+    def test_the_log_says_which_branch_ran_and_why(self):
+        # A rule that can take three paths is only useful if the log says which it took.
+        action = self.conditional([
+            {'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'DELETE'}],
+             'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-B', 'value': '1'}]},
+            {'conditions': [{'subject': 'REQUEST_HEADER', 'name': 'x-api-key', 'operator': 'NOT_EXISTS'}],
+             'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-B', 'value': '2'}]},
+        ])
+        verdict = self.engine(action).apply_request(FakeFlow(FakeRequest()))
+        applied = verdict.as_log()['applied']
+
+        self.assertEqual(applied[0]['action'], 'IF_REQUEST')
+        self.assertIn('branch 2 matched', applied[0]['detail'])
+        self.assertIn('request header x-api-key not exists', applied[0]['detail'])
+        # The action the branch ran is recorded too, so the trace is complete.
+        self.assertEqual(applied[1]['action'], 'SET_REQUEST_HEADER')
+
+    def test_a_branch_that_changes_something_still_gets_a_before_and_after(self):
+        # Capture is generic: it snapshots the phase, so a change made inside a branch needs no
+        # code of its own to be recorded.
+        action = self.conditional([{
+            'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'GET'}],
+            'actions': [{'type': 'SET_REQUEST_JSON_FIELD', 'path': 'a', 'value': 2}]}])
+        flow = FakeFlow(FakeRequest(text=json.dumps({'a': 1})))
+        verdict = self.engine(action).apply_request(flow)
+        verdict.finalize_request(flow)
+
+        self.assertEqual(json.loads(verdict.original_request['body']), {'a': 1})
+        self.assertEqual(json.loads(verdict.final_request['body']), {'a': 2})
+
+
 class EveryActionIsCoveredTest(unittest.TestCase):
     """Walks the action sets themselves, so adding an action to REQUEST_ACTIONS or
     RESPONSE_ACTIONS and forgetting about its before/after is a failing build rather than a
@@ -807,6 +1133,14 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         'MOCK_RESPONSE': {'type': 'MOCK_RESPONSE', 'status': 418, 'body': 'teapot'},
         # The mode that answers rather than kills, so there is something to record either end of.
         'SIMULATE_FAILURE': {'type': 'SIMULATE_FAILURE', 'failure': 'GATEWAY_ERROR', 'status': 503},
+        # A branch that matches the fixture and changes something, so the generic before/after
+        # capture has both ends to record.
+        'IF_REQUEST': {'type': 'IF_REQUEST', 'branches': [{
+            'conditions': [{'subject': 'METHOD', 'operator': 'EQUALS', 'value': 'GET'}],
+            'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-A', 'value': '1'}]}]},
+        'IF_RESPONSE': {'type': 'IF_RESPONSE', 'branches': [{
+            'conditions': [{'subject': 'RESPONSE_STATUS', 'operator': 'EQUALS', 'value': '200'}],
+            'actions': [{'type': 'SET_RESPONSE_HEADER', 'name': 'X-A', 'value': '1'}]}]},
         'SET_RESPONSE_STATUS': {'type': 'SET_RESPONSE_STATUS', 'status': 500},
         'SET_RESPONSE_HEADER': {'type': 'SET_RESPONSE_HEADER', 'name': 'X-A', 'value': '1'},
         'REMOVE_RESPONSE_HEADER': {'type': 'REMOVE_RESPONSE_HEADER', 'name': 'X-Gone'},

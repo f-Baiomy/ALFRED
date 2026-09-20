@@ -18,7 +18,10 @@
         @if (actions().length > 0) {
           <div class="intercept-actions">
             @for (action of actions(); track $index) {
-              <div class="intercept-action">
+              <!-- A rule that can take three different paths is only useful if the log says
+                   which one it took, so the branch decision is marked out from the actions it
+                   led to rather than sitting in the list as just another line. -->
+              <div class="intercept-action" [class.decision]="action.action.startsWith('IF_')">
                 <span class="ia-rule">{{ action.ruleName || 'Manual edit' }}</span>
                 <span class="ia-what">{{ action.action }}</span>
                 @if (action.detail) {

@@ -50,12 +50,12 @@ REQUEST_ACTIONS = {
     'DELAY_REQUEST', 'SET_REQUEST_HEADER', 'REMOVE_REQUEST_HEADER',
     'SET_QUERY_PARAM', 'REMOVE_QUERY_PARAM', 'SET_REQUEST_JSON_FIELD',
     'ABORT_REQUEST', 'MOCK_RESPONSE', 'PAUSE_REQUEST', 'SEND_TO_HOST',
-    'SIMULATE_FAILURE',
+    'SIMULATE_FAILURE', 'IF_REQUEST',
 }
 RESPONSE_ACTIONS = {
     'DELAY_RESPONSE', 'SET_RESPONSE_STATUS', 'SET_RESPONSE_HEADER',
     'REMOVE_RESPONSE_HEADER', 'SET_RESPONSE_JSON_FIELD', 'SET_RESPONSE_BODY',
-    'REPLACE_RESPONSE', 'PAUSE_RESPONSE',
+    'REPLACE_RESPONSE', 'PAUSE_RESPONSE', 'IF_RESPONSE',
 }
 
 # An action that ends the request phase: there is no upstream request left for a later rule to
@@ -196,7 +196,27 @@ class Rule:
             self.priority = 100
         self.stop_processing = raw.get('stopProcessing', False) is True
         self.match = Match(raw.get('match'))
-        self.actions = [a for a in (raw.get('actions') or []) if isinstance(a, dict) and a.get('type')]
+        self.actions = _prepare_actions(raw.get('actions'))
+
+
+def _prepare_actions(raw_actions):
+    """Keeps actions as the plain dicts the engine reads, with one addition: a conditional gets its
+    branches parsed into Branch objects under a private key.
+
+    Done at LOAD time, once, because that is when a regex can be compiled and a malformed branch
+    can be dropped - doing either per request would put the cost on every call the rule matches.
+    The private key is stored on the dict we parsed rather than in a side table keyed by identity,
+    which would be fragile for no benefit; nothing ever re-serialises these dicts.
+    """
+    prepared = []
+    for action in (raw_actions or []):
+        if not isinstance(action, dict) or not action.get('type'):
+            continue
+        if action['type'] in ('IF_REQUEST', 'IF_RESPONSE'):
+            action['__branches'] = [Branch(b) for b in (action.get('branches') or []) if isinstance(b, dict)]
+            action['__otherwise'] = _prepare_actions(action.get('otherwise'))
+        prepared.append(action)
+    return prepared
 
 
 class RuleSet:
@@ -276,6 +296,245 @@ class _RulesCache:
         # its stored order, so a tie is resolved the same way the UI lists them.
         rules.sort(key=lambda r: r.priority)
         return RuleSet(enabled=enabled, rules=rules)
+
+
+# ---------------------------------------------------------------------------------------------
+# Conditions: "look at the call, then decide".
+#
+# Mirrors the backend's ConditionSubject / ConditionOperator enums, matched by string. A condition
+# is evaluated against the live flow; what it can look at depends on the phase, and the engine
+# never guesses - a response subject read during the request phase has no value, which the
+# operators below treat as absent rather than as an error.
+# ---------------------------------------------------------------------------------------------
+
+SUBJECTS = {
+    'REQUEST_HEADER', 'REQUEST_BODY', 'REQUEST_JSON_FIELD', 'QUERY_PARAM', 'URL', 'METHOD',
+    'RESPONSE_STATUS', 'RESPONSE_HEADER', 'RESPONSE_BODY', 'RESPONSE_JSON_FIELD',
+}
+
+OPERATORS = {
+    'EXISTS', 'NOT_EXISTS', 'EQUALS', 'NOT_EQUALS', 'CONTAINS', 'NOT_CONTAINS',
+    'MATCHES', 'NOT_MATCHES', 'AT_LEAST', 'AT_MOST',
+}
+
+# Operators whose answer when the subject is ABSENT is True. An absent subject is never equal to,
+# does not contain and does not match anything - so the negative of each of those is satisfied.
+# Stated as data rather than buried in an if, because this is the one semantic here that surprises
+# people and it must read the same in both languages.
+TRUE_WHEN_ABSENT = {'NOT_EXISTS', 'NOT_EQUALS', 'NOT_CONTAINS', 'NOT_MATCHES'}
+
+
+def get_json_field(text, path):
+    """Every value at `path` inside a JSON document, as a list.
+
+    A list rather than one value because `[*]` is part of the supported path syntax: with a
+    wildcard the honest answer is "these values", and collapsing it to the first would make
+    `segments[*].cabin equals J` quietly mean "the first segment's cabin", which is not what it
+    says. An unreadable body or a path that is not there yields an empty list - absent, not an
+    error, so a condition on a field a supplier sometimes omits stays usable.
+    """
+    if not text:
+        return []
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return []
+    return _collect(doc, _parse_path(path))
+
+
+def _collect(node, segments):
+    if not segments:
+        return [node]
+    head, rest = segments[0], segments[1:]
+    if head == '*':
+        if not isinstance(node, list):
+            return []
+        out = []
+        for item in node:
+            out.extend(_collect(item, rest))
+        return out
+    if isinstance(head, int):
+        if not isinstance(node, list) or head >= len(node) or head < -len(node):
+            return []
+        return _collect(node[head], rest)
+    if not isinstance(node, dict) or head not in node:
+        return []
+    return _collect(node[head], rest)
+
+
+def _header(message, name):
+    """Case-insensitively, as HTTP header names are - mitmproxy's Headers already does this."""
+    if message is None:
+        return None
+    try:
+        return message.headers.get(name)
+    except Exception:
+        return None
+
+
+def _as_text(value):
+    return None if value is None else (value if isinstance(value, str) else json.dumps(value))
+
+
+class Condition:
+    """One test, with its regex compiled ONCE at rule-load time.
+
+    Compiling per request would put a regex compilation on the hot path of every call a rule
+    matches, for every condition it has - the same reason Match compiles pathRegex at load.
+    """
+
+    __slots__ = ('subject', 'name', 'operator', 'value', 'case_sensitive', 'pattern', 'number')
+
+    def __init__(self, raw):
+        raw = raw or {}
+        self.subject = (raw.get('subject') or '').strip().upper()
+        self.name = raw.get('name')
+        self.operator = (raw.get('operator') or '').strip().upper()
+        value = raw.get('value')
+        self.value = None if value is None else str(value)
+        self.case_sensitive = raw.get('caseSensitive') is True
+
+        self.pattern = None
+        if self.operator in ('MATCHES', 'NOT_MATCHES') and self.value is not None:
+            flags = 0 if self.case_sensitive else re.IGNORECASE
+            self.pattern = re.compile(self.value, flags)
+
+        self.number = None
+        if self.operator in ('AT_LEAST', 'AT_MOST') and self.value is not None:
+            try:
+                self.number = float(self.value)
+            except ValueError:
+                self.number = None
+
+    @property
+    def valid(self):
+        return self.subject in SUBJECTS and self.operator in OPERATORS
+
+    def values(self, flow):
+        """Everything this subject resolves to - empty means absent."""
+        request = flow.request
+        response = getattr(flow, 'response', None)
+
+        if self.subject == 'REQUEST_HEADER':
+            return _one(_header(request, self.name))
+        if self.subject == 'RESPONSE_HEADER':
+            return _one(_header(response, self.name))
+        if self.subject == 'REQUEST_BODY':
+            return _one(_body(request))
+        if self.subject == 'RESPONSE_BODY':
+            return _one(_body(response))
+        if self.subject == 'REQUEST_JSON_FIELD':
+            return [_as_text(v) for v in get_json_field(_body(request), self.name)]
+        if self.subject == 'RESPONSE_JSON_FIELD':
+            return [_as_text(v) for v in get_json_field(_body(response), self.name)]
+        if self.subject == 'QUERY_PARAM':
+            try:
+                return _one(request.query.get(self.name))
+            except Exception:
+                return []
+        if self.subject == 'URL':
+            return _one(getattr(request, 'pretty_url', None))
+        if self.subject == 'METHOD':
+            return _one(getattr(request, 'method', None))
+        if self.subject == 'RESPONSE_STATUS':
+            status = getattr(response, 'status_code', None)
+            return _one(None if status is None else str(status))
+        return []
+
+    def holds(self, flow):
+        if not self.valid:
+            # A condition the engine does not understand must not silently pass: a branch that
+            # runs because a typo was ignored is worse than one that never runs.
+            return False
+
+        values = [v for v in self.values(flow) if v is not None]
+
+        if self.operator == 'EXISTS':
+            return bool(values)
+        if self.operator == 'NOT_EXISTS':
+            return not values
+        if not values:
+            return self.operator in TRUE_WHEN_ABSENT
+
+        # With `[*]` a subject can resolve to several values. A positive operator holds if ANY of
+        # them satisfies it, and its negative holds only if NONE does - so `NOT_CONTAINS` really
+        # means "no element contains this", which is the only reading under which a condition and
+        # its negation cannot both be true.
+        negative = self.operator.startswith('NOT_')
+        any_match = any(self._one_holds(value) for value in values)
+        return not any_match if negative else any_match
+
+    def _one_holds(self, value):
+        """Whether ONE resolved value satisfies the positive form of this operator."""
+        if self.operator in ('MATCHES', 'NOT_MATCHES'):
+            return self.pattern is not None and self.pattern.search(value) is not None
+        if self.operator in ('AT_LEAST', 'AT_MOST'):
+            if self.number is None:
+                return False
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                # Not a number is not "smaller than" anything - it simply does not satisfy a
+                # numeric test, in either direction.
+                return False
+            return number >= self.number if self.operator == 'AT_LEAST' else number <= self.number
+
+        left, right = value, self.value or ''
+        if not self.case_sensitive:
+            left, right = left.lower(), right.lower()
+        if self.operator in ('EQUALS', 'NOT_EQUALS'):
+            return left == right
+        return right in left  # CONTAINS / NOT_CONTAINS
+
+    def describe(self):
+        """For the call log. Names what was tested, and never the value of a secret."""
+        subject = self.subject.lower().replace('_', ' ')
+        if self.name:
+            subject = f'{subject} {self.name}'
+        operator = self.operator.lower().replace('_', ' ')
+        if self.operator in ('EXISTS', 'NOT_EXISTS'):
+            return f'{subject} {operator}'
+        if _sensitive(self.name):
+            return f'{subject} {operator} (value not logged)'
+        return f'{subject} {operator} {self.value}'
+
+
+def _one(value):
+    return [] if value is None else [value]
+
+
+def _body(message):
+    if message is None:
+        return None
+    try:
+        return message.get_text(strict=False)
+    except Exception:
+        return None
+
+
+class Branch:
+    """One arm of a conditional: conditions, and the actions to run when they hold."""
+
+    __slots__ = ('combine_any', 'conditions', 'actions')
+
+    def __init__(self, raw):
+        raw = raw or {}
+        self.combine_any = (raw.get('combine') or 'ALL').strip().upper() == 'ANY'
+        self.conditions = [Condition(c) for c in (raw.get('conditions') or []) if isinstance(c, dict)]
+        self.actions = _prepare_actions(raw.get('actions'))
+
+    def holds(self, flow):
+        if not self.conditions:
+            # A branch with no conditions would always match and swallow everything below it. The
+            # backend rejects one; a hand-edited file should not get a free "always".
+            return False
+        if self.combine_any:
+            return any(c.holds(flow) for c in self.conditions)
+        return all(c.holds(flow) for c in self.conditions)
+
+    def describe(self):
+        joiner = ' or ' if self.combine_any else ' and '
+        return joiner.join(c.describe() for c in self.conditions)
 
 
 class Applied:
@@ -692,6 +951,11 @@ class InterceptionEngine:
     def _apply_request_action(self, flow, rule, action, kind, verdict):
         request = flow.request
 
+        if kind == 'IF_REQUEST':
+            self._run_conditional(flow, rule, action, kind, verdict, REQUEST_ACTIONS,
+                                  self._apply_request_action)
+            return
+
         if kind == 'DELAY_REQUEST':
             ms = _clamp_delay(action.get('durationMs'))
             if ms:
@@ -807,6 +1071,57 @@ class InterceptionEngine:
             verdict.record(rule, kind, 'waiting for a decision')
             return
 
+
+    def _run_conditional(self, flow, rule, action, kind, verdict, allowed, apply_one):
+        """Runs the first branch whose conditions hold, or the ELSE.
+
+        Shared by both phases: which actions are legal and how to apply one differ, the control
+        flow does not, and two copies of "first match wins, stop at a terminal" is two chances for
+        the halves to disagree about what a rule means.
+
+        The branch taken is RECORDED, with the conditions that chose it. A rule that can take
+        three different paths is only useful if the log says which one it took - otherwise
+        "why did this call get a 401" is answered by re-reading the rule and guessing.
+        """
+        branches = action.get('__branches') or []
+        for index, branch in enumerate(branches):
+            try:
+                holds = branch.holds(flow)
+            except Exception as e:
+                # A condition that throws is false, never fatal: proxying must survive a bad rule,
+                # and "this branch did not match" is the safe reading of "we could not tell".
+                print(f"[interception] rule {rule.name!r} condition failed, treating as no match: {e}")
+                holds = False
+            if holds:
+                verdict.record(rule, kind, f'branch {index + 1} matched: {branch.describe()}')
+                self._run_branch(flow, rule, branch.actions, verdict, allowed, apply_one)
+                return
+
+        otherwise = action.get('__otherwise') or []
+        if otherwise:
+            verdict.record(rule, kind, 'no branch matched - running the else')
+            self._run_branch(flow, rule, otherwise, verdict, allowed, apply_one)
+        else:
+            verdict.record(rule, kind, 'no branch matched')
+
+    def _run_branch(self, flow, rule, actions, verdict, allowed, apply_one):
+        for nested in actions:
+            nested_kind = nested.get('type')
+            if nested_kind not in allowed:
+                # A response action inside an IF_REQUEST has nothing to act on. The backend
+                # refuses to save one; a hand-edited file gets it skipped rather than applied to
+                # the wrong half.
+                continue
+            try:
+                apply_one(flow, rule, nested, nested_kind, verdict)
+            except Exception as e:
+                print(f"[interception] rule {rule.name!r} action {nested_kind} failed, skipping: {e}")
+                continue
+            # Same stop conditions as the top-level loop - a terminal or a pause inside a branch
+            # ends the phase exactly as it would outside one.
+            if verdict.terminal or verdict.pause:
+                return
+
     def apply_response(self, flow, service_name=None):
         verdict = Verdict()
         if flow.response is None:
@@ -830,6 +1145,11 @@ class InterceptionEngine:
 
     def _apply_response_action(self, flow, rule, action, kind, verdict):
         response = flow.response
+
+        if kind == 'IF_RESPONSE':
+            self._run_conditional(flow, rule, action, kind, verdict, RESPONSE_ACTIONS,
+                                  self._apply_response_action)
+            return
 
         if kind == 'DELAY_RESPONSE':
             ms = _clamp_delay(action.get('durationMs'))

@@ -2,7 +2,19 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import {
   ACTION_LABELS,
+  ActionPhase,
   ActionType,
+  Condition,
+  ConditionBranch,
+  ConditionOperator,
+  ConditionSubject,
+  OPERATORS_WITHOUT_VALUE,
+  OPERATOR_LABELS,
+  RESPONSE_SUBJECTS,
+  SUBJECTS_NEEDING_NAME,
+  SUBJECT_LABELS,
+  describeBranch,
+  isConditionalAction,
   FAILURE_HINTS,
   FAILURE_LABELS,
   FailureMode,
@@ -38,6 +50,121 @@ const FAILURE_OPTIONS: readonly SelectOption[] = (Object.keys(FAILURE_LABELS) as
 
 /** The only statuses a gateway failure can be - anything else is the supplier answering. */
 const GATEWAY_STATUSES = [502, 503, 504];
+
+const SUBJECT_OPTIONS: readonly SelectOption[] = (Object.keys(SUBJECT_LABELS) as ConditionSubject[])
+  .map((subject) => ({ value: subject, label: SUBJECT_LABELS[subject] }));
+
+const OPERATOR_OPTIONS: readonly SelectOption[] = (Object.keys(OPERATOR_LABELS) as ConditionOperator[])
+  .map((operator) => ({ value: operator, label: OPERATOR_LABELS[operator] }));
+
+const COMBINE_OPTIONS: readonly SelectOption[] = [
+  { value: 'ALL', label: 'all of' },
+  { value: 'ANY', label: 'any of' },
+];
+
+/**
+ * The action tree, edited immutably.
+ *
+ * These are plain functions rather than methods because they are about the shape of the list,
+ * not about the form - and because a recursive update reads better without `this` in the middle
+ * of it.
+ */
+function updateAt(
+  actions: readonly RuleAction[],
+  path: readonly number[],
+  change: (action: RuleAction) => RuleAction
+): RuleAction[] {
+  const [index, branchIndex, ...rest] = path;
+  return actions.map((action, i) => {
+    if (i !== index) return action;
+    if (branchIndex === undefined) return change(action);
+    return withBranchList(action, branchIndex, (list) => updateAt(list, [rest[0], ...rest.slice(1)], change));
+  });
+}
+
+function removeAt(actions: readonly RuleAction[], path: readonly number[]): RuleAction[] {
+  const [index, branchIndex, ...rest] = path;
+  if (branchIndex === undefined) return actions.filter((_, i) => i !== index);
+  return actions.map((action, i) =>
+    i === index ? withBranchList(action, branchIndex, (list) => removeAt(list, rest)) : action
+  );
+}
+
+function moveAt(actions: readonly RuleAction[], path: readonly number[], delta: number): RuleAction[] {
+  const [index, branchIndex, ...rest] = path;
+  if (branchIndex === undefined) {
+    const target = index + delta;
+    if (target < 0 || target >= actions.length) return [...actions];
+    const next = [...actions];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  }
+  return actions.map((action, i) =>
+    i === index ? withBranchList(action, branchIndex, (list) => moveAt(list, rest, delta)) : action
+  );
+}
+
+function listAt(actions: readonly RuleAction[], path: readonly number[]): readonly RuleAction[] {
+  if (path.length === 0) return actions;
+  const [index, branchIndex, ...rest] = path;
+  const action = actions[index];
+  if (!action || branchIndex === undefined) return actions;
+  const list = branchIndex < 0 ? action.otherwise ?? [] : action.branches?.[branchIndex]?.actions ?? [];
+  return listAt(list, rest);
+}
+
+function actionAt(actions: readonly RuleAction[], path: readonly number[]): RuleAction | null {
+  const [index, branchIndex, ...rest] = path;
+  const action = actions[index];
+  if (!action) return null;
+  if (branchIndex === undefined) return action;
+  const list = branchIndex < 0 ? action.otherwise ?? [] : action.branches?.[branchIndex]?.actions ?? [];
+  return actionAt(list, rest);
+}
+
+/** Applies a change to one branch's action list, or to the ELSE list when branchIndex is -1. */
+function withBranchList(
+  action: RuleAction,
+  branchIndex: number,
+  change: (actions: readonly RuleAction[]) => RuleAction[]
+): RuleAction {
+  if (branchIndex < 0) {
+    return { ...action, otherwise: change(action.otherwise ?? []) };
+  }
+  return {
+    ...action,
+    branches: (action.branches ?? []).map((branch, i) =>
+      i === branchIndex ? { ...branch, actions: change(branch.actions) } : branch
+    ),
+  };
+}
+
+/**
+ * Whether an action means the host is never reached, on EVERY path through it.
+ *
+ * A terminal inside a conditional does not count: the branch may not be taken, so the host is
+ * still reachable and the response lane can still run. Saying otherwise would grey out a half of
+ * the rule that is perfectly live.
+ */
+function alwaysShortCircuits(action: RuleAction): boolean {
+  return (
+    action.type === 'MOCK_RESPONSE' ||
+    action.type === 'ABORT_REQUEST' ||
+    action.type === 'SIMULATE_FAILURE'
+  );
+}
+
+function emptyBranch(): ConditionBranch {
+  return { combine: 'ALL', conditions: [], actions: [] };
+}
+
+function defaultCondition(phase: ActionPhase): Condition {
+  // Starts as something that is already valid and already says something true about a call, so a
+  // freshly added condition is a working example rather than a form to decipher.
+  return phase === 'request'
+    ? { subject: 'REQUEST_HEADER', name: 'x-api-key', operator: 'NOT_EXISTS' }
+    : { subject: 'RESPONSE_STATUS', operator: 'AT_LEAST', value: '500' };
+}
 
 /**
  * Create/edit form for one interception rule.
@@ -79,6 +206,8 @@ export class RuleEditorComponent implements OnInit {
   readonly failureOptions = FAILURE_OPTIONS;
   readonly gatewayStatuses = GATEWAY_STATUSES;
   readonly failureHints = FAILURE_HINTS;
+  readonly operatorOptions = OPERATOR_OPTIONS;
+  readonly combineOptions = COMBINE_OPTIONS;
 
   /**
    * The configured projects, from the same endpoint the Settings page and Sources bar read.
@@ -138,13 +267,13 @@ export class RuleEditorComponent implements OnInit {
   /** Actions split by phase, so the editor can draw the request half, the host, then the response half. */
   readonly requestSteps = computed(() =>
     this.actions()
-      .map((action, index) => ({ action, index }))
+      .map((action, index) => ({ action, index, path: [index] }))
       .filter((step) => actionPhase(step.action.type) === 'request')
   );
 
   readonly responseSteps = computed(() =>
     this.actions()
-      .map((action, index) => ({ action, index }))
+      .map((action, index) => ({ action, index, path: [index] }))
       .filter((step) => actionPhase(step.action.type) === 'response')
   );
 
@@ -154,10 +283,7 @@ export class RuleEditorComponent implements OnInit {
    * a puzzle rather than something visible in the form.
    */
   readonly reachesHost = computed(
-    () =>
-      !this.actions().some(
-        (a) => a.type === 'MOCK_RESPONSE' || a.type === 'ABORT_REQUEST' || a.type === 'SIMULATE_FAILURE'
-      )
+    () => !this.actions().some(alwaysShortCircuits)
   );
 
   ngOnInit(): void {
@@ -214,34 +340,205 @@ export class RuleEditorComponent implements OnInit {
     this.actions.update((actions) => [...actions, defaultsFor(type)]);
   }
 
-  removeAction(index: number): void {
-    this.actions.update((actions) => actions.filter((_, i) => i !== index));
+  isConditional(type: ActionType): boolean {
+    return isConditionalAction(type);
   }
 
-  moveAction(index: number, delta: number): void {
-    const target = index + delta;
-    const actions = this.actions();
-    if (target < 0 || target >= actions.length) return;
-    const next = [...actions];
-    [next[index], next[target]] = [next[target], next[index]];
-    this.actions.set(next);
+  removeAt(path: readonly number[]): void {
+    this.actions.update((actions) => removeAt(actions, path));
   }
 
-  patchAction(index: number, patch: Partial<RuleAction>): void {
-    this.actions.update((actions) => actions.map((a, i) => (i === index ? { ...a, ...patch } : a)));
+  moveAt(path: readonly number[], delta: number): void {
+    this.actions.update((actions) => moveAt(actions, path, delta));
   }
 
-  onText(index: number, field: 'name' | 'path' | 'body', event: Event): void {
-    this.patchAction(index, { [field]: (event.target as HTMLInputElement).value });
+  /** How many siblings an action has where it sits - the move buttons need it to disable at the ends. */
+  siblingCount(path: readonly number[]): number {
+    return listAt(this.actions(), path.slice(0, -1)).length;
   }
 
-  onNumber(index: number, field: 'durationMs' | 'status' | 'timeoutSeconds', event: Event): void {
+  // ---- conditionals ---------------------------------------------------------------------
+
+  addBranch(path: readonly number[]): void {
+    this.actions.update((actions) =>
+      updateAt(actions, path, (action) => ({
+        ...action,
+        branches: [...(action.branches ?? []), emptyBranch()],
+      }))
+    );
+  }
+
+  removeBranch(path: readonly number[], branchIndex: number): void {
+    this.actions.update((actions) =>
+      updateAt(actions, path, (action) => ({
+        ...action,
+        branches: (action.branches ?? []).filter((_, i) => i !== branchIndex),
+      }))
+    );
+  }
+
+  setCombine(path: readonly number[], branchIndex: number, combine: string): void {
+    this.patchBranch(path, branchIndex, (branch) => ({
+      ...branch,
+      combine: combine === 'ANY' ? 'ANY' : 'ALL',
+    }));
+  }
+
+  addCondition(path: readonly number[], branchIndex: number): void {
+    this.patchBranch(path, branchIndex, (branch) => ({
+      ...branch,
+      conditions: [...branch.conditions, defaultCondition(this.conditionalPhase(path))],
+    }));
+  }
+
+  removeCondition(path: readonly number[], branchIndex: number, conditionIndex: number): void {
+    this.patchBranch(path, branchIndex, (branch) => ({
+      ...branch,
+      conditions: branch.conditions.filter((_, i) => i !== conditionIndex),
+    }));
+  }
+
+  patchCondition(
+    path: readonly number[],
+    branchIndex: number,
+    conditionIndex: number,
+    patch: Partial<Condition>
+  ): void {
+    this.patchBranch(path, branchIndex, (branch) => ({
+      ...branch,
+      conditions: branch.conditions.map((c, i) => (i === conditionIndex ? { ...c, ...patch } : c)),
+    }));
+  }
+
+  onSubjectChange(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
+    const subject = value as ConditionSubject;
+    // A subject that identifies nothing by name keeps no stale name: a leftover header name on a
+    // METHOD condition would be saved, ignored, and look like it was doing something.
+    this.patchCondition(path, branchIndex, conditionIndex, {
+      subject,
+      name: SUBJECTS_NEEDING_NAME.has(subject) ? undefined : null,
+    });
+  }
+
+  onOperatorChange(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
+    const operator = value as ConditionOperator;
+    this.patchCondition(path, branchIndex, conditionIndex, {
+      operator,
+      value: OPERATORS_WITHOUT_VALUE.has(operator) ? null : undefined,
+    });
+  }
+
+  onConditionText(
+    path: readonly number[],
+    branchIndex: number,
+    conditionIndex: number,
+    field: 'name' | 'value',
+    event: Event
+  ): void {
+    this.patchCondition(path, branchIndex, conditionIndex, {
+      [field]: (event.target as HTMLInputElement).value,
+    });
+  }
+
+  onCaseSensitive(path: readonly number[], branchIndex: number, conditionIndex: number, event: Event): void {
+    this.patchCondition(path, branchIndex, conditionIndex, {
+      caseSensitive: (event.target as HTMLInputElement).checked,
+    });
+  }
+
+  /** Adds an action to a branch, or to the ELSE when branchIndex is -1. */
+  addBranchAction(path: readonly number[], branchIndex: number, type: ActionType): void {
+    this.actions.update((actions) =>
+      updateAt(actions, path, (action) =>
+        branchIndex < 0
+          ? { ...action, otherwise: [...(action.otherwise ?? []), defaultsFor(type)] }
+          : {
+              ...action,
+              branches: (action.branches ?? []).map((branch, i) =>
+                i === branchIndex ? { ...branch, actions: [...branch.actions, defaultsFor(type)] } : branch
+              ),
+            }
+      )
+    );
+  }
+
+  /** The actions a conditional at this path may contain - its own phase, and no deeper nesting. */
+  nestableTypes(path: readonly number[]): readonly ActionType[] {
+    const phase = this.conditionalPhase(path);
+    const types = phase === 'request' ? this.requestActionTypes() : this.responseActionTypes();
+    // Two levels is the limit the backend enforces; offering a third here would only produce a
+    // rule that cannot be saved.
+    return path.length >= 3 ? types.filter((type) => !isConditionalAction(type)) : types;
+  }
+
+  conditionsOf(action: RuleAction, branchIndex: number): readonly Condition[] {
+    return action.branches?.[branchIndex]?.conditions ?? [];
+  }
+
+  /** Which subjects make sense here - response subjects do not exist during the request phase. */
+  subjectOptions(path: readonly number[]): readonly SelectOption[] {
+    const request = this.conditionalPhase(path) === 'request';
+    return SUBJECT_OPTIONS.filter((option) => !request || !RESPONSE_SUBJECTS.has(option.value as ConditionSubject));
+  }
+
+  needsConditionName(condition: Condition): boolean {
+    return SUBJECTS_NEEDING_NAME.has(condition.subject);
+  }
+
+  needsConditionValue(condition: Condition): boolean {
+    return !OPERATORS_WITHOUT_VALUE.has(condition.operator);
+  }
+
+  conditionNamePlaceholder(condition: Condition): string {
+    if (condition.subject === 'REQUEST_JSON_FIELD' || condition.subject === 'RESPONSE_JSON_FIELD') {
+      return 'itinerary.seatsRemaining';
+    }
+    return condition.subject === 'QUERY_PARAM' ? 'currency' : 'x-api-key';
+  }
+
+  describeBranch = describeBranch;
+
+  private conditionalPhase(path: readonly number[]): ActionPhase {
+    const action = actionAt(this.actions(), path);
+    return action && actionPhase(action.type) === 'response' ? 'response' : 'request';
+  }
+
+  private patchBranch(
+    path: readonly number[],
+    branchIndex: number,
+    change: (branch: ConditionBranch) => ConditionBranch
+  ): void {
+    this.actions.update((actions) =>
+      updateAt(actions, path, (action) => ({
+        ...action,
+        branches: (action.branches ?? []).map((branch, i) => (i === branchIndex ? change(branch) : branch)),
+      }))
+    );
+  }
+
+  /**
+   * Where an action lives. `[2]` is the third top-level action; `[2, 0, 1]` is the second action
+   * inside the first branch of that one; a branch index of -1 means the ELSE.
+   *
+   * A path rather than an index because a conditional holds actions inside its branches, so
+   * "the third action" stops being a number - and every edit, move and delete has to say which
+   * three-deep slot it means.
+   */
+  patchAt(path: readonly number[], patch: Partial<RuleAction>): void {
+    this.actions.update((actions) => updateAt(actions, path, (action) => ({ ...action, ...patch })));
+  }
+
+  onText(path: readonly number[], field: 'name' | 'path' | 'body', event: Event): void {
+    this.patchAt(path, { [field]: (event.target as HTMLInputElement).value });
+  }
+
+  onNumber(path: readonly number[], field: 'durationMs' | 'status' | 'timeoutSeconds', event: Event): void {
     const parsed = Number.parseInt((event.target as HTMLInputElement).value, 10);
-    this.patchAction(index, { [field]: Number.isFinite(parsed) ? parsed : null });
+    this.patchAt(path, { [field]: Number.isFinite(parsed) ? parsed : null });
   }
 
-  onTimeoutChange(index: number, value: string): void {
-    this.patchAction(index, { onTimeout: value === 'abort' ? 'abort' : 'release' });
+  onTimeoutChange(path: readonly number[], value: string): void {
+    this.patchAt(path, { onTimeout: value === 'abort' ? 'abort' : 'release' });
   }
 
   /**
@@ -254,18 +551,18 @@ export class RuleEditorComponent implements OnInit {
     return typeof action.value === 'string' ? action.value : JSON.stringify(action.value);
   }
 
-  onValue(index: number, event: Event, asJson: boolean): void {
+  onValue(path: readonly number[], event: Event, asJson: boolean): void {
     const raw = (event.target as HTMLInputElement).value;
     if (!asJson) {
-      this.patchAction(index, { value: raw });
+      this.patchAt(path, { value: raw });
       return;
     }
     // A value that does not parse is kept as a string, not rejected: `EUR` is a perfectly
     // reasonable thing to type into a field that will become `"EUR"`.
     try {
-      this.patchAction(index, { value: JSON.parse(raw) as unknown });
+      this.patchAt(path, { value: JSON.parse(raw) as unknown });
     } catch {
-      this.patchAction(index, { value: raw });
+      this.patchAt(path, { value: raw });
     }
   }
 
@@ -328,11 +625,11 @@ export class RuleEditorComponent implements OnInit {
     return type === 'SIMULATE_FAILURE';
   }
 
-  onFailureChange(index: number, value: string): void {
+  onFailureChange(path: readonly number[], value: string): void {
     const mode = value as FailureMode;
     // Carry the fields that mode needs, and only those - leaving a stale gateway status on a
     // reset would be saved and then ignored, which is the confusing kind of dead data.
-    this.patchAction(index, {
+    this.patchAt(path, {
       failure: mode,
       durationMs: mode === 'HANG_THEN_DROP' ? 30000 : null,
       status: mode === 'GATEWAY_ERROR' ? 504 : null,
@@ -356,8 +653,8 @@ export class RuleEditorComponent implements OnInit {
     return action.failure === 'TRUNCATED_BODY';
   }
 
-  onStatusChange(index: number, status: number): void {
-    this.patchAction(index, { status });
+  onStatusChange(path: readonly number[], status: number): void {
+    this.patchAt(path, { status });
   }
 
   save(): void {
@@ -428,6 +725,19 @@ function defaultsFor(type: ActionType): RuleAction {
       // Reset is the one that needs no other field, so a freshly added failure is valid before
       // the user has chosen anything.
       return { type, failure: 'CONNECTION_RESET' };
+    case 'IF_REQUEST':
+    case 'IF_RESPONSE':
+      // One branch with one condition: a conditional with no branches is the one shape the
+      // backend always rejects, and an empty IF explains nothing about what it is for.
+      return {
+        type,
+        branches: [{
+          combine: 'ALL',
+          conditions: [defaultCondition(type === 'IF_REQUEST' ? 'request' : 'response')],
+          actions: [],
+        }],
+        otherwise: [],
+      };
     case 'MOCK_RESPONSE':
       return {
         type,

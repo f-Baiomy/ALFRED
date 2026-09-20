@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.interception.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -41,13 +42,40 @@ public record RuleAction(
         /** PAUSE_*: "release" or "abort" when the timeout fires with nobody watching. */
         String onTimeout,
         /** SIMULATE_FAILURE - a {@link FailureMode} name. */
-        String failure) {
+        String failure,
+        /**
+         * IF_REQUEST / IF_RESPONSE: the arms, tried in order, first match wins.
+         *
+         * <p>Actions nest inside a branch rather than conditions living on the action, because a
+         * condition is a step in the pipeline - it sits in the same list as the actions and is
+         * moved the same way - not a property bolted onto each one.
+         */
+        List<ConditionBranch> branches,
+        /** IF_REQUEST / IF_RESPONSE: what runs when no branch matched. May be empty. */
+        List<RuleAction> otherwise) {
 
     public RuleAction {
         headers = headers == null ? null : Map.copyOf(headers);
+        branches = branches == null ? null : List.copyOf(branches);
+        otherwise = otherwise == null ? null : List.copyOf(otherwise);
     }
 
     public static RuleAction of(ActionType type) {
-        return new RuleAction(type, null, null, null, null, null, null, null, null, null, null);
+        return new RuleAction(type, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    /** Every action this one can lead to, for a validator or a counter that must see them all. */
+    public List<RuleAction> nested() {
+        if (branches == null && otherwise == null) {
+            return List.of();
+        }
+        List<RuleAction> all = new java.util.ArrayList<>();
+        if (branches != null) {
+            branches.forEach(branch -> all.addAll(branch.actions()));
+        }
+        if (otherwise != null) {
+            all.addAll(otherwise);
+        }
+        return all;
     }
 }

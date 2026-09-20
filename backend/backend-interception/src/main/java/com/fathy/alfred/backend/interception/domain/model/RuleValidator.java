@@ -29,6 +29,12 @@ public final class RuleValidator {
     private RuleValidator() {
     }
 
+    /** Two levels: a condition, and a condition inside one of its branches. See validateConditional. */
+    private static final int MAX_CONDITION_DEPTH = 2;
+
+    /** Enough for if / else-if / else-if / else-if; past that it is a lookup table, not a rule. */
+    private static final int MAX_BRANCHES = 8;
+
     public static List<String> validate(InterceptionRule rule) {
         List<String> problems = new ArrayList<>();
 
@@ -163,6 +169,7 @@ public final class RuleValidator {
                     problems.add("On timeout must be release or abort.");
                 }
             }
+            case IF_REQUEST, IF_RESPONSE -> validateConditional(action, problems, 1);
             case SIMULATE_FAILURE -> {
                 if (action.failure() == null || action.failure().isBlank()) {
                     problems.add("SIMULATE_FAILURE needs to say what goes wrong.");
@@ -200,6 +207,121 @@ public final class RuleValidator {
             }
             case ABORT_REQUEST, SEND_TO_HOST -> {
                 // Neither takes any parameters.
+            }
+        }
+    }
+
+
+    /**
+     * A conditional and everything inside it.
+     *
+     * <p>{@code depth} exists to stop a rule nesting itself out of readability. The engine would
+     * happily evaluate a condition inside a condition inside a condition; a human trying to work
+     * out why a booking failed would not, and this feature changes production-shaped traffic.
+     */
+    private static void validateConditional(RuleAction action, List<String> problems, int depth) {
+        if (depth > MAX_CONDITION_DEPTH) {
+            problems.add("Conditions may be nested " + MAX_CONDITION_DEPTH + " deep at most - past "
+                    + "that a rule cannot be read at a glance, which is worse than not expressing it.");
+            return;
+        }
+
+        List<ConditionBranch> branches = action.branches() == null ? List.of() : action.branches();
+        if (branches.isEmpty()) {
+            problems.add(action.type() + " needs at least one IF branch.");
+        }
+        if (branches.size() > MAX_BRANCHES) {
+            problems.add("A condition may have at most " + MAX_BRANCHES + " branches.");
+        }
+
+        boolean wantsResponse = action.type() == ActionType.IF_RESPONSE;
+        for (ConditionBranch branch : branches) {
+            if (branch.conditions().isEmpty()) {
+                problems.add("An IF branch with no conditions always matches - give it a condition, "
+                        + "or move its actions to the ELSE.");
+            }
+            for (Condition condition : branch.conditions()) {
+                validateCondition(condition, wantsResponse, problems);
+            }
+            if (branch.actions().isEmpty()) {
+                problems.add("An IF branch that does nothing when it matches has no effect - remove it.");
+            }
+            validateNestedActions(branch.actions(), action.type(), problems, depth);
+        }
+        if (action.otherwise() != null) {
+            validateNestedActions(action.otherwise(), action.type(), problems, depth);
+        }
+    }
+
+    /**
+     * Actions inside a branch. They must belong to the conditional's own phase: a response action
+     * inside an IF_REQUEST has nothing to act on and could only ever be a no-op, which is worth
+     * refusing at save time rather than leaving someone to wonder why their rule did nothing.
+     *
+     * <p>Terminals are NOT counted against the rule's one-ending limit here. Two branches are
+     * alternatives - only one ever runs - so a rule that mocks in one arm and aborts in another is
+     * perfectly coherent, where two terminals in a row would be a contradiction.
+     */
+    private static void validateNestedActions(List<RuleAction> actions, ActionType parent,
+                                              List<String> problems, int depth) {
+        ActionType.Phase phase = parent.phase();
+        for (RuleAction nested : actions) {
+            if (nested.type() == null) {
+                problems.add("Every action needs a type.");
+                continue;
+            }
+            if (nested.type().phase() != phase) {
+                problems.add(nested.type() + " is a " + nested.type().phase().name().toLowerCase()
+                        + "-phase action, so it cannot go inside " + parent + ".");
+                continue;
+            }
+            if (nested.type().isConditional()) {
+                validateConditional(nested, problems, depth + 1);
+            } else {
+                validateAction(nested, problems);
+            }
+        }
+    }
+
+    private static void validateCondition(Condition condition, boolean responsePhase, List<String> problems) {
+        if (condition.subject() == null) {
+            problems.add("A condition needs something to look at.");
+            return;
+        }
+        if (condition.operator() == null) {
+            problems.add("A condition on " + condition.subject() + " needs a comparison.");
+            return;
+        }
+        if (condition.subject().isResponse() && !responsePhase) {
+            problems.add(condition.subject() + " cannot be checked before the response exists - "
+                    + "put this condition in the response half of the rule.");
+        }
+        if (condition.subject().needsName() && (condition.name() == null || condition.name().isBlank())) {
+            problems.add(condition.subject() + " needs a name to look up.");
+        }
+        if ((condition.subject() == ConditionSubject.REQUEST_JSON_FIELD
+                || condition.subject() == ConditionSubject.RESPONSE_JSON_FIELD)
+                && condition.name() != null && !condition.name().isBlank()
+                && !isValidPath(condition.name())) {
+            problems.add("\"" + condition.name() + "\" is not a valid field path.");
+        }
+        if (condition.operator().needsValue() && (condition.value() == null || condition.value().isEmpty())) {
+            problems.add(condition.subject() + " " + condition.operator() + " needs a value to compare with.");
+            return;
+        }
+        if (condition.operator().isRegex()) {
+            try {
+                Pattern.compile(condition.value());
+            } catch (PatternSyntaxException e) {
+                problems.add("Condition regex does not compile: " + e.getDescription() + ".");
+            }
+        }
+        if (condition.operator().isNumeric()) {
+            try {
+                Double.parseDouble(condition.value());
+            } catch (NumberFormatException e) {
+                problems.add("\"" + condition.value() + "\" is not a number, so " + condition.operator()
+                        + " cannot compare against it.");
             }
         }
     }

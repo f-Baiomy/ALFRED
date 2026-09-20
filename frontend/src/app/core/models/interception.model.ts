@@ -24,6 +24,7 @@ export type ActionType =
   | 'PAUSE_REQUEST'
   | 'SEND_TO_HOST'
   | 'SIMULATE_FAILURE'
+  | 'IF_REQUEST'
   | 'DELAY_RESPONSE'
   | 'SET_RESPONSE_STATUS'
   | 'SET_RESPONSE_HEADER'
@@ -31,7 +32,8 @@ export type ActionType =
   | 'SET_RESPONSE_JSON_FIELD'
   | 'SET_RESPONSE_BODY'
   | 'REPLACE_RESPONSE'
-  | 'PAUSE_RESPONSE';
+  | 'PAUSE_RESPONSE'
+  | 'IF_RESPONSE';
 
 /**
  * How a call can be broken at the transport level rather than with a status code.
@@ -47,6 +49,54 @@ export type FailureMode =
   | 'EMPTY_REPLY'
   | 'TRUNCATED_BODY'
   | 'GATEWAY_ERROR';
+
+/**
+ * What part of a call a condition looks at.
+ *
+ * Response subjects are legal only inside an `IF_RESPONSE` - in the request phase there is no
+ * response, so a condition on one could only ever be false. The reverse is allowed and is one of
+ * the main reasons to have conditions: "if we sent X and got back Y".
+ */
+export type ConditionSubject =
+  | 'REQUEST_HEADER'
+  | 'REQUEST_BODY'
+  | 'REQUEST_JSON_FIELD'
+  | 'QUERY_PARAM'
+  | 'URL'
+  | 'METHOD'
+  | 'RESPONSE_STATUS'
+  | 'RESPONSE_HEADER'
+  | 'RESPONSE_BODY'
+  | 'RESPONSE_JSON_FIELD';
+
+export type ConditionOperator =
+  | 'EXISTS'
+  | 'NOT_EXISTS'
+  | 'EQUALS'
+  | 'NOT_EQUALS'
+  | 'CONTAINS'
+  | 'NOT_CONTAINS'
+  | 'MATCHES'
+  | 'NOT_MATCHES'
+  | 'AT_LEAST'
+  | 'AT_MOST';
+
+export interface Condition {
+  readonly subject: ConditionSubject;
+  /** Header name, query parameter name, or dotted JSON path - see SUBJECTS_NEEDING_NAME. */
+  readonly name?: string | null;
+  readonly operator: ConditionOperator;
+  /** Absent for EXISTS / NOT_EXISTS, which compare against nothing. */
+  readonly value?: string | null;
+  readonly caseSensitive?: boolean | null;
+}
+
+/** One arm of a conditional. Branches are tried in order and the first match wins. */
+export interface ConditionBranch {
+  readonly combine?: 'ALL' | 'ANY' | null;
+  readonly conditions: readonly Condition[];
+  readonly actions: readonly RuleAction[];
+}
 
 export interface RuleMatch {
   readonly source?: RuleSource | null;
@@ -73,6 +123,10 @@ export interface RuleAction {
   readonly onTimeout?: 'release' | 'abort' | null;
   /** SIMULATE_FAILURE only. */
   readonly failure?: FailureMode | null;
+  /** IF_REQUEST / IF_RESPONSE only: the arms, tried in order. */
+  readonly branches?: readonly ConditionBranch[] | null;
+  /** IF_REQUEST / IF_RESPONSE only: what runs when no branch matched. */
+  readonly otherwise?: readonly RuleAction[] | null;
 }
 
 export interface InterceptionRule {
@@ -276,6 +330,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   PAUSE_REQUEST: 'Pause and wait for me (before forwarding)',
   SEND_TO_HOST: 'Send the call to the host',
   SIMULATE_FAILURE: 'Simulate a failure (network, not a status)',
+  IF_REQUEST: 'Condition — look at the request, then decide',
   DELAY_RESPONSE: 'Delay response',
   SET_RESPONSE_STATUS: 'Set response status',
   SET_RESPONSE_HEADER: 'Set response header',
@@ -284,7 +339,75 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   SET_RESPONSE_BODY: 'Replace the response body',
   REPLACE_RESPONSE: 'Reply with a different response',
   PAUSE_RESPONSE: 'Pause and wait for me (after the supplier answers)',
+  IF_RESPONSE: 'Condition — look at the response, then decide',
 };
+
+export const SUBJECT_LABELS: Readonly<Record<ConditionSubject, string>> = {
+  REQUEST_HEADER: 'Request header',
+  REQUEST_BODY: 'Request body',
+  REQUEST_JSON_FIELD: 'Request JSON field',
+  QUERY_PARAM: 'Query parameter',
+  URL: 'URL',
+  METHOD: 'Method',
+  RESPONSE_STATUS: 'Response status',
+  RESPONSE_HEADER: 'Response header',
+  RESPONSE_BODY: 'Response body',
+  RESPONSE_JSON_FIELD: 'Response JSON field',
+};
+
+export const OPERATOR_LABELS: Readonly<Record<ConditionOperator, string>> = {
+  EXISTS: 'exists',
+  NOT_EXISTS: 'does not exist',
+  EQUALS: 'equals',
+  NOT_EQUALS: 'does not equal',
+  CONTAINS: 'contains',
+  NOT_CONTAINS: 'does not contain',
+  MATCHES: 'matches regex',
+  NOT_MATCHES: 'does not match regex',
+  AT_LEAST: 'is at least',
+  AT_MOST: 'is at most',
+};
+
+/** Subjects that need a header name, parameter name or field path to identify the value. */
+export const SUBJECTS_NEEDING_NAME: ReadonlySet<ConditionSubject> = new Set<ConditionSubject>([
+  'REQUEST_HEADER',
+  'REQUEST_JSON_FIELD',
+  'QUERY_PARAM',
+  'RESPONSE_HEADER',
+  'RESPONSE_JSON_FIELD',
+]);
+
+/** Subjects that do not exist yet in the request phase. */
+export const RESPONSE_SUBJECTS: ReadonlySet<ConditionSubject> = new Set<ConditionSubject>([
+  'RESPONSE_STATUS',
+  'RESPONSE_HEADER',
+  'RESPONSE_BODY',
+  'RESPONSE_JSON_FIELD',
+]);
+
+/** Operators that compare against nothing, so the value field is meaningless for them. */
+export const OPERATORS_WITHOUT_VALUE: ReadonlySet<ConditionOperator> = new Set<ConditionOperator>([
+  'EXISTS',
+  'NOT_EXISTS',
+]);
+
+export function isConditionalAction(type: ActionType): boolean {
+  return type === 'IF_REQUEST' || type === 'IF_RESPONSE';
+}
+
+/** "request header x-api-key does not exist" - the plain-language form, used in the editor and the log. */
+export function describeCondition(condition: Condition): string {
+  const subject = SUBJECT_LABELS[condition.subject] ?? condition.subject;
+  const head = condition.name ? `${subject} ${condition.name}` : subject;
+  const operator = OPERATOR_LABELS[condition.operator] ?? condition.operator;
+  if (OPERATORS_WITHOUT_VALUE.has(condition.operator)) return `${head} ${operator}`;
+  return `${head} ${operator} ${condition.value ?? ''}`.trim();
+}
+
+export function describeBranch(branch: ConditionBranch): string {
+  const joiner = branch.combine === 'ANY' ? ' or ' : ' and ';
+  return branch.conditions.map(describeCondition).join(joiner);
+}
 
 export function describeMatch(match: RuleMatch): string {
   const parts: string[] = [];
@@ -325,6 +448,12 @@ export function describeAction(action: RuleAction): string {
       return 'Send to the host';
     case 'SIMULATE_FAILURE':
       return action.failure ? FAILURE_LABELS[action.failure] : 'Simulate a failure';
+    case 'IF_REQUEST':
+    case 'IF_RESPONSE': {
+      const branches = action.branches?.length ?? 0;
+      const otherwise = action.otherwise?.length ? ' · else' : '';
+      return `If ${branches === 1 ? '1 condition' : `${branches} branches`}${otherwise}`;
+    }
     case 'SET_RESPONSE_BODY':
       return `Replace response body (${(action.body ?? '').length} chars)`;
     case 'REPLACE_RESPONSE':

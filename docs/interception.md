@@ -101,10 +101,67 @@ way, because whether a call reaches the host decides whether the response half r
 | `SEND_TO_HOST` | `SET_RESPONSE_BODY`, `REPLACE_RESPONSE` |
 | `SIMULATE_FAILURE`, `MOCK_RESPONSE` | |
 | `PAUSE_REQUEST` | `PAUSE_RESPONSE` |
+| `IF_REQUEST` | `IF_RESPONSE` |
 
 `ABORT_REQUEST` still runs for rules that already use it, but the editor no longer offers it - it
 is exactly `SIMULATE_FAILURE` with `CONNECTION_RESET`. `ActionType.isSelectable()` is what hides
 it, so the rule keeps working and only the picker moved on.
+
+### Conditions — look at the call, then decide
+
+`IF_REQUEST` / `IF_RESPONSE` are actions like any other, sitting in the same list and moved the
+same way. Each holds **branches**, tried in order: the **first match wins** and nothing after it
+runs, with an optional `otherwise`. That makes `else if` a list rather than a tree.
+
+```json
+{ "type": "IF_REQUEST",
+  "branches": [
+    { "combine": "ALL",
+      "conditions": [{ "subject": "REQUEST_HEADER", "name": "x-api-key", "operator": "NOT_EXISTS" }],
+      "actions": [{ "type": "MOCK_RESPONSE", "status": 401, "body": "…" }] }
+  ],
+  "otherwise": [{ "type": "SEND_TO_HOST" }] }
+```
+
+**Subjects:** `REQUEST_HEADER`, `REQUEST_BODY`, `REQUEST_JSON_FIELD`, `QUERY_PARAM`, `URL`,
+`METHOD`, and in the response half also `RESPONSE_STATUS`, `RESPONSE_HEADER`, `RESPONSE_BODY`,
+`RESPONSE_JSON_FIELD`. A response subject in an `IF_REQUEST` is **refused at save time** — there
+is no response yet, so the branch could only ever be false. The reverse is allowed and is one of
+the main reasons to have conditions at all: *"we sent X and got back Y"*.
+
+**Operators:** `EXISTS`, `NOT_EXISTS`, `EQUALS`, `NOT_EQUALS`, `CONTAINS`, `NOT_CONTAINS`,
+`MATCHES`, `NOT_MATCHES`, `AT_LEAST`, `AT_MOST`. Comparison ignores case unless
+`caseSensitive` is set, and every regex is **compiled once at rule load**, never per call.
+
+Three semantics worth knowing, because they are the ones that surprise people:
+
+- **An absent subject is never equal to, does not contain and does not match anything** — so
+  `NOT_EQUALS` against a header that was never sent is **true**. `EXISTS` / `NOT_EXISTS` exist so
+  you can say "this is missing" outright rather than inferring it from a negative.
+- **A `[*]` path resolves to several values.** A positive operator holds if ANY of them satisfies
+  it; its negative holds only if NONE does. That is the only pairing under which a condition and
+  its negation cannot both be true.
+- **An unknown subject or operator never matches.** A branch that runs because a typo was ignored
+  is worse than one that never runs.
+
+**Nesting stops at two levels**, enforced by the validator and by what the editor offers. The
+engine would happily go deeper; a human working out why a booking failed would not.
+
+**A terminal inside a branch does not conflict with one in another branch.** Branches are
+alternatives, never a sequence, so a rule that mocks in one arm and resets the connection in
+another is coherent where two terminals in a row would not be. It also means the editor still
+says the host is reachable: that branch may not be taken.
+
+**The branch that ran is recorded**, with the conditions that chose it:
+
+```
+IF_REQUEST    branch 1 matched: request header x-api-key not exists
+MOCK_RESPONSE 401, upstream never contacted
+```
+
+A rule that can take three paths is only useful if the log says which one it took. The same
+secret-masking applies as everywhere else - a condition on `authorization` records
+`(value not logged)`, never the value, because this text is echoed verbatim into every export.
 
 ### Failures that are not a status code
 
@@ -417,6 +474,13 @@ matches never reaches the snapshot.
 
 ## Backward compatibility
 
+**An older proxy reading a newer rules file skips a conditional entirely** - unknown action types
+are already skipped rather than guessed at. So during a partial deploy (backend updated, proxy
+container not yet restarted) a conditional rule does nothing, rather than doing something wrong.
+Note that the proxy caches the module at import: editing `interception.py` needs a container
+restart, not just a file change.
+
+
 With no rules file, an empty rules list, or the master switch off, both addons return an inert
 verdict after one dict lookup. Nothing else changes: same forwarding, same two-phase logging, same
 ids, same API shapes, same frontend.
@@ -452,9 +516,11 @@ cd proxy && python -m unittest test_interception -v
    to `REQUEST_ACTIONS` / `RESPONSE_ACTIONS`.
 4. Add a label to `ACTION_LABELS` and a field row to `rule-editor.component.html`.
 5. Add defaults to `defaultsFor()` so a freshly added action is already valid.
-6. If it takes a status, use `StatusPickerComponent`, never a number input - the thing a user
+6. If it needs a condition, nothing to do - conditions are generic and work with any action of
+   the right phase.
+7. If it takes a status, use `StatusPickerComponent`, never a number input - the thing a user
    knows is "service unavailable", not that it is 503.
-7. Add it to `EveryActionIsCoveredTest.SAMPLES` in `proxy/test_interception.py` — that suite walks
+8. Add it to `EveryActionIsCoveredTest.SAMPLES` in `proxy/test_interception.py` — that suite walks
    `REQUEST_ACTIONS`/`RESPONSE_ACTIONS` themselves, so this is a failing build, not a checklist
    item you can miss.
 
