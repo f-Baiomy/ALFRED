@@ -1,0 +1,57 @@
+<div class="assigned-to-filter select-picker status-picker">
+  <button type="button" class="theme-picker-btn" [class.unset]="value() == null" (click)="togglePanel()">
+    {{ label() }}
+  </button>
+
+  @if (panelOpen()) {
+    <div
+      class="theme-picker-panel select-picker-panel status-picker-panel"
+      [style.top.px]="panelPosition().top"
+      [style.left.px]="panelPosition().left"
+    >
+      <input
+        class="status-picker-search"
+        type="text"
+        placeholder="503, unavailable, timeout…"
+        autocomplete="off"
+        spellcheck="false"
+        [value]="query()"
+        (input)="onQuery($event)"
+        (keydown.enter)="onEnter()"
+      />
+
+      <div class="filter-option-list">
+        @for (group of groups(); track group.label) {
+          <div class="status-group-label">{{ group.label }}</div>
+          @for (status of group.statuses; track status.code) {
+            <button
+              type="button"
+              class="filter-option-item status-option"
+              [class.active]="status.code === value()"
+              (click)="select(status.code)"
+            >
+              <span class="status-code">{{ status.code }}</span>
+              <span class="status-phrase">{{ status.phrase }}</span>
+            </button>
+          }
+        }
+
+        <!-- Offered from what was typed rather than behind a separate field: a supplier that
+             answers 599 is exactly the case worth reproducing, so it must not be the awkward path. -->
+        @if (custom(); as code) {
+          <div class="status-group-label">Not a standard code</div>
+          <button type="button" class="filter-option-item status-option custom" (click)="select(code)">
+            <span class="status-code">{{ code }}</span>
+            <span class="status-phrase">use it anyway</span>
+          </button>
+        }
+
+        @if (nothingFound()) {
+          <div class="status-picker-empty">
+            Nothing matches “{{ query() }}”. Type a three-digit code to use one that is not listed.
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>

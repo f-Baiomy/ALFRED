@@ -3,6 +3,9 @@ import { Component, EventEmitter, Input, OnInit, Output, computed, inject, signa
 import {
   ACTION_LABELS,
   ActionType,
+  FAILURE_HINTS,
+  FAILURE_LABELS,
+  FailureMode,
   InterceptionRule,
   InterceptionRuleDraft,
   RuleAction,
@@ -10,7 +13,10 @@ import {
   actionPhase,
 } from '../../core/models/interception.model';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
+import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
+import { StatusPickerComponent } from '../status-picker/status-picker.component';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
+import { InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
 
@@ -24,6 +30,14 @@ const ON_TIMEOUT_OPTIONS: readonly SelectOption[] = [
   { value: 'release', label: 'Release it unchanged' },
   { value: 'abort', label: 'Abort the connection' },
 ];
+
+const METHOD_OPTIONS: readonly SelectOption[] = METHODS.map((m) => ({ value: m, label: m }));
+
+const FAILURE_OPTIONS: readonly SelectOption[] = (Object.keys(FAILURE_LABELS) as FailureMode[])
+  .map((mode) => ({ value: mode, label: FAILURE_LABELS[mode] }));
+
+/** The only statuses a gateway failure can be - anything else is the supplier answering. */
+const GATEWAY_STATUSES = [502, 503, 504];
 
 /**
  * Create/edit form for one interception rule.
@@ -46,7 +60,7 @@ const ON_TIMEOUT_OPTIONS: readonly SelectOption[] = [
   // SelectPickerComponent rather than a native <select>: a native dropdown's LIST is drawn by the
   // OS and only inconsistently honours page theming, so it renders as a pale system menu on
   // Alfred's dark surfaces (verified live). See that component's own docstring.
-  imports: [NgTemplateOutlet, SelectPickerComponent],
+  imports: [NgTemplateOutlet, SelectPickerComponent, MultiSelectPickerComponent, StatusPickerComponent],
   templateUrl: './rule-editor.component.html',
 })
 export class RuleEditorComponent implements OnInit {
@@ -55,18 +69,30 @@ export class RuleEditorComponent implements OnInit {
   @Output() readonly closed = new EventEmitter<void>();
 
   readonly state = inject(InterceptionStateService);
+  private readonly projectsApi = inject(InternalLoggingApiService);
 
   readonly methods = METHODS;
   readonly actionLabels = ACTION_LABELS;
   readonly directionOptions = DIRECTION_OPTIONS;
   readonly onTimeoutOptions = ON_TIMEOUT_OPTIONS;
+  readonly methodOptions = METHOD_OPTIONS;
+  readonly failureOptions = FAILURE_OPTIONS;
+  readonly gatewayStatuses = GATEWAY_STATUSES;
+  readonly failureHints = FAILURE_HINTS;
+
+  /**
+   * The configured projects, from the same endpoint the Settings page and Sources bar read.
+   * Fetched rather than typed: a rule scoped to a project whose name is misspelled matches
+   * nothing at all, and nothing about the silence says why.
+   */
+  readonly projectOptions = signal<readonly SelectOption[]>([]);
 
   readonly name = signal('');
   readonly description = signal('');
   readonly stopProcessing = signal(false);
 
   readonly source = signal<RuleSource>('both');
-  readonly serviceName = signal('');
+  readonly serviceNames = signal<readonly string[]>([]);
   readonly selectedMethods = signal<readonly string[]>([]);
   readonly host = signal('');
   readonly pathContains = signal('');
@@ -77,11 +103,17 @@ export class RuleEditorComponent implements OnInit {
 
   readonly isNew = computed(() => this.rule === null);
 
+  // `selectable === false` is ABORT_REQUEST: still evaluated for rules that use it, but reached
+  // through SIMULATE_FAILURE now rather than offered as a second way to do the same thing.
   readonly requestActionTypes = computed(() =>
-    this.state.actionTypes().filter((t) => t.phase === 'request').map((t) => t.type)
+    this.state.actionTypes()
+      .filter((t) => t.phase === 'request' && t.selectable !== false)
+      .map((t) => t.type)
   );
   readonly responseActionTypes = computed(() =>
-    this.state.actionTypes().filter((t) => t.phase === 'response').map((t) => t.type)
+    this.state.actionTypes()
+      .filter((t) => t.phase === 'response' && t.selectable !== false)
+      .map((t) => t.type)
   );
 
   /**
@@ -91,7 +123,9 @@ export class RuleEditorComponent implements OnInit {
    */
   readonly conflictHint = computed(() => {
     const types = this.actions().map((a) => a.type);
-    const terminals = types.filter((t) => t === 'ABORT_REQUEST' || t === 'MOCK_RESPONSE').length;
+    const terminals = types.filter(
+      (t) => t === 'ABORT_REQUEST' || t === 'MOCK_RESPONSE' || t === 'SIMULATE_FAILURE'
+    ).length;
     const pauses = types.filter((t) => t.startsWith('PAUSE_')).length;
     if (terminals > 1) return 'Two actions both end the request — only the first would ever run.';
     if (terminals > 0 && pauses > 0) return 'This rule ends the request before it could pause.';
@@ -120,10 +154,23 @@ export class RuleEditorComponent implements OnInit {
    * a puzzle rather than something visible in the form.
    */
   readonly reachesHost = computed(
-    () => !this.actions().some((a) => a.type === 'MOCK_RESPONSE' || a.type === 'ABORT_REQUEST')
+    () =>
+      !this.actions().some(
+        (a) => a.type === 'MOCK_RESPONSE' || a.type === 'ABORT_REQUEST' || a.type === 'SIMULATE_FAILURE'
+      )
   );
 
   ngOnInit(): void {
+    this.projectsApi.getServices().subscribe((services) => {
+      // The reserved "unknown" entry (null ports) is a bucket for traffic that arrived on no
+      // configured listener, not a project anybody would scope a rule to.
+      this.projectOptions.set(
+        services
+          .filter((s) => s.listenPort !== null)
+          .map((s) => ({ value: s.name, label: s.name }))
+      );
+    });
+
     const rule = this.rule;
     if (!rule) {
       // A new rule starts with one delay action rather than none: an empty action list is the one
@@ -136,7 +183,15 @@ export class RuleEditorComponent implements OnInit {
     this.description.set(rule.description ?? '');
     this.stopProcessing.set(rule.stopProcessing);
     this.source.set((rule.match.source as RuleSource) ?? 'both');
-    this.serviceName.set(rule.match.serviceName ?? '');
+    // Either shape - a rule saved before the field was a list still has to load into the form
+    // it is now edited with.
+    this.serviceNames.set(
+      rule.match.serviceNames?.length
+        ? [...rule.match.serviceNames]
+        : rule.match.serviceName
+          ? [rule.match.serviceName]
+          : []
+    );
     this.selectedMethods.set(rule.match.methods ?? []);
     this.host.set(rule.match.host ?? '');
     this.pathContains.set(rule.match.pathContains ?? '');
@@ -269,6 +324,42 @@ export class RuleEditorComponent implements OnInit {
     return type.startsWith('PAUSE_');
   }
 
+  isFailure(type: ActionType): boolean {
+    return type === 'SIMULATE_FAILURE';
+  }
+
+  onFailureChange(index: number, value: string): void {
+    const mode = value as FailureMode;
+    // Carry the fields that mode needs, and only those - leaving a stale gateway status on a
+    // reset would be saved and then ignored, which is the confusing kind of dead data.
+    this.patchAction(index, {
+      failure: mode,
+      durationMs: mode === 'HANG_THEN_DROP' ? 30000 : null,
+      status: mode === 'GATEWAY_ERROR' ? 504 : null,
+      body: mode === 'TRUNCATED_BODY' ? '{"offers":[{"id":"OFF-1","price":412.50}]}' : null,
+    });
+  }
+
+  failureHint(action: RuleAction): string {
+    return action.failure ? FAILURE_HINTS[action.failure] : '';
+  }
+
+  needsHangDuration(action: RuleAction): boolean {
+    return action.failure === 'HANG_THEN_DROP';
+  }
+
+  needsGatewayStatus(action: RuleAction): boolean {
+    return action.failure === 'GATEWAY_ERROR';
+  }
+
+  needsTruncatedBody(action: RuleAction): boolean {
+    return action.failure === 'TRUNCATED_BODY';
+  }
+
+  onStatusChange(index: number, status: number): void {
+    this.patchAction(index, { status });
+  }
+
   save(): void {
     const draft: InterceptionRuleDraft = {
       name: this.name().trim(),
@@ -278,7 +369,7 @@ export class RuleEditorComponent implements OnInit {
       stopProcessing: this.stopProcessing(),
       match: {
         source: this.source(),
-        serviceName: this.serviceName().trim() || null,
+        serviceNames: this.serviceNames(),
         methods: this.selectedMethods(),
         host: this.host().trim() || null,
         pathContains: this.pathContains().trim() || null,
@@ -333,6 +424,10 @@ function defaultsFor(type: ActionType): RuleAction {
       return { type, status: 500, body: '{"error":"Replaced by Alfred"}' };
     case 'SEND_TO_HOST':
       return { type };
+    case 'SIMULATE_FAILURE':
+      // Reset is the one that needs no other field, so a freshly added failure is valid before
+      // the user has chosen anything.
+      return { type, failure: 'CONNECTION_RESET' };
     case 'MOCK_RESPONSE':
       return {
         type,

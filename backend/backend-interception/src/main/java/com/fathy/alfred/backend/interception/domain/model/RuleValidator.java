@@ -67,7 +67,8 @@ public final class RuleValidator {
         }
 
         if (terminals > 1) {
-            problems.add("A rule can only end a request once - keep either ABORT_REQUEST or MOCK_RESPONSE, not both.");
+            problems.add("A rule can only end a request once - keep one of mocking it, failing it, "
+                    + "or aborting it.");
         }
         if (pauses > 1) {
             problems.add("A rule can only pause a call once.");
@@ -85,6 +86,11 @@ public final class RuleValidator {
         if (match.source() != null && !match.source().isBlank()
                 && !List.of("outbound", "inbound", "both").contains(match.source())) {
             problems.add("Direction must be outbound, inbound or both.");
+        }
+        for (String name : match.serviceNames()) {
+            if (name == null || name.isBlank()) {
+                problems.add("A project name cannot be blank - leave the field empty to match any project.");
+            }
         }
         for (String method : match.methods()) {
             if (method == null || method.isBlank() || !method.chars().allMatch(Character::isLetter)) {
@@ -155,6 +161,41 @@ public final class RuleValidator {
                 }
                 if (action.onTimeout() != null && !List.of("release", "abort").contains(action.onTimeout())) {
                     problems.add("On timeout must be release or abort.");
+                }
+            }
+            case SIMULATE_FAILURE -> {
+                if (action.failure() == null || action.failure().isBlank()) {
+                    problems.add("SIMULATE_FAILURE needs to say what goes wrong.");
+                } else if (!FailureMode.isKnown(action.failure())) {
+                    problems.add("\"" + action.failure() + "\" is not a failure Alfred can reproduce.");
+                } else {
+                    switch (FailureMode.valueOf(action.failure())) {
+                        case HANG_THEN_DROP -> {
+                            if (action.durationMs() == null || action.durationMs() < 0) {
+                                problems.add("Hanging then dropping needs a duration of 0 ms or more.");
+                            } else if (action.durationMs() > MAX_DELAY_MS) {
+                                problems.add("Hanging is capped at " + MAX_DELAY_MS + " ms - use "
+                                        + "\"hang until the caller gives up\" to hold one longer.");
+                            }
+                        }
+                        // The point of it is that the CALLER's timeout is what ends the call, so a
+                        // status or body would never be sent and a duration is not ours to set.
+                        case GATEWAY_ERROR -> {
+                            if (action.status() == null || !List.of(502, 503, 504).contains(action.status())) {
+                                problems.add("A gateway failure is 502, 503 or 504 - anything else is a "
+                                        + "response the supplier sent, so use Mock response for it.");
+                            }
+                        }
+                        case TRUNCATED_BODY -> {
+                            if (action.body() == null || action.body().isEmpty()) {
+                                problems.add("Truncating needs a body to cut short - an empty one is "
+                                        + "\"empty reply\" instead.");
+                            }
+                        }
+                        default -> {
+                            // CONNECTION_RESET, HANG_UNTIL_CALLER_GIVES_UP and EMPTY_REPLY take nothing.
+                        }
+                    }
                 }
             }
             case ABORT_REQUEST, SEND_TO_HOST -> {

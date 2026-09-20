@@ -1,0 +1,64 @@
+<div class="assigned-to-filter select-picker multi-picker">
+  <button type="button" class="theme-picker-btn multi-picker-btn" (click)="togglePanel()">
+    @if (values().length === 0) {
+      <span class="multi-picker-empty">{{ emptyLabel() }}</span>
+    } @else {
+      @for (value of values(); track value) {
+        <span class="multi-chip">{{ labelOf(value) }}</span>
+      }
+    }
+    <span class="multi-picker-caret">▾</span>
+  </button>
+
+  @if (panelOpen()) {
+    <div
+      class="theme-picker-panel select-picker-panel multi-picker-panel"
+      [style.top.px]="panelPosition().top"
+      [style.left.px]="panelPosition().left"
+    >
+      @if (searchable()) {
+        <input
+          class="status-picker-search"
+          type="text"
+          placeholder="filter…"
+          autocomplete="off"
+          spellcheck="false"
+          [value]="query()"
+          (input)="onQuery($event)"
+        />
+      }
+
+      <div class="filter-option-list">
+        @for (option of visibleOptions(); track option.value) {
+          <button
+            type="button"
+            class="filter-option-item multi-option"
+            [class.active]="selected().has(option.value)"
+            (click)="toggle(option.value)"
+          >
+            <span class="multi-check">{{ selected().has(option.value) ? '☑' : '☐' }}</span>
+            {{ option.label }}
+          </button>
+        } @empty {
+          <div class="status-picker-empty">Nothing matches.</div>
+        }
+
+        <!-- A selected value the list no longer offers - a project since removed from
+             settings.properties. Shown rather than hidden: the rule still carries it, and a
+             filter that quietly dropped it would make the rule's real behaviour invisible. -->
+        @for (value of unknownSelections(); track value) {
+          <button type="button" class="filter-option-item multi-option unknown" (click)="toggle(value)">
+            <span class="multi-check">☑</span>
+            {{ value }} <em>— not configured any more</em>
+          </button>
+        }
+      </div>
+
+      @if (values().length > 0) {
+        <button type="button" class="multi-picker-clear" (click)="clear()">
+          Clear — match {{ emptyLabel().toLowerCase() }}
+        </button>
+      }
+    </div>
+  }
+</div>

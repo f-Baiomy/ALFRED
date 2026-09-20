@@ -92,6 +92,9 @@
             </button>
             <button type="button" [class.on]="tab() === 'headers'" (click)="tab.set('headers')">
               Headers ({{ headerRows().length }})
+              @if (headerChangeCount() > 0) {
+                <span class="paused-tab-badge">{{ headerChangeCount() }} edited</span>
+              }
             </button>
             @if (call.phase === 'response') {
               <button type="button" [class.on]="tab() === 'request'" (click)="tab.set('request')">
@@ -136,19 +139,17 @@
                 </div>
               }
               @if (call.phase === 'response') {
-                <label class="paused-status-row">
+                <div class="paused-status-row">
                   <span>Status</span>
-                  <input
-                    type="number"
-                    min="100"
-                    max="599"
+                  <app-status-picker
                     [value]="currentStatus()"
-                    (input)="onStatusInput($event)"
+                    placeholder="Keep what the host sent"
+                    (valueChange)="onStatusChange($event)"
                   />
                   @if (currentStatus() !== originalStatus()) {
                     <span class="paused-was">was {{ originalStatus() }}</span>
                   }
-                </label>
+                </div>
               }
               <textarea
                 class="paused-body"
@@ -157,16 +158,73 @@
                 (input)="onBodyInput($event)"
               ></textarea>
             } @else if (tab() === 'headers') {
-              <div class="paused-headers">
-                @for (row of headerRows(); track row.name) {
-                  <div class="paused-header-row">
-                    <span class="paused-header-name">{{ row.name }}</span>
-                    <span class="paused-header-value">{{ row.value }}</span>
+              <div class="paused-headers-head">
+                <small class="muted">
+                  Editing a header claims the call and stops its countdown. Only what you change is
+                  sent — the rest reaches its destination untouched.
+                </small>
+                <button type="button" class="action-btn" (click)="addHeader()">+ Add header</button>
+              </div>
+
+              <div class="paused-headers editable">
+                @for (row of headerRows(); track $index) {
+                  <div class="paused-header-row" [class.removed]="row.removed" [class.added]="row.added">
+                    <input
+                      class="paused-header-name"
+                      type="text"
+                      spellcheck="false"
+                      placeholder="header-name"
+                      [value]="row.name"
+                      [disabled]="row.removed"
+                      (input)="onHeaderName($index, $event)"
+                    />
+                    <input
+                      class="paused-header-value"
+                      type="text"
+                      spellcheck="false"
+                      placeholder="value"
+                      [value]="row.value"
+                      [disabled]="row.removed"
+                      (input)="onHeaderValue($index, $event)"
+                    />
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      [title]="row.removed ? 'Keep this header after all' : 'Remove this header'"
+                      (click)="toggleHeaderRemoved($index)"
+                    >{{ row.removed ? '↺' : '✕' }}</button>
                   </div>
                 } @empty {
                   <div class="empty">No headers.</div>
                 }
               </div>
+
+              <!-- For a change too structural to make row by row - swapping a whole response for
+                   another one you already have. Deliberately explicit that omission means removal. -->
+              <button type="button" class="link-btn paused-replace-toggle" (click)="toggleReplace()">
+                {{ replaceOpen() ? '▲ Close' : '▸ Replace everything at once' }}
+              </button>
+
+              @if (replaceOpen()) {
+                <div class="paused-replace">
+                  <small class="muted">
+                    Paste a whole {{ selected()?.phase }} as JSON. Any header you leave out is
+                    <strong>removed</strong>, not kept.
+                  </small>
+                  <textarea
+                    class="paused-body"
+                    spellcheck="false"
+                    [value]="replaceText()"
+                    (input)="onReplaceText($event)"
+                  ></textarea>
+                  @if (replaceError(); as error) {
+                    <div class="paused-replace-error">{{ error }}</div>
+                  }
+                  <button type="button" class="action-btn primary" (click)="applyReplacement()">
+                    Apply to this call
+                  </button>
+                </div>
+              }
             } @else {
               <div class="paused-headers">
                 @for (row of requestHeaderRows(); track row.name) {

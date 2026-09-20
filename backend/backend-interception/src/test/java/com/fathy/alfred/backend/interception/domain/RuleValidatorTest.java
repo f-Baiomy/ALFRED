@@ -19,11 +19,11 @@ class RuleValidatorTest {
     }
 
     private static RuleAction delay(int ms) {
-        return new RuleAction(ActionType.DELAY_REQUEST, ms, null, null, null, null, null, null, null, null);
+        return new RuleAction(ActionType.DELAY_REQUEST, ms, null, null, null, null, null, null, null, null, null);
     }
 
     private static RuleAction pause(int seconds, String onTimeout) {
-        return new RuleAction(ActionType.PAUSE_RESPONSE, null, null, null, null, null, null, null, seconds, onTimeout);
+        return new RuleAction(ActionType.PAUSE_RESPONSE, null, null, null, null, null, null, null, seconds, onTimeout, null);
     }
 
     @Test
@@ -53,14 +53,14 @@ class RuleValidatorTest {
 
     @Test
     void rejectsARegexThatDoesNotCompile() {
-        RuleMatch match = new RuleMatch(null, null, List.of(), null, null, "([unclosed");
+        RuleMatch match = new RuleMatch(null, null, List.of(), List.of(), null, null, "([unclosed");
         assertThat(RuleValidator.validate(rule(match, delay(1))))
                 .anyMatch(p -> p.contains("does not compile"));
     }
 
     @Test
     void acceptsARegexThatDoesCompile() {
-        RuleMatch match = new RuleMatch(null, null, List.of(), null, null, "/v\\d+/order");
+        RuleMatch match = new RuleMatch(null, null, List.of(), List.of(), null, null, "/v\\d+/order");
         assertThat(RuleValidator.validate(rule(match, delay(1)))).isEmpty();
     }
 
@@ -68,7 +68,7 @@ class RuleValidatorTest {
     void rejectsTwoTerminalActionsInOneRule() {
         RuleAction abort = RuleAction.of(ActionType.ABORT_REQUEST);
         RuleAction mock = new RuleAction(ActionType.MOCK_RESPONSE, null, null, null, null, 500,
-                Map.of(), "{}", null, null);
+                Map.of(), "{}", null, null, null);
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), abort, mock)))
                 .anyMatch(p -> p.contains("only end a request once"));
     }
@@ -102,7 +102,7 @@ class RuleValidatorTest {
     void acceptsSendToHostFollowedByResponseHandling() {
         RuleAction send = RuleAction.of(ActionType.SEND_TO_HOST);
         RuleAction replace = new RuleAction(ActionType.REPLACE_RESPONSE, null, null, null, null, 500,
-                null, "{\"error\":\"nope\"}", null, null);
+                null, "{\"error\":\"nope\"}", null, null, null);
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), send, replace))).isEmpty();
     }
 
@@ -110,7 +110,7 @@ class RuleValidatorTest {
     void rejectsARuleThatBothSendsToTheHostAndShortCircuits() {
         RuleAction send = RuleAction.of(ActionType.SEND_TO_HOST);
         RuleAction mock = new RuleAction(ActionType.MOCK_RESPONSE, null, null, null, null, 500,
-                Map.of(), "{}", null, null);
+                Map.of(), "{}", null, null, null);
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), send, mock)))
                 .anyMatch(p -> p.contains("short-circuits it"));
     }
@@ -125,7 +125,7 @@ class RuleValidatorTest {
     @Test
     void acceptsAReplaceResponseThatOnlyChangesTheStatus() {
         RuleAction statusOnly = new RuleAction(ActionType.REPLACE_RESPONSE, null, null, null, null, 503,
-                null, null, null, null);
+                null, null, null, null, null);
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), statusOnly))).isEmpty();
     }
 
@@ -138,27 +138,27 @@ class RuleValidatorTest {
     @Test
     void acceptsBlankingAResponseBodyDeliberately() {
         RuleAction blank = new RuleAction(ActionType.SET_RESPONSE_BODY, null, null, null, null, null,
-                null, "", null, null);
+                null, "", null, null, null);
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), blank))).isEmpty();
     }
 
     @Test
     void rejectsAHeaderActionWithNoName() {
-        RuleAction action = new RuleAction(ActionType.SET_REQUEST_HEADER, null, " ", "v", null, null, null, null, null, null);
+        RuleAction action = new RuleAction(ActionType.SET_REQUEST_HEADER, null, " ", "v", null, null, null, null, null, null, null);
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action))).anyMatch(p -> p.contains("needs a name"));
     }
 
     @Test
     void rejectsAStatusOutsideTheHttpRange() {
         RuleAction action = new RuleAction(ActionType.SET_RESPONSE_STATUS, null, null, null, null, 42,
-                null, null, null, null);
+                null, null, null, null, null);
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action))).anyMatch(p -> p.contains("100 and 599"));
     }
 
     @Test
     void reportsEveryProblemAtOnceRatherThanTheFirst() {
         InterceptionRule bad = new InterceptionRule(null, "", null, true, 100, false,
-                new RuleMatch(null, null, List.of(), null, null, "([bad"), List.of(delay(-5)), null, null);
+                new RuleMatch(null, null, List.of(), List.of(), null, null, "([bad"), List.of(delay(-5)), null, null);
         assertThat(RuleValidator.validate(bad)).hasSizeGreaterThanOrEqualTo(3);
     }
 
@@ -171,18 +171,110 @@ class RuleValidatorTest {
         for (String path : List.of("currency", "a.b.c", "itinerary.seatsRemaining",
                 "segments[0].cabin", "segments[*].cabin", "a[0][1].b", "a[-1].b")) {
             RuleAction action = new RuleAction(ActionType.SET_REQUEST_JSON_FIELD, null, null, 1, path,
-                    null, null, null, null, null);
+                    null, null, null, null, null, null);
             assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action)))
                     .as("path %s", path)
                     .isEmpty();
         }
     }
 
+    private static RuleAction failure(String mode, Integer durationMs, Integer status, String body) {
+        return new RuleAction(ActionType.SIMULATE_FAILURE, durationMs, null, null, null, status,
+                null, body, null, null, mode);
+    }
+
+    @Test
+    void acceptsEveryFailureModeGivenWhatItNeeds() {
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("CONNECTION_RESET", null, null, null))))
+                .isEmpty();
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("HANG_THEN_DROP", 5000, null, null))))
+                .isEmpty();
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("HANG_UNTIL_CALLER_GIVES_UP", null, null, null))))
+                .isEmpty();
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("EMPTY_REPLY", null, null, null))))
+                .isEmpty();
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("TRUNCATED_BODY", null, null, "{\"a\":1}"))))
+                .isEmpty();
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("GATEWAY_ERROR", null, 504, null))))
+                .isEmpty();
+    }
+
+    @Test
+    void rejectsAFailureItCannotActuallyReproduce() {
+        // A caller is connected to Alfred, whose handshake with it already succeeded - a TLS or
+        // DNS error cannot be shown to it, and pretending otherwise in a dropdown would be worse
+        // than not offering it.
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("TLS_HANDSHAKE_FAILED", null, null, null))))
+                .anyMatch(problem -> problem.contains("not a failure Alfred can reproduce"));
+    }
+
+    @Test
+    void rejectsAFailureWithNothingChosen() {
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), RuleAction.of(ActionType.SIMULATE_FAILURE))))
+                .anyMatch(problem -> problem.contains("what goes wrong"));
+    }
+
+    @Test
+    void requiresADurationOnlyForTheModeThatWaits() {
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("HANG_THEN_DROP", null, null, null))))
+                .anyMatch(problem -> problem.contains("duration"));
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("CONNECTION_RESET", null, null, null))))
+                .isEmpty();
+    }
+
+    @Test
+    void refusesAGatewayStatusThatIsNotOne() {
+        // 500 is the supplier answering, not the gateway failing to reach it - a different thing
+        // to be testing, and MOCK_RESPONSE is where it belongs.
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("GATEWAY_ERROR", null, 500, null))))
+                .anyMatch(problem -> problem.contains("502, 503 or 504"));
+    }
+
+    @Test
+    void refusesToTruncateNothing() {
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("TRUNCATED_BODY", null, null, ""))))
+                .anyMatch(problem -> problem.contains("empty reply"));
+    }
+
+    @Test
+    void treatsAFailureAsTerminalLikeAnyOtherEnding() {
+        RuleAction mock = new RuleAction(ActionType.MOCK_RESPONSE, null, null, null, null, 500,
+                null, null, null, null, null);
+
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), failure("CONNECTION_RESET", null, null, null), mock)))
+                .anyMatch(problem -> problem.contains("only end a request once"));
+    }
+
+    @Test
+    void foldsAProjectNameSavedBeforeTheFieldWasAListIntoTheList() {
+        // Old rules keep matching exactly what they used to, and there is one shape in storage,
+        // in the published snapshot and in the engine rather than two.
+        RuleMatch legacy = new RuleMatch(null, "Core-service", null, List.of(), null, null, null);
+
+        assertThat(legacy.serviceNames()).containsExactly("Core-service");
+        assertThat(legacy.serviceName()).isNull();
+    }
+
+    @Test
+    void prefersTheListWhenBothAreSomehowPresent() {
+        RuleMatch both = new RuleMatch(null, "Core-service", List.of("odeysys"), List.of(), null, null, null);
+
+        assertThat(both.serviceNames()).containsExactly("odeysys");
+    }
+
+    @Test
+    void rejectsABlankProjectName() {
+        RuleMatch match = new RuleMatch(null, null, List.of("  "), List.of(), null, null, null);
+
+        assertThat(RuleValidator.validate(rule(match, delay(1))))
+                .anyMatch(problem -> problem.contains("project name"));
+    }
+
     @Test
     void rejectsMalformedPaths() {
         for (String path : List.of(".a", "a.", "a..b", "[0]", "a[", "a[]", "a[x]", "a]b")) {
             RuleAction action = new RuleAction(ActionType.SET_REQUEST_JSON_FIELD, null, null, 1, path,
-                    null, null, null, null, null);
+                    null, null, null, null, null, null);
             assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action)))
                     .as("path %s", path)
                     .isNotEmpty();

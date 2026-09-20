@@ -30,8 +30,8 @@ class FileRulesPublisherAdapterTest {
 
     private static InterceptionRule rule(String id, String name, boolean enabled, int priority) {
         return new InterceptionRule(id, name, null, enabled, priority, false,
-                new RuleMatch("outbound", null, List.of("POST"), "*.sabre.com", "/order", null),
-                List.of(new RuleAction(ActionType.DELAY_REQUEST, 5000, null, null, null, null, null, null, null, null)),
+                new RuleMatch("outbound", null, List.of(), List.of("POST"), "*.sabre.com", "/order", null),
+                List.of(new RuleAction(ActionType.DELAY_REQUEST, 5000, null, null, null, null, null, null, null, null, null)),
                 "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
     }
 
@@ -115,7 +115,7 @@ class FileRulesPublisherAdapterTest {
                 RuleMatch.empty(),
                 List.of(new RuleAction(ActionType.MOCK_RESPONSE, null, null, null, null, 500,
                         Map.of("Content-Type", "application/json"),
-                        "{\"error\":\"Simulated supplier failure\"}", null, null)),
+                        "{\"error\":\"Simulated supplier failure\"}", null, null, null)),
                 null, null);
 
         adapterFor(file).publish(true, List.of(mock));

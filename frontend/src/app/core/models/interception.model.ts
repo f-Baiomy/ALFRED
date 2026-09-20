@@ -23,6 +23,7 @@ export type ActionType =
   | 'MOCK_RESPONSE'
   | 'PAUSE_REQUEST'
   | 'SEND_TO_HOST'
+  | 'SIMULATE_FAILURE'
   | 'DELAY_RESPONSE'
   | 'SET_RESPONSE_STATUS'
   | 'SET_RESPONSE_HEADER'
@@ -32,9 +33,27 @@ export type ActionType =
   | 'REPLACE_RESPONSE'
   | 'PAUSE_RESPONSE';
 
+/**
+ * How a call can be broken at the transport level rather than with a status code.
+ *
+ * Deliberately does not include a DNS or TLS failure: the caller is connected to Alfred, and its
+ * handshake with Alfred succeeded long before any rule was evaluated, so the connection those
+ * would have to break is one that demonstrably works. Offering them would be a lie in a dropdown.
+ */
+export type FailureMode =
+  | 'CONNECTION_RESET'
+  | 'HANG_THEN_DROP'
+  | 'HANG_UNTIL_CALLER_GIVES_UP'
+  | 'EMPTY_REPLY'
+  | 'TRUNCATED_BODY'
+  | 'GATEWAY_ERROR';
+
 export interface RuleMatch {
   readonly source?: RuleSource | null;
+  /** Superseded by `serviceNames`; only ever read, never written - see the backend's RuleMatch. */
   readonly serviceName?: string | null;
+  /** Any of these projects matches. Empty or absent means any project at all. */
+  readonly serviceNames?: readonly string[];
   readonly methods?: readonly string[];
   readonly host?: string | null;
   readonly pathContains?: string | null;
@@ -52,6 +71,8 @@ export interface RuleAction {
   readonly body?: string | null;
   readonly timeoutSeconds?: number | null;
   readonly onTimeout?: 'release' | 'abort' | null;
+  /** SIMULATE_FAILURE only. */
+  readonly failure?: FailureMode | null;
 }
 
 export interface InterceptionRule {
@@ -140,7 +161,12 @@ export interface PausedCall {
 export interface PauseDecision {
   readonly action: 'release' | 'abort';
   readonly status?: number | null;
-  readonly headers?: Record<string, string> | null;
+  /**
+   * A null VALUE removes that header; an absent key leaves it untouched. That asymmetry is the
+   * whole reason this is a patch rather than the full set - changing one header on a call with
+   * forty must not rewrite the other thirty-nine.
+   */
+  readonly headers?: Record<string, string | null> | null;
   readonly body?: string | null;
 }
 
@@ -205,7 +231,37 @@ export interface ActionTypeInfo {
   readonly phase: ActionPhase;
   readonly terminal: boolean;
   readonly pause: boolean;
+  /**
+   * Whether the picker offers it. ABORT_REQUEST is not: it is exactly SIMULATE_FAILURE with
+   * CONNECTION_RESET, and a rule already using it still has to render and still fires.
+   */
+  readonly selectable?: boolean;
 }
+
+/** What each failure mode is called, and what the caller actually experiences. */
+export const FAILURE_LABELS: Readonly<Record<FailureMode, string>> = {
+  CONNECTION_RESET: 'Reset the connection immediately',
+  HANG_THEN_DROP: 'Hang, then drop the connection',
+  HANG_UNTIL_CALLER_GIVES_UP: 'Hang until the caller gives up',
+  EMPTY_REPLY: 'Empty reply (200, no body)',
+  TRUNCATED_BODY: 'Truncated body (cut short of its length)',
+  GATEWAY_ERROR: 'Gateway failure (502 / 503 / 504)',
+};
+
+export const FAILURE_HINTS: Readonly<Record<FailureMode, string>> = {
+  CONNECTION_RESET:
+    'Killed before forwarding. The caller sees a reset or EOF, not a status code - the host is never contacted.',
+  HANG_THEN_DROP:
+    'Accepted, held, then dropped. Reproduces a supplier that goes quiet mid-call; what you are testing is how your client handles a read timeout.',
+  HANG_UNTIL_CALLER_GIVES_UP:
+    'Held until your client gives up on its own. Alfred never ends it, so what you are testing is whether the client HAS a timeout at all.',
+  EMPTY_REPLY:
+    'A valid 200 with zero bytes. Parses as HTTP and breaks anything that assumes there is a body to read.',
+  TRUNCATED_BODY:
+    'Part of the body arrives, then the connection closes short of the length it promised - which client libraries report very differently from an empty reply.',
+  GATEWAY_ERROR:
+    'An intermediary failing rather than the supplier answering. The host is never contacted.',
+};
 
 /** Human labels for the action picker and the rule list's chips. */
 export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
@@ -219,6 +275,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   MOCK_RESPONSE: 'Mock response (never contact upstream)',
   PAUSE_REQUEST: 'Pause and wait for me (before forwarding)',
   SEND_TO_HOST: 'Send the call to the host',
+  SIMULATE_FAILURE: 'Simulate a failure (network, not a status)',
   DELAY_RESPONSE: 'Delay response',
   SET_RESPONSE_STATUS: 'Set response status',
   SET_RESPONSE_HEADER: 'Set response header',
@@ -233,7 +290,8 @@ export function describeMatch(match: RuleMatch): string {
   const parts: string[] = [];
   const source = match.source ?? 'both';
   parts.push(source === 'both' ? 'any direction' : source);
-  if (match.serviceName) parts.push(match.serviceName);
+  const projects = match.serviceNames?.length ? match.serviceNames : (match.serviceName ? [match.serviceName] : []);
+  if (projects.length) parts.push(projects.join(' or '));
   parts.push(match.methods?.length ? match.methods.join('/') : 'any method');
   if (match.host) parts.push(match.host);
   if (match.pathContains) parts.push(`path contains ${match.pathContains}`);
@@ -265,6 +323,8 @@ export function describeAction(action: RuleAction): string {
       return `Mock ${action.status} — host never called`;
     case 'SEND_TO_HOST':
       return 'Send to the host';
+    case 'SIMULATE_FAILURE':
+      return action.failure ? FAILURE_LABELS[action.failure] : 'Simulate a failure';
     case 'SET_RESPONSE_BODY':
       return `Replace response body (${(action.body ?? '').length} chars)`;
     case 'REPLACE_RESPONSE':
@@ -282,7 +342,7 @@ export function isPauseAction(type: ActionType): boolean {
 }
 
 export function isTerminalAction(type: ActionType): boolean {
-  return type === 'ABORT_REQUEST' || type === 'MOCK_RESPONSE';
+  return type === 'ABORT_REQUEST' || type === 'MOCK_RESPONSE' || type === 'SIMULATE_FAILURE';
 }
 
 /**

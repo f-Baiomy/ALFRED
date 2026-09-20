@@ -47,10 +47,18 @@
         />
       </div>
 
-      <label class="field">
-        <span>Project <em>optional</em></span>
-        <input type="text" [value]="serviceName()" (input)="serviceName.set($any($event.target).value)" placeholder="Core-service" />
-      </label>
+      <div class="field">
+        <!-- Picked from the configured projects, never typed: a rule scoped to a misspelled or
+             since-renamed project matches nothing at all, and the silence does not say why. -->
+        <span class="field-label">Projects <em>optional</em></span>
+        <app-multi-select-picker
+          [options]="projectOptions()"
+          [values]="serviceNames()"
+          emptyLabel="Any project"
+          [searchable]="projectOptions().length > 8"
+          (valuesChange)="serviceNames.set($event)"
+        />
+      </div>
 
       <label class="field">
         <span>Host</span>
@@ -172,7 +180,12 @@
 <ng-template #actionCard let-step>
   <div
     class="action-card"
-    [class.danger]="isPause(step.action.type) || step.action.type === 'ABORT_REQUEST' || isMock(step.action.type)"
+    [class.danger]="
+      isPause(step.action.type) ||
+      step.action.type === 'ABORT_REQUEST' ||
+      isFailure(step.action.type) ||
+      isMock(step.action.type)
+    "
     [class.host]="step.action.type === 'SEND_TO_HOST'"
   >
     <div class="action-head">
@@ -229,10 +242,13 @@
         }
 
         @if (isStatus(step.action.type)) {
-          <label class="inline-field">
+          <div class="inline-field">
             <span>Status</span>
-            <input type="number" min="100" max="599" [value]="step.action.status" (input)="onNumber(step.index, 'status', $event)" />
-          </label>
+            <app-status-picker
+              [value]="step.action.status"
+              (valueChange)="onStatusChange(step.index, $event)"
+            />
+          </div>
         }
 
         @if (isBodyOnly(step.action.type)) {
@@ -244,10 +260,13 @@
         }
 
         @if (isMock(step.action.type) || isReplace(step.action.type)) {
-          <label class="inline-field">
+          <div class="inline-field">
             <span>Status</span>
-            <input type="number" min="100" max="599" [value]="step.action.status" (input)="onNumber(step.index, 'status', $event)" />
-          </label>
+            <app-status-picker
+              [value]="step.action.status"
+              (valueChange)="onStatusChange(step.index, $event)"
+            />
+          </div>
           <label class="inline-field grow span-all">
             <span>Body</span>
             <textarea rows="3" [value]="step.action.body" (input)="onText(step.index, 'body', $event)"></textarea>
@@ -260,6 +279,47 @@
               Leave a field empty to keep what the host sent.
             }
           </small>
+        }
+
+        @if (isFailure(step.action.type)) {
+          <div class="inline-field grow span-all">
+            <span>What the caller sees</span>
+            <app-select-picker
+              [options]="failureOptions"
+              [value]="step.action.failure ?? 'CONNECTION_RESET'"
+              (valueChange)="onFailureChange(step.index, $event)"
+            />
+          </div>
+
+          @if (needsHangDuration(step.action)) {
+            <label class="inline-field">
+              <span>Hold for</span>
+              <input type="number" min="0" [value]="step.action.durationMs" (input)="onNumber(step.index, 'durationMs', $event)" />
+              <em>ms, then drop it</em>
+            </label>
+          }
+
+          @if (needsGatewayStatus(step.action)) {
+            <div class="inline-field">
+              <span>Status</span>
+              <!-- Only the three an intermediary actually produces. A 500 is the supplier
+                   answering, which is Mock response, not a gateway failure. -->
+              <app-status-picker
+                [value]="step.action.status"
+                [only]="gatewayStatuses"
+                (valueChange)="onStatusChange(step.index, $event)"
+              />
+            </div>
+          }
+
+          @if (needsTruncatedBody(step.action)) {
+            <label class="inline-field grow span-all">
+              <span>Body to cut short</span>
+              <textarea rows="3" [value]="step.action.body" (input)="onText(step.index, 'body', $event)"></textarea>
+            </label>
+          }
+
+          <small class="muted span-all">{{ failureHint(step.action) }}</small>
         }
 
         @if (isPause(step.action.type)) {

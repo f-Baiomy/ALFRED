@@ -246,10 +246,38 @@ class RouteAndLog:
             flow.kill()
             return
 
+        if verdict.terminal == 'SIMULATE_FAILURE':
+            await self._fail(flow, verdict.failure)
+            return
+
         if verdict.pause and verdict.pause.get('phase') == 'request' and call_id:
             decision = await breakpoints.wait_for_decision(
                 flow, 'request', call_id, verdict.pause, 'outbound', service_name)
             self._record_decision(flow, verdict, 'request', decision)
+
+    async def _fail(self, flow, failure):
+        """Carries out a SIMULATE_FAILURE verdict.
+
+        The decision of what each mode means lives in interception.failure_plan, shared with the
+        inbound addon; the only thing that belongs here is the pair of lines that touch mitmproxy.
+        The sleep is asyncio's, for the reason at the top of _carry_out.
+        """
+        plan = interception.failure_plan(failure)
+        if plan['sleep']:
+            await asyncio.sleep(plan['sleep'])
+        spec = plan['response']
+        if spec is not None:
+            response = http.Response.make(
+                spec['status'], (spec['body'] or '').encode('utf-8'), spec['headers'])
+            declared = spec.get('declaredLength')
+            if declared is not None:
+                # Set LAST and by hand: assigning content recomputes content-length, and a
+                # truncated reply is precisely a body that does not match the length it promises.
+                response.headers['content-length'] = str(declared)
+            flow.response = response
+            return
+        if plan['kill']:
+            flow.kill()
 
     def _record_decision(self, flow, verdict, phase, decision):
         # No snapshotting here. A pause is itself an action on a matched rule, so the engine

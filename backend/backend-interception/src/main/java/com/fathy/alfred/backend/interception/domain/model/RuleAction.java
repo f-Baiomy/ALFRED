@@ -39,13 +39,15 @@ public record RuleAction(
         /** PAUSE_REQUEST / PAUSE_RESPONSE - how long the caller may be held. */
         Integer timeoutSeconds,
         /** PAUSE_*: "release" or "abort" when the timeout fires with nobody watching. */
-        String onTimeout) {
+        String onTimeout,
+        /** SIMULATE_FAILURE - a {@link FailureMode} name. */
+        String failure) {
 
     public RuleAction {
         headers = headers == null ? null : Map.copyOf(headers);
     }
 
     public static RuleAction of(ActionType type) {
-        return new RuleAction(type, null, null, null, null, null, null, null, null, null);
+        return new RuleAction(type, null, null, null, null, null, null, null, null, null, null);
     }
 }

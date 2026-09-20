@@ -227,10 +227,37 @@ class RouteAndLog:
             flow.kill()
             return
 
+        if verdict.terminal == 'SIMULATE_FAILURE':
+            await self._fail(flow, verdict.failure)
+            return
+
         if verdict.pause and verdict.pause.get('phase') == 'request' and call_id:
             decision = await breakpoints.wait_for_decision(
                 flow, 'request', call_id, verdict.pause, 'inbound', service_name)
             self._record_decision(flow, verdict, 'request', decision)
+
+    async def _fail(self, flow, failure):
+        """Carries out a SIMULATE_FAILURE verdict.
+
+        See log_and_route.py's identical method - the decision of what each mode means is shared
+        via interception.failure_plan, and only the lines that touch mitmproxy are mirrored here.
+        """
+        plan = interception.failure_plan(failure)
+        if plan['sleep']:
+            await asyncio.sleep(plan['sleep'])
+        spec = plan['response']
+        if spec is not None:
+            response = http.Response.make(
+                spec['status'], (spec['body'] or '').encode('utf-8'), spec['headers'])
+            declared = spec.get('declaredLength')
+            if declared is not None:
+                # Set LAST and by hand: assigning content recomputes content-length, and a
+                # truncated reply is precisely a body that does not match the length it promises.
+                response.headers['content-length'] = str(declared)
+            flow.response = response
+            return
+        if plan['kill']:
+            flow.kill()
 
     def _record_decision(self, flow, verdict, phase, decision):
         if (decision or {}).get('action') == 'abort':

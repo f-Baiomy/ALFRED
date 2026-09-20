@@ -138,7 +138,24 @@ class MatchingTest(unittest.TestCase):
         self.assertTrue(engine.apply_request(FakeFlow(FakeRequest(path='/v4/order/create'))).touched)
         self.assertFalse(engine.apply_request(FakeFlow(FakeRequest(path='/vx/order'))).touched)
 
-    def test_service_name_scopes_a_rule_to_one_project(self):
+    def test_service_names_scope_a_rule_to_several_projects(self):
+        engine = self.engine([rule(match={'serviceNames': ['Core-service', 'odeysys']},
+                                   actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-T', 'value': '1'}])])
+        self.assertTrue(engine.apply_request(FakeFlow(), 'Core-service').touched)
+        self.assertTrue(engine.apply_request(FakeFlow(), 'odeysys').touched)
+        self.assertFalse(engine.apply_request(FakeFlow(), 'ndc-gateway').touched)
+        self.assertFalse(engine.apply_request(FakeFlow(), None).touched)
+
+    def test_an_empty_project_list_matches_every_project(self):
+        engine = self.engine([rule(match={'serviceNames': []},
+                                   actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-T', 'value': '1'}])])
+        self.assertTrue(engine.apply_request(FakeFlow(), 'anything').touched)
+        self.assertTrue(engine.apply_request(FakeFlow(), None).touched)
+
+    def test_a_rule_saved_before_the_field_was_a_list_still_scopes(self):
+        # The rules file on disk can be older than this container. Ignoring the single-name shape
+        # would silently widen a project-scoped rule to ALL traffic, which is the worst direction
+        # for that mistake to go.
         engine = self.engine([rule(match={'serviceName': 'Core-service'},
                                    actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-T', 'value': '1'}])])
         self.assertFalse(engine.apply_request(FakeFlow(), 'Odeysys').touched)
@@ -646,6 +663,119 @@ class BeforeAfterTest(unittest.TestCase):
         self.assertIsNone(verdict.final_response)
 
 
+class SimulateFailureTest(unittest.TestCase):
+    """The failures a supplier produces that are not a status code.
+
+    What each mode means is decided by `failure_plan` and carried out by the addons, so these
+    assert the plan rather than a flow: the addon's share is two lines that touch mitmproxy, and
+    the part worth pinning is that a mode does what its name says and that an unrecognised one
+    does nothing at all.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, action):
+        return interception.InterceptionEngine(
+            'outbound', write_rules(self.tmp.name, [rule(actions=[action])]))
+
+    def verdict(self, **action):
+        action.setdefault('type', 'SIMULATE_FAILURE')
+        return self.engine(action).apply_request(FakeFlow(FakeRequest(text='{}')))
+
+    def test_a_failure_ends_the_request_phase(self):
+        verdict = self.verdict(failure='CONNECTION_RESET')
+        self.assertEqual(verdict.terminal, 'SIMULATE_FAILURE')
+        self.assertEqual(verdict.failure['mode'], 'CONNECTION_RESET')
+
+    def test_a_reset_kills_the_connection_with_no_reply(self):
+        plan = interception.failure_plan(self.verdict(failure='CONNECTION_RESET').failure)
+        self.assertTrue(plan['kill'])
+        self.assertIsNone(plan['response'])
+        self.assertEqual(plan['sleep'], 0)
+
+    def test_hanging_then_dropping_waits_first(self):
+        plan = interception.failure_plan(self.verdict(failure='HANG_THEN_DROP', durationMs=4500).failure)
+        self.assertEqual(plan['sleep'], 4.5)
+        self.assertTrue(plan['kill'])
+
+    def test_hanging_is_capped_even_when_the_rule_asks_for_longer(self):
+        plan = interception.failure_plan(
+            self.verdict(failure='HANG_THEN_DROP', durationMs=99_999_999).failure)
+        self.assertEqual(plan['sleep'], interception.MAX_DELAY_MS / 1000.0)
+
+    def test_hanging_until_the_caller_gives_up_still_has_a_ceiling(self):
+        # The caller's own timeout is what should end this. The cap only stops a client with no
+        # timeout at all from pinning a connection open forever.
+        plan = interception.failure_plan(self.verdict(failure='HANG_UNTIL_CALLER_GIVES_UP').failure)
+        self.assertEqual(plan['sleep'], interception.MAX_HANG_SECONDS)
+        self.assertTrue(plan['kill'])
+
+    def test_an_empty_reply_is_a_valid_response_with_no_body(self):
+        plan = interception.failure_plan(self.verdict(failure='EMPTY_REPLY').failure)
+        self.assertFalse(plan['kill'])
+        self.assertEqual(plan['response']['status'], 200)
+        self.assertEqual(plan['response']['body'], '')
+
+    def test_a_truncated_body_promises_more_than_it_sends(self):
+        body = '{"offers":[1,2,3,4,5,6,7,8]}'
+        plan = interception.failure_plan(self.verdict(failure='TRUNCATED_BODY', body=body).failure)
+
+        sent = plan['response']['body']
+        self.assertTrue(body.startswith(sent))
+        self.assertLess(len(sent), len(body))
+        # The declared length is the WHOLE body - that mismatch is the entire failure.
+        self.assertEqual(plan['response']['declaredLength'], len(body.encode('utf-8')))
+        # Keep-alive would leave the promise of more bytes stalling the next request on the socket.
+        self.assertEqual(plan['response']['headers']['connection'], 'close')
+
+    def test_a_truncated_body_still_sends_something_however_short(self):
+        plan = interception.failure_plan(self.verdict(failure='TRUNCATED_BODY', body='xy').failure)
+        self.assertEqual(plan['response']['body'], 'x')
+
+    def test_a_gateway_failure_replies_without_contacting_the_host(self):
+        plan = interception.failure_plan(self.verdict(failure='GATEWAY_ERROR', status=504).failure)
+        self.assertEqual(plan['response']['status'], 504)
+        self.assertIn('upstream', plan['response']['body'].lower())
+
+    def test_a_gateway_failure_with_a_status_it_could_not_be_falls_back(self):
+        plan = interception.failure_plan(self.verdict(failure='GATEWAY_ERROR', status=200).failure)
+        self.assertEqual(plan['response']['status'], 502)
+
+    def test_an_unknown_failure_is_refused_rather_than_guessed(self):
+        # Turning a typo into "reset the connection" would kill a live call nobody asked to kill.
+        verdict = self.verdict(failure='DNS_MELTDOWN')
+        self.assertIsNone(verdict.terminal)
+        self.assertIsNone(verdict.failure)
+        self.assertIn('unknown failure', verdict.applied[0].detail)
+
+    def test_a_failure_with_no_mode_at_all_is_refused(self):
+        verdict = self.verdict()
+        self.assertIsNone(verdict.terminal)
+
+    def test_an_unknown_mode_reaching_the_plan_by_hand_does_nothing(self):
+        plan = interception.failure_plan({'mode': 'NONSENSE'})
+        self.assertFalse(plan['kill'])
+        self.assertIsNone(plan['response'])
+
+    def test_send_to_host_refuses_a_later_failure(self):
+        # Same latch as MOCK_RESPONSE and ABORT_REQUEST: "always really call this endpoint" has to
+        # beat a broad rule that breaks everything.
+        engine = interception.InterceptionEngine('outbound', write_rules(self.tmp.name, [
+            rule(id='a', priority=1, actions=[{'type': 'SEND_TO_HOST'}]),
+            rule(id='b', priority=2, actions=[{'type': 'SIMULATE_FAILURE', 'failure': 'CONNECTION_RESET'}]),
+        ]))
+        verdict = engine.apply_request(FakeFlow())
+
+        self.assertIsNone(verdict.terminal)
+        self.assertIn('skipped', verdict.applied[-1].detail)
+
+    def test_the_log_says_what_broke_in_plain_english(self):
+        verdict = self.verdict(failure='EMPTY_REPLY')
+        self.assertEqual(verdict.as_log()['applied'][0]['detail'], 'empty reply, upstream never contacted')
+
+
 class EveryActionIsCoveredTest(unittest.TestCase):
     """Walks the action sets themselves, so adding an action to REQUEST_ACTIONS or
     RESPONSE_ACTIONS and forgetting about its before/after is a failing build rather than a
@@ -675,6 +805,8 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         'REMOVE_QUERY_PARAM': {'type': 'REMOVE_QUERY_PARAM', 'name': 'drop'},
         'SET_REQUEST_JSON_FIELD': {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'a', 'value': 9},
         'MOCK_RESPONSE': {'type': 'MOCK_RESPONSE', 'status': 418, 'body': 'teapot'},
+        # The mode that answers rather than kills, so there is something to record either end of.
+        'SIMULATE_FAILURE': {'type': 'SIMULATE_FAILURE', 'failure': 'GATEWAY_ERROR', 'status': 503},
         'SET_RESPONSE_STATUS': {'type': 'SET_RESPONSE_STATUS', 'status': 500},
         'SET_RESPONSE_HEADER': {'type': 'SET_RESPONSE_HEADER', 'name': 'X-A', 'value': '1'},
         'REMOVE_RESPONSE_HEADER': {'type': 'REMOVE_RESPONSE_HEADER', 'name': 'X-Gone'},
@@ -723,6 +855,10 @@ class EveryActionIsCoveredTest(unittest.TestCase):
                         # What the addon does with the verdict, so the mock is a real response by
                         # the time the phase is finalized.
                         flow.response = FakeMessage(status=verdict.mock['status'], text=verdict.mock['body'])
+                    elif verdict.terminal == 'SIMULATE_FAILURE':
+                        spec = interception.failure_plan(verdict.failure)['response']
+                        if spec:
+                            flow.response = FakeMessage(status=spec['status'], text=spec['body'])
                     verdict.finalize_request(flow)
                     recorded = verdict.original_request is not None or verdict.final_response is not None
                 else:

@@ -4,7 +4,9 @@ package com.fathy.alfred.backend.interception.domain.model;
  * Every action the interception engine can carry out. The names are the wire format: they are
  * written verbatim into the rules snapshot and matched by string in proxy/interception.py's
  * REQUEST_ACTIONS/RESPONSE_ACTIONS sets, so renaming a constant here silently stops that action
- * firing. {@code InterceptionEngineContractTest} pins the two lists against each other.
+ * firing. The proxy side has a test that walks its own sets and fails on an action with no
+ * coverage ({@code EveryActionIsCoveredTest}); nothing can pin the two languages against each
+ * other in one place, so adding an action means editing both - see docs/interception.md.
  *
  * <p>The phase split is not cosmetic. A request action has no response to work on, and a response
  * action has nothing left to change about a request that has already been sent, so applying one in
@@ -19,7 +21,18 @@ public enum ActionType {
     SET_QUERY_PARAM(Phase.REQUEST),
     REMOVE_QUERY_PARAM(Phase.REQUEST),
     SET_REQUEST_JSON_FIELD(Phase.REQUEST),
+    /**
+     * Kept for rules saved before {@link #SIMULATE_FAILURE} existed, and hidden from the editor's
+     * picker - it is exactly {@code SIMULATE_FAILURE} with {@link FailureMode#CONNECTION_RESET}.
+     * Still evaluated, because a stored rule must not stop working when the UI moves on.
+     */
     ABORT_REQUEST(Phase.REQUEST),
+    /**
+     * Everything a supplier does that is not an HTTP status: resets, hangs, empty and truncated
+     * replies. One action with a {@link FailureMode} rather than one action per failure, because
+     * they are alternatives - you pick what goes wrong, you do not compose them.
+     */
+    SIMULATE_FAILURE(Phase.REQUEST),
     MOCK_RESPONSE(Phase.REQUEST),
     PAUSE_REQUEST(Phase.REQUEST),
     /**
@@ -65,7 +78,16 @@ public enum ActionType {
      * should be told about rather than have silently resolved by ordering.
      */
     public boolean isTerminal() {
-        return this == ABORT_REQUEST || this == MOCK_RESPONSE;
+        return this == ABORT_REQUEST || this == MOCK_RESPONSE || this == SIMULATE_FAILURE;
+    }
+
+    /**
+     * Whether the editor offers this action. ABORT_REQUEST is still evaluated for rules that
+     * already use it, but a user building a new rule reaches it through SIMULATE_FAILURE instead
+     * of choosing between two actions that do the same thing.
+     */
+    public boolean isSelectable() {
+        return this != ABORT_REQUEST;
     }
 
     public boolean isPause() {

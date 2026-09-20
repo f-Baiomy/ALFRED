@@ -65,15 +65,23 @@ traffic. The UI states a rule's match back in plain language for exactly this re
 | Field | Meaning |
 |---|---|
 | `source` | `outbound` (to suppliers), `inbound` (into a project Alfred fronts), or `both` |
-| `serviceName` | A configured project from `internal_call_services` |
+| `serviceNames` | Any of these configured projects from `internal_call_services`; empty means any |
 | `methods` | `["POST", "PUT"]`; empty means any |
 | `host` | Exact, or one leading wildcard label: `*.sabre.com` |
 | `pathContains` | Substring |
 | `pathRegex` | Compiled **once at rule load**, never per request |
 
-`source` and `serviceName` are the Alfred-specific ones and the reason this is not a generic proxy
-rule: both addons already know, structurally rather than by guessing, which direction a flow is
-going and which project it belongs to (from the port it arrived on).
+`source` and `serviceNames` are the Alfred-specific ones and the reason this is not a generic
+proxy rule: both addons already know, structurally rather than by guessing, which direction a flow
+is going and which project it belongs to (from the port it arrived on).
+
+`serviceNames` is a LIST - any of the named projects matches, and an empty list means any project
+at all. The editor picks from `GET /internal-calls/services` rather than accepting free text: a
+rule scoped to a misspelled or since-renamed project matches nothing, and nothing about the
+silence says why. The pre-list `serviceName` field is still read on the way in (both by the
+backend record and by `interception.py`'s `Match`), because the rules file on disk can be older
+than the container reading it, and silently widening a project-scoped rule to all traffic is the
+worst direction for that mistake to go.
 
 **Deliberately not implemented:** header, body and query matchers (they invite an expression
 grammar) and response-status matching (it cannot work in the request phase, where the decision to
@@ -91,8 +99,39 @@ way, because whether a call reaches the host decides whether the response half r
 | `SET_QUERY_PARAM` / `REMOVE_QUERY_PARAM` | `SET_RESPONSE_STATUS` |
 | `SET_REQUEST_JSON_FIELD` | `SET_RESPONSE_JSON_FIELD` |
 | `SEND_TO_HOST` | `SET_RESPONSE_BODY`, `REPLACE_RESPONSE` |
-| `ABORT_REQUEST`, `MOCK_RESPONSE` | |
+| `SIMULATE_FAILURE`, `MOCK_RESPONSE` | |
 | `PAUSE_REQUEST` | `PAUSE_RESPONSE` |
+
+`ABORT_REQUEST` still runs for rules that already use it, but the editor no longer offers it - it
+is exactly `SIMULATE_FAILURE` with `CONNECTION_RESET`. `ActionType.isSelectable()` is what hides
+it, so the rule keeps working and only the picker moved on.
+
+### Failures that are not a status code
+
+`SIMULATE_FAILURE` carries a `FailureMode`. One action with a choice rather than six actions,
+because they are alternatives - you pick what goes wrong, you do not compose them.
+
+| Mode | What the caller actually gets | Verified |
+|---|---|---|
+| `CONNECTION_RESET` | Reset before forwarding; no HTTP response at all | curl exit 52 |
+| `HANG_THEN_DROP` | Held `durationMs`, then killed - a supplier that goes quiet | exit 52 after exactly 3s |
+| `HANG_UNTIL_CALLER_GIVES_UP` | Held until the client's own timeout fires | exit 28 (client timeout) |
+| `EMPTY_REPLY` | `200` with zero bytes | `status=200 size=0` |
+| `TRUNCATED_BODY` | Half the body, under a `Content-Length` promising all of it | exit 18, 25 of 51 bytes |
+| `GATEWAY_ERROR` | `502`/`503`/`504` with a gateway-shaped body, host never called | `504` + body |
+
+**What is deliberately absent: DNS and TLS failures.** The caller is connected to Alfred, not to
+the supplier, and its handshake with Alfred succeeded long before any rule was evaluated - the
+connection those failures would have to break is one that demonstrably works. Offering them would
+be a lie in a dropdown. Everything reachable from here arrives as a reset or a timeout; what
+genuinely differs is when and how the connection dies, which is what the modes above vary.
+
+An unrecognised mode is **skipped and recorded as skipped**, never treated as a reset: turning a
+typo into "kill the connection" is the worst available reading of it.
+
+`failure_plan()` in `interception.py` turns a mode into `{sleep, kill, response}`, and the addons
+own the two lines that touch mitmproxy. That split is why the engine's tests run without
+mitmproxy installed, and why both directions cannot drift.
 
 ### Send it to the host, then decide
 
@@ -236,6 +275,25 @@ A paused call nobody answers would hold a real client socket open indefinitely. 
   decision about a caller that has already moved on. A stale row is worse than a missing one.
 - If the backend is unreachable, the proxy applies `onTimeout` immediately rather than holding for
   nothing.
+
+### Editing a paused call
+
+Status, body **and headers** are all editable while a call is held, plus a paste-everything box
+for a change too structural to make row by row.
+
+A release carries **only what changed**. Headers are a patch: a null VALUE removes that header, an
+absent key leaves it alone (`apply_decision`). Sending the whole set would rewrite forty headers
+to change one, and would stop "send unchanged" being byte-identical to never having paused.
+"Replace everything at once" is the deliberate exception - anything its JSON omits is *removed*,
+which the control says out loud.
+
+A removed header stays on screen struck through rather than vanishing, so "did I delete
+content-type, or was it never there" stays answerable while a real socket is held open.
+
+**The edit that claims the call must survive the claim.** Editing takes control, taking control
+re-fetches the list, and the same call comes back as a new object - so an effect keyed on object
+identity threw away the very first edit every time, and only a second one survived. It is keyed
+on `callId` now, with a regression test that fails if that is undone.
 
 ### The paused registry is in-memory on purpose
 
@@ -394,7 +452,9 @@ cd proxy && python -m unittest test_interception -v
    to `REQUEST_ACTIONS` / `RESPONSE_ACTIONS`.
 4. Add a label to `ACTION_LABELS` and a field row to `rule-editor.component.html`.
 5. Add defaults to `defaultsFor()` so a freshly added action is already valid.
-6. Add it to `EveryActionIsCoveredTest.SAMPLES` in `proxy/test_interception.py` — that suite walks
+6. If it takes a status, use `StatusPickerComponent`, never a number input - the thing a user
+   knows is "service unavailable", not that it is 503.
+7. Add it to `EveryActionIsCoveredTest.SAMPLES` in `proxy/test_interception.py` — that suite walks
    `REQUEST_ACTIONS`/`RESPONSE_ACTIONS` themselves, so this is a failing build, not a checklist
    item you can miss.
 

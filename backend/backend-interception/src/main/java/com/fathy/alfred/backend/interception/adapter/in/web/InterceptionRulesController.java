@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.interception.adapter.in.web;
 import com.fathy.alfred.backend.interception.adapter.in.web.dto.InterceptionRuleRequestDto;
 import com.fathy.alfred.backend.interception.application.port.in.ManageInterceptionRulesUseCase;
 import com.fathy.alfred.backend.interception.domain.model.ActionType;
+import com.fathy.alfred.backend.interception.domain.model.FailureMode;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -101,7 +102,22 @@ public class InterceptionRulesController {
                         "type", type.name(),
                         "phase", type.phase().name().toLowerCase(),
                         "terminal", type.isTerminal(),
-                        "pause", type.isPause()))
+                        "pause", type.isPause(),
+                        // Sent rather than filtered out: a rule already using ABORT_REQUEST still
+                        // has to be rendered and labelled, it just is not offered for a new one.
+                        "selectable", type.isSelectable()))
+                .toList();
+    }
+
+    /**
+     * The failure modes SIMULATE_FAILURE can take, for the same reason as the action list: one
+     * place. The set is small and fixed, and the UI needs it to build a picker rather than a text
+     * field somebody can misspell.
+     */
+    @GetMapping("/failure-modes")
+    public List<Map<String, Object>> failureModes() {
+        return Arrays.stream(FailureMode.values())
+                .map(mode -> Map.<String, Object>of("mode", mode.name()))
                 .toList();
     }
 

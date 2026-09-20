@@ -221,4 +221,145 @@ describe('PausedCallsComponent', () => {
 
     expect(component.originalBody()).toBe('{"a":1}');
   });
+
+  describe('editing headers while the caller waits', () => {
+    it('sends only the headers that changed, not the whole set', () => {
+      // Rewriting forty headers to change one would make an untouched release stop being
+      // byte-identical to never having paused.
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1', b: '2' }, body: '{}' } })]);
+
+      component.onHeaderValue(1, { target: { value: 'changed' } } as unknown as Event);
+
+      expect(component.headerChanges()).toEqual({ b: 'changed' });
+      expect(component.headerChangeCount()).toBe(1);
+      expect(component.dirty()).toBeTrue();
+    });
+
+    it('removes a header by sending a null value, which is what the proxy reads as delete', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
+
+      component.toggleHeaderRemoved(0);
+
+      expect(component.headerChanges()).toEqual({ a: null });
+      // The row stays, struck through - "did I delete it or was it never here" must stay answerable.
+      expect(component.headerRows().length).toBe(1);
+      expect(component.headerRows()[0].removed).toBeTrue();
+    });
+
+    it('un-removing a header puts it back with nothing to send', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
+
+      component.toggleHeaderRemoved(0);
+      component.toggleHeaderRemoved(0);
+
+      expect(component.headerChanges()).toEqual({});
+      expect(component.dirty()).toBeFalse();
+    });
+
+    it('drops an added header that is removed again rather than sending a blank one', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{}' } })]);
+
+      component.addHeader();
+      component.toggleHeaderRemoved(0);
+
+      expect(component.headerRows().length).toBe(0);
+    });
+
+    it('carries the header edits on the release', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
+
+      component.onHeaderValue(0, { target: { value: '2' } } as unknown as Event);
+      component.release(true);
+
+      const request = http.expectOne(`${BACKEND}/interception/paused/call-1/decision`);
+      expect(request.request.body.headers).toEqual({ a: '2' });
+      request.flush(null);
+      http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+    });
+
+    it('sends nothing at all on an unchanged release, however much was opened', () => {
+      load([paused({ heldAt: Date.now() })]);
+
+      component.release(false);
+
+      const request = http.expectOne(`${BACKEND}/interception/paused/call-1/decision`);
+      expect(request.request.body).toEqual({ action: 'release' });
+      request.flush(null);
+      http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+    });
+  });
+
+  describe('replacing a whole half at once', () => {
+    it('applies a pasted status, headers and body', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
+
+      component.replaceText.set('{"status":503,"headers":{"x-new":"yes"},"body":"gone"}');
+      component.applyReplacement();
+
+      expect(component.currentStatus()).toBe(503);
+      expect(component.currentBody()).toBe('gone');
+      // Anything the paste left out is REMOVED - a replace that quietly kept it would be lying.
+      expect(component.headerChanges()).toEqual({ 'x-new': 'yes', a: null });
+    });
+
+    it('refuses invalid JSON with a message instead of silently doing nothing', () => {
+      load([paused({ heldAt: Date.now() })]);
+
+      component.replaceText.set('{not json');
+      component.applyReplacement();
+
+      expect(component.replaceError()).toContain('not valid JSON');
+      expect(component.dirty()).toBeFalse();
+    });
+
+    it('refuses headers that are not an object of name to value', () => {
+      load([paused({ heldAt: Date.now() })]);
+
+      component.replaceText.set('{"headers":["content-type"]}');
+      component.applyReplacement();
+
+      expect(component.replaceError()).toContain('headers must be an object');
+    });
+  });
+
+  it('claims the call on a header edit, the same as on a body edit', () => {
+    // Typing is proof enough that somebody is here; a header edited under a running countdown is
+    // exactly what taking control exists to prevent.
+    load([paused()]);
+
+    component.addHeader();
+
+    http.expectOne(`${BACKEND}/interception/paused/call-1/control`).flush(null);
+    http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+  });
+
+  it('keeps an edit that was itself what claimed the call', () => {
+    // Caught on live traffic. Editing claims the call, claiming re-fetches the list, and the same
+    // call comes back as a new object - so an effect keyed on object identity threw the very edit
+    // away that had triggered the claim. Only a second edit ever survived.
+    load([paused({ response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
+
+    component.onHeaderValue(0, { target: { value: 'edited' } } as unknown as Event);
+    http.expectOne(`${BACKEND}/interception/paused/call-1/control`).flush(null);
+    // The refresh the claim triggers, with the same call carrying its new heldAt.
+    http
+      .expectOne(`${BACKEND}/interception/paused`)
+      .flush([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
+    fixture.detectChanges();
+
+    expect(component.headerChanges()).toEqual({ a: 'edited' });
+  });
+
+  it('still drops edits when a different call is selected', () => {
+    load([paused(), paused({ callId: 'call-2', heldAt: Date.now() })]);
+
+    component.onBodyInput({ target: { value: 'for call one' } } as unknown as Event);
+    http.expectOne(`${BACKEND}/interception/paused/call-1/control`).flush(null);
+    http.expectOne(`${BACKEND}/interception/paused`).flush([paused({ heldAt: Date.now() }), paused({ callId: 'call-2' })]);
+
+    component.select(paused({ callId: 'call-2' }));
+    fixture.detectChanges();
+
+    expect(component.dirty()).toBeFalse();
+  });
 });

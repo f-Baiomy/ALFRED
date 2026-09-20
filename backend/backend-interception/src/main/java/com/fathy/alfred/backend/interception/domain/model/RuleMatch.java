@@ -24,8 +24,23 @@ import java.util.List;
 public record RuleMatch(
         /** "outbound", "inbound", or null/"both" for either direction. */
         String source,
-        /** A configured project name from settings.properties' internal_call_services, or null for any. */
+        /**
+         * Superseded by {@link #serviceNames} and always null on anything written since. Read on
+         * the way in so a rule saved before the field was a list keeps matching exactly what it
+         * used to; the compact constructor folds it into the list and clears it, so there is one
+         * shape in storage, in the published snapshot and in the engine rather than two.
+         */
+        @Deprecated
         String serviceName,
+        /**
+         * Configured project names from settings.properties' internal_call_services. ANY of them
+         * matches; empty means any project at all.
+         *
+         * <p>A list rather than one name because the natural unit of a test is "our own services"
+         * or "everything except the legacy one" - expressing that with one name per rule means
+         * maintaining three copies of a rule that must stay identical.
+         */
+        List<String> serviceNames,
         List<String> methods,
         /** Exact host, or a single leading wildcard label: {@code *.sabre.com}. */
         String host,
@@ -34,9 +49,14 @@ public record RuleMatch(
 
     public RuleMatch {
         methods = methods == null ? List.of() : List.copyOf(methods);
+        serviceNames = serviceNames == null ? List.of() : List.copyOf(serviceNames);
+        if (serviceNames.isEmpty() && serviceName != null && !serviceName.isBlank()) {
+            serviceNames = List.of(serviceName);
+        }
+        serviceName = null;
     }
 
     public static RuleMatch empty() {
-        return new RuleMatch(null, null, List.of(), null, null, null);
+        return new RuleMatch(null, null, List.of(), List.of(), null, null, null);
     }
 }

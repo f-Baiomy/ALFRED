@@ -50,6 +50,7 @@ REQUEST_ACTIONS = {
     'DELAY_REQUEST', 'SET_REQUEST_HEADER', 'REMOVE_REQUEST_HEADER',
     'SET_QUERY_PARAM', 'REMOVE_QUERY_PARAM', 'SET_REQUEST_JSON_FIELD',
     'ABORT_REQUEST', 'MOCK_RESPONSE', 'PAUSE_REQUEST', 'SEND_TO_HOST',
+    'SIMULATE_FAILURE',
 }
 RESPONSE_ACTIONS = {
     'DELAY_RESPONSE', 'SET_RESPONSE_STATUS', 'SET_RESPONSE_HEADER',
@@ -59,7 +60,25 @@ RESPONSE_ACTIONS = {
 
 # An action that ends the request phase: there is no upstream request left for a later rule to
 # modify, so evaluation stops rather than silently applying edits to something already gone.
-TERMINAL_REQUEST_ACTIONS = {'ABORT_REQUEST', 'MOCK_RESPONSE'}
+TERMINAL_REQUEST_ACTIONS = {'ABORT_REQUEST', 'MOCK_RESPONSE', 'SIMULATE_FAILURE'}
+
+# What SIMULATE_FAILURE can reproduce - the mirror of the backend's FailureMode enum, matched by
+# string. Everything a supplier does that is NOT a status code.
+#
+# Nothing here pretends to be a DNS or TLS failure. The caller is connected to Alfred, not to the
+# supplier, and its handshake with Alfred already succeeded before any rule was evaluated - the
+# connection those failures would have to break is one that demonstrably works. What is reachable
+# from here is a reset, a hang, or a reply that is wrong at the transport level, which is what
+# these are.
+FAILURE_MODES = {
+    'CONNECTION_RESET', 'HANG_THEN_DROP', 'HANG_UNTIL_CALLER_GIVES_UP',
+    'EMPTY_REPLY', 'TRUNCATED_BODY', 'GATEWAY_ERROR',
+}
+
+# How long "hang until the caller gives up" holds before Alfred stops waiting too. The point of
+# that mode is that the CALLER's timeout fires first; this only exists so a client with no timeout
+# at all cannot pin a connection open forever.
+MAX_HANG_SECONDS = int(os.environ.get('INTERCEPTION_MAX_HANG_SECONDS', str(MAX_PAUSE_SECONDS)))
 
 # Header names whose VALUE is never written into an interception record. The record says a header
 # was set and names it; the value would end up in the call log, in every export, and in the
@@ -106,13 +125,22 @@ class Match:
     so a rule with an empty match applies to all traffic (which is why the UI states the match
     back to the user in plain language before saving)."""
 
-    __slots__ = ('source', 'service_name', 'methods', 'host', 'path_contains', 'path_regex')
+    __slots__ = ('source', 'service_names', 'methods', 'host', 'path_contains', 'path_regex')
 
     def __init__(self, raw):
         raw = raw or {}
         source = (raw.get('source') or 'both').strip().lower()
         self.source = source if source in ('outbound', 'inbound') else None
-        self.service_name = (raw.get('serviceName') or '').strip() or None
+        # `serviceName` is the pre-list shape. Still read, because the rules file on disk can be
+        # older than this container - a deployment that updates the proxy before the backend
+        # republishes must not silently widen every project-scoped rule to all traffic.
+        names = raw.get('serviceNames')
+        if not names:
+            legacy = (raw.get('serviceName') or '').strip()
+            names = [legacy] if legacy else []
+        elif isinstance(names, str):
+            names = [names]
+        self.service_names = frozenset(str(n).strip() for n in names if str(n).strip()) or None
         methods = raw.get('methods') or []
         if isinstance(methods, str):
             methods = [methods]
@@ -129,7 +157,7 @@ class Match:
         # comparison, not a regex.
         if self.source is not None and self.source != source:
             return False
-        if self.service_name is not None and self.service_name != service_name:
+        if self.service_names is not None and service_name not in self.service_names:
             return False
         if self.methods is not None and (method or '').upper() not in self.methods:
             return False
@@ -277,14 +305,15 @@ class Verdict:
     waiting on a human - is described here and carried out by the addon's async hook.
     """
 
-    __slots__ = ('delay_ms', 'terminal', 'mock', 'pause', 'applied', 'must_reach_host',
+    __slots__ = ('delay_ms', 'terminal', 'mock', 'failure', 'pause', 'applied', 'must_reach_host',
                  'pre_request', 'pre_response', 'synthetic_response',
                  'original_request', 'original_response', 'final_request', 'final_response')
 
     def __init__(self):
         self.delay_ms = 0
-        self.terminal = None      # 'ABORT_REQUEST' | 'MOCK_RESPONSE' | None
+        self.terminal = None      # 'ABORT_REQUEST' | 'MOCK_RESPONSE' | 'SIMULATE_FAILURE' | None
         self.mock = None          # {'status':int,'headers':dict,'body':str}
+        self.failure = None       # {'mode':str,'durationMs':int,'status':int|None,'body':str|None}
         self.pause = None         # {'phase':'request'|'response','timeoutSeconds':int,'onTimeout':str,'ruleId','ruleName'}
         self.applied = []
         # Working snapshots: each half as it stood the moment a rule first matched, before any
@@ -404,6 +433,86 @@ class Verdict:
         if self.final_response is not None:
             out['finalResponse'] = self.final_response
         return out
+
+
+# What each failure mode is recorded as in the call log. Plain English rather than the constant,
+# because this is read on a call card by somebody working out why a booking failed.
+FAILURE_DETAIL = {
+    'CONNECTION_RESET': 'connection reset, upstream never contacted',
+    'HANG_THEN_DROP': 'held, then the connection was dropped',
+    'HANG_UNTIL_CALLER_GIVES_UP': 'held until the caller gave up',
+    'EMPTY_REPLY': 'empty reply, upstream never contacted',
+    'TRUNCATED_BODY': 'body cut short of its declared length',
+    'GATEWAY_ERROR': 'gateway failure, upstream never contacted',
+}
+
+# Body a gateway failure replies with when the rule does not supply one. Shaped like something an
+# intermediary would actually send, so a client's error handling sees a realistic payload.
+DEFAULT_GATEWAY_BODY = '{"error":"Bad Gateway","message":"The upstream service could not be reached."}'
+
+
+def failure_plan(failure):
+    """Turns a failure verdict into what the addon must physically do.
+
+    Returned as a plan rather than carried out here because this module deliberately imports
+    nothing from mitmproxy - building a Response needs `mitmproxy.http`, and the engine's tests
+    run without mitmproxy installed. The addons own the two lines that touch it; the decision of
+    WHICH failure means what lives here, once, for both directions.
+
+    Shape:
+        {'sleep': seconds or 0,
+         'kill': bool,
+         'response': {'status', 'body', 'headers', 'declaredLength'} or None}
+
+    `declaredLength` is the Content-Length to claim regardless of what is actually sent - the one
+    thing that makes a truncated reply a truncated reply.
+    """
+    mode = (failure or {}).get('mode')
+
+    if mode == 'CONNECTION_RESET':
+        return {'sleep': 0, 'kill': True, 'response': None}
+
+    if mode == 'HANG_THEN_DROP':
+        return {'sleep': min(failure.get('durationMs') or 0, MAX_DELAY_MS) / 1000.0,
+                'kill': True, 'response': None}
+
+    if mode == 'HANG_UNTIL_CALLER_GIVES_UP':
+        # Alfred never ends this one on purpose; the cap only stops a client with no timeout of
+        # its own from pinning the connection open indefinitely.
+        return {'sleep': MAX_HANG_SECONDS, 'kill': True, 'response': None}
+
+    if mode == 'EMPTY_REPLY':
+        return {'sleep': 0, 'kill': False,
+                'response': {'status': 200, 'body': '', 'headers': {}, 'declaredLength': None}}
+
+    if mode == 'TRUNCATED_BODY':
+        body = failure.get('body') or ''
+        # Half, rounded down, and at least one byte of a non-empty body - the point is that some
+        # of it arrives and then stops, which is what a client library reports differently from an
+        # empty reply. Connection: close because a promise of more bytes on a keep-alive socket
+        # would just stall the next request on it.
+        sent = body[:max(1, len(body) // 2)] if body else ''
+        return {'sleep': 0, 'kill': False, 'response': {
+            'status': 200,
+            'body': sent,
+            'headers': {'content-type': 'application/json', 'connection': 'close'},
+            'declaredLength': len(body.encode('utf-8')),
+        }}
+
+    if mode == 'GATEWAY_ERROR':
+        status = failure.get('status')
+        status = status if status in (502, 503, 504) else 502
+        body = failure.get('body')
+        return {'sleep': 0, 'kill': False, 'response': {
+            'status': status,
+            'body': DEFAULT_GATEWAY_BODY if body is None else str(body),
+            'headers': {'content-type': 'application/json'},
+            'declaredLength': None,
+        }}
+
+    # Unknown modes are filtered at the action, so reaching here means the verdict was built by
+    # hand. Do nothing rather than guess - a wrong guess kills a live call.
+    return {'sleep': 0, 'kill': False, 'response': None}
 
 
 def set_status(response, status):
@@ -671,6 +780,26 @@ class InterceptionEngine:
             verdict.terminal = 'MOCK_RESPONSE'
             verdict.mock = {'status': status, 'headers': {str(k): str(v) for k, v in headers.items()}, 'body': body}
             verdict.record(rule, kind, f'{status}, upstream never contacted')
+            return
+
+        if kind == 'SIMULATE_FAILURE':
+            if verdict.must_reach_host:
+                verdict.record(rule, kind, 'skipped - an earlier rule requires this call to reach the host')
+                return
+            mode = (action.get('failure') or '').strip().upper()
+            if mode not in FAILURE_MODES:
+                # An unknown mode must not silently become "reset the connection" - killing a call
+                # nobody asked to kill is the worst possible reading of a typo.
+                verdict.record(rule, kind, f'skipped - unknown failure {mode or "(none)"}')
+                return
+            verdict.terminal = 'SIMULATE_FAILURE'
+            verdict.failure = {
+                'mode': mode,
+                'durationMs': _clamp_delay(action.get('durationMs')),
+                'status': action.get('status'),
+                'body': action.get('body'),
+            }
+            verdict.record(rule, kind, FAILURE_DETAIL.get(mode, mode))
             return
 
         if kind == 'PAUSE_REQUEST':
