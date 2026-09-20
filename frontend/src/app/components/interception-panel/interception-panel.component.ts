@@ -1,13 +1,40 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, ElementRef, computed, input, output, signal, viewChild } from '@angular/core';
 import { CallInterception, OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { copyToClipboard } from '../../shared/utils/clipboard';
 import {
+  CopySection,
+  DiffLineTokens,
   HttpDiff,
+  SearchScope,
   buildHttpDiff,
   copyableView,
-  searchView,
+  highlightLine,
+  lineOfMatch,
+  searchBody,
+  searchHeaders,
 } from '../../shared/utils/interception-diff';
+
+/**
+ * Above this many body lines the panel stops building every row and windows instead.
+ *
+ * Lower than the flat view's 2,000 for two reasons: this box is 340px, so about eighteen rows are
+ * ever visible, and a single call can have BOTH panels expanded - request and response - each
+ * paying the cost. Below the threshold the markup and behaviour are exactly what they were.
+ */
+export const PANEL_WINDOW_THRESHOLD = 600;
+
+/**
+ * Row height, pinned in CSS (.intercept-body.windowed .il) rather than left to the content.
+ * Change one and you must change the other or the rows drift out of step with the scrollbar.
+ *
+ * Unlike the flat view, every row here is the same height - no comment cards, no composer - so
+ * the offset table it needs collapses to one multiplication.
+ */
+const ROW_HEIGHT_PX = 19;
+
+/** Rows built beyond the viewport, so a flick of the wheel does not show blank space. */
+const OVERSCAN_PX = 160;
 
 /** Which side of the change the user is looking at. */
 export type InterceptView = 'diff' | 'original' | 'final';
@@ -178,38 +205,100 @@ export class InterceptionPanelComponent {
 
   readonly query = signal('');
   readonly matchIndex = signal(0);
-  readonly copied = signal(false);
+  readonly scope = signal<SearchScope>('all');
+  /** Which copy button last fired, so the one that copied is the one that confirms. */
+  readonly copiedSection = signal<CopySection | null>(null);
+
+  private readonly viewport = viewChild<ElementRef<HTMLElement>>('bodyViewport');
+  private readonly scrollTop = signal(0);
+  private readonly viewportHeight = signal(340);
 
   /** Whichever side the view buttons chose - everything below works on THIS, not on the call. */
   private readonly shownHeaders = computed(() =>
     this.view() === 'diff' ? this.computed()?.headers ?? [] : this.sideHeaders()
   );
 
-  private readonly shownBody = computed(() =>
+  readonly shownBody = computed(() =>
     this.view() === 'diff' ? this.computed()?.body ?? [] : this.sideLines()
   );
 
+  /** The query as each section sees it - empty for a section the scope excludes. */
+  private readonly headerQuery = computed(() => (this.scope() === 'body' ? '' : this.query()));
+  private readonly bodyQuery = computed(() => (this.scope() === 'headers' ? '' : this.query()));
+
   /**
-   * Headers and body with the query marked, numbered in reading order down the panel.
+   * Headers are marked eagerly - there are tens of them and they are all on screen. The body is
+   * only COUNTED here; building its tokens happens per visible row, which is what lets a
+   * 28,000-line body be searched without building 28,000 rows' worth of them per keystroke.
    *
-   * One call for both, because the numbering has to be continuous across them: a match count
-   * that restarted at the body would make "3 of 7" ambiguous about which 3.
+   * Numbering runs continuously from the headers into the body, so "3 of 7" means the third
+   * thing down the panel rather than the third within whichever section counted first.
    */
-  private readonly searched = computed(() =>
-    searchView(this.shownHeaders(), this.shownBody(), this.query())
+  private readonly headerSearch = computed(() => searchHeaders(this.shownHeaders(), this.headerQuery()));
+
+  private readonly bodySearch = computed(() =>
+    searchBody(this.shownBody(), this.bodyQuery(), this.headerSearch().count)
   );
 
-  readonly searchedHeaders = computed(() => this.searched().headers);
-  readonly searchedBody = computed(() => this.searched().body);
+  readonly searchedHeaders = computed(() => this.headerSearch().rows);
+
+  readonly matchCount = computed(() => this.headerSearch().count + this.bodySearch().count);
 
   readonly matchLabel = computed(() => {
-    const total = this.searched().matchCount;
+    const total = this.matchCount();
     if (!this.query()) return '';
     return total === 0 ? 'no matches' : `${Math.min(this.matchIndex() + 1, total)}/${total}`;
   });
 
   /** Which match the token renderer should draw as the current one. */
-  readonly activeMatch = computed(() => (this.searched().matchCount === 0 ? -1 : this.matchIndex()));
+  readonly activeMatch = computed(() => (this.matchCount() === 0 ? -1 : this.matchIndex()));
+
+  // ---- windowing ---------------------------------------------------------------------------
+  //
+  // The panel used to build every line of both halves into a 340px box that shows about
+  // eighteen. With colouring that is one DOM node per TOKEN, so a large response cost tens of
+  // thousands of nodes to display a couple of dozen rows - and a call can have both panels open
+  // at once. Same mechanism as the call view's flat view, minus its offset table: every row here
+  // is the same height, so the arithmetic is a multiplication.
+
+  readonly windowed = computed(() => this.shownBody().length > PANEL_WINDOW_THRESHOLD);
+
+  private readonly range = computed<{ start: number; end: number }>(() => {
+    const total = this.shownBody().length;
+    if (!this.windowed()) return { start: 0, end: total };
+    const start = Math.max(0, Math.floor((this.scrollTop() - OVERSCAN_PX) / ROW_HEIGHT_PX));
+    const end = Math.min(
+      total,
+      Math.ceil((this.scrollTop() + this.viewportHeight() + OVERSCAN_PX) / ROW_HEIGHT_PX)
+    );
+    return { start, end };
+  });
+
+  /** Only these rows are built. Each is told the global number of its first match. */
+  readonly visibleLines = computed<readonly DiffLineTokens[]>(() => {
+    const { start, end } = this.range();
+    const body = this.shownBody();
+    const search = this.bodySearch();
+    const query = this.bodyQuery();
+    const out: DiffLineTokens[] = [];
+    for (let i = start; i < end; i++) {
+      out.push(highlightLine(body[i], query, search.firstIndex[i]));
+    }
+    return out;
+  });
+
+  readonly spacerTopPx = computed(() => (this.windowed() ? this.range().start * ROW_HEIGHT_PX : 0));
+
+  readonly spacerBottomPx = computed(() =>
+    this.windowed() ? (this.shownBody().length - this.range().end) * ROW_HEIGHT_PX : 0
+  );
+
+  onBodyScroll(): void {
+    const el = this.viewport()?.nativeElement;
+    if (!el) return;
+    this.scrollTop.set(el.scrollTop);
+    this.viewportHeight.set(el.clientHeight);
+  }
 
   /** JSON, XML or nothing worth naming - stated, so the reader never has to guess why it is plain. */
   readonly kindLabel = computed(() => {
@@ -224,43 +313,51 @@ export class InterceptionPanelComponent {
     return `${lines.toLocaleString()} ${lines === 1 ? 'line' : 'lines'} · ${(bytes / 1024).toFixed(1)} KB`;
   });
 
-  /** True once a body is big enough that it is deliberately not being coloured - see MAX_COLOURED_LINES. */
-  readonly monochrome = computed(() => {
-    const body = this.shownBody();
-    return body.length > 0 && this.kindLabel() !== '' && body.every((line) => line.tokens === null);
-  });
-
   onQuery(event: Event): void {
     this.query.set((event.target as HTMLInputElement).value);
     this.matchIndex.set(0);
+    this.revealMatch();
+  }
+
+  setScope(scope: SearchScope): void {
+    this.scope.set(scope);
+    this.matchIndex.set(0);
+    this.revealMatch();
   }
 
   step(delta: number): void {
-    const total = this.searched().matchCount;
+    const total = this.matchCount();
     if (total === 0) return;
     this.matchIndex.set((this.matchIndex() + delta + total) % total);
-    this.scrollToActiveMatch();
+    this.revealMatch();
   }
 
   /**
-   * Puts the current match on screen. The token renderer marks it with `.active`, so finding it
-   * is a query for that class rather than arithmetic over line heights - which would be wrong
-   * the moment a line wraps.
+   * Scrolls the current match into view.
+   *
+   * It works out WHICH ROW the match is on and scrolls by offset - it cannot look for the
+   * `<mark>` in the DOM, because once the panel windows that row may never have been built. The
+   * flat view carries a comment recording the same lesson.
    */
-  private scrollToActiveMatch(): void {
+  private revealMatch(): void {
     queueMicrotask(() => {
-      const active = document.querySelector('.intercept-panel-body mark.hl.active');
-      active?.scrollIntoView({ block: 'center', behavior: 'auto' });
+      const row = lineOfMatch(this.bodySearch(), this.matchIndex());
+      const el = this.viewport()?.nativeElement;
+      if (row < 0 || !el) return;
+      const target = row * ROW_HEIGHT_PX - el.clientHeight / 2 + ROW_HEIGHT_PX / 2;
+      el.scrollTop = Math.max(0, target);
+      this.onBodyScroll();
     });
   }
 
   /**
-   * Copies exactly what is on screen: status, headers and body of the current view.
+   * Copies a section of exactly what is on screen.
    *
-   * Body alone would drop the status change, which on most of these panels is the headline -
-   * "200 → 500" is usually the whole reason somebody opened this.
+   * "all" takes the status, headers and body together, because body alone would drop the status
+   * change - on most of these panels that is the headline. A single section is copied WITHOUT
+   * the surrounding labels: copying just the body is almost always in order to replay it.
    */
-  copy(): void {
+  copy(section: CopySection): void {
     const diff = this.computed();
     if (!diff) return;
     const text = copyableView({
@@ -270,20 +367,20 @@ export class InterceptionPanelComponent {
       body: this.shownBody(),
       // A single side is copied clean, with no markers, so it can be replayed as-is.
       showMarkers: this.view() === 'diff',
+      section,
     });
     copyToClipboard(text).then(
-      () => this.flashCopied(),
+      () => {
+        this.copiedSection.set(section);
+        setTimeout(() => this.copiedSection.set(null), 1600);
+      },
       () => undefined
     );
   }
 
-  private flashCopied(): void {
-    this.copied.set(true);
-    setTimeout(() => this.copied.set(false), 1600);
-  }
-
-  copyLabel(): string {
-    if (this.copied()) return '✓ Copied';
-    return this.view() === 'diff' ? '⧉ Copy diff' : '⧉ Copy';
-  }
+  /** What the "everything" copy button is called, which is also what it copies. */
+  readonly copyAllLabel = computed(() => {
+    if (this.view() === 'diff') return 'Diff';
+    return this.phase() === 'request' ? 'Request' : 'Response';
+  });
 }

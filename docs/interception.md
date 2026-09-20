@@ -621,18 +621,52 @@ cards render — so an envelope in this panel looks exactly like the one on the 
   splits ever disagree on line count the tokens are dropped for that side — colours one line out
   of step with the text they colour is worse on a diff than no colours, and silently so. Guarded
   by a test that reassembles every coloured line back to its own text.
-- **Search covers the headers and the body of the view on screen**, numbered in reading order.
-  The renumbering happens *after* the two sides are interleaved: each side is tokenized
-  separately and would otherwise start its own count at zero, so "3 of 7" would point at two
-  different places.
-- **Copy takes everything shown** — status, headers, body, markers included. Body alone would drop
-  the status change, which on most of these panels is the headline. A single-side view copies
-  clean, with no markers, ready to replay.
-- **Past `MAX_COLOURED_LINES` (4,000) the diff stays monochrome.** Colour is one DOM node per
-  *token* rather than one per line; the call view measured 186,734 nodes and a 4,098 ms freeze on a
-  28,937-line SOAP body, which is why *that* view windows. This one does not, so it takes the
-  honest trade — still pretty-printed, still searchable, still copyable — and says so in the
-  toolbar rather than leaving it to be discovered.
+- **Search covers the headers and the body of the view on screen**, numbered in reading order, and
+  is scoped by the toolbar's `in: All · Headers · Body`. Request versus response needs no control:
+  each half already has its own panel instance. The renumbering happens *after* the two sides are
+  interleaved — each is tokenized separately and would otherwise start its own count at zero, so
+  "3 of 7" would point at two different places.
+- **Copy is per section**: `copy: Request|Response|Diff · Headers · Body`. The first button is
+  named after what it takes, which is how "copy the request only" is expressed. It includes the
+  status change, because on most of these panels that is the headline; a single *section* is
+  copied without the surrounding labels, since copying just a body is almost always in order to
+  replay it. The button that copied is the one that confirms.
+
+### Windowing it
+
+The panel built **every line of both halves** into a 340px box that shows about eighteen — and
+since each line became one DOM node per *token*, a large response cost tens of thousands of nodes
+to display a couple of dozen rows. A call can have both panels expanded, paying it twice.
+
+It windows past `PANEL_WINDOW_THRESHOLD` (600 lines), lower than the flat view's 2,000 because
+this box is a fifth the height and there are two of them. The mechanism is the flat view's minus
+its offset table: every row here is the same height (no comment cards, no composer), so the
+arithmetic is a multiplication. `ROW_HEIGHT_PX` is pinned in CSS *and* in the component — change
+one and you must change the other.
+
+Two consequences that are easy to get wrong:
+
+- **Highlighting had to become lazy as well.** Windowing the DOM alone would not have helped: the
+  search built highlight tokens for every line on every keystroke. Counting stays a full pass
+  (one `indexOf` per line — the total must be truthful), and only the visible rows have their
+  tokens built, each told the global number of its first match.
+- **Jump-to-match cannot query the DOM.** It used to find `mark.hl.active` and scroll to it; once
+  a row may never have been built that returns nothing. It resolves match number → line → offset
+  instead (`lineOfMatch`). The flat view carries a comment recording the same lesson.
+
+The old `MAX_COLOURED_LINES` cap is gone with it: it existed because colour costs a node per token
+*and the panel rendered everything*, and windowing removes the second half of that.
+
+Measured live on a 4,507-line / 90 KB intercepted response: **27 rows built, 181 DOM nodes added,
+76 ms to expand**; typing in the find box cost **11–18 ms per keystroke** while correctly reporting
+**500 matches**, of which 2 were rendered. Scrolling 40,000 px moved the window without growing the
+DOM (979 nodes before and after); jumping to match 401 of 500 scrolled to a row that had never
+been built and put it on screen. Copy still works off the full data, not the rendered rows — the
+body button produced all 4,507 lines.
+
+> The `lineOfMatch` binary search shipped with only an upper bound, so a match number belonging to
+> the *headers* — which are numbered before the body — resolved to body line 0 and scrolled for a
+> match that was never there. Caught by a test written for the offset case.
 
 Verified live through the proxy: a JSON response edited by a rule rendered 16 pretty-printed lines
 with 22 coloured spans resolving to the theme's own `--tok-*` (key `rgb(196,181,253)` =

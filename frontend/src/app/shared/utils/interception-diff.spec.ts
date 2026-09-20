@@ -1,10 +1,12 @@
 import {
-  MAX_COLOURED_LINES,
   buildHttpDiff,
   copyableView,
   diffHeaders,
   diffLines,
-  searchView,
+  highlightLine,
+  lineOfMatch,
+  searchBody,
+  searchHeaders,
   sharedBodyKind,
 } from './interception-diff';
 
@@ -187,16 +189,16 @@ describe('interception diff', () => {
       }
     });
 
-    it('drops colour past the size it would cost more than it is worth', () => {
-      // One DOM node per token instead of one per line; the call view measured a four-second
-      // freeze on a body this shape, which is why it windows. Here the trade is monochrome.
-      const huge = JSON.stringify(Object.fromEntries(Array.from({ length: MAX_COLOURED_LINES + 10 }, (_, i) => [`k${i}`, i])));
+    it('colours a large body too, now that the panel windows instead of building it', () => {
+      // There was a cap here, dropping colour past 4,000 lines because colour costs one DOM node
+      // per token. Windowing removed the thing that cap was protecting: the number of rows BUILT
+      // no longer depends on the size of the body.
+      const huge = JSON.stringify(Object.fromEntries(Array.from({ length: 5000 }, (_, i) => ['k' + i, i])));
 
       const lines = diffLines(huge, huge.replace('"k0":0', '"k0":1'));
 
-      expect(lines.length).toBeGreaterThan(MAX_COLOURED_LINES);
-      expect(lines.every((l) => l.tokens === null)).toBeTrue();
-      // Still pretty-printed, which is the part that costs nothing.
+      expect(lines.length).toBeGreaterThan(5000);
+      expect(lines.every((l) => l.tokens !== null)).toBeTrue();
       expect(lines.some((l) => l.text.startsWith('  '))).toBeTrue();
     });
 
@@ -211,56 +213,112 @@ describe('interception diff', () => {
     });
   });
 
-  describe('searchView', () => {
+  describe('searching a body without building it', () => {
+    /**
+     * The split that lets the panel window. Counting runs over every line, because the total has
+     * to be truthful - "3 of 412" cannot only know about the rows on screen. Building the tokens
+     * is the expensive half and happens per visible row.
+     */
     const headers = () => diffHeaders({ 'x-supplier': 'amadeus' }, { 'x-supplier': 'sabre' });
     const body = () => diffLines('{"supplier":"amadeus"}', '{"supplier":"sabre"}');
 
-    it('numbers matches in reading order across headers and then body', () => {
-      // A diff interleaves lines from two separately-tokenized sides, each of which would start
-      // its own count at zero - so "3 of 7" would point at two different places.
-      const result = searchView(headers(), body(), 'supplier');
+    it('counts every match in the body without producing a single token', () => {
+      const search = searchBody(body(), 'supplier');
 
-      const indices = [
-        ...result.headers.flatMap((r) => [...r.nameTokens, ...r.valueTokens]),
-        ...result.body.flatMap((l) => l.highlighted),
-      ]
-        .filter((t) => t.highlighted)
-        .map((t) => t.matchIndex);
-
-      expect(indices).toEqual([...indices].sort((a, b) => (a ?? 0) - (b ?? 0)));
-      expect(new Set(indices).size).toBe(indices.length);
-      expect(result.matchCount).toBe(indices.length);
+      expect(search.count).toBe(2);
+      expect(search.perLine.reduce((a, b) => a + b, 0)).toBe(2);
     });
 
-    it('searches the headers too, not only the body', () => {
-      const result = searchView(headers(), [], 'supplier');
+    it('numbers continuously from the headers into the body', () => {
+      // A count that restarted at the body would make "3 of 7" ambiguous about which 3.
+      const marked = searchHeaders(headers(), 'supplier');
+      const search = searchBody(body(), 'supplier', marked.count);
 
-      expect(result.matchCount).toBeGreaterThan(0);
+      const headerIndices = marked.rows
+        .flatMap((r) => [...r.nameTokens, ...r.valueTokens])
+        .filter((t) => t.highlighted)
+        .map((t) => t.matchIndex ?? -1);
+      expect(headerIndices).toEqual([0, 1]);
+      expect(search.firstIndex[search.perLine.findIndex((n) => n > 0)]).toBe(marked.count);
+      expect(marked.count + search.count).toBe(4);
+    });
+
+    it('highlights one line on its own with the numbering the whole panel uses', () => {
+      const lines = body();
+      const search = searchBody(lines, 'supplier', 5);
+      const changed = lines.findIndex((l) => l.kind === 'removed');
+
+      const line = highlightLine(lines[changed], 'supplier', search.firstIndex[changed]);
+
+      expect(line.highlighted.filter((t) => t.highlighted).map((t) => t.matchIndex)).toEqual([5]);
+    });
+
+    it('keeps a highlighted line reassembling to exactly its own text', () => {
+      const lines = body();
+      const search = searchBody(lines, 'supplier');
+
+      lines.forEach((line, i) => {
+        const marked = highlightLine(line, 'supplier', search.firstIndex[i]);
+        expect(marked.highlighted.map((t) => t.text).join('')).toBe(line.text);
+      });
     });
 
     it('is case-insensitive but keeps the original casing on screen', () => {
-      const result = searchView([], diffLines('{"Supplier":1}', '{"Supplier":2}'), 'supplier');
+      const lines = diffLines('{"Supplier":1}', '{"Supplier":2}');
+      const search = searchBody(lines, 'supplier');
 
-      expect(result.matchCount).toBeGreaterThan(0);
-      const marked = result.body.flatMap((l) => l.highlighted).filter((t) => t.highlighted);
-      expect(marked.every((t) => t.text === 'Supplier')).toBeTrue();
+      expect(search.count).toBe(2);
+      const marked = lines.flatMap((l, i) => highlightLine(l, 'supplier', search.firstIndex[i]).highlighted);
+      expect(marked.filter((t) => t.highlighted).every((t) => t.text === 'Supplier')).toBeTrue();
     });
 
-    it('marks nothing for an empty query rather than everything', () => {
-      expect(searchView(headers(), body(), '').matchCount).toBe(0);
+    it('finds nothing for an empty query rather than everything', () => {
+      expect(searchBody(body(), '').count).toBe(0);
+      expect(searchHeaders(headers(), '').count).toBe(0);
     });
 
-    it('leaves a searched line reassembling to its own text', () => {
-      for (const line of searchView([], body(), 'supplier').body) {
-        expect(line.highlighted.map((t) => t.text).join('')).toBe(line.text);
-      }
+    it('highlights an uncoloured line too, so plain text is still searchable', () => {
+      const lines = diffLines('grant_type=a', 'grant_type=b');
+      const search = searchBody(lines, 'grant');
+
+      expect(search.count).toBe(2);
+      expect(highlightLine(lines[0], 'grant', 0).highlighted.some((t) => t.highlighted)).toBeTrue();
     });
 
-    it('gives an uncoloured line highlight tokens anyway, so plain text is still searchable', () => {
-      const result = searchView([], diffLines('grant_type=a', 'grant_type=b'), 'grant');
+    describe('lineOfMatch', () => {
+      /** Twelve lines, a match on every third one. */
+      const spread = () => {
+        const before = Array.from({ length: 12 }, (_, i) => (i % 3 === 0 ? `hit ${i}` : `miss ${i}`)).join('\n');
+        return diffLines(before, before);
+      };
 
-      expect(result.matchCount).toBe(2);
-      expect(result.body[0].highlighted.some((t) => t.highlighted)).toBeTrue();
+      it('finds the line a global match number falls on', () => {
+        // The panel cannot find its current match by querying the DOM for a <mark>: once it
+        // windows, that row may never have been built.
+        const lines = spread();
+        const search = searchBody(lines, 'hit');
+
+        expect(search.count).toBe(4);
+        expect(lineOfMatch(search, 0)).toBe(0);
+        expect(lineOfMatch(search, 1)).toBe(3);
+        expect(lineOfMatch(search, 3)).toBe(9);
+      });
+
+      it('reports no line for a match number that is not in the body', () => {
+        const search = searchBody(spread(), 'hit');
+
+        expect(lineOfMatch(search, 99)).toBe(-1);
+        expect(lineOfMatch(searchBody([], 'x'), 0)).toBe(-1);
+      });
+
+      it('skips past the headers when the body numbering is offset', () => {
+        const lines = spread();
+        const search = searchBody(lines, 'hit', 10);
+
+        expect(lineOfMatch(search, 9)).toBe(-1);
+        expect(lineOfMatch(search, 10)).toBe(0);
+        expect(lineOfMatch(search, 11)).toBe(3);
+      });
     });
   });
 

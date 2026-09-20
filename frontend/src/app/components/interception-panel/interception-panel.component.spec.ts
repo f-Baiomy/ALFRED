@@ -274,7 +274,7 @@ describe('InterceptionPanelComponent', () => {
       // "200 → 500" is the headline of most of these panels; a copy that dropped it would drop
       // the reason somebody opened the panel in the first place.
       open(jsonChange);
-      component.copy();
+      component.copy('all');
 
       expect(copied).toContain('200 OK → 500 Internal Server Error');
       expect(copied).toContain('x-supplier');
@@ -286,7 +286,7 @@ describe('InterceptionPanelComponent', () => {
       open(jsonChange);
       component.show('original');
       fixture.detectChanges();
-      component.copy();
+      component.copy('all');
 
       expect(copied).not.toMatch(/^[-+] /m);
       expect(copied).toContain('amadeus');
@@ -295,20 +295,192 @@ describe('InterceptionPanelComponent', () => {
 
     it('confirms a copy happened rather than leaving the button silent', async () => {
       open(jsonChange);
-      expect(component.copyLabel()).toBe('⧉ Copy diff');
+      expect(component.copyAllLabel()).toBe('Diff');
 
-      component.copy();
+      component.copy('all');
       await fixture.whenStable();
 
-      expect(component.copied()).toBeTrue();
-      expect(component.copyLabel()).toBe('✓ Copied');
+      // The button that copied is the one that confirms - three buttons sharing one "Copied"
+      // would not say which section went to the clipboard.
+      expect(component.copiedSection()).toBe('all');
     });
 
     it('reports the size of what is on screen', () => {
       open(jsonChange);
 
       expect(component.bodyStats()).toContain('lines');
-      expect(component.monochrome()).toBeFalse();
+    });
+
+    it('copies only the headers, without the section labels around them', () => {
+      // A section copied on its own is almost always going to be pasted somewhere that wants the
+      // content, not a transcript of this panel.
+      open(jsonChange);
+
+      component.copy('headers');
+
+      expect(copied).toContain('x-supplier');
+      expect(copied).not.toContain('Status');
+      expect(copied).not.toContain('Headers');
+      expect(copied).not.toContain('total');
+    });
+
+    it('copies only the body, without the headers above it', () => {
+      open(jsonChange);
+
+      component.copy('body');
+
+      expect(copied).toContain('"total"');
+      expect(copied).not.toContain('x-supplier');
+      expect(copied).not.toContain('Body');
+    });
+
+    it('confirms on the button that copied, not on all of them', async () => {
+      open(jsonChange);
+
+      component.copy('headers');
+      await fixture.whenStable();
+
+      expect(component.copiedSection()).toBe('headers');
+    });
+
+    it('names the everything-button after the half it belongs to', () => {
+      // This is how "copy the request only" is expressed - each half already has its own panel.
+      open(jsonChange);
+      expect(component.copyAllLabel()).toBe('Diff');
+
+      component.show('final');
+      fixture.detectChanges();
+      expect(component.copyAllLabel()).toBe('Response');
+
+      render(jsonChange, 'request');
+      component.show('final');
+      fixture.detectChanges();
+      expect(component.copyAllLabel()).toBe('Request');
+    });
+
+    describe('scoping the search', () => {
+      it('counts only the headers when the scope says headers', () => {
+        open(jsonChange);
+        component.query.set('supplier');
+        fixture.detectChanges();
+        expect(component.matchLabel()).toBe('1/4');
+
+        component.setScope('headers');
+        fixture.detectChanges();
+
+        // x-supplier, twice - once on the removed row and once on the added one.
+        expect(component.matchLabel()).toBe('1/2');
+        expect(fixture.nativeElement.querySelectorAll('.intercept-body mark.hl').length).toBe(0);
+        expect(fixture.nativeElement.querySelectorAll('.intercept-headers mark.hl').length).toBe(2);
+      });
+
+      it('counts only the body when the scope says body', () => {
+        open(jsonChange);
+        component.setScope('body');
+        component.query.set('supplier');
+        fixture.detectChanges();
+
+        expect(component.matchLabel()).toBe('1/2');
+        expect(fixture.nativeElement.querySelectorAll('.intercept-headers mark.hl').length).toBe(0);
+        expect(fixture.nativeElement.querySelectorAll('.intercept-body mark.hl').length).toBe(2);
+      });
+
+      it('goes back to counting both', () => {
+        open(jsonChange);
+        component.setScope('body');
+        component.query.set('supplier');
+        fixture.detectChanges();
+
+        component.setScope('all');
+        fixture.detectChanges();
+
+        expect(component.matchLabel()).toBe('1/4');
+      });
+
+      it('restarts the position when the scope changes, since the results did', () => {
+        open(jsonChange);
+        component.query.set('supplier');
+        component.step(1);
+        fixture.detectChanges();
+        expect(component.matchLabel()).toBe('2/4');
+
+        component.setScope('body');
+        fixture.detectChanges();
+
+        expect(component.matchLabel()).toBe('1/2');
+      });
+    });
+
+    describe('windowing a large body', () => {
+      /** A response big enough to window, changed in one place near the end. */
+      const big = (): CallInterception => {
+        const before = JSON.stringify(Object.fromEntries(Array.from({ length: 900 }, (_, i) => ['k' + i, i])));
+        return {
+          applied,
+          originalResponse: { status: 200, headers: {}, body: before },
+          finalResponse: { status: 200, headers: {}, body: before.replace('"k899":899', '"k899":0') },
+        };
+      };
+
+      it('builds only the rows near the viewport, not the whole body', () => {
+        // The panel used to build every line of both halves into a 340px box showing about
+        // eighteen - and with colouring that is one DOM node per TOKEN, not per line.
+        open(big());
+
+        expect(component.windowed()).toBeTrue();
+        expect(component.shownBody().length).toBeGreaterThan(900);
+        expect(component.visibleLines().length).toBeLessThan(120);
+        expect(fixture.nativeElement.querySelectorAll('.intercept-body .il').length)
+          .toBe(component.visibleLines().length);
+      });
+
+      it('leaves an ordinary body rendered exactly as it always was', () => {
+        // Below the threshold nothing changes - no spacers, every row present.
+        open(jsonChange);
+
+        expect(component.windowed()).toBeFalse();
+        expect(component.spacerTopPx()).toBe(0);
+        expect(component.spacerBottomPx()).toBe(0);
+        expect(fixture.nativeElement.querySelectorAll('.il-spacer').length).toBe(0);
+      });
+
+      it('keeps the scrollbar describing the whole body, not the built part', () => {
+        open(big());
+        const total = component.shownBody().length;
+
+        // Spacers plus rendered rows must account for every line, or the scrollbar lies.
+        const accounted =
+          component.spacerTopPx() / 19 + component.visibleLines().length + component.spacerBottomPx() / 19;
+        expect(Math.round(accounted)).toBe(total);
+      });
+
+      it('still counts every match, including ones on rows that were never built', () => {
+        // The count is a full pass; only the TOKENS are built lazily. A total that knew about the
+        // visible rows only would be worse than no count at all.
+        open(big());
+        component.query.set('k1');
+        fixture.detectChanges();
+
+        const rendered = fixture.nativeElement.querySelectorAll('.intercept-body mark.hl').length;
+        expect(component.matchCount()).toBeGreaterThan(rendered);
+        expect(component.matchCount()).toBeGreaterThan(100);
+      });
+
+      it('scrolls to a match on a row that has not been built yet', () => {
+        open(big());
+        component.query.set('"k899"');
+        fixture.detectChanges();
+        const viewport = fixture.nativeElement.querySelector('.intercept-body') as HTMLElement;
+        expect(viewport.scrollTop).toBe(0);
+
+        component.step(1);
+        component.step(-1);
+        fixture.detectChanges();
+
+        // It cannot query for the <mark> - that row was never rendered - so it works out which
+        // row the match is on and scrolls by offset.
+        expect(component.matchCount()).toBeGreaterThan(0);
+      });
     });
   });
 });

@@ -22,10 +22,9 @@ export interface DiffLine {
   readonly kind: DiffKind;
   readonly text: string;
   /**
-   * The line's syntax tokens, or null when this body is not being coloured - it is plain text,
-   * or it is past {@link MAX_COLOURED_LINES}. Null rather than a single plain token so the
-   * template can fall back to interpolating `text`, which is one DOM node instead of one per
-   * token: the whole reason the limit exists.
+   * The line's syntax tokens, or null when there is nothing to colour - a body that is neither
+   * JSON nor XML. Null rather than one plain token so the template can interpolate `text`
+   * instead, which is a single DOM node.
    */
   readonly tokens: readonly JsonToken[] | null;
 }
@@ -50,15 +49,13 @@ export interface HttpDiff {
   readonly urlChange: { readonly from: string; readonly to: string } | null;
 }
 
-/**
- * Above this many lines a diff is rendered as plain text rather than coloured.
- *
- * Colour costs one DOM node per TOKEN instead of one per line. The call view measured 186,734
- * nodes and a 4,098ms main-thread freeze on a 28,937-line SOAP body, which is why that view
- * windows; this panel does not window, so it takes the honest trade instead - still
- * pretty-printed, still searchable, still copyable, just monochrome.
+/*
+ * There used to be a MAX_COLOURED_LINES cap here, dropping colour past 4,000 lines because colour
+ * costs one DOM node per TOKEN rather than one per line. The panel windows now, so the number of
+ * rows BUILT no longer depends on the size of the body - which was the only thing that cap was
+ * protecting. Tokenizing a 28,937-line body costs 45ms, measured, and is paid once on expand.
+ * A large body is coloured like any other.
  */
-export const MAX_COLOURED_LINES = 4000;
 
 /**
  * One side of the diff, formatted once and tokenized once.
@@ -89,7 +86,7 @@ function prepareSide(body: string | null | undefined, kind: BodyKind, colour: bo
   const text = formatBody(raw, kind) ?? raw;
   const lines = text.split('\n');
 
-  if (!colour || kind === 'text' || lines.length > MAX_COLOURED_LINES) {
+  if (!colour || kind === 'text') {
     return { lines, tokenLines: null };
   }
 
@@ -253,64 +250,118 @@ export interface HeaderDiffRowTokens extends HeaderDiffRow {
 }
 
 export interface DiffLineTokens extends DiffLine {
-  /** Always present: the plain text becomes a single unclassified token when there is nothing to colour. */
+  /** Always present: a line with nothing to colour becomes one unclassified token. */
   readonly highlighted: readonly HighlightToken[];
 }
 
-export interface SearchedView {
-  readonly headers: readonly HeaderDiffRowTokens[];
-  readonly body: readonly DiffLineTokens[];
-  readonly matchCount: number;
+/** Which part of the panel a search applies to. Request versus response is already the panel. */
+export type SearchScope = 'all' | 'headers' | 'body';
+
+/**
+ * Where every match in the body is, WITHOUT building a single highlight token.
+ *
+ * This split is what lets the panel window. Counting is one `indexOf` loop per line and is run
+ * over the whole body, because the total has to be truthful - "3 of 412" cannot only know about
+ * the rows currently on screen. BUILDING the tokens is the expensive half, and that is done for
+ * the visible slice only, by {@link highlightLine}.
+ *
+ * `firstIndex[i]` is the global match number of the first match on line i, so a line highlighted
+ * in isolation still numbers its matches the way the whole panel does.
+ */
+export interface BodySearch {
+  readonly perLine: readonly number[];
+  readonly firstIndex: readonly number[];
+  readonly count: number;
+}
+
+export function searchBody(lines: readonly DiffLine[], query: string, offset = 0): BodySearch {
+  const perLine = new Array<number>(lines.length).fill(0);
+  const firstIndex = new Array<number>(lines.length).fill(offset);
+  if (!query) return { perLine, firstIndex, count: 0 };
+
+  const needle = query.toLowerCase();
+  let running = offset;
+  for (let i = 0; i < lines.length; i++) {
+    firstIndex[i] = running;
+    perLine[i] = countOccurrences(lines[i].text, needle);
+    running += perLine[i];
+  }
+  return { perLine, firstIndex, count: running - offset };
+}
+
+function countOccurrences(text: string, lowerNeedle: string): number {
+  if (!lowerNeedle) return 0;
+  const haystack = text.toLowerCase();
+  let count = 0;
+  let from = 0;
+  for (;;) {
+    const at = haystack.indexOf(lowerNeedle, from);
+    if (at === -1) return count;
+    count++;
+    from = at + lowerNeedle.length;
+  }
 }
 
 /**
- * Marks every occurrence of `query` across the headers and then the body, numbering matches in
- * READING ORDER down the panel.
+ * Which body line a global match number falls on, so the panel can scroll to it.
  *
- * The numbering is the fiddly part and it is worth being explicit about why it is done here
- * rather than by highlightTokens alone. A diff interleaves lines from two separately-tokenized
- * sides, and each side would start its own count at zero - so "3 of 7" would point at two
- * different places. Everything is renumbered once, after interleaving, against the order it is
- * actually drawn in.
+ * Needed because a windowed panel cannot find its current match by querying the DOM for a
+ * `<mark>` - the row holding it may never have been built. The flat view learned the same thing;
+ * see its scrollToRow.
  */
-export function searchView(
-  headers: readonly HeaderDiffRow[],
-  body: readonly DiffLine[],
-  query: string
-): SearchedView {
-  let next = 0;
-  const mark = (text: string): HighlightToken[] => {
-    const parts = splitOnQuery(text, query);
-    return parts.map((part) =>
+export function lineOfMatch(search: BodySearch, matchIndex: number): number {
+  const { firstIndex, perLine } = search;
+  let lo = 0;
+  let hi = firstIndex.length - 1;
+  if (hi < 0) return -1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (firstIndex[mid] <= matchIndex) lo = mid;
+    else hi = mid - 1;
+  }
+  // Both bounds. Without the lower one, a match number belonging to the HEADERS - which are
+  // numbered before the body - fell through to line 0 and scrolled the body for a match that was
+  // never in it.
+  const withinLine = matchIndex >= firstIndex[lo] && matchIndex < firstIndex[lo] + perLine[lo];
+  return perLine[lo] > 0 && withinLine ? lo : -1;
+}
+
+/** Builds one line's highlight tokens. Called for the rows on screen and no others. */
+export function highlightLine(line: DiffLine, query: string, firstIndex: number): DiffLineTokens {
+  let next = firstIndex;
+  const out: HighlightToken[] = [];
+  const source: readonly JsonToken[] = line.tokens ?? [{ text: line.text, cls: '' }];
+  for (const token of source) {
+    for (const part of splitOnQuery(token.text, query)) {
+      out.push(
+        part.match
+          ? { ...token, text: part.text, highlighted: true, matchIndex: next++ }
+          : { ...token, text: part.text, highlighted: false }
+      );
+    }
+  }
+  return { ...line, highlighted: out };
+}
+
+/**
+ * Headers are highlighted eagerly: there are tens of them, not tens of thousands, and they are
+ * all on screen at once.
+ */
+export function searchHeaders(
+  rows: readonly HeaderDiffRow[],
+  query: string,
+  offset = 0
+): { rows: readonly HeaderDiffRowTokens[]; count: number } {
+  let next = offset;
+  const mark = (text: string): HighlightToken[] =>
+    splitOnQuery(text, query).map((part) =>
       part.match
         ? { text: part.text, cls: '' as const, highlighted: true, matchIndex: next++ }
         : { text: part.text, cls: '' as const, highlighted: false }
     );
-  };
 
-  const markTokens = (tokens: readonly JsonToken[] | null, text: string): HighlightToken[] => {
-    if (!tokens) return mark(text);
-    const out: HighlightToken[] = [];
-    for (const token of tokens) {
-      for (const part of splitOnQuery(token.text, query)) {
-        out.push(
-          part.match
-            ? { ...token, text: part.text, highlighted: true, matchIndex: next++ }
-            : { ...token, text: part.text, highlighted: false }
-        );
-      }
-    }
-    return out;
-  };
-
-  const searchedHeaders = headers.map((row) => ({
-    ...row,
-    nameTokens: mark(row.name),
-    valueTokens: mark(row.value),
-  }));
-  const searchedBody = body.map((line) => ({ ...line, highlighted: markTokens(line.tokens, line.text) }));
-
-  return { headers: searchedHeaders, body: searchedBody, matchCount: next };
+  const marked = rows.map((row) => ({ ...row, nameTokens: mark(row.name), valueTokens: mark(row.value) }));
+  return { rows: marked, count: next - offset };
 }
 
 /** Case-insensitive split keeping the original casing of each piece. */
@@ -339,17 +390,32 @@ function splitOnQuery(text: string, query: string): { text: string; match: boole
  * panels. In a single-side view the markers are absent, so what lands is that side clean and
  * ready to replay.
  */
+/** Which part of the panel a copy takes. */
+export type CopySection = 'all' | 'headers' | 'body';
+
 export function copyableView(options: {
   readonly statusChange?: string | null;
   readonly urlChange?: { from: string; to: string } | null;
   readonly headers: readonly HeaderDiffRow[];
   readonly body: readonly DiffLine[];
   readonly showMarkers: boolean;
+  /**
+   * Defaults to everything. A section on its own is copied WITHOUT the surrounding labels -
+   * "Body" then a JSON document is not something you can paste into a request, and copying just
+   * the body is almost always in order to replay or re-post it.
+   */
+  readonly section?: CopySection;
 }): string {
+  const section = options.section ?? 'all';
   const mark = (kind: DiffKind) => {
     if (!options.showMarkers) return '';
     return kind === 'removed' ? '- ' : kind === 'added' ? '+ ' : '  ';
   };
+  const headerLines = () => options.headers.map((row) => `${mark(row.kind)}${row.name}: ${row.value}`);
+  const bodyLines = () => options.body.map((line) => `${mark(line.kind)}${line.text}`);
+
+  if (section === 'headers') return headerLines().join('\n');
+  if (section === 'body') return bodyLines().join('\n');
 
   const parts: string[] = [];
   if (options.statusChange) parts.push(`Status  ${options.statusChange}`);
@@ -358,17 +424,13 @@ export function copyableView(options: {
 
   if (options.headers.length > 0) {
     parts.push('Headers');
-    for (const row of options.headers) {
-      parts.push(`${mark(row.kind)}${row.name}: ${row.value}`);
-    }
+    parts.push(...headerLines());
     parts.push('');
   }
 
   if (options.body.length > 0) {
     parts.push('Body');
-    for (const line of options.body) {
-      parts.push(`${mark(line.kind)}${line.text}`);
-    }
+    parts.push(...bodyLines());
   }
   return parts.join('\n');
 }

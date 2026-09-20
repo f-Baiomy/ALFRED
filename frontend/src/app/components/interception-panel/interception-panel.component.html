@@ -60,15 +60,32 @@
                 <button type="button" class="icon-btn" title="Next match" (click)="step(1)">›</button>
               }
             </div>
-            <button type="button" class="action-btn" [class.copied]="copied()" (click)="copy()">
-              {{ copyLabel() }}
-            </button>
-            <span class="it-stats">
-              @if (monochrome()) {
-                <span class="it-mono" title="Colouring a body this large would cost one DOM node per token">too large to colour</span>
-              }
-              {{ bodyStats() }}
+            <!-- Request versus response is already the panel you are in - each half gets its own
+                 instance - so the axis worth adding here is headers versus body. -->
+            <span class="it-group">
+              <span class="it-group-label">in</span>
+              <button type="button" [class.on]="scope() === 'all'" (click)="setScope('all')">All</button>
+              <button type="button" [class.on]="scope() === 'headers'" (click)="setScope('headers')">Headers</button>
+              <button type="button" [class.on]="scope() === 'body'" (click)="setScope('body')">Body</button>
             </span>
+
+            <!-- The first button is named after what it copies, which is how "copy the request
+                 only" is expressed: it reads Request on the request panel and Response on the
+                 other. The button that copied is the one that confirms. -->
+            <span class="it-group">
+              <span class="it-group-label">copy</span>
+              <button type="button" [class.ok]="copiedSection() === 'all'" (click)="copy('all')">
+                {{ copiedSection() === 'all' ? '✓ Copied' : copyAllLabel() }}
+              </button>
+              <button type="button" [class.ok]="copiedSection() === 'headers'" (click)="copy('headers')">
+                {{ copiedSection() === 'headers' ? '✓ Copied' : 'Headers' }}
+              </button>
+              <button type="button" [class.ok]="copiedSection() === 'body'" (click)="copy('body')">
+                {{ copiedSection() === 'body' ? '✓ Copied' : 'Body' }}
+              </button>
+            </span>
+
+            <span class="it-stats">{{ bodyStats() }}</span>
           </div>
 
           @if (d.statusChange) {
@@ -104,8 +121,18 @@
                the one on the card above it. A line with no tokens is interpolated as plain text
                rather than wrapped in a single token - one DOM node instead of several, which is
                the whole point of the size limit. -->
-          <div class="intercept-body">
-            @for (line of searchedBody(); track $index) {
+          <div
+            class="intercept-body"
+            [class.windowed]="windowed()"
+            #bodyViewport
+            (scroll)="onBodyScroll()"
+          >
+            <!-- Two spacers stand in for the rows that were never built, so the scrollbar still
+                 describes the whole body. -->
+            @if (spacerTopPx() > 0) {
+              <div class="il-spacer" [style.height.px]="spacerTopPx()" aria-hidden="true"></div>
+            }
+            @for (line of visibleLines(); track $index) {
               <span class="il" [class.removed]="line.kind === 'removed'" [class.added]="line.kind === 'added'"
                 ><span class="il-mark">{{ line.kind === 'removed' ? '−' : line.kind === 'added' ? '+' : ' ' }}</span
                 >@if (line.tokens || query()) {<app-json-tokens
@@ -115,6 +142,9 @@
               >
             } @empty {
               <div class="intercept-empty">No body.</div>
+            }
+            @if (spacerBottomPx() > 0) {
+              <div class="il-spacer" [style.height.px]="spacerBottomPx()" aria-hidden="true"></div>
             }
           </div>
 

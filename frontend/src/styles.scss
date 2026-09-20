@@ -6591,13 +6591,55 @@ h1.page-title {
   gap: 0.4rem;
 }
 
-/* Said rather than left to be discovered - see MAX_COLOURED_LINES. */
-.it-mono {
-  color: var(--amber);
-  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
-  border-radius: 20px;
-  padding: 0.05rem 0.4rem;
-  cursor: help;
+/* Scope and copy, as segmented groups: each is one decision with three answers, and three loose
+   buttons would not say that the middle one belongs to the same question as its neighbours. */
+.it-group {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+
+  button {
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 0.2rem 0.5rem;
+    font-size: 0.68rem;
+    font-family: inherit;
+    cursor: pointer;
+
+    &:last-child {
+      border-right: 0;
+    }
+
+    &:hover {
+      color: var(--text);
+      background: color-mix(in srgb, var(--purple) 10%, transparent);
+    }
+
+    &.on {
+      background: var(--purple);
+      color: #fff;
+    }
+
+    &.ok {
+      color: var(--green);
+      background: color-mix(in srgb, var(--green) 12%, transparent);
+    }
+  }
+}
+
+.it-group-label {
+  display: flex;
+  align-items: center;
+  padding: 0 0.4rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--purple) 7%, transparent);
+  border-right: 1px solid var(--border);
 }
 
 .intercept-headers,
@@ -6658,6 +6700,19 @@ h1.page-title {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 0.73rem;
   line-height: 1.7;
+}
+
+/* Windowed mode places its spacers by arithmetic, so a row's height cannot be left to its
+   content. 19px here must match ROW_HEIGHT_PX in interception-panel.component.ts - change one and
+   you must change the other, or the rows drift out of step with the scrollbar. */
+.intercept-body.windowed .il {
+  height: 19px;
+  line-height: 19px;
+  overflow: hidden;
+}
+
+.il-spacer {
+  width: 1px;
 }
 
 .il {
