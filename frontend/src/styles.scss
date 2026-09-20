@@ -6879,3 +6879,145 @@ h1.page-title {
 .cond-row .help-popover {
   margin-left: -0.15rem;
 }
+
+/* ---------- Editing a paused body ----------
+   Pretty-printed on arrival, because a 4 KB payload on one line cannot be read let alone edited.
+   Two modes: a textarea with a gutter for changing it, and the call cards' own flat view for
+   reading it. Sharing that component is the point - Inspect is not a lookalike of the call view,
+   it is the call view. */
+
+.body-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.body-modes {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+
+  button {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 0.72rem;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+
+    &.on {
+      background: var(--purple);
+      color: #fff;
+    }
+  }
+}
+
+.body-find {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+
+  input {
+    background: var(--card-inner);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.72rem;
+    padding: 0.3rem 0.5rem;
+    width: 170px;
+
+    &:focus {
+      outline: none;
+      border-color: var(--border-strong);
+    }
+  }
+}
+
+.body-match-count {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.body-validity {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &.ok {
+    color: var(--green);
+  }
+
+  /* Said out loud rather than only on hover: releasing a body that does not parse is a thing
+     you want to know BEFORE the caller gets it. */
+  &.bad {
+    color: var(--red);
+  }
+}
+
+.body-editor {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--card-inner);
+}
+
+.body-gutter {
+  display: flex;
+  flex-direction: column;
+  padding: 0.7rem 0.45rem 0.7rem 0.6rem;
+  background: color-mix(in srgb, var(--purple) 7%, transparent);
+  border-right: 1px solid var(--border);
+  color: var(--text-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.74rem;
+  line-height: 1.6;
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  flex-shrink: 0;
+  min-width: 2.6rem;
+}
+
+.body-editor .paused-body {
+  border: none;
+  border-radius: 0;
+  background: none;
+  /* Must match the gutter exactly, or the numbers drift from the lines they count. */
+  line-height: 1.6;
+  font-size: 0.74rem;
+  white-space: pre;
+  overflow: auto;
+  flex: 1;
+}
+
+.body-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0.45rem 0 0;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  line-height: 1.5;
+
+  strong {
+    color: var(--amber);
+    font-weight: 600;
+  }
+
+  .body-stats {
+    margin-left: auto;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+}

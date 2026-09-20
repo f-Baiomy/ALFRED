@@ -151,12 +151,94 @@
                   }
                 </div>
               }
-              <textarea
-                class="paused-body"
-                spellcheck="false"
-                [value]="currentBody()"
-                (input)="onBodyInput($event)"
-              ></textarea>
+              <!-- Pretty-printed on arrival: a 4 KB payload on one line cannot be read, let
+                   alone edited. Formatting is not an edit - see bodyEdited - so doing it does
+                   not change what a release sends. -->
+              <div class="body-toolbar">
+                <div class="body-modes">
+                  <button type="button" [class.on]="bodyMode() === 'edit'" (click)="setBodyMode('edit')">Edit</button>
+                  <button type="button" [class.on]="bodyMode() === 'inspect'" (click)="setBodyMode('inspect')">Inspect</button>
+                </div>
+
+                <div class="body-find">
+                  <input
+                    type="text"
+                    placeholder="Find in body…"
+                    spellcheck="false"
+                    [value]="query()"
+                    (input)="onQuery($event)"
+                    (keydown.enter)="step(1)"
+                  />
+                  @if (matchLabel()) {
+                    <span class="body-match-count">{{ matchLabel() }}</span>
+                    <button type="button" class="icon-btn" title="Previous match" (click)="step(-1)">‹</button>
+                    <button type="button" class="icon-btn" title="Next match" (click)="step(1)">›</button>
+                  }
+                </div>
+
+                <button type="button" class="action-btn" [disabled]="!canFormat()" (click)="format()">Format</button>
+                <button type="button" class="action-btn" [disabled]="!canFormat()" (click)="minify()">Minify</button>
+
+                @switch (validity().state) {
+                  @case ('valid') {
+                    <span class="body-validity ok">valid {{ bodyKind() === 'xml' ? 'XML' : 'JSON' }} ✓</span>
+                  }
+                  @case ('invalid') {
+                    <span class="body-validity bad" [title]="validity().message ?? ''">
+                      ✗ {{ validity().message }}
+                    </span>
+                  }
+                  @case ('unchecked') {
+                    <span class="body-validity">too large to check while typing</span>
+                  }
+                  @default {
+                    @if (currentBody()) {
+                      <span class="body-validity">plain text — nothing to format</span>
+                    }
+                  }
+                }
+              </div>
+
+              @if (bodyMode() === 'edit') {
+                <div class="body-editor">
+                  <!-- A separate element, so it has to be told where the textarea scrolled to. -->
+                  <div class="body-gutter" #gutter>
+                    @for (n of lineNumbers(); track n) {
+                      <span>{{ n }}</span>
+                    }
+                  </div>
+                  <textarea
+                    class="paused-body"
+                    spellcheck="false"
+                    wrap="off"
+                    #bodyArea
+                    [value]="currentBody()"
+                    (input)="onBodyInput($event)"
+                    (scroll)="syncGutter()"
+                  ></textarea>
+                </div>
+              } @else {
+                <!-- The very same component the call cards render a body with, told which
+                     tokenizer to use. Read-only on purpose: this is for finding the thing you
+                     are about to change. -->
+                <app-json-flat-view
+                  [lines]="inspectLines()"
+                  [variant]="inspectVariant()"
+                  [activeMatchIndex]="activeMatch()"
+                />
+              }
+
+              <p class="body-foot">
+                @if (bodyEdited()) {
+                  <strong>Sent as shown</strong>, formatting included.
+                  @if (bodyKind() === 'xml') {
+                    Re-indenting an XML body changes its bytes, which matters if it is signed.
+                  }
+                } @else {
+                  Formatting only — the original bytes will be sent.
+                }
+                <span class="body-stats">{{ bodyStats() }}</span>
+              </p>
             } @else if (tab() === 'headers') {
               <div class="paused-headers-head">
                 <small class="muted">

@@ -353,6 +353,17 @@ A paused call nobody answers would hold a real client socket open indefinitely. 
 Status, body **and headers** are all editable while a call is held, plus a paste-everything box
 for a change too structural to make row by row.
 
+**The body arrives pretty-printed**, JSON or XML, with line numbers, a Find box and an
+Inspect mode that is literally the call cards' `JsonFlatViewComponent` - same tokenizer, same
+highlighting. Format/Minify are there for both formats; a body that is neither is left exactly
+as it came.
+
+Crucially, **formatting is not an edit**. `normalizeBody` compares the two sides in normalised
+form, so re-indenting a payload to read it leaves the call untouched and "Send unchanged" still
+puts the supplier's original bytes on the wire. Once a value really changes, what is on screen is
+what is sent - whitespace included, which for a *signed* SOAP envelope is the difference between
+a valid signature and a broken one. The footer says which of the two you are about to do.
+
 A release carries **only what changed**. Headers are a patch: a null VALUE removes that header, an
 absent key leaves it alone (`apply_decision`). Sending the whole set would rewrite forty headers
 to change one, and would stop "send unchanged" being byte-identical to never having paused.

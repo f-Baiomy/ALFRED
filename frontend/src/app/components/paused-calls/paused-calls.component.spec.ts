@@ -362,4 +362,129 @@ describe('PausedCallsComponent', () => {
 
     expect(component.dirty()).toBeFalse();
   });
+
+  describe('reading and editing the body', () => {
+    // The xmlns matters: a namespace prefix with no declaration is not well-formed XML, and
+    // DOMParser rejects it - which is exactly what keeps an HTML error page from being read as
+    // a SOAP envelope. A real supplier response always declares it.
+    const SOAP =
+      '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">' +
+      '<soap:Body><Search><Origin>CAI</Origin></Search></soap:Body></soap:Envelope>';
+
+    it('pretty-prints a minified JSON body on arrival', () => {
+      // A 4 KB payload on one line cannot be read, let alone edited.
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1,"b":[2]}' } })]);
+
+      expect(component.currentBody()).toBe('{\n  "a": 1,\n  "b": [\n    2\n  ]\n}');
+      expect(component.bodyKind()).toBe('json');
+    });
+
+    it('pretty-prints a SOAP body too', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: SOAP } })]);
+
+      expect(component.bodyKind()).toBe('xml');
+      expect(component.currentBody().split('\n').length).toBeGreaterThan(3);
+    });
+
+    it('does not count formatting as an edit', () => {
+      // The property this must not break: an untouched release stays byte-identical to never
+      // having paused, so pretty-printing on arrival cannot make every call look edited.
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
+
+      expect(component.currentBody()).not.toBe('{"a":1}');
+      expect(component.bodyEdited()).toBeFalse();
+      expect(component.dirty()).toBeFalse();
+    });
+
+    it('sends nothing when the body was only reformatted', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
+
+      component.format();
+      component.release(true);
+
+      const request = http.expectOne(`${BACKEND}/interception/paused/call-1/decision`);
+      expect(request.request.body.body).toBeNull();
+      request.flush(null);
+      http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+    });
+
+    it('sends exactly what is on screen once a value really changes', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
+
+      component.onBodyInput({ target: { value: '{\n  "a": 2\n}' } } as unknown as Event);
+      expect(component.bodyEdited()).toBeTrue();
+
+      component.release(true);
+      const request = http.expectOne(`${BACKEND}/interception/paused/call-1/decision`);
+      expect(request.request.body.body).toBe('{\n  "a": 2\n}');
+      request.flush(null);
+      http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+    });
+
+    it('leaves a body it cannot parse exactly as it arrived', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: 'grant_type=x&scope=read' } })]);
+
+      expect(component.currentBody()).toBe('grant_type=x&scope=read');
+      expect(component.canFormat()).toBeFalse();
+      expect(component.bodyKind()).toBe('text');
+    });
+
+    it('reports a body that stops parsing while it is being typed', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
+
+      component.onBodyInput({ target: { value: '{"a":' } } as unknown as Event);
+
+      expect(component.validity().state).toBe('invalid');
+      expect(component.validity().message?.length).toBeGreaterThan(0);
+    });
+
+    it('counts and cycles through matches', () => {
+      load([
+        paused({
+          heldAt: Date.now(),
+          response: { status: 200, headers: {}, body: '{"seats":1,"seatsRemaining":2}' },
+        }),
+      ]);
+
+      component.onQuery({ target: { value: 'seats' } } as unknown as Event);
+      expect(component.matches().length).toBe(2);
+      expect(component.matchLabel()).toBe('1/2');
+
+      component.step(1);
+      expect(component.matchLabel()).toBe('2/2');
+      // Wraps rather than stopping at the end.
+      component.step(1);
+      expect(component.matchLabel()).toBe('1/2');
+    });
+
+    it('says so when nothing matches, rather than looking broken', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
+
+      component.onQuery({ target: { value: 'zzz' } } as unknown as Event);
+
+      expect(component.matchLabel()).toBe('no matches');
+    });
+
+    it('renders Inspect with the same line/token shape the call cards use', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
+
+      expect(component.inspectLines().length).toBe(0); // nothing built while in Edit
+      component.setBodyMode('inspect');
+
+      const lines = component.inspectLines();
+      expect(lines.length).toBeGreaterThan(1);
+      expect(lines[0].index).toBe(0);
+      expect(lines[0].tokens.length).toBeGreaterThan(0);
+      expect(component.inspectVariant()).toBe('json');
+    });
+
+    it('colours a SOAP body as markup, and a form-encoded one as plain text', () => {
+      load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: SOAP } })]);
+      component.setBodyMode('inspect');
+      expect(component.inspectVariant()).toBe('json'); // the tokenizer differs, the renderer does not
+
+      component.onBodyInput({ target: { value: 'grant_type=x' } } as unknown as Event);
+      expect(component.inspectVariant()).toBe('plain');
+    });
+  });
 });

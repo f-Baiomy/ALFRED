@@ -1,9 +1,22 @@
-import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { interval } from 'rxjs';
 import { PauseDecision, PausedCall } from '../../core/models/interception.model';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
+import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
+import { highlightTokens, tokenizeJsonText } from '../../shared/utils/json-tokenizer';
+import { tokenizeXmlText } from '../../shared/utils/xml-tokenizer';
+import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
+import {
+  BodyKind,
+  detectBodyKind,
+  findMatches,
+  formatBody,
+  minifyBody,
+  normalizeBody,
+  validateBody,
+} from '../../shared/utils/body-format';
 
 /** One editable header row. `removed` keeps the row on screen, struck through, rather than vanishing. */
 export interface EditableHeader {
@@ -15,6 +28,9 @@ export interface EditableHeader {
 }
 
 type Tab = 'response' | 'request' | 'headers';
+
+/** Edit it, or read it the way the call cards render a body. */
+type BodyMode = 'edit' | 'inspect';
 
 /**
  * The breakpoint inspector: calls the proxy is holding open while somebody decides what happens to
@@ -33,12 +49,15 @@ type Tab = 'response' | 'request' | 'headers';
 @Component({
   selector: 'app-paused-calls',
   standalone: true,
-  imports: [StatusPickerComponent],
+  imports: [StatusPickerComponent, JsonFlatViewComponent],
   templateUrl: './paused-calls.component.html',
 })
 export class PausedCallsComponent {
   readonly state = inject(InterceptionStateService);
   private readonly destroyRef = inject(DestroyRef);
+
+  private readonly bodyArea = viewChild<ElementRef<HTMLTextAreaElement>>('bodyArea');
+  private readonly gutter = viewChild<ElementRef<HTMLElement>>('gutter');
 
   private readonly selectedId = signal<string | null>(null);
   readonly tab = signal<Tab>('response');
@@ -55,6 +74,10 @@ export class PausedCallsComponent {
   /** Null while the headers are untouched - the same "only send what changed" rule as the body. */
   readonly editedHeaders = signal<EditableHeader[] | null>(null);
   readonly busy = signal(false);
+
+  readonly bodyMode = signal<BodyMode>('edit');
+  readonly query = signal('');
+  readonly matchIndex = signal(0);
 
   /** The paste-everything box, open only while it is being used. */
   readonly replaceOpen = signal(false);
@@ -77,12 +100,37 @@ export class PausedCallsComponent {
   readonly originalBody = computed(() => this.editableHttp()?.body ?? '');
   readonly originalStatus = computed(() => this.editableHttp()?.status ?? null);
 
-  readonly currentBody = computed(() => this.editedBody() ?? this.originalBody());
+  /**
+   * What kind of body this is, decided by the same functions the call panel uses so a payload is
+   * classified identically in both places.
+   */
+  readonly bodyKind = computed<BodyKind>(() => detectBodyKind(this.editedBody() ?? this.originalBody()));
+
+  /**
+   * The body as shown - pretty-printed on arrival, because a 4 KB payload on one line cannot be
+   * read, let alone edited.
+   *
+   * Formatting is NOT an edit: `dirty` compares the two sides normalised, so reformatting alone
+   * leaves the call untouched and "Send unchanged" still puts the supplier's original bytes on
+   * the wire. That property is worth protecting - it is what makes pausing a call free.
+   */
+  readonly currentBody = computed(() => {
+    const edited = this.editedBody();
+    if (edited !== null) return edited;
+    const original = this.originalBody();
+    return formatBody(original, detectBodyKind(original)) ?? original;
+  });
   readonly currentStatus = computed(() => this.editedStatus() ?? this.originalStatus());
+
+  /** Substance, not layout - see normalizeBody. */
+  readonly bodyEdited = computed(() => {
+    const kind = this.bodyKind();
+    return normalizeBody(this.currentBody(), kind) !== normalizeBody(this.originalBody(), kind);
+  });
 
   readonly dirty = computed(
     () =>
-      (this.editedBody() !== null && this.editedBody() !== this.originalBody()) ||
+      this.bodyEdited() ||
       (this.editedStatus() !== null && this.editedStatus() !== this.originalStatus()) ||
       this.headerChangeCount() > 0
   );
@@ -125,6 +173,51 @@ export class PausedCallsComponent {
 
   readonly headerChangeCount = computed(() => Object.keys(this.headerChanges()).length);
 
+  // ---- reading and searching the body ----------------------------------------------------
+
+  readonly validity = computed(() => validateBody(this.currentBody(), this.bodyKind()));
+
+  readonly canFormat = computed(() => formatBody(this.currentBody(), this.bodyKind()) !== null);
+
+  readonly bodyStats = computed(() => {
+    const text = this.currentBody();
+    if (!text) return '';
+    const lines = text.split('\n').length;
+    const kb = (new Blob([text]).size / 1024).toFixed(1);
+    return `${lines.toLocaleString()} ${lines === 1 ? 'line' : 'lines'} · ${kb} KB`;
+  });
+
+  /** One number per line, for the gutter beside the textarea. */
+  readonly lineNumbers = computed(() =>
+    Array.from({ length: this.currentBody().split('\n').length }, (_, i) => i + 1)
+  );
+
+  readonly matches = computed(() => findMatches(this.currentBody(), this.query()));
+
+  readonly matchLabel = computed(() => {
+    const total = this.matches().length;
+    if (!this.query()) return '';
+    return total === 0 ? 'no matches' : `${Math.min(this.matchIndex() + 1, total)}/${total}`;
+  });
+
+  /**
+   * The same tokenize → highlight → split pipeline the call cards run, so Inspect is not a
+   * lookalike of that view: it is that view, told which tokenizer to use.
+   */
+  readonly inspectLines = computed<readonly LineTokens[]>(() => {
+    if (this.bodyMode() !== 'inspect') return [];
+    const text = this.currentBody();
+    const tokens = this.bodyKind() === 'xml' ? tokenizeXmlText(text) : tokenizeJsonText(text);
+    const highlighted = highlightTokens(tokens, this.query()).tokens;
+    return splitTokensIntoLines(highlighted).map((tokensOnLine, index) => ({ index, tokens: tokensOnLine }));
+  });
+
+  /** Plain text gets no syntax colouring - pretending otherwise would colour a SOAP fault as JSON. */
+  readonly inspectVariant = computed(() => (this.bodyKind() === 'text' ? 'plain' : 'json'));
+
+  /** Which match the flat view should mark as current, counted the way that component counts them. */
+  readonly activeMatch = computed(() => (this.matches().length === 0 ? -1 : this.matchIndex()));
+
   readonly requestHeaderRows = computed(() => {
     const headers = this.selected()?.request?.headers ?? {};
     return Object.entries(headers).map(([name, value]) => ({ name, value }));
@@ -155,6 +248,9 @@ export class PausedCallsComponent {
         this.replaceOpen.set(false);
         this.replaceText.set('');
         this.replaceError.set(null);
+        this.query.set('');
+        this.matchIndex.set(0);
+        this.bodyMode.set('edit');
       },
       { allowSignalWrites: true }
     );
@@ -224,6 +320,63 @@ export class PausedCallsComponent {
   onBodyInput(event: Event): void {
     this.editedBody.set((event.target as HTMLTextAreaElement).value);
     this.claimOnEdit();
+  }
+
+  format(): void {
+    const formatted = formatBody(this.currentBody(), this.bodyKind());
+    // Only ever null when the body cannot be parsed, and the button is disabled then - but a
+    // keyboard or a race should not blank somebody's body.
+    if (formatted !== null) this.editedBody.set(formatted);
+  }
+
+  minify(): void {
+    const minified = minifyBody(this.currentBody(), this.bodyKind());
+    if (minified !== null) this.editedBody.set(minified);
+  }
+
+  onQuery(event: Event): void {
+    this.query.set((event.target as HTMLInputElement).value);
+    this.matchIndex.set(0);
+    this.revealMatch();
+  }
+
+  step(delta: number): void {
+    const total = this.matches().length;
+    if (total === 0) return;
+    this.matchIndex.set((this.matchIndex() + delta + total) % total);
+    this.revealMatch();
+  }
+
+  setBodyMode(mode: BodyMode): void {
+    this.bodyMode.set(mode);
+    this.revealMatch();
+  }
+
+  /**
+   * Puts the current match on screen. In Edit that means selecting it in the textarea, which is
+   * the only way to point at a position inside one - a textarea cannot carry highlight marks.
+   * Inspect does its own highlighting, so there is nothing to do but let it scroll.
+   */
+  private revealMatch(): void {
+    if (this.bodyMode() !== 'edit') return;
+    const at = this.matches()[this.matchIndex()];
+    if (at === undefined) return;
+    const area = this.bodyArea()?.nativeElement;
+    if (!area) return;
+    area.focus();
+    area.setSelectionRange(at, at + this.query().length);
+    // Roughly centre the line: a textarea has no scrollIntoView for a character offset.
+    const line = this.currentBody().slice(0, at).split('\n').length - 1;
+    const lineHeight = area.scrollHeight / Math.max(1, this.currentBody().split('\n').length);
+    area.scrollTop = Math.max(0, line * lineHeight - area.clientHeight / 2);
+    this.syncGutter();
+  }
+
+  /** The gutter is a separate element, so it has to be told where the textarea scrolled to. */
+  syncGutter(): void {
+    const area = this.bodyArea()?.nativeElement;
+    const gutter = this.gutter()?.nativeElement;
+    if (area && gutter) gutter.scrollTop = area.scrollTop;
   }
 
   onStatusChange(status: number): void {
@@ -363,7 +516,9 @@ export class PausedCallsComponent {
       ? {
           action: 'release',
           headers: Object.keys(headers).length > 0 ? headers : null,
-          body: this.editedBody() !== null && this.editedBody() !== this.originalBody() ? this.editedBody() : null,
+          // What you see is what is sent - including its formatting. When nothing really
+          // changed this is null, so an untouched release stays byte-identical to the original.
+          body: this.bodyEdited() ? this.currentBody() : null,
           status:
             this.editedStatus() !== null && this.editedStatus() !== this.originalStatus() ? this.editedStatus() : null,
         }
