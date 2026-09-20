@@ -5,13 +5,15 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.Map;
 
 /**
- * A call the proxy is holding while its caller waits, as the inspector shows it.
+ * A call the inspector is showing: one the proxy is holding, one it has let go and is following,
+ * or one whose cycle is over and is waiting to be closed.
  *
- * <p>Deliberately NOT persisted anywhere. A paused call only exists for as long as a socket is
- * open on a machine that is still running; a paused call recovered from disk after a restart is a
- * call whose caller gave up long ago, and offering a decision on it would be offering to affect
- * traffic that no longer exists. The registry is in-memory, and a backend restart correctly means
- * every waiting proxy falls back to its rule's own timeout action.
+ * <p>Deliberately NOT persisted anywhere. A held call only exists for as long as a socket is open
+ * on a machine that is still running; a held call recovered from disk after a restart is a call
+ * whose caller gave up long ago, and offering a decision on it would be offering to affect traffic
+ * that no longer exists. The registry is in-memory, and a backend restart correctly means every
+ * waiting proxy falls back to its rule's own timeout action. A FINISHED card lost on restart is
+ * only mildly annoying by comparison - the call itself is in the call log either way.
  *
  * <p>The request half is always present even when pausing on the response, because deciding what
  * to send back is impossible without seeing what was asked.
@@ -43,10 +45,69 @@ public record PausedCall(
          * countdown stops and the call waits for their decision instead of being snatched away
          * mid-edit, which is the one thing that makes editing a large body impossible.
          */
-        Long heldAt) {
+        Long heldAt,
+        /** Holding a caller, in flight upstream, or done. Never null - see the compact constructor. */
+        PauseStage stage,
+        /** Everything about following this call past the half it was paused on. Never null. */
+        Cycle cycle) {
+
+    public PausedCall {
+        stage = stage == null ? PauseStage.HOLDING : stage;
+        cycle = cycle == null ? Cycle.notFollowed() : cycle;
+    }
+
+    /** The shape the proxy registers a fresh pause in - stage and cycle are ours to decide. */
+    public PausedCall(String callId, String phase, String source, String serviceName, String ruleId,
+                      String ruleName, int timeoutSeconds, String onTimeout, String method, String url,
+                      Http request, Http response, long pausedAt, Long heldAt) {
+        this(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds, onTimeout, method, url,
+                request, response, pausedAt, heldAt, PauseStage.HOLDING, Cycle.notFollowed());
+    }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Http(Integer status, Map<String, String> headers, String body) {
+    }
+
+    /**
+     * What has happened to this call beyond the one half a rule paused it on.
+     *
+     * <p>Kept as a nested record rather than eight more components on {@link PausedCall} because
+     * every one of them is null for the overwhelmingly common case - a call that was paused,
+     * decided and closed - and a sixteen-component record whose last eight are usually null is a
+     * record nobody can call correctly.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Cycle(
+            /** Whether the user asked to be stopped again when the supplier answers. */
+            boolean follow,
+            /** Epoch millis the request half was released by a human. */
+            Long releasedAt,
+            /** Epoch millis the whole cycle ended. */
+            Long finishedAt,
+            /** How long the caller waited, end to end, once known. */
+            Long durationMs,
+            /** "completed", "aborted", "failed" or "never-came-back". Null until finished. */
+            String outcome,
+            /** Free text for an outcome that needs one - the error that killed a followed call. */
+            String note,
+            /** What the user changed on the way out, in apply_decision's own words. Null if nothing. */
+            String requestEdit,
+            /** The same for the response half. */
+            String responseEdit) {
+
+        public static Cycle notFollowed() {
+            return new Cycle(false, null, null, null, null, null, null, null);
+        }
+
+        public Cycle released(boolean follow, long at, String edit) {
+            return new Cycle(follow, at, finishedAt, durationMs, outcome, note, edit, responseEdit);
+        }
+
+        public Cycle finished(long at, String outcome, String note, String responseEdit) {
+            Long duration = releasedAt == null ? null : at - releasedAt;
+            return new Cycle(follow, releasedAt, at, duration, outcome, note, requestEdit,
+                    responseEdit == null ? this.responseEdit : responseEdit);
+        }
     }
 
     /** When the grace period runs out. Meaningless once {@link #heldAt} is set - see {@link #isHeld}. */
@@ -58,8 +119,27 @@ public record PausedCall(
         return heldAt != null;
     }
 
+    /** Whether a real client socket is open on the other end of this row right now. */
+    public boolean holdsCaller() {
+        return stage.holdsCaller();
+    }
+
     public PausedCall heldNow(long now) {
         return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
-                onTimeout, method, url, request, response, pausedAt, now);
+                onTimeout, method, url, request, response, pausedAt, now, stage, cycle);
+    }
+
+    public PausedCall at(PauseStage next, Cycle cycle) {
+        // heldAt is cleared on the way out of HOLDING: it is the "somebody stopped the countdown"
+        // marker, and a stage with no countdown must not keep showing a held badge.
+        return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
+                onTimeout, method, url, request, response, pausedAt,
+                next.holdsCaller() ? heldAt : null, next, cycle);
+    }
+
+    /** The response half arriving on a call that was followed, with the cycle carried across. */
+    public PausedCall withResponse(Http response) {
+        return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
+                onTimeout, method, url, request, response, pausedAt, heldAt, stage, cycle);
     }
 }

@@ -205,6 +205,34 @@ export interface PausedCall {
    * from under you.
    */
   readonly heldAt?: number | null;
+  /** Holding a caller, in flight upstream, or finished. Absent on a payload from an older proxy. */
+  readonly stage?: PauseStage | null;
+  readonly cycle?: PauseCycle | null;
+}
+
+/**
+ * Where a card in the inspector physically is.
+ *
+ * Only `holding` has a real client socket open on the other end of it, and that is the whole
+ * reason the three are distinguished: it is the only one that counts towards the badge in the tab
+ * bar. A single number covering all three would have the badge shouting about calls nobody is
+ * waiting on, which teaches you to ignore it.
+ */
+export type PauseStage = 'holding' | 'in-flight' | 'finished';
+
+/** What has happened to a call beyond the one half a rule paused it on. */
+export interface PauseCycle {
+  /** Whether the user asked to be stopped again when the supplier answered. */
+  readonly follow: boolean;
+  readonly releasedAt?: number | null;
+  readonly finishedAt?: number | null;
+  readonly durationMs?: number | null;
+  /** 'completed' | 'aborted' | 'failed' | 'never-came-back'. Absent until the cycle ends. */
+  readonly outcome?: string | null;
+  readonly note?: string | null;
+  /** What the user changed on the way out - header NAMES only, never values. */
+  readonly requestEdit?: string | null;
+  readonly responseEdit?: string | null;
 }
 
 /**
@@ -222,6 +250,13 @@ export interface PauseDecision {
    */
   readonly headers?: Record<string, string | null> | null;
   readonly body?: string | null;
+  /**
+   * Stop this call again when the supplier answers. Only meaningful releasing a request half.
+   *
+   * Note this is NOT what keeps the card on screen - a call you decided on is always followed to
+   * the end of its cycle. This is only whether Alfred holds the caller a second time.
+   */
+  readonly follow?: boolean;
 }
 
 /** One rule's effect on one call, as recorded on the call itself by the proxy. */

@@ -3,7 +3,9 @@ package com.fathy.alfred.backend.interception.adapter.in.web;
 import com.fathy.alfred.backend.interception.application.port.in.BreakpointUseCase;
 import com.fathy.alfred.backend.interception.domain.model.PauseDecision;
 import com.fathy.alfred.backend.interception.domain.model.PausedCall;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -115,5 +117,38 @@ public class BreakpointController {
     public ResponseEntity<Void> resolved(@PathVariable String callId) {
         breakpoints.resolved(callId);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Proxy → backend: a followed call's cycle is over, here is how it ended.
+     *
+     * <p>Fire-and-forget on the proxy side and deliberately cheap here: it arrives after the
+     * response has already gone back to the caller, so nothing is waiting on this request.
+     */
+    @PostMapping("/paused/{callId}/completed")
+    public ResponseEntity<Void> completed(@PathVariable String callId, @RequestBody CompletedRequest body) {
+        breakpoints.completed(callId, body.response(), body.outcome(), body.note());
+        return ResponseEntity.noContent().build();
+    }
+
+    public record CompletedRequest(PausedCall.Http response, String outcome, String note) {
+    }
+
+    /** Frontend → backend: I have finished reading this card, take it away. */
+    @DeleteMapping("/paused/{callId}")
+    public ResponseEntity<Void> close(@PathVariable String callId) {
+        // 409 rather than 404: the call is very much there, it is just still holding somebody.
+        if (breakpoints.pending().stream().anyMatch(c -> c.callId().equals(callId) && c.holdsCaller())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
+        return breakpoints.close(callId)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
+    }
+
+    /** Frontend → backend: clear every card whose call is over. */
+    @PostMapping("/paused/close-finished")
+    public Map<String, Integer> closeFinished() {
+        return Map.of("closed", breakpoints.closeFinished());
     }
 }

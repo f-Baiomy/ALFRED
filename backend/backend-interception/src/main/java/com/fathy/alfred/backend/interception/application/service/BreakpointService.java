@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.interception.application.service;
 import com.fathy.alfred.backend.interception.application.port.in.BreakpointUseCase;
 import com.fathy.alfred.backend.interception.application.port.out.InterceptionNotificationPort;
 import com.fathy.alfred.backend.interception.domain.model.PauseDecision;
+import com.fathy.alfred.backend.interception.domain.model.PauseStage;
 import com.fathy.alfred.backend.interception.domain.model.PausedCall;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +52,13 @@ public class BreakpointService implements BreakpointUseCase {
     private static final long MAX_HELD_MS =
             Long.getLong("alfred.interception.max-held-ms", 60L * 60L * 1000L);
 
+    /**
+     * How many finished cards are kept before the oldest starts falling off. Generous enough to
+     * follow a whole debugging session, small enough that a tab left open overnight is not a slow
+     * memory leak of whole request and response bodies.
+     */
+    private static final int MAX_FINISHED_CARDS = 20;
+
     private final InterceptionNotificationPort notifications;
 
     private final Map<String, PausedCall> paused = new ConcurrentHashMap<>();
@@ -62,7 +70,13 @@ public class BreakpointService implements BreakpointUseCase {
 
     @Override
     public void register(PausedCall call) {
-        paused.put(call.callId(), call);
+        // A followed call comes back here for its response half. Everything learned on the way -
+        // that it was followed, when it was released, what was edited into the request - lives on
+        // the existing entry, and overwriting it wholesale would lose the first half of the very
+        // cycle the user asked to see.
+        PausedCall existing = paused.get(call.callId());
+        PausedCall arriving = existing == null ? call : call.at(PauseStage.HOLDING, existing.cycle());
+        paused.put(call.callId(), arriving);
         handoffs.put(call.callId(), new SynchronousQueue<>());
         log.info("Call {} paused by rule '{}' ({}), holding its caller for up to {}s",
                 call.callId(), call.ruleName(), call.phase(), call.timeoutSeconds());
@@ -72,8 +86,13 @@ public class BreakpointService implements BreakpointUseCase {
     @Override
     public List<PausedCall> pending() {
         List<PausedCall> calls = new ArrayList<>(paused.values());
-        // Oldest first: the one closest to timing out is the one that needs a decision soonest.
-        calls.sort(Comparator.comparingLong(PausedCall::pausedAt));
+        // Holding first - those are the ones with somebody on the other end - then in flight, then
+        // finished. Within the two live stages, oldest first: the one closest to timing out needs
+        // a decision soonest. Finished cards go newest first, because the one you just released is
+        // the one you are about to read.
+        calls.sort(Comparator
+                .comparingInt((PausedCall call) -> call.stage().ordinal())
+                .thenComparing(call -> call.stage() == PauseStage.FINISHED ? -call.pausedAt() : call.pausedAt()));
         return calls;
     }
 
@@ -121,37 +140,167 @@ public class BreakpointService implements BreakpointUseCase {
         if (handoff == null) {
             return false;
         }
+        PausedCall before = paused.get(callId);
+        // Moved on BEFORE the decision is handed over, and that order matters. The proxy posts
+        // /resolved the instant it stops waiting, on another thread; if this row were still
+        // HOLDING when that landed, resolved() would delete the very card we are turning into a
+        // followed one. Advancing first means the row is already past HOLDING by then.
+        advance(callId, decision);
+
         // Non-blocking: if the proxy is between polls there is no consumer parked on the queue
-        // right now, so this would block an HTTP worker thread for the whole poll gap. Removing
-        // the call from `paused` first means the UI stops offering it either way, and the proxy
-        // will find it gone on its next poll and fall back to its timeout action.
+        // right now, so this would block an HTTP worker thread for the whole poll gap.
         boolean handed = handoff.offer(decision);
         if (handed) {
-            paused.remove(callId);
             handoffs.remove(callId);
             notifications.pausedCallsChanged();
+            return true;
         }
-        return handed;
+        // Nobody was listening, so the decision never left this machine. Put the row back exactly
+        // as it was rather than leaving a card claiming a release that never happened - the proxy
+        // will find the call gone on its next poll and fall back to its timeout action.
+        if (before == null) {
+            paused.remove(callId);
+        } else {
+            paused.put(callId, before);
+        }
+        return false;
+    }
+
+    /**
+     * What becomes of the card once a decision has gone out.
+     *
+     * <p>Until this existed, every decision deleted the row, so a request breakpoint vanished the
+     * instant you pressed Send and you never saw what came back. A call a human decided on is now
+     * followed to the end of its cycle instead - in flight while the supplier works, finished when
+     * the answer is in, and closed by hand.
+     *
+     * <p>A decision nobody made is the exception and still deletes the row. A rule that pauses
+     * everything times out dozens of calls on busy traffic; a card for each of those would bury
+     * the one call you are actually working on under the ones you never saw.
+     */
+    private void advance(String callId, PauseDecision decision) {
+        PausedCall call = paused.get(callId);
+        if (call == null) {
+            return;
+        }
+        if (!decision.isFromUser()) {
+            paused.remove(callId);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (decision.isAbort()) {
+            paused.put(callId, call.at(PauseStage.FINISHED,
+                    call.cycle().released(false, now, decision.editSummary()).finished(now, "aborted", null, null)));
+        } else if ("response".equals(call.phase())) {
+            // The supplier already answered; releasing the response IS the end of the cycle.
+            PausedCall.Cycle cycle = call.cycle().releasedAt() == null
+                    ? call.cycle().released(false, now, null)
+                    : call.cycle();
+            paused.put(callId, call.at(PauseStage.FINISHED,
+                    cycle.finished(now, "completed", null, decision.editSummary())));
+        } else {
+            paused.put(callId, call.at(PauseStage.IN_FLIGHT,
+                    call.cycle().released(decision.follow(), now, decision.editSummary())));
+        }
+        trimFinished();
+    }
+
+    @Override
+    public void completed(String callId, PausedCall.Http response, String outcome, String note) {
+        PausedCall call = paused.get(callId);
+        if (call == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        // The snapshot on the card is what the supplier said; this is what the caller actually
+        // got, edits included. Showing the latter is the point of following a call to the end -
+        // what was changed on the way is already summarised in the cycle.
+        PausedCall withResponse = response == null ? call : call.withResponse(response);
+        // A card already finished by a decision keeps that outcome: "aborted" is more specific
+        // than the "completed" the proxy reports for every cycle that reached this point.
+        String ending = call.stage() == PauseStage.FINISHED && call.cycle().outcome() != null
+                ? call.cycle().outcome()
+                : (outcome == null ? "completed" : outcome);
+        paused.put(callId, withResponse.at(PauseStage.FINISHED,
+                withResponse.cycle().finished(now, ending, note, null)));
+        handoffs.remove(callId);
+        trimFinished();
+        notifications.pausedCallsChanged();
+    }
+
+    @Override
+    public boolean close(String callId) {
+        PausedCall call = paused.get(callId);
+        if (call == null) {
+            return false;
+        }
+        if (call.holdsCaller()) {
+            // Dismissing a card whose caller is still waiting would orphan a real socket with no
+            // way back to it. Decide on it first; the card can be closed afterwards.
+            return false;
+        }
+        paused.remove(callId);
+        handoffs.remove(callId);
+        notifications.pausedCallsChanged();
+        return true;
+    }
+
+    @Override
+    public int closeFinished() {
+        int closed = 0;
+        for (PausedCall call : List.copyOf(paused.values())) {
+            if (call.stage() == PauseStage.FINISHED && paused.remove(call.callId()) != null) {
+                closed++;
+            }
+        }
+        if (closed > 0) {
+            notifications.pausedCallsChanged();
+        }
+        return closed;
+    }
+
+    /**
+     * Finished cards are kept for reading, not for ever. Oldest go first, so a long session
+     * leaves you the calls you just looked at rather than the ones from an hour ago.
+     */
+    private void trimFinished() {
+        List<PausedCall> finished = paused.values().stream()
+                .filter(call -> call.stage() == PauseStage.FINISHED)
+                .sorted(Comparator.comparingLong(PausedCall::pausedAt))
+                .toList();
+        for (int i = 0; i < finished.size() - MAX_FINISHED_CARDS; i++) {
+            paused.remove(finished.get(i).callId());
+        }
     }
 
     @Override
     public int releaseAll() {
         int released = 0;
-        for (String callId : List.copyOf(paused.keySet())) {
-            if (decide(callId, PauseDecision.release())) {
+        for (PausedCall call : List.copyOf(paused.values())) {
+            if (call.holdsCaller() && decide(call.callId(), PauseDecision.release())) {
                 released++;
+                // The panic button's whole purpose is to clear the screen. Leaving a card behind
+                // for every call it just let go would be the opposite of what was pressed.
+                paused.remove(call.callId());
             }
+        }
+        if (released > 0) {
+            notifications.pausedCallsChanged();
         }
         return released;
     }
 
     @Override
     public void resolved(String callId) {
-        if (paused.remove(callId) != null) {
-            handoffs.remove(callId);
+        handoffs.remove(callId);
+        // Only a row still HOLDING is dropped. "The proxy stopped waiting" is posted after EVERY
+        // decision, including one that moved this call on to in-flight - and deleting the row
+        // then would undo the whole point of following it. A row still holding when the proxy has
+        // walked away is a row nobody can decide on, and that is the one to remove.
+        PausedCall call = paused.get(callId);
+        if (call != null && call.holdsCaller()) {
+            paused.remove(callId);
             notifications.pausedCallsChanged();
-        } else {
-            handoffs.remove(callId);
         }
     }
 
@@ -165,6 +314,20 @@ public class BreakpointService implements BreakpointUseCase {
     void expire() {
         long now = System.currentTimeMillis();
         for (PausedCall call : List.copyOf(paused.values())) {
+            if (!call.holdsCaller()) {
+                // Nobody is waiting on this one, so there is nothing to expire it out of. The
+                // exception is a followed call whose answer never arrived - the proxy died, or
+                // the connection was reset somewhere the error hook could not see. Saying so is
+                // better than leaving a spinner turning for the rest of the session.
+                Long releasedAt = call.cycle().releasedAt();
+                if (call.stage() == PauseStage.IN_FLIGHT && releasedAt != null && now > releasedAt + MAX_HELD_MS) {
+                    log.warn("Followed call {} never came back from upstream and has been marked finished",
+                            call.callId());
+                    completed(call.callId(), null, "never-came-back",
+                            "No response reached Alfred within the hour after this call was released.");
+                }
+                continue;
+            }
             if (call.isHeld()) {
                 // Somebody is working on it. Only the outer backstop applies - see MAX_HELD_MS.
                 if (now > call.heldAt() + MAX_HELD_MS) {

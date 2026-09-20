@@ -378,6 +378,57 @@ re-fetches the list, and the same call comes back as a new object - so an effect
 identity threw away the very first edit every time, and only a second one survived. It is keyed
 on `callId` now, with a regression test that fails if that is undone.
 
+### Following a call through its whole cycle
+
+A card outlives the half it was paused on. Releasing a request used to delete the row instantly,
+so you never saw what came back — the one thing you paused the call to find out.
+
+| Stage | Holds a caller? | Countdown? | In the tab badge? |
+|---|---|---|---|
+| `holding` | yes | yes, until you take control | **yes** |
+| `in-flight` | no — it is on its way upstream | no | no |
+| `finished` | no | no | no |
+
+**Only `holding` counts.** `pausedCount` is the number of open client sockets, not the length of
+the list. One number covering all three would have the badge shouting about calls nobody is
+waiting on, and a badge that cries wolf is a badge you learn to ignore.
+
+**Keeping the card is unconditional. Stopping twice is a checkbox.** Not closing the moment you
+press Send is the behaviour that was asked for, so it is not behind a toggle. *Stop again when the
+answer arrives* adds `follow: true` to the decision; the proxy remembers it on the flow
+(`note_decision`) and pauses the response half itself (`follow_pause`) with the rule's own
+timeout. No rule declared that pause — a person did, at the moment they released the request.
+Validation still forbids one RULE holding both halves, which is a static contradiction; stopping
+twice in sequence because somebody asked each time is a different thing.
+
+**A card is left only by a decision a person made.** `PauseDecision.isFromUser()` — a timeout, an
+unreachable backend or a dead registration deletes the row exactly as before. A rule that pauses
+everything times out dozens of calls on busy traffic, and a card for each would bury the one being
+worked on under the ones nobody ever saw. "Release all unchanged" also leaves nothing behind:
+clearing the screen is what that button is for.
+
+**Ordering within `decide()` is load-bearing.** The proxy posts `/resolved` the instant it stops
+waiting, on another thread, and `resolved()` still deletes a row that is `holding`. So the stage
+is advanced *before* the decision is handed over; otherwise there is a window in which the proxy's
+own `/resolved` deletes the card being created. If the handoff then finds nobody parked, the row
+is restored exactly as it was rather than left claiming a release that never happened.
+
+The finished card shows **the request as Alfred actually sent it and the response the caller
+actually received**, plus a per-half summary of what you changed — **header names only, never
+values**, the same rule the redaction records follow. Both halves render through the call cards'
+own tokenizer, so reading one gets the same colouring, line numbers and search as editing one.
+
+Backstops: an `in-flight` card whose answer never arrives is marked `never-came-back` after the
+same hour-long ceiling (a killed flow is caught earlier, by the `error` hook, as `failed`); and
+finished cards are capped at 20, oldest dropped. Losing them all on a reload is correct for the
+same reason the registry is in memory — and the call itself is in the call log regardless.
+
+Verified live: a request paused, released edited with *stop again* ticked, the same card came back
+on its response half holding again with `requestEdit: "header x-alfred-follow, body"`, released at
+418, and the caller received `{"alfred":"followed the whole cycle"}` after 10.8s. Unticked, the
+same rule filled the response into the card and finished it in 235 ms without stopping. Closing a
+card that still holds a caller is refused with **409** — dismissing it would orphan a live socket.
+
 ### The paused registry is in-memory on purpose
 
 A paused call is a live socket on a machine that is still running. Recovering one from disk after a
@@ -427,7 +478,10 @@ combined with a pause, or two pauses.
 | `POST` | `/interception/paused/{id}/control` | stop the countdown, hold until decided |
 | `POST` | `/interception/paused/{id}/decision` | the user's decision |
 | `POST` | `/interception/paused/release-all` | let everything go, untouched |
-| `POST` | `/interception/paused/{id}/resolved` | proxy stopped waiting |
+| `POST` | `/interception/paused/{id}/resolved` | proxy stopped waiting (drops the row only if still `holding`) |
+| `POST` | `/interception/paused/{id}/completed` | proxy reports the end of a followed cycle |
+| `DELETE` | `/interception/paused/{id}` | close one card; **409** while it still holds a caller |
+| `POST` | `/interception/paused/close-finished` | close every finished card |
 
 A rejected rule returns **400 with every problem at once** (`{error, problems[]}`), not the first —
 a rule form has many fields and fixing them one round trip at a time is the frustrating version.

@@ -72,4 +72,13 @@ export class InterceptionApiService {
   releaseAll(): Observable<{ released: number }> {
     return this.http.post<{ released: number }>(`${this.baseUrl}/paused/release-all`, {});
   }
+
+  /** Dismisses one card. 409 while that call still holds its caller - decide on it first. */
+  closeCard(callId: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/paused/${callId}`);
+  }
+
+  closeFinished(): Observable<{ closed: number }> {
+    return this.http.post<{ closed: number }>(`${this.baseUrl}/paused/close-finished`, {});
+  }
 }

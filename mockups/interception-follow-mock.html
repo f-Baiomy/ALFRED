@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alfred — Following a paused call through its whole cycle (mockup)</title>
+<style>
+:root{
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --card:#141a45; --card-elevated: linear-gradient(160deg,#141a45 0%,#101636 100%);
+  --card-inner:#070a24; --bg-2:#0f1438;
+  --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-light:#c4b5fd; --cyan:#22d3ee;
+  --text:#e5e9f5; --text-dim:#93a0c2; --text-faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171;
+  --tok-key:#c4b5fd; --tok-string:#6ee7d8; --tok-num:#fbbf24;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-attachment:fixed;min-height:100vh;
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);font-size:14px}
+.mockbar{background:#1c1340;border-bottom:1px solid var(--border-strong);padding:8px 16px;
+  font-size:12px;color:var(--purple-light)}
+.mockbar b{color:#fff}
+.wrap{max-width:1120px;margin:0 auto;padding:22px 20px 70px}
+h1{font-size:19px;margin:0 0 4px;letter-spacing:1px}
+.sub{color:var(--text-dim);font-size:13px;margin:0 0 22px}
+h2.sec{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--purple-light);
+  margin:32px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.note{color:var(--text-dim);font-size:12.5px;line-height:1.65;margin:0 0 14px}
+.note b{color:var(--text)} .note code{color:var(--tok-string);font-family:Consolas,monospace;font-size:12px}
+
+/* ---- panel ---- */
+.panel{border:1px solid var(--border-strong);border-radius:13px;background:rgba(10,14,42,.55);overflow:hidden}
+.banner{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 15px;
+  background:linear-gradient(90deg,rgba(251,191,36,.10),rgba(139,92,246,.05));border-bottom:1px solid var(--border)}
+.banner strong{font-size:13.5px} .banner small{display:block;color:var(--text-dim);font-size:12px;margin-top:3px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--amber);display:inline-block;margin-right:8px;
+  box-shadow:0 0 0 4px rgba(251,191,36,.15)}
+.btn{border-radius:8px;border:1px solid var(--border-strong);background:var(--card);color:var(--text);
+  padding:7px 13px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+.btn.ghost{background:transparent;color:var(--text-dim)}
+.btn.danger{border-color:rgba(248,113,113,.5);color:#fca5a5}
+.btn.green{background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.5);color:#6ee7b7}
+
+.split{display:grid;grid-template-columns:300px 1fr;min-height:520px}
+.queue{border-right:1px solid var(--border);background:rgba(7,10,36,.45)}
+.queue-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);
+  padding:10px 13px;border-bottom:1px solid var(--border)}
+.qitem{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid rgba(139,92,246,.10);
+  padding:10px 13px;cursor:pointer;color:var(--text);font-family:inherit}
+.qitem.selected{background:rgba(139,92,246,.14);box-shadow:inset 3px 0 0 var(--purple)}
+.qrow{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.meth{font-size:10.5px;font-weight:700;color:var(--cyan)}
+.st{font-size:10.5px;font-family:Consolas,monospace;color:var(--green)}
+.qurl{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.qfoot{font-size:11px;margin-top:4px;display:flex;align-items:center;gap:6px}
+.tag{font-size:10px;letter-spacing:.05em;text-transform:uppercase;border-radius:20px;padding:2px 8px;border:1px solid}
+.tag.hold{color:var(--amber);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.10)}
+.tag.mine{color:var(--cyan);border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.10)}
+.tag.flight{color:var(--purple-light);border-color:rgba(139,92,246,.5);background:rgba(139,92,246,.12)}
+.tag.done{color:var(--green);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.10)}
+.tag.gone{color:var(--text-faint);border-color:rgba(92,102,144,.4)}
+.spin{display:inline-block;width:9px;height:9px;border-radius:50%;border:1.5px solid rgba(139,92,246,.35);
+  border-top-color:var(--purple-light);animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+.insp{padding:14px 16px}
+/* flow strip */
+.flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:rgba(7,10,36,.6);
+  border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:13px;font-size:11.5px}
+.node{padding:3px 9px;border-radius:20px;border:1px solid var(--border);color:var(--text-dim)}
+.node.done{color:var(--green);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
+.node.here{color:var(--amber);border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.12);font-weight:600}
+.node.wait{color:var(--purple-light);border-color:rgba(139,92,246,.45);background:rgba(139,92,246,.10)}
+.node.dim{color:var(--text-faint)}
+.arrow{flex:0 0 16px;height:1px;background:var(--border-strong)}
+.arrow.dim{background:rgba(92,102,144,.35)}
+
+.head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:11px}
+.url{font-size:12.5px;color:var(--text)}
+.rule{font-size:11.5px;color:var(--text-faint)}
+.tabs{display:flex;gap:5px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--text-dim);
+  padding:7px 11px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.tabs button.on{color:var(--text);border-bottom-color:var(--purple)}
+.badge{font-size:10px;border-radius:20px;padding:1px 6px;background:rgba(139,92,246,.2);color:var(--purple-light);margin-left:5px}
+
+.strip{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);
+  border-radius:10px;padding:10px 12px;margin-bottom:12px;background:var(--card-elevated)}
+.strip.cyan{border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.07)}
+.strip.green{border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.06)}
+.strip small{display:block;color:var(--text-dim);font-size:11.5px;margin-top:3px}
+
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:12px}
+.toolbar input[type=text]{background:var(--card-inner);border:1px solid var(--border);border-radius:7px;
+  color:var(--text);padding:5px 9px;font-size:12px;font-family:inherit;width:150px}
+.kind{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--purple-light);
+  border:1px solid var(--border);border-radius:20px;padding:2px 8px}
+.ok{color:var(--green);font-size:11.5px} .stats{color:var(--text-faint);font-size:11.5px;margin-left:auto}
+
+.editor{display:flex;border:1px solid var(--border);border-radius:9px;background:var(--card-inner);
+  overflow:hidden;font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;line-height:1.55;height:210px}
+.gut{padding:8px 8px 8px 10px;color:var(--text-faint);text-align:right;user-select:none;
+  border-right:1px solid var(--border);background:rgba(139,92,246,.05)}
+.code{padding:8px 10px;margin:0;overflow:auto;white-space:pre;flex:1}
+.k{color:var(--tok-key)} .s{color:var(--tok-string)} .n{color:var(--tok-num)}
+.ro{position:relative}
+.ro::after{content:"read-only — this call is finished";position:absolute;top:7px;right:12px;font-size:10px;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--text-faint);
+  background:rgba(7,10,36,.9);border:1px solid var(--border);border-radius:20px;padding:2px 8px}
+
+.diff{border:1px solid var(--border);border-radius:9px;overflow:hidden;margin-bottom:12px}
+.diff-head{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--purple-light);
+  padding:7px 11px;background:rgba(139,92,246,.10);border-bottom:1px solid var(--border)}
+.diff-row{display:flex;gap:10px;padding:7px 11px;font-size:12px;border-bottom:1px solid rgba(139,92,246,.08)}
+.diff-row:last-child{border-bottom:0}
+.dl{color:var(--text-faint);min-width:120px;font-family:Consolas,monospace;font-size:11.5px}
+.was{color:#fca5a5;text-decoration:line-through;font-family:Consolas,monospace;font-size:11.5px}
+.now{color:var(--green);font-family:Consolas,monospace;font-size:11.5px}
+
+.footer{display:flex;align-items:center;gap:9px;flex-wrap:wrap;border-top:1px solid var(--border);
+  padding-top:12px;margin-top:13px}
+.footer .grow{margin-left:auto}
+.follow{display:flex;align-items:center;gap:8px;border:1px solid rgba(34,211,238,.4);background:rgba(34,211,238,.07);
+  border-radius:9px;padding:8px 11px;font-size:12px;color:var(--text)}
+.follow input{accent-color:var(--cyan);width:15px;height:15px}
+.follow small{display:block;color:var(--text-dim);font-size:11.5px;margin-top:2px}
+.sw{display:inline-flex;align-items:center;gap:7px}
+.hint{font-size:11.5px;color:var(--text-faint);margin-top:9px}
+</style>
+</head>
+<body>
+<div class="mockbar"><b>MOCKUP</b> — not the running app. Following a paused call through its whole cycle.</div>
+<div class="wrap">
+
+<h1>See the whole cycle, close it when you are done</h1>
+<p class="sub">Today a request breakpoint vanishes the moment you press Send, and you never see what came back.
+Below: the card stays, follows the call upstream, fills in the response, and waits for you to close it.</p>
+
+<h2 class="sec">1 · Releasing a request — the new footer</h2>
+<p class="note">The only new control is the <b>Follow this call</b> checkbox. Everything above it is exactly what
+ships today. <b>The card staying on screen is not optional</b> — that is the thing being asked for. The checkbox
+only decides whether Alfred <i>stops again</i> when the answer arrives, or just shows it to you.</p>
+
+<div class="panel">
+  <div class="banner">
+    <div><span class="dot"></span><strong>1 call is paused and holding its caller open</strong>
+      <small>2 more are being followed but hold nobody — they are free to finish on their own.</small></div>
+    <button class="btn danger">Release all unchanged</button>
+  </div>
+  <div class="split">
+    <div class="queue">
+      <div class="queue-head">Holding · 1 &nbsp;·&nbsp; Following · 1 &nbsp;·&nbsp; Finished · 1</div>
+      <button class="qitem selected">
+        <div class="qrow"><span class="meth">POST</span><span class="qurl">/api/v1/air/search</span></div>
+        <div class="qfoot"><span class="tag mine">◉ yours</span><span style="color:var(--text-dim)">held 1m 12s</span></div>
+      </button>
+      <button class="qitem">
+        <div class="qrow"><span class="meth">GET</span><span class="qurl">/api/v1/air/rules/AF123</span></div>
+        <div class="qfoot"><span class="tag flight"><span class="spin"></span> in flight</span>
+          <span style="color:var(--text-dim)">sent 3s ago</span></div>
+      </button>
+      <button class="qitem">
+        <div class="qrow"><span class="meth">POST</span><span class="st">200</span><span class="qurl">/api/v1/air/price</span></div>
+        <div class="qfoot"><span class="tag done">finished</span><span style="color:var(--text-dim)">1.4s · edited</span></div>
+      </button>
+    </div>
+
+    <div class="insp">
+      <div class="flow">
+        <span class="node done">Caller</span><span class="arrow"></span>
+        <span class="node done">Alfred</span><span class="arrow"></span>
+        <span class="node here">Paused here</span><span class="arrow dim"></span>
+        <span class="node dim">Upstream not yet contacted</span><span class="arrow dim"></span>
+        <span class="node dim">Response</span>
+      </div>
+      <div class="head"><span class="meth">POST</span><span class="url">/api/v1/air/search</span>
+        <span class="rule">matched “all intercept”</span></div>
+      <div class="tabs">
+        <button class="on">Request — edit before forwarding</button>
+        <button>Headers <span class="badge">1 edited</span></button>
+      </div>
+      <div class="toolbar"><span class="kind">JSON</span><button class="btn">Format</button><button class="btn">Minify</button>
+        <input type="text" placeholder="Find…" /><span class="ok">✓ valid</span><span class="stats">18 lines · 1.2 KB</span></div>
+      <div class="editor">
+        <div class="gut">1<br>2<br>3<br>4<br>5</div>
+<pre class="code">{
+  <span class="k">"supplier"</span>: <span class="s">"TravelportNdc"</span>,
+  <span class="k">"origin"</span>: <span class="s">"CAI"</span>,
+  <span class="k">"adults"</span>: <span class="n">1</span>
+}</pre>
+      </div>
+
+      <div class="footer">
+        <label class="follow">
+          <input type="checkbox" checked />
+          <span><b>Follow this call</b>
+            <small>Keep it on screen, and stop again when the supplier answers.</small></span>
+        </label>
+        <span class="grow"></span>
+        <button class="btn danger">Abort</button>
+        <button class="btn">Send unchanged</button>
+        <button class="btn primary">Send edited</button>
+      </div>
+      <p class="hint">Unticked, the card still stays and fills in the response when it arrives — it just does not
+        hold the caller a second time.</p>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">2 · In flight — sent, nothing held</h2>
+<p class="note">Between the two halves the card is <b>not</b> holding anybody: the caller's request is on its way to the
+supplier and no socket is waiting on you. So there is <b>no countdown</b>, the banner does not count it, and the
+tab badge does not either. What you already sent is on screen, read-only, with your edits marked.</p>
+
+<div class="panel">
+  <div class="split">
+    <div class="queue">
+      <div class="queue-head">Holding · 1 &nbsp;·&nbsp; Following · 1 &nbsp;·&nbsp; Finished · 1</div>
+      <button class="qitem"><div class="qrow"><span class="meth">POST</span><span class="qurl">/api/v1/air/search</span></div>
+        <div class="qfoot"><span class="tag mine">◉ yours</span></div></button>
+      <button class="qitem selected"><div class="qrow"><span class="meth">GET</span><span class="qurl">/api/v1/air/rules/AF123</span></div>
+        <div class="qfoot"><span class="tag flight"><span class="spin"></span> in flight</span></div></button>
+      <button class="qitem"><div class="qrow"><span class="meth">POST</span><span class="st">200</span><span class="qurl">/api/v1/air/price</span></div>
+        <div class="qfoot"><span class="tag done">finished</span></div></button>
+    </div>
+    <div class="insp">
+      <div class="flow">
+        <span class="node done">Caller</span><span class="arrow"></span>
+        <span class="node done">Alfred</span><span class="arrow"></span>
+        <span class="node done">Released by you</span><span class="arrow"></span>
+        <span class="node here"><span class="spin"></span> Upstream working</span><span class="arrow dim"></span>
+        <span class="node wait">Will stop again</span>
+      </div>
+      <div class="strip cyan">
+        <div><strong>Sent 3.1s ago — waiting for the supplier</strong>
+          <small>Nobody is being held. Alfred will stop this call again when the answer arrives, because
+            you ticked Follow.</small></div>
+        <span class="sw"><button class="btn ghost">Stop following</button></span>
+      </div>
+      <div class="tabs"><button class="on">Request sent</button><button>Headers</button>
+        <button style="color:var(--text-faint)">Response — not yet</button></div>
+      <div class="diff">
+        <div class="diff-head">What you changed before it went out</div>
+        <div class="diff-row"><span class="dl">body · supplier</span><span class="was">"Amadeus"</span><span class="now">"TravelportNdc"</span></div>
+        <div class="diff-row"><span class="dl">header · x-debug</span><span class="was">—</span><span class="now">"alfred"</span></div>
+      </div>
+      <div class="editor ro">
+        <div class="gut">1<br>2<br>3<br>4</div>
+<pre class="code">{
+  <span class="k">"supplier"</span>: <span class="s">"TravelportNdc"</span>,
+  <span class="k">"origin"</span>: <span class="s">"CAI"</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">3 · The answer arrives — it stops again</h2>
+<p class="note">Same card, same place in the list, now on its response half and holding the caller again. Both halves
+are on screen: the request <b>as you actually sent it</b>, and the response as the supplier gave it. This is the
+existing response breakpoint — nothing new to learn.</p>
+
+<div class="panel">
+  <div class="banner">
+    <div><span class="dot"></span><strong>2 calls are paused and holding their callers open</strong></div>
+    <button class="btn danger">Release all unchanged</button>
+  </div>
+  <div class="split">
+    <div class="queue">
+      <div class="queue-head">Holding · 2 &nbsp;·&nbsp; Finished · 1</div>
+      <button class="qitem"><div class="qrow"><span class="meth">POST</span><span class="qurl">/api/v1/air/search</span></div>
+        <div class="qfoot"><span class="tag mine">◉ yours</span></div></button>
+      <button class="qitem selected"><div class="qrow"><span class="meth">GET</span><span class="st">503</span><span class="qurl">/api/v1/air/rules/AF123</span></div>
+        <div class="qfoot"><span class="tag hold">holding</span><span style="color:var(--amber)">24s</span></div></button>
+      <button class="qitem"><div class="qrow"><span class="meth">POST</span><span class="st">200</span><span class="qurl">/api/v1/air/price</span></div>
+        <div class="qfoot"><span class="tag done">finished</span></div></button>
+    </div>
+    <div class="insp">
+      <div class="flow">
+        <span class="node done">Caller</span><span class="arrow"></span>
+        <span class="node done">Alfred</span><span class="arrow"></span>
+        <span class="node done">You released it</span><span class="arrow"></span>
+        <span class="node done">Upstream answered 503</span><span class="arrow"></span>
+        <span class="node here">Paused here</span><span class="arrow dim"></span>
+        <span class="node wait">Caller waiting</span>
+      </div>
+      <div class="head"><span class="meth">GET</span><span class="st">503 from upstream</span>
+        <span class="url">/api/v1/air/rules/AF123</span><span class="rule">matched “all intercept” · followed</span></div>
+      <div class="tabs"><button class="on">Response — edit before release</button><button>Headers</button>
+        <button>Request sent <span class="badge">2 edits</span></button></div>
+      <div class="toolbar"><span class="kind">JSON</span>
+        <span style="color:var(--text-dim)">Status</span><button class="btn">503 Service Unavailable ▾</button>
+        <button class="btn">Format</button><input type="text" placeholder="Find…" /><span class="ok">✓ valid</span></div>
+      <div class="editor">
+        <div class="gut">1<br>2<br>3</div>
+<pre class="code">{
+  <span class="k">"error"</span>: <span class="s">"upstream unavailable"</span>
+}</pre>
+      </div>
+      <div class="footer">
+        <span class="grow"></span>
+        <button class="btn danger">Abort</button>
+        <button class="btn">Send unchanged</button>
+        <button class="btn primary">Send edited</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">4 · Finished — yours to keep or close</h2>
+<p class="note">The caller has its answer and Alfred is holding nothing. The card stays until <b>you</b> close it,
+with the complete cycle and every edit you made to either half. Closing it is just dismissing a card — the call is
+long gone from the wire and is already in the call log.</p>
+
+<div class="panel">
+  <div class="banner">
+    <div><span class="dot" style="background:var(--green);box-shadow:0 0 0 4px rgba(52,211,153,.15)"></span>
+      <strong>Nothing is holding a caller</strong>
+      <small>3 finished calls are still on screen because you asked to follow them.</small></div>
+    <button class="btn ghost">Close all finished</button>
+  </div>
+  <div class="split">
+    <div class="queue">
+      <div class="queue-head">Finished · 3</div>
+      <button class="qitem selected"><div class="qrow"><span class="meth">POST</span><span class="st">200</span><span class="qurl">/api/v1/air/price</span></div>
+        <div class="qfoot"><span class="tag done">finished</span><span style="color:var(--text-dim)">1.4s · both halves edited</span></div></button>
+      <button class="qitem"><div class="qrow"><span class="meth">GET</span><span class="st">503</span><span class="qurl">/api/v1/air/rules/AF123</span></div>
+        <div class="qfoot"><span class="tag done">finished</span><span style="color:var(--text-dim)">0.9s</span></div></button>
+      <button class="qitem"><div class="qrow"><span class="meth">POST</span><span class="qurl">/api/v1/air/book</span></div>
+        <div class="qfoot"><span class="tag gone">aborted by you</span></div></button>
+    </div>
+    <div class="insp">
+      <div class="flow">
+        <span class="node done">Caller</span><span class="arrow"></span>
+        <span class="node done">Alfred</span><span class="arrow"></span>
+        <span class="node done">Request edited</span><span class="arrow"></span>
+        <span class="node done">Upstream 200</span><span class="arrow"></span>
+        <span class="node done">Response edited</span><span class="arrow"></span>
+        <span class="node done">Caller answered</span>
+      </div>
+      <div class="strip green">
+        <div><strong>Cycle complete — 1.43s end to end</strong>
+          <small>Nothing is being held. This card is only here because you followed it.</small></div>
+        <span class="sw">
+          <button class="btn">Open in call log</button>
+          <button class="btn green">Close</button>
+        </span>
+      </div>
+      <div class="tabs"><button>Request sent <span class="badge">1 edit</span></button>
+        <button class="on">Response sent <span class="badge">2 edits</span></button>
+        <button>Headers</button><button>Timeline</button></div>
+      <div class="diff">
+        <div class="diff-head">Response — what the caller got instead</div>
+        <div class="diff-row"><span class="dl">status</span><span class="was">200</span><span class="now">418</span></div>
+        <div class="diff-row"><span class="dl">body · total</span><span class="was">1420.00</span><span class="now">1.00</span></div>
+      </div>
+      <div class="editor ro">
+        <div class="gut">1<br>2<br>3<br>4</div>
+<pre class="code">{
+  <span class="k">"currency"</span>: <span class="s">"AED"</span>,
+  <span class="k">"total"</span>: <span class="n">1.00</span>
+}</pre>
+      </div>
+      <p class="hint">A finished card is dropped automatically once there are more than 20 of them, oldest first, and
+        every card is gone on a page reload — the registry is in memory on purpose.</p>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">What the counts mean now</h2>
+<p class="note">
+  <b>Holding</b> — a real client socket is open and waiting on you. This is the only number in the tab badge and the
+  only one the banner shouts about. <b>Following</b> — sent upstream, nobody held, will stop again when it answers.
+  <b>Finished</b> — nothing held at all, kept on screen purely for you to read.
+  Mixing these into one number would make the badge cry wolf about calls nobody is waiting on.
+</p>
+
+</div>
+</body>
+</html>

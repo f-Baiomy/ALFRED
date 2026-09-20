@@ -1234,6 +1234,57 @@ class InterceptionEngine:
         }
 
 
+# Metadata a breakpoint decision leaves on the flow, so the response half of a call can honour
+# what was asked for on its request half.
+CARD_KEY = 'bp_card'
+FOLLOW_KEY = 'bp_follow'
+PAUSE_KEY = 'bp_pause'
+
+
+def note_decision(flow, phase, pause, decision):
+    """Records what a human decided, so the rest of this call's cycle can honour it.
+
+    Two separate facts here, and conflating them was tempting and wrong:
+
+      - a CARD exists for this call, so the end of its cycle has to be reported back to the
+        backend for the inspector to fill in;
+      - the user asked to be stopped AGAIN when the supplier answers.
+
+    A card is left by any decision a person made, because not closing the moment you press Send
+    is the whole point. Stopping twice is only what they explicitly ticked. A decision made by a
+    clock or a dead connection leaves neither - a rule that pauses everything times out dozens of
+    calls on busy traffic, and a card for each would bury the one being worked on.
+    """
+    decision = decision or {}
+    if decision.get('reason'):
+        return
+    flow.metadata[CARD_KEY] = True
+    if phase == 'request' and decision.get('follow') and decision.get('action') != 'abort':
+        flow.metadata[FOLLOW_KEY] = True
+        flow.metadata[PAUSE_KEY] = dict(pause or {})
+
+
+def follow_pause(flow):
+    """The pause spec for a response the user asked to be stopped at, or None.
+
+    Deliberately not a rule. No rule declared this pause - a person did, at the moment they
+    released the request half. Validation forbids one RULE holding both halves because that is a
+    static contradiction it cannot reason about; stopping twice in sequence, each time because
+    somebody asked for it, is exactly what following a call through its cycle means.
+    """
+    if not flow.metadata.get(FOLLOW_KEY):
+        return None
+    spec = dict(flow.metadata.get(PAUSE_KEY) or {})
+    spec['phase'] = 'response'
+    # Inherited from the request pause, so following a call does not silently give it a different
+    # grace period from the rule that stopped it in the first place.
+    if not spec.get('timeoutSeconds'):
+        spec['timeoutSeconds'] = 30
+    if not spec.get('onTimeout'):
+        spec['onTimeout'] = 'release'
+    return spec
+
+
 def apply_decision(flow, phase, decision):
     """Applies a human's decision from the breakpoint inspector back onto the flow.
 

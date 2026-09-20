@@ -260,6 +260,7 @@ class RouteAndLog:
             flow.kill()
 
     def _record_decision(self, flow, verdict, phase, decision):
+        interception.note_decision(flow, phase, verdict.pause, decision)
         if (decision or {}).get('action') == 'abort':
             verdict.applied.append(interception.Applied(
                 verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
@@ -270,6 +271,11 @@ class RouteAndLog:
         verdict.applied.append(interception.Applied(
             verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
             'BREAKPOINT_RELEASE', summary))
+
+    def _close_card(self, flow, call_id, outcome, note=None):
+        """See log_and_route.py - fills in the end of the cycle on the inspector card."""
+        if call_id and flow.metadata.get(interception.CARD_KEY):
+            breakpoints.report_completed(flow, call_id, outcome, note)
 
     async def response(self, flow):
         call_id = flow.metadata.get('call_id')
@@ -282,16 +288,20 @@ class RouteAndLog:
         verdict.adopt(response_verdict)
         if response_verdict.delay_ms:
             await asyncio.sleep(min(response_verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
-        if response_verdict.pause and call_id:
-            verdict.pause = response_verdict.pause
+        # A rule may pause here, and so may the user - see log_and_route.py.
+        pause = response_verdict.pause or interception.follow_pause(flow)
+        if pause and call_id:
+            verdict.pause = pause
             decision = await breakpoints.wait_for_decision(
-                flow, 'response', call_id, response_verdict.pause, 'inbound', service_name)
+                flow, 'response', call_id, pause, 'inbound', service_name)
             self._record_decision(flow, verdict, 'response', decision)
             if flow.response is None:
                 verdict.finalize_response(flow)
+                self._close_card(flow, call_id, 'aborted')
                 return
 
         verdict.finalize_response(flow)
+        self._close_card(flow, call_id, 'completed')
 
         if not call_id:
             return
@@ -317,6 +327,9 @@ class RouteAndLog:
 
     def error(self, flow):
         call_id = flow.metadata.get('call_id')
+        # Before the early return - a followed call that died here must not leave its card
+        # spinning. See log_and_route.py.
+        self._close_card(flow, call_id, 'failed', str(flow.error))
         if not call_id:
             return
 

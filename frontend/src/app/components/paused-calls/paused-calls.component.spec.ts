@@ -603,4 +603,184 @@ describe('PausedCallsComponent', () => {
       expect(gutter.scrollTop).toBe(area.scrollTop);
     });
   });
+
+  /**
+   * Following a call through its whole cycle.
+   *
+   * The card used to disappear the instant you pressed Send, so you never saw the answer. It now
+   * outlives the half it was paused on, and the thing these guard is that outliving it does not
+   * quietly turn a card that holds nobody into one that looks like it does.
+   */
+  describe('following a call past the half it was paused on', () => {
+    const inFlight = (overrides: Partial<PausedCall> = {}) =>
+      paused({
+        callId: 'flying',
+        phase: 'request',
+        response: null,
+        stage: 'in-flight',
+        cycle: { follow: true, releasedAt: Date.now() - 3000, requestEdit: 'body' },
+        ...overrides,
+      });
+
+    const finished = (overrides: Partial<PausedCall> = {}) =>
+      paused({
+        callId: 'done',
+        phase: 'request',
+        stage: 'finished',
+        cycle: {
+          follow: false,
+          releasedAt: Date.now() - 1400,
+          finishedAt: Date.now(),
+          durationMs: 1400,
+          outcome: 'completed',
+          requestEdit: 'body',
+        },
+        ...overrides,
+      });
+
+    it('offers no decision at all on a card that holds nobody', () => {
+      // Every button in that footer acts on a waiting socket. Showing them for a call that has
+      // already been answered invites a decision that can never reach anything.
+      load([inFlight()]);
+
+      expect(fixture.nativeElement.querySelector('.paused-foot')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.paused-follow')).toBeNull();
+      expect(component.editable()).toBeFalse();
+    });
+
+    it('keeps the decision footer for a call that is still holding', () => {
+      load([paused({ phase: 'request', response: null })]);
+
+      expect(fixture.nativeElement.querySelector('.paused-foot')).not.toBeNull();
+      expect(component.editable()).toBeTrue();
+    });
+
+    it('shows the response of a finished card even though the pause was on the request', () => {
+      load([finished()]);
+
+      expect(component.tab()).toBe('response');
+      expect(component.currentBody()).toContain('CONFIRMED');
+      expect(component.effectiveMode()).toBe('inspect');
+    });
+
+    it('shows each half on its own tab rather than one over the other', () => {
+      load([finished()]);
+
+      component.tab.set('request');
+      expect(component.currentBody()).toContain('"a": 1');
+
+      component.tab.set('response');
+      expect(component.currentBody()).toContain('CONFIRMED');
+    });
+
+    it('never paints an edit from one half onto the other', () => {
+      // A held response whose "Request sent" tab is open must show the REQUEST, not the response
+      // body being typed into. currentBody feeds the editor, the highlighter and the release.
+      load([paused({ heldAt: Date.now() })]);
+      component.editedBody.set('{"status":"FAILED"}');
+
+      component.tab.set('request');
+
+      expect(component.currentBody()).not.toContain('FAILED');
+      expect(component.currentBody()).toContain('"a": 1');
+      // Still counted as an edit - it belongs to the held half, whatever tab is open.
+      expect(component.bodyEdited()).toBeTrue();
+    });
+
+    it('asks to be stopped again only when the box is ticked', () => {
+      load([paused({ callId: 'c1', phase: 'request', response: null, heldAt: Date.now() })]);
+
+      component.follow.set(true);
+      component.release(false);
+
+      const request = http.expectOne(`${BACKEND}/interception/paused/c1/decision`);
+      expect(request.request.body).toEqual({ action: 'release', follow: true });
+      request.flush(null);
+      http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+    });
+
+    it('still sends the action and nothing else when it is not ticked', () => {
+      // The byte-identical property: an untouched release must carry no other key at all, not
+      // even one that happens to be false.
+      load([paused({ callId: 'c1', phase: 'request', response: null, heldAt: Date.now() })]);
+
+      component.release(false);
+
+      const request = http.expectOne(`${BACKEND}/interception/paused/c1/decision`);
+      expect(request.request.body).toEqual({ action: 'release' });
+      request.flush(null);
+      http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+    });
+
+    it('never offers a second stop on a response, because there is no third half', () => {
+      load([paused({ callId: 'c1', heldAt: Date.now() })]);
+      component.follow.set(true);
+
+      component.release(false);
+
+      const request = http.expectOne(`${BACKEND}/interception/paused/c1/decision`);
+      expect(request.request.body).toEqual({ action: 'release' });
+      request.flush(null);
+      http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+    });
+
+    it('drops the edits when the answer to a followed call arrives on the same card', () => {
+      // Same call id, other half. Keyed on identity or on the id alone, a body typed for the
+      // request would be carried onto the response that answered it.
+      load([paused({ callId: 'c1', phase: 'request', response: null, heldAt: Date.now() })]);
+      component.editedBody.set('{"a":2}');
+      expect(component.bodyEdited()).toBeTrue();
+
+      component.state.refreshPaused();
+      http
+        .expectOne(`${BACKEND}/interception/paused`)
+        .flush([paused({ callId: 'c1', phase: 'response', heldAt: Date.now() })]);
+      fixture.detectChanges();
+
+      expect(component.editedBody()).toBeNull();
+      expect(component.tab()).toBe('response');
+    });
+
+    it('does not label an already-forwarded request "edit before forwarding"', () => {
+      // A held RESPONSE still has a request tab, and that request is long gone. The label asked
+      // whether the tab you were on was editable rather than whether the request was, so opening
+      // a held response offered to edit a request that had already left.
+      load([paused({ heldAt: Date.now() })]);
+
+      const tabs = Array.from(fixture.nativeElement.querySelectorAll('.paused-tabs button')) as HTMLElement[];
+
+      expect(tabs[0].textContent).toContain('Request sent');
+      expect(tabs[1].textContent).toContain('edit before release');
+    });
+
+    it('closes a finished card and refuses to close one that is still holding', () => {
+      load([finished(), paused({ callId: 'holding' })]);
+
+      expect(component.closable(component.state.pausedCalls()[0])).toBeTrue();
+      expect(component.closable(component.state.pausedCalls()[1])).toBeFalse();
+
+      component.close(component.state.pausedCalls()[0]);
+      http.expectOne({ method: 'DELETE', url: `${BACKEND}/interception/paused/done` }).flush(null);
+      http.expectOne(`${BACKEND}/interception/paused`).flush([paused({ callId: 'holding' })]);
+    });
+
+    it('counts only the calls that are actually holding somebody', () => {
+      // The badge in the tab bar reads this. A number that included followed and finished cards
+      // would shout about calls nobody is waiting on, and a badge that cries wolf gets ignored.
+      load([paused({ callId: 'holding' }), inFlight(), finished()]);
+
+      expect(component.state.pausedCount()).toBe(1);
+      expect(component.state.inFlightCount()).toBe(1);
+      expect(component.state.finishedCount()).toBe(1);
+    });
+
+    it('treats a payload with no stage as a call that is holding', () => {
+      // A proxy or a backend mid-upgrade sends no stage at all, and defaulting the other way
+      // would hide a real waiting socket.
+      load([paused({ stage: undefined })]);
+
+      expect(component.holding()).toBeTrue();
+      expect(component.state.pausedCount()).toBe(1);
+    });
+  });
 });

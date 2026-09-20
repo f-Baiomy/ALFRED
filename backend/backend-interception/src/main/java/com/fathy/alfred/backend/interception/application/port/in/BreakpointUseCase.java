@@ -54,6 +54,30 @@ public interface BreakpointUseCase {
     /** Releases everything currently paused, unchanged - the inspector's "release all" and the panic button. */
     int releaseAll();
 
-    /** The proxy telling us it has stopped waiting (decision applied, or its own timeout fired). */
+    /**
+     * The proxy telling us it has stopped waiting (decision applied, or its own timeout fired).
+     *
+     * <p>Only drops a row that is still HOLDING. This is posted after every decision, including
+     * one that moved the call on to in-flight, and dropping the row then would undo the whole
+     * point of following it through its cycle.
+     */
     void resolved(String callId);
+
+    /**
+     * The proxy reporting the end of a followed call's cycle - the answer it delivered, or why
+     * there wasn't one. Does nothing for a call nobody is following, which is the common case.
+     *
+     * @param outcome "completed", "aborted", "failed" or "never-came-back"
+     * @param note    free text for an outcome that needs one, such as the error that killed it
+     */
+    void completed(String callId, PausedCall.Http response, String outcome, String note);
+
+    /**
+     * Dismisses a finished or in-flight card. Refuses while the call still holds its caller:
+     * dismissing that would orphan a real socket with no way back to it.
+     */
+    boolean close(String callId);
+
+    /** Dismisses every finished card at once. */
+    int closeFinished();
 }

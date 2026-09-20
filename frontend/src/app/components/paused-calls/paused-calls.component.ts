@@ -1,7 +1,7 @@
 import { Component, DestroyRef, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { interval } from 'rxjs';
-import { PauseDecision, PausedCall } from '../../core/models/interception.model';
+import { PauseCycle, PauseDecision, PauseStage, PausedCall } from '../../core/models/interception.model';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
@@ -30,6 +30,14 @@ export interface EditableHeader {
 }
 
 type Tab = 'response' | 'request' | 'headers';
+
+/** How a card's outcome reads in the strip at the top of a finished call. */
+const OUTCOMES: Record<string, string> = {
+  completed: 'Cycle complete',
+  aborted: 'You aborted this call',
+  failed: 'The call failed before it finished',
+  'never-came-back': 'No answer ever arrived',
+};
 
 /** Edit it, or read it the way the call cards render a body. */
 type BodyMode = 'edit' | 'inspect';
@@ -79,6 +87,15 @@ export class PausedCallsComponent {
   readonly busy = signal(false);
 
   readonly bodyMode = signal<BodyMode>('edit');
+
+  /**
+   * Stop this call a second time when the supplier answers.
+   *
+   * Off by default, because it holds a real caller twice. It is NOT what keeps the card on
+   * screen - that happens for every call you decide on - so leaving it alone still shows you the
+   * whole cycle, just without a second stop.
+   */
+  readonly follow = signal(false);
   readonly query = signal('');
   readonly matchIndex = signal(0);
 
@@ -93,15 +110,67 @@ export class PausedCallsComponent {
     return calls.find((c) => c.callId === this.selectedId()) ?? calls[0];
   });
 
-  /** Which half the user is deciding about: a response breakpoint edits the response, a request breakpoint the request. */
-  readonly editableHttp = computed(() => {
+  // ---- what this card is, and what can be done to it ---------------------------------------
+  //
+  // A card outlives the half it was paused on. It holds a caller, then it is in flight while the
+  // supplier works, then it is finished and only waiting to be read. Only the first of those can
+  // be edited, and only on the one half that is actually being held - so "which half am I
+  // looking at" and "can I change it" became two different questions here, where they used to be
+  // the same one.
+
+  readonly stage = computed<PauseStage>(() => this.selected()?.stage ?? 'holding');
+
+  /** Whether a real client socket is open on the other end of the selected card. */
+  readonly holding = computed(() => this.stage() === 'holding');
+
+  readonly cycle = computed<PauseCycle | null>(() => this.selected()?.cycle ?? null);
+
+  /** The tab showing the half this call is paused on - the only one that can be edited. */
+  readonly editableTab = computed<Tab>(() => (this.selected()?.phase === 'response' ? 'response' : 'request'));
+
+  /** Whether the body and headers on screen right now accept edits. */
+  readonly editable = computed(() => this.holding() && this.tab() === this.editableTab());
+
+  /** Which half the tabs are showing. A finished card has both, and both are worth reading. */
+  readonly shownHttp = computed(() => {
     const call = this.selected();
     if (!call) return null;
+    return this.tab() === 'request' ? call.request ?? null : call.response ?? null;
+  });
+
+  /** Which half the user is deciding about, or null when nothing is being decided. */
+  readonly editableHttp = computed(() => {
+    const call = this.selected();
+    if (!call || !this.holding()) return null;
     return call.phase === 'response' ? call.response ?? null : call.request ?? null;
   });
 
-  readonly originalBody = computed(() => this.editableHttp()?.body ?? '');
+  /** A finished card has a response worth its own tab even when the pause was on the request. */
+  readonly hasResponse = computed(() => this.selected()?.response != null);
+
+  readonly originalBody = computed(() => this.shownHttp()?.body ?? '');
   readonly originalStatus = computed(() => this.editableHttp()?.status ?? null);
+
+  readonly outcomeLabel = computed(() => {
+    const outcome = this.cycle()?.outcome;
+    return outcome ? OUTCOMES[outcome] ?? outcome : '';
+  });
+
+  readonly durationLabel = computed(() => this.durationOf(this.selected()));
+
+  /** How long the caller waited, end to end. Seconds once "108735ms" stops being readable. */
+  durationOf(call: PausedCall | null | undefined): string {
+    const ms = call?.cycle?.durationMs;
+    if (ms == null) return '';
+    return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`;
+  }
+
+  /** How long this call has been away upstream - the in-flight card's only moving part. */
+  inFlightFor(call: PausedCall): string {
+    const since = call.cycle?.releasedAt;
+    if (since == null) return '';
+    return `${((this.tick() - since) / 1000).toFixed(1)}s`;
+  }
 
   /**
    * What kind of body this is, decided by the same functions the call panel uses so a payload is
@@ -118,17 +187,23 @@ export class PausedCallsComponent {
    * the wire. That property is worth protecting - it is what makes pausing a call free.
    */
   readonly currentBody = computed(() => {
-    const edited = this.editedBody();
+    // An edit belongs to the half being HELD, not to whichever half is on screen - otherwise
+    // opening the "Request sent" tab of a held response would show the response edit over the
+    // request's body.
+    const edited = this.editable() ? this.editedBody() : null;
     if (edited !== null) return edited;
     const original = this.originalBody();
     return formatBody(original, detectBodyKind(original)) ?? original;
   });
   readonly currentStatus = computed(() => this.editedStatus() ?? this.originalStatus());
 
-  /** Substance, not layout - see normalizeBody. */
+  /** Substance, not layout - see normalizeBody. Always about the held half, whatever tab is open. */
   readonly bodyEdited = computed(() => {
-    const kind = this.bodyKind();
-    return normalizeBody(this.currentBody(), kind) !== normalizeBody(this.originalBody(), kind);
+    const edited = this.editedBody();
+    if (edited === null) return false;
+    const original = this.editableHttp()?.body ?? '';
+    const kind = detectBodyKind(edited);
+    return normalizeBody(edited, kind) !== normalizeBody(original, kind);
   });
 
   readonly dirty = computed(
@@ -176,6 +251,20 @@ export class PausedCallsComponent {
 
   readonly headerChangeCount = computed(() => Object.keys(this.headerChanges()).length);
 
+  /** Read-only header rows for a card nobody can edit any more - both halves, side by side. */
+  readonly shownHeaderRows = computed(() => {
+    const call = this.selected();
+    const groups: { title: string; rows: { name: string; value: string }[] }[] = [];
+    const add = (title: string, headers: Record<string, string> | null | undefined) => {
+      if (headers && Object.keys(headers).length > 0) {
+        groups.push({ title, rows: Object.entries(headers).map(([name, value]) => ({ name, value })) });
+      }
+    };
+    add('Request', call?.request?.headers);
+    add('Response', call?.response?.headers);
+    return groups;
+  });
+
   // ---- reading and searching the body ----------------------------------------------------
 
   readonly validity = computed(() => validateBody(this.currentBody(), this.bodyKind()));
@@ -216,8 +305,16 @@ export class PausedCallsComponent {
     return splitTokensIntoLines(highlighted).map((tokensOnLine, index) => ({ index, tokens: tokensOnLine }));
   });
 
+  /**
+   * A half nobody can change is always shown in Inspect, whatever the Edit/Inspect buttons last
+   * said. It is the call cards' own view, so reading the request you already sent or the response
+   * that came back gets the same colouring, line numbers and search as editing one - rather than
+   * the flat grey <pre> this used to drop to.
+   */
+  readonly effectiveMode = computed<BodyMode>(() => (this.editable() ? this.bodyMode() : 'inspect'));
+
   readonly inspectLines = computed<readonly LineTokens[]>(() =>
-    this.bodyMode() === 'inspect' ? this.tokenizedLines() : []
+    this.effectiveMode() === 'inspect' ? this.tokenizedLines() : []
   );
 
   /**
@@ -230,7 +327,7 @@ export class PausedCallsComponent {
   readonly overlayEnabled = computed(() => this.currentBody().length <= LIVE_CHECK_LIMIT);
 
   readonly editorLines = computed<readonly LineTokens[]>(() =>
-    this.bodyMode() === 'edit' && this.overlayEnabled() ? this.tokenizedLines() : []
+    this.effectiveMode() === 'edit' && this.overlayEnabled() ? this.tokenizedLines() : []
   );
 
   /** Plain text gets no syntax colouring - pretending otherwise would colour a SOAP fault as JSON. */
@@ -238,11 +335,6 @@ export class PausedCallsComponent {
 
   /** Which match the flat view should mark as current, counted the way that component counts them. */
   readonly activeMatch = computed(() => (this.matches().length === 0 ? -1 : this.matchIndex()));
-
-  readonly requestHeaderRows = computed(() => {
-    const headers = this.selected()?.request?.headers ?? {};
-    return Object.entries(headers).map(([name, value]) => ({ name, value }));
-  });
 
   constructor() {
     interval(1000)
@@ -258,11 +350,15 @@ export class PausedCallsComponent {
     // unclaimed call was always thrown away: the edit triggered the claim, the claim refreshed
     // the list, and the refresh wiped the edit. Caught on live traffic, where a header change
     // vanished and only the second one survived.
+    // Keyed on the call id AND its phase. A followed call comes back to this screen as the same
+    // id on its other half - same card, same place in the queue - and an edit typed into the
+    // request must not be carried over onto the response that answered it.
     effect(
       () => {
-        const id = this.selected()?.callId ?? null;
-        if (id === this.editingCallId) return;
-        this.editingCallId = id;
+        const call = this.selected();
+        const key = call ? `${call.callId}:${call.phase}` : null;
+        if (key === this.editingCallId) return;
+        this.editingCallId = key;
         this.editedBody.set(null);
         this.editedStatus.set(null);
         this.editedHeaders.set(null);
@@ -272,6 +368,11 @@ export class PausedCallsComponent {
         this.query.set('');
         this.matchIndex.set(0);
         this.bodyMode.set('edit');
+        this.follow.set(false);
+        // Not only when the user clicks a row: a call auto-selected because it is first in the
+        // queue, and the answer to a call you were following arriving on its other half, both
+        // land here too, and both need the tab pointed at the half that now matters.
+        if (call) this.tab.set(this.defaultTab(call));
       },
       { allowSignalWrites: true }
     );
@@ -279,7 +380,54 @@ export class PausedCallsComponent {
 
   select(call: PausedCall): void {
     this.selectedId.set(call.callId);
-    this.tab.set(call.phase === 'response' ? 'response' : 'request');
+    this.tab.set(this.defaultTab(call));
+  }
+
+  /** A live card opens on the half you have to decide about; a finished one on its answer. */
+  private defaultTab(call: PausedCall): Tab {
+    if ((call.stage ?? 'holding') === 'holding') {
+      return call.phase === 'response' ? 'response' : 'request';
+    }
+    return call.response ? 'response' : 'request';
+  }
+
+  /** Which stage a row in the queue is in, tolerating a payload from a proxy that predates them. */
+  stageOf(call: PausedCall): PauseStage {
+    return call.stage ?? 'holding';
+  }
+
+  closable(call: PausedCall): boolean {
+    return this.stageOf(call) !== 'holding';
+  }
+
+  /**
+   * Dismisses one card. Only ever offered for a call that holds nobody - closing a card whose
+   * caller is still waiting would orphan a real socket, and the backend refuses it too.
+   */
+  close(call: PausedCall): void {
+    if (this.busy() || !this.closable(call)) return;
+    this.busy.set(true);
+    if (this.selectedId() === call.callId) this.selectedId.set(null);
+    this.state.closeCard(call.callId).subscribe({
+      next: () => this.busy.set(false),
+      error: () => {
+        this.busy.set(false);
+        this.state.refreshPaused();
+      },
+    });
+  }
+
+  closeFinished(): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.state.closeFinished().subscribe({
+      next: () => this.busy.set(false),
+      error: () => this.busy.set(false),
+    });
+  }
+
+  onFollowChange(event: Event): void {
+    this.follow.set((event.target as HTMLInputElement).checked);
   }
 
   /**
@@ -543,17 +691,22 @@ export class PausedCallsComponent {
     const call = this.selected();
     if (!call || this.busy()) return;
     const headers = this.headerChanges();
+    // Spread rather than a `follow: undefined` property. An unchanged release must carry the
+    // action and NOTHING else - that is what keeps it byte-identical to never having paused, and
+    // a key that happens to be undefined is still a key in the payload.
+    const follow = call.phase !== 'response' && this.follow() ? { follow: true } : {};
     const decision: PauseDecision = edited
       ? {
           action: 'release',
           headers: Object.keys(headers).length > 0 ? headers : null,
           // What you see is what is sent - including its formatting. When nothing really
           // changed this is null, so an untouched release stays byte-identical to the original.
-          body: this.bodyEdited() ? this.currentBody() : null,
+          body: this.bodyEdited() ? this.editedBody() : null,
           status:
             this.editedStatus() !== null && this.editedStatus() !== this.originalStatus() ? this.editedStatus() : null,
+          ...follow,
         }
-      : { action: 'release' };
+      : { action: 'release', ...follow };
     this.send(call, decision);
   }
 

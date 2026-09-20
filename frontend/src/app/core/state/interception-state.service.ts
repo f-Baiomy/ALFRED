@@ -95,10 +95,26 @@ export class InterceptionStateService {
     () => this.rules().filter((r) => r.enabled && r.actions.some((a) => a.type.startsWith('PAUSE_'))).length
   );
 
-  readonly pausedCount = computed(() => this.pausedCalls().length);
+  /**
+   * Calls actually holding a caller's connection open right now.
+   *
+   * NOT the length of the list any more. A card follows its call past the half it was paused on -
+   * in flight while the supplier works, then finished until you close it - and neither of those
+   * has anybody waiting on the other end. Counting them here would make the tab badge shout about
+   * calls nobody is waiting on, and a badge that cries wolf is a badge you learn to ignore.
+   */
+  readonly holdingCalls = computed(() => this.pausedCalls().filter((c) => (c.stage ?? 'holding') === 'holding'));
+
+  readonly pausedCount = computed(() => this.holdingCalls().length);
+
+  /** Released and forwarded; the supplier is working and the card is waiting for its answer. */
+  readonly inFlightCount = computed(() => this.pausedCalls().filter((c) => c.stage === 'in-flight').length);
+
+  /** Cycle over, nothing held, kept on screen until closed by hand. */
+  readonly finishedCount = computed(() => this.pausedCalls().filter((c) => c.stage === 'finished').length);
 
   /** Calls somebody has taken control of - these are no longer counting down. */
-  readonly heldCount = computed(() => this.pausedCalls().filter((c) => c.heldAt != null).length);
+  readonly heldCount = computed(() => this.holdingCalls().filter((c) => c.heldAt != null).length);
 
   constructor() {
     this.refreshMasterSwitch();
@@ -148,6 +164,14 @@ export class InterceptionStateService {
 
   releaseAll(): Observable<{ released: number }> {
     return this.api.releaseAll().pipe(tap(() => this.refreshPaused()));
+  }
+
+  closeCard(callId: string): Observable<void> {
+    return this.api.closeCard(callId).pipe(tap(() => this.refreshPaused()));
+  }
+
+  closeFinished(): Observable<{ closed: number }> {
+    return this.api.closeFinished().pipe(tap(() => this.refreshPaused()));
   }
 
   clearProblems(): void {

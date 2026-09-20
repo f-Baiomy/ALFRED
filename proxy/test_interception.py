@@ -1278,6 +1278,76 @@ class DecisionTest(unittest.TestCase):
         self.assertNotIn('secret-value', summary)
 
 
+class FollowTest(unittest.TestCase):
+    """Following a call past the half it was paused on.
+
+    The two facts note_decision records are deliberately separate, and these pin that apart: a
+    CARD is left by any decision a person made, because not closing the moment you press Send is
+    the whole point; stopping a SECOND time is only what they ticked.
+    """
+
+    PAUSE = {'phase': 'request', 'ruleId': 'r1', 'ruleName': 'all intercept',
+             'timeoutSeconds': 45, 'onTimeout': 'abort'}
+
+    def test_any_human_decision_leaves_a_card(self):
+        flow = FakeFlow()
+        interception.note_decision(flow, 'request', self.PAUSE, {'action': 'release'})
+        self.assertTrue(flow.metadata.get(interception.CARD_KEY))
+
+    def test_a_decision_made_by_the_clock_leaves_nothing(self):
+        # A rule that pauses everything times out dozens of calls nobody looked at; a card for
+        # each would bury the one being worked on.
+        for reason in ('timeout', 'backend-unreachable', 'not-registered'):
+            flow = FakeFlow()
+            interception.note_decision(flow, 'request', self.PAUSE,
+                                       {'action': 'release', 'reason': reason})
+            self.assertFalse(flow.metadata.get(interception.CARD_KEY), reason)
+            self.assertIsNone(interception.follow_pause(flow), reason)
+
+    def test_a_card_alone_does_not_stop_the_call_again(self):
+        flow = FakeFlow()
+        interception.note_decision(flow, 'request', self.PAUSE, {'action': 'release'})
+        self.assertIsNone(interception.follow_pause(flow))
+
+    def test_following_stops_the_response_half_with_the_rules_own_timeout(self):
+        flow = FakeFlow()
+        interception.note_decision(flow, 'request', self.PAUSE, {'action': 'release', 'follow': True})
+
+        spec = interception.follow_pause(flow)
+
+        self.assertEqual(spec['phase'], 'response')
+        # Inherited, so following a call does not silently give it a different grace period from
+        # the rule that stopped it in the first place.
+        self.assertEqual(spec['timeoutSeconds'], 45)
+        self.assertEqual(spec['onTimeout'], 'abort')
+        self.assertEqual(spec['ruleName'], 'all intercept')
+
+    def test_a_pause_spec_with_nothing_in_it_still_gets_a_deadline(self):
+        # A pause with no timeout could hold a caller with no way out. Validation rejects one, but
+        # this is the request path and it does not get to assume validation ran.
+        flow = FakeFlow()
+        interception.note_decision(flow, 'request', {}, {'action': 'release', 'follow': True})
+
+        spec = interception.follow_pause(flow)
+
+        self.assertGreater(spec['timeoutSeconds'], 0)
+        self.assertEqual(spec['onTimeout'], 'release')
+
+    def test_aborting_never_follows_because_there_is_nothing_to_follow(self):
+        flow = FakeFlow()
+        interception.note_decision(flow, 'request', self.PAUSE, {'action': 'abort', 'follow': True})
+        self.assertIsNone(interception.follow_pause(flow))
+
+    def test_a_response_decision_never_asks_for_another_stop(self):
+        # There is no third half. Ticking follow on a response pause must not loop.
+        flow = FakeFlow()
+        interception.note_decision(flow, 'response', self.PAUSE, {'action': 'release', 'follow': True})
+        self.assertIsNone(interception.follow_pause(flow))
+
+    def test_a_call_nobody_paused_is_never_followed(self):
+        self.assertIsNone(interception.follow_pause(FakeFlow()))
+
+
 class ConcurrencyTest(unittest.IsolatedAsyncioTestCase):
     """The load-bearing property of the whole feature: mitmproxy runs ONE event loop for every
     connection it proxies, so a delayed flow must yield it. If DELAY_REQUEST were ever

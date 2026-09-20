@@ -284,6 +284,7 @@ class RouteAndLog:
         # already froze this half before the pause was even decided on - see
         # Verdict.observe_request - and the finalize at the end of the phase picks up whatever a
         # human did to it.
+        interception.note_decision(flow, phase, verdict.pause, decision)
         if (decision or {}).get('action') == 'abort':
             verdict.applied.append(interception.Applied(
                 verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
@@ -294,6 +295,16 @@ class RouteAndLog:
         verdict.applied.append(interception.Applied(
             verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
             'BREAKPOINT_RELEASE', summary))
+
+    def _close_card(self, flow, call_id, outcome, note=None):
+        """Fills in the end of the cycle on the inspector card, if this call left one.
+
+        Fire-and-forget by construction (see breakpoints.report_completed) and skipped entirely
+        for the overwhelmingly common case of a call nobody paused, so normal traffic pays
+        nothing at all for this.
+        """
+        if call_id and flow.metadata.get(interception.CARD_KEY):
+            breakpoints.report_completed(flow, call_id, outcome, note)
 
     async def response(self, flow):
         call_id = flow.metadata.get('call_id')
@@ -308,18 +319,23 @@ class RouteAndLog:
         verdict.adopt(response_verdict)
         if response_verdict.delay_ms:
             await asyncio.sleep(min(response_verdict.delay_ms, interception.MAX_DELAY_MS) / 1000.0)
-        if response_verdict.pause and call_id:
-            verdict.pause = response_verdict.pause
+        # A rule may pause here, and so may the user: releasing a request with "stop again when
+        # the answer arrives" ticked means this half stops too, without any rule saying so.
+        pause = response_verdict.pause or interception.follow_pause(flow)
+        if pause and call_id:
+            verdict.pause = pause
             decision = await breakpoints.wait_for_decision(
-                flow, 'response', call_id, response_verdict.pause, 'outbound',
+                flow, 'response', call_id, pause, 'outbound',
                 flow.metadata.get('service_name'))
             self._record_decision(flow, verdict, 'response', decision)
             if flow.response is None:
                 verdict.finalize_response(flow)
+                self._close_card(flow, call_id, 'aborted')
                 return
 
         # Everything - rules, delay, a human's edit - has finished with this response.
         verdict.finalize_response(flow)
+        self._close_card(flow, call_id, 'completed')
 
         if not call_id:
             return
@@ -349,6 +365,10 @@ class RouteAndLog:
 
     def error(self, flow):
         call_id = flow.metadata.get('call_id')
+        # Done before the early return: a followed call that died here would otherwise leave its
+        # card spinning "in flight" until the hour-long backstop swept it up, which reads as
+        # Alfred having lost the call rather than the call having failed.
+        self._close_card(flow, call_id, 'failed', str(flow.error))
         if not call_id:
             return
 

@@ -240,3 +240,37 @@ def _resolve_quietly(call_id):
         _post(f'/interception/paused/{call_id}/resolved', {}, REGISTER_TIMEOUT_SECONDS)
     except Exception:
         pass
+
+
+def report_completed(flow, call_id, outcome='completed', note=None):
+    """Tells the backend a followed call's cycle is over, so its card can stop spinning.
+
+    Fire-and-forget, and it has to stay that way: this runs after the response has already been
+    handed back to the caller, so awaiting it would add a backend round trip to the tail of a call
+    that is otherwise finished. A card left spinning because the backend was slow is a far smaller
+    problem than a caller waiting on Alfred's bookkeeping.
+
+    Only called for a call somebody actually decided on - the backend ignores an id it is not
+    holding a card for, which is every call in normal traffic.
+    """
+    payload = {'outcome': outcome}
+    if note:
+        payload['note'] = note
+    if flow is not None and flow.response is not None:
+        payload['response'] = {
+            'status': flow.response.status_code,
+            'headers': dict(flow.response.headers),
+            'body': _text(flow.response),
+        }
+    try:
+        asyncio.get_event_loop().run_in_executor(
+            None, _report_quietly, call_id, payload)
+    except Exception:
+        pass
+
+
+def _report_quietly(call_id, payload):
+    try:
+        _post(f'/interception/paused/{call_id}/completed', payload, REGISTER_TIMEOUT_SECONDS)
+    except Exception:
+        pass
