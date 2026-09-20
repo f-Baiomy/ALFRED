@@ -6672,3 +6672,174 @@ h1.page-title {
     color: var(--cyan);
   }
 }
+
+/* ---------- The ⓘ, and what it opens ----------
+   Help sits on the control it describes rather than in a manual: the question is always "what
+   does THIS do" while looking at it. Deliberately quiet until hovered - a row of bright icons
+   down the editor would compete with the fields themselves. */
+
+.help-popover {
+  display: inline-flex;
+  position: relative;
+}
+
+.help-btn {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-faint);
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: 0.66rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+
+  &:hover,
+  &[aria-expanded='true'] {
+    color: var(--cyan);
+    border-color: color-mix(in srgb, var(--cyan) 55%, transparent);
+  }
+}
+
+.help-panel {
+  position: fixed;
+  width: 380px;
+  max-width: calc(100vw - 2rem);
+  max-height: 70vh;
+  overflow-y: auto;
+  z-index: 200;
+  background: var(--card-elevated, var(--card));
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55);
+  padding: 0.8rem 0.9rem;
+  text-align: left;
+  white-space: normal;
+  cursor: default;
+}
+
+.help-entry + .help-entry,
+.help-entry.secondary {
+  margin-top: 0.75rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border);
+}
+
+.help-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.4rem;
+
+  strong {
+    font-size: 0.8rem;
+  }
+
+  .help-close {
+    margin-left: auto;
+  }
+}
+
+/* The wire constant, so what you read here is what you will read in the call log. */
+.help-code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.03em;
+  color: var(--text-faint);
+  background: var(--card-inner);
+  border-radius: 5px;
+  padding: 0.05rem 0.3rem;
+}
+
+.help-what {
+  margin: 0 0 0.5rem;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.help-intro {
+  margin: 0 0 0.35rem;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.help-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.help-example {
+  display: grid;
+  grid-template-columns: minmax(0, auto) 12px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.71rem;
+  line-height: 1.45;
+
+  .he-from {
+    font-family: ui-monospace, Consolas, monospace;
+    color: var(--tok-key);
+    word-break: break-all;
+  }
+
+  .he-arrow {
+    color: var(--text-faint);
+  }
+
+  .he-to {
+    color: var(--text-dim);
+  }
+}
+
+.help-warning {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 28%, transparent);
+  border-radius: 7px;
+  padding: 0.4rem 0.5rem;
+}
+
+/* The control restated in the words the call log will use for it, so the two never disagree. */
+.help-summary {
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+
+  .help-summary-label {
+    display: block;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-faint);
+    margin-bottom: 0.2rem;
+  }
+
+  code {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.72rem;
+    color: var(--cyan);
+    word-break: break-word;
+  }
+}
+
+/* In a condition row the ⓘ must not push the fields around. */
+.cond-row .help-popover {
+  margin-left: -0.15rem;
+}

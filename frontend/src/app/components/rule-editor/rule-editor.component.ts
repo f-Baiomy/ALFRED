@@ -17,6 +17,8 @@ import {
   isConditionalAction,
   FAILURE_HINTS,
   FAILURE_LABELS,
+  describeAction,
+  describeCondition,
   FailureMode,
   InterceptionRule,
   InterceptionRuleDraft,
@@ -27,8 +29,16 @@ import {
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
+import { HelpPopoverComponent } from '../help-popover/help-popover.component';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
+import {
+  FAILURE_HELP,
+  HelpEntry,
+  helpForAction,
+  helpForOperator,
+  helpForSubject,
+} from '../../shared/utils/interception-help';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
 
@@ -187,7 +197,13 @@ function defaultCondition(phase: ActionPhase): Condition {
   // SelectPickerComponent rather than a native <select>: a native dropdown's LIST is drawn by the
   // OS and only inconsistently honours page theming, so it renders as a pale system menu on
   // Alfred's dark surfaces (verified live). See that component's own docstring.
-  imports: [NgTemplateOutlet, SelectPickerComponent, MultiSelectPickerComponent, StatusPickerComponent],
+  imports: [
+    NgTemplateOutlet,
+    SelectPickerComponent,
+    MultiSelectPickerComponent,
+    StatusPickerComponent,
+    HelpPopoverComponent,
+  ],
   templateUrl: './rule-editor.component.html',
 })
 export class RuleEditorComponent implements OnInit {
@@ -497,6 +513,38 @@ export class RuleEditorComponent implements OnInit {
   }
 
   describeBranch = describeBranch;
+
+  // ---- help -----------------------------------------------------------------------------
+
+  /**
+   * What the ⓘ on an action card shows. A list because the panel renders several entries, and a
+   * failure action has a second one: the mode it is set to is the thing you actually want
+   * explained, not the action in general.
+   */
+  actionHelp(action: RuleAction): readonly HelpEntry[] {
+    const entry = helpForAction(action.type);
+    if (action.type !== 'SIMULATE_FAILURE' || !action.failure) return [entry];
+    return [
+      entry,
+      {
+        title: FAILURE_LABELS[action.failure],
+        code: action.failure,
+        what: FAILURE_HELP[action.failure],
+      },
+    ];
+  }
+
+  /** A condition row is a subject AND an operator - reading one without the other is half an answer. */
+  conditionHelp(condition: Condition): readonly HelpEntry[] {
+    return [helpForSubject(condition.subject), helpForOperator(condition.operator)];
+  }
+
+  /** The card restated in the same words the call log will use for it. */
+  summaryOf(action: RuleAction): string {
+    return describeAction(action);
+  }
+
+  describeCondition = describeCondition;
 
   private conditionalPhase(path: readonly number[]): ActionPhase {
     const action = actionAt(this.actions(), path);

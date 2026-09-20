@@ -107,6 +107,21 @@ way, because whether a call reaches the host decides whether the response half r
 is exactly `SIMULATE_FAILURE` with `CONNECTION_RESET`. `ActionType.isSelectable()` is what hides
 it, so the rule keeps working and only the picker moved on.
 
+### Where the explanations live
+
+Every action card and every condition row carries an **ⓘ**. It opens the help for *that* control:
+what it does, worked examples against a realistic supplier payload, and the one thing that
+catches people out - all from `shared/utils/interception-help.ts`, as data rather than prose in a
+template.
+
+The panel closes with the control restated by the same `describeAction` / `describeCondition` the
+call log uses, so the editor and the log never describe the same thing two different ways.
+
+`interception-help.spec.ts` walks `ActionType`, the subjects and the operators and **fails if any
+of them has no entry** - help that covers most of a vocabulary is worse than none, because the gap
+is invisible until somebody clicks the one control nobody wrote about. It also enforces a minimum
+length, which is what caught three entries that merely restated their own label.
+
 ### Conditions — look at the call, then decide
 
 `IF_REQUEST` / `IF_RESPONSE` are actions like any other, sitting in the same list and moved the

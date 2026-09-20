@@ -185,6 +185,11 @@
       <div class="cond-head">
         <span class="action-index">{{ step.index + 1 }}</span>
         <span class="action-title">Condition</span>
+        <app-help-popover
+          [entries]="actionHelp(step.action)"
+          [summary]="summaryOf(step.action)"
+          label="How do conditions work?"
+        />
         <span class="action-controls">
           <button type="button" class="icon-btn" title="Move up" [disabled]="step.index === 0" (click)="moveAt(step.path, -1)">▲</button>
           <button type="button" class="icon-btn" title="Move down" [disabled]="step.index === siblingCount(step.path) - 1" (click)="moveAt(step.path, 1)">▼</button>
@@ -215,6 +220,11 @@
                 [options]="subjectOptions(step.path)"
                 [value]="condition.subject"
                 (valueChange)="onSubjectChange(step.path, bi, ci, $event)"
+              />
+              <app-help-popover
+                [entries]="conditionHelp(condition)"
+                [summary]="describeCondition(condition)"
+                label="What does this condition check?"
               />
               @if (needsConditionName(condition)) {
                 <input
@@ -309,6 +319,11 @@
     <div class="action-head">
       <span class="action-index">{{ step.index + 1 }}</span>
       <span class="action-title">{{ labelFor(step.action.type) }}</span>
+      <app-help-popover
+        [entries]="actionHelp(step.action)"
+        [summary]="summaryOf(step.action)"
+        [label]="'What does ' + labelFor(step.action.type) + ' do?'"
+      />
       <span class="action-controls">
         <button type="button" class="icon-btn" title="Move up" [disabled]="step.index === 0" (click)="moveAt(step.path, -1)">▲</button>
         <button type="button" class="icon-btn" title="Move down" [disabled]="step.index === siblingCount(step.path) - 1" (click)="moveAt(step.path, 1)">▼</button>

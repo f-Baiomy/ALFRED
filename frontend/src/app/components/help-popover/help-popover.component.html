@@ -1,0 +1,62 @@
+<span class="help-popover">
+  <button
+    type="button"
+    class="help-btn"
+    [attr.aria-label]="label()"
+    [attr.aria-expanded]="open()"
+    [title]="label()"
+    (click)="toggle($event)"
+  >i</button>
+
+  @if (open()) {
+    <div
+      class="help-panel"
+      role="dialog"
+      [style.top.px]="position().top"
+      [style.left.px]="position().left"
+    >
+      @for (entry of entries(); track entry.code; let first = $first) {
+        <div class="help-entry" [class.secondary]="!first">
+          <div class="help-entry-head">
+            <strong>{{ entry.title }}</strong>
+            <code class="help-code">{{ entry.code }}</code>
+            @if (first) {
+              <button type="button" class="icon-btn help-close" aria-label="Close" (click)="close()">×</button>
+            }
+          </div>
+
+          <p class="help-what">{{ entry.what }}</p>
+
+          @if (entry.exampleIntro) {
+            <p class="help-intro">{{ entry.exampleIntro }}</p>
+          }
+
+          @if (entry.examples?.length) {
+            <div class="help-examples">
+              @for (line of entry.examples; track $index) {
+                <div class="help-example">
+                  <code class="he-from">{{ line.from }}</code>
+                  <span class="he-arrow">→</span>
+                  <span class="he-to">{{ line.to }}</span>
+                </div>
+              }
+            </div>
+          }
+
+          <!-- One warning per entry at most, and only where something has actually cost somebody
+               an hour. A warning on everything trains people to skip all of them. -->
+          @if (entry.warning) {
+            <p class="help-warning">{{ entry.warning }}</p>
+          }
+        </div>
+      }
+
+      @if (summary()) {
+        <div class="help-summary">
+          <span class="help-summary-label">This one, right now</span>
+          <code>{{ summary() }}</code>
+        </div>
+      }
+    </div>
+  }
+</span>
