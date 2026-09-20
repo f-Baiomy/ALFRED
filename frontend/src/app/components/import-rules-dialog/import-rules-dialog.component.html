@@ -1,0 +1,179 @@
+<div class="dialog-backdrop" (click)="close()">
+  <div class="dialog-card wide" (click)="$event.stopPropagation()">
+    <h2>Import interception rules</h2>
+
+    <!-- Two states in one dialog: what WOULD happen, then what DID. Splitting them across two
+         dialogs would lose the file you were looking at at exactly the moment you want to
+         compare it with the outcome. -->
+    @if (result(); as done) {
+      @if (done.imported > 0) {
+        <div class="import-done">
+          <strong>
+            {{ done.imported }} {{ done.imported === 1 ? 'rule' : 'rules' }} imported,
+            {{ enableAfterImport() ? 'switched on' : 'all switched off' }}.
+          </strong>
+          <small>
+            @if (enableAfterImport()) {
+              They are applying to live traffic now, at the bottom of the list.
+            } @else {
+              They are at the bottom of the list. Turn each one on when you have read it.
+            }
+          </small>
+        </div>
+      }
+
+      @if (rejections().length > 0) {
+        <div class="import-preview">
+          <div class="import-preview-head">
+            <span>Not imported</span>
+            <span>{{ rejections().length }}</span>
+          </div>
+          @for (outcome of rejections(); track outcome.index) {
+            <div class="import-row">
+              <span class="import-no">{{ outcome.index + 1 }}</span>
+              <div class="import-info">
+                <div class="import-name">{{ outcome.name || 'Unnamed rule' }}</div>
+                <div class="import-problems">
+                  @for (problem of outcome.problems ?? []; track $index) {
+                    <div>✗ {{ problem }}</div>
+                  }
+                </div>
+              </div>
+              <span class="import-state bad">rejected</span>
+            </div>
+          }
+        </div>
+      }
+
+      @if (done.imported === 0 && rejections().length === 0) {
+        <p class="dialog-sub">That file had nothing in it to import.</p>
+      }
+
+      <div class="dialog-actions">
+        <button type="button" class="action-btn primary" (click)="close()">Done</button>
+      </div>
+    } @else {
+      <p class="dialog-sub">
+        Drop a rules export (.json) here, or click to browse. Nothing is created until you press
+        Import.
+      </p>
+
+      @if (!hasFile()) {
+        <div
+          class="import-dropzone"
+          [class.dragging]="draggingOver()"
+          (dragover)="onDragOver($event)"
+          (dragleave)="onDragLeave()"
+          (drop)="onDrop($event)"
+          (click)="browse()"
+        >
+          <p>Drop a .json file here, or click to browse</p>
+        </div>
+      } @else {
+        <div class="import-file">
+          <span class="import-file-name">{{ fileName() }}</span>
+          <span class="import-file-meta">
+            {{ previews().length }} {{ previews().length === 1 ? 'rule' : 'rules' }} · {{ sizeLabel() }}
+          </span>
+          <button type="button" class="link-btn" (click)="clearFile()">Choose another</button>
+        </div>
+      }
+
+      <input #fileInput type="file" accept=".json,application/json" hidden (change)="onFileChosen($event)" />
+
+      @if (parseError(); as error) {
+        <p class="dialog-sub dialog-error-note">{{ error }}</p>
+      }
+
+      @if (hasFile()) {
+        <!-- Called out before the list, not inside it. A rule that holds a caller open is the
+             one thing in a rules file that can affect somebody other than you, and finding that
+             out by scrolling is finding it out too late. -->
+        @if (pausingCount() > 0) {
+          <div class="import-warn">
+            <span>⚠</span>
+            <div>
+              <strong>
+                {{ pausingCount() === 1 ? 'One of these can hold' : pausingCount() + ' of these can hold' }}
+                a caller's connection open.
+              </strong>
+              A pause stops a real request until somebody decides what to do with it. Leave the
+              switch below alone and turn these on one at a time.
+            </div>
+          </div>
+        }
+
+        <div class="import-preview">
+          <div class="import-preview-head">
+            <span>What will be created</span>
+            <span>{{ previews().length }} {{ previews().length === 1 ? 'rule' : 'rules' }}</span>
+          </div>
+          @for (preview of previews(); track preview.index) {
+            <div class="import-row">
+              <span class="import-no">{{ preview.index + 1 }}</span>
+              <div class="import-info">
+                <div class="import-name">{{ preview.rule.name || 'Unnamed rule' }}</div>
+                <div class="import-match">{{ preview.match }}</div>
+                @if (preview.rule.description) {
+                  <div class="import-desc">{{ preview.rule.description }}</div>
+                }
+                <div class="import-chips">
+                  @for (action of preview.actions; track $index) {
+                    <span class="rule-chip" [class.danger]="preview.pauses || preview.terminal">{{ action }}</span>
+                  }
+                </div>
+                @if (preview.nameClash) {
+                  <div class="import-clash">
+                    ⚠ You already have a rule called “{{ preview.rule.name }}” — this adds a second one.
+                  </div>
+                }
+              </div>
+              @if (preview.pauses) {
+                <span class="import-state warn">holds a caller</span>
+              } @else if (preview.terminal) {
+                <span class="import-state warn">ends the request</span>
+              } @else {
+                <span class="import-state ok">will import</span>
+              }
+            </div>
+          }
+        </div>
+
+        <label class="import-enable">
+          <input
+            type="checkbox"
+            [checked]="enableAfterImport()"
+            (change)="enableAfterImport.set($any($event.target).checked)"
+          />
+          <span>
+            <strong>Turn these on after importing</strong>
+            <small>
+              Off by default. A rule that starts changing live traffic the moment a file lands is
+              the one outcome you cannot undo by reading it first.
+            </small>
+          </span>
+        </label>
+      }
+
+      <div class="dialog-actions">
+        @if (hasFile()) {
+          <span class="import-foot-note">
+            {{ previews().length }} to create
+            @if (clashCount() > 0) {
+              · {{ clashCount() }} share a name with a rule you already have
+            }
+          </span>
+        }
+        <button type="button" class="action-btn" (click)="close()">Cancel</button>
+        <button
+          type="button"
+          class="action-btn primary"
+          [disabled]="!hasFile() || importing()"
+          (click)="runImport()"
+        >
+          {{ importing() ? 'Importing…' : 'Import ' + previews().length + (previews().length === 1 ? ' rule' : ' rules') }}
+        </button>
+      </div>
+    }
+  </div>
+</div>

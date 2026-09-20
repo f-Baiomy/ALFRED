@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.interception.application.port.out.RulesPublisher
 import com.fathy.alfred.backend.interception.domain.model.ActionType;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleAction;
+import com.fathy.alfred.backend.interception.domain.model.RuleImportResult;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -201,6 +202,128 @@ class InterceptionRulesServiceTest {
     @Test
     void masterSwitchDefaultsToOff() {
         assertThat(service.isMasterSwitchOn()).isFalse();
+    }
+
+    // ---- importing an exported rules file ----------------------------------------------------
+
+    private static InterceptionRule pauseRule(String name) {
+        return new InterceptionRule(null, name, null, true, 100, false, RuleMatch.empty(),
+                List.of(new RuleAction(ActionType.PAUSE_REQUEST, null, null, null, null, null, null, null,
+                        30, "release", null, null, null)),
+                null, null);
+    }
+
+    private static InterceptionRule brokenRule(String name) {
+        // No actions at all: a rule that can never do anything.
+        return new InterceptionRule(null, name, null, true, 100, false, RuleMatch.empty(), List.of(), null, null);
+    }
+
+    @Test
+    void importCreatesEveryRuleItCanAndSaysWhatHappenedToEachOne() {
+        RuleImportResult result = service.importRules(
+                List.of(delayRule("One", 100), brokenRule("Broken"), delayRule("Two", 100)), false);
+
+        assertThat(result.imported()).isEqualTo(2);
+        assertThat(result.rejected()).isEqualTo(1);
+        assertThat(store.rules).extracting(InterceptionRule::name).containsExactly("One", "Two");
+        assertThat(result.results()).extracting(RuleImportResult.Outcome::status)
+                .containsExactly("imported", "rejected", "imported");
+        // The index is the position in the FILE, so the dialog can point at the rule that failed.
+        assertThat(result.results().get(1).index()).isEqualTo(1);
+        assertThat(result.results().get(1).problems()).isNotEmpty();
+    }
+
+    @Test
+    void oneBadRuleDoesNotCancelTheGoodOnes() {
+        // Throwing away working rules because one is malformed is the worse failure - and a
+        // quiet partial import is worse still, which is why every rejection is reported.
+        service.importRules(List.of(brokenRule("Broken"), delayRule("Fine", 100)), false);
+
+        assertThat(store.rules).extracting(InterceptionRule::name).containsExactly("Fine");
+    }
+
+    @Test
+    void importedRulesArriveOffUnlessAskedForOtherwise() {
+        // A file can carry a rule that holds real callers open. One that starts applying the
+        // instant it lands is the outcome nobody can undo by reading it first.
+        service.importRules(List.of(pauseRule("Pauser")), false);
+        assertThat(store.rules.get(0).enabled()).isFalse();
+
+        service.importRules(List.of(pauseRule("Pauser 2")), true);
+        assertThat(store.rules).extracting(InterceptionRule::enabled).containsExactly(false, true);
+    }
+
+    @Test
+    void anEnabledFlagInTheFileNeverOverridesTheImportersChoice() {
+        // Every rule in the file below says enabled:true. The import said off; off wins.
+        service.importRules(List.of(delayRule("A", 10), delayRule("B", 20)), false);
+
+        assertThat(store.rules).extracting(InterceptionRule::enabled).containsOnly(false);
+    }
+
+    @Test
+    void importedRulesGoAfterEverythingAlreadyHere() {
+        service.create(delayRule("Existing", 10));
+
+        service.importRules(List.of(delayRule("First in file", 5), delayRule("Second in file", 1)), false);
+
+        // The priorities in the file were relative to the deployment it came from. Interleaving
+        // them would silently change when the existing rules run, which an import must not do -
+        // but their order relative to EACH OTHER is preserved.
+        assertThat(store.rules).extracting(InterceptionRule::name)
+                .containsExactly("Existing", "First in file", "Second in file");
+        assertThat(store.rules).extracting(InterceptionRule::priority).isSorted();
+    }
+
+    @Test
+    void importPublishesAndNotifiesExactlyOnceForTheWholeFile() {
+        // The entire reason this is a batch. Twenty creates would republish the whole snapshot to
+        // the proxy twenty times and make every open page refetch the rule list twenty times.
+        service.importRules(List.of(delayRule("A", 10), delayRule("B", 20), delayRule("C", 30)), false);
+
+        assertThat(publisher.publishes).isEqualTo(1);
+        assertThat(notifications.rules).isEqualTo(1);
+    }
+
+    @Test
+    void aFileWhoseRulesAreAllBrokenChangesNothingAtAll() {
+        service.create(delayRule("Existing", 10));
+        int publishesBefore = publisher.publishes;
+
+        RuleImportResult result = service.importRules(List.of(brokenRule("X"), brokenRule("Y")), false);
+
+        assertThat(result.imported()).isZero();
+        assertThat(result.rejected()).isEqualTo(2);
+        assertThat(store.rules).hasSize(1);
+        assertThat(publisher.publishes).isEqualTo(publishesBefore);
+    }
+
+    @Test
+    void importNeverTouchesTheMasterSwitch() {
+        // A deployment-level setting, not a rule. No file should be able to turn interception on.
+        assertThat(service.isMasterSwitchOn()).isFalse();
+
+        service.importRules(List.of(delayRule("A", 10)), true);
+
+        assertThat(service.isMasterSwitchOn()).isFalse();
+    }
+
+    @Test
+    void importingAnEmptyFileIsAnEmptyResultRatherThanAnError() {
+        RuleImportResult result = service.importRules(List.of(), false);
+
+        assertThat(result.imported()).isZero();
+        assertThat(result.results()).isEmpty();
+        assertThat(publisher.publishes).isZero();
+    }
+
+    @Test
+    void importedRulesGetFreshIdsRatherThanAnythingFromTheFile() {
+        service.importRules(List.of(delayRule("A", 10), delayRule("B", 20)), false);
+
+        assertThat(store.rules).extracting(InterceptionRule::id).doesNotContainNull();
+        assertThat(store.rules.get(0).id()).isNotEqualTo(store.rules.get(1).id());
+        assertThat(store.rules).extracting(InterceptionRule::createdAt).doesNotContainNull();
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.interception.application.port.in.ManageIntercept
 import com.fathy.alfred.backend.interception.domain.model.ActionType;
 import com.fathy.alfred.backend.interception.domain.model.FailureMode;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
+import com.fathy.alfred.backend.interception.domain.model.RuleImportResult;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -67,6 +68,30 @@ public class InterceptionRulesController {
         return rules.setEnabled(id, enabled)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Creates every rule in an exported file that can be created.
+     *
+     * <p>Deliberately NOT {@code @Valid} on the nested rules. Bean Validation on a list fails the
+     * whole request for one bad element, which is exactly the behaviour this endpoint exists to
+     * avoid - RuleValidator checks each rule on its own (including the blank name the DTO
+     * annotation would have caught) and the file's good rules are created regardless.
+     */
+    @PostMapping("/rules/import")
+    public RuleImportResult importRules(@RequestBody ImportRequestDto body) {
+        List<InterceptionRule> rules = body.rules() == null
+                ? List.of()
+                : body.rules().stream().map(InterceptionRuleRequestDto::toDomain).toList();
+        return this.rules.importRules(rules, Boolean.TRUE.equals(body.enable()));
+    }
+
+    /**
+     * {@code enable} is a Boolean, not a boolean: absent has to mean OFF, and it reads as a
+     * deliberate default rather than an accident of primitive initialisation. A file can carry a
+     * rule that holds real callers open.
+     */
+    public record ImportRequestDto(List<InterceptionRuleRequestDto> rules, Boolean enable) {
     }
 
     @PostMapping("/rules/reorder")

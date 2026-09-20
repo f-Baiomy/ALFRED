@@ -462,6 +462,73 @@ project" are two independent intentions about the same request.
 Validation rejects contradictions up front: two terminal actions in one rule, a terminal action
 combined with a pause, or two pauses.
 
+## Moving rules around — export, duplicate, import
+
+A rule is a piece of work: a match, a condition tree, a set of actions. It used to exist only
+inside one deployment's database.
+
+**The export unit is `InterceptionRuleDraft` — exactly what `POST /rules` accepts.** That is the
+load-bearing choice: importing is *creating*, so the whole existing `RuleValidator` runs against
+an imported rule with no second code path to drift from it. A rules file is executable — it can
+hold callers open, abort connections and rewrite bodies on live traffic — and it must not reach
+the engine by a route the editor does not also use.
+
+```json
+{ "alfredInterceptionRules": 1, "exportedAt": "…", "rules": [ … ] }
+```
+
+- **No `id`, `createdAt` or `updatedAt`.** Carrying an id raises "does importing overwrite the rule
+  with that id?", and both answers are bad: yes silently destroys work, no makes the field a lie.
+- `alfredInterceptionRules` is version **and** fingerprint. A calls export is also a `.json`;
+  feeding one to this importer says so by name rather than half-working through the wrong shape.
+- **The master switch is never in the file.** It is a property of a deployment, not of a rule, and
+  no file should be able to turn interception on.
+- `enabled` **is** written, so the file is a faithful record. Forcing it off is the *importer's*
+  job — the file describes, the import is safe.
+
+### Duplicate
+
+Copies the rule under `… (copy)` / `(copy 2)` (counted, so copying a copy continues the series
+rather than nesting), keeps its priority so it lands next to the original, **keeps its enabled
+state**, and opens the editor on the copy — nobody duplicates a rule to keep two identical ones.
+Note the consequence on a rule that delays or pauses: two enabled copies act twice, which is why
+the list marks a pausing rule `holds the caller`.
+
+### Import
+
+`POST /interception/rules/import` takes `{rules[], enable}` and is a batch for a reason that is not
+convenience: each individual create persists, republishes the whole snapshot to the proxy and
+pushes a WebSocket event that makes every open page refetch the list. A twenty-rule file would do
+all three twenty times. This does them **once**.
+
+- **Everything arrives disabled** unless `enable` is explicitly true, and the dialog's checkbox is
+  off by default. A `PAUSE_REQUEST` rule arriving enabled could be holding a real caller a second
+  after the click — the one outcome you cannot undo by reading it first.
+- **Imported rules go after everything already here**, renumbered from the highest existing
+  priority upwards, keeping their order from the file. The file's priorities were relative to the
+  deployment it came from; interleaving them would silently change when existing rules run.
+- **A bad rule does not cancel the good ones.** Each is validated on its own and the result names
+  every rejection with the validator's own words (`{index, name, status, id?, problems[]}`).
+  Discarding nine working rules over a tenth is the worse failure — and so is a quiet partial
+  import, which is why nothing is summarised to a count.
+- **No merge by id or by name.** Import always creates. Replacing a rule is import-then-delete:
+  two visible steps beat one invisible one.
+
+The dialog previews the file **before** anything is created — match, actions, and which rules can
+hold a caller, called out above the list rather than found by scrolling.
+
+Verified live: a real rule exported and re-imported came back identical on name, description,
+match, actions and `stopProcessing` with a fresh id; a file of three rules (one valid, one
+duplicate-of-existing, one malformed) imported 2 and rejected 1 with both of its problems listed;
+imported rules landed at priority 110/120, disabled, while the proxy snapshot still contained only
+the one enabled rule. Duplicating an enabled rule produced an enabled `(copy 2)` — `(copy)` being
+taken — next to its original.
+
+> Found while testing this live: a rule in the file with no `match` at all threw out of
+> `describeMatch` inside the preview's computed, and the throw took the *entire dialog's*
+> rendering with it — a blank panel at exactly the moment you need to read an untrusted file. The
+> preview now treats every field as missing-until-proven-present.
+
 ## API
 
 | Method | Path | |
@@ -470,6 +537,7 @@ combined with a pause, or two pauses.
 | `GET` / `PUT` / `DELETE` | `/interception/rules/{id}` | |
 | `POST` | `/interception/rules/{id}/enabled` | |
 | `POST` | `/interception/rules/reorder` | renumbers priorities from an id order |
+| `POST` | `/interception/rules/import` | creates every rule in a file that can be created; reports on each |
 | `GET` / `POST` | `/interception/enabled` | the master switch |
 | `GET` | `/interception/action-types` | what the UI's action picker is built from |
 | `POST` | `/interception/paused` | proxy registers a held call |

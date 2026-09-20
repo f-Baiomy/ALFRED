@@ -28,7 +28,17 @@
     Rules
     <span class="muted">{{ state.rules().length }} · runs top to bottom</span>
   </h2>
-  <button type="button" class="action-btn primary" (click)="newRule()">+ New rule</button>
+  <div class="rules-tools">
+    @if (state.rules().length > 0) {
+      <button type="button" class="action-btn" title="Download every rule as a file" (click)="exportAll()">
+        ⤓ Export all
+      </button>
+    }
+    <button type="button" class="action-btn" title="Create rules from an exported file" (click)="openImport()">
+      ⤒ Import
+    </button>
+    <button type="button" class="action-btn primary" (click)="newRule()">+ New rule</button>
+  </div>
 </div>
 
 @if (state.rules().length === 0) {
@@ -79,6 +89,9 @@
           >
             <span class="switch-knob"></span>
           </button>
+          <!-- Icons, so the two worded buttons stay the ones that change or destroy a rule. -->
+          <button type="button" class="icon-btn" title="Duplicate this rule" (click)="duplicate(rule, $event)">⧉</button>
+          <button type="button" class="icon-btn" title="Export this rule to a file" (click)="exportOne(rule, $event)">⤓</button>
           <button type="button" class="action-btn" (click)="edit(rule)">Edit</button>
           <button type="button" class="action-btn danger" (click)="remove(rule)">Delete</button>
         </div>
@@ -89,6 +102,10 @@
 
 @if (editing(); as target) {
   <app-rule-editor [rule]="target === 'new' ? null : target" (closed)="closeEditor()" />
+}
+
+@if (importing()) {
+  <app-import-rules-dialog (closed)="closeImport()" />
 }
 
 <app-confirm-dialog />

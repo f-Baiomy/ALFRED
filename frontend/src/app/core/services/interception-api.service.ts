@@ -7,6 +7,7 @@ import {
   InterceptionRuleDraft,
   PauseDecision,
   PausedCall,
+  RuleImportResult,
 } from '../models/interception.model';
 import { AppConfigService } from './app-config.service';
 
@@ -54,6 +55,14 @@ export class InterceptionApiService {
   /** Served by the backend so the action list has exactly one source (see InterceptionRulesController). */
   actionTypes(): Observable<ActionTypeInfo[]> {
     return this.http.get<ActionTypeInfo[]>(`${this.baseUrl}/action-types`);
+  }
+
+  /**
+   * One request for a whole file, not one per rule. Twenty creates would be twenty round trips,
+   * twenty republishes to the proxy and twenty WebSocket pushes each refetching the rule list.
+   */
+  importRules(rules: readonly InterceptionRuleDraft[], enable: boolean): Observable<RuleImportResult> {
+    return this.http.post<RuleImportResult>(`${this.baseUrl}/rules/import`, { rules, enable });
   }
 
   listPaused(): Observable<PausedCall[]> {

@@ -9,9 +9,11 @@ import {
   InterceptionRuleDraft,
   PauseDecision,
   PausedCall,
+  RuleImportResult,
 } from '../models/interception.model';
 import { AppConfigService } from '../services/app-config.service';
 import { InterceptionApiService } from '../services/interception-api.service';
+import { copyName } from '../../shared/utils/interception-rules-file';
 
 /**
  * Root-provided facade for the Interception tab. Fetch-on-demand driven by the /ws/interception
@@ -152,6 +154,30 @@ export class InterceptionStateService {
 
   reorder(ids: readonly string[]): Observable<InterceptionRule[]> {
     return this.api.reorder(ids).pipe(tap(() => this.refreshRules()));
+  }
+
+  /**
+   * Copies a rule. The copy keeps the original's enabled state and priority, so it lands next to
+   * what it was copied from and behaves the way that rule does - you duplicate a rule to change
+   * one thing about it, not to get a disabled skeleton you then have to remember to switch on.
+   *
+   * Note the consequence on a rule that DELAYS or PAUSES: two enabled copies act twice. The list
+   * marks a pausing rule "holds the caller" for exactly this reason.
+   */
+  duplicateRule(rule: InterceptionRule): Observable<InterceptionRule | null> {
+    return this.createRule({
+      name: copyName(rule.name, this.rules().map((r) => r.name)),
+      description: rule.description ?? null,
+      enabled: rule.enabled,
+      priority: rule.priority,
+      stopProcessing: rule.stopProcessing,
+      match: rule.match,
+      actions: rule.actions,
+    });
+  }
+
+  importRules(rules: readonly InterceptionRuleDraft[], enable: boolean): Observable<RuleImportResult> {
+    return this.api.importRules(rules, enable).pipe(tap(() => this.refreshRules()));
   }
 
   takeControl(callId: string): Observable<void> {

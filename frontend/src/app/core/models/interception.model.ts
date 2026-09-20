@@ -142,6 +142,27 @@ export interface InterceptionRule {
   readonly updatedAt?: string | null;
 }
 
+/**
+ * What happened to each rule in an imported file.
+ *
+ * Per rule rather than one pass/fail: discarding nine working rules because a tenth is malformed
+ * is the worse failure, and a quiet partial import is worse still - so every rejection carries
+ * the validator's own words and the position it had in the file.
+ */
+export interface RuleImportResult {
+  readonly imported: number;
+  readonly rejected: number;
+  readonly results: readonly RuleImportOutcome[];
+}
+
+export interface RuleImportOutcome {
+  readonly index: number;
+  readonly name?: string | null;
+  readonly status: 'imported' | 'rejected';
+  readonly id?: string | null;
+  readonly problems?: readonly string[] | null;
+}
+
 /** What POST/PUT accept - id and timestamps are assigned server-side. */
 export interface InterceptionRuleDraft {
   readonly name: string;
@@ -495,7 +516,13 @@ export function describeAction(action: RuleAction): string {
       return action.status ? `Reply with ${action.status} — host still called` : 'Reply with a different response';
     case 'PAUSE_REQUEST':
     case 'PAUSE_RESPONSE':
-      return `Pause ${action.type === 'PAUSE_REQUEST' ? 'request' : 'response'} — wait ${action.timeoutSeconds}s`;
+      // The timeout can genuinely be missing: this also describes rules read out of an imported
+      // file, before the backend has had a chance to reject one. "wait undefineds" is not a
+      // useful thing to print on the screen whose job is to show you an untrusted file.
+      return (
+        `Pause ${action.type === 'PAUSE_REQUEST' ? 'request' : 'response'} — ` +
+        (action.timeoutSeconds == null ? 'no timeout set' : `wait ${action.timeoutSeconds}s`)
+      );
     default:
       return label;
   }

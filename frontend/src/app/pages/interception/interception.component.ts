@@ -4,8 +4,11 @@ import { describeAction, describeMatch } from '../../core/models/interception.mo
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
+import { ImportRulesDialogComponent } from '../../components/import-rules-dialog/import-rules-dialog.component';
 import { PausedCallsComponent } from '../../components/paused-calls/paused-calls.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
+import { downloadJson } from '../../shared/utils/download';
+import { buildRulesFile, rulesFileName } from '../../shared/utils/interception-rules-file';
 
 /**
  * The Interception tab: the rule list, the master switch, and the paused-call inspector.
@@ -18,7 +21,7 @@ import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.co
 @Component({
   selector: 'app-interception',
   standalone: true,
-  imports: [ConfirmDialogComponent, PausedCallsComponent, RuleEditorComponent],
+  imports: [ConfirmDialogComponent, ImportRulesDialogComponent, PausedCallsComponent, RuleEditorComponent],
   templateUrl: './interception.component.html',
 })
 export class InterceptionComponent {
@@ -27,6 +30,8 @@ export class InterceptionComponent {
 
   /** The rule currently open in the editor: a rule to edit, 'new' for a blank one, null for closed. */
   readonly editing = signal<InterceptionRule | 'new' | null>(null);
+
+  readonly importing = signal(false);
 
   readonly describeMatch = describeMatch;
   readonly describeAction = describeAction;
@@ -53,6 +58,49 @@ export class InterceptionComponent {
   newRule(): void {
     this.state.clearProblems();
     this.editing.set('new');
+  }
+
+  /**
+   * Writes the rules to a file the importer can read back. Pure client-side: GET /rules already
+   * returns everything, and the builder strips the three fields the server assigns.
+   */
+  exportAll(): void {
+    this.exportRules(this.state.rules());
+  }
+
+  exportOne(rule: InterceptionRule, event: Event): void {
+    // The row itself opens the editor on click.
+    event.stopPropagation();
+    this.exportRules([rule]);
+  }
+
+  private exportRules(rules: readonly InterceptionRule[]): void {
+    if (rules.length === 0) return;
+    downloadJson(buildRulesFile(rules), rulesFileName(rules));
+  }
+
+  /**
+   * Copies a rule and opens the editor on the copy.
+   *
+   * Nobody duplicates a rule to keep two identical ones - you duplicate to change something - so
+   * landing in the editor is the next step either way. The copy keeps the original's enabled
+   * state, which for a rule that delays or pauses means two rules now act on the same traffic;
+   * the list marks a pausing rule "holds the caller" for exactly that reason.
+   */
+  duplicate(rule: InterceptionRule, event: Event): void {
+    event.stopPropagation();
+    this.state.clearProblems();
+    this.state.duplicateRule(rule).subscribe((created) => {
+      if (created) this.editing.set(created);
+    });
+  }
+
+  openImport(): void {
+    this.importing.set(true);
+  }
+
+  closeImport(): void {
+    this.importing.set(false);
   }
 
   edit(rule: InterceptionRule): void {

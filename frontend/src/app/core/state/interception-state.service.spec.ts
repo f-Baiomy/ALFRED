@@ -141,6 +141,68 @@ describe('InterceptionStateService', () => {
     http.expectOne(`${BACKEND}/interception/paused`).flush([]);
   });
 
+  describe('duplicating a rule', () => {
+    it('copies everything about it under a distinguishable name', () => {
+      flush({ rules: [rule()] });
+
+      service.duplicateRule(rule()).subscribe();
+
+      const request = http.expectOne({ method: 'POST', url: `${BACKEND}/interception/rules` });
+      expect(request.request.body.name).toBe('Slow Sabre (copy)');
+      expect(request.request.body.match).toEqual(rule().match);
+      expect(request.request.body.actions).toEqual(rule().actions);
+      expect(request.request.body.priority).toBe(10);
+      request.flush(rule({ id: 'r2', name: 'Slow Sabre (copy)' }));
+      http.expectOne(`${BACKEND}/interception/rules`).flush([]);
+    });
+
+    it('keeps the original switched-on state rather than landing inert', () => {
+      // You duplicate a rule to change one thing about it, not to get a skeleton you then have
+      // to remember to switch on.
+      flush({ rules: [rule({ enabled: true })] });
+
+      service.duplicateRule(rule({ enabled: true })).subscribe();
+
+      const request = http.expectOne({ method: 'POST', url: `${BACKEND}/interception/rules` });
+      expect(request.request.body.enabled).toBeTrue();
+      request.flush(rule({ id: 'r2' }));
+      http.expectOne(`${BACKEND}/interception/rules`).flush([]);
+    });
+
+    it('copies a disabled rule as disabled', () => {
+      flush({ rules: [rule({ enabled: false })] });
+
+      service.duplicateRule(rule({ enabled: false })).subscribe();
+
+      const request = http.expectOne({ method: 'POST', url: `${BACKEND}/interception/rules` });
+      expect(request.request.body.enabled).toBeFalse();
+      request.flush(rule({ id: 'r2' }));
+      http.expectOne(`${BACKEND}/interception/rules`).flush([]);
+    });
+
+    it('does not collide with a copy that already exists', () => {
+      flush({ rules: [rule(), rule({ id: 'r2', name: 'Slow Sabre (copy)' })] });
+
+      service.duplicateRule(rule()).subscribe();
+
+      const request = http.expectOne({ method: 'POST', url: `${BACKEND}/interception/rules` });
+      expect(request.request.body.name).toBe('Slow Sabre (copy 2)');
+      request.flush(rule({ id: 'r3' }));
+      http.expectOne(`${BACKEND}/interception/rules`).flush([]);
+    });
+  });
+
+  it('imports a whole file in one request and refetches once', () => {
+    flush();
+
+    service.importRules([{ name: 'A', match: {}, actions: [] }], false).subscribe();
+
+    const request = http.expectOne(`${BACKEND}/interception/rules/import`);
+    expect(request.request.body).toEqual({ rules: [{ name: 'A', match: {}, actions: [] }], enable: false });
+    request.flush({ imported: 1, rejected: 0, results: [] });
+    http.expectOne(`${BACKEND}/interception/rules`).flush([]);
+  });
+
   it('sends the master switch and reflects what the backend actually stored', () => {
     flush({ enabled: false });
 
