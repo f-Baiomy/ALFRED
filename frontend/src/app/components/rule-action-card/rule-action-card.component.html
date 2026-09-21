@@ -1,0 +1,358 @@
+@if (editor.isConditional(step.action.type)) {
+  <!-- A condition is a STEP, in the same list as the actions and moved the same way - not a
+       property bolted onto each one. Branches are tried in order and the first match wins. -->
+  <div class="cond-card" [class.is-off]="off">
+    <div class="cond-head">
+      <span class="drag-handle" cdkDragHandle title="Drag to move" aria-label="Drag to move">⠿</span>
+      <span class="action-index">{{ step.index + 1 }}</span>
+      <span class="action-title">Condition</span>
+      @if (!editor.isActionEnabled(step.action)) {
+        <span class="off-tag">off</span>
+      }
+      <app-help-popover
+        [entries]="editor.actionHelp(step.action)"
+        [summary]="editor.summaryOf(step.action)"
+        label="How do conditions work?"
+      />
+      <span class="action-controls">
+        <button
+          type="button"
+          class="icon-btn power"
+          [class.on]="editor.isActionEnabled(step.action)"
+          [title]="editor.isActionEnabled(step.action) ? 'On — turn off, along with everything inside it' : 'Off — turn on'"
+          (click)="editor.toggleEnabled(step.path)"
+        >⏻</button>
+        <button type="button" class="icon-btn" title="Move up" [disabled]="step.index === 0" (click)="editor.moveAt(step.path, -1)">▲</button>
+        <button type="button" class="icon-btn" title="Move down" [disabled]="step.index === editor.siblingCount(step.path) - 1" (click)="editor.moveAt(step.path, 1)">▼</button>
+        <button type="button" class="icon-btn danger" title="Remove" (click)="editor.removeAt(step.path)">×</button>
+      </span>
+    </div>
+
+    @for (branch of step.action.branches ?? []; track $index; let bi = $index, first = $first) {
+      <div class="cond-branch">
+        <div class="cond-branch-head">
+          <span class="cond-kw">{{ first ? 'IF' : 'ELSE IF' }}</span>
+          <span class="cond-joiner">match</span>
+          <app-select-picker
+            [options]="editor.combineOptions"
+            [value]="branch.combine ?? 'ALL'"
+            (valueChange)="editor.setCombine(step.path, bi, $event)"
+          />
+          <span class="cond-joiner">of these</span>
+          @if (!first) {
+            <button type="button" class="icon-btn danger cond-branch-remove" title="Remove this branch" (click)="editor.removeBranch(step.path, bi)">×</button>
+          }
+        </div>
+
+        @for (condition of branch.conditions; track $index; let ci = $index) {
+          <div class="cond-row">
+            <span class="cond-and">{{ ci === 0 ? '' : (branch.combine === 'ANY' ? 'or' : 'and') }}</span>
+            <app-select-picker
+              [options]="editor.subjectOptions(step.path)"
+              [value]="condition.subject"
+              (valueChange)="editor.onSubjectChange(step.path, bi, ci, $event)"
+            />
+            <app-help-popover
+              [entries]="editor.conditionHelp(condition)"
+              [summary]="editor.describeCondition(condition)"
+              label="What does this condition check?"
+            />
+            @if (editor.needsConditionName(condition)) {
+              <input
+                type="text"
+                class="cond-name"
+                [value]="condition.name ?? ''"
+                [placeholder]="editor.conditionNamePlaceholder(condition)"
+                (input)="editor.onConditionText(step.path, bi, ci, 'name', $event)"
+              />
+            }
+            <app-select-picker
+              [options]="editor.operatorOptions"
+              [value]="condition.operator"
+              (valueChange)="editor.onOperatorChange(step.path, bi, ci, $event)"
+            />
+            @if (editor.needsConditionValue(condition)) {
+              <input
+                type="text"
+                class="cond-value"
+                [value]="condition.value ?? ''"
+                placeholder="value"
+                (input)="editor.onConditionText(step.path, bi, ci, 'value', $event)"
+              />
+              <label class="cond-case" title="Compare the value exactly as typed">
+                <input type="checkbox" [checked]="condition.caseSensitive === true" (change)="editor.onCaseSensitive(step.path, bi, ci, $event)" />
+                Aa
+              </label>
+            }
+            <button type="button" class="icon-btn danger" title="Remove this condition" (click)="editor.removeCondition(step.path, bi, ci)">×</button>
+          </div>
+        } @empty {
+          <p class="cond-empty">
+            A branch with no conditions would always match and swallow everything below it — add one.
+          </p>
+        }
+
+        <button type="button" class="pill add cond-add" (click)="editor.addCondition(step.path, bi)">+ Add condition</button>
+
+        <div class="cond-then">
+          <div class="cond-then-label">then</div>
+          <div
+            class="cond-then-drop-list"
+            cdkDropList
+            [id]="editor.listId(step.path.concat([bi]))"
+            [cdkDropListConnectedTo]="editor.dropListIds()"
+            [cdkDropListEnterPredicate]="editor.canDropInto"
+            (cdkDropListDropped)="editor.onActionDropped($event)"
+          >
+            @for (nested of branch.actions; track $index; let ni = $index) {
+              <!-- The same component, one level down. One definition however deep it goes, and
+                   `cdkDrag` sits here - inside this list - so the card is a real item of it.
+                   parentDisabled carries down whether THIS branch's own condition is off, so a
+                   dimmed card is honest even though the nested action's own `enabled` field is
+                   untouched: it keeps whatever you set it to for when the condition comes back on. -->
+              @let nestedStep = {
+                action: nested,
+                index: ni,
+                path: step.path.concat([bi, ni]),
+                parentDisabled: off
+              };
+              <app-rule-action-card cdkDrag [cdkDragData]="nestedStep" (cdkDragMoved)="editor.onDragMoved()" [step]="nestedStep" [editor]="editor" />
+            } @empty {
+              <p class="cond-empty">Nothing happens when this matches yet.</p>
+            }
+          </div>
+          <div class="add-action-group">
+            @for (type of editor.nestableTypes(step.path); track type) {
+              <button type="button" class="pill add" (click)="editor.addBranchAction(step.path, bi, type)">+ {{ editor.actionLabels[type] }}</button>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
+    <div class="cond-branch else">
+      <div class="cond-branch-head">
+        <span class="cond-kw else">ELSE</span>
+        <span class="cond-joiner">when nothing above matched</span>
+        <button type="button" class="pill add cond-add-branch" (click)="editor.addBranch(step.path)">+ Add an ELSE IF</button>
+      </div>
+      <div class="cond-then">
+        <div class="cond-then-label">then</div>
+        <div
+          class="cond-then-drop-list"
+          cdkDropList
+          [id]="editor.listId(step.path.concat([-1]))"
+          [cdkDropListConnectedTo]="editor.dropListIds()"
+          [cdkDropListEnterPredicate]="editor.canDropInto"
+          (cdkDropListDropped)="editor.onActionDropped($event)"
+        >
+          @for (nested of step.action.otherwise ?? []; track $index; let ni = $index) {
+            @let elseStep = {
+              action: nested,
+              index: ni,
+              path: step.path.concat([-1, ni]),
+              parentDisabled: off
+            };
+            <app-rule-action-card cdkDrag [cdkDragData]="elseStep" (cdkDragMoved)="editor.onDragMoved()" [step]="elseStep" [editor]="editor" />
+          } @empty {
+            <p class="cond-empty">Nothing — the call carries on untouched.</p>
+          }
+        </div>
+        <div class="add-action-group">
+          @for (type of editor.nestableTypes(step.path); track type) {
+            <button type="button" class="pill add" (click)="editor.addBranchAction(step.path, -1, type)">+ {{ editor.actionLabels[type] }}</button>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+} @else {
+  <div
+    class="action-card"
+    [class.danger]="
+      editor.isPause(step.action.type) ||
+      step.action.type === 'ABORT_REQUEST' ||
+      editor.isFailure(step.action.type) ||
+      editor.isMock(step.action.type)
+    "
+    [class.host]="step.action.type === 'SEND_TO_HOST'"
+    [class.is-off]="off"
+  >
+    <div class="action-head">
+      <span class="drag-handle" cdkDragHandle title="Drag to move" aria-label="Drag to move">⠿</span>
+      <span class="action-index">{{ step.index + 1 }}</span>
+      <span class="action-title">{{ editor.labelFor(step.action.type) }}</span>
+      @if (!editor.isActionEnabled(step.action)) {
+        <span class="off-tag">off</span>
+      }
+      <app-help-popover
+        [entries]="editor.actionHelp(step.action)"
+        [summary]="editor.summaryOf(step.action)"
+        [label]="'What does ' + editor.labelFor(step.action.type) + ' do?'"
+      />
+      <span class="action-controls">
+        <button
+          type="button"
+          class="icon-btn power"
+          [class.on]="editor.isActionEnabled(step.action)"
+          [title]="editor.isActionEnabled(step.action) ? 'On — click to disable' : 'Off — click to enable'"
+          (click)="editor.toggleEnabled(step.path)"
+        >⏻</button>
+        <button type="button" class="icon-btn" title="Move up" [disabled]="step.index === 0" (click)="editor.moveAt(step.path, -1)">▲</button>
+        <button type="button" class="icon-btn" title="Move down" [disabled]="step.index === editor.siblingCount(step.path) - 1" (click)="editor.moveAt(step.path, 1)">▼</button>
+        <button type="button" class="icon-btn danger" title="Remove" (click)="editor.removeAt(step.path)">×</button>
+      </span>
+    </div>
+
+    @if (!editor.isBare(step.action.type)) {
+      <div class="action-fields">
+        @if (editor.isDelay(step.action.type)) {
+          <label class="inline-field">
+            <span>Hold for</span>
+            <input type="number" min="0" [value]="step.action.durationMs" (input)="editor.onNumber(step.path, 'durationMs', $event)" />
+            <em>ms</em>
+          </label>
+        }
+
+        @if (editor.isHeaderSet(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Name</span>
+            <input type="text" [value]="step.action.name" (input)="editor.onText(step.path, 'name', $event)" />
+          </label>
+          <label class="inline-field grow">
+            <span>Value</span>
+            <input type="text" [value]="editor.valueText(step.action)" (input)="editor.onValue(step.path, $event, false)" />
+          </label>
+        }
+
+        @if (editor.isNameOnly(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Name</span>
+            <input type="text" [value]="step.action.name" (input)="editor.onText(step.path, 'name', $event)" />
+          </label>
+        }
+
+        @if (editor.isJsonField(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Field path</span>
+            <input type="text" [value]="step.action.path" (input)="editor.onText(step.path, 'path', $event)" placeholder="itinerary.seatsRemaining" />
+          </label>
+          <label class="inline-field">
+            <span>Set to</span>
+            <input type="text" [value]="editor.valueText(step.action)" (input)="editor.onValue(step.path, $event, true)" placeholder="0" />
+          </label>
+          <small class="muted span-all">
+            Dotted path. <code>segments[0].cabin</code> and <code>segments[*].cabin</code> both work.
+            A value is read as JSON where it can be, so <code>5</code> is a number and <code>EUR</code> is text.
+          </small>
+        }
+
+        @if (editor.isStatus(step.action.type)) {
+          <div class="inline-field">
+            <span>Status</span>
+            <app-status-picker
+              [value]="step.action.status ?? null"
+              (valueChange)="editor.onStatusChange(step.path, $event)"
+            />
+          </div>
+        }
+
+        @if (editor.isBodyOnly(step.action.type)) {
+          <label class="inline-field grow span-all">
+            <span>Body</span>
+            <textarea rows="3" [value]="step.action.body" (input)="editor.onText(step.path, 'body', $event)"></textarea>
+          </label>
+          <small class="muted span-all">Replaces the whole body, whatever its content type. Leave empty to blank it.</small>
+        }
+
+        @if (editor.isMock(step.action.type) || editor.isReplace(step.action.type)) {
+          <div class="inline-field">
+            <span>Status</span>
+            <app-status-picker
+              [value]="step.action.status ?? null"
+              (valueChange)="editor.onStatusChange(step.path, $event)"
+            />
+          </div>
+          <label class="inline-field grow span-all">
+            <span>Body</span>
+            <textarea rows="3" [value]="step.action.body" (input)="editor.onText(step.path, 'body', $event)"></textarea>
+          </label>
+          <small class="muted span-all">
+            @if (editor.isMock(step.action.type)) {
+              The host is never contacted — nothing after this action runs, and the supplier never sees the call.
+            } @else {
+              The host <strong>is</strong> really called and logged; only what the caller receives is swapped.
+              Leave a field empty to keep what the host sent.
+            }
+          </small>
+        }
+
+        @if (editor.isFailure(step.action.type)) {
+          <div class="inline-field grow span-all">
+            <span>What the caller sees</span>
+            <app-select-picker
+              [options]="editor.failureOptions"
+              [value]="step.action.failure ?? 'CONNECTION_RESET'"
+              (valueChange)="editor.onFailureChange(step.path, $event)"
+            />
+          </div>
+
+          @if (editor.needsHangDuration(step.action)) {
+            <label class="inline-field">
+              <span>Hold for</span>
+              <input type="number" min="0" [value]="step.action.durationMs" (input)="editor.onNumber(step.path, 'durationMs', $event)" />
+              <em>ms, then drop it</em>
+            </label>
+          }
+
+          @if (editor.needsGatewayStatus(step.action)) {
+            <div class="inline-field">
+              <span>Status</span>
+              <!-- Only the three an intermediary actually produces. A 500 is the supplier
+                   answering, which is Mock response, not a gateway failure. -->
+              <app-status-picker
+                [value]="step.action.status ?? null"
+                [only]="editor.gatewayStatuses"
+                (valueChange)="editor.onStatusChange(step.path, $event)"
+              />
+            </div>
+          }
+
+          @if (editor.needsTruncatedBody(step.action)) {
+            <label class="inline-field grow span-all">
+              <span>Body to cut short</span>
+              <textarea rows="3" [value]="step.action.body" (input)="editor.onText(step.path, 'body', $event)"></textarea>
+            </label>
+          }
+
+          <small class="muted span-all">{{ editor.failureHint(step.action) }}</small>
+        }
+
+        @if (editor.isPause(step.action.type)) {
+          <label class="inline-field">
+            <span>Wait up to</span>
+            <input type="number" min="1" max="300" [value]="step.action.timeoutSeconds" (input)="editor.onNumber(step.path, 'timeoutSeconds', $event)" />
+            <em>seconds</em>
+          </label>
+          <div class="inline-field">
+            <span>If nobody answers</span>
+            <app-select-picker
+              [options]="editor.onTimeoutOptions"
+              [value]="step.action.onTimeout ?? 'release'"
+              (valueChange)="editor.onTimeoutChange(step.path, $event)"
+            />
+          </div>
+          <small class="muted span-all">The caller's connection is held open the whole time it is paused.</small>
+        }
+      </div>
+    } @else {
+      <p class="action-bare">
+        @if (step.action.type === 'SEND_TO_HOST') {
+          Forwards the call for real, and refuses any later rule that would mock or abort it.
+        } @else {
+          Kills the connection immediately — the caller sees a network failure, not a status code.
+        }
+      </p>
+    }
+  </div>
+}

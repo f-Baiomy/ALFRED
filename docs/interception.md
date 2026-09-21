@@ -501,10 +501,48 @@ Verified: 15 tests exercise every scope combination (reorder, top-level into a b
 back to top-level, branch to branch, into the ELSE) and the phase/depth predicate, catching both
 bugs above before they reached a browser. Live in the running app, every drop list renders with
 the correct connected id (`top:request`, `top:response`, `list:1,0`, `list:1,-1`, …) and every
-draggable card has its handle attached — confirmed by inspecting the DOM directly, since Angular
-CDK's drag-and-drop did not respond to synthetic pointer/mouse events dispatched through this
-session's browser automation, a known limitation of driving CDK that way rather than a defect
-found in the feature.
+draggable card has its handle attached.
+
+### Three more bugs, all of which made the drag *look* like it did nothing
+
+**The cards were never actually in a drop list at all.** Every action card was rendered from one
+`<ng-template #actionCard>` declared at the root of the rule editor and stamped out with
+`*ngTemplateOutlet`. An embedded view resolves DI against the place its template was **declared**,
+not the place it was inserted — and CDK wires a drag to its list purely through DI (`CdkDrag`
+injects `CDK_DROP_LIST` and calls `addItem()` on it; there is no content query). Declared at the
+root, the template had no `cdkDropList` ancestor, so every card silently became a CDK **free
+drag**: it followed the pointer, stayed wherever it was released, produced no placeholder, shoved
+no siblings aside, and never fired `cdkDropListDropped`. Measured live: `dropContainer` null and
+the lane's list holding 0 items. Fixed by making the card a real component
+(`RuleActionCardComponent`) with `cdkDrag` applied at the **usage site**, lexically inside each
+list — the same shape the session-cycle call list has always used (`<app-call-card cdkDrag>` with
+its handle inside the card's own template). A component's view resolves DI up through its host, so
+the handle still finds its drag. Post-fix: `dropContainer` = `top:response`, list item count 1,
+handle count 1.
+
+**A nested `then` list could never be dropped into.** CDK measures each drop list once, when the
+drag starts, then hit-tests the pointer against that stored rectangle. A condition's `then` list
+lives inside a condition card, which is itself an item of the lane being sorted — so the moment
+CDK shuffled the lane to open a gap, it slid the condition card and the drop zone inside it away
+from the rectangle CDK had stored. CDK then hit-tested the stale position, found the "+ Add"
+buttons sitting there, and refused to enter. Measured: pointer dead centre in the zone,
+`enterPredicate` true, `_canReceive` still false because `elementFromPoint` returned a button.
+Fixed by re-measuring every drop zone in the dialog on `cdkDragMoved` (`onDragMoved`). Verified
+live afterwards, both directions: top level → branch, and branch → back out to the lane.
+
+**The dialog centred itself with `transform: translate(-50%, -50%)`**, unlike every other dialog
+here, which centres with flexbox on `.dialog-backdrop`. A `transform` makes that element the
+*containing block* for any `position: fixed` descendant (CSS spec), and CDK's dragged-card preview
+is `position: fixed` on the assumption that means the viewport. Centred with `inset: 0; margin:
+auto;` instead.
+
+Verified live with a real pointer-event sequence rather than by inspection: mid-drag there is one
+preview, one placeholder, and the other cards translate out of the way to open the gap; on drop
+the event reports `previousIndex → currentIndex`, the underlying `actions()` really reorders, and
+no element is left holding a stray `transform`. One trap worth knowing if you ever script this:
+CDK discards a `mousedown` whose `buttons` is 0, or whose `detail`/`screenX`/`screenY` are all 0,
+as a screen-reader synthetic click — a hand-rolled `new MouseEvent('mousedown')` hits both and the
+drag silently never starts.
 
 ## Rule precedence
 

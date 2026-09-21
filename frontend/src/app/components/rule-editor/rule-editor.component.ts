@@ -1,6 +1,5 @@
-import { NgTemplateOutlet } from '@angular/common';
-import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
-import { Component, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
+import { CdkDrag, CdkDragDrop, CdkDropList, DragDropRegistry } from '@angular/cdk/drag-drop';
+import { Component, ElementRef, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import {
   ACTION_LABELS,
   ActionPhase,
@@ -30,8 +29,7 @@ import {
 } from '../../core/models/interception.model';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
-import { StatusPickerComponent } from '../status-picker/status-picker.component';
-import { HelpPopoverComponent } from '../help-popover/help-popover.component';
+import { RuleActionCardComponent } from '../rule-action-card/rule-action-card.component';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
 import {
@@ -224,6 +222,18 @@ function collectListIds(actions: readonly RuleAction[], prefix: readonly number[
   return ids;
 }
 
+/**
+ * The part of CDK's internal DropListRef this component has to reach for: where the list is, and
+ * "measure yourself again". Neither is on the public API, and there is no public way to ask CDK to
+ * re-measure mid-drag - see onDragMoved for why that is needed at all. Narrowed to these two
+ * members so a CDK upgrade that renames either fails here, loudly, rather than silently making
+ * nested drops stop working again.
+ */
+interface MeasurableDropList {
+  readonly element: HTMLElement;
+  _cacheParentPositions(): void;
+}
+
 /** What a `cdkDrag` here carries: enough to find the action again after it moves. */
 interface DragStep {
   readonly action: RuleAction;
@@ -291,20 +301,18 @@ function defaultCondition(phase: ActionPhase): Condition {
 @Component({
   selector: 'app-rule-editor',
   standalone: true,
-  // One action-card definition rendered into both pipeline lanes, rather than the same 70 lines
-  // of field rows duplicated per phase.
+  // One action-card definition rendered into both pipeline lanes and into every branch, rather
+  // than the same 70 lines of field rows duplicated per phase - as a COMPONENT, because that is
+  // what lets each card be a real item of the list it is drawn in. See RuleActionCardComponent.
   // SelectPickerComponent rather than a native <select>: a native dropdown's LIST is drawn by the
   // OS and only inconsistently honours page theming, so it renders as a pale system menu on
   // Alfred's dark surfaces (verified live). See that component's own docstring.
   imports: [
-    NgTemplateOutlet,
     SelectPickerComponent,
     MultiSelectPickerComponent,
-    StatusPickerComponent,
-    HelpPopoverComponent,
+    RuleActionCardComponent,
     CdkDropList,
     CdkDrag,
-    CdkDragHandle,
   ],
   templateUrl: './rule-editor.component.html',
 })
@@ -497,6 +505,50 @@ export class RuleEditorComponent implements OnInit {
 
   /** Every drop list currently on screen, connected to every other one. */
   readonly dropListIds = computed(() => [TOP_REQUEST_LIST, TOP_RESPONSE_LIST, ...collectListIds(this.actions())]);
+
+  /**
+   * This component, for the action cards to call back into - `[editor]="self"`.
+   *
+   * The cards own their layout and their nesting; every field, button and handler still lives
+   * here, so one rule's editing logic stays in one file. See RuleActionCardComponent.
+   */
+  readonly self = this;
+
+  /**
+   * Re-measures every drop zone in this dialog while a drag is in flight.
+   *
+   * CDK measures a drop list ONCE, when the drag starts, and then hit-tests the pointer against
+   * that stored rectangle. That holds for a list that stays put - but a condition's `then` list
+   * lives INSIDE a condition card, and that card is itself an item of the lane being sorted. The
+   * moment CDK shuffles the lane to open a gap, it slides the condition card (and the drop zone
+   * inside it) somewhere its stored rectangle no longer describes. CDK then hit-tests the old
+   * position, finds the "+ Add" buttons sitting there instead of the list, and refuses to enter -
+   * so an action could never be dropped into a branch, which is the whole point of nesting.
+   * Measured: pointer dead centre in the zone, `enterPredicate` true, and `_canReceive` still
+   * false because `elementFromPoint` landed on a button.
+   *
+   * Re-measuring on every move costs a handful of `getBoundingClientRect` calls per pointer event
+   * - the same thing CDK already does while sorting - and a rule has single digits of lists.
+   */
+  onDragMoved(): void {
+    const dialog = this.hostElement.nativeElement;
+    this.dropListRefs().forEach((ref) => {
+      if (dialog.contains(ref.element)) {
+        ref._cacheParentPositions();
+      }
+    });
+  }
+
+  /**
+   * Every live drop list CDK knows about. Read from CDK's own registry rather than tracked by
+   * hand, so branches that appear and disappear stay in step with no bookkeeping here.
+   */
+  private dropListRefs(): Set<MeasurableDropList> {
+    return (this.dragDropRegistry as unknown as { _dropInstances: Set<MeasurableDropList> })._dropInstances;
+  }
+
+  private readonly dragDropRegistry = inject(DragDropRegistry);
+  private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
 
   listId(listPath: readonly number[]): string {
     return nestedListId(listPath);

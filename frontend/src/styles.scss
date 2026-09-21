@@ -5168,10 +5168,15 @@ h1.page-title {
 /* ---- Rule editor ---- */
 
 .dialog.rule-editor {
+  // Centered with inset+margin, not `transform: translate(...)`: a transform on this element
+  // would make it the containing block for any `position: fixed` descendant (CSS spec), which is
+  // exactly what Angular CDK's dragged-card preview is. With a transformed ancestor in the way,
+  // the preview stops tracking the cursor in real viewport coordinates - it floats at a fixed
+  // offset instead, never resolves into a real drop, and the action never actually reorders.
+  // Verified live: this is what produced a card that visually overlaps the list and sticks there.
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  margin: auto;
   z-index: 101;
   width: min(760px, calc(100vw - 3rem));
   max-height: 88vh;
@@ -6141,6 +6146,11 @@ h1.page-title {
 .lane-drop-list,
 .cond-then-drop-list {
   min-height: 0.5rem;
+  /* A flex column with a real gap, like .calls-flat-list: cards that sit flush against each other
+     give a drag nothing to read, since the space a card would open up is the whole feedback. */
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .cdk-drop-list-receiving {
@@ -7140,7 +7150,6 @@ h1.page-title {
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--cyan) 5%, transparent);
-  margin-bottom: 0.5rem;
   overflow: hidden;
 
   /* Off means the whole subtree - branches, conditions, everything nested - runs nothing. */
