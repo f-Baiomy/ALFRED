@@ -1,9 +1,19 @@
 import { Component, DestroyRef, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { interval } from 'rxjs';
-import { PauseCycle, PauseDecision, PauseStage, PausedCall } from '../../core/models/interception.model';
+import {
+  FAILURE_HINTS,
+  FAILURE_OPTIONS,
+  FailureMode,
+  GATEWAY_STATUSES,
+  PauseCycle,
+  PauseDecision,
+  PauseStage,
+  PausedCall,
+} from '../../core/models/interception.model';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
+import { SelectPickerComponent } from '../select-picker/select-picker.component';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { highlightTokens, tokenizeJsonText } from '../../shared/utils/json-tokenizer';
@@ -59,7 +69,7 @@ type BodyMode = 'edit' | 'inspect';
 @Component({
   selector: 'app-paused-calls',
   standalone: true,
-  imports: [StatusPickerComponent, JsonFlatViewComponent, JsonTokensComponent],
+  imports: [StatusPickerComponent, SelectPickerComponent, JsonFlatViewComponent, JsonTokensComponent],
   templateUrl: './paused-calls.component.html',
 })
 export class PausedCallsComponent {
@@ -103,6 +113,20 @@ export class PausedCallsComponent {
   readonly replaceOpen = signal(false);
   readonly replaceText = signal('');
   readonly replaceError = signal<string | null>(null);
+
+  /**
+   * "Mock a network failure instead" - the SAME SIMULATE_FAILURE action a rule already has,
+   * reused rather than reinvented, so the caller experiences exactly the modes the rule editor
+   * already documents (see FAILURE_OPTIONS/FAILURE_HINTS) whether a rule chose one ahead of time
+   * or a human chooses one here, by hand, while looking at a real call.
+   */
+  readonly failureOpen = signal(false);
+  readonly failureMode = signal<FailureMode>('CONNECTION_RESET');
+  readonly failureDurationMs = signal(30000);
+  readonly failureStatus = signal(504);
+  readonly failureBody = signal('');
+  readonly failureOptions = FAILURE_OPTIONS;
+  readonly gatewayStatuses = GATEWAY_STATUSES;
 
   readonly selected = computed<PausedCall | null>(() => {
     const calls = this.state.pausedCalls();
@@ -365,6 +389,7 @@ export class PausedCallsComponent {
         this.replaceOpen.set(false);
         this.replaceText.set('');
         this.replaceError.set(null);
+        this.failureOpen.set(false);
         this.query.set('');
         this.matchIndex.set(0);
         this.bodyMode.set('edit');
@@ -680,6 +705,7 @@ export class PausedCallsComponent {
     this.editedHeaders.set(null);
     this.replaceOpen.set(false);
     this.replaceError.set(null);
+    this.failureOpen.set(false);
   }
 
   /**
@@ -714,6 +740,69 @@ export class PausedCallsComponent {
     const call = this.selected();
     if (!call || this.busy()) return;
     this.send(call, { action: 'abort' });
+  }
+
+  toggleFailure(): void {
+    const opening = !this.failureOpen();
+    if (opening) {
+      // Seeded with what is actually on screen, the same idea toggleReplace() already uses for
+      // its own panel - a body to cut short starts from the real one instead of a blank box.
+      this.failureMode.set('CONNECTION_RESET');
+      this.failureDurationMs.set(30000);
+      this.failureStatus.set(504);
+      this.failureBody.set(this.currentBody());
+    }
+    this.failureOpen.set(opening);
+  }
+
+  onFailureModeChange(value: string): void {
+    this.failureMode.set(value as FailureMode);
+  }
+
+  failureHint(): string {
+    return FAILURE_HINTS[this.failureMode()];
+  }
+
+  needsHangDuration(): boolean {
+    return this.failureMode() === 'HANG_THEN_DROP';
+  }
+
+  needsGatewayStatus(): boolean {
+    return this.failureMode() === 'GATEWAY_ERROR';
+  }
+
+  needsTruncatedBody(): boolean {
+    return this.failureMode() === 'TRUNCATED_BODY';
+  }
+
+  onFailureDuration(event: Event): void {
+    this.failureDurationMs.set(Number((event.target as HTMLInputElement).value) || 0);
+  }
+
+  onFailureBody(event: Event): void {
+    this.failureBody.set((event.target as HTMLTextAreaElement).value);
+  }
+
+  /**
+   * Resolves the pause by reproducing a network failure instead of releasing or plainly aborting -
+   * the exact same SIMULATE_FAILURE the rule editor offers ahead of time, chosen here for one call
+   * a human is already looking at. Only the field the chosen mode actually reads is sent, same
+   * reasoning as release(): a stale duration/status/body left over from switching modes must not
+   * be saved and then silently ignored.
+   */
+  simulateFailure(): void {
+    const call = this.selected();
+    if (!call || this.busy()) return;
+    const mode = this.failureMode();
+    this.send(call, {
+      action: 'simulate_failure',
+      failure: {
+        mode,
+        durationMs: mode === 'HANG_THEN_DROP' ? this.failureDurationMs() : null,
+        status: mode === 'GATEWAY_ERROR' ? this.failureStatus() : null,
+        body: mode === 'TRUNCATED_BODY' ? this.failureBody() : null,
+      },
+    });
   }
 
   releaseAll(): void {

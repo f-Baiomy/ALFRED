@@ -492,6 +492,9 @@
               <button type="button" class="action-btn danger" [disabled]="busy()" (click)="abort()">
                 Abort connection
               </button>
+              <button type="button" class="link-btn paused-failure-toggle" [disabled]="busy()" (click)="toggleFailure()">
+                {{ failureOpen() ? '▲ Close' : '▸ Mock a network failure instead' }}
+              </button>
               @if (held(call)) {
                 <span class="paused-countdown held">◉ held {{ heldFor(call) }} · no timeout</span>
               } @else {
@@ -500,6 +503,46 @@
                 </span>
               }
             </div>
+
+            <!-- The SAME SIMULATE_FAILURE action a rule already offers, resolved by hand for one
+                 call instead of ahead of time for every call a rule matches - see
+                 simulateFailure(). Every field here means exactly what it means in the rule
+                 editor, down to the hint text. -->
+            @if (failureOpen()) {
+              <div class="paused-failure">
+                <div class="inline-field grow">
+                  <span>Failure</span>
+                  <app-select-picker
+                    [options]="failureOptions"
+                    [value]="failureMode()"
+                    (valueChange)="onFailureModeChange($event)"
+                  />
+                </div>
+                @if (needsHangDuration()) {
+                  <label class="inline-field">
+                    <span>Hold for</span>
+                    <input type="number" min="0" [value]="failureDurationMs()" (input)="onFailureDuration($event)" />
+                    <em>ms, then drop it</em>
+                  </label>
+                }
+                @if (needsGatewayStatus()) {
+                  <div class="inline-field">
+                    <span>Status</span>
+                    <app-status-picker [value]="failureStatus()" [only]="gatewayStatuses" (valueChange)="failureStatus.set($event)" />
+                  </div>
+                }
+                @if (needsTruncatedBody()) {
+                  <label class="inline-field grow span-all">
+                    <span>Body to cut short</span>
+                    <textarea rows="3" [value]="failureBody()" (input)="onFailureBody($event)"></textarea>
+                  </label>
+                }
+                <small class="muted span-all">{{ failureHint() }}</small>
+                <button type="button" class="action-btn danger" [disabled]="busy()" (click)="simulateFailure()">
+                  Mock this failure now
+                </button>
+              </div>
+            }
           }
         </div>
       }

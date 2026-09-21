@@ -159,6 +159,65 @@ describe('PausedCallsComponent', () => {
     http.expectOne(`${BACKEND}/interception/paused`).flush([]);
   });
 
+  it('mocks a network failure with only the field that mode actually reads', () => {
+    load([paused()]);
+
+    component.toggleFailure();
+    component.onFailureModeChange('GATEWAY_ERROR');
+    component.failureStatus.set(503);
+    component.simulateFailure();
+
+    const request = http.expectOne(`${BACKEND}/interception/paused/call-1/decision`);
+    expect(request.request.body).toEqual({
+      action: 'simulate_failure',
+      failure: { mode: 'GATEWAY_ERROR', durationMs: null, status: 503, body: null },
+    });
+    request.flush(null);
+    http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+  });
+
+  it('leaves the duration/status/body a mode does not use out of the request entirely', () => {
+    load([paused()]);
+
+    component.toggleFailure();
+    component.onFailureModeChange('CONNECTION_RESET');
+    // None of these should end up in the payload: CONNECTION_RESET reads none of them.
+    component.failureDurationMs.set(9999);
+    component.failureStatus.set(500);
+    component.failureBody.set('leftover');
+    component.simulateFailure();
+
+    const request = http.expectOne(`${BACKEND}/interception/paused/call-1/decision`);
+    expect(request.request.body).toEqual({
+      action: 'simulate_failure',
+      failure: { mode: 'CONNECTION_RESET', durationMs: null, status: null, body: null },
+    });
+    request.flush(null);
+    http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+  });
+
+  it('seeds the truncated-body field from the real body, not a blank box', () => {
+    load([paused({ response: { status: 200, headers: {}, body: '{"real":true}' } })]);
+
+    component.toggleFailure();
+
+    // currentBody() pretty-prints, same as the "Replace everything at once" panel seeds from it -
+    // the point of this test is that it is the REAL body, not that it is minified.
+    expect(component.failureBody()).toContain('"real": true');
+  });
+
+  it('closes the failure panel once the decision goes out, same as the replace panel', () => {
+    load([paused()]);
+    component.toggleFailure();
+    expect(component.failureOpen()).toBeTrue();
+
+    component.simulateFailure();
+    http.expectOne(`${BACKEND}/interception/paused/call-1/decision`).flush(null);
+    http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+
+    expect(component.failureOpen()).toBeFalse();
+  });
+
   it('refreshes rather than erroring when the call stopped waiting mid-decision', () => {
     load([paused()]);
 

@@ -234,7 +234,7 @@ class RouteAndLog:
         if verdict.pause and verdict.pause.get('phase') == 'request' and call_id:
             decision = await breakpoints.wait_for_decision(
                 flow, 'request', call_id, verdict.pause, 'inbound', service_name)
-            self._record_decision(flow, verdict, 'request', decision)
+            await self._record_decision(flow, verdict, 'request', decision)
 
     async def _fail(self, flow, failure):
         """Carries out a SIMULATE_FAILURE verdict.
@@ -259,13 +259,23 @@ class RouteAndLog:
         if plan['kill']:
             flow.kill()
 
-    def _record_decision(self, flow, verdict, phase, decision):
+    async def _record_decision(self, flow, verdict, phase, decision):
         interception.note_decision(flow, phase, verdict.pause, decision)
         if (decision or {}).get('action') == 'abort':
             verdict.applied.append(interception.Applied(
                 verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
                 'BREAKPOINT_ABORT', (decision or {}).get('reason') or 'aborted by user'))
             flow.kill()
+            return
+        if (decision or {}).get('action') == 'simulate_failure':
+            # See log_and_route.py's identical branch - the SAME SIMULATE_FAILURE a rule already
+            # carries out, chosen here by a human for one call instead of ahead of time.
+            failure = (decision or {}).get('failure') or {}
+            mode = (failure.get('mode') or '').strip().upper()
+            await self._fail(flow, failure)
+            verdict.applied.append(interception.Applied(
+                verdict.pause.get('ruleId'), verdict.pause.get('ruleName'),
+                'BREAKPOINT_SIMULATE_FAILURE', f'network failure: {mode or "(none)"}'))
             return
         summary = interception.apply_decision(flow, phase, decision or {})
         verdict.applied.append(interception.Applied(
@@ -294,7 +304,7 @@ class RouteAndLog:
             verdict.pause = pause
             decision = await breakpoints.wait_for_decision(
                 flow, 'response', call_id, pause, 'inbound', service_name)
-            self._record_decision(flow, verdict, 'response', decision)
+            await self._record_decision(flow, verdict, 'response', decision)
             if flow.response is None:
                 verdict.finalize_response(flow)
                 self._close_card(flow, call_id, 'aborted')

@@ -269,12 +269,30 @@ export interface PauseCycle {
 }
 
 /**
+ * A `simulate_failure` decision's payload - exactly the shape `RuleAction`'s SIMULATE_FAILURE
+ * fields already carry (`failure`/`durationMs`/`status`/`body`), just grouped under one key here
+ * instead of spread across the action record, since a decision has no other use for those four
+ * names. Read by proxy/interception.py's `failure_plan` - the SAME function a rule's
+ * SIMULATE_FAILURE action already goes through, so a mode means exactly the same thing whether it
+ * came from a rule or from a human resolving a paused call by hand.
+ */
+export interface PauseFailure {
+  readonly mode: FailureMode;
+  /** HANG_THEN_DROP only. */
+  readonly durationMs?: number | null;
+  /** GATEWAY_ERROR only. */
+  readonly status?: number | null;
+  /** TRUNCATED_BODY only. */
+  readonly body?: string | null;
+}
+
+/**
  * Every field except `action` is optional and means "leave this alone". That is what makes "send
  * unchanged" identical to never having paused: no status, no headers and no body means the proxy
  * rewrites nothing and a body that was never edited is never re-serialised.
  */
 export interface PauseDecision {
-  readonly action: 'release' | 'abort';
+  readonly action: 'release' | 'abort' | 'simulate_failure';
   readonly status?: number | null;
   /**
    * A null VALUE removes that header; an absent key leaves it untouched. That asymmetry is the
@@ -290,6 +308,8 @@ export interface PauseDecision {
    * the end of its cycle. This is only whether Alfred holds the caller a second time.
    */
   readonly follow?: boolean;
+  /** action: 'simulate_failure' only - what to reproduce instead of releasing or aborting plainly. */
+  readonly failure?: PauseFailure | null;
 }
 
 /** One rule's effect on one call, as recorded on the call itself by the proxy. */
@@ -384,6 +404,20 @@ export const FAILURE_HINTS: Readonly<Record<FailureMode, string>> = {
   GATEWAY_ERROR:
     'An intermediary failing rather than the supplier answering. The host is never contacted.',
 };
+
+/**
+ * Every failure mode as a {value, label} pair for a `<app-select-picker>`. Exported (rather than a
+ * private const rebuilt in each place that offers this list) so the rule editor's SIMULATE_FAILURE
+ * picker and the paused-call inspector's "mock a network failure instead" control read from the
+ * exact same list - one dropdown never drifts from the other's set of modes or wording. Not typed
+ * against SelectOption to avoid a models -> components import; the shape is structurally identical.
+ */
+export const FAILURE_OPTIONS: ReadonlyArray<{ readonly value: FailureMode; readonly label: string }> = (
+  Object.keys(FAILURE_LABELS) as FailureMode[]
+).map((mode) => ({ value: mode, label: FAILURE_LABELS[mode] }));
+
+/** The three statuses an intermediary (rather than the supplier) actually produces - see GATEWAY_ERROR. */
+export const GATEWAY_STATUSES: readonly number[] = [502, 503, 504];
 
 /** Human labels for the action picker and the rule list's chips. */
 export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {

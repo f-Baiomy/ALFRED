@@ -7141,6 +7141,23 @@ h1.page-title {
   font-size: 0.72rem;
 }
 
+.paused-failure-toggle {
+  margin-top: 0.6rem;
+  font-size: 0.72rem;
+}
+
+.paused-failure {
+  margin-top: 0.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+
+  .action-btn {
+    align-self: flex-start;
+  }
+}
+
 /* ---------- Conditional steps in the rule editor ----------
    Drawn as a container with arms rather than as another action card, because that is what it is:
    the actions inside it belong to a branch, and a flat card would make "then" and "next" look

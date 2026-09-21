@@ -17,6 +17,8 @@ import {
   isConditionalAction,
   FAILURE_HINTS,
   FAILURE_LABELS,
+  FAILURE_OPTIONS,
+  GATEWAY_STATUSES,
   describeAction,
   describeCondition,
   FailureMode,
@@ -54,12 +56,6 @@ const ON_TIMEOUT_OPTIONS: readonly SelectOption[] = [
 ];
 
 const METHOD_OPTIONS: readonly SelectOption[] = METHODS.map((m) => ({ value: m, label: m }));
-
-const FAILURE_OPTIONS: readonly SelectOption[] = (Object.keys(FAILURE_LABELS) as FailureMode[])
-  .map((mode) => ({ value: mode, label: FAILURE_LABELS[mode] }));
-
-/** The only statuses a gateway failure can be - anything else is the supplier answering. */
-const GATEWAY_STATUSES = [502, 503, 504];
 
 const SUBJECT_OPTIONS: readonly SelectOption[] = (Object.keys(SUBJECT_LABELS) as ConditionSubject[])
   .map((subject) => ({ value: subject, label: SUBJECT_LABELS[subject] }));

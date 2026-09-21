@@ -55,4 +55,16 @@ public enum FailureMode {
         }
         return false;
     }
+
+    /**
+     * Whether this mode ends the connection with nothing sent back, rather than a deliberately
+     * broken response - the same split proxy/interception.py's failure_plan() makes to decide
+     * between {@code kill} and {@code response}. Needed here only so a {@code PauseDecision} can
+     * tell BreakpointService which of its two existing outcomes a mode reaches, without
+     * duplicating failure_plan's full behaviour on this side - the proxy remains the one place
+     * that decides what each mode actually DOES, this only knows which family it falls into.
+     */
+    public boolean killsConnection() {
+        return this == CONNECTION_RESET || this == HANG_THEN_DROP || this == HANG_UNTIL_CALLER_GIVES_UP;
+    }
 }

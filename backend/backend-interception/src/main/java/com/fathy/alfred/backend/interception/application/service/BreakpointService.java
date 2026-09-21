@@ -188,7 +188,12 @@ public class BreakpointService implements BreakpointUseCase {
             return;
         }
         long now = System.currentTimeMillis();
-        if (decision.isAbort()) {
+        // A simulated failure that KILLS the connection (see FailureMode.killsConnection) reaches
+        // the caller exactly like an abort does - nothing at all - so it is finished the same way
+        // here. One that fabricates a response instead (EMPTY_REPLY, TRUNCATED_BODY,
+        // GATEWAY_ERROR) is a release in every way that matters to this bookkeeping: something IS
+        // coming back, whether that something is honest or not.
+        if (decision.endsConnection()) {
             paused.put(callId, call.at(PauseStage.FINISHED,
                     call.cycle().released(false, now, decision.editSummary()).finished(now, "aborted", null, null)));
         } else if ("response".equals(call.phase())) {

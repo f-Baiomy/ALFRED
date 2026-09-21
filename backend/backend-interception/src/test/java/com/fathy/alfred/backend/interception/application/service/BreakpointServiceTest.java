@@ -448,6 +448,35 @@ class BreakpointServiceTest {
     }
 
     @Test
+    void mockingAConnectionKillingFailureFinishesTheCardExactlyLikeAnAbort() throws Exception {
+        // CONNECTION_RESET reaches the caller as nothing at all - the same as a plain abort - so
+        // this has to be finished the same way, not left IN_FLIGHT waiting on a response that the
+        // proxy is about to make sure never arrives. See PauseDecision.endsConnection.
+        service.register(requestPause("c1"));
+        releaseAsUser("c1", new PauseDecision("simulate_failure", null, null, null, null, false,
+                new PauseDecision.PauseFailure("CONNECTION_RESET", null, null, null)));
+
+        PausedCall card = service.pending().get(0);
+        assertThat(card.stage()).isEqualTo(PauseStage.FINISHED);
+        assertThat(card.cycle().outcome()).isEqualTo("aborted");
+        assertThat(card.cycle().requestEdit()).isEqualTo("network failure: CONNECTION_RESET");
+    }
+
+    @Test
+    void mockingAFabricatedResponseFailureLeavesTheCardInFlightLikeARelease() throws Exception {
+        // GATEWAY_ERROR still sends something back to the caller - a deliberately broken 502, but
+        // a response all the same - so from this bookkeeping's point of view it is a release: a
+        // reply is still coming, whether or not it is honest about what happened upstream.
+        service.register(requestPause("c1"));
+        releaseAsUser("c1", new PauseDecision("simulate_failure", null, null, null, null, false,
+                new PauseDecision.PauseFailure("GATEWAY_ERROR", null, 502, null)));
+
+        PausedCall card = service.pending().get(0);
+        assertThat(card.stage()).isEqualTo(PauseStage.IN_FLIGHT);
+        assertThat(card.cycle().requestEdit()).isEqualTo("network failure: GATEWAY_ERROR");
+    }
+
+    @Test
     void aFollowedCallThatNeverComesBackIsSaidSoRatherThanSpinningForever() throws Exception {
         service.register(requestPause("c1"));
         releaseAsUser("c1", PauseDecision.release());

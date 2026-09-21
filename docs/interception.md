@@ -378,6 +378,34 @@ re-fetches the list, and the same call comes back as a new object - so an effect
 identity threw away the very first edit every time, and only a second one survived. It is keyed
 on `callId` now, with a regression test that fails if that is undone.
 
+### Mocking a network failure instead of releasing or aborting
+
+A third resolution, next to Release and Abort: **"▸ Mock a network failure instead"** reproduces
+one of SIMULATE_FAILURE's modes on this one call by hand, reusing the rule action wholesale rather
+than reinventing it - same modes, same labels, same hints (`FAILURE_OPTIONS`/`FAILURE_HINTS`,
+exported from the model precisely so both places read from one list instead of two that could
+drift), same `interception.failure_plan` on the proxy side. A decision carries
+`{action: "simulate_failure", failure: {mode, durationMs?, status?, body?}}`; only the field the
+chosen mode actually reads is sent, same reasoning as an edited release only carrying what changed.
+
+The one field worth calling out: **the "body to cut short" starts from the call's own real body**,
+not a placeholder, the same way "Replace everything at once" already seeds itself from what is on
+screen - a rule author is imagining a body that might arrive, a person resolving a paused call is
+looking at one that already did.
+
+**Bookkeeping has to tell two families of mode apart, and only the proxy actually knows which is
+which.** CONNECTION_RESET, HANG_THEN_DROP and HANG_UNTIL_CALLER_GIVES_UP end the connection with
+nothing sent back - exactly like Abort. EMPTY_REPLY, TRUNCATED_BODY and GATEWAY_ERROR still send
+the caller *something*, deliberately broken - mechanically closer to a Release. Backend's
+`PauseDecision.endsConnection()` mirrors `failure_plan`'s kill/response split as one boolean
+(`FailureMode.killsConnection()`) so `BreakpointService.advance()` finishes a mocked
+CONNECTION_RESET as `"aborted"` immediately, rather than leaving it `IN_FLIGHT` waiting on a
+response that the proxy is about to make sure never arrives. Verified against the real backend and
+proxy, not just the unit tests that drove this split: registered a synthetic paused call, posted
+`{"action":"simulate_failure","failure":{"mode":"CONNECTION_RESET"}}` against the real
+`/decision` endpoint with a poller parked the way the proxy parks one, and read back exactly
+`"stage":"finished"`, `"outcome":"aborted"`, `"requestEdit":"network failure: CONNECTION_RESET"`.
+
 ### Following a call through its whole cycle
 
 A card outlives the half it was paused on. Releasing a request used to delete the row instantly,
