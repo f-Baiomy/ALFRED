@@ -38,6 +38,7 @@ Usage (same command on any OS):
 
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -323,9 +324,32 @@ def _inbound_retention_rows(settings):
     return str(rows)
 
 
+_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
+
+
+def _resolve_placeholders(value):
+    """Resolves ${ENV_VAR} / ${ENV_VAR:default} placeholders in a settings.properties value
+    against the process environment - the same ${x:default} syntax application.properties already
+    uses for Spring, so a setting here can pull from the environment (e.g. differs per machine, or
+    is injected by CI) instead of a value hardcoded into the file everyone shares.
+
+    A placeholder whose variable is unset and has no ":default" is left as the literal
+    "${VAR}" text rather than resolved to an empty string, so a required-but-missing value stays
+    visibly wrong (and easy to grep for) instead of silently blank."""
+
+    def replace(match):
+        var, default = match.group(1), match.group(2)
+        if var in os.environ:
+            return os.environ[var]
+        return default if default is not None else match.group(0)
+
+    return _PLACEHOLDER_RE.sub(replace, value)
+
+
 def _parse_settings_properties():
     """Extracts every key=value line from settings.properties (see its own doc) - blank lines,
-    lines starting with #, and anything without an "=" are ignored."""
+    lines starting with #, and anything without an "=" are ignored. A value may reference
+    ${ENV_VAR} or ${ENV_VAR:default} - see _resolve_placeholders."""
     settings = {}
     if not os.path.exists(SETTINGS_FILE):
         return settings
@@ -335,7 +359,7 @@ def _parse_settings_properties():
             if not line or "=" not in line:
                 continue
             key, _, value = line.partition("=")
-            settings[key.strip()] = value.strip()
+            settings[key.strip()] = _resolve_placeholders(value.strip())
     return settings
 
 

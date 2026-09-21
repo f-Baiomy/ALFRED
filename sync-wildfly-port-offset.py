@@ -34,6 +34,7 @@ Usage:
 
 import os
 import platform
+import re
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -53,9 +54,30 @@ OFFSET_LINE = {
 }
 
 
+_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
+
+
+def _resolve_placeholders(value):
+    """Same as start.py's function of the same name - resolves ${ENV_VAR} / ${ENV_VAR:default}
+    placeholders in a settings.properties value against the process environment, the same
+    ${x:default} syntax application.properties already uses for Spring. A placeholder whose
+    variable is unset and has no ":default" is left as the literal "${VAR}" text rather than
+    resolved to an empty string, so a required-but-missing value stays visibly wrong instead of
+    silently blank."""
+
+    def replace(match):
+        var, default = match.group(1), match.group(2)
+        if var in os.environ:
+            return os.environ[var]
+        return default if default is not None else match.group(0)
+
+    return _PLACEHOLDER_RE.sub(replace, value)
+
+
 def _parse_settings_properties():
     """Extracts every key=value line from settings.properties (see its own doc) - blank lines,
-    lines starting with #, and anything without an "=" are ignored."""
+    lines starting with #, and anything without an "=" are ignored. A value may reference
+    ${ENV_VAR} or ${ENV_VAR:default} - see _resolve_placeholders."""
     settings = {}
     if not os.path.exists(SETTINGS_FILE):
         return settings
@@ -65,14 +87,16 @@ def _parse_settings_properties():
             if not line or "=" not in line:
                 continue
             key, _, value = line.partition("=")
-            settings[key.strip()] = value.strip()
+            settings[key.strip()] = _resolve_placeholders(value.strip())
     return settings
 
 
 def _wildfly_home(settings):
-    """settings.properties' wildfly_home wins if set; otherwise falls back to the WILDFLY_HOME
-    environment variable (see settings.properties' own doc)."""
-    return settings.get("wildfly_home", "").strip() or os.environ.get("WILDFLY_HOME", "").strip()
+    """settings.properties' wildfly_home, e.g. wildfly_home=${WILDFLY_HOME:} - resolved by
+    _resolve_placeholders above, so this now IS the WILDFLY_HOME-env-var fallback rather than a
+    second bespoke implementation of it. Kept as a function (rather than inlined at the one call
+    site) since it's what settings.properties' own doc for wildfly_home points a reader at."""
+    return settings.get("wildfly_home", "").strip()
 
 
 def _standalone_conf_path(wildfly_home):
