@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Field;
+import java.time.Instant;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -865,5 +866,90 @@ class SqliteCallsRepositoryTest {
             responseCount.next();
             assertThat(responseCount.getInt("c")).isZero();
         }
+    }
+
+    // ---- the overlap window query ------------------------------------------------------------
+    //
+    // /call-overlaps used to be answered by the port's default: filter readAll(), which is every
+    // call ever logged WITH BOTH BODIES, to produce a handful of entries for one window. Measured
+    // on a 66 MB database: 3.0 seconds and hundreds of megabytes of allocation to return 8 KB, and
+    // the dashboard asks again on every call that arrives, per open tab. That is what drove the
+    // heap into a GC spiral at 600-750% CPU and then OutOfMemoryError.
+
+    private static CallRecord callAt(String url, long millis, Integer status) {
+        return new CallRecord(UUID.randomUUID().toString(), url, url, "POST",
+                new RequestData(Map.of(), "x".repeat(200_000)), Instant.ofEpochMilli(millis).toString(),
+                12.0, status == null ? null : new ResponseData(status, Map.of(), "y".repeat(200_000)), null);
+    }
+
+    @Test
+    void theWindowQueryReturnsOnlyResolvedCallsInsideTheWindow() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord before = callAt("https://a.com/before", 1_000, 200);
+        CallRecord inside = callAt("https://a.com/inside", 5_000, 200);
+        CallRecord after = callAt("https://a.com/after", 9_000, 200);
+        repo.save(before);
+        repo.save(inside);
+        repo.save(after);
+        // Still running: it has no end time, so it is not something that "happened" in the window.
+        repo.save(new CallRecord(UUID.randomUUID().toString(), "https://a.com/in-progress",
+                "https://a.com/in-progress", "POST", new RequestData(null, "{}"),
+                Instant.ofEpochMilli(5_500).toString(), null, null, null, CallLifecycleStatus.IN_PROGRESS));
+
+        List<CallRecord> found = repo.findResolvedInRange(
+                Instant.ofEpochMilli(4_000), Instant.ofEpochMilli(6_000), null, null);
+
+        assertThat(found).extracting(CallRecord::id).containsExactly(inside.id());
+    }
+
+    @Test
+    void theWindowQueryNeverLoadsTheBodies() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        repo.save(callAt("https://a.com/x", 5_000, 200));
+
+        CallRecord found = repo.findResolvedInRange(
+                Instant.ofEpochMilli(0), Instant.ofEpochMilli(10_000), null, null).get(0);
+
+        // 400 KB of bodies per call is the entire problem - CallOverlapEntry reads none of it.
+        assertThat(found.request()).isNull();
+        assertThat(found.response().body()).isNull();
+        assertThat(found.response().headers()).isNull();
+        // What the overlap bars actually draw from survives.
+        assertThat(found.response().status()).isEqualTo(200);
+        assertThat(found.durationMs()).isEqualTo(12.0);
+        assertThat(found.timestamp()).isNotBlank();
+        assertThat(found.state()).isEqualTo(CallLifecycleStatus.COMPLETED);
+    }
+
+    @Test
+    void theWindowQueryStillHonoursTheSearchAndSupplierFilters() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord sabre = callAt("https://sabre.com/shop", 5_000, 200);
+        CallRecord galileo = callAt("https://galileo.com/shop", 5_100, 200);
+        repo.save(sabre);
+        repo.save(galileo);
+
+        Instant from = Instant.ofEpochMilli(0);
+        Instant to = Instant.ofEpochMilli(10_000);
+
+        assertThat(repo.findResolvedInRange(from, to, "sabre", null))
+                .extracting(CallRecord::id).containsExactly(sabre.id());
+        // supplierOf() is the hostname - the same value the list's own supplier filter uses.
+        assertThat(repo.findResolvedInRange(from, to, null, "galileo.com"))
+                .extracting(CallRecord::id).containsExactly(galileo.id());
+    }
+
+    @Test
+    void theWindowQueryIsBoundedSoAHugeWindowCannotBecomeLoadEverythingAgain() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        for (int i = 0; i < 40; i++) {
+            repo.save(callAt("https://a.com/" + i, 1_000 + i, 200));
+        }
+
+        List<CallRecord> found = repo.findResolvedInRange(
+                Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE / 2), null, null);
+
+        assertThat(found).hasSize(40);
+        assertThat(found).allSatisfy(call -> assertThat(call.request()).isNull());
     }
 }

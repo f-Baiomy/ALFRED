@@ -20,6 +20,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -90,6 +91,17 @@ public class SqliteCallLogAdapter implements CallLogPort {
     @Override
     public List<CallRecord> readAll() {
         return repository.readAll();
+    }
+
+    /**
+     * Overridden rather than left to the port's default, which answers this by filtering
+     * {@link #readAll()} - every call ever logged, both bodies, to produce a few entries for one
+     * window. See SqliteCallsRepository.findResolvedInRange for the measurements that make this
+     * override the difference between a working backend and one in a GC spiral.
+     */
+    @Override
+    public List<CallRecord> findResolvedInRange(Instant from, Instant to, String search, String supplier) {
+        return repository.findResolvedInRange(from, to, search, supplier);
     }
 
     @Override

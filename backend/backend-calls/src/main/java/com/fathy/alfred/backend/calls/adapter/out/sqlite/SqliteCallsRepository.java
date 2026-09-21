@@ -674,6 +674,14 @@ public class SqliteCallsRepository {
      * in one wide table) only for CallsService to immediately discard them building CallSummary.
      * Detail view (findById) still needs the full 3-way join.
      */
+    /**
+     * Seatbelt on {@link #findResolvedInRange}. The window the dashboard asks about is bounded by
+     * the page it has loaded, so this is never reached in normal use - it exists so that a window
+     * covering a year can never turn back into "load everything", which is the bug this query was
+     * written to remove.
+     */
+    private static final int MAX_OVERLAP_ROWS = 5000;
+
     private static final String SUMMARY_SQL =
             "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception FROM ";
 
@@ -740,6 +748,61 @@ public class SqliteCallsRepository {
                 SUMMARY_ROW_MAPPER, pageParams.toArray());
 
         return new CallListSupport.Page<>(items, total);
+    }
+
+    /**
+     * Resolved calls whose timestamp falls inside {@code [from, to]} - the query behind
+     * /call-overlaps, which draws the "what else was in flight while this ran" bars.
+     *
+     * <p>This exists because the port's default answers the same question by calling
+     * {@link #readAll()} and filtering in Java, and readAll is {@code SELECT ... cr.body,
+     * cp.body ... } over the WHOLE table: every call ever logged, both bodies included, to produce
+     * a handful of entries for a five-minute window. Measured on a 66 MB database of 1,704 calls:
+     * <strong>3.0 seconds and hundreds of megabytes of allocation to return 8 KB</strong>. The
+     * dashboard asks this question again every time a call arrives (the loaded list's time range
+     * moves, see call-list-view's overlapRange) and once per open tab, so a search fanning out to
+     * eight suppliers loaded the entire database eight times over. That is what drove the heap into
+     * a GC spiral at 600-750% CPU and then OutOfMemoryError, after which the backend accepted
+     * connections and answered nothing.
+     *
+     * <p>Only six columns are selected because {@code CallOverlapEntry} only has six fields - the
+     * bodies were always thrown away. They live in their own tables, so naming only call_metadata
+     * means SQLite never reads a body page off disk and Java never builds those strings. The
+     * window itself rides {@code idx_call_metadata_timestamp_millis}.
+     */
+    public List<CallRecord> findResolvedInRange(Instant from, Instant to, String search, String supplier) {
+        String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        String supplierFilter = supplier == null ? "" : supplier.trim();
+
+        StringBuilder where = new StringBuilder(
+                " WHERE call_metadata.timestamp_millis BETWEEN ? AND ?"
+                        + " AND call_metadata.status_state != 'IN_PROGRESS'");
+        List<Object> params = new ArrayList<>();
+        params.add(from.toEpochMilli());
+        params.add(to.toEpochMilli());
+
+        // Same search/supplier handling as query() above - one place decides what "matches" means
+        // for this table, whether the caller is paging the list or asking about a window.
+        String fromClause = "call_metadata";
+        if (ftsAvailable && !query.isEmpty()) {
+            fromClause = "call_metadata JOIN calls_fts ON call_metadata.rowid = calls_fts.rowid";
+            where.append(" AND calls_fts MATCH ?");
+            params.add(ftsQuery(query));
+        } else if (!query.isEmpty()) {
+            where.append(" AND call_metadata.haystack LIKE ?");
+            params.add("%" + query + "%");
+        }
+        if (!supplierFilter.isEmpty()) {
+            where.append(" AND call_metadata.supplier = ?");
+            params.add(supplierFilter);
+        }
+        params.add(MAX_OVERLAP_ROWS);
+
+        return jdbcTemplate.query(
+                "SELECT call_metadata.id, call_metadata.timestamp, call_metadata.duration_ms, call_metadata.status,"
+                        + " call_metadata.error, call_metadata.status_state, call_metadata.service_name FROM " + fromClause
+                        + where + " ORDER BY call_metadata.timestamp_millis ASC LIMIT ?",
+                OVERLAP_ROW_MAPPER, params.toArray());
     }
 
     /**
@@ -1042,6 +1105,35 @@ public class SqliteCallsRepository {
             return null;
         }
     }
+
+    /**
+     * Metadata only, for {@link #findResolvedInRange}: request and response are left null apart
+     * from the status, because the one consumer (CallOverlapEntry) reads nothing else. Anything
+     * that needs a body asks for that call by id.
+     */
+    private static final RowMapper<CallRecord> OVERLAP_ROW_MAPPER = (rs, rowNum) -> {
+        Object statusObj = rs.getObject("status");
+        Integer status = statusObj == null ? null : rs.getInt("status");
+        Object durationObj = rs.getObject("duration_ms");
+        Double durationMs = durationObj == null ? null : rs.getDouble("duration_ms");
+
+        return new CallRecord(
+                rs.getString("id"),
+                null,
+                null,
+                null,
+                null,
+                rs.getString("timestamp"),
+                durationMs,
+                status == null ? null : new ResponseData(status, null, null),
+                rs.getString("error"),
+                CallLifecycleStatus.valueOf(rs.getString("status_state")),
+                null,
+                null,
+                rs.getString("service_name"),
+                null,
+                null);
+    };
 
     private static final RowMapper<CallSummary> SUMMARY_ROW_MAPPER = (rs, rowNum) -> {
         Object statusObj = rs.getObject("status");

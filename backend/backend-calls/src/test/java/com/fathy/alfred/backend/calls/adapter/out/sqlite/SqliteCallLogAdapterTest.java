@@ -1,6 +1,8 @@
 package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.RequestData;
+import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -8,6 +10,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -94,5 +98,26 @@ class SqliteCallLogAdapterTest {
         // The legacy file is left untouched (not migrated, not renamed) since the table already had data.
         assertThat(legacyFile).exists();
         assertThat(repository.readAll()).extracting(CallRecord::id).containsExactly("existing");
+    }
+
+    @Test
+    void theOverlapWindowGoesToSqliteRatherThanThePortsLoadEverythingDefault() throws Exception {
+        SqliteCallsRepository repository = repositoryFor(tempDir.resolve("calls.db"));
+        SqliteCallLogAdapter adapter = adapterFor(repository, tempDir.resolve("missing.log"));
+        repository.save(new CallRecord("in-window", "https://a.com/x", "https://a.com/x", "POST",
+                new RequestData(Map.of(), "x".repeat(200_000)), Instant.ofEpochMilli(5_000).toString(),
+                12.0, new ResponseData(200, Map.of(), "y".repeat(200_000)), null));
+
+        List<CallRecord> found = adapter.findResolvedInRange(
+                Instant.ofEpochMilli(0), Instant.ofEpochMilli(10_000), null, null);
+
+        // CallLogPort's default answers this by filtering readAll() - the whole table, both bodies,
+        // measured at 3.0 seconds and hundreds of megabytes on a real database, re-run every time a
+        // call arrives and once per open tab. An adapter that quietly falls back to it puts the
+        // backend straight back into a GC spiral, so the absence of bodies here is the guard.
+        assertThat(found).extracting(CallRecord::id).containsExactly("in-window");
+        assertThat(found.get(0).request()).isNull();
+        assertThat(found.get(0).response().body()).isNull();
+        assertThat(found.get(0).response().status()).isEqualTo(200);
     }
 }
