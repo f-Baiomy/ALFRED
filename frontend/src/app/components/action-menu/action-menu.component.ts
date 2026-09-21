@@ -1,5 +1,5 @@
 import { Component, ElementRef, HostListener, inject, input, signal } from '@angular/core';
-import { computeFixedPanelPosition } from '../../shared/utils/popover-position';
+import { computeFixedPanelPosition, trackPopoverPosition } from '../../shared/utils/popover-position';
 
 const PANEL_WIDTH = 220;
 const PANEL_GAP = 8;
@@ -40,14 +40,28 @@ export class ActionMenuComponent {
   readonly panelOpen = signal(false);
   readonly panelPosition = signal({ top: 0, left: 0 });
 
+  private stopTracking: (() => void) | null = null;
+
   togglePanel(): void {
     const opening = !this.panelOpen();
     if (opening) {
-      this.panelPosition.set(
-        computeFixedPanelPosition(this.elementRef.nativeElement, { width: this.panelWidth(), gap: PANEL_GAP })
+      const options = { width: this.panelWidth(), gap: PANEL_GAP };
+      this.panelPosition.set(computeFixedPanelPosition(this.elementRef.nativeElement, options));
+      // Re-anchors to the trigger on every scroll, including a dialog body scrolling under it -
+      // see trackPopoverPosition for why that needs more than a plain scroll listener.
+      this.stopTracking = trackPopoverPosition(this.elementRef.nativeElement, options, (position) =>
+        this.panelPosition.set(position)
       );
+      this.panelOpen.set(true);
+    } else {
+      this.closePanel();
     }
-    this.panelOpen.set(opening);
+  }
+
+  private closePanel(): void {
+    this.stopTracking?.();
+    this.stopTracking = null;
+    this.panelOpen.set(false);
   }
 
   /** Every menu item is a projected button with its own (click) handler - this just closes the
@@ -55,13 +69,13 @@ export class ActionMenuComponent {
    * click event this listens for). */
   onPanelClick(): void {
     if (!this.closeOnClick()) return;
-    setTimeout(() => this.panelOpen.set(false));
+    setTimeout(() => this.closePanel());
   }
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {
-      this.panelOpen.set(false);
+      this.closePanel();
     }
   }
 }

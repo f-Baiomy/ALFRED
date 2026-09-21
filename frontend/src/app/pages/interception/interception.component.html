@@ -1,108 +1,110 @@
-<div class="page-head">
-  <h1 class="page-title">Interception</h1>
-  <p class="page-sub">Intercept matching traffic and manipulate it before it continues</p>
-</div>
+<main>
+  <div class="page-head">
+    <h1 class="page-title">Interception</h1>
+    <p class="page-sub">Intercept matching traffic and manipulate it before it continues</p>
+  </div>
 
-<!-- Always rendered, never only when active: "is anything touching my traffic right now" has to be
-     answerable at a glance, and a banner that appears only when the answer is yes trains people not
-     to look for it. -->
-<div class="intercept-banner" [class.on]="state.masterSwitch()" [class.armed]="state.active()">
-  <div class="intercept-banner-text">
-    <span class="intercept-dot" [class.live]="state.active()"></span>
-    <div>
-      <strong>{{ bannerText() }}</strong>
-      @if (pausingWarning(); as warning) {
-        <small>{{ warning }}</small>
+  <!-- Always rendered, never only when active: "is anything touching my traffic right now" has to be
+       answerable at a glance, and a banner that appears only when the answer is yes trains people not
+       to look for it. -->
+  <div class="intercept-banner" [class.on]="state.masterSwitch()" [class.armed]="state.active()">
+    <div class="intercept-banner-text">
+      <span class="intercept-dot" [class.live]="state.active()"></span>
+      <div>
+        <strong>{{ bannerText() }}</strong>
+        @if (pausingWarning(); as warning) {
+          <small>{{ warning }}</small>
+        }
+      </div>
+    </div>
+    <button type="button" class="action-btn" [class.danger]="state.masterSwitch()" (click)="toggleMaster()">
+      {{ state.masterSwitch() ? 'Turn all off' : 'Turn interception on' }}
+    </button>
+  </div>
+
+  <app-paused-calls />
+
+  <div class="rules-head">
+    <h2>
+      Rules
+      <span class="muted">{{ state.rules().length }} · runs top to bottom</span>
+    </h2>
+    <div class="rules-tools">
+      @if (state.rules().length > 0) {
+        <button type="button" class="action-btn" title="Download every rule as a file" (click)="exportAll()">
+          ⤓ Export all
+        </button>
       }
+      <button type="button" class="action-btn" title="Create rules from an exported file" (click)="openImport()">
+        ⤒ Import
+      </button>
+      <button type="button" class="action-btn primary" (click)="newRule()">+ New rule</button>
     </div>
   </div>
-  <button type="button" class="action-btn" [class.danger]="state.masterSwitch()" (click)="toggleMaster()">
-    {{ state.masterSwitch() ? 'Turn all off' : 'Turn interception on' }}
-  </button>
-</div>
 
-<app-paused-calls />
-
-<div class="rules-head">
-  <h2>
-    Rules
-    <span class="muted">{{ state.rules().length }} · runs top to bottom</span>
-  </h2>
-  <div class="rules-tools">
-    @if (state.rules().length > 0) {
-      <button type="button" class="action-btn" title="Download every rule as a file" (click)="exportAll()">
-        ⤓ Export all
-      </button>
-    }
-    <button type="button" class="action-btn" title="Create rules from an exported file" (click)="openImport()">
-      ⤒ Import
-    </button>
-    <button type="button" class="action-btn primary" (click)="newRule()">+ New rule</button>
-  </div>
-</div>
-
-@if (state.rules().length === 0) {
-  <div class="empty">
-    No interception rules yet. A rule matches some traffic and does something to it — delay it,
-    change a header or a JSON field, mock the response, or pause it so you can decide by hand.
-  </div>
-} @else {
-  <div class="rule-list">
-    @for (rule of state.rules(); track trackById($index, rule)) {
-      <div class="rule-row" [class.off]="!rule.enabled" [class.pauses]="pauses(rule)" [class.terminal]="terminal(rule)">
-        <div class="rule-order">
-          <button type="button" class="icon-btn" title="Move up" [disabled]="isFirst(rule)" (click)="move(rule, -1)">▲</button>
-          <button type="button" class="icon-btn" title="Move down" [disabled]="isLast(rule)" (click)="move(rule, 1)">▼</button>
-        </div>
-
-        <div class="rule-body" (click)="edit(rule)">
-          <div class="rule-name">
-            {{ rule.name }}
-            @if (pauses(rule)) {
-              <span class="rule-tag danger">holds the caller</span>
-            }
-            @if (rule.stopProcessing) {
-              <span class="rule-tag">stops here</span>
-            }
+  @if (state.rules().length === 0) {
+    <div class="empty">
+      No interception rules yet. A rule matches some traffic and does something to it — delay it,
+      change a header or a JSON field, mock the response, or pause it so you can decide by hand.
+    </div>
+  } @else {
+    <div class="rule-list">
+      @for (rule of state.rules(); track trackById($index, rule)) {
+        <div class="rule-row" [class.off]="!rule.enabled" [class.pauses]="pauses(rule)" [class.terminal]="terminal(rule)">
+          <div class="rule-order">
+            <button type="button" class="icon-btn" title="Move up" [disabled]="isFirst(rule)" (click)="move(rule, -1)">▲</button>
+            <button type="button" class="icon-btn" title="Move down" [disabled]="isLast(rule)" (click)="move(rule, 1)">▼</button>
           </div>
-          <div class="rule-match">{{ describeMatch(rule.match) }}</div>
-          @if (rule.description) {
-            <div class="rule-desc">{{ rule.description }}</div>
-          }
-          <div class="rule-actions">
-            @for (action of rule.actions; track $index) {
-              <span
-                class="rule-chip"
-                [class.danger]="action.type === 'ABORT_REQUEST' || action.type === 'MOCK_RESPONSE' || action.type.startsWith('PAUSE_')"
-                [class.off]="!isActionEnabled(action)"
-              >
-                {{ describeAction(action) }}
-              </span>
+
+          <div class="rule-body" (click)="edit(rule)">
+            <div class="rule-name">
+              {{ rule.name }}
+              @if (pauses(rule)) {
+                <span class="rule-tag danger">holds the caller</span>
+              }
+              @if (rule.stopProcessing) {
+                <span class="rule-tag">stops here</span>
+              }
+            </div>
+            <div class="rule-match">{{ describeMatch(rule.match) }}</div>
+            @if (rule.description) {
+              <div class="rule-desc">{{ rule.description }}</div>
             }
-            <span class="rule-priority">priority {{ rule.priority }}</span>
+            <div class="rule-actions">
+              @for (action of rule.actions; track $index) {
+                <span
+                  class="rule-chip"
+                  [class.danger]="action.type === 'ABORT_REQUEST' || action.type === 'MOCK_RESPONSE' || action.type.startsWith('PAUSE_')"
+                  [class.off]="!isActionEnabled(action)"
+                >
+                  {{ describeAction(action) }}
+                </span>
+              }
+              <span class="rule-priority">priority {{ rule.priority }}</span>
+            </div>
+          </div>
+
+          <div class="rule-controls">
+            <button
+              type="button"
+              class="switch"
+              [class.on]="rule.enabled"
+              [attr.aria-label]="rule.enabled ? 'Disable ' + rule.name : 'Enable ' + rule.name"
+              (click)="toggle(rule)"
+            >
+              <span class="switch-knob"></span>
+            </button>
+            <!-- Icons, so the two worded buttons stay the ones that change or destroy a rule. -->
+            <button type="button" class="icon-btn" title="Duplicate this rule" (click)="duplicate(rule, $event)">⧉</button>
+            <button type="button" class="icon-btn" title="Export this rule to a file" (click)="exportOne(rule, $event)">⤓</button>
+            <button type="button" class="action-btn" (click)="edit(rule)">Edit</button>
+            <button type="button" class="action-btn danger" (click)="remove(rule)">Delete</button>
           </div>
         </div>
-
-        <div class="rule-controls">
-          <button
-            type="button"
-            class="switch"
-            [class.on]="rule.enabled"
-            [attr.aria-label]="rule.enabled ? 'Disable ' + rule.name : 'Enable ' + rule.name"
-            (click)="toggle(rule)"
-          >
-            <span class="switch-knob"></span>
-          </button>
-          <!-- Icons, so the two worded buttons stay the ones that change or destroy a rule. -->
-          <button type="button" class="icon-btn" title="Duplicate this rule" (click)="duplicate(rule, $event)">⧉</button>
-          <button type="button" class="icon-btn" title="Export this rule to a file" (click)="exportOne(rule, $event)">⤓</button>
-          <button type="button" class="action-btn" (click)="edit(rule)">Edit</button>
-          <button type="button" class="action-btn danger" (click)="remove(rule)">Delete</button>
-        </div>
-      </div>
-    }
-  </div>
-}
+      }
+    </div>
+  }
+</main>
 
 @if (editing(); as target) {
   <app-rule-editor [rule]="target === 'new' ? null : target" (closed)="closeEditor()" />

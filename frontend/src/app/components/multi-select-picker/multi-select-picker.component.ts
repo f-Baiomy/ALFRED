@@ -1,5 +1,5 @@
 import { Component, ElementRef, HostListener, computed, inject, input, output, signal } from '@angular/core';
-import { computeFixedPanelPosition } from '../../shared/utils/popover-position';
+import { computeFixedPanelPosition, trackPopoverPosition } from '../../shared/utils/popover-position';
 import { SelectOption } from '../select-picker/select-picker.component';
 
 const PANEL_MAX_WIDTH = 320; // must match .select-picker-panel's max-width in styles.scss
@@ -57,6 +57,8 @@ export class MultiSelectPickerComponent {
     return this.values().filter((v) => !known.has(v));
   });
 
+  private stopTracking: (() => void) | null = null;
+
   togglePanel(): void {
     const opening = !this.panelOpen();
     // Cleared on the way in, not in an effect: a stale query would silently hide most of the
@@ -64,11 +66,23 @@ export class MultiSelectPickerComponent {
     // allowSignalWrites for no benefit over doing it here.
     this.query.set('');
     if (opening) {
-      this.panelPosition.set(
-        computeFixedPanelPosition(this.elementRef.nativeElement, { width: PANEL_MAX_WIDTH, gap: PANEL_GAP })
+      const options = { width: PANEL_MAX_WIDTH, gap: PANEL_GAP };
+      this.panelPosition.set(computeFixedPanelPosition(this.elementRef.nativeElement, options));
+      // Re-anchors to the trigger on every scroll, including a dialog body scrolling under it -
+      // see trackPopoverPosition for why that needs more than a plain scroll listener.
+      this.stopTracking = trackPopoverPosition(this.elementRef.nativeElement, options, (position) =>
+        this.panelPosition.set(position)
       );
+      this.panelOpen.set(true);
+    } else {
+      this.closePanel();
     }
-    this.panelOpen.set(opening);
+  }
+
+  private closePanel(): void {
+    this.stopTracking?.();
+    this.stopTracking = null;
+    this.panelOpen.set(false);
   }
 
   onQuery(event: Event): void {
@@ -94,7 +108,7 @@ export class MultiSelectPickerComponent {
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {
-      this.panelOpen.set(false);
+      this.closePanel();
     }
   }
 }

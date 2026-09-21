@@ -1,5 +1,5 @@
 import { Component, ElementRef, HostListener, computed, inject, input, output, signal } from '@angular/core';
-import { computeFixedPanelPosition } from '../../shared/utils/popover-position';
+import { computeFixedPanelPosition, trackPopoverPosition } from '../../shared/utils/popover-position';
 
 export interface SelectOption {
   readonly value: string;
@@ -39,18 +39,32 @@ export class SelectPickerComponent {
 
   readonly currentLabel = computed(() => this.options().find((o) => o.value === this.value())?.label ?? this.value());
 
+  private stopTracking: (() => void) | null = null;
+
   togglePanel(): void {
     const opening = !this.panelOpen();
     if (opening) {
-      this.panelPosition.set(
-        computeFixedPanelPosition(this.elementRef.nativeElement, { width: PANEL_MAX_WIDTH, gap: PANEL_GAP })
+      const options = { width: PANEL_MAX_WIDTH, gap: PANEL_GAP };
+      this.panelPosition.set(computeFixedPanelPosition(this.elementRef.nativeElement, options));
+      // Re-anchors to the trigger on every scroll, including a dialog body scrolling under it -
+      // see trackPopoverPosition for why that needs more than a plain scroll listener.
+      this.stopTracking = trackPopoverPosition(this.elementRef.nativeElement, options, (position) =>
+        this.panelPosition.set(position)
       );
+      this.panelOpen.set(true);
+    } else {
+      this.closePanel();
     }
-    this.panelOpen.set(opening);
   }
 
   select(value: string): void {
     this.valueChange.emit(value);
+    this.closePanel();
+  }
+
+  private closePanel(): void {
+    this.stopTracking?.();
+    this.stopTracking = null;
     this.panelOpen.set(false);
   }
 
@@ -58,7 +72,7 @@ export class SelectPickerComponent {
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {
-      this.panelOpen.set(false);
+      this.closePanel();
     }
   }
 }

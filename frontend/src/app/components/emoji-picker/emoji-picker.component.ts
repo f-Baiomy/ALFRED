@@ -1,6 +1,6 @@
 import { Component, ElementRef, HostListener, computed, inject, input, output, signal } from '@angular/core';
 import { AVATAR_EMOJIS, randomAvatarEmoji } from '../../core/models/avatar-emojis';
-import { computeFixedPanelPosition } from '../../shared/utils/popover-position';
+import { computeFixedPanelPosition, trackPopoverPosition } from '../../shared/utils/popover-position';
 
 const PANEL_WIDTH = 280;
 const PANEL_GAP = 8;
@@ -40,31 +40,45 @@ export class EmojiPickerComponent {
     return AVATAR_EMOJIS.filter((e) => e.name.includes(query));
   });
 
+  private stopTracking: (() => void) | null = null;
+
   togglePanel(): void {
     const opening = !this.panelOpen();
-    if (opening) {
-      this.panelPosition.set(
-        computeFixedPanelPosition(this.elementRef.nativeElement, { width: PANEL_WIDTH, gap: PANEL_GAP })
-      );
-    }
-    this.panelOpen.set(opening);
     this.searchQuery.set('');
+    if (opening) {
+      const options = { width: PANEL_WIDTH, gap: PANEL_GAP };
+      this.panelPosition.set(computeFixedPanelPosition(this.elementRef.nativeElement, options));
+      // Re-anchors to the trigger on every scroll, including a dialog body scrolling under it -
+      // see trackPopoverPosition for why that needs more than a plain scroll listener.
+      this.stopTracking = trackPopoverPosition(this.elementRef.nativeElement, options, (position) =>
+        this.panelPosition.set(position)
+      );
+      this.panelOpen.set(true);
+    } else {
+      this.closePanel();
+    }
   }
 
   select(char: string): void {
     this.valueChange.emit(char);
-    this.panelOpen.set(false);
+    this.closePanel();
   }
 
   randomize(): void {
     this.valueChange.emit(randomAvatarEmoji().char);
   }
 
+  private closePanel(): void {
+    this.stopTracking?.();
+    this.stopTracking = null;
+    this.panelOpen.set(false);
+  }
+
   /** Closes the panel on any click outside this component - same pattern as ThemePickerComponent. */
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {
-      this.panelOpen.set(false);
+      this.closePanel();
     }
   }
 }

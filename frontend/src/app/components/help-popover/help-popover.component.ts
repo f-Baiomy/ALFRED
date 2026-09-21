@@ -1,5 +1,5 @@
 import { Component, ElementRef, HostListener, inject, input, signal } from '@angular/core';
-import { computeFixedPanelPosition } from '../../shared/utils/popover-position';
+import { computeFixedPanelPosition, trackPopoverPosition } from '../../shared/utils/popover-position';
 import { HelpEntry } from '../../shared/utils/interception-help';
 
 const PANEL_WIDTH = 380;
@@ -33,32 +33,43 @@ export class HelpPopoverComponent {
   readonly open = signal(false);
   readonly position = signal({ top: 0, left: 0 });
 
+  private stopTracking: (() => void) | null = null;
+
   toggle(event: MouseEvent): void {
     // The ⓘ lives inside cards that have click handlers of their own; opening help must not also
     // trigger whatever it is sitting on.
     event.stopPropagation();
     const opening = !this.open();
     if (opening) {
-      this.position.set(
-        computeFixedPanelPosition(this.elementRef.nativeElement, { width: PANEL_WIDTH, gap: PANEL_GAP })
+      const options = { width: PANEL_WIDTH, gap: PANEL_GAP };
+      this.position.set(computeFixedPanelPosition(this.elementRef.nativeElement, options));
+      // Re-anchors to the trigger on every scroll, including a dialog body scrolling under it -
+      // see trackPopoverPosition for why that needs more than a plain scroll listener.
+      this.stopTracking = trackPopoverPosition(this.elementRef.nativeElement, options, (position) =>
+        this.position.set(position)
       );
+    } else {
+      this.stopTracking?.();
+      this.stopTracking = null;
     }
     this.open.set(opening);
   }
 
   close(): void {
+    this.stopTracking?.();
+    this.stopTracking = null;
     this.open.set(false);
   }
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {
-      this.open.set(false);
+      this.close();
     }
   }
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
-    this.open.set(false);
+    this.close();
   }
 }
