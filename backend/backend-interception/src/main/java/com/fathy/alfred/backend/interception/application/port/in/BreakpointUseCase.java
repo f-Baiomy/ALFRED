@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.interception.domain.model.PausedCall;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * The handoff between a proxy holding a caller's connection open and a human looking at a screen.
@@ -22,11 +23,18 @@ public interface BreakpointUseCase {
     List<PausedCall> pending();
 
     /**
-     * The proxy's long poll. Blocks up to {@code waitMs} for a decision and returns empty if none
-     * arrived, so the caller can poll again and notice a backend that has gone away rather than
-     * hanging on one very long request.
+     * The proxy's long poll. Completes with the decision when one is made, or with empty once
+     * {@code waitMs} has passed without one, so the caller can poll again and notice a backend
+     * that has gone away rather than hanging on one very long request.
+     *
+     * <p>A future rather than a blocking call, and that is the whole point: waiting must not cost
+     * a thread. This used to park the caller's thread on a rendezvous queue for the length of the
+     * poll window, so every paused call permanently occupied one of the servlet container's
+     * workers - which made the number of calls a rule may pause at once a hard limit on the number
+     * of requests the WHOLE backend can serve. Returning a future lets the web adapter hand its
+     * worker straight back to the pool and complete the response when something actually happens.
      */
-    Optional<PauseDecision> awaitDecision(String callId, long waitMs) throws InterruptedException;
+    CompletableFuture<Optional<PauseDecision>> awaitDecision(String callId, long waitMs);
 
     /**
      * Whether this call is still waiting on a decision.

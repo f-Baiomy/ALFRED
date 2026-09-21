@@ -15,8 +15,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -30,12 +30,19 @@ import java.util.concurrent.TimeUnit;
  * up and applied its own timeout action. Losing the registry on restart is therefore not data loss
  * - it is the only correct behaviour.
  *
- * <p>The rendezvous is a {@link SynchronousQueue} per paused call rather than a
- * shared-map-plus-polling arrangement: the proxy's long poll parks on {@code poll(timeout)} and is
- * handed the decision directly by whichever thread produced it, so a release is delivered in
- * microseconds instead of on the next poll tick. {@code offer} is non-blocking, so a decision
- * arriving for a call whose proxy has already walked away cannot wedge the HTTP thread that
- * delivered it.
+ * <p>The rendezvous is a {@link Waiter} per paused call: the proxy's long poll leaves a future
+ * there and whichever thread produces a decision completes it, so a release is delivered in
+ * microseconds instead of on the next poll tick. Nothing blocks on either side - see
+ * {@link BreakpointUseCase#awaitDecision} for why waiting must not cost a thread.
+ *
+ * <p>A decision made while no poll happens to be parked is KEPT for the next one rather than
+ * refused. That distinction used to be invisible and it cost real releases: the handoff was a
+ * {@code SynchronousQueue}, whose {@code offer} only succeeds if a consumer is parked at that
+ * exact instant, so pressing Send in the gap between two polls - or while the proxy's poll was
+ * queued behind others, which is the normal state of affairs under load - silently dropped the
+ * decision, rolled the card back, and let the call fall out to its timeout action instead. The
+ * proxy re-asks within 250ms, so keeping it costs nothing and makes a click that was accepted
+ * actually happen.
  */
 @Service
 public class BreakpointService implements BreakpointUseCase {
@@ -59,10 +66,32 @@ public class BreakpointService implements BreakpointUseCase {
      */
     private static final int MAX_FINISHED_CARDS = 20;
 
+    /**
+     * How long a decision waits to be collected by a proxy that is between polls before it is
+     * assumed nobody is coming for it. The proxy's own floor between polls is 250ms, so this is
+     * two orders of magnitude of slack rather than a number anything reaches while working.
+     */
+    private static final long UNCOLLECTED_DECISION_MS = 30_000;
+
     private final InterceptionNotificationPort notifications;
 
     private final Map<String, PausedCall> paused = new ConcurrentHashMap<>();
-    private final Map<String, SynchronousQueue<PauseDecision>> handoffs = new ConcurrentHashMap<>();
+    private final Map<String, Waiter> handoffs = new ConcurrentHashMap<>();
+
+    /**
+     * One paused call's side of the handoff: the poll currently parked on it (if any), and a
+     * decision that arrived while none was (if any). Never both at once - a decision is either
+     * delivered straight to a waiting poll or kept for the next one.
+     *
+     * <p>{@code terminal} marks a kept decision that ENDS the wait (anything but "hold"), so the
+     * poll that collects it also retires the call from the registry.
+     */
+    private static final class Waiter {
+        private CompletableFuture<Optional<PauseDecision>> pending;
+        private PauseDecision kept;
+        private boolean terminal;
+        private long keptAt;
+    }
 
     public BreakpointService(InterceptionNotificationPort notifications) {
         this.notifications = notifications;
@@ -77,7 +106,7 @@ public class BreakpointService implements BreakpointUseCase {
         PausedCall existing = paused.get(call.callId());
         PausedCall arriving = existing == null ? call : call.at(PauseStage.HOLDING, existing.cycle());
         paused.put(call.callId(), arriving);
-        handoffs.put(call.callId(), new SynchronousQueue<>());
+        handoffs.put(call.callId(), new Waiter());
         log.info("Call {} paused by rule '{}' ({}), holding its caller for up to {}s",
                 call.callId(), call.ruleName(), call.phase(), call.timeoutSeconds());
         notifications.pausedCallsChanged();
@@ -102,16 +131,89 @@ public class BreakpointService implements BreakpointUseCase {
     }
 
     @Override
-    public Optional<PauseDecision> awaitDecision(String callId, long waitMs) throws InterruptedException {
-        SynchronousQueue<PauseDecision> handoff = handoffs.get(callId);
-        if (handoff == null) {
+    public CompletableFuture<Optional<PauseDecision>> awaitDecision(String callId, long waitMs) {
+        Waiter waiter = handoffs.get(callId);
+        if (waiter == null) {
             // Answering "nothing yet" here is what caused a machine-wide freeze: the caller cannot
             // tell it apart from a quiet poll window, so it re-asks immediately, forever. The
             // controller checks isWaiting first and answers 404 instead; this stays defensive for
             // the race where the call is resolved between that check and this line.
-            return Optional.empty();
+            return CompletableFuture.completedFuture(Optional.empty());
         }
-        return Optional.ofNullable(handoff.poll(waitMs, TimeUnit.MILLISECONDS));
+        synchronized (waiter) {
+            if (waiter.kept != null) {
+                PauseDecision decision = waiter.kept;
+                waiter.kept = null;
+                if (waiter.terminal) {
+                    handoffs.remove(callId);
+                }
+                return CompletableFuture.completedFuture(Optional.of(decision));
+            }
+            // A second poll for the same call supersedes the first: the proxy only ever has one in
+            // flight, so an older future here belongs to a request whose connection is already
+            // gone. Completing it empty retires it rather than leaving it to the timeout.
+            if (waiter.pending != null) {
+                waiter.pending.complete(Optional.empty());
+            }
+            CompletableFuture<Optional<PauseDecision>> pending = new CompletableFuture<>();
+            waiter.pending = pending;
+            // The JDK's shared delayed executor, not a thread per call - nothing is parked here.
+            pending.completeOnTimeout(Optional.empty(), waitMs, TimeUnit.MILLISECONDS);
+            pending.whenComplete((result, error) -> {
+                synchronized (waiter) {
+                    if (waiter.pending == pending) {
+                        waiter.pending = null;
+                    }
+                }
+            });
+            return pending;
+        }
+    }
+
+    /**
+     * Hands a decision to the proxy: straight to a parked poll if there is one, kept for the next
+     * poll if there is not. {@code terminal} is false only for "hold", which tells the proxy to
+     * stop counting down and keep waiting - that call is still very much paused afterwards.
+     */
+    private void handOver(String callId, PauseDecision decision, boolean terminal) {
+        Waiter waiter = handoffs.get(callId);
+        if (waiter == null) {
+            return;
+        }
+        synchronized (waiter) {
+            if (waiter.pending != null && waiter.pending.complete(Optional.of(decision))) {
+                waiter.pending = null;
+                if (terminal) {
+                    handoffs.remove(callId);
+                }
+                return;
+            }
+            waiter.kept = decision;
+            waiter.terminal = terminal;
+            waiter.keptAt = System.currentTimeMillis();
+        }
+    }
+
+    /**
+     * Drops this call's side of the handoff once nobody can decide on it any more.
+     *
+     * <p>Finishes a poll parked on it rather than walking away and leaving that request to idle
+     * out: the proxy gets its "nothing yet" immediately and learns the call is gone on its next
+     * ask, instead of holding a connection open for the rest of the window for an answer that is
+     * never coming.
+     */
+    private void retire(String callId) {
+        Waiter waiter = handoffs.remove(callId);
+        if (waiter == null) {
+            return;
+        }
+        synchronized (waiter) {
+            if (waiter.pending != null) {
+                waiter.pending.complete(Optional.empty());
+                waiter.pending = null;
+            }
+            waiter.kept = null;
+        }
     }
 
     @Override
@@ -124,11 +226,10 @@ public class BreakpointService implements BreakpointUseCase {
 
         // Handed to the waiting proxy straight away rather than waiting for its next poll: until
         // the proxy knows, it is still counting down against its own deadline, and the gap is
-        // exactly where a call would be released while somebody was typing into it.
-        SynchronousQueue<PauseDecision> handoff = handoffs.get(callId);
-        if (handoff != null) {
-            handoff.offer(PauseDecision.hold());
-        }
+        // exactly where a call would be released while somebody was typing into it. Kept for the
+        // next poll when none is parked - this used to be dropped on the floor there, which is
+        // precisely the case the comment above says must not happen.
+        handOver(callId, PauseDecision.hold(), false);
         log.info("Call {} taken under manual control - its countdown is stopped", callId);
         notifications.pausedCallsChanged();
         return true;
@@ -136,34 +237,17 @@ public class BreakpointService implements BreakpointUseCase {
 
     @Override
     public boolean decide(String callId, PauseDecision decision) {
-        SynchronousQueue<PauseDecision> handoff = handoffs.get(callId);
-        if (handoff == null) {
+        if (!handoffs.containsKey(callId)) {
             return false;
         }
-        PausedCall before = paused.get(callId);
         // Moved on BEFORE the decision is handed over, and that order matters. The proxy posts
         // /resolved the instant it stops waiting, on another thread; if this row were still
         // HOLDING when that landed, resolved() would delete the very card we are turning into a
         // followed one. Advancing first means the row is already past HOLDING by then.
         advance(callId, decision);
-
-        // Non-blocking: if the proxy is between polls there is no consumer parked on the queue
-        // right now, so this would block an HTTP worker thread for the whole poll gap.
-        boolean handed = handoff.offer(decision);
-        if (handed) {
-            handoffs.remove(callId);
-            notifications.pausedCallsChanged();
-            return true;
-        }
-        // Nobody was listening, so the decision never left this machine. Put the row back exactly
-        // as it was rather than leaving a card claiming a release that never happened - the proxy
-        // will find the call gone on its next poll and fall back to its timeout action.
-        if (before == null) {
-            paused.remove(callId);
-        } else {
-            paused.put(callId, before);
-        }
-        return false;
+        handOver(callId, decision, true);
+        notifications.pausedCallsChanged();
+        return true;
     }
 
     /**
@@ -228,7 +312,7 @@ public class BreakpointService implements BreakpointUseCase {
                 : (outcome == null ? "completed" : outcome);
         paused.put(callId, withResponse.at(PauseStage.FINISHED,
                 withResponse.cycle().finished(now, ending, note, null)));
-        handoffs.remove(callId);
+        retire(callId);
         trimFinished();
         notifications.pausedCallsChanged();
     }
@@ -245,7 +329,7 @@ public class BreakpointService implements BreakpointUseCase {
             return false;
         }
         paused.remove(callId);
-        handoffs.remove(callId);
+        retire(callId);
         notifications.pausedCallsChanged();
         return true;
     }
@@ -297,7 +381,7 @@ public class BreakpointService implements BreakpointUseCase {
 
     @Override
     public void resolved(String callId) {
-        handoffs.remove(callId);
+        retire(callId);
         // Only a row still HOLDING is dropped. "The proxy stopped waiting" is posted after EVERY
         // decision, including one that moved this call on to in-flight - and deleting the row
         // then would undo the whole point of following it. A row still holding when the proxy has
@@ -350,6 +434,30 @@ public class BreakpointService implements BreakpointUseCase {
                         call.timeoutSeconds());
                 decide(call.callId(), PauseDecision.timedOut(call.onTimeout()));
                 resolved(call.callId());
+            }
+        }
+        dropUncollectedDecisions(now);
+    }
+
+    /**
+     * A decision kept for a proxy that then never asked again.
+     *
+     * <p>Collected within 250ms in the normal case - this is only for a proxy that died, or was
+     * restarted, between the click and its next poll. Without it that decision sits in the handoff
+     * map for the life of the process, and a released decision carries whatever body was edited
+     * into it, so "a few of those" is measured in megabytes rather than bytes.
+     */
+    void dropUncollectedDecisions(long now) {
+        for (Map.Entry<String, Waiter> entry : handoffs.entrySet()) {
+            Waiter waiter = entry.getValue();
+            boolean stale;
+            synchronized (waiter) {
+                stale = waiter.kept != null && now - waiter.keptAt > UNCOLLECTED_DECISION_MS;
+            }
+            if (stale) {
+                log.info("Dropping the decision for call {} - its proxy never came back to collect it",
+                        entry.getKey());
+                retire(entry.getKey());
             }
         }
     }

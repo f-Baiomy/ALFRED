@@ -26,11 +26,22 @@ sits on every request. Polling in the other direction keeps the existing one-way
 relationship that the webhook already established, and costs nothing at all when nothing is
 paused, because nothing polls unless it is paused.
 
-urllib is blocking, so every network call here is dispatched through the event loop's default
-executor. Nothing in this module may be awaited from a hook without that.
+urllib is blocking, so every network call here is dispatched through a thread pool. Nothing in this
+module may be awaited from a hook without that.
+
+The LONG POLL gets a pool of its own (see POLL_POOL) rather than sharing the event loop's default
+executor with everything else. That default pool is small - `min(32, os.cpu_count() + 4)`, which is
+20 threads on the machine this was measured on - and a poll holds one of its threads for the whole
+window, continuously, for every paused call. So past about twenty simultaneous pauses the default
+pool is entirely long polls, and the SHORT messages that share it queue behind them: registering a
+newly paused call, and reporting that a followed call finished. Both are what the inspector is
+drawn from, so the screen starts lying exactly when there is most to look at - a call that is
+already held takes seconds to appear, and a finished card keeps spinning. Proxying itself is never
+affected either way; the event loop is not involved in any of this waiting.
 """
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import urllib.error
@@ -88,6 +99,19 @@ REGISTER_TIMEOUT_SECONDS = 3
 # behaviour; this is only the backstop for a tab closed on a held call, and it must match the
 # backend's own MAX_HELD_MS (BreakpointService) or one side would give up while the other waits.
 MAX_HELD_SECONDS = int(os.environ.get('INTERCEPTION_MAX_HELD_SECONDS', str(60 * 60)))
+
+# How many paused calls may have a poll in flight at the same time - see the module docstring for
+# why these do not share the default executor. A thread here is parked on a socket, not working, so
+# this is sized for "how many calls might be paused at once" rather than for CPU. Past this many,
+# polls queue and those calls hear their decision a little later; nothing breaks, and the short
+# messages keep going out on the default pool regardless.
+#
+# Threads are created on demand, so an Alfred with nothing paused - the overwhelmingly common case -
+# pays nothing at all for this.
+POLL_WORKERS = int(os.environ.get('INTERCEPTION_POLL_WORKERS', '128'))
+
+POLL_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=POLL_WORKERS, thread_name_prefix='alfred-breakpoint-poll')
 
 
 def _post(path, payload, timeout):
@@ -189,8 +213,10 @@ async def wait_for_decision(flow, phase, call_id, pause, source, service_name):
                 window = 1
             asked_at = loop.time()
             try:
+                # POLL_POOL, not the default executor: this is the one call here that waits, and
+                # it must not be able to crowd out the quick ones - see the module docstring.
                 decision = await loop.run_in_executor(
-                    None, _get, f'/interception/paused/{call_id}/decision?waitMs={window * 1000}',
+                    POLL_POOL, _get, f'/interception/paused/{call_id}/decision?waitMs={window * 1000}',
                     POLL_TIMEOUT_SECONDS)
             except urllib.error.HTTPError as e:
                 if e.code == 404:

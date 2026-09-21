@@ -303,8 +303,34 @@ polls, so nothing costs anything when nothing is paused.
 
 **This is the one place the proxy waits on the backend, and that is the feature, not a cost** — the
 user asked for the call to stop. The properties that still hold: only paused flows wait, waiting
-never blocks another connection (the poll runs in the loop's executor), and **a call can never wait
-forever**.
+never blocks another connection (the poll runs in a thread pool, never on the event loop), and **a
+call can never wait forever**.
+
+**Neither side spends a thread on the waiting, and both of those were once wrong.**
+
+On the BACKEND the poll used to block the servlet thread that picked it up, parked on a
+`SynchronousQueue` for the whole window. The justification was that concurrent holds are "bounded by
+how many calls a human is looking at, not by traffic volume" — which is untrue of a rule that pauses
+everything it matches, where the bound is traffic multiplied by pause duration. Every paused call
+therefore occupied one of Tomcat's 200 workers, so enough at once and the backend answers nothing at
+all: dashboard, webhooks, WebSocket handshakes included. It now returns a `DeferredResult`
+(`BreakpointController`) completed from a per-call `Waiter` (`BreakpointService`), so a paused call
+holds a connection and no thread. Measured after the change: 40 calls held simultaneously while
+`/interception/enabled` still answered in 14ms.
+
+A decision handed over while no poll happens to be parked is now KEPT for the next one. It used to
+be dropped — `SynchronousQueue.offer` only succeeds if a consumer is parked at that exact instant —
+which silently rolled the card back and let the call fall out to its timeout action instead. That is
+the normal state of affairs under load, not an edge case: the proxy is between polls far more often
+than it is inside one. A kept decision is swept after 30s if its proxy never comes back for it, so a
+proxy that died between the click and its next poll cannot leave an edited body in memory forever.
+
+On the PROXY side the poll has its own thread pool (`breakpoints.POLL_POOL`,
+`INTERCEPTION_POLL_WORKERS`, default 128) rather than asyncio's default executor. That default is
+`min(32, cpu_count + 4)` — 20 on the machine this was measured on — and it is shared with the SHORT
+messages: registering a newly paused call and reporting a finished one. Past ~20 simultaneous pauses
+those queue behind polls, so a held call takes seconds to appear on screen and a finished card keeps
+spinning, exactly when there is most to look at.
 
 ### The timeout is a grace period to NOTICE, not a deadline to DECIDE
 

@@ -16,6 +16,7 @@ import os
 import tempfile
 import time
 import unittest
+import threading
 import urllib.error
 
 import breakpoints
@@ -1540,6 +1541,91 @@ class BreakpointPollRateTest(unittest.IsolatedAsyncioTestCase):
 
         # A held call polls for up to an hour in production - by far the worst place for a hot loop.
         self.assertLess(len(calls), 40, f'held-call loop ran {len(calls)} times in 2s - it is hot')
+
+
+class BreakpointPollPoolTest(unittest.IsolatedAsyncioTestCase):
+    """The long poll must not share a thread pool with the short messages.
+
+    asyncio's default executor is min(32, cpu_count + 4) threads - 20 on the machine this was
+    measured on - and a poll occupies one of them for its whole window, continuously, per paused
+    call. Sharing it means that past about twenty simultaneous pauses, registering a NEW pause and
+    reporting a finished one queue behind polls, so the inspector stops reflecting reality exactly
+    when it matters most.
+    """
+
+    def setUp(self):
+        self._real_post = breakpoints._post
+        self._real_get = breakpoints._get
+        self._real_backend = breakpoints.BACKEND
+        breakpoints.BACKEND = 'http://backend.test'
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        breakpoints._post = self._real_post
+        breakpoints._get = self._real_get
+        breakpoints.BACKEND = self._real_backend
+
+    @staticmethod
+    def _pause(timeout=5):
+        return {'phase': 'response', 'timeoutSeconds': timeout, 'onTimeout': 'release',
+                'ruleId': 'r', 'ruleName': 'Rule'}
+
+    async def test_the_poll_runs_on_the_dedicated_pool_and_registering_does_not(self):
+        polled_on = []
+        registered_on = []
+
+        def record_get(path, timeout):
+            polled_on.append(threading.current_thread().name)
+            return {'action': 'release'}
+
+        def record_post(path, payload, timeout):
+            registered_on.append(threading.current_thread().name)
+            return None
+
+        breakpoints._get = record_get
+        breakpoints._post = record_post
+
+        await breakpoints.wait_for_decision(
+            FakeFlow(FakeRequest(), FakeMessage(status=200, text='{}')),
+            'response', 'c1', self._pause(), 'outbound', None)
+
+        self.assertTrue(polled_on, 'the poll never ran')
+        self.assertTrue(all(name.startswith('alfred-breakpoint-poll') for name in polled_on), polled_on)
+        self.assertTrue(registered_on, 'the registration never ran')
+        self.assertFalse(any(name.startswith('alfred-breakpoint-poll') for name in registered_on),
+                         f'registering a pause belongs on the shared pool, ran on {registered_on}')
+
+    async def test_more_calls_can_poll_at_once_than_the_default_executor_would_allow(self):
+        # Comfortably more than min(32, cpu_count + 4), so this cannot pass on the shared pool.
+        target = 40
+        state = {'inside': 0, 'peak': 0}
+        lock = threading.Lock()
+        enough = threading.Event()
+
+        def blocking_get(path, timeout):
+            with lock:
+                state['inside'] += 1
+                state['peak'] = max(state['peak'], state['inside'])
+                if state['peak'] >= target:
+                    enough.set()
+            # Held until every poll is genuinely in flight at the same time - bounded, so a pool
+            # too small to get there fails the assertion below instead of hanging the suite.
+            enough.wait(5)
+            with lock:
+                state['inside'] -= 1
+            return {'action': 'release'}
+
+        breakpoints._get = blocking_get
+        breakpoints._post = lambda *a, **k: None
+
+        await asyncio.gather(*[
+            breakpoints.wait_for_decision(
+                FakeFlow(FakeRequest(), FakeMessage(status=200, text='{}')),
+                'response', f'c{i}', self._pause(), 'outbound', None)
+            for i in range(target)])
+
+        self.assertGreaterEqual(state['peak'], target,
+                                f'only {state["peak"]} polls were ever in flight at once')
 
 
 if __name__ == '__main__':

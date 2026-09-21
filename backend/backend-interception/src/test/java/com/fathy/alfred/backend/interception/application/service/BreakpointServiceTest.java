@@ -59,18 +59,18 @@ class BreakpointServiceTest {
     }
 
     @Test
-    void awaitingAnUnknownCallReturnsImmediatelyRatherThanBlocking() throws InterruptedException {
+    void awaitingAnUnknownCallReturnsImmediatelyRatherThanBlocking() throws Exception {
         long started = System.currentTimeMillis();
 
-        assertThat(service.awaitDecision("never-registered", 5000)).isEmpty();
+        assertThat(service.awaitDecision("never-registered", 5000).get(1, TimeUnit.SECONDS)).isEmpty();
         assertThat(System.currentTimeMillis() - started).isLessThan(500);
     }
 
     @Test
-    void awaitingReturnsEmptyOnceTheWindowClosesSoTheProxyCanPollAgain() throws InterruptedException {
+    void awaitingReturnsEmptyOnceTheWindowClosesSoTheProxyCanPollAgain() throws Exception {
         service.register(call("c1", 30, "release"));
 
-        assertThat(service.awaitDecision("c1", 120)).isEmpty();
+        assertThat(service.awaitDecision("c1", 120).get(3, TimeUnit.SECONDS)).isEmpty();
         // Still waiting - a closed poll window is not a resolution.
         assertThat(service.pending()).hasSize(1);
     }
@@ -79,17 +79,8 @@ class BreakpointServiceTest {
     void aDecisionIsHandedToTheWaitingProxy() throws Exception {
         service.register(call("c1", 30, "release"));
 
-        CompletableFuture<Optional<PauseDecision>> waiting = CompletableFuture.supplyAsync(() -> {
-            try {
-                return service.awaitDecision("c1", 5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Optional.empty();
-            }
-        });
+        CompletableFuture<Optional<PauseDecision>> waiting = service.awaitDecision("c1", 5000);
 
-        // Give the poller a moment to park on the queue before offering.
-        Thread.sleep(100);
         PauseDecision edited = new PauseDecision("release", 500, Map.of(), "{\"status\":\"FAILED\"}", null, false);
         assertThat(service.decide("c1", edited)).isTrue();
 
@@ -104,14 +95,58 @@ class BreakpointServiceTest {
     }
 
     @Test
-    void decidingOnACallNobodyIsWaitingForReportsFailureRatherThanBlocking() {
+    void aDecisionMadeBetweenTwoPollsIsKeptForTheNextOne() throws Exception {
         long started = System.currentTimeMillis();
-
-        // Registered, but with no proxy parked on the handoff - offer must not block an HTTP thread.
+        // Registered, but with no poll parked right now - the proxy is in the gap between two of
+        // them, which under load is where it spends most of its time.
         service.register(call("c1", 30, "release"));
 
-        assertThat(service.decide("c1", PauseDecision.release())).isFalse();
+        assertThat(service.decide("c1", PauseDecision.release())).isTrue();
         assertThat(System.currentTimeMillis() - started).isLessThan(500);
+
+        // This used to be dropped on the floor and the card rolled back, so the release a user had
+        // already been told was accepted never happened and the call took its timeout action
+        // instead. The proxy asks again within 250ms; the decision has to still be here.
+        assertThat(service.awaitDecision("c1", 5000).get(3, TimeUnit.SECONDS))
+                .map(PauseDecision::action).contains("release");
+    }
+
+    @Test
+    void aKeptDecisionIsHandedOverOnceAndThenTheCallIsOver() throws Exception {
+        service.register(call("c1", 30, "release"));
+        service.decide("c1", PauseDecision.release());
+
+        assertThat(service.awaitDecision("c1", 5000).get(3, TimeUnit.SECONDS)).isPresent();
+
+        // Collected means finished: a second ask must be told to stop, not handed the same
+        // decision again (which the proxy would apply to a call it has already let go).
+        assertThat(service.isWaiting("c1")).isFalse();
+    }
+
+    @Test
+    void takingControlBetweenPollsStillReachesTheProxy() throws Exception {
+        service.register(call("c1", 30, "release"));
+
+        service.takeControl("c1");
+
+        // Same gap, higher stakes: until the proxy hears "hold" it is still counting down, so
+        // losing this one releases the call out from under somebody who is mid-edit.
+        assertThat(service.awaitDecision("c1", 5000).get(3, TimeUnit.SECONDS))
+                .map(PauseDecision::action).contains("hold");
+        // A hold is not a resolution - the call is still waiting for a real decision.
+        assertThat(service.isWaiting("c1")).isTrue();
+    }
+
+    @Test
+    void retiringACallFinishesAPollParkedOnItRatherThanLeavingItHanging() throws Exception {
+        service.register(call("c1", 30, "release"));
+        CompletableFuture<Optional<PauseDecision>> waiting = service.awaitDecision("c1", 30_000);
+
+        service.resolved("c1");
+
+        // Without this the proxy holds a connection open for the rest of the window waiting for an
+        // answer that can never come.
+        assertThat(waiting.get(3, TimeUnit.SECONDS)).isEmpty();
     }
 
     @Test
@@ -182,15 +217,7 @@ class BreakpointServiceTest {
     void takingControlTellsTheWaitingProxyImmediately() throws Exception {
         service.register(call("c1", 30, "release"));
 
-        CompletableFuture<Optional<PauseDecision>> waiting = CompletableFuture.supplyAsync(() -> {
-            try {
-                return service.awaitDecision("c1", 5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Optional.empty();
-            }
-        });
-        Thread.sleep(100);
+        CompletableFuture<Optional<PauseDecision>> waiting = service.awaitDecision("c1", 5000);
 
         service.takeControl("c1");
 
@@ -232,15 +259,11 @@ class BreakpointServiceTest {
         service.register(call("c1", 30, "release"));
         service.takeControl("c1");
 
-        CompletableFuture<Optional<PauseDecision>> waiting = CompletableFuture.supplyAsync(() -> {
-            try {
-                return service.awaitDecision("c1", 5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Optional.empty();
-            }
-        });
-        Thread.sleep(100);
+        // The proxy's next poll collects the hold and goes straight back to asking - that is what
+        // "the countdown is stopped, keep waiting" means on the wire.
+        assertThat(service.awaitDecision("c1", 5000).get(3, TimeUnit.SECONDS))
+                .map(PauseDecision::action).contains("hold");
+        CompletableFuture<Optional<PauseDecision>> waiting = service.awaitDecision("c1", 5000);
 
         assertThat(service.decide("c1", new PauseDecision("release", 500, Map.of(), "edited", null, false))).isTrue();
         assertThat(waiting.get(3, TimeUnit.SECONDS).orElseThrow().body()).isEqualTo("edited");
@@ -252,15 +275,7 @@ class BreakpointServiceTest {
         service.register(call("c1", 30, "release"));
         service.takeControl("c1");
 
-        CompletableFuture<Optional<PauseDecision>> waiting = CompletableFuture.supplyAsync(() -> {
-            try {
-                return service.awaitDecision("c1", 5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Optional.empty();
-            }
-        });
-        Thread.sleep(100);
+        CompletableFuture<Optional<PauseDecision>> waiting = service.awaitDecision("c1", 5000);
 
         // The panic button has to mean it, even for calls somebody claimed and walked away from.
         assertThat(service.releaseAll()).isEqualTo(1);
@@ -306,22 +321,33 @@ class BreakpointServiceTest {
     }
 
     @Test
-    void releaseAllOnlyCountsCallsSomebodyWasActuallyWaitingOn() throws Exception {
+    void releaseAllFreesEveryHeldCallIncludingOneItsProxyIsBetweenPollsOn() throws Exception {
         service.register(call("waiting", 30, "release"));
         service.register(call("unattended", 30, "release"));
 
-        CompletableFuture<Optional<PauseDecision>> waiting = CompletableFuture.supplyAsync(() -> {
-            try {
-                return service.awaitDecision("waiting", 5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Optional.empty();
-            }
-        });
-        Thread.sleep(100);
+        CompletableFuture<Optional<PauseDecision>> waiting = service.awaitDecision("waiting", 5000);
 
-        assertThat(service.releaseAll()).isEqualTo(1);
+        // Both callers are let go: the one with a poll in flight hears at once, the other on its
+        // next ask. This used to report 1, because a decision handed over with nobody parked was
+        // dropped - so the count was really "how many proxies happened to be mid-poll", and the
+        // call it silently failed to release stayed held until it timed out.
+        assertThat(service.releaseAll()).isEqualTo(2);
         assertThat(waiting.get(3, TimeUnit.SECONDS)).isPresent();
+        assertThat(service.awaitDecision("unattended", 5000).get(3, TimeUnit.SECONDS))
+                .map(PauseDecision::action).contains("release");
+    }
+
+    @Test
+    void aDecisionNobodyEverCollectsIsNotKeptForever() {
+        service.register(call("c1", 30, "release"));
+        service.decide("c1", PauseDecision.release());
+
+        // Its proxy died between the click and its next poll. The decision carries whatever body
+        // was edited into it, so holding it for the life of the process is a real leak. Swept with
+        // a clock a minute ahead rather than by sleeping through the real TTL.
+        service.dropUncollectedDecisions(System.currentTimeMillis() + 60_000);
+
+        assertThat(service.isWaiting("c1")).isFalse();
     }
 
     // ---- following a call past the half it was paused on -------------------------------------
@@ -340,15 +366,7 @@ class BreakpointServiceTest {
 
     /** Releases a registered call the way the inspector does, with a poller parked on it. */
     private void releaseAsUser(String callId, PauseDecision decision) throws Exception {
-        CompletableFuture<Optional<PauseDecision>> waiting = CompletableFuture.supplyAsync(() -> {
-            try {
-                return service.awaitDecision(callId, 5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Optional.empty();
-            }
-        });
-        Thread.sleep(100);
+        CompletableFuture<Optional<PauseDecision>> waiting = service.awaitDecision(callId, 5000);
         assertThat(service.decide(callId, decision)).isTrue();
         waiting.get(3, TimeUnit.SECONDS);
     }
@@ -519,15 +537,7 @@ class BreakpointServiceTest {
     @Test
     void thePanicButtonClearsTheScreenRatherThanLeavingACardPerCall() throws Exception {
         service.register(call("c1", 30, "release"));
-        CompletableFuture<Optional<PauseDecision>> waiting = CompletableFuture.supplyAsync(() -> {
-            try {
-                return service.awaitDecision("c1", 5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Optional.empty();
-            }
-        });
-        Thread.sleep(100);
+        CompletableFuture<Optional<PauseDecision>> waiting = service.awaitDecision("c1", 5000);
 
         assertThat(service.releaseAll()).isEqualTo(1);
 

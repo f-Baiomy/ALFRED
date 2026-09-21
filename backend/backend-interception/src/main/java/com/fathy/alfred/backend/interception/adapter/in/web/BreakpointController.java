@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.DeferredResult;
 
 import java.util.List;
 import java.util.Map;
@@ -25,18 +26,26 @@ import java.util.Map;
  * are grouped here rather than split because they are two ends of one handoff and keeping them
  * together is what makes the protocol readable.
  *
- * <p>The long poll deliberately holds a servlet thread. That is affordable precisely because it
- * only ever happens for a call somebody has explicitly asked to pause: the number of concurrent
- * holds is bounded by how many calls a human is looking at, not by traffic volume. The poll window
- * is also short (the proxy asks for a few seconds at a time and re-asks), so a thread is never
- * parked for the whole of a long pause.
+ * <p>The long poll holds a CONNECTION, never a thread. It used to block the servlet thread that
+ * picked the request up, on the reasoning that concurrent holds are "bounded by how many calls a
+ * human is looking at, not by traffic volume" - which is simply untrue of a rule that pauses
+ * everything it matches, where the bound is traffic multiplied by pause duration. Every paused
+ * call then permanently occupied one of the container's workers, so enough of them at once and the
+ * whole backend stops answering anything at all: the dashboard, the proxy's own webhooks, even new
+ * WebSocket handshakes. Returning a {@link DeferredResult} hands the worker straight back and
+ * completes the response when a decision actually arrives. See BreakpointUseCase.awaitDecision.
  */
 @RestController
 @RequestMapping("/interception")
 public class BreakpointController {
 
-    /** Upper bound on one long poll regardless of what the caller asks for, so a bad `waitMs` cannot park a thread indefinitely. */
+    /** Upper bound on one long poll regardless of what the caller asks for, so a bad `waitMs` cannot hold a connection open indefinitely. */
     private static final long MAX_WAIT_MS = 10_000;
+
+    /** How much later than the service's own deadline the container gives up, so the two never race to answer. */
+    private static final long TIMEOUT_GRACE_MS = 1_000;
+
+    private static final ResponseEntity<PauseDecision> NOTHING_YET = ResponseEntity.noContent().build();
 
     private final BreakpointUseCase breakpoints;
 
@@ -73,15 +82,21 @@ public class BreakpointController {
      * rate until the deadline, which after a take-control is an hour away.
      */
     @GetMapping("/paused/{callId}/decision")
-    public ResponseEntity<PauseDecision> awaitDecision(@PathVariable String callId,
-                                                       @RequestParam(defaultValue = "5000") long waitMs)
-            throws InterruptedException {
+    public DeferredResult<ResponseEntity<PauseDecision>> awaitDecision(@PathVariable String callId,
+                                                                       @RequestParam(defaultValue = "5000") long waitMs) {
+        long wait = Math.min(Math.max(waitMs, 0), MAX_WAIT_MS);
+        // The container's own timeout is only a backstop, a second past the one the service
+        // applies - whichever fires, the answer is the same "nothing yet, ask again", never an
+        // async-timeout error page the proxy would have to interpret.
+        DeferredResult<ResponseEntity<PauseDecision>> result =
+                new DeferredResult<>(wait + TIMEOUT_GRACE_MS, NOTHING_YET);
         if (!breakpoints.isWaiting(callId)) {
-            return ResponseEntity.notFound().build();
+            result.setResult(ResponseEntity.notFound().build());
+            return result;
         }
-        return breakpoints.awaitDecision(callId, Math.min(Math.max(waitMs, 0), MAX_WAIT_MS))
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.noContent().build());
+        breakpoints.awaitDecision(callId, wait).whenComplete((decision, error) -> result.setResult(
+                error != null || decision.isEmpty() ? NOTHING_YET : ResponseEntity.ok(decision.get())));
+        return result;
     }
 
     /** Frontend → backend: the user's decision. 404 once that call is no longer waiting. */
