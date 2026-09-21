@@ -7154,14 +7154,22 @@ h1.page-title {
 }
 
 .paused-failure {
-  margin-top: 0.4rem;
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.6rem;
+  align-items: center;
+  gap: 0.7rem 0.9rem;
+  margin-top: 0.6rem;
+  padding: 0.75rem 1.15rem;
+  border-top: 1px solid var(--border);
+  background: var(--panel-bg);
 
   .action-btn {
-    align-self: flex-start;
+    align-self: center;
+  }
+
+  .span-all {
+    flex-basis: 100%;
+    margin: 0.1rem 0;
   }
 }
 
