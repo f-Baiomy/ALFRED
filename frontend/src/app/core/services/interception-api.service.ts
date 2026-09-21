@@ -65,8 +65,23 @@ export class InterceptionApiService {
     return this.http.post<RuleImportResult>(`${this.baseUrl}/rules/import`, { rules, enable });
   }
 
+  /** Summaries only - no request/response bodies. See getPausedDetail for why. */
   listPaused(): Observable<PausedCall[]> {
     return this.http.get<PausedCall[]>(`${this.baseUrl}/paused`);
+  }
+
+  /**
+   * One card's bodies, fetched when it is actually opened.
+   *
+   * The list is re-read on every paused-changed event - several a second while somebody is
+   * working, once per open tab - and a card carries a whole request and a whole response, measured
+   * at 250-300 KB for a supplier search. Sending them in the list made that response 1.75 MB for
+   * six held calls, rebuilt and thrown away several times a second, which exhausted the backend's
+   * heap on its own. Same lazy shape the call list already uses (summary in the list, detail on
+   * demand).
+   */
+  getPausedDetail(callId: string): Observable<PausedCall> {
+    return this.http.get<PausedCall>(`${this.baseUrl}/paused/${callId}`);
   }
 
   /** Stops the countdown on a paused call and holds it until an explicit decision. */

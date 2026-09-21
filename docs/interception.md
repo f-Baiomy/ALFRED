@@ -332,6 +332,36 @@ messages: registering a newly paused call and reporting a finished one. Past ~20
 those queue behind polls, so a held call takes seconds to appear on screen and a finished card keeps
 spinning, exactly when there is most to look at.
 
+### The queue is summaries; bodies belong to the card you opened
+
+`GET /interception/paused` returns cards **without** their request and response bodies, and one
+card's bodies come from `GET /interception/paused/{callId}` when it is actually opened - the same
+lazy shape the call list already uses (`CallSummaryDto` plus `/calls/{id}/detail`).
+
+That split is not tidiness, it is what stops the backend falling over. The frontend re-reads this
+list on every `interception-paused-changed` event - register, take control, decide, resolve,
+complete - which under a rule that pauses a whole search fan-out is several a second, once per open
+tab. A card carries a whole request and a whole response, and a real supplier search measures
+250-300 KB. Measured before the change: six held calls made that one response **1.75 MB**, rebuilt
+and thrown away several times a second; at twenty or thirty cards it is 6-9 MB a time, which
+exhausts the heap on its own - confirmed live as `OutOfMemoryError`, after which the backend accepts
+connections and answers nothing at all, which looks exactly like every request hanging forever.
+After: **2.3 KB** for the same six cards, with the 293 KB of bodies fetched only when a card is
+opened. The frontend also collapses a burst of events into one fetch
+(`PAUSED_REFRESH_WINDOW_MS`): measured at 4 fetches for 16 events.
+
+### Switching interception off lets go of what it is holding
+
+Publishing a new snapshot only decides what happens to NEW calls - a call already waiting is long
+past rule evaluation. So turning the master switch off, or disabling or deleting a pausing rule,
+also releases the calls that were being held (`BreakpointUseCase.releaseHeldBy`, and `releaseAll`
+for the master switch). Each held caller gets its real answer, untouched, exactly as the Release all
+button does.
+
+Without this, the switch that is supposed to make it all stop left every held caller hanging until
+its own timeout, with their bodies in memory the whole time - so the one thing you reach for when
+the screen is filling up did nothing about the thing filling it.
+
 ### The timeout is a grace period to NOTICE, not a deadline to DECIDE
 
 Press **Take control** on a paused call and the countdown stops. From then on the call waits for an

@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.interception.application.service;
 
+import com.fathy.alfred.backend.interception.application.port.in.BreakpointUseCase;
 import com.fathy.alfred.backend.interception.application.port.in.ManageInterceptionRulesUseCase;
 import com.fathy.alfred.backend.interception.application.port.out.InterceptionNotificationPort;
 import com.fathy.alfred.backend.interception.application.port.out.InterceptionRulesStorePort;
@@ -34,13 +35,17 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     private final InterceptionRulesStorePort store;
     private final RulesPublisherPort publisher;
     private final InterceptionNotificationPort notifications;
+    /** Lets a rule that stops intercepting also let go of what it is already holding - see setMasterSwitch. */
+    private final BreakpointUseCase breakpoints;
 
     public InterceptionRulesService(InterceptionRulesStorePort store,
                                     RulesPublisherPort publisher,
-                                    InterceptionNotificationPort notifications) {
+                                    InterceptionNotificationPort notifications,
+                                    BreakpointUseCase breakpoints) {
         this.store = store;
         this.publisher = publisher;
         this.notifications = notifications;
+        this.breakpoints = breakpoints;
     }
 
     /**
@@ -104,6 +109,9 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
             return false;
         }
         persist(rules);
+        // A deleted rule cannot be the one you decide with, so anything it is still holding would
+        // wait for a timeout with no rule left to name on its card.
+        breakpoints.releaseHeldBy(id);
         return true;
     }
 
@@ -118,6 +126,10 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
                     .withTimestamps(rules.get(i).createdAt(), Instant.now().toString());
             rules.set(i, updated);
             persist(rules);
+            if (!enabled) {
+                // Switching a rule off releases what it is holding, same as the master switch.
+                breakpoints.releaseHeldBy(id);
+            }
             return Optional.of(updated);
         }
         return Optional.empty();
@@ -202,6 +214,13 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
         store.setEnabled(on);
         publisher.publish(on, store.findAll());
         notifications.rulesChanged();
+        if (!on) {
+            // Off means off, including the calls already being held. Publishing the snapshot only
+            // stops NEW calls being stopped - a call that is already waiting is long past rule
+            // evaluation, so without this the switch that is meant to make it all stop leaves
+            // every held caller hanging until its own timeout, and their bodies in memory with it.
+            breakpoints.releaseAll();
+        }
     }
 
     private void validate(InterceptionRule rule) {

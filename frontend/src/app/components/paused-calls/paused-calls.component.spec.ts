@@ -52,9 +52,31 @@ describe('PausedCallsComponent', () => {
     http.expectOne(`${BACKEND}/interception/enabled`).flush({ enabled: true });
     http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush([]));
     fixture.detectChanges();
+    flushOpenCardDetail(calls);
+    fixture.detectChanges();
+  }
+
+  /**
+   * The queue carries no bodies - they are fetched for the one card that is open (see
+   * InterceptionApiService.getPausedDetail). Answering with the same card the test built is what
+   * the real backend does, so every assertion below still reads the bodies it set up.
+   */
+  function flushOpenCardDetail(calls: PausedCall[]): void {
+    const byId = new Map(calls.map((call) => [call.callId, call]));
+    http
+      .match((request) => request.method === 'GET' && /\/interception\/paused\/[^/]+$/.test(request.url))
+      .forEach((request) => {
+        const id = request.request.url.split('/').pop() ?? '';
+        request.flush(byId.get(id) ?? null);
+      });
   }
 
   afterEach(() => {
+    // A test that selects another card asks for that card's bodies too. Draining those here keeps
+    // every test about what it is actually testing rather than about the lazy fetch.
+    http
+      .match((request) => request.method === 'GET' && /\/interception\/paused\/[^/]+$/.test(request.url))
+      .forEach((request) => request.flush(null));
     http.verify({ ignoreCancelled: true });
   });
 
@@ -69,6 +91,54 @@ describe('PausedCallsComponent', () => {
     load([]);
 
     expect(fixture.nativeElement.querySelector('.paused-panel')).toBeNull();
+  });
+
+  // ---- the queue is summaries; bodies belong to the card you opened ------------------------
+  //
+  // The list is re-read on every paused-changed event, several a second while somebody is
+  // working, once per open tab. A card carries a whole request and a whole response - measured at
+  // 250-300 KB for a supplier search - so six held calls made that response 1.75 MB, rebuilt and
+  // thrown away over and over, which exhausted the backend's heap on its own.
+
+  it('asks for the open card body, and shows it once it arrives', () => {
+    const summary = paused({ callId: 'a', request: null, response: { status: 200, headers: null, body: null } });
+    fixture.detectChanges();
+    http.expectOne(`${BACKEND}/interception/rules`).flush([]);
+    http.expectOne(`${BACKEND}/interception/paused`).flush([summary]);
+    http.expectOne(`${BACKEND}/interception/enabled`).flush({ enabled: true });
+    http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush([]));
+    fixture.detectChanges();
+
+    // Nothing to show yet - the summary has no body on it at all.
+    expect(component.originalBody()).toBe('');
+
+    http.expectOne(`${BACKEND}/interception/paused/a`).flush(paused({ callId: 'a' }));
+    fixture.detectChanges();
+
+    expect(component.originalBody()).toContain('CONFIRMED');
+  });
+
+  it('asks once per card, not again on every list refresh', () => {
+    load([paused({ callId: 'a' })]);
+
+    // A refresh that changed nothing about this card must not re-download its body.
+    component.state.refreshPaused();
+    http.expectOne(`${BACKEND}/interception/paused`).flush([paused({ callId: 'a' })]);
+    fixture.detectChanges();
+
+    http.expectNone(`${BACKEND}/interception/paused/a`);
+  });
+
+  it('asks again when the same call comes back on its other half', () => {
+    load([paused({ callId: 'a', phase: 'request' })]);
+
+    // A followed call returning for its response half is a different thing to read, so the body
+    // it is holding now is not the one already in hand.
+    component.state.refreshPaused();
+    http.expectOne(`${BACKEND}/interception/paused`).flush([paused({ callId: 'a', phase: 'response' })]);
+    fixture.detectChanges();
+
+    http.expectOne(`${BACKEND}/interception/paused/a`).flush(paused({ callId: 'a', phase: 'response' }));
   });
 
   it('selects the first paused call so there is always something to act on', () => {

@@ -8,12 +8,14 @@ import com.fathy.alfred.backend.interception.domain.model.ActionType;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleAction;
 import com.fathy.alfred.backend.interception.domain.model.RuleImportResult;
+import com.fathy.alfred.backend.interception.domain.model.PausedCall;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -24,6 +26,7 @@ class InterceptionRulesServiceTest {
     private RecordingPublisher publisher;
     private CountingNotifications notifications;
     private InterceptionRulesService service;
+    private BreakpointService breakpoints;
 
     static class InMemoryStore implements InterceptionRulesStorePort {
         List<InterceptionRule> rules = new ArrayList<>();
@@ -76,7 +79,8 @@ class InterceptionRulesServiceTest {
         store = new InMemoryStore();
         publisher = new RecordingPublisher();
         notifications = new CountingNotifications();
-        service = new InterceptionRulesService(store, publisher, notifications);
+        breakpoints = new BreakpointService(notifications);
+        service = new InterceptionRulesService(store, publisher, notifications, breakpoints);
     }
 
     private static InterceptionRule delayRule(String name, int priority) {
@@ -331,9 +335,67 @@ class InterceptionRulesServiceTest {
         store.rules.add(delayRule("Preexisting", 10).withId("id-1"));
         store.enabled = true;
 
-        new InterceptionRulesService(store, publisher, notifications).republishOnStartup();
+        new InterceptionRulesService(store, publisher, notifications, new BreakpointService(notifications)).republishOnStartup();
 
         assertThat(publisher.lastEnabled).isTrue();
         assertThat(publisher.lastRules).hasSize(1);
+    }
+
+    // ---- switching interception off lets go of what it is already holding ---------------------
+    //
+    // Publishing a snapshot only stops NEW calls being stopped. A call already waiting is long
+    // past rule evaluation, so without these the switch that is supposed to make it all stop
+    // leaves every held caller hanging until its own timeout - and their request and response
+    // bodies in memory with them, which on a busy rule is what exhausts the heap.
+
+    private static PausedCall heldCall(String callId, String ruleId) {
+        return new PausedCall(callId, "response", "outbound", null, ruleId, "Rule",
+                30, "release", "POST", "https://api.example.com/search",
+                new PausedCall.Http(null, Map.of(), "{}"),
+                new PausedCall.Http(200, Map.of(), "{\"ok\":true}"),
+                System.currentTimeMillis(), null);
+    }
+
+    @Test
+    void turningTheMasterSwitchOffReleasesEveryHeldCall() {
+        breakpoints.register(heldCall("c1", "rule-1"));
+        breakpoints.register(heldCall("c2", "rule-2"));
+
+        service.setMasterSwitch(false);
+
+        assertThat(breakpoints.pending()).isEmpty();
+    }
+
+    @Test
+    void turningTheMasterSwitchOnHoldsNothingAgainstItsWill() {
+        breakpoints.register(heldCall("c1", "rule-1"));
+
+        service.setMasterSwitch(true);
+
+        // Switching ON is not a decision about anything already waiting.
+        assertThat(breakpoints.pending()).hasSize(1);
+    }
+
+    @Test
+    void disablingOneRuleReleasesOnlyTheCallsThatRuleIsHolding() {
+        InterceptionRule mine = service.create(delayRule("Mine", 10));
+        breakpoints.register(heldCall("c1", mine.id()));
+        breakpoints.register(heldCall("c2", "someone-elses-rule"));
+
+        service.setEnabled(mine.id(), false);
+
+        assertThat(breakpoints.pending()).extracting(PausedCall::callId).containsExactly("c2");
+    }
+
+    @Test
+    void deletingARuleReleasesWhatItWasHolding() {
+        InterceptionRule doomed = service.create(delayRule("Doomed", 10));
+        breakpoints.register(heldCall("c1", doomed.id()));
+
+        service.delete(doomed.id());
+
+        // Nothing can decide on a call whose rule no longer exists, so holding its caller open
+        // until the timeout is just a caller waiting for nobody.
+        assertThat(breakpoints.pending()).isEmpty();
     }
 }

@@ -142,4 +142,26 @@ public record PausedCall(
         return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
                 onTimeout, method, url, request, response, pausedAt, heldAt, stage, cycle);
     }
+
+    /**
+     * The same card without the two bodies and their headers - everything the QUEUE draws, and
+     * nothing it doesn't.
+     *
+     * <p>This exists because the list endpoint is re-read constantly. A card carries a whole
+     * request and a whole response, and a supplier search measured here runs 250-300 KB; the
+     * dashboard re-fetches the list on every paused-changed event (register, take control, decide,
+     * resolve, complete - several a second while somebody is working), once per open tab. Six held
+     * calls made that response 1.75 MB. At twenty or thirty cards it is 6-9 MB of JSON built and
+     * thrown away several times a second, which is enough to exhaust the heap on its own: measured
+     * live as OutOfMemoryError, after which the backend accepts connections and answers nothing.
+     *
+     * <p>The response status stays, because the queue shows it. The bodies arrive separately when
+     * a card is actually opened - the same lazy shape the call list already uses (CallSummaryDto
+     * plus /calls/{id}/detail).
+     */
+    public PausedCall summary() {
+        Http responseSummary = response == null ? null : new Http(response.status(), null, null);
+        return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
+                onTimeout, method, url, null, responseSummary, pausedAt, heldAt, stage, cycle);
+    }
 }

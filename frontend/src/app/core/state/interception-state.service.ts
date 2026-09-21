@@ -1,7 +1,7 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { Observable, Subject, merge, of } from 'rxjs';
-import { catchError, filter, map, shareReplay, switchMap, tap } from 'rxjs/operators';
+import { Observable, Subject, asyncScheduler, merge, of } from 'rxjs';
+import { catchError, filter, map, shareReplay, switchMap, tap, throttleTime } from 'rxjs/operators';
 import { reconnectingSocket } from './reconnecting-socket';
 import {
   ActionTypeInfo,
@@ -15,6 +15,22 @@ import { AppConfigService } from '../services/app-config.service';
 import { DesktopNotificationsService } from '../services/desktop-notifications.service';
 import { InterceptionApiService } from '../services/interception-api.service';
 import { copyName } from '../../shared/utils/interception-rules-file';
+
+/**
+ * How long one burst of paused-changed events is collapsed into a single list fetch. Short enough
+ * that the queue still feels immediate, long enough that a search fan-out pausing eight calls at
+ * once costs one fetch rather than eight.
+ */
+const PAUSED_REFRESH_WINDOW_MS = 300;
+
+/**
+ * What makes one card's bodies worth re-fetching: the same call on its other half, or at a
+ * different point in its cycle, is a different thing to read. Anything else - a list refresh that
+ * only moved somebody else's card - leaves the cached bodies alone.
+ */
+function cardKey(call: PausedCall): string {
+  return `${call.callId}:${call.phase}:${call.stage ?? 'holding'}`;
+}
 
 /**
  * Root-provided facade for the Interception tab. Fetch-on-demand driven by the /ws/interception
@@ -74,11 +90,42 @@ export class InterceptionStateService {
   private readonly paused$ = merge(
     of(null),
     this.pausedRefresh,
-    this.events$.pipe(filter((type) => type === 'interception-paused-changed'))
+    // One fetch per burst, not one per event. A rule that pauses a whole search fan-out fires
+    // register/take-control/decide/resolve/complete events within milliseconds of each other, and
+    // every one of them used to mean another full list fetch, per open tab. Leading edge so the
+    // first card still appears instantly; trailing edge so the last state of a burst is never the
+    // one that got skipped. The countdown on screen is drawn locally from data already in hand, so
+    // nothing here is what makes the timers tick.
+    this.events$.pipe(
+      filter((type) => type === 'interception-paused-changed'),
+      throttleTime(PAUSED_REFRESH_WINDOW_MS, asyncScheduler, { leading: true, trailing: true })
+    )
   ).pipe(switchMap(() => this.api.listPaused().pipe(catchError(() => of<PausedCall[]>([])))));
 
   readonly rules = toSignal(this.rules$, { initialValue: [] as InterceptionRule[] });
-  readonly pausedCalls = toSignal(this.paused$, { initialValue: [] as PausedCall[] });
+
+  /** The queue as the backend sends it: summaries, with no request or response bodies on them. */
+  private readonly pausedSummaries = toSignal(this.paused$, { initialValue: [] as PausedCall[] });
+
+  /** Bodies for cards somebody has actually opened, keyed by call id - see openCard(). */
+  private readonly details = signal<ReadonlyMap<string, { readonly key: string; readonly call: PausedCall }>>(new Map());
+
+  /**
+   * The queue, with the bodies of any card that has been opened merged back in.
+   *
+   * Everything downstream - the editor, the header tabs, the body stats - reads a PausedCall and
+   * cannot tell where the two halves came from, which is what keeps the lazy fetch invisible to
+   * the components.
+   */
+  readonly pausedCalls = computed<PausedCall[]>(() => {
+    const details = this.details();
+    return this.pausedSummaries().map((call) => {
+      const detail = details.get(call.callId);
+      return detail && detail.key === cardKey(call)
+        ? { ...call, request: detail.call.request, response: detail.call.response }
+        : call;
+    });
+  });
 
   readonly actionTypes = toSignal(
     this.api.actionTypes().pipe(
@@ -239,6 +286,29 @@ export class InterceptionStateService {
 
   clearProblems(): void {
     this.problemsState.set([]);
+  }
+
+  /**
+   * "This card is on screen - I need its bodies."
+   *
+   * Called whenever the open card changes, including when one is auto-selected rather than
+   * clicked. Fetches once per card per state it is in: a followed call coming back on its response
+   * half, or a card moving from holding to finished, is a different thing to read and so re-fetches
+   * (see cardKey), while a list refresh that changed nothing about this card does not.
+   */
+  openCard(call: PausedCall | null): void {
+    if (!call) return;
+    const key = cardKey(call);
+    if (this.details().get(call.callId)?.key === key) return;
+    this.api
+      .getPausedDetail(call.callId)
+      .pipe(catchError(() => of(null)))
+      .subscribe((detail) => {
+        if (!detail) return;
+        const next = new Map(this.details());
+        next.set(call.callId, { key, call: detail });
+        this.details.set(next);
+      });
   }
 
   refreshRules(): void {

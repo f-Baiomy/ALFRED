@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -123,6 +124,30 @@ public class BreakpointService implements BreakpointUseCase {
                 .comparingInt((PausedCall call) -> call.stage().ordinal())
                 .thenComparing(call -> call.stage() == PauseStage.FINISHED ? -call.pausedAt() : call.pausedAt()));
         return calls;
+    }
+
+    @Override
+    public Optional<PausedCall> find(String callId) {
+        return Optional.ofNullable(paused.get(callId));
+    }
+
+    @Override
+    public int releaseHeldBy(String ruleId) {
+        int released = 0;
+        for (PausedCall call : List.copyOf(paused.values())) {
+            if (call.holdsCaller() && Objects.equals(call.ruleId(), ruleId)
+                    && decide(call.callId(), PauseDecision.release())) {
+                released++;
+                // Same reasoning as releaseAll: a card for a call let go because its rule was
+                // switched off is noise, not a record of anything somebody decided.
+                paused.remove(call.callId());
+            }
+        }
+        if (released > 0) {
+            log.info("Released {} call(s) held by rule {} - that rule is no longer intercepting", released, ruleId);
+            notifications.pausedCallsChanged();
+        }
+        return released;
     }
 
     @Override

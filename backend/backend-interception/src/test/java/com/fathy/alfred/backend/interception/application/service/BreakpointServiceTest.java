@@ -33,6 +33,14 @@ class BreakpointServiceTest {
         });
     }
 
+    /** Same card, but held by a named rule - for the "switch that rule off" path. */
+    private static PausedCall callFor(String id, String ruleId) {
+        PausedCall base = call(id, 30, "release");
+        return new PausedCall(base.callId(), base.phase(), base.source(), base.serviceName(), ruleId,
+                base.ruleName(), base.timeoutSeconds(), base.onTimeout(), base.method(), base.url(),
+                base.request(), base.response(), base.pausedAt(), base.heldAt());
+    }
+
     private static PausedCall call(String id, int timeoutSeconds, String onTimeout) {
         return new PausedCall(id, "response", "outbound", null, "rule-1", "Review orders",
                 timeoutSeconds, onTimeout, "POST", "https://api.sabre.com/v4/order/create",
@@ -147,6 +155,59 @@ class BreakpointServiceTest {
         // Without this the proxy holds a connection open for the rest of the window waiting for an
         // answer that can never come.
         assertThat(waiting.get(3, TimeUnit.SECONDS)).isEmpty();
+    }
+
+    // ---- what the queue sends, and what it does not ------------------------------------------
+
+    @Test
+    void theQueueSummaryDropsBothBodiesButKeepsWhatTheListDraws() {
+        PausedCall card = call("c1", 30, "release");
+
+        PausedCall summary = card.summary();
+
+        // The two bodies are the whole problem: a supplier search measures 250-300 KB, the list is
+        // re-read several times a second per open tab, and six cards made that response 1.75 MB.
+        assertThat(summary.request()).isNull();
+        assertThat(summary.response().body()).isNull();
+        assertThat(summary.response().headers()).isNull();
+        // Everything the queue actually draws survives.
+        assertThat(summary.response().status()).isEqualTo(200);
+        assertThat(summary.callId()).isEqualTo("c1");
+        assertThat(summary.method()).isEqualTo(card.method());
+        assertThat(summary.url()).isEqualTo(card.url());
+        assertThat(summary.ruleName()).isEqualTo(card.ruleName());
+        assertThat(summary.stage()).isEqualTo(card.stage());
+        assertThat(summary.cycle()).isEqualTo(card.cycle());
+        assertThat(summary.pausedAt()).isEqualTo(card.pausedAt());
+    }
+
+    @Test
+    void oneCardCanStillBeFetchedWholeWhenSomebodyOpensIt() {
+        service.register(call("c1", 30, "release"));
+
+        assertThat(service.find("c1")).isPresent();
+        assertThat(service.find("c1").orElseThrow().response().body()).contains("CONFIRMED");
+        assertThat(service.find("never-registered")).isEmpty();
+    }
+
+    @Test
+    void releasingWhatOneRuleHoldsLeavesEveryOtherRulesCallAlone() {
+        service.register(callFor("mine", "rule-1"));
+        service.register(callFor("theirs", "rule-2"));
+
+        assertThat(service.releaseHeldBy("rule-1")).isEqualTo(1);
+
+        assertThat(service.pending()).extracting(PausedCall::callId).containsExactly("theirs");
+    }
+
+    @Test
+    void releasingByRuleIgnoresCardsThatHoldNobody() {
+        service.register(call("c1", 30, "release"));
+        service.decide("c1", new PauseDecision("release", 200, Map.of(), "x", null, true));
+
+        // Followed on to its response half: in flight, nobody waiting on this end of it.
+        assertThat(service.releaseHeldBy("rule-1")).isZero();
+        assertThat(service.pending()).hasSize(1);
     }
 
     @Test

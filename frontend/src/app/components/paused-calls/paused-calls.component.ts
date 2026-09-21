@@ -401,6 +401,11 @@ export class PausedCallsComponent {
       },
       { allowSignalWrites: true }
     );
+
+    // The queue carries no bodies - they would be megabytes re-sent several times a second (see
+    // InterceptionApiService.getPausedDetail). Asking for the open card's own bodies is what fills
+    // the editor, and it re-asks when this card becomes a different thing to read.
+    effect(() => this.state.openCard(this.selected()), { allowSignalWrites: true });
   }
 
   select(call: PausedCall): void {

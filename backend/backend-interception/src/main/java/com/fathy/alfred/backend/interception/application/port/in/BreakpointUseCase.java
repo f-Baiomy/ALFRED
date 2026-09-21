@@ -22,6 +22,20 @@ public interface BreakpointUseCase {
 
     List<PausedCall> pending();
 
+    /** One card in full. Empty once that call is gone from the queue. */
+    Optional<PausedCall> find(String callId);
+
+    /**
+     * Lets go of every call a rule is holding, because that rule has just been switched off or
+     * deleted.
+     *
+     * <p>Turning interception off used to mean only "stop stopping NEW calls": anything already
+     * held stayed held until its own timeout, so the switch that is supposed to make it stop left
+     * callers waiting and their bodies in memory. Each held caller gets its real answer, untouched
+     * - exactly what the Release all button does.
+     */
+    int releaseHeldBy(String ruleId);
+
     /**
      * The proxy's long poll. Completes with the decision when one is made, or with empty once
      * {@code waitMs} has passed without one, so the caller can poll again and notice a backend

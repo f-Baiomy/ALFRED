@@ -66,10 +66,23 @@ public class BreakpointController {
         return ResponseEntity.accepted().build();
     }
 
-    /** Frontend → backend: what is currently waiting. */
+    /**
+     * Frontend → backend: what is currently waiting.
+     *
+     * <p>Summaries, never bodies - see {@link PausedCall#summary()} for the measurements behind
+     * that. One card's bodies come from the endpoint below, when somebody actually opens it.
+     */
     @GetMapping("/paused")
     public List<PausedCall> pending() {
-        return breakpoints.pending();
+        return breakpoints.pending().stream().map(PausedCall::summary).toList();
+    }
+
+    /** Frontend → backend: one card in full, bodies included, because the user opened it. */
+    @GetMapping("/paused/{callId}")
+    public ResponseEntity<PausedCall> detail(@PathVariable String callId) {
+        return breakpoints.find(callId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /**
