@@ -348,6 +348,37 @@ A paused call nobody answers would hold a real client socket open indefinitely. 
 - If the backend is unreachable, the proxy applies `onTimeout` immediately rather than holding for
   nothing.
 
+### A desktop notification for the same reason
+
+The tab badge only helps if you're looking at a tab. **🔔 Notify me** in the Interception page's
+banner asks the browser for OS-level notification permission and, once granted, fires a real
+desktop notification - not an in-page toast - the moment a call starts holding a caller, from
+whichever screen you're on.
+
+`DesktopNotificationsService` (`frontend/src/app/core/services/desktop-notifications.service.ts`)
+tracks two different facts, because they drift apart independently: the user's own preference
+(persisted in localStorage, the same way `ThemeService` is - no login, so "the user's preference"
+means "this browser's") and the browser's actual `Notification.permission`, which a person can
+revoke from their OS/browser settings at any time without the app ever hearing about it.
+`enabled()` is the two ANDed together, never the stored flag alone - re-enabling always re-asks
+rather than trusting a permission that may no longer be there. Once permission is denied, the
+browser refuses to prompt again at all; the button reports that ("🔕 Notifications blocked",
+disabled) instead of pretending another click could do something.
+
+Watched from `InterceptionStateService`, not the page component, for the same reason the tab badge
+lives there: a paused call has to reach you wherever you're standing, not only while the
+Interception tab happens to be open. What actually fires the notification is a diff, not "the list
+is non-empty" - an effect compares each refresh's holding `callId`s against the previous refresh's,
+so loading the page onto a call that had already been sitting there for a minute doesn't notify,
+and a followed call that leaves `holding`, goes off to the supplier, and comes back to pause a
+second time on its response *does* - it really is holding a caller open again.
+
+Verified live end to end against the real backend, not just the unit tests that drove the above: a
+fake `Notification` swapped in for the browser's real one (this session's sandbox has notification
+permission denied outright, so the real API can't demonstrate anything), then a synthetic call
+registered through the actual `/interception/paused` endpoint - the WebSocket push, the state
+service's diff, and the notification call all fired correctly, carrying the rule name and URL.
+
 ### Editing a paused call
 
 Status, body **and headers** are all editable while a call is held, plus a paste-everything box

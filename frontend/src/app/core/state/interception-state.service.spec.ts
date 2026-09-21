@@ -1,8 +1,9 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { InterceptionRule } from '../models/interception.model';
+import { InterceptionRule, PausedCall } from '../models/interception.model';
 import { AppConfigService } from '../services/app-config.service';
+import { DesktopNotificationsService } from '../services/desktop-notifications.service';
 import { InterceptionStateService } from './interception-state.service';
 
 const BACKEND = 'http://backend.test:5000';
@@ -16,6 +17,22 @@ function rule(overrides: Partial<InterceptionRule> = {}): InterceptionRule {
     stopProcessing: false,
     match: { source: 'outbound', host: '*.sabre.com', methods: ['POST'] },
     actions: [{ type: 'DELAY_REQUEST', durationMs: 5000 }],
+    ...overrides,
+  };
+}
+
+function heldCall(overrides: Partial<PausedCall> = {}): PausedCall {
+  return {
+    callId: 'call-1',
+    phase: 'response',
+    source: 'outbound',
+    ruleName: 'Review orders',
+    timeoutSeconds: 30,
+    onTimeout: 'release',
+    method: 'POST',
+    url: 'https://api.sabre.com/v4/order/create',
+    pausedAt: Date.now(),
+    stage: 'holding',
     ...overrides,
   };
 }
@@ -213,5 +230,62 @@ describe('InterceptionStateService', () => {
     request.flush({ enabled: true });
 
     expect(service.masterSwitch()).toBeTrue();
+  });
+
+  describe('desktop notifications for a newly held call', () => {
+    let notifications: DesktopNotificationsService;
+
+    beforeEach(() => {
+      notifications = TestBed.inject(DesktopNotificationsService);
+      spyOn(notifications, 'notify');
+    });
+
+    it('fires once for a call that appears already holding', () => {
+      flush({ paused: [heldCall()] });
+      TestBed.flushEffects();
+
+      expect(notifications.notify).toHaveBeenCalledTimes(1);
+      const [title, options] = (notifications.notify as jasmine.Spy).calls.mostRecent().args;
+      expect(title).toContain('paused');
+      expect(options.body).toContain('Review orders');
+      expect(options.body).toContain('https://api.sabre.com/v4/order/create');
+    });
+
+    it('does not fire again for a call still holding on the next refresh', () => {
+      flush({ paused: [heldCall()] });
+      TestBed.flushEffects();
+      expect(notifications.notify).toHaveBeenCalledTimes(1);
+
+      service.refreshPaused();
+      http.expectOne(`${BACKEND}/interception/paused`).flush([heldCall()]);
+      TestBed.flushEffects();
+
+      expect(notifications.notify).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not fire for a call that is in flight or finished, only one actually holding', () => {
+      flush({ paused: [heldCall({ callId: 'in-flight', stage: 'in-flight' }), heldCall({ callId: 'done', stage: 'finished' })] });
+      TestBed.flushEffects();
+
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('fires again for the same call id if it leaves holding and comes back', () => {
+      // A followed request paused a second time on its response reuses the same callId - and it
+      // really is holding a caller open a second time, so it earns a second notification.
+      flush({ paused: [heldCall()] });
+      TestBed.flushEffects();
+      expect(notifications.notify).toHaveBeenCalledTimes(1);
+
+      service.refreshPaused();
+      http.expectOne(`${BACKEND}/interception/paused`).flush([heldCall({ stage: 'in-flight' })]);
+      TestBed.flushEffects();
+
+      service.refreshPaused();
+      http.expectOne(`${BACKEND}/interception/paused`).flush([heldCall({ stage: 'holding' })]);
+      TestBed.flushEffects();
+
+      expect(notifications.notify).toHaveBeenCalledTimes(2);
+    });
   });
 });

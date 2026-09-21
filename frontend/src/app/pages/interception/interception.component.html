@@ -17,9 +17,23 @@
         }
       </div>
     </div>
-    <button type="button" class="action-btn" [class.danger]="state.masterSwitch()" (click)="toggleMaster()">
-      {{ state.masterSwitch() ? 'Turn all off' : 'Turn interception on' }}
-    </button>
+    <div class="intercept-banner-actions">
+      @if (notifications.supported) {
+        <button
+          type="button"
+          class="action-btn"
+          [class.primary]="notifications.enabled()"
+          [disabled]="notifications.permission() === 'denied'"
+          [title]="notificationsTitle()"
+          (click)="toggleNotifications()"
+        >
+          {{ notificationsLabel() }}
+        </button>
+      }
+      <button type="button" class="action-btn" [class.danger]="state.masterSwitch()" (click)="toggleMaster()">
+        {{ state.masterSwitch() ? 'Turn all off' : 'Turn interception on' }}
+      </button>
+    </div>
   </div>
 
   <app-paused-calls />

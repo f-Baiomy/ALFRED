@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { InterceptionRule, isActionEnabled } from '../../core/models/interception.model';
 import { describeAction, describeMatch } from '../../core/models/interception.model';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { DesktopNotificationsService } from '../../core/services/desktop-notifications.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 import { ImportRulesDialogComponent } from '../../components/import-rules-dialog/import-rules-dialog.component';
@@ -26,6 +27,7 @@ import { buildRulesFile, rulesFileName } from '../../shared/utils/interception-r
 })
 export class InterceptionComponent {
   readonly state = inject(InterceptionStateService);
+  readonly notifications = inject(DesktopNotificationsService);
   private readonly confirm = inject(ConfirmDialogService);
 
   /** The rule currently open in the editor: a rule to edit, 'new' for a blank one, null for closed. */
@@ -120,6 +122,26 @@ export class InterceptionComponent {
 
   toggleMaster(): void {
     this.state.setMasterSwitch(!this.state.masterSwitch());
+  }
+
+  /** What the bell button says - three states, not two, since "blocked in the browser" needs to
+   * read differently from "just hasn't been turned on yet" rather than looking identical. */
+  readonly notificationsLabel = computed(() => {
+    if (this.notifications.permission() === 'denied') return '🔕 Notifications blocked';
+    return this.notifications.enabled() ? '🔔 Notify me: on' : '🔕 Notify me: off';
+  });
+
+  readonly notificationsTitle = computed(() => {
+    if (this.notifications.permission() === 'denied') {
+      return 'Blocked in your browser\'s site settings for this page - re-enable it there, then click again.';
+    }
+    return this.notifications.enabled()
+      ? 'A desktop notification fires when a call gets paused. Click to turn off.'
+      : 'Get a desktop notification the moment a call gets paused, even from another tab.';
+  });
+
+  toggleNotifications(): void {
+    this.notifications.toggle();
   }
 
   async remove(rule: InterceptionRule): Promise<void> {

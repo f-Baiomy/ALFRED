@@ -4370,6 +4370,13 @@ h1.page-title {
       font-size: 0.74rem;
     }
   }
+
+  .intercept-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
 }
 
 .intercept-dot {

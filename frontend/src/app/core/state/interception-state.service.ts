@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Observable, Subject, merge, of, timer } from 'rxjs';
 import { catchError, filter, map, retry, shareReplay, switchMap, tap } from 'rxjs/operators';
@@ -12,6 +12,7 @@ import {
   RuleImportResult,
 } from '../models/interception.model';
 import { AppConfigService } from '../services/app-config.service';
+import { DesktopNotificationsService } from '../services/desktop-notifications.service';
 import { InterceptionApiService } from '../services/interception-api.service';
 import { copyName } from '../../shared/utils/interception-rules-file';
 
@@ -33,6 +34,7 @@ import { copyName } from '../../shared/utils/interception-rules-file';
 export class InterceptionStateService {
   private readonly api = inject(InterceptionApiService);
   private readonly config = inject(AppConfigService);
+  private readonly desktopNotifications = inject(DesktopNotificationsService);
 
   private readonly rulesRefresh = new Subject<void>();
   private readonly pausedRefresh = new Subject<void>();
@@ -118,8 +120,33 @@ export class InterceptionStateService {
   /** Calls somebody has taken control of - these are no longer counting down. */
   readonly heldCount = computed(() => this.holdingCalls().filter((c) => c.heldAt != null).length);
 
+  /**
+   * Every `callId` currently holding a caller, as of the last time the effect below ran - what a
+   * NEWLY held call is diffed against, not just "the list is non-empty" (which would also fire the
+   * instant the app loads onto a call that had already been sitting there for a minute).
+   */
+  private previouslyHeldIds = new Set<string>();
+
   constructor() {
     this.refreshMasterSwitch();
+
+    // Root-provided for the same reason the tab badge is: a paused call has to reach you wherever
+    // you're standing, not only while this tab happens to be the one on screen. A call that leaves
+    // "holding" and comes back later (a followed request, paused a second time on its response) is
+    // deliberately treated as new again here - it really is holding a caller open a second time.
+    effect(() => {
+      const heldNow = this.holdingCalls();
+      const idsNow = new Set(heldNow.map((call) => call.callId));
+      for (const call of heldNow) {
+        if (!this.previouslyHeldIds.has(call.callId)) {
+          this.desktopNotifications.notify('Alfred — call paused', {
+            body: `${call.ruleName ?? 'A rule'} is holding ${call.method} ${call.url}`,
+            tag: call.callId,
+          });
+        }
+      }
+      this.previouslyHeldIds = idsNow;
+    });
   }
 
   refreshMasterSwitch(): void {
