@@ -1,8 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Observable, Subject, forkJoin, merge, of, timer } from 'rxjs';
-import { catchError, map, retry, switchMap, tap } from 'rxjs/operators';
-import { webSocket } from 'rxjs/webSocket';
+import { catchError, map, switchMap, tap } from 'rxjs/operators';
+import { reconnectingSocket } from './reconnecting-socket';
 import { SessionCycle } from '../models/call.model';
 import { AppConfigService } from '../services/app-config.service';
 import { NewSessionCycleRequest, SessionCycleUpdateRequest, SessionCyclesApiService } from '../services/session-cycles-api.service';
@@ -35,9 +35,10 @@ export class SessionCyclesStateService {
 
   private readonly manualRefresh = new Subject<void>();
 
-  /** Emits (with no meaningful payload) whenever any client's cycle create/update/record/pause/delete happened - the trigger for a re-fetch, not the data itself. */
-  private readonly changed$ = webSocket<unknown>(this.config.backendUrl.replace(/^http/, 'ws') + '/ws/session-cycles').pipe(
-    retry({ delay: () => timer(3000) })
+  /** Emits (with no meaningful payload) whenever any client's cycle create/update/record/pause/delete happened - the trigger for a re-fetch, not the data itself. A reconnect re-fetches too, since any change made while the socket was away was never delivered here. */
+  private readonly changed$ = reconnectingSocket<unknown>(
+    this.config.backendUrl.replace(/^http/, 'ws') + '/ws/session-cycles',
+    () => this.manualRefresh.next()
   );
 
   private readonly polled$ = merge(timer(0), this.manualRefresh, this.changed$).pipe(

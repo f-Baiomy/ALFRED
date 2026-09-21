@@ -1,6 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { webSocket } from 'rxjs/webSocket';
-import { Observable, Subscription, forkJoin, map, of, retry, timer } from 'rxjs';
+import { Observable, Subscription, forkJoin, map, of } from 'rxjs';
 import {
   CallDetail,
   CallDetailPart,
@@ -22,6 +21,7 @@ import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
+import { reconnectingSocket } from './reconnecting-socket';
 
 export type { CallStats, CallStatusFilter, SupplierGroup, SupplierOption } from './call-list-view';
 
@@ -218,10 +218,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    * Pushes a new CallRecord onto the dashboard the instant the proxy's webhook (external) or the
    * reverse-mode mitmproxy (internal) reaches backend, and immediately triggers a refresh() to
    * fetch the authoritative (filtered/sorted/paginated) page - there's no 5s poll to eventually
-   * pick it up otherwise. Falls back to a fixed retry delay on disconnect; a call that arrives
-   * during a reconnect gap is only picked up by the next push or a manual refresh, which is the
-   * accepted trade-off of not polling. Tears down any previous connection(s) first, since this is
-   * also called whenever selectedSources changes.
+   * pick it up otherwise. Reconnects on its own however the connection ended, and re-fetches once
+   * it's back so nothing logged during the gap is left invisible - see reconnectingSocket. Tears
+   * down any previous connection(s) first, since this is also called whenever selectedSources
+   * changes.
    */
   private connectLiveUpdates(): void {
     this.wsSubscriptions.forEach((sub) => sub.unsubscribe());
@@ -238,9 +238,12 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   }
 
   private subscribeToWs<T extends { call: CallSummaryDto } | CallsClearedEvent>(wsUrl: string, source: CallEndpointSource): Subscription {
-    return webSocket<T>(wsUrl)
-      .pipe(retry({ delay: () => timer(3000) }))
-      .subscribe((message) => this.handleWsMessage(message, source));
+    // Re-fetch on every reconnect, not just on every push: a call logged while the socket was away
+    // is never pushed to this client at all, so without this it stays invisible until the NEXT
+    // call happens to arrive - which on a quiet supplier can be a very long time.
+    return reconnectingSocket<T>(wsUrl, () => this.view.refresh()).subscribe((message) =>
+      this.handleWsMessage(message, source)
+    );
   }
 
   private handleWsMessage(message: { call: CallSummaryDto } | CallsClearedEvent, source: CallEndpointSource): void {

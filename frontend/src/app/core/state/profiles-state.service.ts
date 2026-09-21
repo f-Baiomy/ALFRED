@@ -1,8 +1,8 @@
 import { Injectable, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Observable, Subject, merge, of, timer } from 'rxjs';
-import { catchError, retry, switchMap, tap } from 'rxjs/operators';
-import { webSocket } from 'rxjs/webSocket';
+import { catchError, switchMap, tap } from 'rxjs/operators';
+import { reconnectingSocket } from './reconnecting-socket';
 import { Profile } from '../models/profile.model';
 import { AppConfigService } from '../services/app-config.service';
 import { NewProfileRequest, ProfileUpdateRequest, ProfilesApiService } from '../services/profiles-api.service';
@@ -22,9 +22,10 @@ export class ProfilesStateService {
 
   private readonly manualRefresh = new Subject<void>();
 
-  /** Emits (with no meaningful payload) whenever any client's profile create/update/delete happened - the trigger for a re-fetch, not the data itself. */
-  private readonly changed$ = webSocket<unknown>(this.config.backendUrl.replace(/^http/, 'ws') + '/ws/profiles').pipe(
-    retry({ delay: () => timer(3000) })
+  /** Emits (with no meaningful payload) whenever any client's profile create/update/delete happened - the trigger for a re-fetch, not the data itself. A reconnect re-fetches too, since any change made while the socket was away was never delivered here. */
+  private readonly changed$ = reconnectingSocket<unknown>(
+    this.config.backendUrl.replace(/^http/, 'ws') + '/ws/profiles',
+    () => this.manualRefresh.next()
   );
 
   private readonly polled$ = merge(timer(0), this.manualRefresh, this.changed$).pipe(

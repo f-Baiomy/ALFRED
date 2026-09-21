@@ -1,8 +1,7 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { Observable, Subscription, forkJoin, map, of, retry, tap, timer } from 'rxjs';
-import { webSocket } from 'rxjs/webSocket';
+import { Observable, Subscription, forkJoin, map, of, tap } from 'rxjs';
 import {
   CallDetail,
   CallDetailPart,
@@ -23,6 +22,7 @@ import { SessionCyclesApiService } from '../services/session-cycles-api.service'
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
+import { reconnectingSocket } from './reconnecting-socket';
 import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
 
@@ -284,9 +284,11 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     wsUrl: string,
     source: CallEndpointSource
   ): Subscription {
-    return webSocket<T>(wsUrl)
-      .pipe(retry({ delay: () => timer(3000) }))
-      .subscribe((message) => this.handleWsMessage(message, source));
+    // Re-fetch on reconnect for the same reason CallsStateService does - a call captured into this
+    // cycle while the socket was away is never pushed to this client at all.
+    return reconnectingSocket<T>(wsUrl, () => this.view.refresh()).subscribe((message) =>
+      this.handleWsMessage(message, source)
+    );
   }
 
   private handleWsMessage(message: { call: CallSummaryDto; capturedByCycleIds: readonly string[] } | CallsClearedEvent, source: CallEndpointSource): void {

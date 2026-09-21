@@ -1,8 +1,8 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { Observable, Subject, merge, of, timer } from 'rxjs';
-import { catchError, filter, map, retry, shareReplay, switchMap, tap } from 'rxjs/operators';
-import { webSocket } from 'rxjs/webSocket';
+import { Observable, Subject, merge, of } from 'rxjs';
+import { catchError, filter, map, shareReplay, switchMap, tap } from 'rxjs/operators';
+import { reconnectingSocket } from './reconnecting-socket';
 import {
   ActionTypeInfo,
   InterceptionRule,
@@ -39,12 +39,22 @@ export class InterceptionStateService {
   private readonly rulesRefresh = new Subject<void>();
   private readonly pausedRefresh = new Subject<void>();
 
-  /** Payload-free pushes - see the backend's WebSocketInterceptionNotificationAdapter. */
-  private readonly events$: Observable<string> = webSocket<{ type?: string }>(
-    this.config.backendUrl.replace(/^http/, 'ws') + '/ws/interception'
+  /**
+   * Payload-free pushes - see the backend's WebSocketInterceptionNotificationAdapter.
+   *
+   * A reconnect re-reads all three of this service's states rather than waiting for the next
+   * event: a rule changed, a call paused or a call released while the socket was away was never
+   * delivered here, and a stale paused list is worse than most - it is what the tab badge counts.
+   */
+  private readonly events$: Observable<string> = reconnectingSocket<{ type?: string }>(
+    this.config.backendUrl.replace(/^http/, 'ws') + '/ws/interception',
+    () => {
+      this.refreshRules();
+      this.refreshPaused();
+      this.refreshMasterSwitch();
+    }
   ).pipe(
     map((event) => event?.type ?? ''),
-    retry({ delay: () => timer(3000) }),
     // One socket, two consumers: refCount keeps a single connection open rather than one per
     // subscriber, and drops it when the last one goes away.
     shareReplay({ bufferSize: 0, refCount: true })
