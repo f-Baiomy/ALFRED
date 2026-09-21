@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.sessioncycles.application.port.out;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
@@ -77,7 +78,15 @@ public interface CapturedCallsStorePort {
      * call has resolved, and the row was appended while it was still in flight. Dropping it was
      * why a cycle's diagnostics panel rendered no per-call phase bars while the identical panel on
      * the live list did.
+     *
+     * <p>{@code interception} arrives here for the same reason: a rule's edits are only known once
+     * the call has resolved (backend-calls' own {@code complete} learns it at the same point, for
+     * the same reason). Dropping it was why a call shown as EDITED on the live list, with its own
+     * "what changed" panel, showed neither once captured into a cycle - the frontend renders both
+     * off the exact same {@code CallRecord.interception()}/{@code CallSummary.interception()}
+     * field, so an adapter that never persists it makes the badge disappear the instant a page
+     * re-fetches from storage rather than showing the live-pushed copy.
      * @return true if a captured call with this call id existed in this cycle and was updated.
      */
-    boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing);
+    boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception);
 }

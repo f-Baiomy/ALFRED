@@ -873,9 +873,22 @@ public class SqliteCallsRepository {
         }
     }
 
+    /**
+     * Used for GET /calls/{id}/detail (which only ever reads request()/response() off the result -
+     * see CallDetail.of) AND for the completion fan-out in CallsService.receiveCompletedCall,
+     * which is NOT detail-only: that CallRecord is what NewCallObserverPort.onCallCompleted and the
+     * WebSocket's notifyCallCompleted actually see. Missing timing/interception here used to mean
+     * every observer of a just-completed call - session-cycles' capture chief among them - received
+     * a call with both always null, no matter what query()/SUMMARY_ROW_MAPPER correctly returns for
+     * the same row a moment later. Live Calls never showed the gap because it re-fetches the
+     * authoritative page immediately after a live push and that overwrites the incomplete copy;
+     * SessionCycleCaptureAdapter has no such correction - whatever it's handed here is what gets
+     * written to captured_call_metadata, permanently.
+     */
     private static final String DETAIL_SQL = """
             SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id, cm.service_name,
+                   cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM call_metadata cm
@@ -889,11 +902,19 @@ public class SqliteCallsRepository {
         return results.stream().findFirst();
     }
 
-    /** Not the hot path (query() is) - kept for CallLogPort parity/tests. Loads everything (3-way join), so only sensible for small datasets. */
+    /**
+     * Not the hot path (query() is) - kept for CallLogPort parity/tests. Loads everything (3-way
+     * join), so only sensible for small datasets. Shares {@link #ROW_MAPPER} with {@link
+     * #findById}, so its own column list has to keep matching whatever that mapper reads - it once
+     * didn't, and the moment ROW_MAPPER started reading timing/interception this threw "no such
+     * column" for every caller of readAll(), because the SQL text here still only had the original
+     * columns bound to different result-set positions.
+     */
     public List<CallRecord> readAll() {
         return jdbcTemplate.query("""
                 SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                        cm.session_id, cm.operation_id, cm.service_name,
+                       cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
                        cr.headers AS request_headers, cr.body AS request_body,
                        cp.headers AS response_headers, cp.body AS response_body
                 FROM call_metadata cm
@@ -1059,7 +1080,9 @@ public class SqliteCallsRepository {
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
                 rs.getString("session_id"),
                 rs.getString("operation_id"),
-                rs.getString("service_name"));
+                rs.getString("service_name"),
+                timingOf(rs),
+                interceptionOf(rs));
     };
 
     /** Reads a row of the OLD (pre-split) single-table {@code calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. That legacy table predates service_name entirely (it predates even session_id/operation_id), so this always passes null for it rather than reading a column that was never added to {@code calls}. */

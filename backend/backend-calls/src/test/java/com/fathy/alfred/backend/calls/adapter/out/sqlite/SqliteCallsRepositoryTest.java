@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
+import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import java.util.Map;
@@ -208,6 +209,34 @@ class SqliteCallsRepositoryTest {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
 
         assertThat(repo.findById("missing")).isEmpty();
+    }
+
+    @Test
+    void findByIdCarriesTimingAndInterceptionNotJustBodies() throws Exception {
+        // findById isn't only GET /calls/{id}/detail - CallsService.receiveCompletedCall re-reads
+        // through it to build the CallRecord every NewCallObserverPort (session-cycles' capture
+        // chief among them) and the WebSocket completion push actually see. Missing these two here
+        // used to mean a call captured into a cycle was ALWAYS stored with no timing and no
+        // interception, no matter what the row genuinely had - because the row this method returned
+        // never carried them in the first place, before query()/SUMMARY_ROW_MAPPER even entered the
+        // picture. Live Calls never showed the gap only because it re-fetches the authoritative page
+        // immediately after a live push and overwrites the incomplete copy.
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+        CallInterception interception = new CallInterception(
+                List.of(new CallInterception.Applied("rule-1", "Slow Sabre", "SET_RESPONSE_STATUS", "500 -> 200")),
+                null, null, null, null);
+
+        repo.complete(id, new ResponseData(200, null, "ok"), null, 900.0,
+                new CallTiming(12.5, 30.0, 800.0, 55.0, false), interception);
+
+        CallRecord found = repo.findById(id).orElseThrow();
+        assertThat(found.timing()).isNotNull();
+        assertThat(found.timing().ttfbMs()).isEqualTo(800.0);
+        assertThat(found.interception()).isNotNull();
+        assertThat(found.interception().applied()).hasSize(1);
+        assertThat(found.interception().applied().get(0).ruleName()).isEqualTo("Slow Sabre");
     }
 
     @Test

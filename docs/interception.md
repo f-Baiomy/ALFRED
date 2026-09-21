@@ -787,6 +787,33 @@ every `.md`/`.html` export — the same constraint `redaction.model.ts` document
 `interception` is **null** for every call no rule touched, so an ordinary call's stored shape is
 unchanged by this feature existing.
 
+### A call captured into a cycle used to lose its interception record entirely
+
+Live Calls shows an EDITED badge and a before/after panel for a call an interception rule touched.
+A call captured into a Session Cycle carries the exact same `CallRecord`/`CallSummary.interception`
+field — but showed neither, on every SQLite-backed deployment (the default), for two independent
+reasons stacked on top of each other:
+
+- `CapturedCallsStorePort.completeCapturedCall` had no `interception` parameter at all, so
+  `SessionCycleCaptureAdapter.onCallCompleted` had nowhere to put `call.interception()` even when
+  the value it was handed was correct. `SqliteSessionCyclesRepository`'s schema had no
+  `interception` column to write it to either way.
+- Underneath that, `call.interception()` was frequently `null` regardless: `CallsService
+  .receiveCompletedCall` re-reads the just-completed call via `backend-calls`'
+  `SqliteCallsRepository.findById` to build the `CallRecord` every observer (this capture adapter
+  included) and the WebSocket's `notifyCallCompleted` actually see - and `findById`'s `DETAIL_SQL`/
+  `ROW_MAPPER` never selected `timing`/`interception` at all, only `query()`'s `SUMMARY_SQL` did.
+  Live Calls never showed this half of the bug: `CallsStateService` applies the live-pushed
+  (incomplete) copy, then immediately re-fetches through `query()` and overwrites it with the
+  correct one. Session-cycles capture has no such correction - it persists whatever it is handed,
+  once. See docs/architecture.md's identical note for the SQL-level detail.
+
+Both are fixed: `completeCapturedCall` takes `interception` as a seventh argument (mirroring
+`timing`'s own addition, and the same `PAUSE_RESPONSE`/`SET_RESPONSE_STATUS`-shaped test fixture
+this file's tests already use), `captured_call_metadata` gained an `interception` column with the
+same one-JSON-document shape `call_metadata` uses, and `findById` now selects the same
+timing/interception columns `query()` does.
+
 ### Before and after
 
 A record carries up to four snapshots — `originalRequest`/`finalRequest` and

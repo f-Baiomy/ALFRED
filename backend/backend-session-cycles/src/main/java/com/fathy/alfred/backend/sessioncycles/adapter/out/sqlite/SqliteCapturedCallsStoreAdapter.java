@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
@@ -90,7 +91,7 @@ public class SqliteCapturedCallsStoreAdapter implements CapturedCallsStorePort {
     }
 
     @Override
-    public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing) {
-        return repository.completeCapturedCall(cycleId, callId, response, error, durationMs, timing);
+    public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
+        return repository.completeCapturedCall(cycleId, callId, response, error, durationMs, timing, interception);
     }
 }

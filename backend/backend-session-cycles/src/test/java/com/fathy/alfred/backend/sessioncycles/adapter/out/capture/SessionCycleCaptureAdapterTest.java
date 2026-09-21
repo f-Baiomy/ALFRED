@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.sessioncycles.adapter.out.capture;
 
+import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
@@ -108,8 +109,29 @@ class SessionCycleCaptureAdapterTest {
         List<String> updated = adapter.onCallCompleted(call);
 
         assertThat(updated).containsExactlyInAnyOrder("recording-1", "recording-2");
-        verify(capturedCallsStore).completeCapturedCall("recording-1", call.id(), call.response(), call.error(), call.durationMs(), call.timing());
-        verify(capturedCallsStore).completeCapturedCall("recording-2", call.id(), call.response(), call.error(), call.durationMs(), call.timing());
+        verify(capturedCallsStore).completeCapturedCall("recording-1", call.id(), call.response(), call.error(), call.durationMs(), call.timing(), call.interception());
+        verify(capturedCallsStore).completeCapturedCall("recording-2", call.id(), call.response(), call.error(), call.durationMs(), call.timing(), call.interception());
+    }
+
+    @Test
+    void onCallCompletedForwardsInterceptionSoAnEditedCallStaysMarkedEditedOnceCaptured() {
+        // This used to be dropped on the floor: completeCapturedCall had no interception parameter
+        // at all, so a call the live list showed as EDITED - with its own "what changed" panel -
+        // showed neither once captured into a cycle, even though the SAME CallRecord carried it.
+        CallInterception interception = new CallInterception(
+                List.of(new CallInterception.Applied("rule-1", "Slow Sabre", "SET_RESPONSE_STATUS", "500 -> 200")),
+                null, null, null, null);
+        CallRecord call = new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "GET",
+                null, "t", 1.0, null, null, com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus.COMPLETED,
+                null, null, null, null, interception);
+        when(capturedCallsStore.supportsTwoPhaseCapture()).thenReturn(true);
+        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
+        adapter.onCallPrepared(call);
+
+        adapter.onCallCompleted(call);
+
+        verify(capturedCallsStore).completeCapturedCall("recording-1", "call-1", call.response(), call.error(),
+                call.durationMs(), call.timing(), interception);
     }
 
     @Test
@@ -125,7 +147,7 @@ class SessionCycleCaptureAdapterTest {
         verify(capturedCallsStore, never()).completeCapturedCall(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test

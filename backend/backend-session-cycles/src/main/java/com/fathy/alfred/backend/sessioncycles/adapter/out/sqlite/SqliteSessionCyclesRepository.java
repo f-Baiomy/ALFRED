@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.calls.adapter.out.sqlite.BatchWriter;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
+import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
@@ -124,7 +125,7 @@ public class SqliteSessionCyclesRepository {
     private record PendingCapturedCall(String cycleId, CapturedCall captured) {}
 
     /** The outcome half of a two-phase captured call, awaiting write via {@link #completionWriter} - see {@link #completeCapturedCall}. */
-    private record PendingCapturedCallCompletion(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing) {}
+    private record PendingCapturedCallCompletion(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {}
 
     @PostConstruct
     void init() {
@@ -220,6 +221,7 @@ public class SqliteSessionCyclesRepository {
                 """);
         addSessionOperationColumnsIfMissing();
         addTimingColumnsIfMissing();
+        addInterceptionColumnIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS captured_call_request (
                   captured_call_id TEXT PRIMARY KEY REFERENCES captured_call_metadata(id) ON DELETE CASCADE,
@@ -266,6 +268,22 @@ public class SqliteSessionCyclesRepository {
         }
         if (!columns.contains("reused_connection")) {
             jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN reused_connection INTEGER");
+        }
+    }
+
+    /**
+     * See SqliteCallsRepository's identical column - one JSON document, since an interception
+     * record is variable-length and only ever read back whole with its call. Captured calls
+     * dropped this entirely: the column didn't exist, INSERT/UPDATE never bound it, and both row
+     * mappers built their CallRecord/CallSummary through the pre-interception constructor, so
+     * GET /session-cycles/{id}/calls always answered interception: null even for a call the same
+     * rule visibly edited on the live list. A call captured before this existed has no record here,
+     * same as a call no rule ever touched - both read as "nothing happened", correctly.
+     */
+    private void addInterceptionColumnIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(captured_call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("interception")) {
+            jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN interception TEXT");
         }
     }
 
@@ -441,6 +459,7 @@ public class SqliteSessionCyclesRepository {
                    cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id,
                    cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection,
+                   cm.interception,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM captured_call_metadata cm
@@ -569,6 +588,7 @@ public class SqliteSessionCyclesRepository {
             UPDATE captured_call_metadata SET
               status = ?, status_rank = ?, error = ?, duration_ms = ?, status_state = ?,
               connect_ms = ?, tls_ms = ?, ttfb_ms = ?, download_ms = ?, reused_connection = ?,
+              interception = ?,
               haystack = substr(COALESCE(request_haystack, '') || ' ' || ?, 1, ?)
             WHERE cycle_id = ? AND call_id = ?
             """;
@@ -579,13 +599,13 @@ public class SqliteSessionCyclesRepository {
             """;
 
     /** Second half of two-phase capture - fills in a previously-{@link #append}ed captured call's outcome, scoped to one cycle (SessionCycleCaptureAdapter calls this once per cycle it captured the call into at prepare time). @return true if a matching row existed. */
-    public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing) {
+    public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
         Integer existing = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM captured_call_metadata WHERE cycle_id = ? AND call_id = ?", Integer.class, cycleId, callId);
         if (existing == null || existing == 0) {
             return false;
         }
-        completionWriter.submit(new PendingCapturedCallCompletion(cycleId, callId, response, error, durationMs, timing));
+        completionWriter.submit(new PendingCapturedCallCompletion(cycleId, callId, response, error, durationMs, timing, interception));
         return true;
     }
 
@@ -612,10 +632,11 @@ public class SqliteSessionCyclesRepository {
         // The phase timings only exist at completion - the row was appended while the call was
         // still in flight, so this is the only chance to record them.
         bindTiming(ps, 6, pending.timing());
-        ps.setString(11, buildResponseHaystackFragment(response, error));
-        ps.setInt(12, MAX_HAYSTACK_LENGTH);
-        ps.setString(13, pending.cycleId());
-        ps.setString(14, pending.callId());
+        ps.setString(11, writeInterception(pending.interception()));
+        ps.setString(12, buildResponseHaystackFragment(response, error));
+        ps.setInt(13, MAX_HAYSTACK_LENGTH);
+        ps.setString(14, pending.cycleId());
+        ps.setString(15, pending.callId());
     }
 
     private void bindCompletionResponse(PreparedStatement ps, PendingCapturedCallCompletion pending) throws SQLException {
@@ -663,7 +684,7 @@ public class SqliteSessionCyclesRepository {
     /** See SqliteCallsRepository.SUMMARY_SQL's identical comment - list/search views never need request/response bodies. */
     private static final String SUMMARY_SQL =
             "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, "
-                    + "connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection FROM ";
+                    + "connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception FROM ";
 
     public CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(cycleId, search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -866,7 +887,7 @@ public class SqliteSessionCyclesRepository {
                 rs.getString("call_id"), rs.getString("original_url"), rs.getString("url"), rs.getString("method"),
                 request, rs.getString("timestamp"), durationMs, response, rs.getString("error"),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")), rs.getString("session_id"), rs.getString("operation_id"),
-                null, timingOf(rs));
+                null, timingOf(rs), interceptionOf(rs));
 
         return new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
     };
@@ -888,7 +909,7 @@ public class SqliteSessionCyclesRepository {
                 rs.getString("error"),
                 nullIfEmpty(rs.getString("supplier_name")),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
-                rs.getString("session_id"), rs.getString("operation_id"), null, timingOf(rs));
+                rs.getString("session_id"), rs.getString("operation_id"), null, timingOf(rs), interceptionOf(rs));
 
         return new CapturedCallSummary(rs.getString("id"), rs.getString("captured_at"), callSummary);
     };
@@ -914,6 +935,35 @@ public class SqliteSessionCyclesRepository {
         Object value = rs.getObject(column);
         return value == null ? null : rs.getDouble(column);
     }
+
+    /** See SqliteCallsRepository's identical pair - one JSON column, read back whole. */
+    private static String writeInterception(CallInterception interception) {
+        if (interception == null || interception.isEmpty()) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.writeValueAsString(interception);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.warn("Could not store interception record for a captured call: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static CallInterception interceptionOf(ResultSet rs) throws SQLException {
+        String json = rs.getString("interception");
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.readValue(json, CallInterception.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            // An unreadable record must not take the call down with it - the call itself is the
+            // thing being shown; this is an annotation on it.
+            return null;
+        }
+    }
+
+    private static final ObjectMapper INTERCEPTION_MAPPER = new ObjectMapper();
 
     /** Reads a row of the OLD (pre-split) single-table {@code captured_calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. */
     private static final RowMapper<PendingCapturedCall> LEGACY_ROW_MAPPER = (rs, rowNum) -> {

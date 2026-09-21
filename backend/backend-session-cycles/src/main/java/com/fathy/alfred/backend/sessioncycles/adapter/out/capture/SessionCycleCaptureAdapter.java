@@ -76,10 +76,13 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
             // Wasn't captured at prepare time (no cycle was recording then) - nothing to update.
             return List.of();
         }
-        // call.timing() is the whole reason this signature takes a sixth argument: the phase
-        // measurements are only known now, at completion, and the captured row was written while
-        // the call was still in flight.
-        cycleIds.forEach(cycleId -> capturedCallsStore.completeCapturedCall(cycleId, call.id(), call.response(), call.error(), call.durationMs(), call.timing()));
+        // call.timing() and call.interception() are why this takes six and seven arguments: both
+        // are only known now, at completion, and the captured row was written while the call was
+        // still in flight. Dropping interception here (it used to not even be a parameter) is why
+        // a call shown as EDITED with its own "what changed" panel on the live list showed neither
+        // once captured into a cycle - the frontend renders both off this exact field.
+        cycleIds.forEach(cycleId -> capturedCallsStore.completeCapturedCall(
+                cycleId, call.id(), call.response(), call.error(), call.durationMs(), call.timing(), call.interception()));
         return cycleIds;
     }
 
