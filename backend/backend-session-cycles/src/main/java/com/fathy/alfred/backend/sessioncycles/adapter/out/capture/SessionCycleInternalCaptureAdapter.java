@@ -38,7 +38,7 @@ public class SessionCycleInternalCaptureAdapter implements NewInternalCallObserv
         List<String> cycleIds = recordingCycleIds();
         cycleIds.forEach(cycleId -> {
             capturedInternalCallsStore.append(cycleId, call);
-            pinTrailingSpacersTo(cycleId, call.id());
+            pinTrailingSpacersTo(cycleId, call);
         });
         return cycleIds;
     }
@@ -54,12 +54,15 @@ public class SessionCycleInternalCaptureAdapter implements NewInternalCallObserv
      * See SessionCycleCaptureAdapter#pinTrailingSpacersTo (the external-calls twin of this
      * adapter) for the full rationale - this is the same fix, needed here too since inbound
      * traffic captured while RECORDING goes through this class instead, and spacers are shared
-     * across both external and internal calls in the same cycle.
+     * across both external and internal calls in the same cycle. Never anchors to an OPTIONS
+     * preflight either, for the same reason as that twin - confirmed live: a spacer pinned to a
+     * captured OPTIONS call vanished from every view, since OPTIONS calls are hidden by default.
      */
-    private void pinTrailingSpacersTo(String cycleId, String callId) {
+    private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
+        if ("OPTIONS".equalsIgnoreCase(call.method())) return;
         for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
             if (spacer.beforeCallId() == null) {
-                spacersStore.move(cycleId, spacer.id(), callId);
+                spacersStore.move(cycleId, spacer.id(), call.id());
             }
         }
     }

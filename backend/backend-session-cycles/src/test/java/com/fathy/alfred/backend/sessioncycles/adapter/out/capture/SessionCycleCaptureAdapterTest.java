@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -64,6 +65,18 @@ class SessionCycleCaptureAdapterTest {
 
         verify(spacersStore).move("recording-1", "spacer-1", call.id());
         verify(spacersStore, never()).move("recording-1", "spacer-2", call.id());
+    }
+
+    @Test
+    void onNewCallDoesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
+        CallRecord optionsCall = new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "OPTIONS", null, "t", 1.0, null, null);
+        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
+        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t");
+        when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing));
+
+        adapter.onNewCall(optionsCall);
+
+        verify(spacersStore, never()).move(any(), any(), any());
     }
 
     @Test

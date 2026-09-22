@@ -123,17 +123,23 @@ public class SessionCyclesInternalCallsService implements
                 }
                 capturedInternalCallsStore.append(cycleId, call);
                 added++;
-                pinTrailingSpacersTo(cycleId, call.id());
+                pinTrailingSpacersTo(cycleId, call);
             }
             return new CopyCallsResult(added, skipped);
         });
     }
 
-    /** See SessionCyclesService#pinTrailingSpacersTo (the external-calls twin of this method) for the full rationale - same fix, needed here too since spacers are shared across both external and internal calls in the same cycle. */
-    private void pinTrailingSpacersTo(String cycleId, String callId) {
+    /**
+     * See SessionCyclesService#pinTrailingSpacersTo (the external-calls twin of this method) for
+     * the full rationale - same fix, needed here too since spacers are shared across both external
+     * and internal calls in the same cycle. Never anchors to an OPTIONS preflight either - see
+     * that twin's doc for why (confirmed live: a spacer pinned to one vanished from every view).
+     */
+    private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
+        if ("OPTIONS".equalsIgnoreCase(call.method())) return;
         for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
             if (spacer.beforeCallId() == null) {
-                spacersStore.move(cycleId, spacer.id(), callId);
+                spacersStore.move(cycleId, spacer.id(), call.id());
             }
         }
     }

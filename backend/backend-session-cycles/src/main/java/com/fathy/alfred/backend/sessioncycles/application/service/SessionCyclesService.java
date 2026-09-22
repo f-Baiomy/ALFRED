@@ -339,7 +339,7 @@ public class SessionCyclesService implements
                 }
                 capturedCallsStore.append(cycleId, call);
                 added++;
-                pinTrailingSpacersTo(cycleId, call.id());
+                pinTrailingSpacersTo(cycleId, call);
             }
             return new CopyCallsResult(added, skipped);
         });
@@ -358,11 +358,21 @@ public class SessionCyclesService implements
      * later calls in the same batch (or a later capture entirely) leave it alone. Called from both
      * capture paths that append into a cycle's captured calls - this one (manual copy/import) and
      * SessionCycleCaptureAdapter (live auto-capture while RECORDING).
+     *
+     * <p>Never anchors to an OPTIONS preflight: those are hidden from every call-list view by
+     * default (CallListView's showOptionsCalls, off unless the user opts in) - confirmed live:
+     * a spacer pinned to one simply vanished, since the merge that inlines spacers among the
+     * currently-VISIBLE rows (mergeWithSpacers) can never find a match for an anchor id that
+     * isn't rendered at all, and a spacer that's already anchored (no longer trailing) is not
+     * re-pinned to whatever comes after either. Skipping the preflight and waiting for the next
+     * real call keeps it trailing (still visible, still correct) until something it can actually
+     * attach to shows up.
      */
-    private void pinTrailingSpacersTo(String cycleId, String callId) {
+    private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
+        if ("OPTIONS".equalsIgnoreCase(call.method())) return;
         for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
             if (spacer.beforeCallId() == null) {
-                spacersStore.move(cycleId, spacer.id(), callId);
+                spacersStore.move(cycleId, spacer.id(), call.id());
             }
         }
     }

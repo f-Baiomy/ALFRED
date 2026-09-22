@@ -208,4 +208,17 @@ class SessionCyclesInternalCallsServiceTest {
         assertThat(result).isEqualTo(new CopyCallsResult(1, 1));
         verify(capturedInternalCallsStore, org.mockito.Mockito.times(1)).append("c1", call);
     }
+
+    @Test
+    void copyIntoDoesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z");
+        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing));
+        CallRecord optionsCall = new CallRecord("id-t1", "https://wildfly-proxy/x", "https://wildfly/x", "OPTIONS", null, "t1", 1.0, null, null);
+
+        service.copyInto("c1", List.of(optionsCall));
+
+        verify(spacersStore, never()).move(any(), any(), any());
+    }
 }

@@ -469,6 +469,19 @@ class SessionCyclesServiceTest {
     }
 
     @Test
+    void copyIntoDoesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z");
+        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing));
+        CallRecord optionsCall = new CallRecord("id-t1", "https://a.com-proxy/x", "https://a.com/x", "OPTIONS", null, "t1", 1.0, null, null);
+
+        service.copyInto("c1", List.of(optionsCall));
+
+        verify(spacersStore, never()).move(any(), any(), any());
+    }
+
+    @Test
     void copyIntoSkipsCallsAlreadyPresentByCallId() {
         CallRecord existing = callWithId("shared-id", "t1");
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));

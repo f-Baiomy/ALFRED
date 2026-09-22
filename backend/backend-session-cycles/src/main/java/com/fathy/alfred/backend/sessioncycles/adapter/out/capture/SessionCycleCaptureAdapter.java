@@ -51,7 +51,7 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
         List<String> cycleIds = recordingCycleIds();
         cycleIds.forEach(cycleId -> {
             capturedCallsStore.append(cycleId, call);
-            pinTrailingSpacersTo(cycleId, call.id());
+            pinTrailingSpacersTo(cycleId, call);
         });
         return cycleIds;
     }
@@ -66,7 +66,7 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
         List<String> cycleIds = recordingCycleIds();
         cycleIds.forEach(cycleId -> {
             capturedCallsStore.append(cycleId, call);
-            pinTrailingSpacersTo(cycleId, call.id());
+            pinTrailingSpacersTo(cycleId, call);
         });
         if (!cycleIds.isEmpty()) {
             capturedCycleIdsByCallId.put(call.id(), cycleIds);
@@ -86,11 +86,17 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
      * Mirrors SessionCyclesService#pinTrailingSpacersTo, called from its own (manual copy/import)
      * capture path - kept as a small duplicate rather than a cross-adapter call, since this class
      * only otherwise depends on ports, not the application service.
+     *
+     * <p>Never anchors to an OPTIONS preflight - see SessionCyclesService#pinTrailingSpacersTo's
+     * doc for why (confirmed live: a spacer pinned to one simply vanished from every view, since
+     * OPTIONS calls are hidden by default and the merge can't inline a spacer against a row that
+     * isn't rendered).
      */
-    private void pinTrailingSpacersTo(String cycleId, String callId) {
+    private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
+        if ("OPTIONS".equalsIgnoreCase(call.method())) return;
         for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
             if (spacer.beforeCallId() == null) {
-                spacersStore.move(cycleId, spacer.id(), callId);
+                spacersStore.move(cycleId, spacer.id(), call.id());
             }
         }
     }
