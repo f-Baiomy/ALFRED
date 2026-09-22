@@ -2,7 +2,9 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.capture;
 
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import org.junit.jupiter.api.Test;
@@ -19,7 +21,8 @@ class SessionCycleInternalCaptureAdapterTest {
 
     private final SessionCycleMetadataStorePort metadataStore = mock(SessionCycleMetadataStorePort.class);
     private final CapturedInternalCallsStorePort capturedInternalCallsStore = mock(CapturedInternalCallsStorePort.class);
-    private final SessionCycleInternalCaptureAdapter adapter = new SessionCycleInternalCaptureAdapter(metadataStore, capturedInternalCallsStore);
+    private final CycleSpacersStorePort spacersStore = mock(CycleSpacersStorePort.class);
+    private final SessionCycleInternalCaptureAdapter adapter = new SessionCycleInternalCaptureAdapter(metadataStore, capturedInternalCallsStore, spacersStore);
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "t", null, status);
@@ -44,6 +47,18 @@ class SessionCycleInternalCaptureAdapterTest {
         verify(capturedInternalCallsStore).append("recording-1", call);
         verify(capturedInternalCallsStore).append("recording-2", call);
         verify(capturedInternalCallsStore, never()).append("paused-1", call);
+    }
+
+    @Test
+    void reAnchorsAnyTrailingSpacerToTheJustCapturedCallSoItStaysPutInsteadOfSlidingPastFutureCalls() {
+        CallRecord call = call();
+        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
+        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t");
+        when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing));
+
+        adapter.onCallCompleted(call);
+
+        verify(spacersStore).move("recording-1", "spacer-1", call.id());
     }
 
     @Test

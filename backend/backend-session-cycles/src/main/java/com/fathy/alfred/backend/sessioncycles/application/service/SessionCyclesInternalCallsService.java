@@ -10,11 +10,13 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedIn
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -49,6 +51,7 @@ public class SessionCyclesInternalCallsService implements
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedInternalCallsStorePort capturedInternalCallsStore;
+    private final CycleSpacersStorePort spacersStore;
 
     /** Same property + same clamp SessionCyclesService applies to the external captured-calls path, reused here so a page of captured internal calls can't be forced unbounded either. */
     @Value("${alfred.calls.max-limit:200}")
@@ -58,9 +61,10 @@ public class SessionCyclesInternalCallsService implements
     @Value("${alfred.session-cycles.pagination-enabled:false}")
     private boolean paginationEnabled;
 
-    public SessionCyclesInternalCallsService(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore) {
+    public SessionCyclesInternalCallsService(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore, CycleSpacersStorePort spacersStore) {
         this.metadataStore = metadataStore;
         this.capturedInternalCallsStore = capturedInternalCallsStore;
+        this.spacersStore = spacersStore;
     }
 
     /** Mirrors SessionCyclesService.listCalls exactly, delegating to CapturedInternalCallsStorePort instead. */
@@ -119,8 +123,18 @@ public class SessionCyclesInternalCallsService implements
                 }
                 capturedInternalCallsStore.append(cycleId, call);
                 added++;
+                pinTrailingSpacersTo(cycleId, call.id());
             }
             return new CopyCallsResult(added, skipped);
         });
+    }
+
+    /** See SessionCyclesService#pinTrailingSpacersTo (the external-calls twin of this method) for the full rationale - same fix, needed here too since spacers are shared across both external and internal calls in the same cycle. */
+    private void pinTrailingSpacersTo(String cycleId, String callId) {
+        for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
+            if (spacer.beforeCallId() == null) {
+                spacersStore.move(cycleId, spacer.id(), callId);
+            }
+        }
     }
 }

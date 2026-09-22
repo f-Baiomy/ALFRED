@@ -5,10 +5,12 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallDetail;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
@@ -30,12 +32,13 @@ class SessionCyclesInternalCallsServiceTest {
 
     private final SessionCycleMetadataStorePort metadataStore = mock(SessionCycleMetadataStorePort.class);
     private final CapturedInternalCallsStorePort capturedInternalCallsStore = mock(CapturedInternalCallsStorePort.class);
-    private final SessionCyclesInternalCallsService service = newService(metadataStore, capturedInternalCallsStore);
+    private final CycleSpacersStorePort spacersStore = mock(CycleSpacersStorePort.class);
+    private final SessionCyclesInternalCallsService service = newService(metadataStore, capturedInternalCallsStore, spacersStore);
 
     private static final CallsQuery DEFAULT_QUERY = new CallsQuery("", "", "oldest", 0, 10, "", "", "");
 
-    private static SessionCyclesInternalCallsService newService(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore) {
-        SessionCyclesInternalCallsService service = new SessionCyclesInternalCallsService(metadataStore, capturedInternalCallsStore);
+    private static SessionCyclesInternalCallsService newService(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore, CycleSpacersStorePort spacersStore) {
+        SessionCyclesInternalCallsService service = new SessionCyclesInternalCallsService(metadataStore, capturedInternalCallsStore, spacersStore);
         try {
             Field maxLimitField = SessionCyclesInternalCallsService.class.getDeclaredField("maxLimit");
             maxLimitField.setAccessible(true);
@@ -175,6 +178,23 @@ class SessionCyclesInternalCallsServiceTest {
         assertThat(result).isEqualTo(new CopyCallsResult(1, 1));
         verify(capturedInternalCallsStore).append("c1", fresh);
         verify(capturedInternalCallsStore, never()).append("c1", existing);
+    }
+
+    @Test
+    void copyIntoReAnchorsAnyTrailingSpacerToTheFirstNewlyAddedCall() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z");
+        // The real store would stop returning this as trailing once move() re-anchors it - see
+        // SessionCyclesServiceTest's identical fixture for why this simulates that with a mock.
+        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing), List.of());
+
+        CallRecord a = call("t1");
+        CallRecord b = call("t2");
+        service.copyInto("c1", List.of(a, b));
+
+        verify(spacersStore, org.mockito.Mockito.times(1)).move(eq("c1"), eq("s1"), any());
+        verify(spacersStore).move("c1", "s1", a.id());
     }
 
     @Test

@@ -3,7 +3,9 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.capture;
 import com.fathy.alfred.backend.internalcalls.application.port.out.NewInternalCallObserverPort;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import org.springframework.stereotype.Component;
@@ -23,16 +25,21 @@ public class SessionCycleInternalCaptureAdapter implements NewInternalCallObserv
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedInternalCallsStorePort capturedInternalCallsStore;
+    private final CycleSpacersStorePort spacersStore;
 
-    public SessionCycleInternalCaptureAdapter(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore) {
+    public SessionCycleInternalCaptureAdapter(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore, CycleSpacersStorePort spacersStore) {
         this.metadataStore = metadataStore;
         this.capturedInternalCallsStore = capturedInternalCallsStore;
+        this.spacersStore = spacersStore;
     }
 
     @Override
     public List<String> onCallCompleted(CallRecord call) {
         List<String> cycleIds = recordingCycleIds();
-        cycleIds.forEach(cycleId -> capturedInternalCallsStore.append(cycleId, call));
+        cycleIds.forEach(cycleId -> {
+            capturedInternalCallsStore.append(cycleId, call);
+            pinTrailingSpacersTo(cycleId, call.id());
+        });
         return cycleIds;
     }
 
@@ -41,5 +48,19 @@ public class SessionCycleInternalCaptureAdapter implements NewInternalCallObserv
                 .filter(cycle -> cycle.status() == SessionCycleStatus.RECORDING)
                 .map(SessionCycle::id)
                 .toList();
+    }
+
+    /**
+     * See SessionCycleCaptureAdapter#pinTrailingSpacersTo (the external-calls twin of this
+     * adapter) for the full rationale - this is the same fix, needed here too since inbound
+     * traffic captured while RECORDING goes through this class instead, and spacers are shared
+     * across both external and internal calls in the same cycle.
+     */
+    private void pinTrailingSpacersTo(String cycleId, String callId) {
+        for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
+            if (spacer.beforeCallId() == null) {
+                spacersStore.move(cycleId, spacer.id(), callId);
+            }
+        }
     }
 }
