@@ -23,6 +23,17 @@ export interface ExportedCycle {
   readonly createdAt: string | null;
 }
 
+/**
+ * A named divider between calls in a whole-cycle export - see CycleSpacer for the live/editable
+ * version. `beforeCallId` here is already remapped to the underlying CallRecord's own id (matching
+ * what every exported call is keyed by) rather than the captured-call wrapper id CycleSpacer
+ * anchors to - see CycleExportService.fetchSpacers.
+ */
+export interface ExportedSpacer {
+  readonly label: string;
+  readonly beforeCallId: string | null;
+}
+
 export type Environment = 'Production' | 'Staging';
 
 export interface ExportFormData {

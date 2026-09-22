@@ -1,5 +1,5 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
-import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
+import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
@@ -509,7 +509,8 @@ export function buildBulkExportMarkdown(
   exportedAt: string,
   overlapCandidates: readonly CallOverlapCandidate[] = [],
   statusFilter: CallStatusFilter = 'all',
-  cycle: ExportedCycle | null = null
+  cycle: ExportedCycle | null = null,
+  spacers: readonly ExportedSpacer[] = []
 ): string {
   const lines: string[] = [];
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
@@ -556,9 +557,25 @@ export function buildBulkExportMarkdown(
 
   lines.push('## 🔗 Calls', '');
 
+  const spacersBeforeCallId = new Map<string, ExportedSpacer[]>();
+  const trailingSpacers: ExportedSpacer[] = [];
+  for (const spacer of spacers) {
+    if (spacer.beforeCallId == null) {
+      trailingSpacers.push(spacer);
+    } else {
+      const list = spacersBeforeCallId.get(spacer.beforeCallId);
+      if (list) list.push(spacer);
+      else spacersBeforeCallId.set(spacer.beforeCallId, [spacer]);
+    }
+  }
+
   blocks.forEach((block) => {
     const { call } = block;
     const allComments = commentsByCallId.get(call.id) ?? [];
+
+    for (const spacer of spacersBeforeCallId.get(call.id) ?? []) {
+      lines.push(`### 🏷️ ${spacer.label}`, '');
+    }
 
     // Indented to match the topology, so the Calls list reads as the tree it already is: a split
     // parent's request and response sit at one level with everything it caused nested between them.
@@ -578,6 +595,10 @@ export function buildBulkExportMarkdown(
 
     lines.push('</details>', '');
   });
+
+  for (const spacer of trailingSpacers) {
+    lines.push(`### 🏷️ ${spacer.label}`, '');
+  }
 
   lines.push('---', '');
   lines.push(

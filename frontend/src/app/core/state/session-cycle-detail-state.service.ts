@@ -20,7 +20,7 @@ import { AppConfigService } from '../services/app-config.service';
 import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
-import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState } from './call-selection.tokens';
+import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState, CycleSpacer } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
 import { reconnectingSocket } from './reconnecting-socket';
 import { CallViewMode } from '../../shared/utils/call-tree';
@@ -75,6 +75,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   readonly dragEnabled = computed(() => !this.groupBySupplier());
 
+  /** Every spacer for the currently-open cycle - see CallReorderState. Reloaded whenever the open cycle changes. */
+  readonly spacers = signal<readonly CycleSpacer[]>([]);
+
   constructor() {
     this.view = createCallListView(computed(() => new Set(this.pinService.pinned().keys())), {
       pageSize: 200,
@@ -91,10 +94,14 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     // e.g. appending cycle B's calls onto cycle A's leftover window.
     effect(
       () => {
-        this.cycleId();
+        const id = this.cycleId();
         this.capturedByKey.clear();
         this.liveCalls.set([]);
         this.view.resetSource();
+        this.spacers.set([]);
+        if (id) {
+          this.api.listSpacers(id).subscribe((spacers) => this.spacers.set(spacers));
+        }
       },
       { allowSignalWrites: true }
     );
@@ -259,6 +266,34 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     }
   }
 
+  addSpacer(label: string, beforeCallId: string | null): void {
+    const id = this.cycleId();
+    if (!id) return;
+    this.api.createSpacer(id, label, beforeCallId).subscribe((spacer) => this.spacers.set([...this.spacers(), spacer]));
+  }
+
+  renameSpacer(spacerId: string, label: string): void {
+    const id = this.cycleId();
+    if (!id) return;
+    this.api.renameSpacer(id, spacerId, label).subscribe((updated) => this.replaceSpacer(updated));
+  }
+
+  moveSpacer(spacerId: string, beforeCallId: string | null): void {
+    const id = this.cycleId();
+    if (!id) return;
+    this.api.moveSpacer(id, spacerId, beforeCallId).subscribe((updated) => this.replaceSpacer(updated));
+  }
+
+  deleteSpacer(spacerId: string): void {
+    const id = this.cycleId();
+    if (!id) return;
+    this.api.deleteSpacer(id, spacerId).subscribe(() => this.spacers.set(this.spacers().filter((s) => s.id !== spacerId)));
+  }
+
+  private replaceSpacer(updated: CycleSpacer): void {
+    this.spacers.set(this.spacers().map((s) => (s.id === updated.id ? updated : s)));
+  }
+
   /**
    * Pushes a captured call onto the page the instant it's recorded, and immediately triggers a
    * refresh() for the authoritative page - there's no 5s poll to eventually pick it up otherwise.
@@ -351,6 +386,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         this.pruneLiveCalls(keysToPrune);
       }
       this.view.refresh();
+      this.reloadSpacers();
     });
   }
 
@@ -379,6 +415,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       this.clearSelection();
       this.pruneLiveCalls(calls.map(callKey));
       this.view.refresh();
+      this.reloadSpacers();
     });
   }
 
@@ -397,8 +434,16 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         this.clearSelection();
         this.liveCalls.set([]);
         this.view.resetSource();
+        this.spacers.set([]);
       })
     );
+  }
+
+  /** Re-fetches this cycle's spacers from the backend - used after removing calls, since a spacer anchored to a removed call is repointed server-side (see CycleSpacersStorePort.dropAnchorsTo) and the local signal has no way to derive that on its own. */
+  private reloadSpacers(): void {
+    const id = this.cycleId();
+    if (!id) return;
+    this.api.listSpacers(id).subscribe((spacers) => this.spacers.set(spacers));
   }
 
   /** Drops the given keys out of the live-push buffer - see removeCall's doc for why this is necessary on every removal path, not just relying on view.refresh() alone. */

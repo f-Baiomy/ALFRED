@@ -4,13 +4,18 @@ import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CopyCallsRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CopyInternalCallsRequestDto;
+import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CreateCycleSpacerRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.CreateSessionCycleRequestDto;
+import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.MoveCycleSpacerRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.RemoveCallsRequestDto;
+import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.RenameCycleSpacerRequestDto;
 import com.fathy.alfred.backend.sessioncycles.adapter.in.web.dto.UpdateSessionCycleRequestDto;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ClearCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyInternalCallsToCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
@@ -18,12 +23,15 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycl
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCycleSpacersUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.MoveCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RenameCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapEntry;
@@ -31,6 +39,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapQuery;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
@@ -78,6 +87,11 @@ public class SessionCyclesController {
     private final RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase;
     private final CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase;
     private final ListCallOverlapsUseCase listCallOverlapsUseCase;
+    private final ListCycleSpacersUseCase listCycleSpacersUseCase;
+    private final CreateCycleSpacerUseCase createCycleSpacerUseCase;
+    private final RenameCycleSpacerUseCase renameCycleSpacerUseCase;
+    private final MoveCycleSpacerUseCase moveCycleSpacerUseCase;
+    private final DeleteCycleSpacerUseCase deleteCycleSpacerUseCase;
 
     public SessionCyclesController(
             CreateSessionCycleUseCase createSessionCycleUseCase,
@@ -98,7 +112,12 @@ public class SessionCyclesController {
             RemoveCapturedInternalCallUseCase removeCapturedInternalCallUseCase,
             RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase,
             CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase,
-            ListCallOverlapsUseCase listCallOverlapsUseCase
+            ListCallOverlapsUseCase listCallOverlapsUseCase,
+            ListCycleSpacersUseCase listCycleSpacersUseCase,
+            CreateCycleSpacerUseCase createCycleSpacerUseCase,
+            RenameCycleSpacerUseCase renameCycleSpacerUseCase,
+            MoveCycleSpacerUseCase moveCycleSpacerUseCase,
+            DeleteCycleSpacerUseCase deleteCycleSpacerUseCase
     ) {
         this.createSessionCycleUseCase = createSessionCycleUseCase;
         this.listSessionCyclesUseCase = listSessionCyclesUseCase;
@@ -119,6 +138,11 @@ public class SessionCyclesController {
         this.removeCapturedInternalCallsUseCase = removeCapturedInternalCallsUseCase;
         this.copyInternalCallsToCycleUseCase = copyInternalCallsToCycleUseCase;
         this.listCallOverlapsUseCase = listCallOverlapsUseCase;
+        this.listCycleSpacersUseCase = listCycleSpacersUseCase;
+        this.createCycleSpacerUseCase = createCycleSpacerUseCase;
+        this.renameCycleSpacerUseCase = renameCycleSpacerUseCase;
+        this.moveCycleSpacerUseCase = moveCycleSpacerUseCase;
+        this.deleteCycleSpacerUseCase = deleteCycleSpacerUseCase;
     }
 
     @PostMapping
@@ -307,6 +331,42 @@ public class SessionCyclesController {
                         fromInstant, toInstant, search, supplier, serviceNames, sessionId, operationId, requestId))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Every spacer for this cycle - never paginated, a cycle has at most a handful. */
+    @GetMapping("/{id}/spacers")
+    public ResponseEntity<List<CycleSpacer>> listSpacers(@PathVariable String id) {
+        return listCycleSpacersUseCase.listSpacers(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/{id}/spacers")
+    public ResponseEntity<CycleSpacer> createSpacer(@PathVariable String id, @Valid @RequestBody CreateCycleSpacerRequestDto request) {
+        return createCycleSpacerUseCase.createSpacer(id, request.label(), request.beforeCallId())
+                .map(spacer -> ResponseEntity.status(HttpStatus.CREATED).body(spacer))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PatchMapping("/{id}/spacers/{spacerId}")
+    public ResponseEntity<CycleSpacer> renameSpacer(@PathVariable String id, @PathVariable String spacerId, @Valid @RequestBody RenameCycleSpacerRequestDto request) {
+        return renameCycleSpacerUseCase.renameSpacer(id, spacerId, request.label())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Re-anchors a spacer next to a different captured call - the backend half of dragging a spacer around in the call list. */
+    @PatchMapping("/{id}/spacers/{spacerId}/move")
+    public ResponseEntity<CycleSpacer> moveSpacer(@PathVariable String id, @PathVariable String spacerId, @RequestBody MoveCycleSpacerRequestDto request) {
+        return moveCycleSpacerUseCase.moveSpacer(id, spacerId, request.beforeCallId())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/{id}/spacers/{spacerId}")
+    public ResponseEntity<Void> deleteSpacer(@PathVariable String id, @PathVariable String spacerId) {
+        boolean deleted = deleteCycleSpacerUseCase.deleteSpacer(id, spacerId);
+        return deleted ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
     /** Accepts both Java's Instant.toString() format (trailing "Z") and an OffsetDateTime-shaped offset, same fallback CallListSupport's own timestamp parsing uses elsewhere. */

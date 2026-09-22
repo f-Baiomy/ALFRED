@@ -60,6 +60,13 @@ export interface CallRemovalState {
 
 export const CALL_REMOVAL_STATE = new InjectionToken<CallRemovalState>('CALL_REMOVAL_STATE');
 
+/** A named divider between captured calls in a session cycle's call list - see CycleSpacersApiService. `beforeCallId: null` means "sits after every call". */
+export interface CycleSpacer {
+  readonly id: string;
+  readonly label: string;
+  readonly beforeCallId: string | null;
+}
+
 /**
  * Optional per-list drag-and-drop reordering surface, same "only some pages provide it" shape as
  * CallRemovalState above. Only SessionCycleDetailComponent binds this token - the dashboard never
@@ -67,10 +74,19 @@ export const CALL_REMOVAL_STATE = new InjectionToken<CallRemovalState>('CALL_REM
  * cdkDropList/cdkDrag there, and HeaderComponent never offers the "Custom order" sort option
  * there either. `dragEnabled` is false while grouped by supplier, since reordering across group
  * boundaries has no defined meaning.
+ *
+ * Spacers ride along on this same token rather than a separate one: they only ever render inside
+ * the flat, ungrouped, reorderable list (see CallListComponent.mergedRows), so anywhere
+ * dragEnabled can be true is exactly where spacer CRUD needs to be available too.
  */
 export interface CallReorderState {
   readonly dragEnabled: Signal<boolean>;
   reorder(orderedCalls: readonly CallRecord[]): void;
+  readonly spacers: Signal<readonly CycleSpacer[]>;
+  addSpacer(label: string, beforeCallId: string | null): void;
+  renameSpacer(id: string, label: string): void;
+  moveSpacer(id: string, beforeCallId: string | null): void;
+  deleteSpacer(id: string): void;
 }
 
 export const CALL_REORDER_STATE = new InjectionToken<CallReorderState>('CALL_REORDER_STATE');

@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapEntry;
@@ -14,6 +15,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
@@ -39,16 +41,18 @@ class SessionCyclesServiceTest {
 
     private final SessionCycleMetadataStorePort metadataStore = mock(SessionCycleMetadataStorePort.class);
     private final CapturedCallsStorePort capturedCallsStore = mock(CapturedCallsStorePort.class);
+    private final CycleSpacersStorePort spacersStore = mock(CycleSpacersStorePort.class);
     private final SessionCycleNotificationPort notificationPort = mock(SessionCycleNotificationPort.class);
     private final CapturedInternalCallsStorePort capturedInternalCallsStore = mock(CapturedInternalCallsStorePort.class);
-    private final SessionCyclesService service = newService(metadataStore, capturedCallsStore, notificationPort, capturedInternalCallsStore);
+    private final SessionCyclesService service = newService(metadataStore, capturedCallsStore, spacersStore, notificationPort, capturedInternalCallsStore);
 
     private static final CallsQuery DEFAULT_QUERY = new CallsQuery("", "", "oldest", 0, 10);
 
     /** maxLimit/paginationEnabled are @Value-injected by Spring in production; unit tests construct SessionCyclesService directly, so they're set the same way CallsServiceTest sets its own @Value fields. */
     private static SessionCyclesService newService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore,
+                                                     CycleSpacersStorePort spacersStore,
                                                      SessionCycleNotificationPort notificationPort, CapturedInternalCallsStorePort capturedInternalCallsStore) {
-        SessionCyclesService service = new SessionCyclesService(metadataStore, capturedCallsStore, notificationPort, capturedInternalCallsStore);
+        SessionCyclesService service = new SessionCyclesService(metadataStore, capturedCallsStore, spacersStore, notificationPort, capturedInternalCallsStore);
         try {
             Field maxLimitField = SessionCyclesService.class.getDeclaredField("maxLimit");
             maxLimitField.setAccessible(true);
@@ -182,6 +186,7 @@ class SessionCyclesServiceTest {
         verify(metadataStore).deleteById("c1");
         verify(capturedCallsStore).deleteAllForCycle("c1");
         verify(capturedInternalCallsStore).deleteAllForCycle("c1");
+        verify(spacersStore).deleteAllForCycle("c1");
         verify(notificationPort).notifySessionCyclesChanged();
     }
 
@@ -202,6 +207,7 @@ class SessionCyclesServiceTest {
         verify(metadataStore, never()).deleteById(any());
         verify(capturedCallsStore).deleteAllForCycle("c1");
         verify(capturedInternalCallsStore).deleteAllForCycle("c1");
+        verify(spacersStore).deleteAllForCycle("c1");
     }
 
     @Test
@@ -296,10 +302,36 @@ class SessionCyclesServiceTest {
 
     @Test
     void removeCallDelegatesToTheStore() {
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
         when(capturedCallsStore.removeById("c1", "call-1")).thenReturn(true);
 
         assertThat(service.removeCall("c1", "call-1")).isTrue();
         verify(capturedCallsStore).removeById(eq("c1"), eq("call-1"));
+    }
+
+    @Test
+    void removeCallDropsAnySpacerAnchoredToTheRemovedCallSoItDoesNotBecomeUnreachable() {
+        // "call-1" here is the CapturedCall WRAPPER id (what removeCall/removeById key on) -
+        // captured(call("t1")) mints one as "captured-t1", wrapping underlying call "id-t1". A
+        // spacer's beforeCallId anchors to the underlying id, so dropAnchorsTo must be called with
+        // "id-t1", not the wrapper id "captured-t1" this test removes by.
+        CapturedCall captured = captured(call("t1"));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured));
+        when(capturedCallsStore.removeById("c1", captured.id())).thenReturn(true);
+
+        service.removeCall("c1", captured.id());
+
+        verify(spacersStore).dropAnchorsTo("c1", List.of("id-t1"));
+    }
+
+    @Test
+    void removeCallDoesNotTouchSpacersWhenNothingWasActuallyRemoved() {
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        when(capturedCallsStore.removeById("c1", "missing")).thenReturn(false);
+
+        service.removeCall("c1", "missing");
+
+        verify(spacersStore, never()).dropAnchorsTo(any(), any());
     }
 
     @Test
@@ -312,12 +344,73 @@ class SessionCyclesServiceTest {
 
     @Test
     void removeCallsReturnsTheRemovedAndNotFoundCounts() {
+        CapturedCall capturedA = captured(call("t1"));
+        CapturedCall capturedB = captured(call("t2"));
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.removeByIds("c1", List.of("call-1", "call-2", "missing"))).thenReturn(2);
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(capturedA, capturedB));
+        when(capturedCallsStore.removeByIds("c1", List.of(capturedA.id(), capturedB.id(), "missing"))).thenReturn(2);
 
-        Optional<RemoveCallsResult> result = service.removeCalls("c1", List.of("call-1", "call-2", "missing"));
+        Optional<RemoveCallsResult> result = service.removeCalls("c1", List.of(capturedA.id(), capturedB.id(), "missing"));
 
         assertThat(result).contains(new RemoveCallsResult(2, 1));
+        verify(spacersStore).dropAnchorsTo("c1", List.of("id-t1", "id-t2"));
+    }
+
+    @Test
+    void listSpacersReturnsEmptyOptionalWhenTheCycleDoesNotExist() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.listSpacers("missing")).isEmpty();
+        verify(spacersStore, never()).findAllByCycle(any());
+    }
+
+    @Test
+    void listSpacersDelegatesToTheStoreWhenTheCycleExists() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        CycleSpacer spacer = new CycleSpacer("s1", "c1", "Checkout retry attempt", "call-1", "2026-01-01T00:00:00Z");
+        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(spacer));
+
+        assertThat(service.listSpacers("c1")).contains(List.of(spacer));
+    }
+
+    @Test
+    void createSpacerReturnsEmptyWhenTheCycleDoesNotExist() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.createSpacer("missing", "Retry attempt", "call-1")).isEmpty();
+        verify(spacersStore, never()).create(any(), any(), any());
+    }
+
+    @Test
+    void createSpacerDelegatesToTheStoreWhenTheCycleExists() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", "call-1", "2026-01-01T00:00:00Z");
+        when(spacersStore.create("c1", "Retry attempt", "call-1")).thenReturn(created);
+
+        assertThat(service.createSpacer("c1", "Retry attempt", "call-1")).contains(created);
+    }
+
+    @Test
+    void renameSpacerReturnsEmptyWhenTheCycleDoesNotExist() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.renameSpacer("missing", "s1", "New label")).isEmpty();
+        verify(spacersStore, never()).rename(any(), any(), any());
+    }
+
+    @Test
+    void moveSpacerReturnsEmptyWhenTheCycleDoesNotExist() {
+        when(metadataStore.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.moveSpacer("missing", "s1", "call-2")).isEmpty();
+        verify(spacersStore, never()).move(any(), any(), any());
+    }
+
+    @Test
+    void deleteSpacerDelegatesToTheStore() {
+        when(spacersStore.delete("c1", "s1")).thenReturn(true);
+
+        assertThat(service.deleteSpacer("c1", "s1")).isTrue();
     }
 
     private static CallRecord call(String timestamp) {

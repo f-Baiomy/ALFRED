@@ -5,6 +5,7 @@ import { CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, C
 import { AppConfigService } from './app-config.service';
 import { CallOverlapQuery, CallsQuery } from '../state/call-list-view';
 import { toCallRecord } from '../../shared/utils/call-utils';
+import { CycleSpacer } from '../state/call-selection.tokens';
 
 /** Mirrors CallsApiService's endpointFor - 'internal' routes to the parallel /session-cycles/{id}/internal-calls* resource, 'external' (the default everywhere below) keeps hitting today's /session-cycles/{id}/calls*. */
 function endpointSegmentFor(source: CallEndpointSource): string {
@@ -170,5 +171,27 @@ export class SessionCyclesApiService {
     return forkJoin(requests).pipe(
       map((results) => results.reduce((acc, r) => ({ added: acc.added + r.added, skipped: acc.skipped + r.skipped }), { added: 0, skipped: 0 }))
     );
+  }
+
+  /** Every spacer for this cycle - never paginated, a cycle has at most a handful. */
+  listSpacers(id: string): Observable<CycleSpacer[]> {
+    return this.http.get<CycleSpacer[]>(`${this.baseUrl}/${id}/spacers`);
+  }
+
+  createSpacer(id: string, label: string, beforeCallId: string | null): Observable<CycleSpacer> {
+    return this.http.post<CycleSpacer>(`${this.baseUrl}/${id}/spacers`, { label, beforeCallId });
+  }
+
+  renameSpacer(id: string, spacerId: string, label: string): Observable<CycleSpacer> {
+    return this.http.patch<CycleSpacer>(`${this.baseUrl}/${id}/spacers/${spacerId}`, { label });
+  }
+
+  /** Re-anchors a spacer next to a different captured call - the backend half of dragging a spacer around in the call list. */
+  moveSpacer(id: string, spacerId: string, beforeCallId: string | null): Observable<CycleSpacer> {
+    return this.http.patch<CycleSpacer>(`${this.baseUrl}/${id}/spacers/${spacerId}/move`, { beforeCallId });
+  }
+
+  deleteSpacer(id: string, spacerId: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${id}/spacers/${spacerId}`);
   }
 }

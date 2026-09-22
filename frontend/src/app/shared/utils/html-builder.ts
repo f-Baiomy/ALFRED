@@ -1,5 +1,5 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
-import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
+import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
@@ -963,7 +963,8 @@ export function buildBulkExportHtml(
   exportedAt: string,
   overlapCandidates: readonly CallOverlapCandidate[] = [],
   statusFilter: CallStatusFilter = 'all',
-  cycle: ExportedCycle | null = null
+  cycle: ExportedCycle | null = null,
+  spacers: readonly ExportedSpacer[] = []
 ): string {
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
   const failed = calls.length - succeeded;
@@ -982,10 +983,26 @@ export function buildBulkExportHtml(
   const summaryRows: string[] = [];
   const callSections: string[] = [];
 
+  const spacersBeforeCallId = new Map<string, ExportedSpacer[]>();
+  const trailingSpacers: ExportedSpacer[] = [];
+  for (const spacer of spacers) {
+    if (spacer.beforeCallId == null) {
+      trailingSpacers.push(spacer);
+    } else {
+      const list = spacersBeforeCallId.get(spacer.beforeCallId);
+      if (list) list.push(spacer);
+      else spacersBeforeCallId.set(spacer.beforeCallId, [spacer]);
+    }
+  }
+  const spacerHtml = (spacer: ExportedSpacer) => `<h3 class="spacer-heading">🏷️ ${escapeHtml(spacer.label)}</h3>`;
+
   blocks.forEach((block) => {
     const { call } = block;
     const allComments = commentsByCallId.get(call.id) ?? [];
     const comments = commentsForVariant(allComments, block.variant);
+    for (const spacer of spacersBeforeCallId.get(call.id) ?? []) {
+      callSections.push(spacerHtml(spacer));
+    }
     const flaggedCount = comments.length;
     const duration = block.variant !== 'request' && call.duration_ms != null ? formatMs(call.duration_ms) : '—';
     const anchor = blockAnchorId(block);
@@ -1038,6 +1055,7 @@ export function buildBulkExportHtml(
     `<table class="metadata"><tr><td>#</td><td>Method</td><td>URL</td><td>Status</td><td>Duration</td><td>Flagged</td></tr>${summaryRows.join('')}</table>`,
     '<h2>🔗 Calls</h2>',
     callSections.join(''),
+    ...trailingSpacers.map(spacerHtml),
     '<hr />',
     `<footer>Exported from Alfred/Frontend — ${calls.length} call${calls.length === 1 ? '' : 's'}, ${totalFlagged} flagged issue${totalFlagged === 1 ? '' : 's'} total</footer>`,
   ].join('');

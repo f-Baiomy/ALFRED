@@ -6,20 +6,26 @@ import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ClearCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCycleSpacersUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.MoveCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RenameCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapEntry;
@@ -29,6 +35,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
@@ -61,10 +68,16 @@ public class SessionCyclesService implements
         RemoveCapturedCallsUseCase,
         ClearCapturedCallsUseCase,
         CopyCallsToCycleUseCase,
-        ListCallOverlapsUseCase {
+        ListCallOverlapsUseCase,
+        ListCycleSpacersUseCase,
+        CreateCycleSpacerUseCase,
+        RenameCycleSpacerUseCase,
+        MoveCycleSpacerUseCase,
+        DeleteCycleSpacerUseCase {
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
+    private final CycleSpacersStorePort spacersStore;
     private final SessionCycleNotificationPort notificationPort;
     // Only used here to also clean up a cycle's captured-internal-calls file when the cycle itself
     // is deleted (see delete() below) - the actual internal-calls use cases live in
@@ -86,9 +99,11 @@ public class SessionCyclesService implements
     private boolean paginationEnabled;
 
     public SessionCyclesService(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore,
+                                 CycleSpacersStorePort spacersStore,
                                  SessionCycleNotificationPort notificationPort, CapturedInternalCallsStorePort capturedInternalCallsStore) {
         this.metadataStore = metadataStore;
         this.capturedCallsStore = capturedCallsStore;
+        this.spacersStore = spacersStore;
         this.notificationPort = notificationPort;
         this.capturedInternalCallsStore = capturedInternalCallsStore;
     }
@@ -174,11 +189,12 @@ public class SessionCyclesService implements
         metadataStore.deleteById(id);
         capturedCallsStore.deleteAllForCycle(id);
         capturedInternalCallsStore.deleteAllForCycle(id);
+        spacersStore.deleteAllForCycle(id);
         notificationPort.notifySessionCyclesChanged();
         return DeleteOutcome.DELETED;
     }
 
-    /** Same two-store cleanup as {@link #delete}, minus the metadata deletion - the cycle itself (name, status, assignee) is untouched, only what it's captured is wiped. */
+    /** Same cleanup as {@link #delete}, minus the metadata deletion - the cycle itself (name, status, assignee) is untouched, only what it's captured (including spacers) is wiped. */
     @Override
     public boolean clearCalls(String id) {
         if (metadataStore.findById(id).isEmpty()) {
@@ -186,6 +202,7 @@ public class SessionCyclesService implements
         }
         capturedCallsStore.deleteAllForCycle(id);
         capturedInternalCallsStore.deleteAllForCycle(id);
+        spacersStore.deleteAllForCycle(id);
         return true;
     }
 
@@ -222,17 +239,78 @@ public class SessionCyclesService implements
         return capturedCallsStore.findByCallId(cycleId, callId).map(captured -> CallDetail.of(captured.call()));
     }
 
+    /**
+     * {@code callId} here is the CapturedCall wrapper's own id (see getDetail's doc for the
+     * distinction), but a spacer's {@code beforeCallId} anchors to the underlying CallRecord's id -
+     * the same id every other spacer touchpoint (creation, export) uses - so the wrapper id this
+     * method receives has to be translated before it means anything to spacersStore. Resolved
+     * BEFORE the delete, since the captured call (and the mapping between the two ids) stops
+     * existing the moment removeById succeeds.
+     */
     @Override
     public boolean removeCall(String cycleId, String callId) {
-        return capturedCallsStore.removeById(cycleId, callId);
+        String underlyingCallId = underlyingCallIdOf(cycleId, callId);
+        boolean removed = capturedCallsStore.removeById(cycleId, callId);
+        if (removed && underlyingCallId != null) {
+            spacersStore.dropAnchorsTo(cycleId, List.of(underlyingCallId));
+        }
+        return removed;
     }
 
     @Override
     public Optional<RemoveCallsResult> removeCalls(String cycleId, List<String> callIds) {
         return metadataStore.findById(cycleId).map(cycle -> {
+            Set<String> wrapperIds = new HashSet<>(callIds);
+            List<String> underlyingCallIds = capturedCallsStore.findAllByCycle(cycleId).stream()
+                    .filter(captured -> wrapperIds.contains(captured.id()))
+                    .map(captured -> captured.call().id())
+                    .toList();
             int removed = capturedCallsStore.removeByIds(cycleId, callIds);
+            spacersStore.dropAnchorsTo(cycleId, underlyingCallIds);
             return new RemoveCallsResult(removed, callIds.size() - removed);
         });
+    }
+
+    /** @return the underlying CallRecord's id for the captured call with this wrapper id in this cycle, or null if no such captured call exists. */
+    private String underlyingCallIdOf(String cycleId, String wrapperId) {
+        return capturedCallsStore.findAllByCycle(cycleId).stream()
+                .filter(captured -> captured.id().equals(wrapperId))
+                .map(captured -> captured.call().id())
+                .findFirst()
+                .orElse(null);
+    }
+
+    // ---------- cycle spacers ----------
+
+    @Override
+    public Optional<List<CycleSpacer>> listSpacers(String cycleId) {
+        return metadataStore.findById(cycleId).map(cycle -> spacersStore.findAllByCycle(cycleId));
+    }
+
+    @Override
+    public Optional<CycleSpacer> createSpacer(String cycleId, String label, String beforeCallId) {
+        return metadataStore.findById(cycleId).map(cycle -> spacersStore.create(cycleId, label, beforeCallId));
+    }
+
+    @Override
+    public Optional<CycleSpacer> renameSpacer(String cycleId, String spacerId, String label) {
+        if (metadataStore.findById(cycleId).isEmpty()) {
+            return Optional.empty();
+        }
+        return spacersStore.rename(cycleId, spacerId, label);
+    }
+
+    @Override
+    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId) {
+        if (metadataStore.findById(cycleId).isEmpty()) {
+            return Optional.empty();
+        }
+        return spacersStore.move(cycleId, spacerId, beforeCallId);
+    }
+
+    @Override
+    public boolean deleteSpacer(String cycleId, String spacerId) {
+        return spacersStore.delete(cycleId, spacerId);
     }
 
     /**

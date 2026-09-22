@@ -1,11 +1,15 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { CallRecord } from '../../core/models/call.model';
 import { CallDepthInfo, CallTreeNode, DepthRail, depthRails, depthTintClass } from '../../shared/utils/call-tree';
 
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
-import { CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
+import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
+import { MergedWithSpacer, createSpacerGapController, mergeWithSpacers, reanchorSpacersAfterDrop } from '../../shared/utils/spacer-gap-controller';
 import { CallCardComponent } from '../call-card/call-card.component';
 import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
+import { SpacerChipComponent } from '../spacer-chip/spacer-chip.component';
 
 /**
  * What a given line is showing:
@@ -106,11 +110,45 @@ interface WaterfallRow {
 @Component({
   selector: 'app-call-waterfall',
   standalone: true,
-  imports: [CallCardComponent, CallDiagnosticsComponent],
+  imports: [CallCardComponent, CallDiagnosticsComponent, SpacerChipComponent, CdkDropList, CdkDrag, CdkDragHandle, NgTemplateOutlet],
   template: `
-    <div class="waterfall">
-      @for (row of rows(); track row.rowKey) {
+    <ng-template #waterfallSpacerComposer>
+      <div class="spacer-row">
+        <div class="spacer-line"></div>
+        <div class="spacer-chip spacer-chip-editing">
+          <input #newSpacerInput type="text" placeholder="Spacer name" (keydown.enter)="spacerGap.confirmNewSpacer(newSpacerInput.value)" (keydown.escape)="spacerGap.cancelSpacerEdit()" />
+          <button type="button" class="spacer-icon-btn" (click)="spacerGap.confirmNewSpacer(newSpacerInput.value)" aria-label="Save">&#10003;</button>
+          <button type="button" class="spacer-icon-btn" (click)="spacerGap.cancelSpacerEdit()" aria-label="Cancel">&#10005;</button>
+        </div>
+        <div class="spacer-line"></div>
+      </div>
+    </ng-template>
+    <div class="waterfall" cdkDropList [cdkDropListDisabled]="!reorderState" (cdkDropListDropped)="onDrop($event)">
+      @for (entry of mergedItems(); track trackByMergedItemKey(entry)) {
+        @if (entry.kind === 'spacer') {
+          <div class="spacer-row" cdkDrag>
+            <span class="spacer-drag-handle" cdkDragHandle>&#8942;&#8942;</span>
+            <div class="spacer-line"></div>
+            <app-spacer-chip [spacer]="entry.spacer" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="reorderState?.deleteSpacer(entry.spacer.id)" />
+            <div class="spacer-line"></div>
+          </div>
+        } @else {
+          @let row = entry.item;
+          @if (row.startsRootGroup && reorderState) {
+            @if (spacerGap.composingBeforeCallId() === row.call.id) {
+              <ng-container [ngTemplateOutlet]="waterfallSpacerComposer" />
+            } @else {
+              <!-- Sits immediately above the root group it would anchor a new spacer to - hover-revealed, see .spacer-gap. Spacers only ever sit between ROOT groups - one anchored to a nested child call has nothing to attach to here and simply doesn't render. -->
+              <div class="spacer-gap">
+                <button type="button" class="add-spacer-btn" (click)="spacerGap.addSpacerBefore(row.call.id)">
+                  <span>+ Add spacer</span>
+                </button>
+              </div>
+            }
+          }
         <div
+          cdkDrag
+          [cdkDragDisabled]="true"
           class="waterfall-line"
           [class]="row.ownTint"
           [class.expanded]="isExpanded(row.rowKey)"
@@ -255,6 +293,19 @@ interface WaterfallRow {
             </div>
           }
         </div>
+        }
+      }
+      @if (reorderState) {
+        @if (spacerGap.composingBeforeCallId() === null) {
+          <ng-container [ngTemplateOutlet]="waterfallSpacerComposer" />
+        } @else {
+          <!-- Sits after the last root group - the only place "add spacer after every call" can go. -->
+          <div class="spacer-gap">
+            <button type="button" class="add-spacer-btn" (click)="spacerGap.addSpacerBefore(null)">
+              <span>+ Add spacer</span>
+            </button>
+          </div>
+        }
       }
     </div>
   `,
@@ -344,6 +395,35 @@ export class CallWaterfallComponent {
     for (const root of this.nodes()) walk(root, 0);
     return out;
   });
+
+  /** Non-null only on a session-cycle detail page - see CALL_REORDER_STATE. */
+  readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
+  readonly spacerGap = createSpacerGapController(this.reorderState);
+
+  /** Only a row that STARTS a root group can anchor a spacer here - a child row or a bracket's closing half returns null, meaning "not a valid anchor" (see mergeWithSpacers/reanchorSpacersAfterDrop's null handling), not "anchor to nothing". */
+  private static readonly anchorIdOf = (row: WaterfallRow): string | null => (row.startsRootGroup ? row.call.id : null);
+
+  /**
+   * rows() with every spacer spliced in immediately before the row that STARTS a root group (or at
+   * the very end, for a spacer with beforeCallId null) - spacers only ever sit between root groups
+   * here, mirroring the nested view's identical restriction.
+   */
+  readonly mergedItems = computed<readonly MergedWithSpacer<WaterfallRow>[]>(() =>
+    mergeWithSpacers(this.rows(), CallWaterfallComponent.anchorIdOf, this.reorderState?.spacers() ?? [])
+  );
+
+  readonly trackByMergedItemKey = (entry: MergedWithSpacer<WaterfallRow>) => (entry.kind === 'item' ? entry.item.rowKey : `spacer:${entry.spacer.id}`);
+
+  /**
+   * Only spacers ever actually move (every row's cdkDrag is disabled - see the template), so this
+   * only ever needs to re-anchor spacers, never reorder rows.
+   */
+  onDrop(event: CdkDragDrop<readonly MergedWithSpacer<WaterfallRow>[]>): void {
+    if (!this.reorderState || event.previousIndex === event.currentIndex) return;
+    const merged = [...this.mergedItems()];
+    moveItemInArray(merged, event.previousIndex, event.currentIndex);
+    reanchorSpacersAfterDrop(merged, CallWaterfallComponent.anchorIdOf, this.reorderState);
+  }
 
   /** Selection is shared state, so a call ticked here is ticked in the flat and nested views too -
    * and the bulk actions bar counts it - rather than this view keeping a second list of its own. */

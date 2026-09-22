@@ -27,20 +27,67 @@
   } @else {
     @switch (state.viewMode()) {
       @case ('nested') {
-        <div class="calls-tree-list">
-          @for (node of state.callTree(); track node.call.id) {
-            <!-- Same reason as the flat list below: a root is built with its whole subtree only
-                 once it scrolls into view, so a page of them can't block the main thread at once.
-                 The placeholder is sized per subtree (see subtreePlaceholderPx) because one root
-                 may stand for one call and the next for a dozen. -->
-            @defer (on viewport) {
-              <app-call-tree-node [node]="node" />
-            } @placeholder {
-              <div
-                class="call-card-placeholder"
-                aria-hidden="true"
-                [style.height.px]="subtreePlaceholderPx(node)"
-              ></div>
+        <ng-template #nestedSpacerComposer>
+          <div class="spacer-row">
+            <div class="spacer-line"></div>
+            <div class="spacer-chip spacer-chip-editing">
+              <input #newSpacerInput type="text" placeholder="Spacer name" (keydown.enter)="nestedSpacerGap.confirmNewSpacer(newSpacerInput.value)" (keydown.escape)="nestedSpacerGap.cancelSpacerEdit()" />
+              <button type="button" class="spacer-icon-btn" (click)="nestedSpacerGap.confirmNewSpacer(newSpacerInput.value)" aria-label="Save">&#10003;</button>
+              <button type="button" class="spacer-icon-btn" (click)="nestedSpacerGap.cancelSpacerEdit()" aria-label="Cancel">&#10005;</button>
+            </div>
+            <div class="spacer-line"></div>
+          </div>
+        </ng-template>
+        <div class="calls-tree-list" cdkDropList [cdkDropListDisabled]="!reorderState" (cdkDropListDropped)="onDropRoots($event)">
+          @for (entry of mergedRoots(); track trackByMergedRootKey(entry)) {
+            @if (entry.kind === 'item' && reorderState) {
+              @if (nestedSpacerGap.composingBeforeCallId() === entry.item.call.id) {
+                <ng-container [ngTemplateOutlet]="nestedSpacerComposer" />
+              } @else {
+                <!-- Sits immediately above the root it would anchor a new spacer to - hover-revealed, see .spacer-gap. Spacers only ever sit between ROOTS: one anchored to a nested child call has nothing to attach to in this view and simply doesn't render. -->
+                <div class="spacer-gap">
+                  <button type="button" class="add-spacer-btn" (click)="nestedSpacerGap.addSpacerBefore(entry.item.call.id)">
+                    <span>+ Add spacer</span>
+                  </button>
+                </div>
+              }
+            }
+            @if (entry.kind === 'spacer') {
+              <div class="spacer-row" cdkDrag>
+                <span class="spacer-drag-handle" cdkDragHandle>&#8942;&#8942;</span>
+                <div class="spacer-line"></div>
+                <app-spacer-chip [spacer]="entry.spacer" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="deleteSpacer(entry.spacer)" />
+                <div class="spacer-line"></div>
+              </div>
+            } @else {
+              <!-- Never actually draggable (cdkDragDisabled) - only here so a spacer's drop position can land between two roots. See onDropRoots. -->
+              <div cdkDrag [cdkDragDisabled]="true">
+                <!-- Same reason as the flat list below: a root is built with its whole subtree only
+                     once it scrolls into view, so a page of them can't block the main thread at once.
+                     The placeholder is sized per subtree (see subtreePlaceholderPx) because one root
+                     may stand for one call and the next for a dozen. -->
+                @defer (on viewport) {
+                  <app-call-tree-node [node]="entry.item" />
+                } @placeholder {
+                  <div
+                    class="call-card-placeholder"
+                    aria-hidden="true"
+                    [style.height.px]="subtreePlaceholderPx(entry.item)"
+                  ></div>
+                }
+              </div>
+            }
+          }
+          @if (reorderState) {
+            @if (nestedSpacerGap.composingBeforeCallId() === null) {
+              <ng-container [ngTemplateOutlet]="nestedSpacerComposer" />
+            } @else {
+              <!-- Sits after the last root - the only place "add spacer after every call" can go. -->
+              <div class="spacer-gap">
+                <button type="button" class="add-spacer-btn" (click)="nestedSpacerGap.addSpacerBefore(null)">
+                  <span>+ Add spacer</span>
+                </button>
+              </div>
             }
           }
         </div>
@@ -49,43 +96,87 @@
         <app-call-waterfall [nodes]="state.callTree()" [depths]="state.callDepths()" />
       }
       @default {
+        <ng-template #spacerComposer>
+          <div class="spacer-row">
+            <div class="spacer-line"></div>
+            <div class="spacer-chip spacer-chip-editing">
+              <input #newSpacerInput type="text" placeholder="Spacer name" (keydown.enter)="spacerGap.confirmNewSpacer(newSpacerInput.value)" (keydown.escape)="spacerGap.cancelSpacerEdit()" />
+              <button type="button" class="spacer-icon-btn" (click)="spacerGap.confirmNewSpacer(newSpacerInput.value)" aria-label="Save">&#10003;</button>
+              <button type="button" class="spacer-icon-btn" (click)="spacerGap.cancelSpacerEdit()" aria-label="Cancel">&#10005;</button>
+            </div>
+            <div class="spacer-line"></div>
+          </div>
+        </ng-template>
         <div class="calls-flat-list" cdkDropList [cdkDropListDisabled]="!dragEnabled()" (cdkDropListDropped)="onDrop($event)">
-          @for (row of state.visibleRows(); track trackByRowKey(row)) {
-            <!--
-              Building a CallCardComponent costs ~8ms, so a full page of them blocks the main
-              thread for seconds at once: measured 400 cards = a single 3.3s block, during which
-              the browser cannot paint at all (which is what made cards appear half-drawn). The
-              card is only built once its row actually scrolls into view, so that cost is paid a
-              few cards at a time instead of all at once, and the page size stops deciding whether
-              the list is usable.
-
-              Deliberately NOT applied when dragging is enabled (session-cycle custom ordering):
-              cdkDropList has to measure every cdkDrag item to work out drop positions, and an
-              un-built card has nothing to measure.
-            -->
-            @if (dragEnabled()) {
-              <app-call-card
-                [call]="row.call"
-                [variant]="row.variant"
-                [depth]="depthFor(row.call)"
-                (revealParent)="revealParent($event)"
-                [dragHandle]="true"
-                cdkDrag
-              />
-            } @else {
-              @defer (on viewport) {
-                <app-call-card
-                  [call]="row.call"
-                  [variant]="row.variant"
-                  [depth]="depthFor(row.call)"
-                  (revealParent)="revealParent($event)"
-                  [dragHandle]="false"
-                />
-              } @placeholder {
-                <!-- Holds exactly a collapsed card's height so the scrollbar and scroll position
-                     are correct before anything is built - see .call-card-placeholder. -->
-                <div class="call-card-placeholder" aria-hidden="true"></div>
+          @for (entry of mergedRows(); track trackByMergedRowKey(entry)) {
+            @if (entry.kind === 'item' && dragEnabled()) {
+              @if (spacerGap.composingBeforeCallId() === entry.item.call.id) {
+                <ng-container [ngTemplateOutlet]="spacerComposer" />
+              } @else {
+                <!-- Sits immediately above the call it would anchor a new spacer to - hover-revealed, see .spacer-gap. -->
+                <div class="spacer-gap">
+                  <button type="button" class="add-spacer-btn" (click)="spacerGap.addSpacerBefore(entry.item.call.id)">
+                    <span>+ Add spacer</span>
+                  </button>
+                </div>
               }
+            }
+            @if (entry.kind === 'spacer') {
+              <div class="spacer-row" cdkDrag>
+                <span class="spacer-drag-handle" cdkDragHandle>&#8942;&#8942;</span>
+                <div class="spacer-line"></div>
+                <app-spacer-chip [spacer]="entry.spacer" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="deleteSpacer(entry.spacer)" />
+                <div class="spacer-line"></div>
+              </div>
+            } @else {
+              <!--
+                Building a CallCardComponent costs ~8ms, so a full page of them blocks the main
+                thread for seconds at once: measured 400 cards = a single 3.3s block, during which
+                the browser cannot paint at all (which is what made cards appear half-drawn). The
+                card is only built once its row actually scrolls into view, so that cost is paid a
+                few cards at a time instead of all at once, and the page size stops deciding whether
+                the list is usable.
+
+                Deliberately NOT applied when dragging is enabled (session-cycle custom ordering):
+                cdkDropList has to measure every cdkDrag item to work out drop positions, and an
+                un-built card has nothing to measure.
+              -->
+              @if (dragEnabled()) {
+                <app-call-card
+                  [call]="entry.item.call"
+                  [variant]="entry.item.variant"
+                  [depth]="depthFor(entry.item.call)"
+                  (revealParent)="revealParent($event)"
+                  [dragHandle]="true"
+                  cdkDrag
+                />
+              } @else {
+                @defer (on viewport) {
+                  <app-call-card
+                    [call]="entry.item.call"
+                    [variant]="entry.item.variant"
+                    [depth]="depthFor(entry.item.call)"
+                    (revealParent)="revealParent($event)"
+                    [dragHandle]="false"
+                  />
+                } @placeholder {
+                  <!-- Holds exactly a collapsed card's height so the scrollbar and scroll position
+                       are correct before anything is built - see .call-card-placeholder. -->
+                  <div class="call-card-placeholder" aria-hidden="true"></div>
+                }
+              }
+            }
+          }
+          @if (dragEnabled()) {
+            @if (spacerGap.composingBeforeCallId() === null) {
+              <ng-container [ngTemplateOutlet]="spacerComposer" />
+            } @else {
+              <!-- Sits after the last row - the only place "add spacer after every call" can go. -->
+              <div class="spacer-gap">
+                <button type="button" class="add-spacer-btn" (click)="spacerGap.addSpacerBefore(null)">
+                  <span>+ Add spacer</span>
+                </button>
+              </div>
             }
           }
         </div>

@@ -225,7 +225,7 @@ export class ExportDialogComponent {
         const html = buildExportHtml(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
         return { isJson: false, content: html, filename: this.resolveFilename(exportHtmlFilename(call), format), mimeType: 'text/html' };
       }
-      const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, current.cycle);
+      const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, current.cycle, current.spacers);
       const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'html') : bulkExportHtmlFilename(calls);
       return { isJson: false, content: html, filename: this.resolveFilename(name, format), mimeType: 'text/html' };
     }
@@ -237,7 +237,7 @@ export class ExportDialogComponent {
       return { isJson: false, content: markdown, filename: this.resolveFilename(exportFilename(call), format), mimeType: 'text/markdown' };
     }
 
-    const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, current.cycle);
+    const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, current.cycle, current.spacers);
     const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'md') : bulkExportFilename(calls, 'md');
     return { isJson: false, content: markdown, filename: this.resolveFilename(name, format), mimeType: 'text/markdown' };
   }

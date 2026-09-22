@@ -1,19 +1,22 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, input, viewChild } from '@angular/core';
-import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/call-selection.tokens';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
+import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE, CycleSpacer } from '../../core/state/call-selection.tokens';
 import { CallRecord } from '../../core/models/call.model';
 import { PinService } from '../../core/services/pin.service';
 import { CallListRow, callKey } from '../../shared/utils/call-utils';
 import { CallDepthInfo, CallTreeNode } from '../../shared/utils/call-tree';
+import { MergedWithSpacer, createSpacerGapController, mergeWithSpacers, reanchorSpacersAfterDrop } from '../../shared/utils/spacer-gap-controller';
+import { CallCardComponent } from '../call-card/call-card.component';
+import { CallTreeNodeComponent } from '../call-tree-node/call-tree-node.component';
+import { CallWaterfallComponent } from '../call-waterfall/call-waterfall.component';
+import { SpacerChipComponent } from '../spacer-chip/spacer-chip.component';
+import { SupplierGroupComponent } from '../supplier-group/supplier-group.component';
 
 /** A collapsed call card's height, measured live and identical for every card regardless of its
  * content. Mirrors .call-card-placeholder's height in styles.scss - change one and you must change
  * the other, since CSS can't derive it and this can't read it. */
 const COLLAPSED_CARD_HEIGHT_PX = 144;
-import { CallCardComponent } from '../call-card/call-card.component';
-import { CallTreeNodeComponent } from '../call-tree-node/call-tree-node.component';
-import { CallWaterfallComponent } from '../call-waterfall/call-waterfall.component';
-import { SupplierGroupComponent } from '../supplier-group/supplier-group.component';
 
 /**
  * Pinned section + either the flat paginated list or the grouped-by-supplier view. Reused
@@ -29,14 +32,24 @@ import { SupplierGroupComponent } from '../supplier-group/supplier-group.compone
 @Component({
   selector: 'app-call-list',
   standalone: true,
-  imports: [CallCardComponent, CallTreeNodeComponent, CallWaterfallComponent, SupplierGroupComponent, CdkDropList, CdkDrag],
+  imports: [
+    CallCardComponent,
+    CallTreeNodeComponent,
+    CallWaterfallComponent,
+    SpacerChipComponent,
+    SupplierGroupComponent,
+    CdkDropList,
+    CdkDrag,
+    CdkDragHandle,
+    NgTemplateOutlet,
+  ],
   templateUrl: './call-list.component.html',
 })
 export class CallListComponent {
   readonly state = inject(CALL_LIST_CONTROLS_STATE);
   private readonly pinService = inject(PinService);
-  /** Non-null only on a session-cycle detail page - see CALL_REORDER_STATE. */
-  private readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
+  /** Non-null only on a session-cycle detail page - see CALL_REORDER_STATE. Not private: the template reads it directly to wire a spacer chip's rename output straight to the store. */
+  readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
 
   /** Auto-load the next page on scroll instead of a manual "Load more" button - the dashboard's default. The session-cycle detail page opts out (still gets a button, no infinite scroll) since backend pagination is deliberately not enabled for captured calls - see SessionCyclesService.paginationEnabled's doc. */
   readonly infiniteScroll = input(true);
@@ -87,6 +100,41 @@ export class CallListComponent {
   readonly hasAnyData = computed(() => this.state.calls().length > 0 || this.pinnedCalls().length > 0);
   readonly dragEnabled = computed(() => !this.state.groupBySupplier() && (this.reorderState?.dragEnabled() ?? false));
 
+  /**
+   * The flat list's own rows, with every spacer spliced in immediately before the call it's
+   * anchored to (or at the very end, for a spacer with beforeCallId null) - only ever non-trivial
+   * when reorderState is bound (session-cycle detail), since that's the only token that carries
+   * spacers at all. A spacer anchored to a call that isn't currently rendered (filtered out by
+   * search, or not yet loaded) is simply omitted - it reappears once its anchor call is visible
+   * again, rather than needing a fallback position that would just be wrong.
+   */
+  readonly mergedRows = computed<readonly MergedWithSpacer<CallListRow>[]>(() =>
+    mergeWithSpacers(this.state.visibleRows(), (row) => row.call.id, this.reorderState?.spacers() ?? [])
+  );
+
+  readonly trackByMergedRowKey = (entry: MergedWithSpacer<CallListRow>) => (entry.kind === 'item' ? entry.item.rowKey : `spacer:${entry.spacer.id}`);
+
+  /**
+   * The nested view's own top-level merge, over ROOT calls only - a spacer anchored to some deeply
+   * nested child simply never shows here, the same way it never shows in the waterfall view (both
+   * views group by root, not by every call). Reordering is call.id-anchored the same as the flat
+   * view, but only spacers can actually be dragged (see the template: every root's cdkDrag is
+   * disabled) - the tree's own order is derived from the calls, not something a user rearranges.
+   */
+  readonly mergedRoots = computed<readonly MergedWithSpacer<CallTreeNode>[]>(() =>
+    mergeWithSpacers(this.state.callTree(), (node) => node.call.id, this.reorderState?.spacers() ?? [])
+  );
+
+  readonly trackByMergedRootKey = (entry: MergedWithSpacer<CallTreeNode>) => (entry.kind === 'item' ? entry.item.call.id : `spacer:${entry.spacer.id}`);
+
+  /** Flat view's own add/compose state - see the shared controller's doc. Nested has its own separate instance (nestedSpacerGap below) since the two views can each have their own composer open at once. */
+  readonly spacerGap = createSpacerGapController(this.reorderState);
+  readonly nestedSpacerGap = createSpacerGapController(this.reorderState);
+
+  deleteSpacer(spacer: CycleSpacer): void {
+    this.reorderState?.deleteSpacer(spacer.id);
+  }
+
   /** The sentinel element at the bottom of the flat list - observed to auto-trigger loadMore() as it scrolls near the viewport. Only rendered (see template) when infiniteScroll() is true; undefined otherwise or whenever the flat-list branch isn't rendered at all (no data yet, grouped view, no matches). */
   private readonly sentinel = viewChild<ElementRef<HTMLElement>>('sentinel');
   private sentinelObserver?: IntersectionObserver;
@@ -117,10 +165,29 @@ export class CallListComponent {
     this.state.loadMore();
   }
 
-  onDrop(event: CdkDragDrop<readonly CallRecord[]>): void {
+  /**
+   * Drives both call reordering (unchanged - reorder() still gets the new call order) and spacer
+   * re-anchoring - see reanchorSpacersAfterDrop's doc for the anchor rule.
+   */
+  onDrop(event: CdkDragDrop<readonly MergedWithSpacer<CallListRow>[]>): void {
     if (!this.reorderState || event.previousIndex === event.currentIndex) return;
-    const reordered = [...this.state.visibleCalls()];
-    moveItemInArray(reordered, event.previousIndex, event.currentIndex);
-    this.reorderState.reorder(reordered);
+    const merged = [...this.mergedRows()];
+    moveItemInArray(merged, event.previousIndex, event.currentIndex);
+
+    const reorderedCalls = merged.filter((entry) => entry.kind === 'item').map((entry) => (entry as { item: CallListRow }).item.call);
+    this.reorderState.reorder(reorderedCalls);
+    reanchorSpacersAfterDrop(merged, (row) => row.call.id, this.reorderState);
+  }
+
+  /**
+   * The nested view's drop handler - unlike onDrop above, calls/roots never move (every root's
+   * cdkDrag is disabled in the template), so this only ever needs to re-anchor spacers, never call
+   * reorderState.reorder().
+   */
+  onDropRoots(event: CdkDragDrop<readonly MergedWithSpacer<CallTreeNode>[]>): void {
+    if (!this.reorderState || event.previousIndex === event.currentIndex) return;
+    const merged = [...this.mergedRoots()];
+    moveItemInArray(merged, event.previousIndex, event.currentIndex);
+    reanchorSpacersAfterDrop(merged, (node) => node.call.id, this.reorderState);
   }
 }

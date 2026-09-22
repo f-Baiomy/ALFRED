@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { CallOverlapCandidate, CallRecord } from '../models/call.model';
-import { ExportedCycle, ExportMetadata } from '../models/export-metadata.model';
+import { ExportedCycle, ExportedSpacer, ExportMetadata } from '../models/export-metadata.model';
 import { Comment } from '../models/comment.model';
 import { CallStatusFilter } from '../../shared/utils/call-utils';
 
@@ -30,6 +30,8 @@ export interface ExportDialogState {
    * its .json, where it is a completeness claim - see ExportNarrative.cycle.
    */
   readonly cycle: ExportedCycle | null;
+  /** The cycle's spacers, in the same "only set for a whole-cycle export" case as `cycle` above - see CycleExportService.fetchSpacers. Empty for a bulk-actions-bar selection, which has no notion of spacers. */
+  readonly spacers: readonly ExportedSpacer[];
 }
 
 /** Single source of truth for "is the export dialog open, and for which call(s)" - one dialog instance at the app root reads this instead of every call needing its own dialog. Works for a single call (length-1 `calls`) or a bulk selection alike. */
@@ -44,9 +46,10 @@ export class ExportDialogService {
     format: ExportFormat = 'markdown',
     overlapCandidates: readonly CallOverlapCandidate[] = [],
     statusFilter: CallStatusFilter = 'all',
-    cycle: ExportedCycle | null = null
+    cycle: ExportedCycle | null = null,
+    spacers: readonly ExportedSpacer[] = []
   ): void {
-    this.state.set({ calls, metadata, commentsByCallId, format, overlapCandidates, statusFilter, cycle });
+    this.state.set({ calls, metadata, commentsByCallId, format, overlapCandidates, statusFilter, cycle, spacers });
   }
 
   close(): void {

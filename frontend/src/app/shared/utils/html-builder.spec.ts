@@ -485,6 +485,29 @@ describe('buildBulkExportHtml with a whole session cycle', () => {
 
     expect(html).not.toContain('complete session cycle');
   });
+
+  it('renders a spacer as a heading immediately before the call it is anchored to', () => {
+    const calls = [makeCall({ id: 'call-1', timestamp: '2026-08-07T13:00:00Z' }), makeCall({ id: 'call-2', timestamp: '2026-08-07T13:05:00Z' })];
+    const html = buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Retry attempt', beforeCallId: 'call-2' }]);
+
+    const headingIndex = html.indexOf('spacer-heading');
+    const call1Index = html.indexOf('id="call-1"');
+    const call2Index = html.indexOf('id="call-2"');
+    expect(headingIndex).toBeGreaterThan(-1);
+    expect(html).toContain('🏷️ Retry attempt');
+    expect(headingIndex).toBeGreaterThan(call1Index);
+    expect(headingIndex).toBeLessThan(call2Index);
+  });
+
+  it('renders a spacer with a null beforeCallId at the very end of the calls section', () => {
+    const html = buildBulkExportHtml([makeCall()], makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'End of repro', beforeCallId: null }]);
+
+    const headingIndex = html.indexOf('End of repro');
+    const callsHeadingIndex = html.indexOf('<h2>🔗 Calls</h2>');
+    const footerIndex = html.indexOf('<footer>');
+    expect(headingIndex).toBeGreaterThan(callsHeadingIndex);
+    expect(headingIndex).toBeLessThan(footerIndex);
+  });
 });
 
 describe('bulkExportHtmlFilename', () => {

@@ -764,6 +764,110 @@ main {
   opacity: 0.35;
 }
 
+/** The hover-revealed "+ Add spacer" affordance between rows in a session cycle's reorderable call list - see call-list.component.html. Collapsed to almost nothing until hovered, so a cycle with no spacers looks exactly as before. */
+.spacer-gap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 10px;
+  margin: -0.3rem 0;
+}
+
+.add-spacer-btn {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  padding: 2px 10px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/**
+ * Reveals the button not just on hovering the thin gap itself, but also on hovering the row it sits
+ * next to - either the row immediately AFTER it (a leading gap - the common case, in every view) or
+ * the row immediately BEFORE it (the one trailing gap per list, after the last row). `:has()` is
+ * what makes the "row after" direction possible at all: CSS has no combinator for "a later sibling
+ * is hovered", only :has() checking a later sibling's own state. Doesn't fire when a spacer already
+ * occupies this exact anchor (the spacer's own row sits between the gap and the call row then,
+ * breaking the adjacency) - hovering the now-narrower gap strip itself still works for that case.
+ */
+.spacer-gap:hover .add-spacer-btn,
+.spacer-gap:has(+ app-call-card:hover) .add-spacer-btn,
+.spacer-gap:has(+ div:hover) .add-spacer-btn,
+app-call-card:hover + .spacer-gap .add-spacer-btn,
+div:hover + .spacer-gap .add-spacer-btn {
+  display: flex;
+}
+
+/** A named divider between calls - see CycleSpacer. */
+.spacer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.spacer-drag-handle {
+  color: var(--text-faint);
+  cursor: grab;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.spacer-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.spacer-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+
+.spacer-chip-editing {
+  border-style: dashed;
+}
+
+.spacer-chip-editing input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 140px;
+}
+
+.spacer-label {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.spacer-icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  line-height: 1;
+}
+
+.spacer-icon-btn:hover {
+  color: var(--text);
+}
+
 .empty,
 .error-box {
   color: var(--text-dim);

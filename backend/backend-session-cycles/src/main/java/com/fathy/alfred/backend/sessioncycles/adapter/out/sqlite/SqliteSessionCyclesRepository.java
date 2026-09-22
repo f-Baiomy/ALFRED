@@ -11,6 +11,7 @@ import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -166,6 +167,7 @@ public class SqliteSessionCyclesRepository {
                 """);
 
         createCapturedCallSchema();
+        createSpacerSchema();
         initFts();
 
         // Group-commit writer for captured calls - see SqliteCallsRepository's identical field for
@@ -285,6 +287,20 @@ public class SqliteSessionCyclesRepository {
         if (!columns.contains("interception")) {
             jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN interception TEXT");
         }
+    }
+
+    /** No foreign key to captured_call_metadata - a spacer's anchor is repointed (never cascade-deleted) when its anchor call is removed, so the divider itself survives (see dropAnchorsTo). */
+    private void createSpacerSchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS cycle_spacers (
+                  id TEXT PRIMARY KEY,
+                  cycle_id TEXT NOT NULL,
+                  label TEXT NOT NULL,
+                  before_call_id TEXT,
+                  created_at TEXT
+                )
+                """);
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_cycle_spacers_cycle ON cycle_spacers(cycle_id)");
     }
 
     private void initFts() {
@@ -1011,5 +1027,63 @@ public class SqliteSessionCyclesRepository {
     public static CallRecord withGeneratedIdIfMissing(CallRecord call) {
         return call.id() != null ? call : new CallRecord(UUID.randomUUID().toString(), call.originalUrl(), call.url(),
                 call.method(), call.request(), call.timestamp(), call.durationMs(), call.response(), call.error());
+    }
+
+    // ---------- cycle spacers ----------
+
+    private static final RowMapper<CycleSpacer> SPACER_ROW_MAPPER = (rs, rowNum) -> new CycleSpacer(
+            rs.getString("id"), rs.getString("cycle_id"), rs.getString("label"),
+            rs.getString("before_call_id"), rs.getString("created_at"));
+
+    public List<CycleSpacer> findAllSpacersByCycle(String cycleId) {
+        return jdbcTemplate.query("SELECT * FROM cycle_spacers WHERE cycle_id = ? ORDER BY rowid ASC", SPACER_ROW_MAPPER, cycleId);
+    }
+
+    public CycleSpacer createSpacer(String cycleId, String label, String beforeCallId) {
+        CycleSpacer spacer = new CycleSpacer(UUID.randomUUID().toString(), cycleId, label, beforeCallId, Instant.now().toString());
+        jdbcTemplate.update("INSERT INTO cycle_spacers (id, cycle_id, label, before_call_id, created_at) VALUES (?,?,?,?,?)",
+                spacer.id(), spacer.cycleId(), spacer.label(), spacer.beforeCallId(), spacer.createdAt());
+        return spacer;
+    }
+
+    public Optional<CycleSpacer> renameSpacer(String cycleId, String spacerId, String label) {
+        int updated = jdbcTemplate.update("UPDATE cycle_spacers SET label = ? WHERE cycle_id = ? AND id = ?", label, cycleId, spacerId);
+        if (updated == 0) {
+            return Optional.empty();
+        }
+        return findSpacerById(cycleId, spacerId);
+    }
+
+    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId) {
+        int updated = jdbcTemplate.update("UPDATE cycle_spacers SET before_call_id = ? WHERE cycle_id = ? AND id = ?", beforeCallId, cycleId, spacerId);
+        if (updated == 0) {
+            return Optional.empty();
+        }
+        return findSpacerById(cycleId, spacerId);
+    }
+
+    public boolean deleteSpacer(String cycleId, String spacerId) {
+        return jdbcTemplate.update("DELETE FROM cycle_spacers WHERE cycle_id = ? AND id = ?", cycleId, spacerId) > 0;
+    }
+
+    public void deleteAllSpacersForCycle(String cycleId) {
+        jdbcTemplate.update("DELETE FROM cycle_spacers WHERE cycle_id = ?", cycleId);
+    }
+
+    /** See CycleSpacersStorePort#dropAnchorsTo - moves any spacer anchored to one of these captured-call ids to the end instead of leaving it unreachable. */
+    public void dropSpacerAnchorsTo(String cycleId, List<String> capturedCallIds) {
+        if (capturedCallIds.isEmpty()) {
+            return;
+        }
+        String placeholders = String.join(",", capturedCallIds.stream().map(id -> "?").toList());
+        List<Object> params = new ArrayList<>();
+        params.add(cycleId);
+        params.addAll(capturedCallIds);
+        jdbcTemplate.update("UPDATE cycle_spacers SET before_call_id = NULL WHERE cycle_id = ? AND before_call_id IN (" + placeholders + ")", params.toArray());
+    }
+
+    private Optional<CycleSpacer> findSpacerById(String cycleId, String spacerId) {
+        return jdbcTemplate.query("SELECT * FROM cycle_spacers WHERE cycle_id = ? AND id = ?", SPACER_ROW_MAPPER, cycleId, spacerId)
+                .stream().findFirst();
     }
 }

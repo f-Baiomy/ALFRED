@@ -65,7 +65,7 @@ function setupWithSources(
   const listCalls: Array<{ query: CallsQuery; source: CallEndpointSource }> = [];
   const removeCalls: Array<{ id: string; callId: string; source: CallEndpointSource | undefined }> = [];
   const clearCalls: string[] = [];
-  const apiStub: Pick<SessionCyclesApiService, 'listCalls' | 'removeCall' | 'removeCalls' | 'clearCalls' | 'getDetail' | 'getCallOverlaps'> = {
+  const apiStub: Pick<SessionCyclesApiService, 'listCalls' | 'removeCall' | 'removeCalls' | 'clearCalls' | 'getDetail' | 'getCallOverlaps' | 'listSpacers'> = {
     listCalls: (_id, query, source = 'external') => {
       listCalls.push({ query, source });
       return of(source === 'internal' ? { calls: internalCaptured, total: internalTotal } : { calls: externalCaptured, total: externalTotal });
@@ -84,6 +84,9 @@ function setupWithSources(
     // fetchOverlaps callback has something to call (see call-utils.spec.ts for the actual
     // containment logic).
     getCallOverlaps: () => of([]),
+    // Not under test here either - the spacer feature has its own spec coverage; this just keeps
+    // the constructor's own reload-on-cycle-change effect from erroring out.
+    listSpacers: () => of([]),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -205,6 +208,124 @@ describe('SessionCycleDetailStateService', () => {
     expect(clearCalls).toEqual(['cycle-1']);
     expect(state.selectedIds().size).toBe(0);
     expect(listCalls.length).toBeGreaterThan(0);
+    discardPeriodicTasks();
+  }));
+});
+
+/** Spacer CRUD is a thin passthrough to the API that folds the result back into the `spacers` signal - these stub every spacer endpoint and track what each one was called with. */
+function setupForSpacers(initialSpacers: Array<{ id: string; label: string; beforeCallId: string | null }> = []): {
+  state: SessionCycleDetailStateService;
+  createCalls: Array<{ label: string; beforeCallId: string | null }>;
+  renameCalls: Array<{ spacerId: string; label: string }>;
+  moveCalls: Array<{ spacerId: string; beforeCallId: string | null }>;
+  deleteCalls: string[];
+} {
+  const createCalls: Array<{ label: string; beforeCallId: string | null }> = [];
+  const renameCalls: Array<{ spacerId: string; label: string }> = [];
+  const moveCalls: Array<{ spacerId: string; beforeCallId: string | null }> = [];
+  const deleteCalls: string[] = [];
+  const apiStub: Pick<
+    SessionCyclesApiService,
+    'listCalls' | 'removeCall' | 'removeCalls' | 'clearCalls' | 'getDetail' | 'getCallOverlaps' | 'listSpacers' | 'createSpacer' | 'renameSpacer' | 'moveSpacer' | 'deleteSpacer'
+  > = {
+    listCalls: () => of({ calls: [], total: 0 }),
+    removeCall: () => of(void 0),
+    removeCalls: () => of({ removed: 0, notFound: 0 }),
+    clearCalls: () => of(void 0),
+    getDetail: () => of({}),
+    getCallOverlaps: () => of([]),
+    listSpacers: () => of(initialSpacers),
+    createSpacer: (_id, label, beforeCallId) => {
+      createCalls.push({ label, beforeCallId });
+      return of({ id: 'new-spacer', label, beforeCallId });
+    },
+    renameSpacer: (_id, spacerId, label) => {
+      renameCalls.push({ spacerId, label });
+      return of({ id: spacerId, label, beforeCallId: null });
+    },
+    moveSpacer: (_id, spacerId, beforeCallId) => {
+      moveCalls.push({ spacerId, beforeCallId });
+      return of({ id: spacerId, label: 'Retry attempt', beforeCallId });
+    },
+    deleteSpacer: (_id, spacerId) => {
+      deleteCalls.push(spacerId);
+      return of(void 0);
+    },
+  };
+  TestBed.configureTestingModule({
+    providers: [
+      SessionCycleDetailStateService,
+      { provide: SessionCyclesApiService, useValue: apiStub },
+      { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
+      { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id: 'cycle-1' })) } },
+    ],
+  });
+  return { state: TestBed.inject(SessionCycleDetailStateService), createCalls, renameCalls, moveCalls, deleteCalls };
+}
+
+describe('SessionCycleDetailStateService spacers', () => {
+  it('loads every spacer for the open cycle up front', fakeAsync(() => {
+    const { state } = setupForSpacers([{ id: 's1', label: 'Retry attempt', beforeCallId: 'call-1' }]);
+    tick();
+
+    expect(state.spacers()).toEqual([{ id: 's1', label: 'Retry attempt', beforeCallId: 'call-1' }]);
+    discardPeriodicTasks();
+  }));
+
+  it('addSpacer appends the created spacer to the signal', fakeAsync(() => {
+    const { state, createCalls } = setupForSpacers();
+    tick();
+
+    state.addSpacer('Retry attempt', 'call-2');
+    tick();
+
+    expect(createCalls).toEqual([{ label: 'Retry attempt', beforeCallId: 'call-2' }]);
+    expect(state.spacers()).toEqual([{ id: 'new-spacer', label: 'Retry attempt', beforeCallId: 'call-2' }]);
+    discardPeriodicTasks();
+  }));
+
+  it('renameSpacer replaces the matching spacer in the signal, leaving others untouched', fakeAsync(() => {
+    const { state, renameCalls } = setupForSpacers([
+      { id: 's1', label: 'Old name', beforeCallId: 'call-1' },
+      { id: 's2', label: 'Other spacer', beforeCallId: 'call-2' },
+    ]);
+    tick();
+
+    state.renameSpacer('s1', 'New name');
+    tick();
+
+    expect(renameCalls).toEqual([{ spacerId: 's1', label: 'New name' }]);
+    expect(state.spacers()).toEqual([
+      { id: 's1', label: 'New name', beforeCallId: null },
+      { id: 's2', label: 'Other spacer', beforeCallId: 'call-2' },
+    ]);
+    discardPeriodicTasks();
+  }));
+
+  it('moveSpacer re-anchors the matching spacer', fakeAsync(() => {
+    const { state, moveCalls } = setupForSpacers([{ id: 's1', label: 'Retry attempt', beforeCallId: 'call-1' }]);
+    tick();
+
+    state.moveSpacer('s1', 'call-3');
+    tick();
+
+    expect(moveCalls).toEqual([{ spacerId: 's1', beforeCallId: 'call-3' }]);
+    expect(state.spacers()).toEqual([{ id: 's1', label: 'Retry attempt', beforeCallId: 'call-3' }]);
+    discardPeriodicTasks();
+  }));
+
+  it('deleteSpacer removes the matching spacer from the signal', fakeAsync(() => {
+    const { state, deleteCalls } = setupForSpacers([
+      { id: 's1', label: 'Keep me', beforeCallId: 'call-1' },
+      { id: 's2', label: 'Delete me', beforeCallId: 'call-2' },
+    ]);
+    tick();
+
+    state.deleteSpacer('s2');
+    tick();
+
+    expect(deleteCalls).toEqual(['s2']);
+    expect(state.spacers()).toEqual([{ id: 's1', label: 'Keep me', beforeCallId: 'call-1' }]);
     discardPeriodicTasks();
   }));
 });

@@ -4,7 +4,9 @@ import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ClearCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyInternalCallsToCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
@@ -12,12 +14,15 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycl
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCycleSpacersUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.MoveCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.RenameCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.UpdateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapEntry;
@@ -25,6 +30,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CallOverlapQuery;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
@@ -96,6 +102,16 @@ class SessionCyclesControllerTest {
     private CopyInternalCallsToCycleUseCase copyInternalCallsToCycleUseCase;
     @MockBean
     private ListCallOverlapsUseCase listCallOverlapsUseCase;
+    @MockBean
+    private ListCycleSpacersUseCase listCycleSpacersUseCase;
+    @MockBean
+    private CreateCycleSpacerUseCase createCycleSpacerUseCase;
+    @MockBean
+    private RenameCycleSpacerUseCase renameCycleSpacerUseCase;
+    @MockBean
+    private MoveCycleSpacerUseCase moveCycleSpacerUseCase;
+    @MockBean
+    private DeleteCycleSpacerUseCase deleteCycleSpacerUseCase;
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "2026-01-01T00:00:00Z", null, status);
@@ -496,5 +512,140 @@ class SessionCyclesControllerTest {
                         .param("from", "not-a-timestamp")
                         .param("to", "2024-01-01T00:00:05Z"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listSpacersReturnsNotFoundWhenTheCycleIsMissing() throws Exception {
+        when(listCycleSpacersUseCase.listSpacers("missing")).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/session-cycles/missing/spacers")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listSpacersReturnsEverySpacerForTheCycle() throws Exception {
+        CycleSpacer spacer = new CycleSpacer("s1", "c1", "Checkout retry attempt", "call-1", "2026-01-01T00:00:00Z");
+        when(listCycleSpacersUseCase.listSpacers("c1")).thenReturn(Optional.of(List.of(spacer)));
+
+        mockMvc.perform(get("/session-cycles/c1/spacers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value("s1"))
+                .andExpect(jsonPath("$[0].label").value("Checkout retry attempt"))
+                .andExpect(jsonPath("$[0].beforeCallId").value("call-1"));
+    }
+
+    @Test
+    void createSpacerRejectsABlankLabel() throws Exception {
+        mockMvc.perform(post("/session-cycles/c1/spacers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"label":""}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createSpacerReturnsNotFoundWhenTheCycleIsMissing() throws Exception {
+        when(createCycleSpacerUseCase.createSpacer("missing", "Retry attempt", "call-1")).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/session-cycles/missing/spacers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"label":"Retry attempt","beforeCallId":"call-1"}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void createSpacerReturns201WithTheCreatedSpacer() throws Exception {
+        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", "call-1", "2026-01-01T00:00:00Z");
+        when(createCycleSpacerUseCase.createSpacer("c1", "Retry attempt", "call-1")).thenReturn(Optional.of(created));
+
+        mockMvc.perform(post("/session-cycles/c1/spacers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"label":"Retry attempt","beforeCallId":"call-1"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value("s1"));
+    }
+
+    @Test
+    void createSpacerAcceptsANullBeforeCallIdMeaningAfterEveryCall() throws Exception {
+        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", null, "2026-01-01T00:00:00Z");
+        when(createCycleSpacerUseCase.createSpacer("c1", "Retry attempt", null)).thenReturn(Optional.of(created));
+
+        mockMvc.perform(post("/session-cycles/c1/spacers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"label":"Retry attempt"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.beforeCallId").doesNotExist());
+    }
+
+    @Test
+    void renameSpacerReturnsNotFoundWhenMissing() throws Exception {
+        when(renameCycleSpacerUseCase.renameSpacer("c1", "missing", "New label")).thenReturn(Optional.empty());
+
+        mockMvc.perform(patch("/session-cycles/c1/spacers/missing")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"label":"New label"}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void renameSpacerReturnsTheUpdatedSpacer() throws Exception {
+        CycleSpacer renamed = new CycleSpacer("s1", "c1", "New label", "call-1", "2026-01-01T00:00:00Z");
+        when(renameCycleSpacerUseCase.renameSpacer("c1", "s1", "New label")).thenReturn(Optional.of(renamed));
+
+        mockMvc.perform(patch("/session-cycles/c1/spacers/s1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"label":"New label"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.label").value("New label"));
+    }
+
+    @Test
+    void moveSpacerReturnsNotFoundWhenMissing() throws Exception {
+        when(moveCycleSpacerUseCase.moveSpacer("c1", "missing", "call-2")).thenReturn(Optional.empty());
+
+        mockMvc.perform(patch("/session-cycles/c1/spacers/missing/move")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"beforeCallId":"call-2"}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void moveSpacerReturnsTheReanchoredSpacer() throws Exception {
+        CycleSpacer moved = new CycleSpacer("s1", "c1", "Retry attempt", "call-2", "2026-01-01T00:00:00Z");
+        when(moveCycleSpacerUseCase.moveSpacer("c1", "s1", "call-2")).thenReturn(Optional.of(moved));
+
+        mockMvc.perform(patch("/session-cycles/c1/spacers/s1/move")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"beforeCallId":"call-2"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.beforeCallId").value("call-2"));
+    }
+
+    @Test
+    void deleteSpacerReturnsNoContentOnSuccess() throws Exception {
+        when(deleteCycleSpacerUseCase.deleteSpacer("c1", "s1")).thenReturn(true);
+
+        mockMvc.perform(delete("/session-cycles/c1/spacers/s1")).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void deleteSpacerReturnsNotFoundWhenMissing() throws Exception {
+        when(deleteCycleSpacerUseCase.deleteSpacer("c1", "missing")).thenReturn(false);
+
+        mockMvc.perform(delete("/session-cycles/c1/spacers/missing")).andExpect(status().isNotFound());
     }
 }

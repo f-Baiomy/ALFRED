@@ -43,6 +43,7 @@ function bodyFor(url: string): object | null {
   if (url.endsWith('/comments')) return [];
   if (url.endsWith('/call-overlaps')) return [];
   if (url.endsWith('/export-metadata')) return null;
+  if (url.endsWith('/spacers')) return [];
   return pageDto([], 0);
 }
 
@@ -159,6 +160,39 @@ describe('CycleExportService', () => {
     });
     expect(service.exportingCycleId()).toBeNull();
     expect(service.progress()).toBeNull();
+  });
+
+  /** fetchSpacers only fires once hydrateAll's own /detail request(s) have resolved (see exportCycle's forkJoin) - so the /spacers request doesn't exist until that /detail request is flushed first. */
+  function flushThroughDetailThenSpacers(spacerDtos: readonly object[]): void {
+    listRequest('calls', '0').flush(pageDto(['ext-1'], 1));
+    listRequest('internal-calls', '0').flush(pageDto([], 0));
+    for (const req of httpMock.match((r) => r.url.endsWith('/detail'))) req.flush(bodyFor(req.request.url));
+    httpMock.expectOne(`${backendUrl}/session-cycles/cycle-1/spacers`).flush(spacerDtos);
+    drain(httpMock);
+  }
+
+  it('passes a spacer straight through, keyed on the underlying call id it already anchors to', () => {
+    service.exportCycle(CYCLE, 'markdown');
+
+    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'Retry attempt', beforeCallId: 'ext-1' }]);
+
+    expect(exportDialog.state()?.spacers).toEqual([{ label: 'Retry attempt', beforeCallId: 'ext-1' }]);
+  });
+
+  it('passes through a spacer anchored to a call that never made it into the export - the builders drop it themselves', () => {
+    service.exportCycle(CYCLE, 'markdown');
+
+    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'Orphaned', beforeCallId: 'does-not-exist' }]);
+
+    expect(exportDialog.state()?.spacers).toEqual([{ label: 'Orphaned', beforeCallId: 'does-not-exist' }]);
+  });
+
+  it('keeps a trailing spacer (beforeCallId null) as-is', () => {
+    service.exportCycle(CYCLE, 'markdown');
+
+    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'End of repro', beforeCallId: null }]);
+
+    expect(exportDialog.state()?.spacers).toEqual([{ label: 'End of repro', beforeCallId: null }]);
   });
 
   it('an empty cycle sets a message instead of opening the dialog', () => {

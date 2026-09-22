@@ -3,7 +3,7 @@ import { EMPTY, Observable, forkJoin, from, of } from 'rxjs';
 import { catchError, expand, map, mergeMap, reduce, switchMap, toArray } from 'rxjs/operators';
 import { CallEndpointSource, CallOverlapCandidate, CallRecord, SessionCycle } from '../models/call.model';
 import { Comment } from '../models/comment.model';
-import { ExportedCycle, ExportMetadata } from '../models/export-metadata.model';
+import { ExportedCycle, ExportedSpacer, ExportMetadata } from '../models/export-metadata.model';
 import { CallsQuery } from '../state/call-list-view';
 import { CommentsApiService } from './comments-api.service';
 import { ExportApiService } from './export-api.service';
@@ -80,6 +80,7 @@ export class CycleExportService {
                 commentsByCallId: this.fetchAllComments(hydrated),
                 overlapCandidates: this.fetchOverlaps(cycle.id, hydrated),
                 metadata: this.fetchMetadata(hydrated),
+                spacers: this.fetchSpacers(cycle.id),
               })
             )
           );
@@ -94,7 +95,16 @@ export class CycleExportService {
           }
           // 'all' rather than the detail page's current status pill: this export is the cycle, not
           // a filtered view of it.
-          this.exportDialog.open(result.calls, result.metadata, result.commentsByCallId, format, result.overlapCandidates, 'all', exportedCycleOf(cycle));
+          this.exportDialog.open(
+            result.calls,
+            result.metadata,
+            result.commentsByCallId,
+            format,
+            result.overlapCandidates,
+            'all',
+            exportedCycleOf(cycle),
+            result.spacers
+          );
         },
         error: () => {
           this.finish();
@@ -198,5 +208,13 @@ export class CycleExportService {
 
   private fetchMetadata(calls: readonly CallRecord[]): Observable<ExportMetadata | null> {
     return this.exportApi.fetchMetadata(calls[0]).pipe(catchError(() => of<ExportMetadata | null>(null)));
+  }
+
+  /** CycleSpacer.beforeCallId is already the underlying CallRecord's own id (same id every exported call is keyed by - see CycleSpacer's doc), so no remapping is needed here, unlike removeCall/findByCallId which key on the captured-call wrapper id instead. */
+  private fetchSpacers(cycleId: string): Observable<ExportedSpacer[]> {
+    return this.api.listSpacers(cycleId).pipe(
+      map((spacers) => spacers.map((spacer) => ({ label: spacer.label, beforeCallId: spacer.beforeCallId }))),
+      catchError(() => of<ExportedSpacer[]>([]))
+    );
   }
 }

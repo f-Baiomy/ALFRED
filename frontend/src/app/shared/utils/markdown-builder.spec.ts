@@ -509,6 +509,26 @@ describe('buildBulkExportMarkdown with a whole session cycle', () => {
 
     expect(md).not.toContain('complete session cycle');
   });
+
+  it('renders a spacer as a heading immediately before the call it is anchored to', () => {
+    const calls = [makeCall({ id: 'call-1', timestamp: '2026-08-07T13:00:00Z' }), makeCall({ id: 'call-2', timestamp: '2026-08-07T13:05:00Z' })];
+    const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Retry attempt', beforeCallId: 'call-2' }]);
+
+    const headingIndex = md.indexOf('### 🏷️ Retry attempt');
+    const call1Index = md.indexOf('id="call-1"');
+    const call2Index = md.indexOf('id="call-2"');
+    expect(headingIndex).toBeGreaterThan(-1);
+    expect(headingIndex).toBeGreaterThan(call1Index);
+    expect(headingIndex).toBeLessThan(call2Index);
+  });
+
+  it('renders a spacer with a null beforeCallId at the very end of the calls section', () => {
+    const md = buildBulkExportMarkdown([makeCall()], makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'End of repro', beforeCallId: null }]);
+
+    const headingIndex = md.indexOf('### 🏷️ End of repro');
+    const lastCallIndex = md.lastIndexOf('</details>');
+    expect(headingIndex).toBeGreaterThan(lastCallIndex);
+  });
 });
 
 describe('bulkExportFilename', () => {
