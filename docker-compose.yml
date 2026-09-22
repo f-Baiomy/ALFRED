@@ -310,17 +310,41 @@ services:
       context: ./frontend
     container_name: frontend
     restart: unless-stopped
-    ports:
-      - "3000:80"
-    environment:
-      # Read by docker-entrypoint.d/10-generate-env.sh at container start to generate env.js,
-      # which tells the browser which port to reach the backend on - see the backend service's
-      # BACKEND_PORT comment above for why this needs to be configurable at all.
-      - BACKEND_PORT=${BACKEND_PORT:-5000}
+    # No host port published: app-gateway (below) is the one public entrypoint now, reaching this
+    # container as http://frontend:80 over alfred-net. Direct host access moved to app-gateway's
+    # own 3000 publish - see its comment for why the split exists.
     depends_on:
       - backend
     # Guardrail, not a tuned limit - nginx serving a static bundle observed at ~9MB.
     mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - alfred-net
+
+  # Single public entrypoint for the whole app - fronts both frontend and backend on ONE origin
+  # so a `cloudflared tunnel --url http://localhost:3000` (or any other reverse proxy) hands the
+  # whole app to someone else with one URL: no second backend URL, no localhost, no CORS, since
+  # every browser request (page load AND API calls AND WebSocket pushes) lands on the same
+  # origin and gateway/nginx.conf routes it by path - see that file for the exact routing. Kept
+  # separate from the "reverse-proxy" service above deliberately: that one is the mitmproxy
+  # inbound-traffic LOGGER for other projects Alfred fronts, an unrelated feature that already
+  # owns the name "reverse proxy" in this codebase.
+  app-gateway:
+    image: nginx:alpine
+    container_name: app-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    mem_limit: 64m
     logging:
       driver: json-file
       options:
