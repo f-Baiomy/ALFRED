@@ -339,9 +339,32 @@ public class SessionCyclesService implements
                 }
                 capturedCallsStore.append(cycleId, call);
                 added++;
+                pinTrailingSpacersTo(cycleId, call.id());
             }
             return new CopyCallsResult(added, skipped);
         });
+    }
+
+    /**
+     * A spacer with beforeCallId null renders after every captured call, which is exactly right
+     * for a spacer added while it really is the last one - but left that way, it also renders
+     * after every call captured LATER, silently sliding past new calls instead of marking the
+     * boundary the user actually drew (confirmed live: adding a spacer at the end of a recording
+     * cycle, then letting more traffic capture into it, showed each new call appearing below the
+     * spacer instead of above it - the spacer never stayed put). The fix is to freeze it the first
+     * time anything new is captured after it: re-anchor every still-trailing spacer to sit right
+     * before the call that was just captured, so it never again moves past a call it hasn't seen
+     * yet. Idempotent per call - once a spacer is anchored to a real id it's no longer trailing, so
+     * later calls in the same batch (or a later capture entirely) leave it alone. Called from both
+     * capture paths that append into a cycle's captured calls - this one (manual copy/import) and
+     * SessionCycleCaptureAdapter (live auto-capture while RECORDING).
+     */
+    private void pinTrailingSpacersTo(String cycleId, String callId) {
+        for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
+            if (spacer.beforeCallId() == null) {
+                spacersStore.move(cycleId, spacer.id(), callId);
+            }
+        }
     }
 
     /**

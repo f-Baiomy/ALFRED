@@ -3,7 +3,9 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.capture;
 import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import org.junit.jupiter.api.Test;
@@ -22,7 +24,8 @@ class SessionCycleCaptureAdapterTest {
 
     private final SessionCycleMetadataStorePort metadataStore = mock(SessionCycleMetadataStorePort.class);
     private final CapturedCallsStorePort capturedCallsStore = mock(CapturedCallsStorePort.class);
-    private final SessionCycleCaptureAdapter adapter = new SessionCycleCaptureAdapter(metadataStore, capturedCallsStore);
+    private final CycleSpacersStorePort spacersStore = mock(CycleSpacersStorePort.class);
+    private final SessionCycleCaptureAdapter adapter = new SessionCycleCaptureAdapter(metadataStore, capturedCallsStore, spacersStore);
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "t", null, status);
@@ -47,6 +50,20 @@ class SessionCycleCaptureAdapterTest {
         verify(capturedCallsStore).append("recording-1", call);
         verify(capturedCallsStore).append("recording-2", call);
         verify(capturedCallsStore, never()).append("paused-1", call);
+    }
+
+    @Test
+    void onNewCallReAnchorsAnyTrailingSpacerToTheJustCapturedCallSoItStaysPutInsteadOfSlidingPastFutureCalls() {
+        CallRecord call = call();
+        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
+        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t");
+        CycleSpacer alreadyAnchored = new CycleSpacer("spacer-2", "recording-1", "Mid repro", "some-other-call", "t");
+        when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing, alreadyAnchored));
+
+        adapter.onNewCall(call);
+
+        verify(spacersStore).move("recording-1", "spacer-1", call.id());
+        verify(spacersStore, never()).move("recording-1", "spacer-2", call.id());
     }
 
     @Test

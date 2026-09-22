@@ -448,6 +448,27 @@ class SessionCyclesServiceTest {
     }
 
     @Test
+    void copyIntoReAnchorsAnyTrailingSpacerToTheFirstNewlyAddedCallSoItStopsSlidingPastNewOnes() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z");
+        // The real store would stop returning this as trailing once move() re-anchors it - the mock
+        // has no state of its own, so this simulates that: trailing on the first lookup (before the
+        // first call in the batch is captured), pinned by the second.
+        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing), List.of());
+
+        CallRecord a = call("t1");
+        CallRecord b = call("t2");
+        service.copyInto("c1", List.of(a, b));
+
+        // Only re-anchored once, to the FIRST call of the batch - not re-pointed again for every
+        // call added after it, which would just have it chase the newest one forever instead of
+        // staying fixed at the boundary the user actually drew.
+        verify(spacersStore, org.mockito.Mockito.times(1)).move(eq("c1"), eq("s1"), any());
+        verify(spacersStore).move("c1", "s1", a.id());
+    }
+
+    @Test
     void copyIntoSkipsCallsAlreadyPresentByCallId() {
         CallRecord existing = callWithId("shared-id", "t1");
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
