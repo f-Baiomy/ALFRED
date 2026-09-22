@@ -342,6 +342,15 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     // logging pushes the same call twice, once IN_PROGRESS then once resolved).
     this.liveCalls.set([call, ...this.liveCalls().filter((c) => c.id !== call.id)]);
     this.view.refresh();
+    // A trailing spacer (beforeCallId null) gets re-anchored to THIS call server-side the moment
+    // it's captured (SessionCyclesService#pinTrailingSpacersTo / SessionCycleInternalCaptureAdapter's
+    // twin) so it stops sliding past future calls - but this client's `spacers` signal was fetched
+    // once at page load and otherwise only reloaded after removing a call (reloadSpacers), so
+    // without this it would keep rendering that spacer as trailing (still after every call,
+    // including this new one) forever, even though the backend already fixed its anchor. Confirmed
+    // live: the backend anchor was correct while the open page still showed the spacer at the very
+    // end.
+    this.reloadSpacers();
   }
 
   /** Always a real network call - never served from a cache, so a call's detail is refetched every time it's expanded, even if it was already loaded before (this session or otherwise). `source` picks GET /session-cycles/{id}/calls/{callId}/detail vs the internal-calls equivalent - defaults to 'external' (via SessionCyclesApiService.getDetail) when omitted. */
