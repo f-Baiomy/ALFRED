@@ -1,6 +1,8 @@
 package com.fathy.alfred.backend.calls.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * Mirrors the JSON shape written by the proxy addon (proxy/log_and_route.py) and served by GET /calls.
@@ -47,7 +49,11 @@ public record CallRecord(
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
         CallTiming timing,
-        CallInterception interception
+        CallInterception interception,
+        /** The call this one resends, or null. Set from the proxy's X-Alfred-Resend-Of header. */
+        @JsonProperty("resend_of") @JsonInclude(JsonInclude.Include.NON_NULL) String resendOf,
+        /** What the resend changed, as JSON text - header NAMES only (data-model §7). */
+        @JsonProperty("resend_edits") @JsonInclude(JsonInclude.Include.NON_NULL) @JsonDeserialize(using = RawJsonDeserializer.class) String resendEdits
 ) {
     /**
      * Pre-interception shape - the newest field, added the same backward-compatible way as timing
@@ -57,21 +63,21 @@ public record CallRecord(
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId, String serviceName, CallTiming timing) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, timing, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, timing, null, null, null);
     }
 
     /** Pre-timing shape - the newest field, added the same backward-compatible way as serviceName before it. Null means "not measured" (a call logged before the proxy reported phase timings), never zero. */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId, String serviceName) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, null, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, null, null, null, null);
     }
 
     /** Pre-service-name shape - kept so a call site built before that field existed doesn't need to touch a new required argument. serviceName is null (treated as "unknown" by every reader). */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null, null, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null, null, null, null, null);
     }
 
     /**
@@ -83,13 +89,13 @@ public record CallRecord(
      */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, null, null, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, null, null, null, null, null, null, null);
     }
 
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error) {
         this(id, originalUrl, url, method, request, timestamp, durationMs, response, error,
-                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null);
+                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null, null, null, null, null);
     }
 
     /**
@@ -110,6 +116,11 @@ public record CallRecord(
         boolean hasError = call.error() != null && !call.error().isBlank();
         CallLifecycleStatus derived = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
-                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName());
+                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception(), call.resendOf(), call.resendEdits());
+    }
+
+    public CallRecord withResend(String of, String edits) {
+        return new CallRecord(this.id(), this.originalUrl(), this.url(), this.method(), this.request(),
+                this.timestamp(), this.durationMs(), this.response(), this.error(), this.state(), this.sessionId(), this.operationId(), this.serviceName(), this.timing(), this.interception(), of, edits);
     }
 }

@@ -34,20 +34,29 @@ public record CallSummary(
         @JsonProperty("service_name") String serviceName,
         CallTiming timing,
         /** Null unless an interception rule touched this call - rides on the SUMMARY so the badge shows on a collapsed card with no detail fetch, same reasoning as timing. */
-        CallInterception interception
+        CallInterception interception,
+        @JsonProperty("resend_of") String resendOf,
+        @JsonProperty("resend_edits") String resendEdits
 ) {
+    /** Pre-resend shape. */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId, String serviceName, CallTiming timing, CallInterception interception) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, timing, interception, null, null);
+    }
+
     /** Pre-interception shape. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
                         String sessionId, String operationId, String serviceName, CallTiming timing) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, timing, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, timing, null, null, null);
     }
 
     /** Pre-timing shape - a call site built before phase timings existed gets null, which every reader treats as "not measured". */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
                         String sessionId, String operationId, String serviceName) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, null, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, null, null, null, null);
     }
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -56,26 +65,26 @@ public record CallSummary(
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
                         String sessionId, String operationId) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, null, null, null, null, null);
     }
 
     /** Pre-session/operation-id shape - every call site built before those fields existed gets null for both (and for serviceName). */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, null, null, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, null, null, null, null, null, null, null);
     }
 
     /** Pre-two-phase shape, kept for the same reason CallRecord keeps its own 9-arg constructor - every existing call site already only ever built an already-resolved summary, so state is derived from error here instead of requiring every caller to pass it explicitly. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName) {
         this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName,
-                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null);
+                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null, null, null, null, null);
     }
 
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception(), call.resendOf(), call.resendEdits());
     }
 
     /**
