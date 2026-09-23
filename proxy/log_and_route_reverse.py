@@ -155,7 +155,7 @@ class RouteAndLog:
         # recording off means "don't write this down", not "stop applying the rules I configured".
         # It also runs before the call is logged, so what is recorded is what was actually
         # forwarded upstream.
-        verdict = ENGINE.apply_request(flow, name)
+        verdict = await ENGINE.apply_request(flow, name)
         flow.metadata['interception'] = verdict
 
         if not WEBHOOK_URL or not _toggle.enabled(name):
@@ -292,7 +292,7 @@ class RouteAndLog:
         verdict = flow.metadata.get('interception') or interception.Verdict()
         service_name = flow.metadata.get('service_name')
 
-        response_verdict = ENGINE.apply_response(flow, service_name)
+        response_verdict = await ENGINE.apply_response(flow, service_name)
         # See log_and_route.py: state, not one field - copying `applied` alone dropped every
         # response-phase snapshot.
         verdict.adopt(response_verdict)

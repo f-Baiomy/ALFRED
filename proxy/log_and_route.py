@@ -157,7 +157,7 @@ class RouteAndLog:
         # sent upstream rather than what the client originally wrote - the log has to agree with
         # the traffic. It also runs regardless of WEBHOOK_URL: a deployment with no backend still
         # proxies, and a rule the user configured must still apply.
-        verdict = ENGINE.apply_request(flow, service_name)
+        verdict = await ENGINE.apply_request(flow, service_name)
         flow.metadata['interception'] = verdict
 
         if not WEBHOOK_URL:
@@ -323,7 +323,7 @@ class RouteAndLog:
 
         # Response-phase rules apply whether or not this call is being logged - same reasoning as
         # the request side.
-        response_verdict = ENGINE.apply_response(flow, flow.metadata.get('service_name'))
+        response_verdict = await ENGINE.apply_response(flow, flow.metadata.get('service_name'))
         # State, not one field: adopt carries the pre-action snapshot across too, which copying
         # `applied` alone silently dropped - so no response action has ever produced a
         # before/after. See Verdict.adopt.

@@ -1,4 +1,5 @@
 import { CallEndpointSource, CallRecord } from '../../core/models/call.model';
+import { CallInterception } from '../../core/models/interception.model';
 
 /**
  * Reads an Alfred .json export back into CallRecords - the inverse of bulk-json-builder.ts.
@@ -29,6 +30,7 @@ interface Partial_ {
   operation_id?: string | null;
   state?: CallRecord['state'];
   supplierName?: string | null;
+  interception?: CallInterception;
 }
 
 export interface ImportParseResult {
@@ -170,6 +172,7 @@ function mergeEvents(events: readonly unknown[]): ImportParseResult {
       service_name: partial.service_name,
       session_id: partial.session_id,
       operation_id: partial.operation_id,
+      interception: partial.interception,
     });
   }
 
@@ -202,6 +205,12 @@ function fill(into: Partial_, raw: Record<string, unknown>): void {
   if (state) set('state', state as CallRecord['state']);
   if (raw['request'] !== undefined && raw['request'] !== null) set('request', raw['request'] as CallRecord['request']);
   if (raw['response'] !== undefined && raw['response'] !== null) set('response', raw['response'] as CallRecord['response']);
+  // Written by bulk-json-builder on a call event or a split call's request event. Accepted only in
+  // the shape it is written in, so a hand-edited file cannot slip a non-record into the call.
+  const interception = raw['interception'];
+  if (interception && typeof interception === 'object' && Array.isArray((interception as CallInterception).applied)) {
+    set('interception', interception as CallInterception);
+  }
 
   // A split call's request event carries the request timestamp and its response event carries the
   // RESPONSE timestamp (see responseTimestamp) - so the earliest of the two is the call's own start,

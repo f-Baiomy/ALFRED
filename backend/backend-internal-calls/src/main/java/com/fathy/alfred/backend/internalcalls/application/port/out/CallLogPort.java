@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.internalcalls.application.port.out;
 
 import com.fathy.alfred.backend.internalcalls.application.service.CallListSupport;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
@@ -30,6 +31,16 @@ public interface CallLogPort {
      * retention, or never prepared - the caller should treat this as a 404).
      */
     boolean complete(String id, ResponseData response, String error, Double durationMs);
+
+    /**
+     * The same, carrying what an interception rule did to the call. A default that drops the
+     * record, so a store that predates it (and every test fake) keeps working; the file adapter,
+     * this slice's only real store, overrides it.
+     */
+    default boolean complete(String id, ResponseData response, String error, Double durationMs,
+                             CallInterception interception) {
+        return complete(id, response, error, durationMs);
+    }
 
     /**
      * Filtered/searched/sorted/paginated call summaries, plus the total count matching before

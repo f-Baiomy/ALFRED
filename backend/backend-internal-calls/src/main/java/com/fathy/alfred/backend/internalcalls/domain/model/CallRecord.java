@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.internalcalls.domain.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -45,8 +46,27 @@ public record CallRecord(
         CallLifecycleStatus state,
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
-        @JsonProperty("service_name") String serviceName
+        @JsonProperty("service_name") String serviceName,
+        /**
+         * What an interception rule did to this call, or null when none touched it. Written only
+         * when present, so a line for an untouched call is byte-for-byte what it was before.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception
 ) {
+    /** Pre-interception shape - every call site built before that field existed gets null. */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId, String serviceName) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId,
+                operationId, serviceName, null);
+    }
+
+    /** The same call carrying the interception record the completion webhook brought. */
+    public CallRecord withInterception(CallInterception value) {
+        return new CallRecord(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state,
+                sessionId, operationId, serviceName, value == null || value.isEmpty() ? null : value);
+    }
+
     /** Pre-service-name shape - kept so a call site built before that field existed doesn't need to touch a new required argument. serviceName is null (treated as "unknown" by every reader). */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
@@ -82,6 +102,7 @@ public record CallRecord(
         boolean hasError = call.error() != null && !call.error().isBlank();
         CallLifecycleStatus derived = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
-                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName());
+                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName(),
+                call.interception());
     }
 }

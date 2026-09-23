@@ -5,6 +5,7 @@ import {
   RuleImportResult,
   describeAction,
   describeMatch,
+  isTerminalAction,
 } from '../../core/models/interception.model';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { parseRulesFile } from '../../shared/utils/interception-rules-file';
@@ -72,7 +73,7 @@ export class ImportRulesDialogComponent {
         match: describeMatch(rule.match ?? {}),
         actions: actions.map((a) => describeAction(a)),
         pauses: actions.some((a) => a.type.startsWith('PAUSE_')),
-        terminal: actions.some((a) => a.type === 'ABORT_REQUEST' || a.type === 'MOCK_RESPONSE'),
+        terminal: actions.some((a) => isTerminalAction(a.type)),
         nameClash: !!rule.name && existing.has(rule.name),
       };
     });

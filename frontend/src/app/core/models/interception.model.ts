@@ -10,7 +10,8 @@
 /** Which direction a rule applies to. `both` and `null` mean the same thing; the UI writes `both`. */
 export type RuleSource = 'outbound' | 'inbound' | 'both';
 
-export type ActionPhase = 'request' | 'response';
+/** `message` is a WebSocket message after the handshake - see ActionType.Phase in the backend. */
+export type ActionPhase = 'request' | 'response' | 'message';
 
 export type ActionType =
   | 'DELAY_REQUEST'
@@ -19,6 +20,11 @@ export type ActionType =
   | 'SET_QUERY_PARAM'
   | 'REMOVE_QUERY_PARAM'
   | 'SET_REQUEST_JSON_FIELD'
+  | 'REPLACE_IN_REQUEST_BODY'
+  | 'REWRITE_URL'
+  | 'SET_METHOD'
+  | 'REMOVE_REQUEST_JSON_FIELD'
+  | 'SET_REQUEST_BODY'
   | 'ABORT_REQUEST'
   | 'MOCK_RESPONSE'
   | 'PAUSE_REQUEST'
@@ -31,6 +37,8 @@ export type ActionType =
   | 'REMOVE_RESPONSE_HEADER'
   | 'SET_RESPONSE_JSON_FIELD'
   | 'SET_RESPONSE_BODY'
+  | 'REPLACE_IN_RESPONSE_BODY'
+  | 'REMOVE_RESPONSE_JSON_FIELD'
   | 'REPLACE_RESPONSE'
   | 'PAUSE_RESPONSE'
   | 'IF_RESPONSE';
@@ -134,6 +142,54 @@ export interface RuleAction {
    * what is nested inside a condition that is not running at all.
    */
   readonly enabled?: boolean | null;
+  /** REPLACE_IN_*_BODY / REPLACE_IN_MESSAGE / REWRITE_URL (pattern form): the text or regex to find. */
+  readonly pattern?: string | null;
+  /** What replaces `pattern`. Group references (\\1) only mean anything when `regex` is on. */
+  readonly replacement?: string | null;
+  /** Literal text unless this is true - literal is linear and cannot run away. */
+  readonly regex?: boolean | null;
+  /** Defaults to true. */
+  readonly caseSensitive?: boolean | null;
+  /** At most this many replacements; absent means all of them. */
+  readonly maxReplacements?: number | null;
+  /** REWRITE_URL (structured form): the parts of the target to change. */
+  readonly target?: UrlTarget | null;
+  /** REWRITE_URL: keep the client's Host header rather than follow the new target. */
+  readonly keepHostHeader?: boolean | null;
+  /** SET_METHOD. */
+  readonly method?: string | null;
+  /** SET_RESPONSE_COOKIE. */
+  readonly cookieAttributes?: CookieAttributes | null;
+  /** SET_REQUEST_BODY: an optional content type for the new body. */
+  readonly contentType?: string | null;
+  /** SET_RESPONSE_ENCODING. */
+  readonly encoding?: string | null;
+  /** The stored-answer actions: which stored answer. */
+  readonly answerId?: string | null;
+  /** The recorded-call actions: move Date, Expires and cookie expiry forward to now. */
+  readonly refreshDates?: boolean | null;
+  /** The message actions: client, server or both. */
+  readonly messageDirection?: 'client' | 'server' | 'both' | null;
+  /** DROP_MESSAGE: only messages containing this literal text. */
+  readonly contains?: string | null;
+}
+
+/** REWRITE_URL's structured target. A part left empty is kept as the call already has it. */
+export interface UrlTarget {
+  readonly scheme?: string | null;
+  readonly host?: string | null;
+  readonly port?: number | null;
+  readonly path?: string | null;
+}
+
+/** What SET_RESPONSE_COOKIE writes after name=value. `maxAge: 0` expires the cookie. */
+export interface CookieAttributes {
+  readonly path?: string | null;
+  readonly domain?: string | null;
+  readonly maxAge?: number | null;
+  readonly secure?: boolean | null;
+  readonly httpOnly?: boolean | null;
+  readonly sameSite?: 'Strict' | 'Lax' | 'None' | null;
 }
 
 /** True unless explicitly set to false - the same default the backend and proxy both use. */
@@ -427,6 +483,11 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   SET_QUERY_PARAM: 'Set query parameter',
   REMOVE_QUERY_PARAM: 'Remove query parameter',
   SET_REQUEST_JSON_FIELD: 'Set JSON field in request body',
+  REPLACE_IN_REQUEST_BODY: 'Find & replace in request body',
+  REWRITE_URL: 'Rewrite URL',
+  SET_METHOD: 'Set method',
+  REMOVE_REQUEST_JSON_FIELD: 'Remove request JSON field',
+  SET_REQUEST_BODY: 'Replace the request body',
   ABORT_REQUEST: 'Abort request (kill the connection)',
   MOCK_RESPONSE: 'Mock response (never contact upstream)',
   PAUSE_REQUEST: 'Pause and wait for me (before forwarding)',
@@ -439,6 +500,8 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   REMOVE_RESPONSE_HEADER: 'Remove response header',
   SET_RESPONSE_JSON_FIELD: 'Set JSON field in response body',
   SET_RESPONSE_BODY: 'Replace the response body',
+  REPLACE_IN_RESPONSE_BODY: 'Find & replace in response body',
+  REMOVE_RESPONSE_JSON_FIELD: 'Remove response JSON field',
   REPLACE_RESPONSE: 'Reply with a different response',
   PAUSE_RESPONSE: 'Pause and wait for me (after the supplier answers)',
   IF_RESPONSE: 'Condition — look at the response, then decide',
@@ -558,6 +621,30 @@ export function describeAction(action: RuleAction): string {
     }
     case 'SET_RESPONSE_BODY':
       return `Replace response body (${(action.body ?? '').length} chars)`;
+    case 'REWRITE_URL': {
+      const t = action.target ?? {};
+      const parts = [
+        t.scheme ? `${t.scheme}://` : '',
+        t.host ?? '',
+        t.port ? `:${t.port}` : '',
+        t.path ?? '',
+      ].join('');
+      if (parts) return `Send to ${parts}${action.keepHostHeader ? ' (original Host kept)' : ''}`;
+      return `Rewrite URL ${action.regex ? `/${action.pattern ?? ''}/` : `"${action.pattern ?? ''}"`} → "${action.replacement ?? ''}"`;
+    }
+    case 'SET_METHOD':
+      return `Send as ${(action.method ?? '').toUpperCase() || '?'}`;
+    case 'REMOVE_REQUEST_JSON_FIELD':
+    case 'REMOVE_RESPONSE_JSON_FIELD':
+      return `Remove ${action.path} (the key is gone, not null)`;
+    case 'SET_REQUEST_BODY':
+      return `Replace request body (${(action.body ?? '').length} chars)${action.contentType ? `, ${action.contentType}` : ''}`;
+    case 'REPLACE_IN_REQUEST_BODY':
+    case 'REPLACE_IN_RESPONSE_BODY': {
+      const shown = action.regex ? `/${action.pattern ?? ''}/` : `"${action.pattern ?? ''}"`;
+      const limit = action.maxReplacements ? ` (first ${action.maxReplacements})` : ' (all)';
+      return `${action.type === 'REPLACE_IN_REQUEST_BODY' ? 'In request body' : 'In response body'}, replace ${shown} → "${action.replacement ?? ''}"${limit}`;
+    }
     case 'REPLACE_RESPONSE':
       return action.status ? `Reply with ${action.status} — host still called` : 'Reply with a different response';
     case 'PAUSE_REQUEST':
@@ -578,15 +665,42 @@ export function isPauseAction(type: ActionType): boolean {
   return type === 'PAUSE_REQUEST' || type === 'PAUSE_RESPONSE';
 }
 
-export function isTerminalAction(type: ActionType): boolean {
-  return type === 'ABORT_REQUEST' || type === 'MOCK_RESPONSE' || type === 'SIMULATE_FAILURE';
+/**
+ * What the backend says about each action type (GET /interception/action-types), registered by
+ * InterceptionStateService the moment it loads. The backend's ActionType enum is the authority on
+ * an action's phase and whether it ends the request - this used to be re-derived here from the
+ * name and from hand-kept lists, three of them, and one had already drifted (it did not know
+ * SIMULATE_FAILURE ends the request). Plain functions rather than service methods so that the
+ * pure helpers and describe*() functions, which have no injector, read the same answer.
+ */
+const REGISTERED_ACTION_TYPES = new Map<string, ActionTypeInfo>();
+
+export function registerActionTypes(types: readonly ActionTypeInfo[]): void {
+  REGISTERED_ACTION_TYPES.clear();
+  for (const info of types) {
+    REGISTERED_ACTION_TYPES.set(info.type, info);
+  }
+}
+
+/** Used only until the backend's list has loaded (a few ms after the app starts). */
+const FALLBACK_TERMINALS: ReadonlySet<string> = new Set([
+  'ABORT_REQUEST', 'MOCK_RESPONSE', 'SIMULATE_FAILURE', 'ANSWER_WITH_RECORDED_CALL', 'ANSWER_WITH_FILE',
+]);
+
+export function isTerminalAction(type: ActionType | string): boolean {
+  const info = REGISTERED_ACTION_TYPES.get(type);
+  return info ? info.terminal : FALLBACK_TERMINALS.has(type);
 }
 
 /**
  * MOCK_RESPONSE is a REQUEST-phase action despite its name: it short-circuits before the request is
  * ever forwarded. REPLACE_RESPONSE is the response-phase counterpart - the host really is called,
- * and only the reply the caller gets is swapped.
+ * and only the reply the caller gets is swapped. The name-based guess below is only the fallback
+ * for before the backend's list has loaded; once it has, its `phase` is what counts.
  */
-export function actionPhase(type: ActionType): ActionPhase {
+export function actionPhase(type: ActionType | string): ActionPhase {
+  const info = REGISTERED_ACTION_TYPES.get(type);
+  if (info) return info.phase;
+  if (type.endsWith('_MESSAGE')) return 'message';
   return type.includes('RESPONSE') && type !== 'MOCK_RESPONSE' ? 'response' : 'request';
 }

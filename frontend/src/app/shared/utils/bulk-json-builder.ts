@@ -1,4 +1,5 @@
 import { CallEndpointSource, CallLifecycleState, CallOverlapCandidate, CallRecord, CallResponse, HttpMessageData } from '../../core/models/call.model';
+import { CallInterception } from '../../core/models/interception.model';
 import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { CallStatusFilter, isInProgress } from './call-utils';
@@ -24,6 +25,8 @@ export interface BulkExportRequestEvent {
    * flight when the export was taken from one whose response was simply never recorded. */
   readonly state?: CallLifecycleState;
   readonly comments: readonly Comment[];
+  /** What an interception rule did to the call - see BulkExportCallEvent.interception. */
+  readonly interception?: CallInterception;
 }
 
 /** The response-side counterpart to a BulkExportRequestEvent, correlated purely by sharing the same callId. */
@@ -70,6 +73,12 @@ export interface BulkExportCallEvent {
    * having to guess from the presence of a response. */
   readonly state?: CallLifecycleState;
   readonly comments: readonly Comment[];
+  /**
+   * What an interception rule (or a human at a breakpoint) did to this call, with both ends of
+   * every half it changed. A fact about the whole call, so a split call carries it once, on its
+   * request event, the same way it carries its comments. Absent on a call nothing touched.
+   */
+  readonly interception?: CallInterception;
 }
 
 export type BulkExportEvent = BulkExportRequestEvent | BulkExportResponseEvent | BulkExportCallEvent;
@@ -244,6 +253,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     operation_id: call.operation_id,
     state: call.state,
     comments,
+    interception: call.interception ?? undefined,
   });
 
   if (call.source !== 'internal') {
@@ -266,6 +276,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     operation_id: call.operation_id,
     state: call.state,
     comments,
+    interception: call.interception ?? undefined,
   };
 
   if (!resolved) return [requestEvent];

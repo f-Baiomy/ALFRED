@@ -32,6 +32,8 @@ import re
 import time
 from http import HTTPStatus
 
+import regex_worker
+
 # Written by the backend's FileRulesPublisherAdapter, bind-mounted into both proxy containers -
 # see docker-compose.yml. Absent is the normal state for a deployment that has never created a
 # rule, and must stay indistinguishable from "no rules".
@@ -42,6 +44,10 @@ RULES_FILE = os.environ.get('INTERCEPTION_RULES_FILE', '/home/mitmproxy/intercep
 # backend-side too, but this is the last line of defence and it lives where the sleep happens.
 MAX_DELAY_MS = int(os.environ.get('INTERCEPTION_MAX_DELAY_MS', '120000'))
 
+# The longest find/replace pattern accepted, unless the snapshot's `limits` says otherwise. The
+# backend enforces the same number at save time (PatternSafety).
+MAX_PATTERN_LENGTH = 500
+
 # How long a paused call may hold its caller open before it is released by the timeout rule.
 # Backend validation caps the per-rule value against this as well.
 MAX_PAUSE_SECONDS = int(os.environ.get('INTERCEPTION_MAX_PAUSE_SECONDS', '300'))
@@ -49,14 +55,23 @@ MAX_PAUSE_SECONDS = int(os.environ.get('INTERCEPTION_MAX_PAUSE_SECONDS', '300'))
 REQUEST_ACTIONS = {
     'DELAY_REQUEST', 'SET_REQUEST_HEADER', 'REMOVE_REQUEST_HEADER',
     'SET_QUERY_PARAM', 'REMOVE_QUERY_PARAM', 'SET_REQUEST_JSON_FIELD',
+    'REPLACE_IN_REQUEST_BODY', 'REWRITE_URL', 'SET_METHOD',
+    'REMOVE_REQUEST_JSON_FIELD', 'SET_REQUEST_BODY',
     'ABORT_REQUEST', 'MOCK_RESPONSE', 'PAUSE_REQUEST', 'SEND_TO_HOST',
     'SIMULATE_FAILURE', 'IF_REQUEST',
 }
 RESPONSE_ACTIONS = {
     'DELAY_RESPONSE', 'SET_RESPONSE_STATUS', 'SET_RESPONSE_HEADER',
     'REMOVE_RESPONSE_HEADER', 'SET_RESPONSE_JSON_FIELD', 'SET_RESPONSE_BODY',
+    'REPLACE_IN_RESPONSE_BODY', 'REMOVE_RESPONSE_JSON_FIELD',
     'REPLACE_RESPONSE', 'PAUSE_RESPONSE', 'IF_RESPONSE',
 }
+
+def _known_action(kind):
+    """Whether ANY phase of this engine understands `kind`. Anything else came from a rules file
+    newer than this proxy, and is recorded as skipped rather than silently ignored."""
+    return kind in REQUEST_ACTIONS or kind in RESPONSE_ACTIONS
+
 
 # An action that ends the request phase: there is no upstream request left for a later rule to
 # modify, so evaluation stops rather than silently applying edits to something already gone.
@@ -90,8 +105,27 @@ SENSITIVE_HEADERS = {
 }
 
 
-def _sensitive(name):
-    return (name or '').strip().lower() in SENSITIVE_HEADERS
+def _sensitive(name, names=None):
+    return (name or '').strip().lower() in (SENSITIVE_HEADERS if names is None else names)
+
+
+def mask_value(value):
+    """What a secret value becomes in an interception record. The length is kept so a reader can
+    still tell a token was swapped for one of a different size; the value itself never is."""
+    return f'(value not logged · {len(str(value or ""))} chars)'
+
+
+def _masked_snapshot(snapshot, names):
+    """A copy of a snapshot with every sensitive header's value masked. Applied only when the
+    record is written (Verdict.as_log), never to the working snapshots: comparing masked copies
+    would miss a secret swapped for another of the same length, and the before/after would
+    silently vanish for exactly the edits a tester most wants to see."""
+    if not snapshot or not snapshot.get('headers'):
+        return snapshot
+    masked = dict(snapshot)
+    masked['headers'] = {k: (mask_value(v) if _sensitive(k, names) else v)
+                         for k, v in snapshot['headers'].items()}
+    return masked
 
 
 def _snapshot(message, include_target=False):
@@ -183,10 +217,189 @@ def _host_matches(pattern, host):
     return host == pattern
 
 
+class _Pattern:
+    """One action's find/replace pattern, prepared once at rule load.
+
+    LITERAL by default: the pattern matches as the text it is, so `$10.00` or `(beta)` mean what
+    they say. That path is linear and runs right here. Regex is opt-in, and only a regex goes to
+    regex_worker, the one place a runaway backtrack can be stopped (see that module for why a
+    process). The backend refuses the dangerous shapes before they are ever published; this
+    class still re-checks the length, because the file on disk is the last word.
+    """
+
+    __slots__ = ('pattern', 'replacement', 'regex', 'case_sensitive', 'count', 'timeout_ms',
+                 'error', '_literal_ci', '_flags')
+
+    def __init__(self, action, limits=None):
+        limits = limits or {}
+        self.pattern = str(action.get('pattern') or '')
+        self.replacement = str(action.get('replacement') or '')
+        self.regex = action.get('regex') is True
+        self.case_sensitive = action.get('caseSensitive') is not False
+        self.count = _positive_int(action.get('maxReplacements'))
+        self.timeout_ms = _positive_int(limits.get('regexTimeoutMs')) or regex_worker.DEFAULT_TIMEOUT_MS
+        self._flags = 0 if self.case_sensitive else re.IGNORECASE
+        self._literal_ci = None
+        self.error = None
+        max_length = _positive_int(limits.get('maxPatternLength')) or MAX_PATTERN_LENGTH
+        if not self.pattern:
+            self.error = 'no pattern'
+        elif len(self.pattern) > max_length:
+            self.error = f'pattern longer than {max_length} characters'
+        elif self.regex:
+            try:
+                # Compiling is cheap and cannot backtrack; only MATCHING can run away. A pattern
+                # that does not compile is caught here, once, instead of on every call.
+                re.compile(self.pattern, self._flags)
+            except re.error as e:
+                self.error = f'invalid regex: {e}'
+        elif not self.case_sensitive:
+            # An escaped literal has no quantifiers, so this stays linear and safe in-process.
+            self._literal_ci = re.compile(re.escape(self.pattern), re.IGNORECASE)
+
+    async def replace(self, text):
+        """Returns (new_text, n, reason). new_text is None whenever nothing may be written back -
+        no match, a timeout, an unusable pattern - so the caller leaves the body byte-identical,
+        and `reason` says why for the record."""
+        if self.error:
+            return None, 0, self.error
+        if not text:
+            return None, 0, 'empty body'
+        if self.regex:
+            new_text, n, timed_out = await regex_worker.sub(
+                self.pattern, self._flags, self.replacement, text, self.count, self.timeout_ms)
+            if timed_out:
+                return None, 0, f'pattern timed out after {self.timeout_ms} ms'
+        elif self._literal_ci is not None:
+            # A function, not a string, as the replacement: a literal replacement must never have
+            # its backslashes read as group references.
+            new_text, n = self._literal_ci.subn(lambda _m: self.replacement, text, count=self.count)
+        else:
+            n = text.count(self.pattern)
+            if self.count:
+                n = min(n, self.count)
+            new_text = text.replace(self.pattern, self.replacement, self.count or -1) if n else text
+        if not n:
+            return None, 0, 'no match'
+        return new_text, n, None
+
+
+def _unbuffered(message):
+    """True when mitmproxy is streaming this body rather than holding it. A streamed body is not
+    here to edit - the bytes have already gone - so a body action must skip it outright rather
+    than rewrite whatever fragment it can see."""
+    return bool(getattr(message, 'stream', False)) or getattr(message, 'raw_content', b'') is None
+
+
+async def _replace_in_body(message, rule, action, kind, verdict):
+    """REPLACE_IN_REQUEST_BODY / REPLACE_IN_RESPONSE_BODY.
+
+    Read and written through .text, as SET_*_JSON_FIELD is: mitmproxy decodes the content-encoding
+    for us, and assigning .text re-encodes to the same encoding and fixes Content-Length. Nothing
+    is assigned unless something matched, so an unmatched body goes out byte-for-byte as it came.
+    """
+    if _unbuffered(message):
+        verdict.skip(rule, kind, 'body was streamed, not buffered')
+        return
+    try:
+        text = message.text
+    except ValueError:
+        verdict.skip(rule, kind, 'body is not text')
+        return
+    pattern = action.get('__pattern') or _Pattern(action)
+    new_text, n, reason = await pattern.replace(text)
+    if new_text is None:
+        verdict.skip(rule, kind, reason)
+        return
+    message.text = new_text
+    # The count, never the pattern or the replacement: either could be a token somebody typed in.
+    verdict.record(rule, kind, f'{n} replacement' + ('' if n == 1 else 's'))
+
+
+async def _rewrite_url(request, rule, action, kind, verdict):
+    """REWRITE_URL: send the call somewhere else.
+
+    mitmproxy's host/port setters rewrite the Host header to follow the new target, which is the
+    default; keepHostHeader puts the client's original back. The rewrite is checked against
+    Alfred's own addresses AFTER it is applied, because a pattern's result is only known now -
+    the backend already refused a structured target that is Alfred, this catches the rest.
+    """
+    before = request.url
+    original_host_header = request.host_header
+    target = action.get('target') if isinstance(action.get('target'), dict) else {}
+    parts = {k: target.get(k) for k in ('scheme', 'host', 'port', 'path') if target.get(k) not in (None, '')}
+
+    if parts:
+        scheme = str(parts.get('scheme') or '').strip().lower()
+        if scheme in ('http', 'https'):
+            request.scheme = scheme
+        if parts.get('host'):
+            request.host = str(parts['host']).strip()
+        if parts.get('port'):
+            try:
+                request.port = int(parts['port'])
+            except (TypeError, ValueError):
+                pass
+        if parts.get('path'):
+            # request.path carries the query string too; a path rewrite keeps the query as it was.
+            query = request.path.partition('?')[2]
+            request.path = str(parts['path']) + (f'?{query}' if query else '')
+    elif action.get('pattern') is not None:
+        pattern = action.get('__pattern') or _Pattern(action)
+        new_url, _n, reason = await pattern.replace(before)
+        if new_url is None:
+            verdict.skip(rule, kind, reason)
+            return
+        request.url = new_url
+    else:
+        verdict.skip(rule, kind, 'no target given')
+        return
+
+    if _is_self_target(request.host, request.port, verdict.self_targets):
+        refused = f'{request.host}:{request.port}'
+        request.url = before
+        request.host_header = original_host_header
+        verdict.record(rule, kind, f'refused - target {refused} is Alfred itself')
+        return
+    if action.get('keepHostHeader') is True and original_host_header is not None:
+        request.host_header = original_host_header
+
+    after = request.url
+    if after == before:
+        verdict.skip(rule, kind, 'target unchanged')
+        return
+    verdict.record(rule, kind, f'{_masked_url(before, verdict)} → {_masked_url(after, verdict)}')
+
+
+def _is_self_target(host, port, targets):
+    host = (host or '').strip().lower()
+    return bool(host) and (host in targets or f'{host}:{port}' in targets)
+
+
+def _masked_url(url, verdict):
+    """A URL fit for the record: a query parameter whose name is a secret one keeps its name only."""
+    base, sep, query = (url or '').partition('?')
+    if not sep:
+        return url
+    pieces = []
+    for pair in query.split('&'):
+        name, eq, value = pair.partition('=')
+        pieces.append(f'{name}={mask_value(value)}' if eq and verdict.masks(name) else pair)
+    return f'{base}?{"&".join(pieces)}'
+
+
+def _positive_int(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
+
+
 class Rule:
     __slots__ = ('id', 'name', 'enabled', 'priority', 'stop_processing', 'match', 'actions')
 
-    def __init__(self, raw):
+    def __init__(self, raw, limits=None):
         self.id = str(raw.get('id') or '')
         self.name = raw.get('name') or '(unnamed rule)'
         self.enabled = raw.get('enabled', True) is not False
@@ -196,10 +409,10 @@ class Rule:
             self.priority = 100
         self.stop_processing = raw.get('stopProcessing', False) is True
         self.match = Match(raw.get('match'))
-        self.actions = _prepare_actions(raw.get('actions'))
+        self.actions = _prepare_actions(raw.get('actions'), limits)
 
 
-def _prepare_actions(raw_actions):
+def _prepare_actions(raw_actions, limits=None):
     """Keeps actions as the plain dicts the engine reads, with one addition: a conditional gets its
     branches parsed into Branch objects under a private key.
 
@@ -220,8 +433,11 @@ def _prepare_actions(raw_actions):
         if action.get('enabled') is False:
             continue
         if action['type'] in ('IF_REQUEST', 'IF_RESPONSE'):
-            action['__branches'] = [Branch(b) for b in (action.get('branches') or []) if isinstance(b, dict)]
-            action['__otherwise'] = _prepare_actions(action.get('otherwise'))
+            action['__branches'] = [Branch(b, limits) for b in (action.get('branches') or []) if isinstance(b, dict)]
+            action['__otherwise'] = _prepare_actions(action.get('otherwise'), limits)
+        if action.get('pattern') is not None:
+            # Every action that finds text (body, URL, message) shares one pattern engine.
+            action['__pattern'] = _Pattern(action, limits)
         prepared.append(action)
     return prepared
 
@@ -230,12 +446,19 @@ class RuleSet:
     """The parsed snapshot. `enabled` is the master switch - one flag that turns the whole feature
     off without touching a single rule, which is what the UI's "Turn all off" writes."""
 
-    __slots__ = ('enabled', 'rules', 'error')
+    __slots__ = ('enabled', 'rules', 'error', 'sensitive', 'self_targets', 'limits')
 
-    def __init__(self, enabled=False, rules=None, error=None):
+    def __init__(self, enabled=False, rules=None, error=None, sensitive=None, self_targets=None,
+                 limits=None):
         self.enabled = enabled
         self.rules = rules or []
         self.error = error
+        # Published by the backend so the secret-name list has one owner
+        # (backend-interception's SensitiveHeaders). A snapshot from an older backend has none,
+        # and falls back to the built-in list rather than masking nothing.
+        self.sensitive = frozenset(sensitive) if sensitive else frozenset(SENSITIVE_HEADERS)
+        self.self_targets = frozenset(self_targets or ())
+        self.limits = limits or {}
 
     @property
     def inert(self):
@@ -285,12 +508,13 @@ class _RulesCache:
             return RuleSet(error='rules file is not an object')
 
         enabled = raw.get('enabled', False) is True
+        limits = raw.get('limits') if isinstance(raw.get('limits'), dict) else {}
         rules = []
         for entry in (raw.get('rules') or []):
             if not isinstance(entry, dict):
                 continue
             try:
-                rule = Rule(entry)
+                rule = Rule(entry, limits)
             except re.error as e:
                 # One bad regex disables ONE rule, never the file. The backend validates regexes
                 # before writing, so reaching here means the file was hand-edited.
@@ -302,7 +526,10 @@ class _RulesCache:
         # Ascending priority, then the file's own order for ties - the backend writes rules in
         # its stored order, so a tie is resolved the same way the UI lists them.
         rules.sort(key=lambda r: r.priority)
-        return RuleSet(enabled=enabled, rules=rules)
+        sensitive = [str(n).strip().lower() for n in (raw.get('sensitiveHeaders') or []) if str(n).strip()]
+        self_targets = [str(n).strip().lower() for n in (raw.get('selfTargets') or []) if str(n).strip()]
+        return RuleSet(enabled=enabled, rules=rules, sensitive=sensitive, self_targets=self_targets,
+                       limits=limits)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -524,11 +751,11 @@ class Branch:
 
     __slots__ = ('combine_any', 'conditions', 'actions')
 
-    def __init__(self, raw):
+    def __init__(self, raw, limits=None):
         raw = raw or {}
         self.combine_any = (raw.get('combine') or 'ALL').strip().upper() == 'ANY'
         self.conditions = [Condition(c) for c in (raw.get('conditions') or []) if isinstance(c, dict)]
-        self.actions = _prepare_actions(raw.get('actions'))
+        self.actions = _prepare_actions(raw.get('actions'), limits)
 
     def holds(self, flow):
         if not self.conditions:
@@ -572,7 +799,7 @@ class Verdict:
     """
 
     __slots__ = ('delay_ms', 'terminal', 'mock', 'failure', 'pause', 'applied', 'must_reach_host',
-                 'pre_request', 'pre_response', 'synthetic_response',
+                 'sensitive', 'self_targets', 'pre_request', 'pre_response', 'synthetic_response',
                  'original_request', 'original_response', 'final_request', 'final_response')
 
     def __init__(self):
@@ -601,6 +828,11 @@ class Verdict:
         # _apply_request_action. This is what makes "always really call this endpoint" expressible
         # as a narrow, high-priority exception to a broad mocking rule.
         self.must_reach_host = False
+        # Which header names this call's record must mask - the published list of the ruleset
+        # that matched it (see RuleSet.sensitive).
+        self.sensitive = frozenset(SENSITIVE_HEADERS)
+        # Where REWRITE_URL may never send this call: Alfred itself (see RuleSet.self_targets).
+        self.self_targets = frozenset()
 
     @property
     def touched(self):
@@ -608,6 +840,22 @@ class Verdict:
 
     def record(self, rule, action, detail=None):
         self.applied.append(Applied(rule.id, rule.name, action, detail))
+
+    def skip(self, rule, action, reason):
+        """An action that ran and found nothing to do. Recorded rather than silent: a rule that
+        "did nothing" and a rule that never matched look identical in the log otherwise, and the
+        first is the one a tester is trying to debug."""
+        self.record(rule, action, f'skipped - {reason}')
+
+    def masks(self, name):
+        return _sensitive(name, self.sensitive)
+
+    def named(self, name, value=None):
+        """A header, cookie or parameter as it may appear in a record: its name, plus its value
+        only when the name is not a secret one."""
+        if self.masks(name):
+            return f'{name} {mask_value(value)}' if value is not None else f'{name} (value not logged)'
+        return name if value is None else f'{name}={value}'
 
     def observe_request(self, flow):
         """Freezes the request the moment a rule matches, before any action has run.
@@ -690,14 +938,15 @@ class Verdict:
         # Both halves as they were before anything touched them. Present only when that half was
         # actually modified, so the reader can tell "unchanged" from "not recorded" - and so an
         # export never doubles in size for a call that was only delayed.
+        # Masked HERE, on the way out, and nowhere earlier - see _masked_snapshot.
         if self.original_request is not None:
-            out['originalRequest'] = self.original_request
+            out['originalRequest'] = _masked_snapshot(self.original_request, self.sensitive)
         if self.original_response is not None:
-            out['originalResponse'] = self.original_response
+            out['originalResponse'] = _masked_snapshot(self.original_response, self.sensitive)
         if self.final_request is not None:
-            out['finalRequest'] = self.final_request
+            out['finalRequest'] = _masked_snapshot(self.final_request, self.sensitive)
         if self.final_response is not None:
-            out['finalResponse'] = self.final_response
+            out['finalResponse'] = _masked_snapshot(self.final_response, self.sensitive)
         return out
 
 
@@ -840,6 +1089,60 @@ def set_json_field(text, path, value):
     return json.dumps(doc)
 
 
+def remove_json_field(text, path):
+    """Deletes `path` from a JSON document, returning the new text, or None if nothing was removed
+    - the same byte-identical contract as set_json_field, and the same path grammar.
+
+    Removing is not setting to null: the key is gone. `segments[*].cabin` removes `cabin` from
+    every segment; `items[1]` removes the second element. A trailing `[*]` removes nothing - the
+    backend refuses it, since "every element" is an empty array rather than a missing field.
+    """
+    if not text:
+        return None
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return None
+    if not _remove(doc, _parse_path(path)):
+        return None
+    return json.dumps(doc)
+
+
+def _remove(node, segments):
+    if not segments:
+        return False
+    head, rest = segments[0], segments[1:]
+    if head == '*':
+        if not isinstance(node, list) or not rest:
+            return False
+        return any([_remove(item, rest) for item in node])
+    if isinstance(head, int):
+        if not isinstance(node, list) or head >= len(node) or head < -len(node):
+            return False
+        if not rest:
+            del node[head]
+            return True
+        return _remove(node[head], rest)
+    if not isinstance(node, dict) or head not in node:
+        return False
+    if not rest:
+        del node[head]
+        return True
+    return _remove(node[head], rest)
+
+
+def _remove_field_from(message, rule, action, kind, verdict):
+    if _unbuffered(message):
+        verdict.skip(rule, kind, 'body was streamed, not buffered')
+        return
+    updated = remove_json_field(message.text, action.get('path'))
+    if updated is None:
+        verdict.skip(rule, kind, 'path not found')
+        return
+    message.text = updated
+    verdict.record(rule, kind, str(action.get('path')))
+
+
 def _parse_path(path):
     """'a.b[0].c' / 'a[*].c' -> ['a', 'b', 0, 'c'] / ['a', '*', 'c']"""
     segments = []
@@ -911,8 +1214,7 @@ class InterceptionEngine:
     def enabled(self):
         return not self._cache.current().inert
 
-    def _matching(self, flow, service_name):
-        ruleset = self._cache.current()
+    def _matching(self, flow, service_name, ruleset):
         if ruleset.inert:
             return ()
         request = flow.request
@@ -930,11 +1232,18 @@ class InterceptionEngine:
                 print(f"[interception] rule {rule.name!r} failed to match, skipping: {e}")
         return out
 
-    def apply_request(self, flow, service_name=None):
-        """Applies every matching rule's request-phase actions, mutating the flow in place for
-        everything synchronous. Returns a Verdict describing what the addon still has to do."""
+    async def apply_request(self, flow, service_name=None):
+        """Applies every matching rule's request-phase actions, mutating the flow in place.
+        Returns a Verdict describing what the addon still has to do.
+
+        Async because a regex find/replace awaits a worker process (see regex_worker.py). Every
+        other action is still a synchronous mutation; only the dispatch chain awaits, so an
+        action that does not need the event loop costs nothing extra."""
         verdict = Verdict()
-        matching = self._matching(flow, service_name)
+        ruleset = self._cache.current()
+        verdict.sensitive = ruleset.sensitive
+        verdict.self_targets = ruleset.self_targets
+        matching = self._matching(flow, service_name, ruleset)
         if matching:
             # Once, up front, for the whole phase - see Verdict.observe_request. A call no rule
             # matches never reaches this line and so never pays for a snapshot.
@@ -943,9 +1252,13 @@ class InterceptionEngine:
             for action in rule.actions:
                 kind = action.get('type')
                 if kind not in REQUEST_ACTIONS:
+                    if not _known_action(kind):
+                        # Recorded once, in the request phase, which every matched call runs.
+                        # A newer rules file than this proxy understands must say so in the log.
+                        verdict.skip(rule, kind, f'unknown action {kind}')
                     continue
                 try:
-                    self._apply_request_action(flow, rule, action, kind, verdict)
+                    await self._apply_request_action(flow, rule, action, kind, verdict)
                 except Exception as e:
                     print(f"[interception] rule {rule.name!r} action {kind} failed, skipping: {e}")
                     continue
@@ -955,11 +1268,11 @@ class InterceptionEngine:
                     return verdict
         return verdict
 
-    def _apply_request_action(self, flow, rule, action, kind, verdict):
+    async def _apply_request_action(self, flow, rule, action, kind, verdict):
         request = flow.request
 
         if kind == 'IF_REQUEST':
-            self._run_conditional(flow, rule, action, kind, verdict, REQUEST_ACTIONS,
+            await self._run_conditional(flow, rule, action, kind, verdict, REQUEST_ACTIONS,
                                   self._apply_request_action)
             return
 
@@ -977,7 +1290,7 @@ class InterceptionEngine:
             name = (action.get('name') or '').strip()
             if name:
                 request.headers[name] = str(action.get('value', ''))
-                verdict.record(rule, kind, name if not _sensitive(name) else f'{name} (value not logged)')
+                verdict.record(rule, kind, verdict.named(name))
             return
 
         if kind == 'REMOVE_REQUEST_HEADER':
@@ -985,13 +1298,18 @@ class InterceptionEngine:
             if name and name in request.headers:
                 del request.headers[name]
                 verdict.record(rule, kind, name)
+            elif name:
+                verdict.skip(rule, kind, 'no such header')
             return
 
         if kind == 'SET_QUERY_PARAM':
             name = (action.get('name') or '').strip()
             if name:
-                request.query[name] = str(action.get('value', ''))
-                verdict.record(rule, kind, f'{name}={action.get("value", "")}')
+                value = str(action.get('value', ''))
+                request.query[name] = value
+                # A query parameter can carry a key as easily as a header can (api_key=...), so
+                # the same secret-name list decides whether its value may appear here.
+                verdict.record(rule, kind, verdict.named(name, value))
             return
 
         if kind == 'REMOVE_QUERY_PARAM':
@@ -999,6 +1317,8 @@ class InterceptionEngine:
             if name and name in request.query:
                 del request.query[name]
                 verdict.record(rule, kind, name)
+            elif name:
+                verdict.skip(rule, kind, 'no such parameter')
             return
 
         if kind == 'SET_REQUEST_JSON_FIELD':
@@ -1008,6 +1328,41 @@ class InterceptionEngine:
             if updated is not None:
                 request.text = updated
                 verdict.record(rule, kind, str(action.get('path')))
+            else:
+                verdict.skip(rule, kind, 'path not found')
+            return
+
+        if kind == 'REPLACE_IN_REQUEST_BODY':
+            await _replace_in_body(request, rule, action, kind, verdict)
+            return
+
+        if kind == 'REWRITE_URL':
+            await _rewrite_url(request, rule, action, kind, verdict)
+            return
+
+        if kind == 'REMOVE_REQUEST_JSON_FIELD':
+            _remove_field_from(request, rule, action, kind, verdict)
+            return
+
+        if kind == 'SET_REQUEST_BODY':
+            body = action.get('body')
+            request.text = '' if body is None else str(body)
+            content_type = str(action.get('contentType') or '').strip()
+            if content_type:
+                request.headers['content-type'] = content_type
+            verdict.record(rule, kind, f'{len(request.text)} chars' + (f', {content_type}' if content_type else ''))
+            return
+
+        if kind == 'SET_METHOD':
+            method = str(action.get('method') or '').strip().upper()
+            if not method.isalpha():
+                verdict.skip(rule, kind, 'no method given')
+            elif method == (request.method or '').upper():
+                verdict.skip(rule, kind, f'already {method}')
+            else:
+                before = request.method
+                request.method = method
+                verdict.record(rule, kind, f'{before} → {method}')
             return
 
         if kind == 'SEND_TO_HOST':
@@ -1079,7 +1434,7 @@ class InterceptionEngine:
             return
 
 
-    def _run_conditional(self, flow, rule, action, kind, verdict, allowed, apply_one):
+    async def _run_conditional(self, flow, rule, action, kind, verdict, allowed, apply_one):
         """Runs the first branch whose conditions hold, or the ELSE.
 
         Shared by both phases: which actions are legal and how to apply one differ, the control
@@ -1101,26 +1456,28 @@ class InterceptionEngine:
                 holds = False
             if holds:
                 verdict.record(rule, kind, f'branch {index + 1} matched: {branch.describe()}')
-                self._run_branch(flow, rule, branch.actions, verdict, allowed, apply_one)
+                await self._run_branch(flow, rule, branch.actions, verdict, allowed, apply_one)
                 return
 
         otherwise = action.get('__otherwise') or []
         if otherwise:
             verdict.record(rule, kind, 'no branch matched - running the else')
-            self._run_branch(flow, rule, otherwise, verdict, allowed, apply_one)
+            await self._run_branch(flow, rule, otherwise, verdict, allowed, apply_one)
         else:
             verdict.record(rule, kind, 'no branch matched')
 
-    def _run_branch(self, flow, rule, actions, verdict, allowed, apply_one):
+    async def _run_branch(self, flow, rule, actions, verdict, allowed, apply_one):
         for nested in actions:
             nested_kind = nested.get('type')
             if nested_kind not in allowed:
                 # A response action inside an IF_REQUEST has nothing to act on. The backend
                 # refuses to save one; a hand-edited file gets it skipped rather than applied to
-                # the wrong half.
+                # the wrong half. An action no phase knows is recorded, as at the top level.
+                if not _known_action(nested_kind):
+                    verdict.skip(rule, nested_kind, f'unknown action {nested_kind}')
                 continue
             try:
-                apply_one(flow, rule, nested, nested_kind, verdict)
+                await apply_one(flow, rule, nested, nested_kind, verdict)
             except Exception as e:
                 print(f"[interception] rule {rule.name!r} action {nested_kind} failed, skipping: {e}")
                 continue
@@ -1129,11 +1486,13 @@ class InterceptionEngine:
             if verdict.terminal or verdict.pause:
                 return
 
-    def apply_response(self, flow, service_name=None):
+    async def apply_response(self, flow, service_name=None):
         verdict = Verdict()
         if flow.response is None:
             return verdict
-        matching = self._matching(flow, service_name)
+        ruleset = self._cache.current()
+        verdict.sensitive = ruleset.sensitive
+        matching = self._matching(flow, service_name, ruleset)
         if matching:
             verdict.observe_response(flow)
         for rule in matching:
@@ -1142,7 +1501,7 @@ class InterceptionEngine:
                 if kind not in RESPONSE_ACTIONS:
                     continue
                 try:
-                    self._apply_response_action(flow, rule, action, kind, verdict)
+                    await self._apply_response_action(flow, rule, action, kind, verdict)
                 except Exception as e:
                     print(f"[interception] rule {rule.name!r} action {kind} failed, skipping: {e}")
                     continue
@@ -1150,11 +1509,11 @@ class InterceptionEngine:
                     return verdict
         return verdict
 
-    def _apply_response_action(self, flow, rule, action, kind, verdict):
+    async def _apply_response_action(self, flow, rule, action, kind, verdict):
         response = flow.response
 
         if kind == 'IF_RESPONSE':
-            self._run_conditional(flow, rule, action, kind, verdict, RESPONSE_ACTIONS,
+            await self._run_conditional(flow, rule, action, kind, verdict, RESPONSE_ACTIONS,
                                   self._apply_response_action)
             return
 
@@ -1174,7 +1533,7 @@ class InterceptionEngine:
             name = (action.get('name') or '').strip()
             if name:
                 response.headers[name] = str(action.get('value', ''))
-                verdict.record(rule, kind, name if not _sensitive(name) else f'{name} (value not logged)')
+                verdict.record(rule, kind, verdict.named(name))
             return
 
         if kind == 'REMOVE_RESPONSE_HEADER':
@@ -1182,6 +1541,8 @@ class InterceptionEngine:
             if name and name in response.headers:
                 del response.headers[name]
                 verdict.record(rule, kind, name)
+            elif name:
+                verdict.skip(rule, kind, 'no such header')
             return
 
         if kind == 'SET_RESPONSE_JSON_FIELD':
@@ -1189,6 +1550,16 @@ class InterceptionEngine:
             if updated is not None:
                 response.text = updated
                 verdict.record(rule, kind, str(action.get('path')))
+            else:
+                verdict.skip(rule, kind, 'path not found')
+            return
+
+        if kind == 'REPLACE_IN_RESPONSE_BODY':
+            await _replace_in_body(response, rule, action, kind, verdict)
+            return
+
+        if kind == 'REMOVE_RESPONSE_JSON_FIELD':
+            _remove_field_from(response, rule, action, kind, verdict)
             return
 
         if kind == 'SET_RESPONSE_BODY':

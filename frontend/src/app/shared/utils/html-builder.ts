@@ -2,6 +2,7 @@ import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
+import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
@@ -693,6 +694,37 @@ function statusHtml(call: CallRecord): string {
 }
 
 /** The Request half of callSectionHtml, factored out so it can be rendered alone as a split internal call's request block (see requestSectionHtml/responseSectionHtml/callSectionHtml). */
+/**
+ * What an interception rule did to one half, under that half, in full. The before/after blocks go
+ * through the same lazily-rendered, searchable block as every other body, so a large one costs
+ * nothing until opened. See interception-export.ts for what belongs to which half.
+ */
+function interceptionPartHtml(call: CallRecord, phase: 'request' | 'response', idPrefix: string): { html: string; blocks: JsonBlockConfig[] } {
+  const part = interceptionExportPart(call.interception, phase);
+  if (!part) return { html: '', blocks: [] };
+  const parts: string[] = [`<h3>🛠️ Changed by Alfred (${phase})</h3>`, '<ul class="field-list">'];
+  for (const line of part.lines) {
+    parts.push(
+      `<li><b>${escapeHtml(line.rule)}</b> · ${escapeHtml(line.label)} (<code>${escapeHtml(line.action)}</code>)` +
+        `${line.detail ? ` — ${escapeHtml(line.detail)}` : ''}</li>`
+    );
+  }
+  parts.push('</ul>');
+  if (part.synthetic) parts.push('<p>The upstream was never contacted: this response was made by Alfred.</p>');
+  const blocks: JsonBlockConfig[] = [];
+  if (part.before) {
+    const before = jsonBlockConfig(`${idPrefix}-${phase}-before`, interceptionHttpText(part.before), []);
+    blocks.push(before);
+    parts.push(jsonBlockHtml(before, `Before (${phase === 'request' ? 'as the client sent it' : 'as upstream sent it'})`, false));
+  }
+  if (part.after) {
+    const after = jsonBlockConfig(`${idPrefix}-${phase}-after`, interceptionHttpText(part.after), []);
+    blocks.push(after);
+    parts.push(jsonBlockHtml(after, 'After (as it actually went out)', false));
+  }
+  return { html: parts.join(''), blocks };
+}
+
 function requestPartHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string, includeTimestampAndDuration: boolean): { html: string; blocks: JsonBlockConfig[] } {
   const reqHeaders = jsonBlockConfig(`${idPrefix}-req-headers`, JSON.stringify(call.request?.headers ?? {}), commentsForBlock(comments, 'request-headers'));
   const reqBody = jsonBlockConfig(`${idPrefix}-req-body`, call.request?.body, commentsForBlock(comments, 'request-body'));
@@ -709,8 +741,10 @@ function requestPartHtml(call: CallRecord, comments: readonly Comment[], idPrefi
   parts.push('</ul>');
   parts.push(jsonBlockHtml(reqHeaders, 'Headers', false));
   parts.push(jsonBlockHtml(reqBody, 'Body', false));
+  const changed = interceptionPartHtml(call, 'request', idPrefix);
+  parts.push(changed.html);
 
-  return { html: parts.join(''), blocks: [reqHeaders, reqBody] };
+  return { html: parts.join(''), blocks: [reqHeaders, reqBody, ...changed.blocks] };
 }
 
 /** The Response half of callSectionHtml, factored out so it can be rendered alone as a split internal call's response block (see requestSectionHtml/responseSectionHtml/callSectionHtml). */
@@ -736,8 +770,10 @@ function responsePartHtml(call: CallRecord, comments: readonly Comment[], idPref
     parts.push(jsonBlockHtml(resHeaders, 'Headers', false));
     parts.push(jsonBlockHtml(resBody, 'Body', false));
   }
+  const changed = interceptionPartHtml(call, 'response', idPrefix);
+  parts.push(changed.html);
 
-  return { html: parts.join(''), blocks: [resHeaders, resBody] };
+  return { html: parts.join(''), blocks: [resHeaders, resBody, ...changed.blocks] };
 }
 
 function callSectionHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string): { html: string; blocks: JsonBlockConfig[] } {

@@ -1,7 +1,14 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { InterceptionRule, PausedCall } from '../models/interception.model';
+import {
+  ActionTypeInfo,
+  InterceptionRule,
+  PausedCall,
+  actionPhase,
+  isTerminalAction,
+  registerActionTypes,
+} from '../models/interception.model';
 import { AppConfigService } from '../services/app-config.service';
 import { DesktopNotificationsService } from '../services/desktop-notifications.service';
 import { InterceptionStateService } from './interception-state.service';
@@ -287,5 +294,71 @@ describe('InterceptionStateService', () => {
 
       expect(notifications.notify).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe('action phase and terminal flags come from the backend', () => {
+  let service: InterceptionStateService;
+  let http: HttpTestingController;
+
+  const types: ActionTypeInfo[] = [
+    { type: 'MOCK_RESPONSE', phase: 'request', terminal: true, pause: false },
+    { type: 'REPLACE_RESPONSE', phase: 'response', terminal: false, pause: false },
+    // Names the old name-based guess got wrong, or never knew: a request-phase terminal with no
+    // "RESPONSE" in its name, and a message-lane action.
+    { type: 'ANSWER_WITH_RECORDED_CALL' as ActionTypeInfo['type'], phase: 'request', terminal: true, pause: false },
+    { type: 'DROP_MESSAGE' as ActionTypeInfo['type'], phase: 'message', terminal: false, pause: false },
+  ];
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AppConfigService, useValue: { backendUrl: BACKEND } },
+      ],
+    });
+    service = TestBed.inject(InterceptionStateService);
+    http = TestBed.inject(HttpTestingController);
+    http.expectOne(`${BACKEND}/interception/rules`).flush([]);
+    http.expectOne(`${BACKEND}/interception/paused`).flush([]);
+    http.expectOne(`${BACKEND}/interception/enabled`).flush({ enabled: false });
+    http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush(types));
+  });
+
+  afterEach(() => {
+    // The registry is module-wide; leave it as an empty load would, for the next spec.
+    registerActionTypes([]);
+    http.verify({ ignoreCancelled: true });
+  });
+
+  it('reads each action\'s lane from the backend, not from its name', () => {
+    expect(service.phaseOf('MOCK_RESPONSE')).toBe('request');
+    expect(service.phaseOf('REPLACE_RESPONSE')).toBe('response');
+    expect(service.phaseOf('DROP_MESSAGE')).toBe('message');
+    // The plain helper, which the pure describe*() functions use, agrees once the list is in.
+    expect(actionPhase('ANSWER_WITH_RECORDED_CALL')).toBe('request');
+  });
+
+  it('reads whether an action ends the request from the backend', () => {
+    expect(service.isTerminal('MOCK_RESPONSE')).toBeTrue();
+    expect(service.isTerminal('ANSWER_WITH_RECORDED_CALL')).toBeTrue();
+    expect(service.isTerminal('REPLACE_RESPONSE')).toBeFalse();
+    expect(isTerminalAction('ANSWER_WITH_RECORDED_CALL')).toBeTrue();
+  });
+});
+
+describe('action phase and terminal flags before the backend list has loaded', () => {
+  beforeEach(() => registerActionTypes([]));
+
+  it('falls back to the name, with MOCK_RESPONSE the request-phase exception', () => {
+    expect(actionPhase('MOCK_RESPONSE')).toBe('request');
+    expect(actionPhase('SET_RESPONSE_STATUS')).toBe('response');
+    expect(actionPhase('DROP_MESSAGE')).toBe('message');
+  });
+
+  it('knows SIMULATE_FAILURE ends the request - the import preview once did not', () => {
+    expect(isTerminalAction('SIMULATE_FAILURE')).toBeTrue();
+    expect(isTerminalAction('DELAY_REQUEST')).toBeFalse();
   });
 });

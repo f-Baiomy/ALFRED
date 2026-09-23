@@ -247,6 +247,111 @@
           </small>
         }
 
+        @if (editor.isJsonPathOnly(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Field path</span>
+            <input type="text" [value]="step.action.path" (input)="editor.onText(step.path, 'path', $event)" placeholder="segments[*].cabin" />
+          </label>
+          <small class="muted span-all">
+            The key is removed, not set to null. <code>segments[*].cabin</code> removes it from every segment;
+            <code>items[1]</code> removes the second element.
+          </small>
+        }
+
+        @if (editor.isRewrite(step.action.type)) {
+          <div class="inline-field span-all">
+            <span>Rewrite by</span>
+            <app-select-picker
+              [options]="editor.rewriteModeOptions"
+              [value]="editor.rewriteMode(step.action)"
+              (valueChange)="editor.onRewriteMode(step.path, $event)"
+            />
+          </div>
+          @if (editor.rewriteMode(step.action) === 'target') {
+            <div class="inline-field">
+              <span>Scheme</span>
+              <app-select-picker
+                [options]="editor.schemeOptions"
+                [value]="step.action.target?.scheme ?? ''"
+                (valueChange)="editor.onTarget(step.path, step.action, 'scheme', $event)"
+              />
+            </div>
+            <label class="inline-field grow">
+              <span>Host</span>
+              <input type="text" [value]="step.action.target?.host ?? ''" (input)="editor.onTarget(step.path, step.action, 'host', $any($event.target).value)" placeholder="staging.supplier.com" />
+            </label>
+            <label class="inline-field">
+              <span>Port</span>
+              <input type="number" min="1" max="65535" [value]="step.action.target?.port" (input)="editor.onTarget(step.path, step.action, 'port', $any($event.target).value)" placeholder="keep" />
+            </label>
+            <label class="inline-field grow">
+              <span>Path</span>
+              <input type="text" [value]="step.action.target?.path ?? ''" (input)="editor.onTarget(step.path, step.action, 'path', $any($event.target).value)" placeholder="keep - or /v2/fares" />
+            </label>
+          } @else {
+            <label class="inline-field grow">
+              <span>Find in URL</span>
+              <input type="text" [value]="step.action.pattern ?? ''" (input)="editor.onText(step.path, 'pattern', $event)" placeholder="/v1/" />
+            </label>
+            <label class="inline-field grow">
+              <span>Replace with</span>
+              <input type="text" [value]="step.action.replacement ?? ''" (input)="editor.onText(step.path, 'replacement', $event)" placeholder="/v2/" />
+            </label>
+            <label class="inline-field">
+              <input type="checkbox" [checked]="step.action.regex === true" (change)="editor.onToggle(step.path, 'regex', $event)" />
+              <span>Regex</span>
+            </label>
+          }
+          <label class="inline-field span-all">
+            <input type="checkbox" [checked]="step.action.keepHostHeader === true" (change)="editor.onToggle(step.path, 'keepHostHeader', $event)" />
+            <span>Keep the original Host header</span>
+          </label>
+          <small class="muted span-all">Any target except Alfred itself - a rewrite into Alfred is refused, because it would loop through the proxy.</small>
+        }
+
+        @if (editor.isSetMethod(step.action.type)) {
+          <div class="inline-field">
+            <span>Send as</span>
+            <app-select-picker
+              [options]="editor.methodOptions"
+              [value]="step.action.method ?? 'PUT'"
+              (valueChange)="editor.onMethod(step.path, $event)"
+            />
+          </div>
+          <small class="muted span-all">Headers and body go with it unchanged.</small>
+        }
+
+        @if (editor.isBodyReplace(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Find</span>
+            <input type="text" [value]="step.action.pattern ?? ''" (input)="editor.onText(step.path, 'pattern', $event)" placeholder="EUR" />
+          </label>
+          <label class="inline-field grow">
+            <span>Replace with</span>
+            <input type="text" [value]="step.action.replacement ?? ''" (input)="editor.onText(step.path, 'replacement', $event)" placeholder="USD" />
+          </label>
+          <label class="inline-field">
+            <span>At most</span>
+            <input type="number" min="1" max="10000" [value]="step.action.maxReplacements" (input)="editor.onNumber(step.path, 'maxReplacements', $event)" placeholder="all" />
+          </label>
+          <label class="inline-field">
+            <input type="checkbox" [checked]="step.action.regex === true" (change)="editor.onToggle(step.path, 'regex', $event)" />
+            <span>Regex</span>
+          </label>
+          <label class="inline-field">
+            <input type="checkbox" [checked]="step.action.caseSensitive !== false" (change)="editor.onToggle(step.path, 'caseSensitive', $event)" />
+            <span>Match case</span>
+          </label>
+          <small class="muted span-all">
+            @if (step.action.regex === true) {
+              A regular expression. Use <code>\1</code> in the replacement for what the first group matched.
+              A match still running after 2 s is stopped and the body is left as it was.
+            } @else {
+              Literal text: characters like <code>$</code>, <code>.</code> and <code>(</code> match themselves.
+            }
+          </small>
+        }
+
         @if (editor.isStatus(step.action.type)) {
           <div class="inline-field">
             <span>Status</span>
@@ -262,6 +367,12 @@
             <span>Body</span>
             <textarea rows="3" [value]="step.action.body" (input)="editor.onText(step.path, 'body', $event)"></textarea>
           </label>
+          @if (step.action.type === 'SET_REQUEST_BODY') {
+            <label class="inline-field grow">
+              <span>Content type</span>
+              <input type="text" [value]="step.action.contentType ?? ''" (input)="editor.onText(step.path, 'contentType', $event)" placeholder="keep - or application/xml" />
+            </label>
+          }
           <small class="muted span-all">Replaces the whole body, whatever its content type. Leave empty to blank it.</small>
         }
 

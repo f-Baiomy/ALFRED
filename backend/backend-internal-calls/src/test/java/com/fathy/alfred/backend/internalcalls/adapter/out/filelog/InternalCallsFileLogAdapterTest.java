@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.internalcalls.adapter.out.filelog;
 
 import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.RequestData;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
@@ -280,5 +281,44 @@ class InternalCallsFileLogAdapterTest {
         assertThat(adapter.readAll()).isEmpty();
         // A completion for the id prepared before deleteAll should now be "never prepared".
         assertThat(adapter.complete(id, new ResponseData(200, null, "ok"), null, 1.0)).isFalse();
+    }
+
+    @Test
+    void anInterceptionRecordRoundTripsThroughTheFile() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        InternalCallsFileLogAdapter adapter = adapterFor(file);
+        String id = "c-intercepted";
+        adapter.prepare(prepared(id));
+        CallInterception interception = new CallInterception(
+                List.of(new CallInterception.Applied("r1", "Rewrite", "SET_RESPONSE_STATUS", "503")),
+                null, new CallInterception.Http(200, "OK", null, null, java.util.Map.of(), "{}"),
+                null, new CallInterception.Http(503, "Service Unavailable", null, null, java.util.Map.of(), "{}"));
+
+        adapter.complete(id, new ResponseData(503, null, "{}"), null, 12.0, interception);
+
+        // A fresh adapter reads the file itself, not this one's cache.
+        CallRecord reread = adapterFor(file).readAll().get(0);
+        assertThat(reread.interception()).isNotNull();
+        assertThat(reread.interception().applied()).extracting(CallInterception.Applied::action)
+                .containsExactly("SET_RESPONSE_STATUS");
+        assertThat(reread.interception().originalResponse().status()).isEqualTo(200);
+    }
+
+    @Test
+    void anUntouchedCallsLineCarriesNoInterceptionKey() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        InternalCallsFileLogAdapter adapter = adapterFor(file);
+        adapter.prepare(prepared("plain"));
+        adapter.complete("plain", new ResponseData(200, null, "ok"), null, 5.0, null);
+
+        assertThat(Files.readString(file)).doesNotContain("interception");
+    }
+
+    @Test
+    void aLineWrittenBeforeTheFieldExistedReadsAsNoInterception() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        Files.writeString(file, "{\"id\":\"old\",\"url\":\"http://x/\",\"method\":\"GET\",\"state\":\"COMPLETED\"}\n");
+
+        assertThat(adapterFor(file).readAll().get(0).interception()).isNull();
     }
 }

@@ -12,6 +12,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.out.NewInternalCa
 import com.fathy.alfred.backend.internalcalls.domain.model.CallDetail;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsPage;
@@ -120,8 +121,9 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
      * WebSocket push always finds the row already updated.
      */
     @Override
-    public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs) {
-        boolean updated = callLogPort.complete(id, response, error, durationMs);
+    public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs,
+                                        CallInterception interception) {
+        boolean updated = callLogPort.complete(id, response, error, durationMs, interception);
         if (!updated) {
             log.warn("Received a completion for unknown/already-trimmed internal call id {}", id);
             return false;

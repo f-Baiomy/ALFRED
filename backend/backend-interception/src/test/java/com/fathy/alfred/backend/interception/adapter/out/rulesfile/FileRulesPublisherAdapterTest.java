@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.interception.domain.model.ActionType;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleAction;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
+import com.fathy.alfred.backend.interception.domain.model.SelfTargets;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -14,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,7 +25,8 @@ class FileRulesPublisherAdapterTest {
     Path tempDir;
 
     private FileRulesPublisherAdapter adapterFor(Path file) {
-        FileRulesPublisherAdapter adapter = new FileRulesPublisherAdapter();
+        FileRulesPublisherAdapter adapter = new FileRulesPublisherAdapter(
+                new SelfTargets(Set.of("backend"), Set.of("localhost:5000")));
         ReflectionTestUtils.setField(adapter, "rulesFile", file.toString());
         return adapter;
     }
@@ -50,6 +53,20 @@ class FileRulesPublisherAdapterTest {
         assertThat(published.get("match").get("host").asText()).isEqualTo("*.sabre.com");
         assertThat(published.get("actions").get(0).get("type").asText()).isEqualTo("DELAY_REQUEST");
         assertThat(published.get("actions").get(0).get("durationMs").asInt()).isEqualTo(5000);
+    }
+
+    @Test
+    void publishesTheSecretNamesSelfTargetsAndLimitsTheProxyChecksAgainst() throws Exception {
+        Path file = tempDir.resolve("rules.json");
+        adapterFor(file).publish(true, List.of(rule("a", "Slow Sabre", true, 10)));
+
+        JsonNode root = new ObjectMapper().readTree(Files.readString(file));
+        assertThat(root.get("sensitiveHeaders")).extracting(JsonNode::asText)
+                .contains("authorization", "cookie", "set-cookie");
+        assertThat(root.get("selfTargets")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("backend", "localhost:5000");
+        assertThat(root.get("limits").get("maxPatternLength").asInt()).isEqualTo(500);
+        assertThat(root.get("limits").get("regexTimeoutMs").asInt()).isEqualTo(2000);
     }
 
     @Test

@@ -1,4 +1,5 @@
 import { CallRecord } from '../../core/models/call.model';
+import { CallInterception } from '../../core/models/interception.model';
 import { buildBulkExportPayload } from './bulk-json-builder';
 import { parseImportedCalls } from './import-parser';
 
@@ -257,5 +258,42 @@ describe('parseImportedCalls', () => {
       expect(result.calls.length).toBe(0);
       expect(result.skippedCount).toBe(1);
     });
+  });
+});
+
+/** A realistic record: a rule rewrote the response, one action found nothing to do, and the
+ * before/after bodies are large enough that any truncation would show. */
+function interceptedRecord(): CallInterception {
+  const bigBefore = '{"segments":[' + Array.from({ length: 4000 }, (_, i) => `{"n":${i},"cabin":"Y"}`).join(',') + ']}';
+  const bigAfter = bigBefore.replace(/"Y"/g, '"J"');
+  return {
+    applied: [
+      { ruleId: 'r1', ruleName: 'Upgrade cabins', action: 'SET_RESPONSE_JSON_FIELD', detail: 'segments[*].cabin' },
+      { ruleId: 'r1', ruleName: 'Upgrade cabins', action: 'REMOVE_RESPONSE_HEADER', detail: 'skipped - no such header' },
+    ],
+    originalResponse: { status: 200, reason: 'OK', headers: { 'content-type': 'application/json' }, body: bigBefore },
+    finalResponse: { status: 200, reason: 'OK', headers: { 'content-type': 'application/json' }, body: bigAfter },
+  };
+}
+
+describe('parseImportedCalls with interception records', () => {
+  it('brings back the interception record on a split inbound call and a whole outbound one', () => {
+    const [parent, child] = nestedFixture();
+    const record = interceptedRecord();
+    const { payload, result } = roundTrip([{ ...parent, interception: record }, { ...child, interception: record }]);
+
+    // Written once per call: on the split call's REQUEST event, never duplicated onto its response.
+    const parentEvents = payload.events.filter((e) => e.callId === 'parent');
+    expect(parentEvents.map((e) => 'interception' in e && !!e.interception)).toEqual([true, false]);
+
+    const byId = new Map(result.calls.map((c) => [c.id, c]));
+    expect(byId.get('parent')!.interception).toEqual(record);
+    expect(byId.get('child')!.interception).toEqual(record);
+  });
+
+  it('leaves a call nothing touched without a record', () => {
+    const { payload, result } = roundTrip(nestedFixture());
+    expect(JSON.stringify(payload)).not.toContain('"interception"');
+    expect(result.calls.every((c) => c.interception === undefined)).toBeTrue();
   });
 });

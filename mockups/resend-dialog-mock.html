@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alfred — Resend a logged call (mockup)</title>
+<style>
+:root{
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  --card-elevated: linear-gradient(160deg,#141a45 0%,#101636 100%);
+  --card-inner:#070a24; --panel-bg: rgba(10,14,42,.55);
+  --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-light:#c4b5fd; --cyan:#22d3ee;
+  --text:#e5e9f5; --text-dim:#93a0c2; --text-faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-attachment:fixed;min-height:100vh;
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);font-size:14px}
+.mockbar{background:#1c1340;border-bottom:1px solid var(--border-strong);padding:8px 16px;
+  font-size:12px;color:var(--purple-light);display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.mockbar b{font-weight:600;color:#fff}
+.mockbar button{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit}
+.mockbar button.on{background:var(--purple);color:#fff;border-color:var(--purple)}
+nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;display:flex;gap:4px}
+nav a{padding:13px 15px;font-size:13px;color:var(--text-dim);text-decoration:none;border-bottom:2px solid transparent}
+nav a.active{color:#fff;border-bottom-color:var(--purple)}
+.wrap{max-width:1000px;margin:0 auto;padding:22px 20px 60px}
+.screen{display:none}.screen.show{display:block}
+h2{font-size:15px;font-weight:600;margin:0 0 6px}
+.lead{color:var(--text-dim);font-size:12.5px;margin:0 0 18px;line-height:1.55}
+.card{background:var(--card-elevated);border:1px solid var(--border);border-radius:11px;padding:12px 15px;margin-bottom:9px}
+.card.new{border-color:rgba(34,211,238,.5);box-shadow:0 0 0 1px rgba(34,211,238,.15)}
+.ctop{display:flex;align-items:center;gap:11px;font-size:12.5px}
+.m{font-family:ui-monospace,Consolas,monospace;color:var(--cyan);font-weight:600}
+.s2{color:var(--green);font-weight:600}.s5{color:var(--red);font-weight:600}
+.u{font-family:ui-monospace,Consolas,monospace;color:var(--text-dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t{color:var(--text-faint);font-size:11px;white-space:nowrap}
+.chip{font-size:10.5px;padding:3px 9px;border-radius:6px;white-space:nowrap}
+.chip.resend{background:rgba(34,211,238,.13);color:var(--cyan);border:1px solid rgba(34,211,238,.4);cursor:pointer}
+.chip.out{background:rgba(139,92,246,.16);color:var(--purple-light);border:1px solid rgba(139,92,246,.3)}
+.menu{position:relative;display:inline-block}
+.dropdown{position:absolute;right:0;top:30px;background:#12183f;border:1px solid var(--border-strong);border-radius:9px;
+  width:210px;box-shadow:0 14px 40px rgba(0,0,0,.55);overflow:hidden;z-index:2}
+.dropdown div{padding:9px 13px;font-size:12.5px;color:var(--text-dim);border-bottom:1px solid var(--border)}
+.dropdown div:last-child{border-bottom:0}
+.dropdown div.hot{background:rgba(139,92,246,.18);color:#fff}
+.btn{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:7px;padding:6px 13px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+.btn.sm{padding:4px 10px;font-size:11.5px}
+.overlay{position:relative;min-height:640px}
+.dim{opacity:.25;pointer-events:none}
+.dialog{position:absolute;left:50%;top:20px;transform:translateX(-50%);width:760px;background:#12183f;
+  border:1px solid var(--border-strong);border-radius:13px;box-shadow:0 20px 60px rgba(0,0,0,.6);overflow:hidden}
+.dh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.dh b{font-size:14.5px}
+.db{padding:16px 18px}
+.df{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--panel-bg)}
+.df small{color:var(--text-faint);font-size:11.5px}
+.sect{font-size:10.5px;letter-spacing:1.3px;color:var(--text-faint);text-transform:uppercase;margin:16px 0 8px;font-weight:600}
+.sect:first-child{margin-top:0}
+.inp{background:#0b0f30;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:12.5px;
+  color:var(--text);font-family:ui-monospace,Consolas,monospace}
+.inp.edited{border-color:rgba(251,191,36,.6);box-shadow:0 0 0 1px rgba(251,191,36,.2)}
+.row{display:flex;gap:9px;align-items:center}
+.hrow{display:grid;grid-template-columns:200px 1fr 28px;gap:8px;margin-bottom:6px;align-items:center}
+.hrow .x{color:var(--text-faint);text-align:center;cursor:pointer}
+.hrow.removed .inp{text-decoration:line-through;opacity:.5}
+.hrow.secret .inp:nth-child(2){color:var(--text-faint);font-style:italic}
+.body{width:100%;height:110px;resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.opt{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:11px 13px;border:1px solid var(--border);border-radius:9px;background:var(--card-inner)}
+.box{width:16px;height:16px;border:1px solid var(--border-strong);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;margin-top:2px}
+.box.on{background:var(--purple);border-color:var(--purple);color:#fff}
+.opt b{font-size:13px;font-weight:600}
+.opt p{margin:3px 0 0;font-size:12px;color:var(--text-dim);line-height:1.5}
+.edits{font-size:11.5px;color:var(--amber);margin-top:10px}
+.result{border:1px solid rgba(52,211,153,.4);background:rgba(52,211,153,.07);border-radius:10px;padding:13px 15px}
+.result b{color:var(--green)}
+.kv{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-dim);margin-top:7px}
+.kv b{color:var(--text)}
+.used{margin-top:12px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.used div{display:grid;grid-template-columns:170px 1fr 1fr;gap:10px;padding:8px 12px;font-size:12px;border-bottom:1px solid var(--border);font-family:ui-monospace,Consolas,monospace}
+.used div:last-child{border-bottom:0}
+.used div.h{font-family:inherit;color:var(--text-faint);font-size:10.5px;letter-spacing:1px;text-transform:uppercase}
+.used a{color:var(--purple-light)}
+.bulkbar{background:var(--card-elevated);border:1px solid var(--border-strong);border-radius:11px;padding:12px 15px;
+  display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.progress{flex:1;height:7px;background:#1b2154;border-radius:4px;overflow:hidden}
+.progress i{display:block;height:100%;width:58%;background:linear-gradient(90deg,var(--purple),var(--cyan))}
+.q{display:grid;grid-template-columns:22px 1fr 110px;gap:10px;align-items:center;padding:8px 13px;font-size:12px;border-bottom:1px solid var(--border)}
+.q .st.ok{color:var(--green)}.q .st.run{color:var(--amber)}.q .st.wait{color:var(--text-faint)}
+.qwrap{background:var(--card-inner);border:1px solid var(--border);border-radius:9px;overflow:hidden}
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCKUP</b> &mdash; static HTML, not wired to anything. Resend (US8).
+  <span style="margin-left:auto"></span>
+  <button class="on" onclick="show('s1',this)">1 &middot; Entry point</button>
+  <button onclick="show('s2',this)">2 &middot; Edit before resending</button>
+  <button onclick="show('s3',this)">3 &middot; Result</button>
+  <button onclick="show('s4',this)">4 &middot; In the log</button>
+  <button onclick="show('s5',this)">5 &middot; Bulk resend</button>
+</div>
+<nav><a href="#" class="active">Live Calls</a><a href="#">Session Cycles</a><a href="#">Interception</a><a href="#">Profiles</a><a href="#">Settings</a></nav>
+
+<div class="wrap">
+
+<!-- 1: entry -->
+<section id="s1" class="screen show">
+  <h2>Resend lives in the call's action menu</h2>
+  <p class="lead">It sits next to Copy as cURL, and the two do different things. cURL runs <i>outside</i> Alfred,
+  straight at the supplier: nothing is logged and no rule applies. Resend goes back <i>through</i> Alfred, so rules apply
+  and the new call is logged and linked. The same menu appears on session-cycle calls, shared through the existing DI tokens.</p>
+  <div class="card">
+    <div class="ctop"><span class="chip out">outbound</span><span class="m">POST</span><span class="s5">500</span>
+      <span class="u">https://api.supplier.com/v2/bookings</span><span class="t">14:02:11 &middot; 812 ms</span>
+      <span class="menu"><button class="btn sm">Export &#9662;</button>
+        <div class="dropdown"><div>Copy as cURL</div><div>Download as JSON</div><div>Export report&hellip;</div><div class="hot">&#8635; Resend&hellip;</div></div>
+      </span></div>
+  </div>
+  <div class="card" style="margin-top:130px"><div class="ctop"><span class="chip out">outbound</span><span class="m">GET</span><span class="s2">200</span><span class="u">https://api.supplier.com/v2/availability?from=CAI&amp;to=DXB</span><span class="t">14:01:58 &middot; 240 ms</span></div></div>
+</section>
+
+<!-- 2: edit -->
+<section id="s2" class="screen">
+  <h2>Edit, then send through Alfred</h2>
+  <p class="lead">The form is pre-filled from the logged call. Edited fields get an amber outline, and the new call's
+  record lists what changed. Secret header values arrive masked; left untouched, they are sent as logged.</p>
+  <div class="overlay">
+    <div class="dim"><div class="card"><div class="ctop"><span class="m">POST</span><span class="u">https://api.supplier.com/v2/bookings</span></div></div></div>
+    <div class="dialog">
+      <div class="dh"><b>&#8635; Resend call &middot; POST /v2/bookings</b><span class="t">original 9f3c…e1 &middot; outbound &middot; project odeysys</span></div>
+      <div class="db">
+        <div class="sect">Request line</div>
+        <div class="row"><div class="inp" style="width:90px">POST &#9662;</div><input class="inp" style="flex:1" value="https://api.supplier.com/v2/bookings" /></div>
+        <div class="sect">Headers</div>
+        <div class="hrow"><input class="inp" value="content-type" /><input class="inp" value="application/json" /><span class="x">&times;</span></div>
+        <div class="hrow secret"><input class="inp" value="authorization" /><input class="inp" value="(value not logged · 812 chars)" /><span class="x">&times;</span></div>
+        <div class="hrow"><input class="inp edited" value="x-test-scenario" /><input class="inp edited" value="retry-after-500" /><span class="x">&times;</span></div>
+        <div class="hrow removed"><input class="inp" value="x-request-id" /><input class="inp" value="7d1a-…-44" /><span class="x">&#8634;</span></div>
+        <button class="btn sm">+ Add header</button>
+        <div class="sect">Body</div>
+        <textarea class="inp body edited">{ "offerId": "QX91-7", "passengers": [ { "type": "ADT", "count": 2 } ], "currency": "USD" }</textarea>
+        <div class="opt"><span class="box">&nbsp;</span><div><b>Resend with current session</b>
+          <p>Replace the session cookie and authorization with the newest values seen for <code>api.supplier.com</code>
+          in Live Calls. From a session cycle, only that cycle's calls are searched. Values stay masked; you are told which call each came from.</p></div></div>
+        <div class="edits">Edited: 1 header added, body changed. <span style="color:var(--text-faint)">x-request-id is always replaced so the resend gets its own id.</span></div>
+      </div>
+      <div class="df"><small>Goes out through the proxy listener for project <b>odeysys</b>, so project-scoped rules match as they do for live traffic.</small>
+        <span><button class="btn">Cancel</button> <button class="btn primary">Resend</button></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 3: result -->
+<section id="s3" class="screen">
+  <h2>Result, and the session values it used</h2>
+  <p class="lead">FR-040: this dialog shows names and source calls only, never a value.</p>
+  <div class="overlay" style="min-height:420px">
+    <div class="dialog">
+      <div class="dh"><b>&#8635; Resent &middot; POST /v2/bookings</b></div>
+      <div class="db">
+        <div class="result"><b>&#10003; 201 Created</b> in 634 ms
+          <div class="kv"><span>new call <a href="#" style="color:var(--cyan)">c2b8…07</a></span><span>rules applied <b>1</b> (Add test header)</span><span>edits <b>1 header, body</b></span></div></div>
+        <div class="used">
+          <div class="h"><span>Session value</span><span>Taken from</span><span>Seen</span></div>
+          <div><span>cookie: SESSIONID</span><a href="#">call 51aa…9c &middot; GET /v2/profile</a><span style="color:var(--text-faint)">3 min ago</span></div>
+          <div><span>authorization</span><a href="#">call 51aa…9c &middot; GET /v2/profile</a><span style="color:var(--text-faint)">3 min ago</span></div>
+        </div>
+      </div>
+      <div class="df"><small>The original call is untouched.</small><span><button class="btn">Close</button> <button class="btn primary">Open new call</button></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 4: in the log -->
+<section id="s4" class="screen">
+  <h2>The resent call in Live Calls</h2>
+  <p class="lead">The new call arrives through the normal WebSocket push, like any live call. Its chip links back to
+  the original, and hovering the chip lists the edits.</p>
+  <div class="card new">
+    <div class="ctop"><span class="chip out">outbound</span><span class="m">POST</span><span class="s2">201</span>
+      <span class="u">https://api.supplier.com/v2/bookings</span>
+      <span class="chip resend" title="Edited: header x-test-scenario added · body changed · session: SESSIONID, authorization from 51aa…9c">&#8635; resend of 9f3c…e1</span>
+      <span class="t">14:07:40 &middot; 634 ms</span></div>
+  </div>
+  <div class="card"><div class="ctop"><span class="chip out">outbound</span><span class="m">POST</span><span class="s5">500</span><span class="u">https://api.supplier.com/v2/bookings</span><span class="t">14:02:11 &middot; 812 ms</span></div></div>
+</section>
+
+<!-- 5: bulk -->
+<section id="s5" class="screen">
+  <h2>Bulk resend: one at a time, in display order</h2>
+  <p class="lead">FR-030. Each call waits for the one before it to finish. A 409 (for example, the reverse proxy is not
+  running) stops the batch; the calls already sent stay sent.</p>
+  <div class="bulkbar"><b>&#8635; Resending 7 calls</b><div class="progress"><i></i></div><span class="t">4 / 7</span><button class="btn sm">Stop after current</button></div>
+  <div class="qwrap">
+    <div class="q"><span class="st ok">&#10003;</span><span class="u">POST /v2/fares/quote &rarr; 200 &middot; new d11e…</span><span class="t">412 ms</span></div>
+    <div class="q"><span class="st ok">&#10003;</span><span class="u">POST /v2/fares/rules &rarr; 200 &middot; new d120…</span><span class="t">188 ms</span></div>
+    <div class="q"><span class="st ok">&#10003;</span><span class="u">POST /v2/offers/price &rarr; 500 &middot; new d129…</span><span class="t">903 ms</span></div>
+    <div class="q"><span class="st ok">&#10003;</span><span class="u">POST /v2/bookings &rarr; 201 &middot; new d133…</span><span class="t">634 ms</span></div>
+    <div class="q"><span class="st run">&#9679;</span><span class="u">GET /v2/bookings/QX91 &hellip; sending</span><span class="t">&mdash;</span></div>
+    <div class="q"><span class="st wait">&#9675;</span><span class="u">POST /v2/tickets</span><span class="t">waiting</span></div>
+    <div class="q" style="border-bottom:0"><span class="st wait">&#9675;</span><span class="u">GET /v2/tickets/QX91</span><span class="t">waiting</span></div>
+  </div>
+</section>
+
+</div>
+<script>
+function show(id,btn){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('show')});
+  document.getElementById(id).classList.add('show');
+  document.querySelectorAll('.mockbar button').forEach(function(b){b.classList.remove('on')});
+  btn.classList.add('on');window.scrollTo(0,0);
+}
+document.querySelectorAll('.box').forEach(function(b){
+  b.addEventListener('click',function(){b.classList.toggle('on');b.innerHTML=b.classList.contains('on')?'&#10003;':'&nbsp;'});
+});
+</script>
+</body>
+</html>

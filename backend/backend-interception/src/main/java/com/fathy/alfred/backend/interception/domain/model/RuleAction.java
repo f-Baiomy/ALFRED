@@ -61,13 +61,56 @@ public record RuleAction(
          * whole subtree: proxy/interception.py's _prepare_actions simply never builds a disabled
          * action, branches and all, so there is nothing nested left to separately toggle.
          */
-        Boolean enabled) {
+        Boolean enabled,
+        /** REPLACE_IN_*_BODY / REPLACE_IN_MESSAGE / REWRITE_URL (pattern form): the text or regex to find. */
+        String pattern,
+        /** The replacement for {@code pattern}. Group references ({@code \1}) only mean anything when {@code regex} is true. */
+        String replacement,
+        /** Whether {@code pattern} is a regex. Default false: literal text, which is linear and cannot run away. */
+        Boolean regex,
+        /** For {@code pattern}. Default true. */
+        Boolean caseSensitive,
+        /** At most this many replacements; null means all of them. */
+        Integer maxReplacements,
+        /** REWRITE_URL (structured form): the parts of the target to change. */
+        UrlTarget target,
+        /** REWRITE_URL: keep the client's Host header instead of following the new target. Default false. */
+        Boolean keepHostHeader,
+        /** SET_METHOD. */
+        String method,
+        /** SET_RESPONSE_COOKIE: the attributes written with the cookie. */
+        CookieAttributes cookieAttributes,
+        /** SET_REQUEST_BODY: an optional content-type to send with the new body. */
+        String contentType,
+        /** SET_RESPONSE_ENCODING: gzip, deflate, br, zstd or identity. */
+        String encoding,
+        /** ANSWER_WITH_RECORDED_CALL / REPLACE_WITH_RECORDED_RESPONSE / ANSWER_WITH_FILE: which stored answer. */
+        String answerId,
+        /** The recorded-call actions: move Date, Expires and cookie expiry forward to now. */
+        Boolean refreshDates,
+        /** The MESSAGE actions: client, server or both. */
+        String messageDirection,
+        /** DROP_MESSAGE: drop only messages containing this literal text. */
+        String contains) {
 
     public RuleAction {
         headers = headers == null ? null : Map.copyOf(headers);
         branches = branches == null ? null : List.copyOf(branches);
         otherwise = otherwise == null ? null : List.copyOf(otherwise);
         enabled = enabled == null ? Boolean.TRUE : enabled;
+    }
+
+    /**
+     * The shape before the find/replace, rewrite, cookie, encoding, stored-answer and message fields
+     * existed. Every one of those is null here, which is right for every action that predates them.
+     */
+    public RuleAction(ActionType type, Integer durationMs, String name, Object value, String path,
+                      Integer status, Map<String, String> headers, String body, Integer timeoutSeconds,
+                      String onTimeout, String failure, List<ConditionBranch> branches,
+                      List<RuleAction> otherwise, Boolean enabled) {
+        this(type, durationMs, name, value, path, status, headers, body, timeoutSeconds, onTimeout, failure,
+                branches, otherwise, enabled, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null);
     }
 
     /**

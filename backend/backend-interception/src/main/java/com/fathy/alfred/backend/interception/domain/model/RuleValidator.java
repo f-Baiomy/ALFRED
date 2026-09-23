@@ -29,6 +29,14 @@ public final class RuleValidator {
     private RuleValidator() {
     }
 
+    /**
+     * What some actions are checked against beyond their own fields - looked up once per rule and
+     * handed down through every nested branch, so a condition's inner actions are held to exactly
+     * the same checks as top-level ones.
+     */
+    private record Checks(SelfTargets selfTargets) {
+    }
+
     /** Two levels: a condition, and a condition inside one of its branches. See validateConditional. */
     private static final int MAX_CONDITION_DEPTH = 2;
 
@@ -36,6 +44,16 @@ public final class RuleValidator {
     private static final int MAX_BRANCHES = 8;
 
     public static List<String> validate(InterceptionRule rule) {
+        return validate(rule, SelfTargets.none());
+    }
+
+    /**
+     * @param selfTargets where a REWRITE_URL may not point: Alfred's own services and listeners.
+     *                    The proxy re-checks a pattern rewrite at run time, since its result is
+     *                    only known then.
+     */
+    public static List<String> validate(InterceptionRule rule, SelfTargets selfTargets) {
+        Checks checks = new Checks(selfTargets == null ? SelfTargets.none() : selfTargets);
         List<String> problems = new ArrayList<>();
 
         if (rule.name() == null || rule.name().isBlank()) {
@@ -76,7 +94,7 @@ public final class RuleValidator {
                     sendsToHost = true;
                 }
             }
-            validateAction(action, problems);
+            validateAction(action, problems, checks);
         }
 
         if (terminals > 1) {
@@ -119,7 +137,7 @@ public final class RuleValidator {
         }
     }
 
-    private static void validateAction(RuleAction action, List<String> problems) {
+    private static void validateAction(RuleAction action, List<String> problems, Checks checks) {
         switch (action.type()) {
             case DELAY_REQUEST, DELAY_RESPONSE -> {
                 if (action.durationMs() == null || action.durationMs() < 0) {
@@ -146,6 +164,22 @@ public final class RuleValidator {
                     problems.add(action.type() + " needs a field path, e.g. itinerary.seatsRemaining.");
                 } else if (!isValidPath(action.path())) {
                     problems.add("\"" + action.path() + "\" is not a valid field path.");
+                }
+            }
+            case REMOVE_REQUEST_JSON_FIELD, REMOVE_RESPONSE_JSON_FIELD -> {
+                if (action.path() == null || action.path().isBlank()) {
+                    problems.add(action.type() + " needs a field path, e.g. segments[*].cabin.");
+                } else if (!isValidPath(action.path())) {
+                    problems.add("\"" + action.path() + "\" is not a valid field path.");
+                } else if (action.path().strip().endsWith("[*]")) {
+                    // `items[*]` would mean "remove every element" - an empty array, not a removed
+                    // field. Say which one you mean: remove `items`, or set it to [].
+                    problems.add(action.type() + " cannot end in [*]. Remove the array itself, or set it to [] with Set JSON field.");
+                }
+            }
+            case SET_REQUEST_BODY -> {
+                if (action.body() == null) {
+                    problems.add("SET_REQUEST_BODY needs a body - use an empty string to send none.");
                 }
             }
             case SET_RESPONSE_STATUS -> requireStatus(action, problems);
@@ -176,7 +210,7 @@ public final class RuleValidator {
                     problems.add("On timeout must be release or abort.");
                 }
             }
-            case IF_REQUEST, IF_RESPONSE -> validateConditional(action, problems, 1);
+            case IF_REQUEST, IF_RESPONSE -> validateConditional(action, problems, 1, checks);
             case SIMULATE_FAILURE -> {
                 if (action.failure() == null || action.failure().isBlank()) {
                     problems.add("SIMULATE_FAILURE needs to say what goes wrong.");
@@ -215,9 +249,64 @@ public final class RuleValidator {
             case ABORT_REQUEST, SEND_TO_HOST -> {
                 // Neither takes any parameters.
             }
+            case REPLACE_IN_REQUEST_BODY, REPLACE_IN_RESPONSE_BODY -> validateReplacement(action, problems);
+            case REWRITE_URL -> validateRewrite(action, problems, checks.selfTargets());
+            case SET_METHOD -> {
+                if (action.method() == null || !action.method().strip().matches("[A-Za-z]+")) {
+                    problems.add("SET_METHOD needs a method made of letters only, such as PUT.");
+                }
+            }
+            // Deliberately not exhaustive-by-omission: a new ActionType with no case here would
+            // otherwise be saved with no validation at all, and fail only once it reached the proxy.
+            default -> problems.add("Unknown action type " + action.type() + ".");
         }
     }
 
+
+    private static void validateRewrite(RuleAction action, List<String> problems, SelfTargets selfTargets) {
+        UrlTarget target = action.target();
+        boolean structured = target != null && !target.isEmpty();
+        if (!structured && action.pattern() == null) {
+            problems.add("REWRITE_URL needs a target (scheme, host, port or path) or a pattern to apply to the URL.");
+            return;
+        }
+        if (structured) {
+            if (target.scheme() != null && !target.scheme().isBlank()
+                    && !target.scheme().equals("http") && !target.scheme().equals("https")) {
+                problems.add("REWRITE_URL can only switch between http and https.");
+            }
+            if (target.port() != null && (target.port() < 1 || target.port() > 65_535)) {
+                problems.add("REWRITE_URL needs a port between 1 and 65535.");
+            }
+            if (target.path() != null && !target.path().isBlank() && !target.path().startsWith("/")) {
+                problems.add("REWRITE_URL's path must start with /.");
+            }
+            if (target.host() != null && !target.host().isBlank()
+                    && selfTargets.includes(target.host(), target.port())) {
+                problems.add("REWRITE_URL cannot send a call to Alfred itself (" + target.host()
+                        + (target.port() != null ? ":" + target.port() : "") + ") - it would loop through the proxy.");
+            }
+        } else {
+            validateReplacement(action, problems);
+        }
+    }
+
+    /**
+     * Everything a find/replace needs, shared by every action that finds text. The pattern checks
+     * are PatternSafety's; this only adds what is specific to replacing.
+     */
+    private static void validateReplacement(RuleAction action, List<String> problems) {
+        boolean regex = Boolean.TRUE.equals(action.regex());
+        for (String problem : PatternSafety.problems(action.pattern(), regex)) {
+            problems.add(action.type() + ": " + problem);
+        }
+        if (action.replacement() == null) {
+            problems.add(action.type() + " needs a replacement - an empty one deletes what it finds.");
+        }
+        if (action.maxReplacements() != null && (action.maxReplacements() < 1 || action.maxReplacements() > 10_000)) {
+            problems.add(action.type() + " may replace between 1 and 10,000 matches, or leave the limit empty for all of them.");
+        }
+    }
 
     /**
      * A conditional and everything inside it.
@@ -226,7 +315,7 @@ public final class RuleValidator {
      * happily evaluate a condition inside a condition inside a condition; a human trying to work
      * out why a booking failed would not, and this feature changes production-shaped traffic.
      */
-    private static void validateConditional(RuleAction action, List<String> problems, int depth) {
+    private static void validateConditional(RuleAction action, List<String> problems, int depth, Checks checks) {
         if (depth > MAX_CONDITION_DEPTH) {
             problems.add("Conditions may be nested " + MAX_CONDITION_DEPTH + " deep at most - past "
                     + "that a rule cannot be read at a glance, which is worse than not expressing it.");
@@ -253,10 +342,10 @@ public final class RuleValidator {
             if (branch.actions().isEmpty()) {
                 problems.add("An IF branch that does nothing when it matches has no effect - remove it.");
             }
-            validateNestedActions(branch.actions(), action.type(), problems, depth);
+            validateNestedActions(branch.actions(), action.type(), problems, depth, checks);
         }
         if (action.otherwise() != null) {
-            validateNestedActions(action.otherwise(), action.type(), problems, depth);
+            validateNestedActions(action.otherwise(), action.type(), problems, depth, checks);
         }
     }
 
@@ -270,7 +359,7 @@ public final class RuleValidator {
      * perfectly coherent, where two terminals in a row would be a contradiction.
      */
     private static void validateNestedActions(List<RuleAction> actions, ActionType parent,
-                                              List<String> problems, int depth) {
+                                              List<String> problems, int depth, Checks checks) {
         ActionType.Phase phase = parent.phase();
         for (RuleAction nested : actions) {
             if (nested.type() == null) {
@@ -283,9 +372,9 @@ public final class RuleValidator {
                 continue;
             }
             if (nested.type().isConditional()) {
-                validateConditional(nested, problems, depth + 1);
+                validateConditional(nested, problems, depth + 1, checks);
             } else {
-                validateAction(nested, problems);
+                validateAction(nested, problems, checks);
             }
         }
     }

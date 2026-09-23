@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alfred — Stored answers: recorded call &amp; uploaded file (mockup)</title>
+<style>
+:root{
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  --card-elevated: linear-gradient(160deg,#141a45 0%,#101636 100%);
+  --card-inner:#070a24; --panel-bg: rgba(10,14,42,.55);
+  --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-light:#c4b5fd; --cyan:#22d3ee;
+  --text:#e5e9f5; --text-dim:#93a0c2; --text-faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-attachment:fixed;min-height:100vh;
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);font-size:14px}
+.mockbar{background:#1c1340;border-bottom:1px solid var(--border-strong);padding:8px 16px;
+  font-size:12px;color:var(--purple-light);display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.mockbar b{font-weight:600;color:#fff}
+.mockbar button{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit}
+.mockbar button.on{background:var(--purple);color:#fff;border-color:var(--purple)}
+nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;display:flex;gap:4px}
+nav a{padding:13px 15px;font-size:13px;color:var(--text-dim);text-decoration:none;border-bottom:2px solid transparent}
+nav a.active{color:#fff;border-bottom-color:var(--purple)}
+.wrap{max-width:1000px;margin:0 auto;padding:22px 20px 60px}
+.screen{display:none}.screen.show{display:block}
+h2{font-size:15px;font-weight:600;margin:0 0 6px}
+.lead{color:var(--text-dim);font-size:12.5px;margin:0 0 18px;line-height:1.55}
+.editor{background:var(--card-elevated);border:1px solid var(--border-strong);border-radius:13px;overflow:hidden}
+.ehead{background:var(--panel-bg);padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.ebody{padding:18px}
+.lane{font-size:10.5px;letter-spacing:1.3px;color:var(--text-faint);text-transform:uppercase;margin:0 0 10px;font-weight:600}
+.act{background:var(--card-inner);border:1px solid var(--border);border-radius:9px;padding:13px 15px;margin-bottom:10px}
+.act.host{border-color:rgba(34,211,238,.4)}
+.acthead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.acthead b{font-size:13px;font-weight:600}
+.num{background:rgba(139,92,246,.2);color:var(--purple-light);font-size:10px;width:19px;height:19px;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;margin-right:8px}
+.tag{font-size:9.5px;font-weight:700;letter-spacing:.6px;padding:2px 7px;border-radius:5px;margin-left:8px;vertical-align:1px}
+.tag.term{background:rgba(251,191,36,.16);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
+.tag.secret{background:rgba(248,113,113,.14);color:var(--red);border:1px solid rgba(248,113,113,.4)}
+.tag.ok{background:rgba(52,211,153,.14);color:var(--green);border:1px solid rgba(52,211,153,.4)}
+.info{color:var(--text-faint);cursor:help;margin-left:6px;font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:7px;overflow:hidden;margin:12px 0 10px}
+.seg span{padding:6px 13px;font-size:12px;color:var(--text-dim);cursor:pointer}
+.seg span.on{background:rgba(139,92,246,.3);color:#fff}
+.inp{background:#0b0f30;border:1px solid var(--border);border-radius:7px;padding:8px 11px;font-size:13px;
+  color:var(--text);font-family:ui-monospace,Consolas,monospace;width:100%}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.list{margin-top:10px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.item{display:grid;grid-template-columns:60px 50px 1fr 110px 80px;gap:10px;padding:9px 12px;font-size:12px;
+  border-bottom:1px solid var(--border);align-items:center;cursor:pointer}
+.item:last-child{border-bottom:0}
+.item:hover{background:rgba(139,92,246,.08)}
+.item.sel{background:rgba(139,92,246,.16);box-shadow:inset 3px 0 0 var(--purple)}
+.m{font-family:ui-monospace,Consolas,monospace;color:var(--cyan);font-weight:600}
+.s2{color:var(--green)}.s5{color:var(--red)}.s4{color:var(--amber)}
+.u{font-family:ui-monospace,Consolas,monospace;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t{color:var(--text-faint);font-size:11px}
+.answer{margin-top:12px;border:1px solid rgba(52,211,153,.35);background:rgba(52,211,153,.06);border-radius:8px;padding:11px 13px}
+.answer .kv{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-dim);margin-top:6px}
+.answer .kv b{color:var(--text);font-weight:600}
+.opt{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);margin-top:11px}
+.box{width:15px;height:15px;border:1px solid var(--border-strong);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px}
+.box.on{background:var(--purple);border-color:var(--purple);color:#fff}
+.hint{font-size:11.5px;color:var(--text-faint);margin-top:8px;line-height:1.5}
+.btn{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:7px;padding:7px 14px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+.btn.red{border-color:rgba(248,113,113,.5);color:var(--red)}
+.btn.green{background:rgba(52,211,153,.16);border-color:rgba(52,211,153,.5);color:var(--green)}
+.hostbar{text-align:center;font-size:11px;color:var(--text-faint);margin:6px 0 12px;letter-spacing:.5px}
+.hostbar s{color:var(--red)}
+.overlay{position:relative}
+.dim{opacity:.28;pointer-events:none}
+.dialog{position:absolute;left:50%;top:70px;transform:translateX(-50%);width:520px;background:#12183f;
+  border:1px solid rgba(248,113,113,.5);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.6);overflow:hidden}
+.dialog .dh{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600;display:flex;gap:9px;align-items:center}
+.dialog .db{padding:16px 18px;font-size:13px;line-height:1.6;color:var(--text-dim)}
+.dialog .df{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:9px;background:var(--panel-bg)}
+.secrets{margin:10px 0;border:1px solid var(--border);border-radius:7px;overflow:hidden}
+.secrets div{display:flex;justify-content:space-between;padding:7px 11px;font-size:12px;border-bottom:1px solid var(--border);font-family:ui-monospace,Consolas,monospace}
+.secrets div:last-child{border-bottom:0}
+.secrets em{color:var(--text-faint);font-style:normal}
+.warn{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.35);border-radius:7px;padding:9px 11px;color:var(--amber);font-size:12px;margin-top:10px}
+.drop{margin-top:12px;border:2px dashed var(--border-strong);border-radius:10px;padding:26px;text-align:center;color:var(--text-dim);font-size:13px}
+.drop b{color:var(--purple-light)}
+.err{margin-top:10px;background:rgba(248,113,113,.09);border:1px solid rgba(248,113,113,.45);border-radius:7px;padding:9px 12px;color:var(--red);font-size:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:12px}
+label small{display:block;font-size:11.5px;color:var(--text-dim);margin-bottom:5px}
+.efoot{background:var(--panel-bg);padding:13px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.efoot small{color:var(--text-faint);font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCKUP</b> &mdash; static HTML, not wired to anything. Stored answers (US6 &amp; US7).
+  <span style="margin-left:auto"></span>
+  <button class="on" onclick="show('s1',this)">1 &middot; Pick a recorded call</button>
+  <button onclick="show('s2',this)">2 &middot; Secrets: keep or strip?</button>
+  <button onclick="show('s3',this)">3 &middot; Answer attached</button>
+  <button onclick="show('s4',this)">4 &middot; Upload a file</button>
+  <button onclick="show('s5',this)">5 &middot; File too large</button>
+</div>
+<nav><a href="#">Live Calls</a><a href="#">Session Cycles</a><a href="#" class="active">Interception</a><a href="#">Profiles</a><a href="#">Settings</a></nav>
+
+<div class="wrap">
+
+<!-- ============ 1: pick ============ -->
+<section id="s1" class="screen show">
+  <h2>Answer with a recorded call</h2>
+  <p class="lead">The picker searches Live Calls. Outbound and inbound are both available (Clarification: FR-011). Nothing is
+  copied until you pick a call. The response is copied into the rule when you save, so the rule keeps working after the
+  original call is evicted from the log.</p>
+  <div class="editor">
+    <div class="ehead"><b>Rule &middot; Replay yesterday's broken fare quote</b><span class="t">match: host api.supplier.com &middot; path contains /fares</span></div>
+    <div class="ebody">
+      <div class="lane">Request &mdash; before the host</div>
+      <div class="act">
+        <div class="acthead"><span><span class="num">1</span><b>Answer with a recorded call</b><span class="tag term">ENDS REQUEST</span><span class="info">ⓘ</span></span>
+          <span class="t">instead of the host</span></div>
+        <div class="seg"><span class="on">Outbound &middot; supplier calls</span><span>Inbound &middot; into your projects</span></div>
+        <div class="row"><input class="inp" style="flex:1" value="fares" /><span class="t">148 matches &middot; newest first</span></div>
+        <div class="list">
+          <div class="item sel"><span class="m">POST</span><span class="s5">500</span><span class="u">https://api.supplier.com/v2/fares/quote</span><span class="t">yesterday 16:42</span><span class="t">38 KB</span></div>
+          <div class="item"><span class="m">POST</span><span class="s2">200</span><span class="u">https://api.supplier.com/v2/fares/quote</span><span class="t">yesterday 16:41</span><span class="t">41 KB</span></div>
+          <div class="item"><span class="m">GET</span><span class="s2">200</span><span class="u">https://api.supplier.com/v2/fares/rules?fareId=QX91</span><span class="t">yesterday 16:40</span><span class="t">6 KB</span></div>
+          <div class="item"><span class="m">POST</span><span class="s4">429</span><span class="u">https://api.supplier.com/v2/fares/quote</span><span class="t">yesterday 11:03</span><span class="t">0.3 KB</span></div>
+        </div>
+        <div class="opt"><span class="box"></span> Refresh dates &mdash; move <code>Date</code>, <code>Expires</code> and cookie expiry forward to now</div>
+        <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn primary">Use this response</button></div>
+      </div>
+      <div class="hostbar"><s>── the host ──</s> &nbsp; never contacted: an earlier action answered the call</div>
+      <div class="lane">Response &mdash; after the host</div>
+      <div class="hint" style="margin:0">No response actions run: the call never reaches the host.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2: keep / strip ============ -->
+<section id="s2" class="screen">
+  <h2>The chosen response carries secrets</h2>
+  <p class="lead">FR-026: Alfred names each secret and asks. There is no default, so neither button is highlighted. The
+  values are never shown, only the header names and their sizes.</p>
+  <div class="overlay">
+    <div class="editor dim">
+      <div class="ehead"><b>Rule &middot; Replay yesterday's broken fare quote</b></div>
+      <div class="ebody" style="height:330px"></div>
+    </div>
+    <div class="dialog">
+      <div class="dh"><span style="color:var(--red)">&#9888;</span> This response contains 3 secret values</div>
+      <div class="db">
+        The recorded <b style="color:var(--text)">POST /v2/fares/quote &middot; 500</b> sent back:
+        <div class="secrets">
+          <div><span>set-cookie: SESSIONID</span><em>(value not logged &middot; 44 chars)</em></div>
+          <div><span>set-cookie: XSRF-TOKEN</span><em>(value not logged &middot; 36 chars)</em></div>
+          <div><span>x-auth-token</span><em>(value not logged &middot; 212 chars)</em></div>
+        </div>
+        <b style="color:var(--text)">Keep</b> serves them to every caller exactly as recorded.
+        <b style="color:var(--text)">Strip</b> removes them before the response is stored; they never reach the rule.
+        <div class="warn">Kept secrets travel with the rule: <b>Export</b> and <b>Duplicate</b> include them in plain text.</div>
+      </div>
+      <div class="df"><button class="btn">Cancel</button><button class="btn">Strip them</button><button class="btn red">Keep them</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3: attached ============ -->
+<section id="s3" class="screen">
+  <h2>Answer attached</h2>
+  <p class="lead">The action card now shows the stored copy, not a link to the call. The copy carries its own status,
+  size, source and secrets choice, so the card still reads correctly after the call is gone.</p>
+  <div class="editor">
+    <div class="ehead"><b>Rule &middot; Replay yesterday's broken fare quote</b></div>
+    <div class="ebody">
+      <div class="lane">Request &mdash; before the host</div>
+      <div class="act">
+        <div class="acthead"><span><span class="num">1</span><b>Answer with a recorded call</b><span class="tag term">ENDS REQUEST</span></span>
+          <button class="btn">Change&hellip;</button></div>
+        <div class="answer">
+          <b style="color:var(--green)">&#10003; Stored answer</b> <span class="tag ok">SECRETS STRIPPED</span>
+          <div class="kv"><span>status <b>500 Internal Server Error</b></span><span>size <b>38.2 KB</b></span><span>from <b>outbound</b> call <b>9f3c…e1</b></span><span>recorded <b>2026-09-22 16:42</b></span></div>
+          <div class="kv"><span>headers <b>11</b> (3 secrets removed)</span><a href="#" style="color:var(--purple-light);font-size:12px">Preview body</a></div>
+        </div>
+        <div class="opt"><span class="box on">&#10003;</span> Refresh dates</div>
+      </div>
+    </div>
+    <div class="efoot"><small>Deleting this rule deletes its stored answer, unless another rule uses it too.</small><button class="btn primary">Save rule</button></div>
+  </div>
+</section>
+
+<!-- ============ 4: upload ============ -->
+<section id="s4" class="screen">
+  <h2>Answer with a file</h2>
+  <p class="lead">For large or binary fixtures. The status comes from the status picker, never a bare number input
+  (docs/interception.md, Adding an action, step 7). A content type is required.</p>
+  <div class="editor">
+    <div class="ehead"><b>Rule &middot; Canned availability for load test</b></div>
+    <div class="ebody">
+      <div class="lane">Request &mdash; before the host</div>
+      <div class="act">
+        <div class="acthead"><span><span class="num">1</span><b>Answer with a file</b><span class="tag term">ENDS REQUEST</span><span class="info">ⓘ</span></span></div>
+        <div class="drop">Drop a file here or <b>browse</b><div class="hint">Up to 10 MB per file (deploy setting). Stored inside Alfred, never read from a path.</div></div>
+        <div class="answer">
+          <b style="color:var(--green)">&#10003; availability-5mb.json</b>
+          <div class="kv"><span>size <b>5.1 MB</b></span><span>uploaded <b>just now</b></span></div>
+        </div>
+        <div class="grid">
+          <label><small>Status</small><div class="inp" style="font-family:inherit">200 &middot; OK &#9662;</div></label>
+          <label><small>Content type</small><input class="inp" value="application/json" /></label>
+        </div>
+      </div>
+    </div>
+    <div class="efoot"><small>Uploads that no saved rule uses are removed after 1 hour.</small><button class="btn primary">Save rule</button></div>
+  </div>
+</section>
+
+<!-- ============ 5: too large ============ -->
+<section id="s5" class="screen">
+  <h2>File over the size cap</h2>
+  <p class="lead">FR-027: the message states both the cap and the file's size. The upload is refused before the file is
+  buffered on the server.</p>
+  <div class="editor">
+    <div class="ebody">
+      <div class="act">
+        <div class="acthead"><span><span class="num">1</span><b>Answer with a file</b><span class="tag term">ENDS REQUEST</span></span></div>
+        <div class="drop">Drop a file here or <b>browse</b></div>
+        <div class="err">&#10007; <b>search-dump.json</b> is 14.6 MB. Stored answers are capped at 10 MB each on this deployment
+          (<code>INTERCEPTION_MAX_ANSWER_BYTES</code>).</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+<script>
+function show(id,btn){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('show')});
+  document.getElementById(id).classList.add('show');
+  document.querySelectorAll('.mockbar button').forEach(function(b){b.classList.remove('on')});
+  btn.classList.add('on');window.scrollTo(0,0);
+}
+document.querySelectorAll('.seg span').forEach(function(s){
+  s.addEventListener('click',function(){s.parentNode.querySelectorAll('span').forEach(function(x){x.classList.remove('on')});s.classList.add('on')});
+});
+document.querySelectorAll('.item').forEach(function(i){
+  i.addEventListener('click',function(){i.parentNode.querySelectorAll('.item').forEach(function(x){x.classList.remove('sel')});i.classList.add('sel')});
+});
+document.querySelectorAll('.box').forEach(function(b){
+  b.addEventListener('click',function(){b.classList.toggle('on');b.textContent=b.classList.contains('on')?'✓':''});
+});
+</script>
+</body>
+</html>

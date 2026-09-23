@@ -1,5 +1,5 @@
 import { Component, ElementRef, computed, input, output, signal, viewChild } from '@angular/core';
-import { CallInterception, OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
+import { CallInterception, OriginalHttp, actionPhase, wasEditedByHand } from '../../core/models/interception.model';
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { copyToClipboard } from '../../shared/utils/clipboard';
 import {
@@ -127,7 +127,7 @@ export class InterceptionPanelComponent {
     const request = this.phase() === 'request';
     return this.interception().applied.filter((a) => {
       if (a.action.startsWith('BREAKPOINT_')) return true;
-      const isResponseAction = a.action.includes('RESPONSE') && a.action !== 'MOCK_RESPONSE';
+      const isResponseAction = actionPhase(a.action) === 'response';
       return request ? !isResponseAction : isResponseAction;
     });
   });

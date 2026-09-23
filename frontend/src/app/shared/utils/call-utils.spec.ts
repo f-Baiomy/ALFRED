@@ -1,4 +1,4 @@
-import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
+import { CallOverlapCandidate, CallRecord, CallSummaryDto } from '../../core/models/call.model';
 import {
   callKey,
   durationClass,
@@ -9,6 +9,7 @@ import {
   statusClass,
   statusRank,
   supplierOf,
+  toCallRecord,
 } from './call-utils';
 
 function makeCandidate(overrides: Partial<CallOverlapCandidate> = {}): CallOverlapCandidate {
@@ -505,3 +506,15 @@ describe('splitCallsForDisplay', () => {
   });
 });
 
+describe('toCallRecord for an inbound call', () => {
+  it('keeps the interception record, which inbound calls now carry too', () => {
+    const interception = { applied: [{ ruleId: 'r1', ruleName: 'Rule', action: 'SET_RESPONSE_STATUS', detail: '503' }] };
+    const call = toCallRecord(
+      { id: 'c1', original_url: 'http://localhost:8083/x', url: 'http://host:8080/x', method: 'GET',
+        timestamp: 't', duration_ms: 1, status: 503, service_name: 'core-service', interception } as CallSummaryDto,
+      'internal'
+    );
+    expect(call.source).toBe('internal');
+    expect(call.interception).toEqual(interception);
+  });
+});

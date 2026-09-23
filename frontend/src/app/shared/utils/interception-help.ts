@@ -47,6 +47,62 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     warning:
       'A delay is not a timeout. The call still succeeds, just late — which is what makes it useful for finding out whether your client HAS a timeout. To make a call fail instead, use Simulate a failure.',
   },
+  REMOVE_REQUEST_JSON_FIELD: {
+    title: 'Remove request JSON field',
+    code: 'REMOVE_REQUEST_JSON_FIELD',
+    what: 'Deletes a field from the JSON body before it goes upstream - the key is gone, which a supplier treats differently from the same key set to null.',
+    exampleIntro: `Against ${SAMPLE_BODY}:`,
+    examples: [
+      { from: 'promoCodes', to: 'the body no longer has a promoCodes key at all' },
+      { from: 'searchCriteria[*].origin', to: 'origin removed from every search criterion' },
+    ],
+    warning: 'A path that is not in this body changes nothing, and the log records the action as skipped. A path ending in [*] is refused - remove the array itself instead.',
+  },
+  SET_REQUEST_BODY: {
+    title: 'Replace the request body',
+    code: 'SET_REQUEST_BODY',
+    what: 'Sends the supplier a completely different body, whatever its content type, with an optional content-type header to match.',
+    examples: [
+      { from: '<SOAP-ENV:Envelope>...', to: 'a hand-written SOAP request instead of the one the app built' },
+      { from: 'empty', to: 'the request goes out with no body at all' },
+    ],
+    warning: 'Content-Length is corrected for the new body. The method and URL are unchanged - pair it with Set method or Rewrite URL if those need to change too.',
+  },
+  REWRITE_URL: {
+    title: 'Rewrite URL',
+    code: 'REWRITE_URL',
+    what: 'Sends the call to a different target - another host, port, scheme or path - without redeploying the application that makes it. The caller receives whatever the new target answers.',
+    exampleIntro: 'Against https://api.supplier.com/v1/fares?mode=live:',
+    examples: [
+      { from: 'host staging.supplier.com', to: 'https://staging.supplier.com/v1/fares?mode=live' },
+      { from: 'path /v2/fares', to: 'the query string is kept: /v2/fares?mode=live' },
+      { from: 'find /v1/ → /v2/', to: 'the pattern form, applied to the whole URL' },
+    ],
+    warning:
+      'The Host header follows the new target unless you keep the original - some hosts route on it. A rewrite that would land on Alfred itself (its backend, gateway or proxy listeners) is refused, because it would loop.',
+  },
+  SET_METHOD: {
+    title: 'Set method',
+    code: 'SET_METHOD',
+    what: 'Sends the request with a different HTTP method and everything else unchanged - how you find out what a supplier does with a PUT on an endpoint that only documents POST.',
+    examples: [
+      { from: 'POST → PUT', to: 'same URL, headers and body, method PUT' },
+      { from: 'already PUT', to: 'nothing changes, and the log says so' },
+    ],
+    warning: 'A GET or HEAD normally has no body; changing to one keeps the body the call already had, which some servers reject.',
+  },
+  REPLACE_IN_REQUEST_BODY: {
+    title: 'Find & replace in the request body',
+    code: 'REPLACE_IN_REQUEST_BODY',
+    what: 'Replaces text anywhere in the body the caller sent before it goes upstream - a token in a SOAP envelope, a date in a form, a code in plain text.',
+    exampleIntro: 'Against <PassengerType>ADT</PassengerType>:',
+    examples: [
+      { from: 'ADT → CHD', to: 'the supplier receives a child passenger' },
+      { from: 'no ADT in the body', to: 'nothing changes, and the log says "skipped - no match"' },
+    ],
+    warning:
+      'A body with no match is forwarded byte-for-byte as it arrived - nothing is re-serialised. Regex is opt-in; a regex still running after 2 seconds is stopped and the body is left as it was.',
+  },
   SET_REQUEST_HEADER: {
     title: 'Set request header',
     code: 'SET_REQUEST_HEADER',
@@ -213,6 +269,31 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
       { from: 'empty', to: 'blank the body entirely' },
     ],
     warning: 'The status and headers are untouched, so a 200 with content-length from the real reply still says 200.',
+  },
+  REMOVE_RESPONSE_JSON_FIELD: {
+    title: 'Remove response JSON field',
+    code: 'REMOVE_RESPONSE_JSON_FIELD',
+    what: 'Deletes a field from the JSON the supplier sent before the caller sees it - how you prove the application copes with a field that is MISSING, which is not the same as one that is null.',
+    exampleIntro: 'Against {"itinerary":{"seatsRemaining":4},"segments":[{"cabin":"Y"},{"cabin":"J"}]}:',
+    examples: [
+      { from: 'itinerary.seatsRemaining', to: '{"itinerary":{}} - the key is absent' },
+      { from: 'segments[*].cabin', to: 'cabin removed from every segment' },
+      { from: 'segments[1]', to: 'the second segment removed from the array' },
+    ],
+    warning: 'The body is re-serialised only when something was actually removed; otherwise it reaches the caller byte-for-byte as the supplier sent it.',
+  },
+  REPLACE_IN_RESPONSE_BODY: {
+    title: 'Find & replace in the response body',
+    code: 'REPLACE_IN_RESPONSE_BODY',
+    what: 'Replaces text anywhere in the response body, whatever its content type - the edit a SOAP, XML or plain-text supplier payload needs, which no JSON field path can reach.',
+    exampleIntro: 'Against <Fare><Currency>EUR</Currency><Amount>412.50</Amount></Fare>:',
+    examples: [
+      { from: 'EUR → USD', to: 'every EUR in the body becomes USD' },
+      { from: 'EUR → USD, at most 1', to: 'only the first one changes' },
+      { from: 'regex <Amount>(\\d+)\\.\\d+</Amount> → <Amount>\\1.00</Amount>', to: '412.50 becomes 412.00' },
+    ],
+    warning:
+      'Literal by default: $, . and ( match themselves. Switch on Regex for a pattern, and keep it simple - one that is still running after 2 seconds is stopped, and the body goes through unchanged. A compressed body is decoded first and re-compressed after, so gzip is fine.',
   },
   REPLACE_RESPONSE: {
     title: 'Reply with a different response',

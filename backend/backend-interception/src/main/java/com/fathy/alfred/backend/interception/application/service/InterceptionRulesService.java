@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.interception.application.port.out.RulesPublisher
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleImportResult;
 import com.fathy.alfred.backend.interception.domain.model.RuleValidator;
+import com.fathy.alfred.backend.interception.domain.model.SelfTargets;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 
@@ -37,15 +38,19 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     private final InterceptionNotificationPort notifications;
     /** Lets a rule that stops intercepting also let go of what it is already holding - see setMasterSwitch. */
     private final BreakpointUseCase breakpoints;
+    /** Where a REWRITE_URL may never point - checked on every save, see RuleValidator. */
+    private final SelfTargets selfTargets;
 
     public InterceptionRulesService(InterceptionRulesStorePort store,
                                     RulesPublisherPort publisher,
                                     InterceptionNotificationPort notifications,
-                                    BreakpointUseCase breakpoints) {
+                                    BreakpointUseCase breakpoints,
+                                    SelfTargets selfTargets) {
         this.store = store;
         this.publisher = publisher;
         this.notifications = notifications;
         this.breakpoints = breakpoints;
+        this.selfTargets = selfTargets;
     }
 
     /**
@@ -183,7 +188,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
 
         for (int index = 0; index < incoming.size(); index++) {
             InterceptionRule candidate = incoming.get(index).withEnabled(enable).withPriority(nextPriority);
-            List<String> problems = RuleValidator.validate(candidate);
+            List<String> problems = RuleValidator.validate(candidate, selfTargets);
             if (!problems.isEmpty()) {
                 // Rejected on its own, not on behalf of the file - see RuleImportResult.
                 outcomes.add(RuleImportResult.Outcome.rejected(index, candidate.name(), problems));
@@ -224,7 +229,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     }
 
     private void validate(InterceptionRule rule) {
-        List<String> problems = RuleValidator.validate(rule);
+        List<String> problems = RuleValidator.validate(rule, selfTargets);
         if (!problems.isEmpty()) {
             throw new InvalidRuleException(problems);
         }

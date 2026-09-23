@@ -1,4 +1,5 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
+import { CallInterception } from '../../core/models/interception.model';
 import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { buildBulkExportHtml, buildExportHtml, bulkExportHtmlFilename, exportHtmlFilename } from './html-builder';
@@ -569,5 +570,45 @@ describe('the exported stylesheet is self-contained', () => {
     const missing = [...referenced].filter((name) => !defined.has(name));
 
     expect(missing).toEqual([]);
+  });
+});
+
+/** A realistic record: a rule rewrote the response, one action found nothing to do, and the
+ * before/after bodies are large enough that any truncation would show. */
+function interceptedRecord(): CallInterception {
+  const bigBefore = '{"segments":[' + Array.from({ length: 4000 }, (_, i) => `{"n":${i},"cabin":"Y"}`).join(',') + ']}';
+  const bigAfter = bigBefore.replace(/"Y"/g, '"J"');
+  return {
+    applied: [
+      { ruleId: 'r1', ruleName: 'Upgrade cabins', action: 'SET_RESPONSE_JSON_FIELD', detail: 'segments[*].cabin' },
+      { ruleId: 'r1', ruleName: 'Upgrade cabins', action: 'REMOVE_RESPONSE_HEADER', detail: 'skipped - no such header' },
+    ],
+    originalResponse: { status: 200, reason: 'OK', headers: { 'content-type': 'application/json' }, body: bigBefore },
+    finalResponse: { status: 200, reason: 'OK', headers: { 'content-type': 'application/json' }, body: bigAfter },
+  };
+}
+
+describe('interception records in the html export', () => {
+  it('shows what a rule did, escaped, with both bodies in full', () => {
+    const base = interceptedRecord();
+    const record: CallInterception = {
+      ...base,
+      applied: [...base.applied, { ruleId: 'r2', ruleName: '<script>alert(1)</script>', action: 'SET_RESPONSE_STATUS', detail: '503' }],
+    };
+    const html = buildExportHtml(makeCall({ interception: record }), makeForm());
+
+    expect(html).toContain('Changed by Alfred (response)');
+    expect(html).toContain('skipped - no such header');
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    // The bodies ride, pretty-printed, in the block configs the document's script renders - in
+    // full: the very last segment of both ends is still there.
+    expect(html).toContain('3999');
+    expect(html).toContain('-response-before');
+    expect(html).toContain('-response-after');
+  });
+
+  it('adds nothing for a call no rule touched', () => {
+    expect(buildExportHtml(makeCall(), makeForm())).not.toContain('Changed by Alfred');
   });
 });

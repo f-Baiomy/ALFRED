@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.internalcalls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.internalcalls.application.port.out.NewInternalCallObserverPort;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsPage;
@@ -197,7 +198,7 @@ class InternalCallsServiceTest {
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);
         CallRecord completed = new CallRecord("call-1", "https://wildfly-proxy/x", "https://wildfly/x", "GET", null, "t", 1.0, null, null);
         ResponseData response = new ResponseData(200, null, "{}");
-        when(port.complete("call-1", response, null, 42.0)).thenReturn(true);
+        when(port.complete("call-1", response, null, 42.0, null)).thenReturn(true);
         when(port.findById("call-1")).thenReturn(Optional.of(completed));
         InternalCallsService service = serviceWith(port, notificationPort);
 
@@ -205,7 +206,7 @@ class InternalCallsServiceTest {
 
         assertThat(result).isTrue();
         var order = inOrder(port, notificationPort);
-        order.verify(port).complete("call-1", response, null, 42.0);
+        order.verify(port).complete("call-1", response, null, 42.0, null);
         order.verify(port).findById("call-1");
         order.verify(notificationPort).notifyCallCompleted(completed, List.of());
     }
@@ -218,7 +219,7 @@ class InternalCallsServiceTest {
         NewInternalCallObserverPort observerB = mock(NewInternalCallObserverPort.class);
         CallRecord completed = new CallRecord("call-1", "https://wildfly-proxy/x", "https://wildfly/x", "GET", null, "t", 1.0, null, null);
         ResponseData response = new ResponseData(200, null, "{}");
-        when(port.complete("call-1", response, null, 42.0)).thenReturn(true);
+        when(port.complete("call-1", response, null, 42.0, null)).thenReturn(true);
         when(port.findById("call-1")).thenReturn(Optional.of(completed));
         when(observerA.onCallCompleted(completed)).thenReturn(List.of("cycle-1"));
         when(observerB.onCallCompleted(completed)).thenReturn(List.of("cycle-2"));
@@ -228,7 +229,7 @@ class InternalCallsServiceTest {
 
         assertThat(result).isTrue();
         var order = inOrder(port, observerA, observerB, notificationPort);
-        order.verify(port).complete("call-1", response, null, 42.0);
+        order.verify(port).complete("call-1", response, null, 42.0, null);
         order.verify(observerA).onCallCompleted(completed);
         order.verify(observerB).onCallCompleted(completed);
         order.verify(notificationPort).notifyCallCompleted(completed, List.of("cycle-1", "cycle-2"));
@@ -247,5 +248,23 @@ class InternalCallsServiceTest {
         assertThat(result).isFalse();
         verify(port, never()).findById(org.mockito.ArgumentMatchers.any());
         verifyNoInteractions(observer, notificationPort);
+    }
+
+    @Test
+    void receiveCompletedCallPassesTheInterceptionRecordToTheStore() {
+        // The reverse proxy has always sent this; before the slice stored it, an inbound rule
+        // applied correctly and left no trace on the call.
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        ResponseData response = new ResponseData(503, null, "{}");
+        CallInterception interception = new CallInterception(
+                List.of(new CallInterception.Applied("r1", "Rule", "SET_RESPONSE_STATUS", "503")), null, null, null, null);
+        when(port.complete("call-1", response, null, 5.0, interception)).thenReturn(true);
+        when(port.findById("call-1")).thenReturn(Optional.empty());
+
+        boolean result = serviceWith(port, notificationPort).receiveCompletedCall("call-1", response, null, 5.0, interception);
+
+        assertThat(result).isTrue();
+        verify(port).complete("call-1", response, null, 5.0, interception);
     }
 }

@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.interception.adapter.in.web.dto.InterceptionRule
 import com.fathy.alfred.backend.interception.application.port.in.ManageInterceptionRulesUseCase;
 import com.fathy.alfred.backend.interception.domain.model.ActionType;
 import com.fathy.alfred.backend.interception.domain.model.FailureMode;
+import com.fathy.alfred.backend.interception.domain.model.SensitiveHeaders;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleImportResult;
 import jakarta.validation.Valid;
@@ -132,6 +133,16 @@ public class InterceptionRulesController {
                         // has to be rendered and labelled, it just is not offered for a new one.
                         "selectable", type.isSelectable()))
                 .toList();
+    }
+
+    /**
+     * The secret header and cookie names, for the frontend's masking (a match test's value, a
+     * stored answer's headers). The one list lives in SensitiveHeaders; the proxies receive the
+     * same list in the rules snapshot, so there is no copy anywhere to fall out of step.
+     */
+    @GetMapping("/sensitive-headers")
+    public Map<String, Object> sensitiveHeaders() {
+        return Map.of("names", SensitiveHeaders.NAMES.stream().sorted().toList());
     }
 
     /**

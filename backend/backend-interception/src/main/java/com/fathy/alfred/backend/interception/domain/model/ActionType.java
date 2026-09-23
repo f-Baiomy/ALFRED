@@ -22,6 +22,25 @@ public enum ActionType {
     REMOVE_QUERY_PARAM(Phase.REQUEST),
     SET_REQUEST_JSON_FIELD(Phase.REQUEST),
     /**
+     * Find and replace in the request body, any content type - the one edit that reaches a token in
+     * a SOAP or plain-text body, where no JSON path can. Literal text unless {@code regex} is set.
+     */
+    REPLACE_IN_REQUEST_BODY(Phase.REQUEST),
+    /**
+     * Sends the call somewhere else: any of scheme/host/port/path (the structured form), or a
+     * find/replace on the whole URL (the pattern form). Never to Alfred itself - see SelfTargets.
+     */
+    REWRITE_URL(Phase.REQUEST),
+    /** Changes the HTTP method, keeping everything else - how a PUT against a POST-only endpoint is tested. */
+    SET_METHOD(Phase.REQUEST),
+    /**
+     * Deletes a field outright - which is not the same as setting it to null, and "field missing"
+     * is the more common supplier contract bug. Same path grammar as SET_REQUEST_JSON_FIELD.
+     */
+    REMOVE_REQUEST_JSON_FIELD(Phase.REQUEST),
+    /** Replaces the whole outgoing request body, any content type - the counterpart of SET_RESPONSE_BODY. */
+    SET_REQUEST_BODY(Phase.REQUEST),
+    /**
      * Kept for rules saved before {@link #SIMULATE_FAILURE} existed, and hidden from the editor's
      * picker - it is exactly {@code SIMULATE_FAILURE} with {@link FailureMode#CONNECTION_RESET}.
      * Still evaluated, because a stored rule must not stop working when the UI moves on.
@@ -58,6 +77,10 @@ public enum ActionType {
     SET_RESPONSE_HEADER(Phase.RESPONSE),
     REMOVE_RESPONSE_HEADER(Phase.RESPONSE),
     SET_RESPONSE_JSON_FIELD(Phase.RESPONSE),
+    /** The response-body counterpart of {@link #REPLACE_IN_REQUEST_BODY}. */
+    REPLACE_IN_RESPONSE_BODY(Phase.RESPONSE),
+    /** The response-body counterpart of {@link #REMOVE_REQUEST_JSON_FIELD}. */
+    REMOVE_RESPONSE_JSON_FIELD(Phase.RESPONSE),
     /** Whole body, any content type - for a payload that isn't JSON or a change too structural for a field path. */
     SET_RESPONSE_BODY(Phase.RESPONSE),
     /**
@@ -71,7 +94,12 @@ public enum ActionType {
     /** The response-phase counterpart of {@link #IF_REQUEST}. */
     IF_RESPONSE(Phase.RESPONSE);
 
-    public enum Phase { REQUEST, RESPONSE }
+    /**
+     * REQUEST and RESPONSE are the two halves of an HTTP exchange. MESSAGE is a WebSocket message
+     * after the handshake - a third lane, because such an action runs once per message rather
+     * than once per call, and has neither a request nor a response of its own to change.
+     */
+    public enum Phase { REQUEST, RESPONSE, MESSAGE }
 
     private final Phase phase;
 

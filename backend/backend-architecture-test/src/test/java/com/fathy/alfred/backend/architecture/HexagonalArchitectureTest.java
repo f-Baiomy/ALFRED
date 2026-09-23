@@ -71,7 +71,7 @@ class HexagonalArchitectureTest {
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
                         "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..")
+                        "..backend.interception..", "..backend.resend..")
                 .check(classes);
     }
 
@@ -87,7 +87,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..")
+                        "..backend.interception..", "..backend.resend..")
                 .check(classes);
     }
 
@@ -98,7 +98,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.export..", "..backend.sessioncycles..",
                         "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..")
+                        "..backend.interception..", "..backend.resend..")
                 .check(classes);
     }
 
@@ -116,7 +116,7 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.profiles..",
                         "..backend.settings..", "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..")
+                        "..backend.interception..", "..backend.resend..")
                 .check(classes);
     }
 
@@ -130,7 +130,7 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
                         "..backend.profiles..", "..backend.settings..", "..backend.redactions..",
-                        "..backend.interception..")
+                        "..backend.interception..", "..backend.resend..")
                 .check(classes);
     }
 
@@ -144,7 +144,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.settings..", "..backend.internalcalls..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..")
+                        "..backend.interception..", "..backend.resend..")
                 .check(classes);
     }
 
@@ -159,7 +159,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.internalcalls..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..")
+                        "..backend.interception..", "..backend.resend..")
                 .check(classes);
     }
 
@@ -174,7 +174,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.internalcalls..", "..backend.calloverlap..",
-                        "..backend.interception..")
+                        "..backend.interception..", "..backend.resend..")
                 .check(classes);
     }
 
@@ -190,7 +190,27 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
-                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..")
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.resend..")
+                .check(classes);
+    }
+
+    // resend is a leaf slice even though it obviously needs logged calls: it reads them only through
+    // its own out-ports (CallSourcePort, SessionValueLookupPort), which backend-app's resendbridge
+    // implements against the calls, internal-calls and session-cycles use cases - the same shape as
+    // CallFilterAdapter. Sending goes back out through the proxies, so a resent call reaches
+    // backend-calls on the ordinary webhook, never by a direct call from this slice.
+    @Test
+    void resendSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.resend..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..")
+                // Only until backend-resend has its first class (tasks.md T102): ArchUnit refuses
+                // a rule that matches nothing. Remove this line with that task.
+                .allowEmptyShould(true)
                 .check(classes);
     }
 }

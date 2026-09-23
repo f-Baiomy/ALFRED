@@ -1,4 +1,5 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
+import { CallInterception } from '../../core/models/interception.model';
 import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import {
@@ -583,5 +584,48 @@ describe('bulkExportCycleFilename', () => {
 
   it('falls back to the plain counted name when there is no cycle at all', () => {
     expect(bulkExportCycleFilename(null, calls, 'md')).toBe('alfred-export-2-calls.md');
+  });
+});
+
+/** A realistic record: a rule rewrote the response, one action found nothing to do, and the
+ * before/after bodies are large enough that any truncation would show. */
+function interceptedRecord(): CallInterception {
+  const bigBefore = '{"segments":[' + Array.from({ length: 4000 }, (_, i) => `{"n":${i},"cabin":"Y"}`).join(',') + ']}';
+  const bigAfter = bigBefore.replace(/"Y"/g, '"J"');
+  return {
+    applied: [
+      { ruleId: 'r1', ruleName: 'Upgrade cabins', action: 'SET_RESPONSE_JSON_FIELD', detail: 'segments[*].cabin' },
+      { ruleId: 'r1', ruleName: 'Upgrade cabins', action: 'REMOVE_RESPONSE_HEADER', detail: 'skipped - no such header' },
+    ],
+    originalResponse: { status: 200, reason: 'OK', headers: { 'content-type': 'application/json' }, body: bigBefore },
+    finalResponse: { status: 200, reason: 'OK', headers: { 'content-type': 'application/json' }, body: bigAfter },
+  };
+}
+
+describe('interception records in the markdown export', () => {
+  it('shows what a rule did under the half it changed, with both bodies in full', () => {
+    const record = interceptedRecord();
+    const md = buildExportMarkdown(makeCall({ interception: record }), makeForm());
+
+    expect(md).toContain('Changed by Alfred (response)');
+    expect(md).toContain('SET_RESPONSE_JSON_FIELD');
+    expect(md).toContain('skipped - no such header');
+    // Never truncated: every byte of both ends is in the document.
+    expect(md).toContain(record.originalResponse!.body!);
+    expect(md).toContain(record.finalResponse!.body!);
+    expect(md).not.toContain('Changed by Alfred (request)');
+  });
+
+  it('renders the record in the bulk report too, for an inbound call split into two blocks', () => {
+    const record = interceptedRecord();
+    const md = buildBulkExportMarkdown(
+      [makeCall({ source: 'internal', service_name: 'core-service', state: 'COMPLETED', interception: record })],
+      makeForm(), new Map(), '2026-01-01T00:00:00Z');
+    expect(md).toContain('Changed by Alfred (response)');
+    expect(md).toContain(record.finalResponse!.body!);
+  });
+
+  it('adds nothing for a call no rule touched', () => {
+    expect(buildExportMarkdown(makeCall(), makeForm())).not.toContain('Changed by Alfred');
   });
 });

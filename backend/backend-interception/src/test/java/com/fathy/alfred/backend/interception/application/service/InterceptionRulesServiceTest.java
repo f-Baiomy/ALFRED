@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.interception.application.port.in.ManageIntercept
 import com.fathy.alfred.backend.interception.application.port.out.InterceptionNotificationPort;
 import com.fathy.alfred.backend.interception.application.port.out.InterceptionRulesStorePort;
 import com.fathy.alfred.backend.interception.application.port.out.RulesPublisherPort;
+import com.fathy.alfred.backend.interception.domain.model.SelfTargets;
 import com.fathy.alfred.backend.interception.domain.model.ActionType;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleAction;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -80,7 +82,8 @@ class InterceptionRulesServiceTest {
         publisher = new RecordingPublisher();
         notifications = new CountingNotifications();
         breakpoints = new BreakpointService(notifications);
-        service = new InterceptionRulesService(store, publisher, notifications, breakpoints);
+        service = new InterceptionRulesService(store, publisher, notifications, breakpoints,
+                new SelfTargets(Set.of("backend"), Set.of("localhost:5000")));
     }
 
     private static InterceptionRule delayRule(String name, int priority) {
@@ -335,7 +338,8 @@ class InterceptionRulesServiceTest {
         store.rules.add(delayRule("Preexisting", 10).withId("id-1"));
         store.enabled = true;
 
-        new InterceptionRulesService(store, publisher, notifications, new BreakpointService(notifications)).republishOnStartup();
+        new InterceptionRulesService(store, publisher, notifications, new BreakpointService(notifications), SelfTargets.none())
+                .republishOnStartup();
 
         assertThat(publisher.lastEnabled).isTrue();
         assertThat(publisher.lastRules).hasSize(1);

@@ -28,6 +28,7 @@ import {
   RuleSource,
   actionPhase,
   isActionEnabled,
+  isTerminalAction,
 } from '../../core/models/interception.model';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
@@ -262,11 +263,7 @@ function withBranchList(
  * the rule that is perfectly live.
  */
 function alwaysShortCircuits(action: RuleAction): boolean {
-  return (
-    action.type === 'MOCK_RESPONSE' ||
-    action.type === 'ABORT_REQUEST' ||
-    action.type === 'SIMULATE_FAILURE'
-  );
+  return isTerminalAction(action.type);
 }
 
 function emptyBranch(): ConditionBranch {
@@ -374,9 +371,7 @@ export class RuleEditorComponent implements OnInit {
    */
   readonly conflictHint = computed(() => {
     const types = this.actions().map((a) => a.type);
-    const terminals = types.filter(
-      (t) => t === 'ABORT_REQUEST' || t === 'MOCK_RESPONSE' || t === 'SIMULATE_FAILURE'
-    ).length;
+    const terminals = types.filter((t) => isTerminalAction(t)).length;
     const pauses = types.filter((t) => t.startsWith('PAUSE_')).length;
     if (terminals > 1) return 'Two actions both end the request — only the first would ever run.';
     if (terminals > 0 && pauses > 0) return 'This rule ends the request before it could pause.';
@@ -806,13 +801,22 @@ export class RuleEditorComponent implements OnInit {
     this.actions.update((actions) => updateAt(actions, path, (action) => ({ ...action, ...patch })));
   }
 
-  onText(path: readonly number[], field: 'name' | 'path' | 'body', event: Event): void {
+  onText(
+    path: readonly number[],
+    field: 'name' | 'path' | 'body' | 'pattern' | 'replacement' | 'contentType' | 'method' | 'contains',
+    event: Event
+  ): void {
     this.patchAt(path, { [field]: (event.target as HTMLInputElement).value });
   }
 
-  onNumber(path: readonly number[], field: 'durationMs' | 'status' | 'timeoutSeconds', event: Event): void {
+  onNumber(path: readonly number[], field: 'durationMs' | 'status' | 'timeoutSeconds' | 'maxReplacements', event: Event): void {
     const parsed = Number.parseInt((event.target as HTMLInputElement).value, 10);
     this.patchAt(path, { [field]: Number.isFinite(parsed) ? parsed : null });
+  }
+
+  /** A checkbox straight onto a boolean field of the action. */
+  onToggle(path: readonly number[], field: 'regex' | 'caseSensitive' | 'keepHostHeader' | 'refreshDates', event: Event): void {
+    this.patchAt(path, { [field]: (event.target as HTMLInputElement).checked });
   }
 
   onTimeoutChange(path: readonly number[], value: string): void {
@@ -887,7 +891,60 @@ export class RuleEditorComponent implements OnInit {
   }
 
   isBodyOnly(type: ActionType): boolean {
-    return type === 'SET_RESPONSE_BODY';
+    return type === 'SET_RESPONSE_BODY' || type === 'SET_REQUEST_BODY';
+  }
+
+  /** A field path and nothing else - the remove-field actions. */
+  isJsonPathOnly(type: ActionType): boolean {
+    return type === 'REMOVE_REQUEST_JSON_FIELD' || type === 'REMOVE_RESPONSE_JSON_FIELD';
+  }
+
+  isRewrite(type: ActionType): boolean {
+    return type === 'REWRITE_URL';
+  }
+
+  isSetMethod(type: ActionType): boolean {
+    return type === 'SET_METHOD';
+  }
+
+  readonly rewriteModeOptions: readonly SelectOption[] = [
+    { value: 'target', label: 'target parts' },
+    { value: 'pattern', label: 'find & replace on the URL' },
+  ];
+
+  readonly schemeOptions: readonly SelectOption[] = [
+    { value: '', label: 'keep' },
+    { value: 'http', label: 'http' },
+    { value: 'https', label: 'https' },
+  ];
+
+  /** Which of REWRITE_URL's two forms a card is showing. A pattern set means the pattern form. */
+  rewriteMode(action: RuleAction): 'target' | 'pattern' {
+    return action.pattern != null ? 'pattern' : 'target';
+  }
+
+  /** Switching form clears the other one, so a rule never carries both and leaves the reader guessing. */
+  onRewriteMode(path: readonly number[], mode: string): void {
+    this.patchAt(
+      path,
+      mode === 'pattern'
+        ? { target: null, pattern: '', replacement: '', regex: false }
+        : { target: { host: '' }, pattern: null, replacement: null, regex: null }
+    );
+  }
+
+  onTarget(path: readonly number[], action: RuleAction, part: 'scheme' | 'host' | 'port' | 'path', raw: string): void {
+    const value = part === 'port' ? (Number.isFinite(Number.parseInt(raw, 10)) ? Number.parseInt(raw, 10) : null) : raw || null;
+    this.patchAt(path, { target: { ...(action.target ?? {}), [part]: value } });
+  }
+
+  onMethod(path: readonly number[], value: string): void {
+    this.patchAt(path, { method: value });
+  }
+
+  /** Find and replace in a body - literal text unless the user switches on regex. */
+  isBodyReplace(type: ActionType): boolean {
+    return type === 'REPLACE_IN_REQUEST_BODY' || type === 'REPLACE_IN_RESPONSE_BODY';
   }
 
   /** Takes no parameters at all - the card is the whole statement. */
@@ -995,6 +1052,20 @@ function defaultsFor(type: ActionType): RuleAction {
       return { type, status: 500 };
     case 'SET_RESPONSE_BODY':
       return { type, body: '' };
+    case 'REWRITE_URL':
+      // The structured form: the common case is "this host instead", and a pattern is opt-in.
+      return { type, target: { host: '' }, keepHostHeader: false };
+    case 'SET_METHOD':
+      return { type, method: 'PUT' };
+    case 'REMOVE_REQUEST_JSON_FIELD':
+    case 'REMOVE_RESPONSE_JSON_FIELD':
+      return { type, path: '' };
+    case 'SET_REQUEST_BODY':
+      return { type, body: '' };
+    case 'REPLACE_IN_REQUEST_BODY':
+    case 'REPLACE_IN_RESPONSE_BODY':
+      // Literal and case-sensitive: the reading of the pattern that does exactly what it says.
+      return { type, pattern: '', replacement: '', regex: false, caseSensitive: true };
     case 'REPLACE_RESPONSE':
       return { type, status: 500, body: '{"error":"Replaced by Alfred"}' };
     case 'SEND_TO_HOST':

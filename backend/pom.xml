@@ -44,6 +44,7 @@
     <module>backend-profiles</module>
     <module>backend-settings</module>
     <module>backend-interception</module>
+    <module>backend-resend</module>
     <module>backend-app</module>
     <module>backend-architecture-test</module>
   </modules>

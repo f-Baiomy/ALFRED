@@ -9,10 +9,12 @@ import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleAction;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
 import com.fathy.alfred.backend.interception.domain.model.RuleValidator;
+import com.fathy.alfred.backend.interception.domain.model.SelfTargets;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -540,5 +542,128 @@ class RuleValidatorTest {
         // escape hatch from validation, only from the engine actually running it.
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), disabled(pause(0, "release")))))
                 .anyMatch(p -> p.contains("hold its caller open forever"));
+    }
+
+    @Test
+    void everyActionTypeHasItsOwnValidationCase() {
+        // The switch has a default that rejects an unknown type, so a constant added without a
+        // case fails here instead of being saved unvalidated.
+        for (ActionType type : ActionType.values()) {
+            assertThat(RuleValidator.validate(rule(RuleMatch.empty(), RuleAction.of(type))))
+                    .as(type.name())
+                    .noneMatch(p -> p.startsWith("Unknown action type"));
+        }
+    }
+
+    // ---- actions added for mitmproxy parity -------------------------------------------------
+    // Built from the JSON shape the editor sends, rather than a 29-argument constructor: that is
+    // how these actions actually arrive, and it keeps each test about the one field it is testing.
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    private static RuleAction action(Map<String, Object> fields) {
+        return JSON.convertValue(fields, RuleAction.class);
+    }
+
+    private static List<String> problemsOf(Map<String, Object> fields) {
+        return RuleValidator.validate(rule(RuleMatch.empty(), action(fields)));
+    }
+
+    @Test
+    void acceptsALiteralFindAndReplace() {
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_RESPONSE_BODY", "pattern", "EUR", "replacement", "USD"))).isEmpty();
+        // A literal with regex characters in it is just text.
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_REQUEST_BODY", "pattern", "$10.00", "replacement", "$0"))).isEmpty();
+    }
+
+    @Test
+    void aFindAndReplaceNeedsAPatternAndAReplacement() {
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_RESPONSE_BODY", "replacement", "x")))
+                .anyMatch(p -> p.contains("pattern is required"));
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_RESPONSE_BODY", "pattern", "x")))
+                .anyMatch(p -> p.contains("needs a replacement"));
+    }
+
+    @Test
+    void aNestedRepeatIsRefusedOnlyWhenThePatternIsARegex() {
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_RESPONSE_BODY", "pattern", "(a+)+", "replacement", "", "regex", true)))
+                .anyMatch(p -> p.contains("repeats a group that itself repeats"));
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_RESPONSE_BODY", "pattern", "(a+)+", "replacement", ""))).isEmpty();
+    }
+
+    @Test
+    void theReplacementLimitIsBounded() {
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_RESPONSE_BODY", "pattern", "a", "replacement", "b", "maxReplacements", 0)))
+                .anyMatch(p -> p.contains("between 1 and 10,000"));
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_RESPONSE_BODY", "pattern", "a", "replacement", "b", "maxReplacements", 10_001)))
+                .anyMatch(p -> p.contains("between 1 and 10,000"));
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_RESPONSE_BODY", "pattern", "a", "replacement", "b", "maxReplacements", 1)))
+                .isEmpty();
+    }
+
+    private static final SelfTargets ALFRED = new SelfTargets(Set.of("backend"), Set.of("localhost:5000"));
+
+    private static List<String> rewriteProblems(Map<String, Object> target) {
+        return RuleValidator.validate(rule(RuleMatch.empty(), action(Map.of("type", "REWRITE_URL", "target", target))), ALFRED);
+    }
+
+    @Test
+    void acceptsARewriteToAnotherHost() {
+        assertThat(rewriteProblems(Map.of("host", "staging.supplier.com"))).isEmpty();
+        // Internal addresses are allowed on purpose (Clarification Q1) - only Alfred itself is not.
+        assertThat(rewriteProblems(Map.of("host", "10.0.0.7", "port", 8443))).isEmpty();
+    }
+
+    @Test
+    void aRewriteNeedsATargetOrAPattern() {
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action(Map.of("type", "REWRITE_URL"))), ALFRED))
+                .anyMatch(p -> p.contains("needs a target"));
+    }
+
+    @Test
+    void aRewriteCannotPointAtAlfredItself() {
+        assertThat(rewriteProblems(Map.of("host", "backend"))).anyMatch(p -> p.contains("Alfred itself"));
+        assertThat(rewriteProblems(Map.of("host", "localhost", "port", 5000))).anyMatch(p -> p.contains("Alfred itself"));
+        // localhost on some other port is somebody else's service.
+        assertThat(rewriteProblems(Map.of("host", "localhost", "port", 9000))).isEmpty();
+    }
+
+    @Test
+    void aRewriteRejectsAnUnusableTarget() {
+        assertThat(rewriteProblems(Map.of("scheme", "ftp"))).anyMatch(p -> p.contains("http and https"));
+        assertThat(rewriteProblems(Map.of("port", 0))).anyMatch(p -> p.contains("between 1 and 65535"));
+        assertThat(rewriteProblems(Map.of("port", 65_536))).anyMatch(p -> p.contains("between 1 and 65535"));
+        assertThat(rewriteProblems(Map.of("path", "v2/fares"))).anyMatch(p -> p.contains("start with /"));
+    }
+
+    @Test
+    void aPatternRewriteGetsThePatternChecks() {
+        assertThat(problemsOf(Map.of("type", "REWRITE_URL", "pattern", "/v1/", "replacement", "/v2/"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "REWRITE_URL", "pattern", "(a+)+", "replacement", "", "regex", true)))
+                .anyMatch(p -> p.contains("repeats a group"));
+    }
+
+    @Test
+    void setMethodNeedsAPlainMethodName() {
+        assertThat(problemsOf(Map.of("type", "SET_METHOD", "method", "PUT"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_METHOD", "method", "GE T"))).anyMatch(p -> p.contains("letters only"));
+        assertThat(problemsOf(Map.of("type", "SET_METHOD"))).anyMatch(p -> p.contains("letters only"));
+    }
+
+    @Test
+    void removingAJsonFieldNeedsAValidPathThatDoesNotEndInEveryElement() {
+        assertThat(problemsOf(Map.of("type", "REMOVE_RESPONSE_JSON_FIELD", "path", "segments[*].cabin"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "REMOVE_RESPONSE_JSON_FIELD", "path", "items[1]"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "REMOVE_REQUEST_JSON_FIELD", "path", "items[*]")))
+                .anyMatch(p -> p.contains("cannot end in [*]"));
+        assertThat(problemsOf(Map.of("type", "REMOVE_REQUEST_JSON_FIELD", "path", "a..b")))
+                .anyMatch(p -> p.contains("not a valid field path"));
+        assertThat(problemsOf(Map.of("type", "REMOVE_REQUEST_JSON_FIELD"))).anyMatch(p -> p.contains("needs a field path"));
+    }
+
+    @Test
+    void settingTheRequestBodyNeedsABody() {
+        assertThat(problemsOf(Map.of("type", "SET_REQUEST_BODY", "body", ""))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_REQUEST_BODY"))).anyMatch(p -> p.contains("needs a body"));
     }
 }

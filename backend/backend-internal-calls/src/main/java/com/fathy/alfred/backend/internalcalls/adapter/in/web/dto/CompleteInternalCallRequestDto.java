@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.internalcalls.adapter.in.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
 
 /**
@@ -10,6 +11,8 @@ import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
 public record CompleteInternalCallRequestDto(
         ResponseData response,
         String error,
-        @JsonProperty("duration_ms") Double durationMs
+        @JsonProperty("duration_ms") Double durationMs,
+        /** What an interception rule did, sent by the reverse proxy only when a rule touched the call. */
+        CallInterception interception
 ) {
 }

@@ -2,6 +2,7 @@ import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
+import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
@@ -161,6 +162,27 @@ function headersBlock(headers: Readonly<Record<string, string>> | undefined, lin
 const BLOCK_ORDER: readonly CommentBlock[] = ['request-headers', 'request-body', 'response-headers', 'response-body'];
 
 /** `level` matches whatever heading depth "Request"/"Response" sit at in the caller - `##` at the top level of a single-call export, `####` once nested inside a bulk export's per-call `<details>`. */
+/**
+ * What an interception rule did to one half, rendered in full under that half. See
+ * interception-export.ts for what belongs to which half.
+ */
+function interceptionSection(call: CallRecord, phase: 'request' | 'response', level: number): string[] {
+  const part = interceptionExportPart(call.interception, phase);
+  if (!part) return [];
+  const hashes = '#'.repeat(level);
+  const lines: string[] = [`${hashes} 🛠️ Changed by Alfred (${phase})`, ''];
+  for (const line of part.lines) {
+    lines.push(`- **${line.rule}** · ${line.label} (\`${line.action}\`)${line.detail ? ` — ${line.detail}` : ''}`);
+  }
+  if (part.synthetic) {
+    lines.push('', '> The upstream was never contacted: this response was made by Alfred.');
+  }
+  lines.push('');
+  if (part.before) lines.push(codeBlock(`Before (${phase} as ${phase === 'request' ? 'the client sent it' : 'upstream sent it'})`, interceptionHttpText(part.before)), '');
+  if (part.after) lines.push(codeBlock(`After (${phase} as it actually went out)`, interceptionHttpText(part.after)), '');
+  return lines;
+}
+
 function flaggedIssuesSection(comments: readonly Comment[], level = 2): string {
   if (comments.length === 0) return '';
 
@@ -224,7 +246,9 @@ export function buildExportMarkdown(
   lines.push(headersBlock(call.request?.headers, commentsForBlock(comments, 'request-headers')));
   lines.push('');
   lines.push(codeBlock('Body', call.request?.body, commentsForBlock(comments, 'request-body')));
-  lines.push('', '---', '');
+  lines.push('');
+  lines.push(...interceptionSection(call, 'request', 3));
+  lines.push('---', '');
 
   lines.push('## 📥 Response', '');
   if (call.error) {
@@ -239,7 +263,9 @@ export function buildExportMarkdown(
     lines.push('');
     lines.push(codeBlock('Body', call.response.body, commentsForBlock(comments, 'response-body')));
   }
-  lines.push('', '---', '');
+  lines.push('');
+  lines.push(...interceptionSection(call, 'response', 3));
+  lines.push('---', '');
   lines.push(`*Exported from Alfred/Frontend*`);
 
   return lines.join('\n');
@@ -470,6 +496,7 @@ function renderBlockBody(block: RenderBlock, allComments: readonly Comment[]): s
     lines.push('');
     lines.push(codeBlock('Body', call.request?.body, commentsForBlock(allComments, 'request-body')));
     lines.push('');
+    lines.push(...interceptionSection(call, 'request', 4));
   }
 
   if (variant !== 'request') {
@@ -484,6 +511,7 @@ function renderBlockBody(block: RenderBlock, allComments: readonly Comment[]): s
       lines.push(codeBlock('Body', call.response.body, commentsForBlock(allComments, 'response-body')));
       lines.push('');
     }
+    lines.push(...interceptionSection(call, 'response', 4));
   }
 
   return lines;

@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { InterceptionRule, isActionEnabled } from '../../core/models/interception.model';
+import { InterceptionRule, isActionEnabled, isTerminalAction } from '../../core/models/interception.model';
 import { describeAction, describeMatch } from '../../core/models/interception.model';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { DesktopNotificationsService } from '../../core/services/desktop-notifications.service';
@@ -184,7 +184,7 @@ export class InterceptionComponent {
   }
 
   terminal(rule: InterceptionRule): boolean {
-    return rule.actions.some((a) => isActionEnabled(a) && (a.type === 'ABORT_REQUEST' || a.type === 'MOCK_RESPONSE'));
+    return rule.actions.some((a) => isActionEnabled(a) && isTerminalAction(a.type));
   }
 
   trackById(_: number, rule: InterceptionRule): string {

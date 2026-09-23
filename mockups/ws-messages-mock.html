@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alfred — WebSocket messages on a call (mockup)</title>
+<style>
+:root{
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  --card-elevated: linear-gradient(160deg,#141a45 0%,#101636 100%);
+  --card-inner:#070a24; --panel-bg: rgba(10,14,42,.55);
+  --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-light:#c4b5fd; --cyan:#22d3ee;
+  --text:#e5e9f5; --text-dim:#93a0c2; --text-faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171;
+  --tok-key:#c4b5fd; --tok-string:#6ee7d8; --tok-number:#fb923c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-attachment:fixed;min-height:100vh;
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);font-size:14px}
+.mockbar{background:#1c1340;border-bottom:1px solid var(--border-strong);padding:8px 16px;
+  font-size:12px;color:var(--purple-light);display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.mockbar b{font-weight:600;color:#fff}
+.mockbar button{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit}
+.mockbar button.on{background:var(--purple);color:#fff;border-color:var(--purple)}
+nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;display:flex;gap:4px}
+nav a{padding:13px 15px;font-size:13px;color:var(--text-dim);text-decoration:none;border-bottom:2px solid transparent}
+nav a.active{color:#fff;border-bottom-color:var(--purple)}
+.wrap{max-width:1000px;margin:0 auto;padding:22px 20px 60px}
+.screen{display:none}.screen.show{display:block}
+h2{font-size:15px;font-weight:600;margin:0 0 6px}
+.lead{color:var(--text-dim);font-size:12.5px;margin:0 0 18px;line-height:1.55}
+.card{background:var(--card-elevated);border:1px solid var(--border);border-radius:11px;margin-bottom:9px;overflow:hidden}
+.ctop{display:flex;align-items:center;gap:11px;font-size:12.5px;padding:12px 15px}
+.m{font-family:ui-monospace,Consolas,monospace;color:var(--cyan);font-weight:600}
+.s1{color:var(--purple-light);font-weight:600}
+.u{font-family:ui-monospace,Consolas,monospace;color:var(--text-dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t{color:var(--text-faint);font-size:11px;white-space:nowrap}
+.chip{font-size:10.5px;padding:3px 9px;border-radius:6px;white-space:nowrap}
+.chip.ws{background:rgba(34,211,238,.13);color:var(--cyan);border:1px solid rgba(34,211,238,.4)}
+.chip.in{background:rgba(52,211,153,.13);color:var(--green);border:1px solid rgba(52,211,153,.35)}
+.chip.live{background:rgba(251,191,36,.13);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
+.chip.closed{background:rgba(92,102,144,.2);color:var(--text-dim);border:1px solid var(--border)}
+.chip.int{background:rgba(139,92,246,.16);color:var(--purple-light);border:1px solid rgba(139,92,246,.3)}
+.panel{border-top:1px solid var(--border);background:var(--card-inner)}
+.tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--border)}
+.tabs span{padding:9px 13px;font-size:12px;color:var(--text-dim);border-bottom:2px solid transparent;cursor:pointer}
+.tabs span.on{color:#fff;border-bottom-color:var(--purple)}
+.tools{display:flex;gap:9px;align-items:center;padding:9px 13px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:7px;overflow:hidden}
+.seg span{padding:4px 11px;font-size:11.5px;color:var(--text-dim);cursor:pointer}
+.seg span.on{background:rgba(139,92,246,.3);color:#fff}
+.inp{background:#0b0f30;border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:12px;color:var(--text);font-family:ui-monospace,Consolas,monospace}
+.gap{padding:8px 13px;font-size:11.5px;color:var(--amber);background:rgba(251,191,36,.06);border-bottom:1px solid var(--border)}
+.msg{display:grid;grid-template-columns:40px 22px 92px 52px 1fr 110px;gap:9px;padding:7px 13px;font-size:12px;
+  border-bottom:1px solid var(--border);align-items:start}
+.msg .seq{color:var(--text-faint);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+.msg .dir.c{color:var(--purple-light)}.msg .dir.s{color:var(--cyan)}
+.msg .ts{color:var(--text-faint);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+.msg .ty{color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px}
+.msg .body{font-family:ui-monospace,Consolas,monospace;color:var(--text);word-break:break-all;line-height:1.5}
+.msg .body .k{color:var(--tok-key)}.msg .body .s{color:var(--tok-string)}.msg .body .n{color:var(--tok-number)}
+.badge{font-size:9.5px;font-weight:700;letter-spacing:.6px;padding:2px 7px;border-radius:5px;justify-self:end;white-space:nowrap}
+.badge.edit{background:rgba(251,191,36,.16);color:var(--amber);border:1px solid rgba(251,191,36,.4);cursor:pointer}
+.badge.drop{background:rgba(248,113,113,.14);color:var(--red);border:1px solid rgba(248,113,113,.4)}
+.badge.delay{background:rgba(139,92,246,.18);color:var(--purple-light);border:1px solid rgba(139,92,246,.4)}
+.msg.dropped .body{text-decoration:line-through;color:var(--text-faint)}
+.orig{grid-column:5 / 7;margin-top:5px;border-left:2px solid rgba(251,191,36,.5);padding:5px 9px;background:rgba(251,191,36,.05);
+  font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--text-dim)}
+.orig b{color:var(--amber);font-family:"Segoe UI",sans-serif;font-weight:600;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;margin-right:6px}
+.del{background:rgba(248,113,113,.18);color:#fca5a5;border-radius:3px;padding:0 2px}
+.ins{background:rgba(52,211,153,.18);color:#86efac;border-radius:3px;padding:0 2px}
+.more{text-align:center;padding:9px;font-size:12px;color:var(--purple-light);cursor:pointer}
+.foot{padding:8px 13px;font-size:11px;color:var(--text-faint);display:flex;justify-content:space-between}
+.applied{padding:10px 13px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-dim)}
+.applied b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCKUP</b> &mdash; static HTML, not wired to anything. WebSocket messages (US9).
+  <span style="margin-left:auto"></span>
+  <button class="on" onclick="show('s1',this)">1 &middot; Collapsed card</button>
+  <button onclick="show('s2',this)">2 &middot; Messages, live</button>
+  <button onclick="show('s3',this)">3 &middot; Over the cap</button>
+</div>
+<nav><a href="#" class="active">Live Calls</a><a href="#">Session Cycles</a><a href="#">Interception</a><a href="#">Profiles</a><a href="#">Settings</a></nav>
+
+<div class="wrap">
+
+<!-- 1 -->
+<section id="s1" class="screen show">
+  <h2>A WebSocket is one call</h2>
+  <p class="lead">The 101 handshake is already logged as a call today. It now carries its messages. The summary
+  shows only counts; the message bodies are fetched when you open the card (no polling, and bodies are loaded on demand).</p>
+  <div class="card"><div class="ctop"><span class="chip in">inbound &middot; core-service</span><span class="m">GET</span><span class="s1">101</span>
+    <span class="u">ws://localhost:8083/api/notifications/stream</span><span class="chip ws">&#8644; WebSocket &middot; 312 messages</span><span class="chip live">&#9679; open</span><span class="chip int">&#9889; 2 edited &middot; 1 dropped</span><span class="t">14:10:02</span></div></div>
+  <div class="card"><div class="ctop"><span class="chip in">inbound &middot; core-service</span><span class="m">GET</span><span class="s1">101</span>
+    <span class="u">ws://localhost:8083/api/chat</span><span class="chip ws">&#8644; WebSocket &middot; 48 messages</span><span class="chip closed">closed 1000</span><span class="t">14:02:40 &middot; 6m 12s</span></div></div>
+</section>
+
+<!-- 2 -->
+<section id="s2" class="screen">
+  <h2>Opened: every message, in order</h2>
+  <p class="lead">&uarr; is client to server, &darr; is server to client. A rule's edit shows an EDITED badge, and clicking it
+  shows the original with a diff. Dropped messages stay listed and struck through, because the log records what the rule
+  did. New messages arrive through the <code>ws-messages-appended</code> socket event, and only an open panel re-fetches.</p>
+  <div class="card">
+    <div class="ctop"><span class="chip in">inbound &middot; core-service</span><span class="m">GET</span><span class="s1">101</span>
+      <span class="u">ws://localhost:8083/api/notifications/stream</span><span class="chip ws">&#8644; 312 messages</span><span class="chip live">&#9679; open</span></div>
+    <div class="panel">
+      <div class="tabs"><span>Handshake request</span><span>Handshake response</span><span class="on">Messages &middot; 312</span></div>
+      <div class="applied">&#9889; <b>Hide beta banners</b> &middot; replace text in server messages <code>"beta":true</code> &rarr; <code>"beta":false</code> &middot; drop client messages containing <code>ping</code></div>
+      <div class="tools"><div class="seg"><span class="on">Both</span><span>&uarr; Client</span><span>&darr; Server</span></div>
+        <div class="seg"><span class="on">All</span><span>Changed by a rule</span></div>
+        <input class="inp" style="flex:1" placeholder="Search message content…" /><span class="t">newest at the bottom</span></div>
+      <div class="more">&#8593; Load 200 earlier messages</div>
+      <div class="msg"><span class="seq">#108</span><span class="dir c">&uarr;</span><span class="ts">14:10:41.022</span><span class="ty">text</span>
+        <span class="body">{<span class="k">"op"</span>:<span class="s">"subscribe"</span>,<span class="k">"topic"</span>:<span class="s">"bookings"</span>}</span><span></span></div>
+      <div class="msg"><span class="seq">#109</span><span class="dir s">&darr;</span><span class="ts">14:10:41.090</span><span class="ty">text</span>
+        <span class="body">{<span class="k">"ack"</span>:<span class="s">"bookings"</span>,<span class="k">"beta"</span>:<span class="s">false</span>}</span><span class="badge edit" onclick="document.getElementById('o1').style.display=document.getElementById('o1').style.display==='none'?'block':'none'">EDITED &#9662;</span>
+        <div class="orig" id="o1"><b>Before</b>{"ack":"bookings","beta":<span class="del">true</span>} &nbsp;&rarr;&nbsp; <b>After</b>{"ack":"bookings","beta":<span class="ins">false</span>}</div></div>
+      <div class="msg dropped"><span class="seq">#110</span><span class="dir c">&uarr;</span><span class="ts">14:10:46.001</span><span class="ty">text</span>
+        <span class="body">{"op":"ping"}</span><span class="badge drop">DROPPED &middot; never sent</span></div>
+      <div class="msg"><span class="seq">#111</span><span class="dir s">&darr;</span><span class="ts">14:10:52.337</span><span class="ty">text</span>
+        <span class="body">{<span class="k">"event"</span>:<span class="s">"booking.created"</span>,<span class="k">"id"</span>:<span class="s">"QX91"</span>,<span class="k">"seats"</span>:<span class="n">2</span>}</span><span class="badge delay">DELAYED 2000 ms</span></div>
+      <div class="msg"><span class="seq">#112</span><span class="dir s">&darr;</span><span class="ts">14:10:53.004</span><span class="ty">binary</span>
+        <span class="body" style="color:var(--text-dim)">1.2 KB &middot; base64 AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygp… <a href="#" style="color:var(--purple-light)">show all</a></span><span></span></div>
+      <div class="foot"><span>Showing #108–#112 of 312</span><span>All content is kept in full, as with call bodies</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="s3" class="screen">
+  <h2>Long-lived connection past the per-connection cap</h2>
+  <p class="lead">FR-032: the oldest recorded messages are dropped from the <b>log</b>, and the count is shown.
+  Traffic itself is never held back. The cap is 1,000 by default. When the call is evicted from the log, its messages go with it.</p>
+  <div class="card">
+    <div class="ctop"><span class="chip in">inbound &middot; core-service</span><span class="m">GET</span><span class="s1">101</span>
+      <span class="u">ws://localhost:8083/api/prices/ticker</span><span class="chip ws">&#8644; 1,000 kept &middot; 18,442 seen</span><span class="chip live">&#9679; open</span></div>
+    <div class="panel">
+      <div class="tabs"><span>Handshake request</span><span>Handshake response</span><span class="on">Messages &middot; 1,000</span></div>
+      <div class="gap">&#9888; 17,442 earlier messages were not kept. This connection passed the per-connection cap of 1,000
+        recorded messages (<code>alfred.internal-calls.ws-max-messages</code>).</div>
+      <div class="msg"><span class="seq">#17443</span><span class="dir s">&darr;</span><span class="ts">15:31:02.114</span><span class="ty">text</span>
+        <span class="body">{<span class="k">"sym"</span>:<span class="s">"EURUSD"</span>,<span class="k">"bid"</span>:<span class="n">1.0874</span>}</span><span></span></div>
+      <div class="msg"><span class="seq">#17444</span><span class="dir s">&darr;</span><span class="ts">15:31:02.201</span><span class="ty">text</span>
+        <span class="body">{<span class="k">"sym"</span>:<span class="s">"EURUSD"</span>,<span class="k">"bid"</span>:<span class="n">1.0875</span>}</span><span></span></div>
+      <div class="foot"><span>Showing #17443–#17444 &middot; newest 1,000 kept</span><span></span></div>
+    </div>
+  </div>
+</section>
+
+</div>
+<script>
+function show(id,btn){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('show')});
+  document.getElementById(id).classList.add('show');
+  document.querySelectorAll('.mockbar button').forEach(function(b){b.classList.remove('on')});
+  btn.classList.add('on');window.scrollTo(0,0);
+}
+document.querySelectorAll('.seg span').forEach(function(s){
+  s.addEventListener('click',function(){s.parentNode.querySelectorAll('span').forEach(function(x){x.classList.remove('on')});s.classList.add('on')});
+});
+</script>
+</body>
+</html>

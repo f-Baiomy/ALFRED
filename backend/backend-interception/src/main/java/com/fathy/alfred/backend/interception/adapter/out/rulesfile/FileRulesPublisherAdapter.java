@@ -3,6 +3,9 @@ package com.fathy.alfred.backend.interception.adapter.out.rulesfile;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.interception.application.port.out.RulesPublisherPort;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
+import com.fathy.alfred.backend.interception.domain.model.PatternSafety;
+import com.fathy.alfred.backend.interception.domain.model.SelfTargets;
+import com.fathy.alfred.backend.interception.domain.model.SensitiveHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,6 +50,16 @@ public class FileRulesPublisherAdapter implements RulesPublisherPort {
     @Value("${INTERCEPTION_RULES_FILE:/appdata/interception-rules.json}")
     private String rulesFile;
 
+    /** Published so the proxy's regex worker and this backend agree on the one budget. */
+    @Value("${INTERCEPTION_REGEX_TIMEOUT_MS:2000}")
+    private int regexTimeoutMs = 2000;
+
+    private final SelfTargets selfTargets;
+
+    public FileRulesPublisherAdapter(SelfTargets selfTargets) {
+        this.selfTargets = selfTargets;
+    }
+
     @Override
     public synchronized void publish(boolean enabled, List<InterceptionRule> rules) {
         List<InterceptionRule> active = rules.stream().filter(InterceptionRule::enabled).toList();
@@ -56,6 +69,13 @@ public class FileRulesPublisherAdapter implements RulesPublisherPort {
         // Purely for a human who opens the file while debugging - the proxy ignores both.
         snapshot.put("publishedAt", java.time.Instant.now().toString());
         snapshot.put("rules", active);
+        // Three things the proxy needs that are not rules. Each has ONE owner here, so the engine
+        // never keeps a second copy that could drift from what the backend validated against.
+        snapshot.put("sensitiveHeaders", SensitiveHeaders.NAMES.stream().sorted().toList());
+        snapshot.put("selfTargets", selfTargets.published());
+        snapshot.put("limits", Map.of(
+                "maxPatternLength", PatternSafety.MAX_PATTERN_LENGTH,
+                "regexTimeoutMs", regexTimeoutMs));
 
         Path path = Path.of(rulesFile);
         try {

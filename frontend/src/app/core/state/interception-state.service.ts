@@ -4,12 +4,17 @@ import { Observable, Subject, asyncScheduler, merge, of } from 'rxjs';
 import { catchError, filter, map, shareReplay, switchMap, tap, throttleTime } from 'rxjs/operators';
 import { reconnectingSocket } from './reconnecting-socket';
 import {
+  ActionPhase,
+  ActionType,
   ActionTypeInfo,
   InterceptionRule,
   InterceptionRuleDraft,
   PauseDecision,
   PausedCall,
   RuleImportResult,
+  actionPhase,
+  isTerminalAction,
+  registerActionTypes,
 } from '../models/interception.model';
 import { AppConfigService } from '../services/app-config.service';
 import { DesktopNotificationsService } from '../services/desktop-notifications.service';
@@ -130,10 +135,23 @@ export class InterceptionStateService {
   readonly actionTypes = toSignal(
     this.api.actionTypes().pipe(
       catchError(() => of<ActionTypeInfo[]>([])),
+      // Registered for the plain helpers (actionPhase, isTerminalAction), which have no injector.
+      tap((types) => registerActionTypes(types)),
       shareReplay(1)
     ),
     { initialValue: [] as ActionTypeInfo[] }
   );
+
+  /** The backend's word on which lane an action belongs to. Reactive: re-evaluates once the list loads. */
+  phaseOf(type: ActionType | string): ActionPhase {
+    return this.actionTypes().find((info) => info.type === type)?.phase ?? actionPhase(type);
+  }
+
+  /** Whether an action ends the request, from the backend's ActionType.isTerminal(). Reactive, like phaseOf. */
+  isTerminal(type: ActionType | string): boolean {
+    const info = this.actionTypes().find((i) => i.type === type);
+    return info ? info.terminal : isTerminalAction(type);
+  }
 
   private readonly masterSwitchState = signal(false);
   /** The one flag that turns the whole feature off without losing which rules were on. */

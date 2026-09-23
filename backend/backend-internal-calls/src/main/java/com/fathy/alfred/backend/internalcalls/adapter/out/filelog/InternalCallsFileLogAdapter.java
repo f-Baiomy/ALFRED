@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.internalcalls.application.service.CallListSupport;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
@@ -245,7 +246,13 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
 
     /** Merges the outcome into the pending call (if this process is still the one that prepared it) and performs the one, single-shot disk write. */
     @Override
-    public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs) {
+    public boolean complete(String id, ResponseData response, String error, Double durationMs) {
+        return complete(id, response, error, durationMs, null);
+    }
+
+    @Override
+    public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs,
+                                         CallInterception interception) {
         CallRecord partial = pendingById.remove(id);
         boolean wasPending = partial != null;
         boolean hasError = error != null && !error.isBlank();
@@ -263,7 +270,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
                 // in between) - persist what the completion payload alone can offer rather than
                 // silently dropping it. serviceName unknown too in this narrow, accepted-gap case.
                 : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null);
-        save(resolved);
+        save(resolved.withInterception(interception));
         return wasPending;
     }
 

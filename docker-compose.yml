@@ -56,6 +56,16 @@ services:
       # backend on the request path (see proxy/breakpoints.py for why that is acceptable there
       # and nowhere else).
       - INTERCEPTION_API_URL=http://backend:5000
+      # Regex find/replace runs in a separate worker process (proxy/regex_worker.py), because
+      # CPython's re holds the GIL for the whole match - a thread could not stop a runaway pattern
+      # from freezing every connection this proxy serves. A match past this budget is abandoned.
+      - INTERCEPTION_REGEX_TIMEOUT_MS=2000
+      # Stored answers (recorded responses, uploaded files) are cached in memory up to this many
+      # bytes; beyond it they are read from disk per use. Sized well inside mem_limit (256m).
+      - INTERCEPTION_ANSWER_CACHE_BYTES=33554432
+      # The only peer whose X-Alfred-Resend-* headers are honoured (backend-resend). From any
+      # other client those headers are stripped and ignored, so a resend link cannot be forged.
+      - BACKEND_HOST=backend
     # Resolve supplier hostnames through explicit public DNS rather than Docker Desktop's relay to
     # the host's own resolvers. WHY: Windows assigns most interfaces the legacy site-local
     # placeholders fec0:0:0:ffff::1/2/3 (and link-local fe80::1), which answer nothing - only the
@@ -82,6 +92,8 @@ services:
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
       - ./proxy/interception.py:/home/mitmproxy/interception.py:ro
+      - ./proxy/regex_worker.py:/home/mitmproxy/regex_worker.py:ro
+      - ./proxy/ws_messages.py:/home/mitmproxy/ws_messages.py:ro
       - ./proxy/breakpoints.py:/home/mitmproxy/breakpoints.py:ro
       # The DIRECTORY, not the file. backend publishes the snapshot by writing a temp file beside
       # it and moving it into place, which is what stops a proxy ever reading a half-written rule
@@ -153,9 +165,21 @@ services:
       # file (see proxy/interception.py's Match).
       - INTERCEPTION_RULES_FILE=/home/mitmproxy/interception/rules.json
       - INTERCEPTION_API_URL=http://backend:5000
+      # Regex find/replace runs in a separate worker process (proxy/regex_worker.py), because
+      # CPython's re holds the GIL for the whole match - a thread could not stop a runaway pattern
+      # from freezing every connection this proxy serves. A match past this budget is abandoned.
+      - INTERCEPTION_REGEX_TIMEOUT_MS=2000
+      # Stored answers (recorded responses, uploaded files) are cached in memory up to this many
+      # bytes; beyond it they are read from disk per use. Sized well inside mem_limit (256m).
+      - INTERCEPTION_ANSWER_CACHE_BYTES=33554432
+      # The only peer whose X-Alfred-Resend-* headers are honoured (backend-resend). From any
+      # other client those headers are stripped and ignored, so a resend link cannot be forged.
+      - BACKEND_HOST=backend
     volumes:
       - ./proxy/log_and_route_reverse.py:/home/mitmproxy/log_and_route_reverse.py:ro
       - ./proxy/interception.py:/home/mitmproxy/interception.py:ro
+      - ./proxy/regex_worker.py:/home/mitmproxy/regex_worker.py:ro
+      - ./proxy/ws_messages.py:/home/mitmproxy/ws_messages.py:ro
       - ./proxy/breakpoints.py:/home/mitmproxy/breakpoints.py:ro
       # See the forward proxy's identical mount for why this is the directory and not the file.
       - ./proxy/interception:/home/mitmproxy/interception:ro
@@ -198,7 +222,10 @@ services:
       - "${BACKEND_DEBUG_PORT:-5006}:5006"
     environment:
       # Picked up automatically by the JVM at startup (no Dockerfile/CMD change needed).
-      - JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006
+      # allowRestrictedHeaders=host lets backend-resend send an inbound resend with
+      # Host: localhost:<listenPort>, so its original_url matches live traffic. It affects only
+      # java.net.http, and resend is that client's only user.
+      - JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006 -Djdk.httpclient.allowRestrictedHeaders=host
       # Recent calls now live here, written by backend itself after each webhook call from
       # the proxy - not read from the proxy's filesystem at all anymore.
       # RECENT_CALLS_FILE/COMMENTS_FILE/SESSION_CYCLES_FILE/SESSION_CYCLES_DIR/PROFILES_FILE/
@@ -269,11 +296,21 @@ services:
       # disagreeing about what is running.
       - INTERCEPTION_DB_FILE=/appdata/interception.db
       - INTERCEPTION_RULES_FILE=/appdata/interception/rules.json
+      # Per stored answer (uploaded file or copied recorded response). There is deliberately no
+      # total cap: an answer is deleted with the last rule that uses it (see docs/interception.md).
+      - INTERCEPTION_MAX_ANSWER_BYTES=10485760
+      # backend-resend sends an outbound resend through the forward-proxy listener its original
+      # call arrived on, so the project label and project-scoped rules match live traffic.
+      - FORWARD_PROXY_DEFAULT_PORT=8080
+      - FORWARD_PROXY_PORT_MAP=${FORWARD_PROXY_PORT_MAP:-}
     volumes:
       - ./backend/data:/appdata
       - ./proxy/reverse-proxy-enabled.flag:/appdata/reverse-proxy-enabled.flag
       # Writable here, read-only in both proxies - backend is the only writer.
       - ./proxy/interception:/appdata/interception
+      # mitmproxy's CA, read-only, used only by backend-resend's own SSLContext to send HTTPS
+      # through the forward proxy. The JVM's default truststore is left untouched.
+      - ./proxy/certs:/appdata/mitm-certs:ro
     depends_on:
       - proxy
     # Gives the JVM's -XX:MaxRAMPercentage (see backend/Dockerfile) a real ceiling to be a

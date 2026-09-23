@@ -54,7 +54,7 @@ Also:
 
 ## Phase 1: Setup
 
-- [ ] T000 **Gate (constitution: Development Workflow).** Build static HTML mocks in `mockups/`,
+- [X] T000 **Gate (constitution: Development Workflow).** Build static HTML mocks in `mockups/`,
   in the style of `mockups/interception-mock.html`, for:
   - `mockups/answer-picker-mock.html`: the recorded-call picker (outbound/inbound), the upload
     mode, and the keep/strip secrets dialog;
@@ -67,7 +67,7 @@ Also:
 
   Show the mocks to the user and wait for an explicit "start". **No frontend task (any task
   touching `FE/`) may begin before this approval.**
-- [ ] T001 Create module `backend/backend-resend/`:
+- [X] T001 Create module `backend/backend-resend/`:
   - `pom.xml`: copy the shape of `backend/backend-profiles/pom.xml`, with artifactId
     `backend-resend` and dependencies spring-boot-starter-web, spring-boot-starter-validation
     and backend-platform.
@@ -76,14 +76,14 @@ Also:
     `adapter/in/web` and `adapter/out/http`.
   - Register it in `backend/pom.xml` `<modules>`, and as a dependency in
     `backend/backend-app/pom.xml` and `backend/backend-architecture-test/pom.xml`.
-- [ ] T002 [P] In
+- [X] T002 [P] In
   `backend/backend-architecture-test/src/test/java/com/fathy/alfred/backend/architecture/HexagonalArchitectureTest.java`:
   - add `resendSliceMustNotDependOnOtherSlices`, forbidding `..backend.resend..` from depending
     on calls, internalcalls, comments, export, sessioncycles, profiles, settings, interception,
     calloverlap and redactions;
   - add `..backend.resend..` to every other slice's forbidden list, next to the existing
     `..backend.interception..` entries (:74, 90, 101, 119, 133, 147, 162, 177).
-- [ ] T003 [P] Edit `docker-compose.yml`:
+- [X] T003 [P] Edit `docker-compose.yml`:
   - **proxy and reverse-proxy**:
     - mount `./proxy/regex_worker.py` and `./proxy/ws_messages.py` read-only into
       `/home/mitmproxy/`, next to the existing `interception.py` mounts;
@@ -94,8 +94,8 @@ Also:
     - mount `./proxy/certs:/appdata/mitm-certs:ro`;
     - append `-Djdk.httpclient.allowRestrictedHeaders=host` to `JAVA_TOOL_OPTIONS`;
     - add env `INTERCEPTION_MAX_ANSWER_BYTES=10485760`.
-- [ ] T004 [P] Add `resend` to the API prefix alternation in `gateway/nginx.conf:33`: `(calls|…|health)` becomes `(calls|…|health|resend)`.
-- [ ] T005 [P] Add these keys, each with a one-line why-comment in the file's existing style, to
+- [X] T004 [P] Add `resend` to the API prefix alternation in `gateway/nginx.conf:33`: `(calls|…|health)` becomes `(calls|…|health|resend)`.
+- [X] T005 [P] Add these keys, each with a one-line why-comment in the file's existing style, to
   `backend/backend-app/src/main/resources/application.properties`:
   - `alfred.interception.max-answer-bytes=${INTERCEPTION_MAX_ANSWER_BYTES:10485760}`
   - `spring.servlet.multipart.max-file-size=${INTERCEPTION_MAX_ANSWER_BYTES:10485760}`
@@ -116,7 +116,7 @@ terminal flags from the backend, and the inbound interception record.
 
 ### Proxy engine
 
-- [ ] T006 [P] Write `PX/test_regex_worker.py` (stdlib unittest, `IsolatedAsyncioTestCase`),
+- [X] T006 [P] Write `PX/test_regex_worker.py` (stdlib unittest, `IsolatedAsyncioTestCase`),
   covering:
   - `sub` replaces all matches, and respects `count`;
   - `search` returns match presence;
@@ -124,7 +124,7 @@ terminal flags from the backend, and the inbound interception record.
     timeout + 500 ms;
   - after a timeout, the next call succeeds (the worker restarted);
   - 4 concurrent `sub` calls all complete.
-- [ ] T007 Create `PX/regex_worker.py`:
+- [X] T007 Create `PX/regex_worker.py`:
   - one persistent `multiprocessing` worker process (context `forkserver`), with a duplex
     `Pipe`;
   - `async def sub(pattern, flags, repl, text, count, timeout_ms)` returns
@@ -136,7 +136,7 @@ terminal flags from the backend, and the inbound interception record.
   - the worker keeps an LRU of 64 compiled patterns;
   - the timeout default is read from `INTERCEPTION_REGEX_TIMEOUT_MS`;
   - the module docstring explains why a process: CPython `re` holds the GIL (research R1).
-- [ ] T008 Add class `_Pattern` to `PX/interception.py`, built once in `_prepare_actions` from an
+- [X] T008 Add class `_Pattern` to `PX/interception.py`, built once in `_prepare_actions` from an
   action's `pattern`, `replacement`, `regex`, `caseSensitive` and `maxReplacements`:
   - **literal and case-sensitive**: uses `str.count` / `str.replace` in-process;
   - **literal and case-insensitive**: `re.escape` + `re.IGNORECASE` in-process (linear, so
@@ -146,7 +146,7 @@ terminal flags from the backend, and the inbound interception record.
     `'no match'` or `'pattern timed out after N ms'`;
   - rejects patterns longer than `limits.maxPatternLength` (default 500) at load time, and
     records the action as skipped.
-- [ ] T009 Make these `async def` in `PX/interception.py`:
+- [X] T009 Make these `async def` in `PX/interception.py`:
   - `InterceptionEngine.apply_request` (:933)
   - `apply_response` (:1132)
   - `_apply_request_action` (:958)
@@ -155,13 +155,13 @@ terminal flags from the backend, and the inbound interception record.
   - `_run_branch` (:1114)
 
   The existing handlers keep their synchronous bodies. Only the dispatch chain awaits.
-- [ ] T010 Await the engine in both addons:
+- [X] T010 Await the engine in both addons:
   - `PX/log_and_route.py:160`, `:326`
   - `PX/log_and_route_reverse.py:158`, `:295`
-- [ ] T011 Migrate every engine-calling test class in `PX/test_interception.py` to
+- [X] T011 Migrate every engine-calling test class in `PX/test_interception.py` to
   `unittest.IsolatedAsyncioTestCase`, through one `run = lambda coro: …` helper, or by making
   the test methods async. The whole existing suite must pass unchanged in meaning.
-- [ ] T012 Add `_skip(verdict, rule, kind, reason)` to `PX/interception.py`. It records
+- [X] T012 Add `_skip(verdict, rule, kind, reason)` to `PX/interception.py`. It records
   `f'skipped - {reason}'`. Use it in three places:
   - for an unknown kind in the request, response and message dispatch, with reason
     `unknown action <TYPE>` (FR-022);
@@ -173,11 +173,11 @@ terminal flags from the backend, and the inbound interception record.
     - REMOVE_RESPONSE_HEADER
     - SET_RESPONSE_JSON_FIELD
   - update the affected assertions in `PX/test_interception.py`.
-- [ ] T013 Write the failing tests first, in `BeforeAfterTest` in `PX/test_interception.py`:
+- [X] T013 Write the failing tests first, in `BeforeAfterTest` in `PX/test_interception.py`:
   - an `Authorization` header in `original_request`/`final_request` is written as
     `(value not logged · N chars)`;
   - `SET_QUERY_PARAM api_key=secret` does not show `secret` in `detail`.
-- [ ] T014 Implement masking in `PX/interception.py`:
+- [X] T014 Implement masking in `PX/interception.py`:
   - `RuleSet` reads `sensitiveHeaders`, `selfTargets` and `limits` from the snapshot
     (`_RulesCache._load`, :273-305), falling back to `SENSITIVE_HEADERS` (:87-90);
   - add `mask_value(value)`, which returns `f'(value not logged · {len(value)} chars)'`;
@@ -187,11 +187,11 @@ terminal flags from the backend, and the inbound interception record.
 
 ### Backend foundation
 
-- [ ] T015 [P] Create `BI/domain/model/SensitiveHeaders.java` with
+- [X] T015 [P] Create `BI/domain/model/SensitiveHeaders.java` with
   `public static final Set<String> NAMES`, holding the same eight names as
   `PX/interception.py:87-90`. The Javadoc says the list is published to the proxies in the
   snapshot, so it is the single source of truth.
-- [ ] T016 [P] Write the failing corpus test `BIT/domain/PatternSafetyTest.java`:
+- [X] T016 [P] Write the failing corpus test `BIT/domain/PatternSafetyTest.java`:
   - **accept**: `EUR`, `\d{4}-\d{2}`, `(foo|bar)`, `<Token>(.*?)</Token>`;
   - **reject**:
     - nested quantifiers: `(a+)+`, `(a*)*`, `(a|aa)+`, `(\w+\s?)*`;
@@ -199,7 +199,7 @@ terminal flags from the backend, and the inbound interception record.
     - `(?<=x)`, `a++`, `(?>x)`;
     - a pattern of 501 characters;
     - a pattern that does not compile.
-- [ ] T017 [P] Create `BI/domain/model/PatternSafety.java`, with
+- [X] T017 [P] Create `BI/domain/model/PatternSafety.java`, with
   `static List<String> problems(String pattern, boolean regex)`:
   - checks the length is 1..500;
   - when `regex` is true: `Pattern.compile` must succeed; named-group, lookbehind,
@@ -207,13 +207,13 @@ terminal flags from the backend, and the inbound interception record.
   - the nested-quantifier check is a character scanner that tracks group depth and whether a
     quantifier appeared inside a group that is itself quantified. It is not a regex.
   - T016 passes.
-- [ ] T018 Change the `switch` in `RuleValidator.validateAction`
+- [X] T018 Change the `switch` in `RuleValidator.validateAction`
   (`BI/domain/model/RuleValidator.java:122-219`) to have
   `default -> problems.add("Unknown action type " + action.type())`. Add a `RuleValidatorTest`
   case for it (`BIT/domain/RuleValidatorTest.java`).
-- [ ] T019 Add `MESSAGE` to `ActionType.Phase` (`BI/domain/model/ActionType.java`). Update the
+- [X] T019 Add `MESSAGE` to `ActionType.Phase` (`BI/domain/model/ActionType.java`). Update the
   Javadoc about phases.
-- [ ] T020 Create `BI/domain/model/SelfTargets.java`, a record holding `Set<String> hosts` and
+- [X] T020 Create `BI/domain/model/SelfTargets.java`, a record holding `Set<String> hosts` and
   `Set<String> hostPorts`, with `boolean includes(String host, Integer port)`. Then create
   `BI/adapter/out/rulesfile/SelfTargetsConfig.java`, a `@Configuration` that builds a
   `SelfTargets` bean from:
@@ -225,7 +225,7 @@ terminal flags from the backend, and the inbound interception record.
     - `8080`
     - every `listenPort` in `${INTERNAL_CALL_SERVICES:}`
   - `127.0.0.2:443`.
-- [ ] T021 Extend `FileRulesPublisherAdapter.publish` (`BI/adapter/out/rulesfile/FileRulesPublisherAdapter.java:54-58`) to write:
+- [X] T021 Extend `FileRulesPublisherAdapter.publish` (`BI/adapter/out/rulesfile/FileRulesPublisherAdapter.java:54-58`) to write:
   - `sensitiveHeaders`, from `SensitiveHeaders.NAMES`;
   - `selfTargets`, as a flat list of `host` and `host:port` strings;
   - `limits`: `{maxPatternLength:500, regexTimeoutMs:${INTERCEPTION_REGEX_TIMEOUT_MS:2000}}`.
@@ -238,27 +238,27 @@ terminal flags from the backend, and the inbound interception record.
 
 ### Inbound interception record (research R15)
 
-- [ ] T022 [P] Create `BIC/domain/model/CallInterception.java`, copying the shape of
+- [X] T022 [P] Create `BIC/domain/model/CallInterception.java`, copying the shape of
   `BC/domain/model/CallInterception.java:28-88`: `Applied`, `Http` and `isEmpty()` with
   `@JsonIgnore`. The Javadoc says the duplication is deliberate: the slice mirrors
   backend-calls and has no shared code.
-- [ ] T023 Add `CallInterception interception` as the last component of
+- [X] T023 Add `CallInterception interception` as the last component of
   `BIC/domain/model/CallRecord.java:35-49`. Add a constructor overload without it, following the
   `RuleAction` precedent, and update the positional call sites.
-- [ ] T024 Add `CallInterception interception` to
+- [X] T024 Add `CallInterception interception` to
   `BIC/adapter/in/web/dto/CompleteInternalCallRequestDto.java:10-14`, and pass it through
   `InternalCallsWebhookController` → `InternalCallsService.complete` →
   `InternalCallsFileLogAdapter`'s merge-and-append (lines 248+), so it is written into the
   NDJSON line.
-- [ ] T025 [P] In `BICT/adapter/out/filelog/InternalCallsFileLogAdapterTest.java`, add:
+- [X] T025 [P] In `BICT/adapter/out/filelog/InternalCallsFileLogAdapterTest.java`, add:
   - `interception` round-trips through append, compaction and re-read;
   - a line written without the key reads as `null`.
-- [ ] T026 Expose `interception` on the list DTO returned by `GET /internal-calls` and on the
+- [X] T026 Expose `interception` on the list DTO returned by `GET /internal-calls` and on the
   detail. The controller is `BIC/adapter/in/web/InternalCallsController.java`; mirror how
   backend-calls' `CallSummaryDto` carries it. In `BSC/`, make the internal-call capture keep
   `interception` on the captured copy, and add the field to the captured-call record and JSON
   file / SQLite column if one is missing.
-- [ ] T027 [P] Check that `toCallRecord` (`FE/shared/utils/call-utils.ts:21-43`, which maps
+- [X] T027 [P] Check that `toCallRecord` (`FE/shared/utils/call-utils.ts:21-43`, which maps
   `interception` at :40) maps inbound summaries too. Add a spec case to
   `FE/shared/utils/call-utils.spec.ts` for an `internal` source with an interception record.
   Also add export guard specs (FR-021) in `FE/shared/utils/markdown-builder.spec.ts`,
@@ -274,7 +274,7 @@ terminal flags from the backend, and the inbound interception record.
 
 ### Frontend foundation
 
-- [ ] T028 In `FE/core/state/interception-state.service.ts`, add `phaseOf(type)` and
+- [X] T028 In `FE/core/state/interception-state.service.ts`, add `phaseOf(type)` and
   `isTerminal(type)`, both computed from the `actionTypes` signal (:130-136).
   - Add `'MESSAGE'` to `ActionPhase` in `FE/core/models/interception.model.ts:13`.
   - Make `actionPhase` (:590) a fallback that is used only before action types load.
@@ -285,7 +285,7 @@ terminal flags from the backend, and the inbound interception record.
       `FE/components/import-rules-dialog/import-rules-dialog.component.ts:74-75`, which fixes
       the missing SIMULATE_FAILURE
     - the phase filter in `FE/components/interception-panel/interception-panel.component.ts:126-133`
-- [ ] T029 [P] Add spec cases for `phaseOf` and `isTerminal` in
+- [X] T029 [P] Add spec cases for `phaseOf` and `isTerminal` in
   `FE/core/state/interception-state.service.spec.ts`. They include `MOCK_RESPONSE`, which is
   REQUEST-phase, and a stubbed `ANSWER_WITH_RECORDED_CALL`, which is REQUEST-phase and terminal.
 
@@ -300,7 +300,7 @@ except for the skip records and the masking.
 
 **Independent Test**: quickstart checks 1 and 2.
 
-- [ ] T030 [P] [US1] Add class `ReplaceInBodyTest` to `PX/test_interception.py`, covering:
+- [X] T030 [P] [US1] Add class `ReplaceInBodyTest` to `PX/test_interception.py`, covering:
   - a literal replaces all matches;
   - `maxReplacements=1`;
   - case-insensitive matching;
@@ -320,32 +320,32 @@ except for the skip records and the masking.
     `text` setter records a re-encode, and assert that an edit on a `gzip` body goes through
     the setter, so the encoding is preserved. The real decoding is verified by quickstart
     check 1.
-- [ ] T031 [P] [US1] Add `RuleValidatorTest` cases in `BIT/domain/RuleValidatorTest.java`:
+- [X] T031 [P] [US1] Add `RuleValidatorTest` cases in `BIT/domain/RuleValidatorTest.java`:
   - a missing pattern;
   - a nested-quantifier regex rejected only when `regex=true`;
   - `maxReplacements` of 0 and of 10001 rejected;
   - a literal `$10.00` accepted.
-- [ ] T032 [US1] Add `REPLACE_IN_REQUEST_BODY(Phase.REQUEST)` and
+- [X] T032 [US1] Add `REPLACE_IN_REQUEST_BODY(Phase.REQUEST)` and
   `REPLACE_IN_RESPONSE_BODY(Phase.RESPONSE)` to `BI/domain/model/ActionType.java`. Add the
   fields `pattern`, `replacement`, `regex` (Boolean), `caseSensitive` (Boolean) and
   `maxReplacements` (Integer) to `BI/domain/model/RuleAction.java`:
   - keep the existing 13- and 14-arg constructors delegating to the new canonical one;
   - update `of()`;
   - `caseSensitive` defaults to true in the compact constructor.
-- [ ] T033 [US1] Add a case for both types to `RuleValidator.validateAction`: the pattern is
+- [X] T033 [US1] Add a case for both types to `RuleValidator.validateAction`: the pattern is
   required, `PatternSafety.problems(pattern, regex)` is applied, and `maxReplacements` must be
   1..10000.
-- [ ] T034 [US1] In `PX/interception.py`:
+- [X] T034 [US1] In `PX/interception.py`:
   - add both kinds to the action sets;
   - `_prepare_actions` stores `action['__pattern'] = _Pattern(action, limits)`;
   - the handlers `await pattern.replace(message.text)`, assign `message.text` only when the
     result is not None, and record `f'{n} replacement(s)'`;
   - there is a stream guard (`getattr(message, 'stream', False)` or `raw_content is None`).
-- [ ] T035 [US1] Frontend model, in `FE/core/models/interception.model.ts`: add both types to
+- [X] T035 [US1] Frontend model, in `FE/core/models/interception.model.ts`: add both types to
   `ActionType`; add `pattern`, `replacement`, `regex`, `caseSensitive` and `maxReplacements` to
   `RuleAction`; add `ACTION_LABELS` ("Find & replace in request body" / "…response body"); add
   `describeAction`, as ``replace "EUR" → "USD" (all)``, with a regex shown as `/…/`.
-- [ ] T036 [US1] Rule editor:
+- [X] T036 [US1] Rule editor:
   - add `isBodyReplace(type)` to `FE/components/rule-editor/rule-editor.component.ts`, next to
     :860-904;
   - extend `onText` to accept `pattern` and `replacement`, and add `onToggle(path, field)` for
@@ -355,7 +355,7 @@ except for the skip records and the masking.
   - add a field block in `FE/components/rule-action-card/rule-action-card.component.html`, with
     a pattern input, a replacement input, a "Regex" checkbox with a hint about `\1`, a
     "Match case" checkbox and an optional max count.
-- [ ] T037 [P] [US1] Add `ACTION_HELP` entries in `FE/shared/utils/interception-help.ts`:
+- [X] T037 [P] [US1] Add `ACTION_HELP` entries in `FE/shared/utils/interception-help.ts`:
   - worked examples on a SOAP body (`<Currency>EUR</Currency>`) and on a plain-text date;
   - a `warning` explaining literal versus regex and the timeout.
 
@@ -367,7 +367,7 @@ except for the skip records and the masking.
 
 **Independent Test**: quickstart check 3.
 
-- [ ] T038 [P] [US2] In `PX/test_interception.py`:
+- [X] T038 [P] [US2] In `PX/test_interception.py`:
   - extend `FakeRequest` (:67-83) with `scheme`, `port`, `host_header`, a `url` setter and a
     `pretty_url` recompute;
   - add `RewriteUrlTest`, covering:
@@ -378,28 +378,28 @@ except for the skip records and the masking.
       `refused - target is Alfred itself` and leaves the request unchanged;
   - add `SetMethodTest`;
   - add SAMPLES entries.
-- [ ] T039 [P] [US2] Add `RuleValidatorTest` cases:
+- [X] T039 [P] [US2] Add `RuleValidatorTest` cases:
   - no target part and no pattern;
   - a bad scheme, or a port of 0 or 65536;
   - a path without a leading `/`;
   - a host of `backend`, or `localhost:5000`, rejected through a supplied `SelfTargets`;
   - `SET_METHOD` with a value of `GE T`.
-- [ ] T040 [US2] Create `BI/domain/model/UrlTarget.java`, a record
+- [X] T040 [US2] Create `BI/domain/model/UrlTarget.java`, a record
   `(String scheme, String host, Integer port, String path)` with `@JsonInclude(NON_NULL)`. Add
   the RuleAction fields `target`, `keepHostHeader` and `method`. Add
   `REWRITE_URL(Phase.REQUEST)` and `SET_METHOD(Phase.REQUEST)` to `ActionType`.
-- [ ] T041 [US2] Add the overload `RuleValidator.validate(InterceptionRule, SelfTargets)`, which
+- [X] T041 [US2] Add the overload `RuleValidator.validate(InterceptionRule, SelfTargets)`, which
   keeps `validate(rule)` delegating with an empty `SelfTargets`, and add the REWRITE_URL and
   SET_METHOD cases. `BI/application/service/InterceptionRulesService.java` injects
   `SelfTargets` and calls the overload in create, update and import (:226-231).
-- [ ] T042 [US2] Add handlers in `PX/interception.py`:
+- [X] T042 [US2] Add handlers in `PX/interception.py`:
   - **REWRITE_URL**: the structured form assigns the parts that are set; the pattern form uses
     `_Pattern` on `request.pretty_url` and then assigns `request.url`. The final
     `host`/`host:port` is checked against the ruleset's `self_targets` and refused on a match.
     Unless `keepHostHeader`, `request.host_header` is set to the new authority. The record is
     `f'{old_url} → {new_url}'`.
   - **SET_METHOD**: upper-cases the method, and records `f'{old} → {new}'`.
-- [ ] T043 [US2] Frontend:
+- [X] T043 [US2] Frontend:
   - add the types, fields, labels and a `describeAction` case in `FE/core/models/interception.model.ts`;
   - add an `isRewrite` predicate and handlers in `rule-editor.component.ts`;
   - add a field block in `rule-action-card.component.html`:
@@ -408,7 +408,7 @@ except for the skip records and the masking.
     - a "Keep original Host header" checkbox;
     - the pattern inputs, reusing the US1 inputs;
     - a method select for SET_METHOD (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, or custom).
-- [ ] T044 [P] [US2] Add help entries for REWRITE_URL (production → staging supplier) and
+- [X] T044 [P] [US2] Add help entries for REWRITE_URL (production → staging supplier) and
   SET_METHOD in `FE/shared/utils/interception-help.ts`. The warning names the self-target
   refusal.
 
@@ -418,7 +418,7 @@ except for the skip records and the masking.
 
 **Independent Test**: quickstart check 4.
 
-- [ ] T045 [P] [US3] Add tests to `PX/test_interception.py`:
+- [X] T045 [P] [US3] Add tests to `PX/test_interception.py`:
   - `RemoveJsonFieldTest`: `segments[*].cabin` removed from 3 segments, other fields untouched;
     `items[1]` removes the element; a missing path records `skipped - path not found` with the
     text identical;
@@ -430,22 +430,22 @@ except for the skip records and the masking.
     holding REMOVE_REQUEST_JSON_FIELD;
   - **realistic size (SC-006)**: removing `segments[*].cabin` from a 5 MB generated itinerary
     with 20,000 segments leaves every other field intact.
-- [ ] T046 [P] [US3] Add `RuleValidatorTest` cases: a remove path ending in `[*]` is rejected;
+- [X] T046 [P] [US3] Add `RuleValidatorTest` cases: a remove path ending in `[*]` is rejected;
   an invalid path is rejected; SET_REQUEST_BODY with a null body is rejected.
-- [ ] T047 [US3] Add `REMOVE_REQUEST_JSON_FIELD`, `REMOVE_RESPONSE_JSON_FIELD` and
+- [X] T047 [US3] Add `REMOVE_REQUEST_JSON_FIELD`, `REMOVE_RESPONSE_JSON_FIELD` and
   `SET_REQUEST_BODY` to `ActionType`. Add the `contentType` field to `RuleAction`. Add the
   validator cases, reusing `isValidPath` (`RuleValidator.java:353-377`).
-- [ ] T048 [US3] In `PX/interception.py`:
+- [X] T048 [US3] In `PX/interception.py`:
   - add `remove_json_field(text, path)` next to `set_json_field` (:819-840), reusing
     `_parse_path`. It returns None when nothing was removed;
   - add the handlers, which assign `.text` only on change.
-- [ ] T049 [US3] Frontend:
+- [X] T049 [US3] Frontend:
   - add the types, labels and `describeAction` cases;
   - reuse the JSON path input: an `isJsonPathOnly` predicate for the remove types;
   - extend `isBodyOnly` to SET_REQUEST_BODY, with an optional content-type input;
   - add `defaultsFor` entries;
   - edit the card html.
-- [ ] T050 [P] [US3] Add help entries: "field missing vs null", on an itinerary payload.
+- [X] T050 [P] [US3] Add help entries: "field missing vs null", on an itinerary payload.
 
 **Checkpoint**: MVP scope (US1 to US3) is complete. Stop, validate and demo here.
 
@@ -791,7 +791,7 @@ including inbound sources and the keep/strip prompt.
 
 ### New slice backend-resend
 
-- [ ] T102 [US8] Create the domain:
+- [ ] T102 [US8] Remove the temporary `.allowEmptyShould(true)` from `resendSliceMustNotDependOnOtherSlices` in `HexagonalArchitectureTest.java` (added in T002 while the slice had no classes). Create the domain:
   - `BR/domain/model/ResendRequest.java`: `(direction, callId, cycleId, ResendEdits edits,
     boolean useCurrentSession)`;
   - `BR/domain/model/ResendEdits.java`: `(method, url, Map<String,String> headers, String body)`,

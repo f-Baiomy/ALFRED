@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.internalcalls.domain.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,9 +27,19 @@ public record CallSummary(
         CallLifecycleStatus state,
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
-        @JsonProperty("service_name") String serviceName
+        @JsonProperty("service_name") String serviceName,
+        /** Carried into the list so a collapsed card can show its intercepted badge without a detail fetch - as backend-calls' summary does. */
+        @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception
 ) {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    /** Pre-interception shape - every call site built before that field existed gets null. */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId, String serviceName) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId,
+                operationId, serviceName, null);
+    }
 
     /** Pre-service-name shape - every call site built before that field existed gets null (treated as "unknown" by every reader). */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
@@ -53,7 +64,7 @@ public record CallSummary(
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.interception());
     }
 
     /**

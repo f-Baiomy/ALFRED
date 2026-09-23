@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alfred — Rule editor: match tests, new actions, Messages lane (mockup)</title>
+<style>
+:root{
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+  --card-elevated: linear-gradient(160deg,#141a45 0%,#101636 100%);
+  --card-inner:#070a24; --panel-bg: rgba(10,14,42,.55);
+  --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-light:#c4b5fd; --cyan:#22d3ee;
+  --text:#e5e9f5; --text-dim:#93a0c2; --text-faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-attachment:fixed;min-height:100vh;
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);font-size:14px}
+.mockbar{background:#1c1340;border-bottom:1px solid var(--border-strong);padding:8px 16px;
+  font-size:12px;color:var(--purple-light);display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.mockbar b{font-weight:600;color:#fff}
+.mockbar button{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit}
+.mockbar button.on{background:var(--purple);color:#fff;border-color:var(--purple)}
+nav{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:0 20px;display:flex;gap:4px}
+nav a{padding:13px 15px;font-size:13px;color:var(--text-dim);text-decoration:none;border-bottom:2px solid transparent}
+nav a.active{color:#fff;border-bottom-color:var(--purple)}
+.wrap{max-width:1040px;margin:0 auto;padding:22px 20px 60px}
+.screen{display:none}.screen.show{display:block}
+h2{font-size:15px;font-weight:600;margin:0 0 6px}
+.lead{color:var(--text-dim);font-size:12.5px;margin:0 0 18px;line-height:1.55}
+.editor{background:var(--card-elevated);border:1px solid var(--border-strong);border-radius:13px;overflow:hidden}
+.ehead{background:var(--panel-bg);padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.ehead b{font-size:14.5px}
+.ebody{padding:18px}
+.sect{font-size:10.5px;letter-spacing:1.3px;color:var(--text-faint);text-transform:uppercase;margin:0 0 11px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:11px}
+label small{display:block;font-size:11.5px;color:var(--text-dim);margin-bottom:5px}
+.inp{background:#0b0f30;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:12.5px;
+  color:var(--text);font-family:ui-monospace,Consolas,monospace;width:100%}
+.sel{font-family:inherit;display:flex;justify-content:space-between}
+.hr{border-top:1px solid var(--border);margin:18px 0}
+.tests{border:1px solid rgba(34,211,238,.35);background:rgba(34,211,238,.04);border-radius:10px;padding:12px 14px}
+.tests .th{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.tests .th b{font-size:13px}
+.trow{display:grid;grid-template-columns:40px 110px 170px 140px 1fr 26px;gap:8px;align-items:center;margin-bottom:7px}
+.trow .and{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.8px;text-align:center}
+.trow .x{color:var(--text-faint);text-align:center;cursor:pointer}
+.masked{color:var(--text-faint);font-style:italic}
+.btn{background:transparent;border:1px solid var(--border-strong);color:var(--purple-light);
+  border-radius:7px;padding:6px 13px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.btn.sm{padding:4px 10px;font-size:11.5px}
+.btn.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+.says{margin-top:12px;background:var(--card-inner);border:1px solid var(--border);border-radius:8px;padding:10px 12px;
+  font-size:12.5px;color:var(--text-dim);line-height:1.6}
+.says b{color:var(--text)}
+.says em{color:var(--cyan);font-style:normal}
+.why{margin-top:10px;font-size:11.5px;color:var(--amber);line-height:1.55}
+.lane{border:1px solid var(--border);border-radius:11px;margin-bottom:12px;overflow:hidden}
+.lane .lh{padding:10px 14px;background:var(--panel-bg);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.lane .lh b{font-size:12px;letter-spacing:1.1px;text-transform:uppercase;color:var(--text-dim)}
+.lane.msg{border-color:rgba(34,211,238,.4)}
+.lane.msg .lh b{color:var(--cyan)}
+.lane .lb{padding:12px 14px}
+.act{background:var(--card-inner);border:1px solid var(--border);border-radius:9px;padding:11px 13px;margin-bottom:8px}
+.acthead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.acthead b{font-size:13px;font-weight:600}
+.num{background:rgba(139,92,246,.2);color:var(--purple-light);font-size:10px;width:19px;height:19px;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;margin-right:8px}
+.info{color:var(--text-faint);margin-left:6px;font-size:12px}
+.arow{display:grid;grid-template-columns:1fr 1fr 150px;gap:9px;margin-top:10px}
+.opts{display:flex;gap:16px;margin-top:9px;font-size:12px;color:var(--text-dim)}
+.box{width:14px;height:14px;border:1px solid var(--border-strong);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;vertical-align:-2px;margin-right:6px}
+.box.on{background:var(--purple);border-color:var(--purple);color:#fff}
+.pills{display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-size:11.5px;padding:5px 10px;border-radius:7px;border:1px dashed var(--border-strong);color:var(--purple-light);cursor:pointer;white-space:nowrap}
+.pill.new{border-style:solid;background:rgba(34,211,238,.08);border-color:rgba(34,211,238,.4);color:var(--cyan)}
+.pill.term{border-color:rgba(251,191,36,.5);color:var(--amber)}
+.hostbar{text-align:center;font-size:11px;color:var(--text-faint);margin:2px 0 12px;letter-spacing:.5px}
+.hint{font-size:11.5px;color:var(--text-faint);margin-top:8px;line-height:1.5}
+.err{margin-top:8px;background:rgba(248,113,113,.09);border:1px solid rgba(248,113,113,.45);border-radius:7px;padding:8px 11px;color:var(--red);font-size:12px}
+.legend{font-size:11.5px;color:var(--text-dim);margin:0 0 12px}
+.legend span{margin-right:14px}
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCKUP</b> &mdash; static HTML, not wired to anything. Rule editor additions (US1&ndash;US5, US9&ndash;US11).
+  <span style="margin-left:auto"></span>
+  <button class="on" onclick="show('s1',this)">1 &middot; &ldquo;Only when&hellip;&rdquo; match tests</button>
+  <button onclick="show('s2',this)">2 &middot; New actions in each lane</button>
+  <button onclick="show('s3',this)">3 &middot; Find &amp; replace card</button>
+  <button onclick="show('s4',this)">4 &middot; Messages lane</button>
+</div>
+<nav><a href="#">Live Calls</a><a href="#">Session Cycles</a><a href="#" class="active">Interception</a><a href="#">Profiles</a><a href="#">Settings</a></nav>
+
+<div class="wrap">
+
+<!-- 1 -->
+<section id="s1" class="screen show">
+  <h2>Match tests: the rule applies only to calls that carry this</h2>
+  <p class="lead">A new block under the existing match fields. Tests run <b>after</b> direction, project, method, host and
+  path, so a rule that fails on host costs nothing extra. All tests must hold. Cookie and secret-header values are masked in the
+  sentence below, and in logs and exports.</p>
+  <div class="editor">
+    <div class="ehead"><b>Rule &middot; Force supplier timeout for the retry test</b><span style="font-size:12px;color:var(--text-dim)">priority 10 &middot; <span style="color:var(--amber)">stop processing</span></span></div>
+    <div class="ebody">
+      <div class="sect">Match</div>
+      <div class="grid">
+        <label><small>Direction</small><div class="inp sel">Outbound &#9662;</div></label>
+        <label><small>Host</small><input class="inp" value="api.supplier.com" /></label>
+        <label><small>Path contains</small><input class="inp" value="/v2/bookings" /></label>
+        <label><small>Methods</small><div class="inp sel">POST &#9662;</div></label>
+      </div>
+      <div class="hr"></div>
+      <div class="tests">
+        <div class="th"><b>Only when&hellip; <span class="info">ⓘ</span></b><span style="font-size:11.5px;color:var(--text-faint)">every test must hold</span></div>
+        <div class="trow"><span class="and">if</span><div class="inp sel">Header &#9662;</div><input class="inp" value="x-test-scenario" /><div class="inp sel">equals &#9662;</div><input class="inp" value="timeout" /><span class="x">&times;</span></div>
+        <div class="trow"><span class="and">and</span><div class="inp sel">Query &#9662;</div><input class="inp" value="mode" /><div class="inp sel">equals &#9662;</div><input class="inp" value="sandbox" /><span class="x">&times;</span></div>
+        <div class="trow"><span class="and">and</span><div class="inp sel">Cookie &#9662;</div><input class="inp" value="SESSIONID" /><div class="inp sel">exists &#9662;</div><input class="inp masked" value="— no value needed —" disabled /><span class="x">&times;</span></div>
+        <button class="btn sm">+ Add test</button>
+      </div>
+      <div class="says">This rule applies to <b>outbound POST</b> calls to <em>api.supplier.com</em> whose path contains <em>/v2/bookings</em>,
+        <b>only when</b> header <em>x-test-scenario</em> equals <em>"timeout"</em>, query <em>mode</em> equals <em>"sandbox"</em>, and cookie <em>SESSIONID</em> exists.</div>
+      <div class="why">&#9432; Why here and not in a condition: this rule has <b>stop processing</b> on. In a condition, the rule would still
+        match every booking call and stop the later rules for all of them. As a match test, calls without the header go on to the next rule.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="s2" class="screen">
+  <h2>Where the new actions appear</h2>
+  <p class="lead">Each action's lane comes from the backend (<code>/interception/action-types</code>), not from its name.
+  Solid cyan pills are new; amber ones end the request.</p>
+  <div class="legend"><span><span class="pill new" style="padding:2px 8px">new</span></span><span><span class="pill term" style="padding:2px 8px">ends request</span></span><span><span class="pill" style="padding:2px 8px">existing</span></span></div>
+  <div class="lane"><div class="lh"><b>Request &mdash; before the host</b></div><div class="lb"><div class="pills">
+    <span class="pill">Delay</span><span class="pill">Set header</span><span class="pill">Remove header</span><span class="pill">Set query param</span><span class="pill">Remove query param</span><span class="pill">Set JSON field</span>
+    <span class="pill new">Remove JSON field</span><span class="pill new">Find &amp; replace in body</span><span class="pill new">Set body</span><span class="pill new">Rewrite URL</span><span class="pill new">Set method</span>
+    <span class="pill new">Set cookie</span><span class="pill new">Remove cookie</span><span class="pill new">Set form field</span><span class="pill new">Remove form field</span>
+    <span class="pill new">Disable cache</span><span class="pill new">Disable compression</span><span class="pill new">Set trailer</span><span class="pill new">Remove trailer</span>
+    <span class="pill">Send to host</span><span class="pill">Pause</span><span class="pill">If&hellip;</span>
+    <span class="pill term">Mock response</span><span class="pill term">Simulate failure</span><span class="pill term new">Answer with recorded call</span><span class="pill term new">Answer with file</span>
+  </div></div></div>
+  <div class="hostbar">── the host ──</div>
+  <div class="lane"><div class="lh"><b>Response &mdash; after the host</b></div><div class="lb"><div class="pills">
+    <span class="pill">Delay</span><span class="pill">Set status</span><span class="pill">Set header</span><span class="pill">Remove header</span><span class="pill">Set JSON field</span><span class="pill">Set body</span><span class="pill">Replace response</span>
+    <span class="pill new">Remove JSON field</span><span class="pill new">Find &amp; replace in body</span><span class="pill new">Set cookie</span><span class="pill new">Remove cookie</span>
+    <span class="pill new">Set encoding</span><span class="pill new">Replace with recorded response</span><span class="pill new">Set trailer</span><span class="pill new">Remove trailer</span>
+    <span class="pill">Pause</span><span class="pill">If&hellip;</span>
+  </div></div></div>
+  <div class="lane msg"><div class="lh"><b>Messages &mdash; WebSocket, after the handshake</b><span style="font-size:11px;color:var(--text-faint)">shown only when the match can cover a WebSocket</span></div><div class="lb"><div class="pills">
+    <span class="pill new">Find &amp; replace in message</span><span class="pill new">Drop message</span><span class="pill new">Delay message</span>
+  </div><div class="hint">No &ldquo;If&hellip;&rdquo; here: conditions test requests and responses, not messages (FR-014).</div></div></div>
+</section>
+
+<!-- 3 -->
+<section id="s3" class="screen">
+  <h2>Find &amp; replace: literal by default</h2>
+  <p class="lead">Regex is opt-in. With regex on, the pattern is checked at save time. Patterns that can run away are
+  refused, and anything that still runs long is stopped after 2 s. The match is then recorded as skipped and does not delay other calls.</p>
+  <div class="editor"><div class="ebody">
+    <div class="act">
+      <div class="acthead"><span><span class="num">2</span><b>Find &amp; replace in response body</b><span class="info">ⓘ</span></span><span style="font-size:11px;color:var(--text-faint)">response</span></div>
+      <div class="arow"><label><small>Find</small><input class="inp" value="&lt;Currency&gt;EUR&lt;/Currency&gt;" /></label>
+        <label><small>Replace with</small><input class="inp" value="&lt;Currency&gt;USD&lt;/Currency&gt;" /></label>
+        <label><small>At most</small><input class="inp" placeholder="all" /></label></div>
+      <div class="opts"><span><span class="box"></span>Regex</span><span><span class="box on">&#10003;</span>Match case</span></div>
+      <div class="hint">Literal: characters like <code>$</code>, <code>.</code> and <code>(</code> match themselves.</div>
+    </div>
+    <div class="act">
+      <div class="acthead"><span><span class="num">3</span><b>Find &amp; replace in response body</b></span><span style="font-size:11px;color:var(--text-faint)">response &middot; regex</span></div>
+      <div class="arow"><label><small>Find (regex)</small><input class="inp" value="(\w+\s?)*$" /></label>
+        <label><small>Replace with</small><input class="inp" value="\1" /></label>
+        <label><small>At most</small><input class="inp" placeholder="all" /></label></div>
+      <div class="opts"><span><span class="box on">&#10003;</span>Regex</span><span><span class="box on">&#10003;</span>Match case</span></div>
+      <div class="err">&#10007; This pattern repeats a group that itself repeats: <code>(\w+\s?)*</code>. On a long body it can take minutes. Rewrite it
+        without the nested repeat, for example <code>[\w\s]*$</code>.</div>
+    </div>
+  </div></div>
+</section>
+
+<!-- 4 -->
+<section id="s4" class="screen">
+  <h2>Messages lane</h2>
+  <p class="lead">Message actions apply to every message on a WebSocket whose opening request the rule matched. Each action picks
+  a direction. A delay holds later messages on the same connection only, in order.</p>
+  <div class="lane msg"><div class="lh"><b>Messages &mdash; WebSocket, after the handshake</b></div><div class="lb">
+    <div class="act">
+      <div class="acthead"><span><span class="num">1</span><b>Find &amp; replace in message</b></span><div class="inp sel" style="width:150px">&darr; Server &#9662;</div></div>
+      <div class="arow"><label><small>Find</small><input class="inp" value="&quot;beta&quot;:true" /></label><label><small>Replace with</small><input class="inp" value="&quot;beta&quot;:false" /></label><label><small>At most</small><input class="inp" placeholder="all" /></label></div>
+    </div>
+    <div class="act">
+      <div class="acthead"><span><span class="num">2</span><b>Drop message</b></span><div class="inp sel" style="width:150px">&uarr; Client &#9662;</div></div>
+      <div class="arow" style="grid-template-columns:1fr"><label><small>Only messages containing (literal, optional)</small><input class="inp" value="&quot;op&quot;:&quot;ping&quot;" /></label></div>
+    </div>
+    <div class="act">
+      <div class="acthead"><span><span class="num">3</span><b>Delay message</b></span><div class="inp sel" style="width:150px">&#8645; Both &#9662;</div></div>
+      <div class="arow" style="grid-template-columns:200px"><label><small>Delay (ms)</small><input class="inp" value="2000" /></label></div>
+    </div>
+    <span class="pill new">+ Find &amp; replace in message</span> <span class="pill new">+ Drop message</span> <span class="pill new">+ Delay message</span>
+  </div></div>
+</section>
+
+</div>
+<script>
+function show(id,btn){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('show')});
+  document.getElementById(id).classList.add('show');
+  document.querySelectorAll('.mockbar button').forEach(function(b){b.classList.remove('on')});
+  btn.classList.add('on');window.scrollTo(0,0);
+}
+document.querySelectorAll('.box').forEach(function(b){
+  b.addEventListener('click',function(){b.classList.toggle('on');b.innerHTML=b.classList.contains('on')?'&#10003;':''});
+});
+</script>
+</body>
+</html>
