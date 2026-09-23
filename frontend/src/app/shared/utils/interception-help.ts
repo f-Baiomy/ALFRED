@@ -148,6 +148,16 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     warning:
       'If the response carried secrets (Set-Cookie, Authorization…) you choose to keep or strip them. Kept secrets are served to every caller and travel with the rule: Export and Duplicate include them in plain text.',
   },
+  ANSWER_WITH_FILE: {
+    title: 'Answer with a file',
+    code: 'ANSWER_WITH_FILE',
+    what: 'Answers the call with a file you upload - served byte for byte, with the status you choose - and never contacts the host. For large or binary fixtures: a PDF, an image, a 200 KB JSON payload.',
+    examples: [
+      { from: 'upload fares.json · 200', to: 'every matching call gets that file' },
+      { from: 'a 12 MB file', to: 'refused: stored answers are at most 10 MB' },
+    ],
+    warning: 'The content type you give is the one served, whatever the file\'s extension says.',
+  },
   SET_METHOD: {
     title: 'Set method',
     code: 'SET_METHOD',
