@@ -16,6 +16,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
+import com.fathy.alfred.backend.sessioncycles.domain.model.LegacyCycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SessionCyclesServiceTest {
@@ -313,7 +315,7 @@ class SessionCyclesServiceTest {
     void removeCallDropsAnySpacerAnchoredToTheRemovedCallSoItDoesNotBecomeUnreachable() {
         // "call-1" here is the CapturedCall WRAPPER id (what removeCall/removeById key on) -
         // captured(call("t1")) mints one as "captured-t1", wrapping underlying call "id-t1". A
-        // spacer's beforeCallId anchors to the underlying id, so dropAnchorsTo must be called with
+        // spacer's afterCallId anchors to the underlying id, so dropAnchorsTo must be called with
         // "id-t1", not the wrapper id "captured-t1" this test removes by.
         CapturedCall captured = captured(call("t1"));
         when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured));
@@ -371,6 +373,34 @@ class SessionCyclesServiceTest {
         when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(spacer));
 
         assertThat(service.listSpacers("c1")).contains(List.of(spacer));
+    }
+
+    @Test
+    void listSpacersConvertsLegacySpacersToTheCallAboveThemAcrossOutboundAndInboundCalls() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        CallRecord outbound = callWithId("out-1", "2026-01-01T00:00:01Z");
+        CallRecord pinnedTo = callWithId("out-2", "2026-01-01T00:00:03Z");
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(outbound), captured(pinnedTo)));
+        com.fathy.alfred.backend.internalcalls.domain.model.CallRecord inbound = new com.fathy.alfred.backend.internalcalls.domain.model.CallRecord(
+                "in-1", "https://wildfly-proxy/x", "https://wildfly/x", "POST", null, "2026-01-01T00:00:02Z", 1.0, null, null);
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of(new CapturedInternalCall("captured-in-1", "2026-01-01T00:00:02Z", inbound)));
+        when(spacersStore.findLegacyByCycle("c1")).thenReturn(List.of(new LegacyCycleSpacer("s1", "out-2", "2026-01-01T00:00:03Z")));
+
+        service.listSpacers("c1");
+
+        // Before out-2 means after whatever came right before it - here the inbound call.
+        verify(spacersStore).move("c1", "s1", "in-1", "2026-01-01T00:00:02Z");
+    }
+
+    @Test
+    void listSpacersDoesNotLoadCallsWhenNoSpacerIsLegacy() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(spacersStore.findLegacyByCycle("c1")).thenReturn(List.of());
+
+        service.listSpacers("c1");
+
+        verify(capturedCallsStore, never()).findAllByCycle(any());
+        verify(spacersStore, never()).move(any(), any(), any(), any());
     }
 
     @Test
@@ -448,49 +478,13 @@ class SessionCyclesServiceTest {
     }
 
     @Test
-    void copyIntoReAnchorsAnyTrailingSpacerToTheFirstNewlyAddedCallSoItStopsSlidingPastNewOnes() {
+    void copyIntoNeverTouchesSpacersSinceTheyAreAnchoredToTheCallAboveThemAndNewCallsLandBelow() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
-        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z", null);
-        // The real store would stop returning this as trailing once move() re-anchors it - the mock
-        // has no state of its own, so this simulates that: trailing on the first lookup (before the
-        // first call in the batch is captured), pinned by the second.
-        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing), List.of());
-
-        CallRecord a = call("t1");
-        CallRecord b = call("t2");
-        service.copyInto("c1", List.of(a, b));
-
-        // Only re-anchored once, to the FIRST call of the batch - not re-pointed again for every
-        // call added after it, which would just have it chase the newest one forever instead of
-        // staying fixed at the boundary the user actually drew.
-        verify(spacersStore, org.mockito.Mockito.times(1)).move(eq("c1"), eq("s1"), any(), any());
-        verify(spacersStore).move("c1", "s1", a.id(), a.timestamp());
-    }
-
-    @Test
-    void copyIntoDoesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
-        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
-        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z", null);
-        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing));
-        CallRecord optionsCall = new CallRecord("id-t1", "https://a.com-proxy/x", "https://a.com/x", "OPTIONS", null, "t1", 1.0, null, null);
-
-        service.copyInto("c1", List.of(optionsCall));
-
-        verify(spacersStore, never()).move(any(), any(), any(), any());
-    }
-
-    @Test
-    void copyIntoDoesNotRePinASpacerWhoseAnchorCallWasDeletedSinceItIsStillPlacedByItsTimestamp() {
-        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
-        CycleSpacer orphaned = new CycleSpacer("s1", "c1", "Anchor was deleted", null, "2026-01-01T00:00:00Z", "2026-01-01T00:00:03Z");
-        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(orphaned));
 
         service.copyInto("c1", List.of(new CallRecord("id-t1", "https://a.com-proxy/x", "https://a.com/x", "GET", null, "t1", 1.0, null, null)));
 
-        verify(spacersStore, never()).move(any(), any(), any(), any());
+        verifyNoInteractions(spacersStore);
     }
 
     @Test

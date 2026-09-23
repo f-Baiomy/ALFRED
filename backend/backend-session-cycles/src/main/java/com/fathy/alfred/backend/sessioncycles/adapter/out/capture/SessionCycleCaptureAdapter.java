@@ -4,9 +4,7 @@ import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
-import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
-import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import org.springframework.stereotype.Component;
@@ -35,24 +33,19 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
-    private final CycleSpacersStorePort spacersStore;
 
     /** Which cycles captured a given (still in-progress) call id at prepare time - consumed and removed once that call completes. Only ever populated when the storage adapter supports two-phase capture. */
     private final Map<String, List<String>> capturedCycleIdsByCallId = new ConcurrentHashMap<>();
 
-    public SessionCycleCaptureAdapter(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore, CycleSpacersStorePort spacersStore) {
+    public SessionCycleCaptureAdapter(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore) {
         this.metadataStore = metadataStore;
         this.capturedCallsStore = capturedCallsStore;
-        this.spacersStore = spacersStore;
     }
 
     @Override
     public List<String> onNewCall(CallRecord call) {
         List<String> cycleIds = recordingCycleIds();
-        cycleIds.forEach(cycleId -> {
-            capturedCallsStore.append(cycleId, call);
-            pinTrailingSpacersTo(cycleId, call);
-        });
+        cycleIds.forEach(cycleId -> capturedCallsStore.append(cycleId, call));
         return cycleIds;
     }
 
@@ -64,43 +57,11 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
             return List.of();
         }
         List<String> cycleIds = recordingCycleIds();
-        cycleIds.forEach(cycleId -> {
-            capturedCallsStore.append(cycleId, call);
-            pinTrailingSpacersTo(cycleId, call);
-        });
+        cycleIds.forEach(cycleId -> capturedCallsStore.append(cycleId, call));
         if (!cycleIds.isEmpty()) {
             capturedCycleIdsByCallId.put(call.id(), cycleIds);
         }
         return cycleIds;
-    }
-
-    /**
-     * A spacer with beforeCallId null renders after every captured call so far - right for a
-     * spacer added while it really is the last one, but left alone it would also render after
-     * every call captured LATER, sliding past new live traffic instead of staying where the user
-     * put it (confirmed live: adding a spacer at the end of a RECORDING cycle, then letting more
-     * traffic capture into it, showed each new call appearing below the spacer instead of above
-     * it). Freezes it the first time anything is captured after it, by re-anchoring every
-     * still-trailing spacer to sit right before the call just captured - idempotent per call,
-     * since a spacer that's already anchored to a real id is no longer trailing and is left alone.
-     * Mirrors SessionCyclesService#pinTrailingSpacersTo, called from its own (manual copy/import)
-     * capture path - kept as a small duplicate rather than a cross-adapter call, since this class
-     * only otherwise depends on ports, not the application service.
-     *
-     * <p>Never anchors to an OPTIONS preflight - see SessionCyclesService#pinTrailingSpacersTo's
-     * doc for why (confirmed live: a spacer pinned to one simply vanished from every view, since
-     * OPTIONS calls are hidden by default and the merge can't inline a spacer against a row that
-     * isn't rendered).
-     */
-    private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
-        if ("OPTIONS".equalsIgnoreCase(call.method())) return;
-        for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
-            // Both null = a true trailing spacer. One with only a timestamp lost its anchor call to a
-            // removal and is still placed by that time - re-pinning it here would yank it forward.
-            if (spacer.beforeCallId() == null && spacer.anchorTimestamp() == null) {
-                spacersStore.move(cycleId, spacer.id(), call.id(), call.timestamp());
-            }
-        }
     }
 
     @Override

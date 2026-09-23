@@ -9,7 +9,7 @@ import { CallDepthInfo, CallTreeNode } from '../../shared/utils/call-tree';
 import {
   MergedWithSpacer,
   SpacerLayout,
-  TRAILING_ANCHOR,
+  HEAD_ANCHOR,
   createSpacerGapController,
   layoutSpacers,
   reanchorDroppedSpacer,
@@ -118,8 +118,8 @@ export class CallListComponent {
   /** How the lists are ordered right now - decides which side of its call a spacer sits on, and whether a hidden anchor can be placed by time. See layoutSpacers. */
   private readonly spacerOrder = computed(() => spacerOrderFor(this.state.sortMode()));
 
-  /** A split call's closing 'response' row is never a spacer anchor - "before this call" means before its opening row. */
-  private static readonly flatAnchorCall = (row: CallListRow): CallRecord | null => (row.variant === 'response' ? null : row.call);
+  /** Both halves of a split call stand for it - "after this call" is after its closing row. */
+  private static readonly flatAnchorCall = (row: CallListRow): CallRecord => row.call;
   private static readonly nodeAnchorCall = (node: CallTreeNode): CallRecord => node.call;
 
   /**
@@ -154,7 +154,7 @@ export class CallListComponent {
 
   /** Opens the composer in the gap above this row's call - the anchor comes from the layout, since in a newest-first list the gap above a call is NOT "before" it. */
   addSpacerAbove(callId: string): void {
-    this.spacerGap.addSpacerAt(callId, this.flatLayout().gapAnchors.get(callId) ?? TRAILING_ANCHOR);
+    this.spacerGap.addSpacerAt(callId, this.flatLayout().gapAnchors.get(callId) ?? HEAD_ANCHOR);
   }
 
   addSpacerAtTail(): void {
@@ -162,7 +162,7 @@ export class CallListComponent {
   }
 
   addSpacerAboveRoot(callId: string): void {
-    this.nestedSpacerGap.addSpacerAt(callId, this.nestedLayout().gapAnchors.get(callId) ?? TRAILING_ANCHOR);
+    this.nestedSpacerGap.addSpacerAt(callId, this.nestedLayout().gapAnchors.get(callId) ?? HEAD_ANCHOR);
   }
 
   addSpacerAtRootsTail(): void {

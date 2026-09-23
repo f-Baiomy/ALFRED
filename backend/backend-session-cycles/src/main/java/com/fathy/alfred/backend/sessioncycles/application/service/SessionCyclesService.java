@@ -36,6 +36,7 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CopyCallsResult;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
+import com.fathy.alfred.backend.sessioncycles.domain.model.LegacyCycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome;
 import com.fathy.alfred.backend.sessioncycles.domain.model.NewSessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.RemoveCallsResult;
@@ -241,7 +242,7 @@ public class SessionCyclesService implements
 
     /**
      * {@code callId} here is the CapturedCall wrapper's own id (see getDetail's doc for the
-     * distinction), but a spacer's {@code beforeCallId} anchors to the underlying CallRecord's id -
+     * distinction), but a spacer's {@code afterCallId} anchors to the underlying CallRecord's id -
      * the same id every other spacer touchpoint (creation, export) uses - so the wrapper id this
      * method receives has to be translated before it means anything to spacersStore. Resolved
      * BEFORE the delete, since the captured call (and the mapping between the two ids) stops
@@ -284,12 +285,39 @@ public class SessionCyclesService implements
 
     @Override
     public Optional<List<CycleSpacer>> listSpacers(String cycleId) {
-        return metadataStore.findById(cycleId).map(cycle -> spacersStore.findAllByCycle(cycleId));
+        return metadataStore.findById(cycleId).map(cycle -> {
+            convertLegacySpacers(cycleId);
+            return spacersStore.findAllByCycle(cycleId);
+        });
+    }
+
+    /**
+     * One-time, per cycle: re-anchors any spacer still stored in the original "before this call"
+     * form to the call above it - see LegacySpacerAnchors for the rule. Done here, the one read every
+     * view and export goes through, because only this service sees both the outbound and the inbound
+     * captured calls a cycle interleaves. Once converted a spacer is no longer legacy, so after the
+     * first read this is a single cheap lookup that finds nothing.
+     */
+    private void convertLegacySpacers(String cycleId) {
+        List<LegacyCycleSpacer> legacy = spacersStore.findLegacyByCycle(cycleId);
+        if (legacy.isEmpty()) return;
+
+        List<LegacySpacerAnchors.TimelineCall> timeline = new ArrayList<>();
+        for (CapturedCall captured : capturedCallsStore.findAllByCycle(cycleId)) {
+            timeline.add(new LegacySpacerAnchors.TimelineCall(captured.call().id(), captured.call().method(), captured.call().timestamp()));
+        }
+        for (CapturedInternalCall captured : capturedInternalCallsStore.findAllByCycle(cycleId)) {
+            timeline.add(new LegacySpacerAnchors.TimelineCall(captured.call().id(), captured.call().method(), captured.call().timestamp()));
+        }
+        for (LegacyCycleSpacer spacer : legacy) {
+            LegacySpacerAnchors.AfterAnchor anchor = LegacySpacerAnchors.convert(spacer, timeline);
+            spacersStore.move(cycleId, spacer.id(), anchor.afterCallId(), anchor.anchorTimestamp());
+        }
     }
 
     @Override
-    public Optional<CycleSpacer> createSpacer(String cycleId, String label, String beforeCallId, String anchorTimestamp) {
-        return metadataStore.findById(cycleId).map(cycle -> spacersStore.create(cycleId, label, beforeCallId, anchorTimestamp));
+    public Optional<CycleSpacer> createSpacer(String cycleId, String label, String afterCallId, String anchorTimestamp) {
+        return metadataStore.findById(cycleId).map(cycle -> spacersStore.create(cycleId, label, afterCallId, anchorTimestamp));
     }
 
     @Override
@@ -301,11 +329,11 @@ public class SessionCyclesService implements
     }
 
     @Override
-    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp) {
+    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String afterCallId, String anchorTimestamp) {
         if (metadataStore.findById(cycleId).isEmpty()) {
             return Optional.empty();
         }
-        return spacersStore.move(cycleId, spacerId, beforeCallId, anchorTimestamp);
+        return spacersStore.move(cycleId, spacerId, afterCallId, anchorTimestamp);
     }
 
     @Override
@@ -339,44 +367,9 @@ public class SessionCyclesService implements
                 }
                 capturedCallsStore.append(cycleId, call);
                 added++;
-                pinTrailingSpacersTo(cycleId, call);
             }
             return new CopyCallsResult(added, skipped);
         });
-    }
-
-    /**
-     * A spacer with beforeCallId null renders after every captured call, which is exactly right
-     * for a spacer added while it really is the last one - but left that way, it also renders
-     * after every call captured LATER, silently sliding past new calls instead of marking the
-     * boundary the user actually drew (confirmed live: adding a spacer at the end of a recording
-     * cycle, then letting more traffic capture into it, showed each new call appearing below the
-     * spacer instead of above it - the spacer never stayed put). The fix is to freeze it the first
-     * time anything new is captured after it: re-anchor every still-trailing spacer to sit right
-     * before the call that was just captured, so it never again moves past a call it hasn't seen
-     * yet. Idempotent per call - once a spacer is anchored to a real id it's no longer trailing, so
-     * later calls in the same batch (or a later capture entirely) leave it alone. Called from both
-     * capture paths that append into a cycle's captured calls - this one (manual copy/import) and
-     * SessionCycleCaptureAdapter (live auto-capture while RECORDING).
-     *
-     * <p>Never anchors to an OPTIONS preflight: those are hidden from every call-list view by
-     * default (CallListView's showOptionsCalls, off unless the user opts in) - confirmed live:
-     * a spacer pinned to one simply vanished, since the merge that inlines spacers among the
-     * currently-VISIBLE rows (mergeWithSpacers) can never find a match for an anchor id that
-     * isn't rendered at all, and a spacer that's already anchored (no longer trailing) is not
-     * re-pinned to whatever comes after either. Skipping the preflight and waiting for the next
-     * real call keeps it trailing (still visible, still correct) until something it can actually
-     * attach to shows up.
-     */
-    private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
-        if ("OPTIONS".equalsIgnoreCase(call.method())) return;
-        for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
-            // Both null = a true trailing spacer. One with only a timestamp lost its anchor call to a
-            // removal and is still placed by that time - re-pinning it here would yank it forward.
-            if (spacer.beforeCallId() == null && spacer.anchorTimestamp() == null) {
-                spacersStore.move(cycleId, spacer.id(), call.id(), call.timestamp());
-            }
-        }
     }
 
     /**

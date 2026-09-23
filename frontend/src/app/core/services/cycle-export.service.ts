@@ -210,10 +210,10 @@ export class CycleExportService {
     return this.exportApi.fetchMetadata(calls[0]).pipe(catchError(() => of<ExportMetadata | null>(null)));
   }
 
-  /** CycleSpacer.beforeCallId is already the underlying CallRecord's own id (same id every exported call is keyed by - see CycleSpacer's doc), so no remapping is needed here, unlike removeCall/findByCallId which key on the captured-call wrapper id instead. */
+  /** CycleSpacer.afterCallId is already the underlying CallRecord's own id (same id every exported call is keyed by - see CycleSpacer's doc), so no remapping is needed here, unlike removeCall/findByCallId which key on the captured-call wrapper id instead. */
   private fetchSpacers(cycleId: string): Observable<ExportedSpacer[]> {
     return this.api.listSpacers(cycleId).pipe(
-      map((spacers) => spacers.map((spacer) => ({ label: spacer.label, beforeCallId: spacer.beforeCallId }))),
+      map((spacers) => spacers.map((spacer) => ({ label: spacer.label, afterCallId: spacer.afterCallId ?? null, anchorTimestamp: spacer.anchorTimestamp ?? null }))),
       catchError(() => of<ExportedSpacer[]>([]))
     );
   }

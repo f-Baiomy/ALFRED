@@ -486,9 +486,9 @@ describe('buildBulkExportHtml with a whole session cycle', () => {
     expect(html).not.toContain('complete session cycle');
   });
 
-  it('renders a spacer as a heading immediately before the call it is anchored to', () => {
+  it('renders a spacer as a heading immediately after the call it is anchored to', () => {
     const calls = [makeCall({ id: 'call-1', timestamp: '2026-08-07T13:00:00Z' }), makeCall({ id: 'call-2', timestamp: '2026-08-07T13:05:00Z' })];
-    const html = buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Retry attempt', beforeCallId: 'call-2' }]);
+    const html = buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Retry attempt', afterCallId: 'call-1' }]);
 
     const headingIndex = html.indexOf('spacer-heading');
     const call1Index = html.indexOf('id="call-1"');
@@ -499,14 +499,36 @@ describe('buildBulkExportHtml with a whole session cycle', () => {
     expect(headingIndex).toBeLessThan(call2Index);
   });
 
-  it('renders a spacer with a null beforeCallId at the very end of the calls section', () => {
-    const html = buildBulkExportHtml([makeCall()], makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'End of repro', beforeCallId: null }]);
+  it('keeps a spacer directly after its call even when a call the list was hiding (an OPTIONS preflight) is exported between them', () => {
+    const calls = [
+      makeCall({ id: 'call-1', timestamp: '2026-08-07T13:00:00Z' }),
+      makeCall({ id: 'preflight', method: 'OPTIONS', timestamp: '2026-08-07T13:01:00Z' }),
+      makeCall({ id: 'call-2', timestamp: '2026-08-07T13:05:00Z' }),
+    ];
+    const html = buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Retry attempt', afterCallId: 'call-1' }]);
 
-    const headingIndex = html.indexOf('End of repro');
-    const callsHeadingIndex = html.indexOf('<h2>🔗 Calls</h2>');
-    const footerIndex = html.indexOf('<footer>');
-    expect(headingIndex).toBeGreaterThan(callsHeadingIndex);
-    expect(headingIndex).toBeLessThan(footerIndex);
+    const headingIndex = html.indexOf('spacer-heading');
+    expect(headingIndex).toBeGreaterThan(html.indexOf('id="call-1"'));
+    expect(headingIndex).toBeLessThan(html.indexOf('id="call-2"')); // block 2 = the preflight
+  });
+
+  it('places a spacer whose call is not in the export at its point in time', () => {
+    const calls = [makeCall({ id: 'call-1', timestamp: '2026-08-07T13:00:00Z' }), makeCall({ id: 'call-2', timestamp: '2026-08-07T13:05:00Z' })];
+    const html = buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [
+      { label: 'Retry attempt', afterCallId: 'not-exported', anchorTimestamp: '2026-08-07T13:02:00Z' },
+    ]);
+
+    const headingIndex = html.indexOf('spacer-heading');
+    expect(headingIndex).toBeGreaterThan(html.indexOf('id="call-1"'));
+    expect(headingIndex).toBeLessThan(html.indexOf('id="call-2"'));
+  });
+
+  it('renders a spacer with no anchor above every call', () => {
+    const html = buildBulkExportHtml([makeCall()], makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Start of repro', afterCallId: null }]);
+
+    const headingIndex = html.indexOf('Start of repro');
+    expect(headingIndex).toBeGreaterThan(html.indexOf('<h2>🔗 Calls</h2>'));
+    expect(headingIndex).toBeLessThan(html.indexOf('id="call-1"'));
   });
 });
 

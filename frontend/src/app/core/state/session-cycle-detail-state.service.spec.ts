@@ -216,16 +216,16 @@ describe('SessionCycleDetailStateService', () => {
 /** Spacer CRUD is a thin passthrough to the API that folds the result back into the `spacers` signal - these stub every spacer endpoint and track what each one was called with. */
 function setupForSpacers(initialSpacers: CycleSpacer[] = []): {
   state: SessionCycleDetailStateService;
-  createCalls: Array<{ label: string; beforeCallId: string | null; anchorTimestamp: string | null }>;
+  createCalls: Array<{ label: string; afterCallId: string | null; anchorTimestamp: string | null }>;
   renameCalls: Array<{ spacerId: string; label: string }>;
-  moveCalls: Array<{ spacerId: string; beforeCallId: string | null; anchorTimestamp: string | null }>;
+  moveCalls: Array<{ spacerId: string; afterCallId: string | null; anchorTimestamp: string | null }>;
   deleteCalls: string[];
   listSpacerCalls: () => number;
   setServerSpacers: (spacers: CycleSpacer[]) => void;
 } {
-  const createCalls: Array<{ label: string; beforeCallId: string | null; anchorTimestamp: string | null }> = [];
+  const createCalls: Array<{ label: string; afterCallId: string | null; anchorTimestamp: string | null }> = [];
   const renameCalls: Array<{ spacerId: string; label: string }> = [];
-  const moveCalls: Array<{ spacerId: string; beforeCallId: string | null; anchorTimestamp: string | null }> = [];
+  const moveCalls: Array<{ spacerId: string; afterCallId: string | null; anchorTimestamp: string | null }> = [];
   const deleteCalls: string[] = [];
   let serverSpacers = initialSpacers;
   let listSpacerCount = 0;
@@ -243,17 +243,17 @@ function setupForSpacers(initialSpacers: CycleSpacer[] = []): {
       listSpacerCount++;
       return of(serverSpacers);
     },
-    createSpacer: (_id, label, beforeCallId, anchorTimestamp) => {
-      createCalls.push({ label, beforeCallId, anchorTimestamp });
-      return of({ id: 'new-spacer', label, beforeCallId, anchorTimestamp });
+    createSpacer: (_id, label, afterCallId, anchorTimestamp) => {
+      createCalls.push({ label, afterCallId, anchorTimestamp });
+      return of({ id: 'new-spacer', label, afterCallId, anchorTimestamp });
     },
     renameSpacer: (_id, spacerId, label) => {
       renameCalls.push({ spacerId, label });
-      return of({ id: spacerId, label, beforeCallId: null });
+      return of({ id: spacerId, label, afterCallId: null });
     },
-    moveSpacer: (_id, spacerId, beforeCallId, anchorTimestamp) => {
-      moveCalls.push({ spacerId, beforeCallId, anchorTimestamp });
-      return of({ id: spacerId, label: 'Retry attempt', beforeCallId, anchorTimestamp });
+    moveSpacer: (_id, spacerId, afterCallId, anchorTimestamp) => {
+      moveCalls.push({ spacerId, afterCallId, anchorTimestamp });
+      return of({ id: spacerId, label: 'Retry attempt', afterCallId, anchorTimestamp });
     },
     deleteSpacer: (_id, spacerId) => {
       deleteCalls.push(spacerId);
@@ -281,10 +281,10 @@ function setupForSpacers(initialSpacers: CycleSpacer[] = []): {
 
 describe('SessionCycleDetailStateService spacers', () => {
   it('loads every spacer for the open cycle up front', fakeAsync(() => {
-    const { state } = setupForSpacers([{ id: 's1', label: 'Retry attempt', beforeCallId: 'call-1' }]);
+    const { state } = setupForSpacers([{ id: 's1', label: 'Retry attempt', afterCallId: 'call-1' }]);
     tick();
 
-    expect(state.spacers()).toEqual([{ id: 's1', label: 'Retry attempt', beforeCallId: 'call-1' }]);
+    expect(state.spacers()).toEqual([{ id: 's1', label: 'Retry attempt', afterCallId: 'call-1' }]);
     discardPeriodicTasks();
   }));
 
@@ -295,15 +295,15 @@ describe('SessionCycleDetailStateService spacers', () => {
     state.addSpacer('Retry attempt', 'call-2', 't2');
     tick();
 
-    expect(createCalls).toEqual([{ label: 'Retry attempt', beforeCallId: 'call-2', anchorTimestamp: 't2' }]);
-    expect(state.spacers()).toEqual([{ id: 'new-spacer', label: 'Retry attempt', beforeCallId: 'call-2', anchorTimestamp: 't2' }]);
+    expect(createCalls).toEqual([{ label: 'Retry attempt', afterCallId: 'call-2', anchorTimestamp: 't2' }]);
+    expect(state.spacers()).toEqual([{ id: 'new-spacer', label: 'Retry attempt', afterCallId: 'call-2', anchorTimestamp: 't2' }]);
     discardPeriodicTasks();
   }));
 
   it('renameSpacer replaces the matching spacer in the signal, leaving others untouched', fakeAsync(() => {
     const { state, renameCalls } = setupForSpacers([
-      { id: 's1', label: 'Old name', beforeCallId: 'call-1' },
-      { id: 's2', label: 'Other spacer', beforeCallId: 'call-2' },
+      { id: 's1', label: 'Old name', afterCallId: 'call-1' },
+      { id: 's2', label: 'Other spacer', afterCallId: 'call-2' },
     ]);
     tick();
 
@@ -312,28 +312,28 @@ describe('SessionCycleDetailStateService spacers', () => {
 
     expect(renameCalls).toEqual([{ spacerId: 's1', label: 'New name' }]);
     expect(state.spacers()).toEqual([
-      { id: 's1', label: 'New name', beforeCallId: null },
-      { id: 's2', label: 'Other spacer', beforeCallId: 'call-2' },
+      { id: 's1', label: 'New name', afterCallId: null },
+      { id: 's2', label: 'Other spacer', afterCallId: 'call-2' },
     ]);
     discardPeriodicTasks();
   }));
 
   it('moveSpacer re-anchors the matching spacer', fakeAsync(() => {
-    const { state, moveCalls } = setupForSpacers([{ id: 's1', label: 'Retry attempt', beforeCallId: 'call-1' }]);
+    const { state, moveCalls } = setupForSpacers([{ id: 's1', label: 'Retry attempt', afterCallId: 'call-1' }]);
     tick();
 
     state.moveSpacer('s1', 'call-3', 't3');
     tick();
 
-    expect(moveCalls).toEqual([{ spacerId: 's1', beforeCallId: 'call-3', anchorTimestamp: 't3' }]);
-    expect(state.spacers()).toEqual([{ id: 's1', label: 'Retry attempt', beforeCallId: 'call-3', anchorTimestamp: 't3' }]);
+    expect(moveCalls).toEqual([{ spacerId: 's1', afterCallId: 'call-3', anchorTimestamp: 't3' }]);
+    expect(state.spacers()).toEqual([{ id: 's1', label: 'Retry attempt', afterCallId: 'call-3', anchorTimestamp: 't3' }]);
     discardPeriodicTasks();
   }));
 
   it('deleteSpacer removes the matching spacer from the signal', fakeAsync(() => {
     const { state, deleteCalls } = setupForSpacers([
-      { id: 's1', label: 'Keep me', beforeCallId: 'call-1' },
-      { id: 's2', label: 'Delete me', beforeCallId: 'call-2' },
+      { id: 's1', label: 'Keep me', afterCallId: 'call-1' },
+      { id: 's2', label: 'Delete me', afterCallId: 'call-2' },
     ]);
     tick();
 
@@ -341,7 +341,7 @@ describe('SessionCycleDetailStateService spacers', () => {
     tick();
 
     expect(deleteCalls).toEqual(['s2']);
-    expect(state.spacers()).toEqual([{ id: 's1', label: 'Keep me', beforeCallId: 'call-1' }]);
+    expect(state.spacers()).toEqual([{ id: 's1', label: 'Keep me', afterCallId: 'call-1' }]);
     discardPeriodicTasks();
   }));
 
@@ -358,57 +358,20 @@ describe('SessionCycleDetailStateService spacers', () => {
     const push = (state: SessionCycleDetailStateService) =>
       (state as unknown as { handleWsMessage(m: unknown, s: CallEndpointSource): void }).handleWsMessage({ call: summary, capturedByCycleIds: ['cycle-1'] }, 'external');
 
-    it('does not refetch spacers when none is trailing - a capture only ever re-pins a trailing one', fakeAsync(() => {
-      const { state, listSpacerCalls } = setupForSpacers([{ id: 's1', label: 'x', beforeCallId: 'call-1', anchorTimestamp: 't1' }]);
+    it('never refetches spacers - they are anchored to the call above them, so a new call just lands below', fakeAsync(() => {
+      const { state, listSpacerCalls } = setupForSpacers([
+        { id: 's1', label: 'x', afterCallId: 'call-1', anchorTimestamp: 't1' },
+        { id: 's2', label: 'y', afterCallId: null, anchorTimestamp: null },
+      ]);
       tick();
       const before = listSpacerCalls();
 
+      push(state);
+      tick(1000);
       push(state);
       tick(1000);
 
       expect(listSpacerCalls()).toBe(before);
-      discardPeriodicTasks();
-    }));
-
-    it('an orphaned spacer (only a timestamp left) does not count as trailing', fakeAsync(() => {
-      const { state, listSpacerCalls } = setupForSpacers([{ id: 's1', label: 'x', beforeCallId: null, anchorTimestamp: 't1' }]);
-      tick();
-      const before = listSpacerCalls();
-
-      push(state);
-      tick(1000);
-
-      expect(listSpacerCalls()).toBe(before);
-      discardPeriodicTasks();
-    }));
-
-    it('refetches once, after a burst of pushes, when a trailing spacer exists', fakeAsync(() => {
-      const { state, listSpacerCalls, setServerSpacers } = setupForSpacers([{ id: 's1', label: 'x', beforeCallId: null, anchorTimestamp: null }]);
-      tick();
-      const before = listSpacerCalls();
-      setServerSpacers([{ id: 's1', label: 'x', beforeCallId: 'live-1', anchorTimestamp: summary.timestamp }]);
-
-      push(state);
-      tick(100);
-      push(state);
-      tick(1000);
-
-      expect(listSpacerCalls()).toBe(before + 1);
-      expect(state.spacers()).toEqual([{ id: 's1', label: 'x', beforeCallId: 'live-1', anchorTimestamp: summary.timestamp }]);
-      discardPeriodicTasks();
-    }));
-
-    it('does not replace the spacers signal when the refetch returns the same list', fakeAsync(() => {
-      const initial: CycleSpacer[] = [{ id: 's1', label: 'x', beforeCallId: null, anchorTimestamp: null }];
-      const { state, setServerSpacers } = setupForSpacers(initial);
-      tick();
-      const loaded = state.spacers();
-      setServerSpacers([{ ...initial[0] }]);
-
-      push(state);
-      tick(1000);
-
-      expect(state.spacers()).toBe(loaded);
       discardPeriodicTasks();
     }));
   });

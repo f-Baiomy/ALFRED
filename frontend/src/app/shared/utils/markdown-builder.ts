@@ -3,6 +3,7 @@ import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
+import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
 import { buildWaterfallBands, waterfallAsciiLines } from './waterfall';
 
@@ -557,23 +558,18 @@ export function buildBulkExportMarkdown(
 
   lines.push('## 🔗 Calls', '');
 
-  const spacersBeforeCallId = new Map<string, ExportedSpacer[]>();
-  const trailingSpacers: ExportedSpacer[] = [];
-  for (const spacer of spacers) {
-    if (spacer.beforeCallId == null) {
-      trailingSpacers.push(spacer);
-    } else {
-      const list = spacersBeforeCallId.get(spacer.beforeCallId);
-      if (list) list.push(spacer);
-      else spacersBeforeCallId.set(spacer.beforeCallId, [spacer]);
-    }
-  }
+  // Placed by the same merge the call list uses, over these blocks in time order - so a spacer sits
+  // where it does on screen whatever this export includes (OPTIONS preflights, a filtered subset):
+  // right after the call it was added below, or, if that call isn't exported, at its point in time.
+  const { before: spacersBeforeBlock, tail: trailingSpacers } = spacerSlots(
+    layoutSpacers(blocks, (block) => block.call, spacers, { descending: false, byTime: true }).merged
+  );
 
   blocks.forEach((block) => {
     const { call } = block;
     const allComments = commentsByCallId.get(call.id) ?? [];
 
-    for (const spacer of spacersBeforeCallId.get(call.id) ?? []) {
+    for (const spacer of spacersBeforeBlock.get(block) ?? []) {
       lines.push(`### 🏷️ ${spacer.label}`, '');
     }
 

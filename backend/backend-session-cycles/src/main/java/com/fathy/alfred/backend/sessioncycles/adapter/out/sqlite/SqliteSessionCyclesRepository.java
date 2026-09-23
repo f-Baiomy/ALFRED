@@ -12,6 +12,7 @@ import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
+import com.fathy.alfred.backend.sessioncycles.domain.model.LegacyCycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -298,18 +299,27 @@ public class SqliteSessionCyclesRepository {
                   label TEXT NOT NULL,
                   before_call_id TEXT,
                   created_at TEXT,
-                  anchor_timestamp TEXT
+                  anchor_timestamp TEXT,
+                  after_call_id TEXT,
+                  anchor_model TEXT
                 )
                 """);
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_cycle_spacers_cycle ON cycle_spacers(cycle_id)");
-        addSpacerAnchorTimestampColumnIfMissing();
+        addSpacerColumnsIfMissing();
     }
 
-    /** anchor_timestamp came after cycle_spacers first shipped - CREATE TABLE IF NOT EXISTS won't add it to an existing database. Pre-existing rows read back as null (a legacy spacer, placed by its anchor call alone). */
-    private void addSpacerAnchorTimestampColumnIfMissing() {
+    /**
+     * Columns added after cycle_spacers first shipped - CREATE TABLE IF NOT EXISTS won't add them to
+     * an existing database. before_call_id is the original "sits before this call" anchor, kept only
+     * so rows still in that form can be converted (see LegacySpacerAnchors); anchor_model is 'after'
+     * once a row uses after_call_id, and NULL for a row that hasn't been converted yet.
+     */
+    private void addSpacerColumnsIfMissing() {
         List<String> columns = jdbcTemplate.query("PRAGMA table_info(cycle_spacers)", (rs, rowNum) -> rs.getString("name"));
-        if (!columns.contains("anchor_timestamp")) {
-            jdbcTemplate.execute("ALTER TABLE cycle_spacers ADD COLUMN anchor_timestamp TEXT");
+        for (String column : List.of("anchor_timestamp", "after_call_id", "anchor_model")) {
+            if (!columns.contains(column)) {
+                jdbcTemplate.execute("ALTER TABLE cycle_spacers ADD COLUMN " + column + " TEXT");
+            }
         }
     }
 
@@ -1043,16 +1053,22 @@ public class SqliteSessionCyclesRepository {
 
     private static final RowMapper<CycleSpacer> SPACER_ROW_MAPPER = (rs, rowNum) -> new CycleSpacer(
             rs.getString("id"), rs.getString("cycle_id"), rs.getString("label"),
-            rs.getString("before_call_id"), rs.getString("created_at"), rs.getString("anchor_timestamp"));
+            rs.getString("after_call_id"), rs.getString("created_at"), rs.getString("anchor_timestamp"));
 
     public List<CycleSpacer> findAllSpacersByCycle(String cycleId) {
         return jdbcTemplate.query("SELECT * FROM cycle_spacers WHERE cycle_id = ? ORDER BY rowid ASC", SPACER_ROW_MAPPER, cycleId);
     }
 
-    public CycleSpacer createSpacer(String cycleId, String label, String beforeCallId, String anchorTimestamp) {
-        CycleSpacer spacer = new CycleSpacer(UUID.randomUUID().toString(), cycleId, label, beforeCallId, Instant.now().toString(), anchorTimestamp);
-        jdbcTemplate.update("INSERT INTO cycle_spacers (id, cycle_id, label, before_call_id, created_at, anchor_timestamp) VALUES (?,?,?,?,?,?)",
-                spacer.id(), spacer.cycleId(), spacer.label(), spacer.beforeCallId(), spacer.createdAt(), spacer.anchorTimestamp());
+    /** Rows still in the original before-anchored form - see CycleSpacersStorePort#findLegacyByCycle. */
+    public List<LegacyCycleSpacer> findLegacySpacersByCycle(String cycleId) {
+        return jdbcTemplate.query("SELECT id, before_call_id, anchor_timestamp FROM cycle_spacers WHERE cycle_id = ? AND anchor_model IS NULL ORDER BY rowid ASC",
+                (rs, rowNum) -> new LegacyCycleSpacer(rs.getString("id"), rs.getString("before_call_id"), rs.getString("anchor_timestamp")), cycleId);
+    }
+
+    public CycleSpacer createSpacer(String cycleId, String label, String afterCallId, String anchorTimestamp) {
+        CycleSpacer spacer = new CycleSpacer(UUID.randomUUID().toString(), cycleId, label, afterCallId, Instant.now().toString(), anchorTimestamp);
+        jdbcTemplate.update("INSERT INTO cycle_spacers (id, cycle_id, label, after_call_id, created_at, anchor_timestamp, anchor_model) VALUES (?,?,?,?,?,?,'after')",
+                spacer.id(), spacer.cycleId(), spacer.label(), spacer.afterCallId(), spacer.createdAt(), spacer.anchorTimestamp());
         return spacer;
     }
 
@@ -1064,9 +1080,10 @@ public class SqliteSessionCyclesRepository {
         return findSpacerById(cycleId, spacerId);
     }
 
-    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp) {
-        int updated = jdbcTemplate.update("UPDATE cycle_spacers SET before_call_id = ?, anchor_timestamp = ? WHERE cycle_id = ? AND id = ?",
-                beforeCallId, anchorTimestamp, cycleId, spacerId);
+    /** Also what converts a legacy row: it now carries an after-anchor, so anchor_model becomes 'after'. */
+    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String afterCallId, String anchorTimestamp) {
+        int updated = jdbcTemplate.update("UPDATE cycle_spacers SET after_call_id = ?, anchor_timestamp = ?, anchor_model = 'after' WHERE cycle_id = ? AND id = ?",
+                afterCallId, anchorTimestamp, cycleId, spacerId);
         if (updated == 0) {
             return Optional.empty();
         }
@@ -1081,7 +1098,7 @@ public class SqliteSessionCyclesRepository {
         jdbcTemplate.update("DELETE FROM cycle_spacers WHERE cycle_id = ?", cycleId);
     }
 
-    /** See CycleSpacersStorePort#dropAnchorsTo - clears the anchor id of any spacer pointing at one of these calls but leaves anchor_timestamp alone, so it stays at the same point in time instead of jumping to the end. */
+    /** See CycleSpacersStorePort#dropAnchorsTo - clears the anchor id of any spacer pointing at one of these calls (either form) but leaves anchor_timestamp alone, so it stays at the same point in time. */
     public void dropSpacerAnchorsTo(String cycleId, List<String> capturedCallIds) {
         if (capturedCallIds.isEmpty()) {
             return;
@@ -1090,7 +1107,8 @@ public class SqliteSessionCyclesRepository {
         List<Object> params = new ArrayList<>();
         params.add(cycleId);
         params.addAll(capturedCallIds);
-        jdbcTemplate.update("UPDATE cycle_spacers SET before_call_id = NULL WHERE cycle_id = ? AND before_call_id IN (" + placeholders + ")", params.toArray());
+        jdbcTemplate.update("UPDATE cycle_spacers SET after_call_id = NULL WHERE cycle_id = ? AND after_call_id IN (" + placeholders + ")", params.toArray());
+        jdbcTemplate.update("UPDATE cycle_spacers SET before_call_id = NULL WHERE cycle_id = ? AND anchor_model IS NULL AND before_call_id IN (" + placeholders + ")", params.toArray());
     }
 
     private Optional<CycleSpacer> findSpacerById(String cycleId, String spacerId) {

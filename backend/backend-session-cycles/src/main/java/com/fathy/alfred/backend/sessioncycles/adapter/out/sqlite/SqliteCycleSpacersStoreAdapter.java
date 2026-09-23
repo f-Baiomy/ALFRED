@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
+import com.fathy.alfred.backend.sessioncycles.domain.model.LegacyCycleSpacer;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -25,8 +26,13 @@ public class SqliteCycleSpacersStoreAdapter implements CycleSpacersStorePort {
     }
 
     @Override
-    public CycleSpacer create(String cycleId, String label, String beforeCallId, String anchorTimestamp) {
-        return repository.createSpacer(cycleId, label, beforeCallId, anchorTimestamp);
+    public List<LegacyCycleSpacer> findLegacyByCycle(String cycleId) {
+        return repository.findLegacySpacersByCycle(cycleId);
+    }
+
+    @Override
+    public CycleSpacer create(String cycleId, String label, String afterCallId, String anchorTimestamp) {
+        return repository.createSpacer(cycleId, label, afterCallId, anchorTimestamp);
     }
 
     @Override
@@ -35,8 +41,8 @@ public class SqliteCycleSpacersStoreAdapter implements CycleSpacersStorePort {
     }
 
     @Override
-    public Optional<CycleSpacer> move(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp) {
-        return repository.moveSpacer(cycleId, spacerId, beforeCallId, anchorTimestamp);
+    public Optional<CycleSpacer> move(String cycleId, String spacerId, String afterCallId, String anchorTimestamp) {
+        return repository.moveSpacer(cycleId, spacerId, afterCallId, anchorTimestamp);
     }
 
     @Override

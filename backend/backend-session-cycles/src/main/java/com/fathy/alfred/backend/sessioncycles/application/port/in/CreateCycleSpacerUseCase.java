@@ -6,6 +6,6 @@ import java.util.Optional;
 
 public interface CreateCycleSpacerUseCase {
 
-    /** @return empty if the cycle itself doesn't exist. beforeCallId and anchorTimestamp both null means "after every call" - see CycleSpacer. */
-    Optional<CycleSpacer> createSpacer(String cycleId, String label, String beforeCallId, String anchorTimestamp);
+    /** @return empty if the cycle itself doesn't exist. afterCallId and anchorTimestamp both null means "above every call" - see CycleSpacer. */
+    Optional<CycleSpacer> createSpacer(String cycleId, String label, String afterCallId, String anchorTimestamp);
 }

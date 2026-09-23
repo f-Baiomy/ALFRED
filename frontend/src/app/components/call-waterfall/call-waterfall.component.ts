@@ -9,7 +9,7 @@ import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE, CALL_SELECTION_STATE } fr
 import {
   MergedWithSpacer,
   SpacerLayout,
-  TRAILING_ANCHOR,
+  HEAD_ANCHOR,
   createSpacerGapController,
   layoutSpacers,
   reanchorDroppedSpacer,
@@ -460,7 +460,7 @@ export class CallWaterfallComponent {
 
   /** Opens the composer in the gap above this root group - see CallListComponent.addSpacerAbove for why the anchor comes from the layout. */
   addSpacerAbove(rootId: string): void {
-    this.spacerGap.addSpacerAt(rootId, this.layout().gapAnchors.get(rootId) ?? TRAILING_ANCHOR);
+    this.spacerGap.addSpacerAt(rootId, this.layout().gapAnchors.get(rootId) ?? HEAD_ANCHOR);
   }
 
   addSpacerAtTail(): void {

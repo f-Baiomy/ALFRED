@@ -2,6 +2,8 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.filestore;
 
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
+import com.fathy.alfred.backend.sessioncycles.domain.model.LegacyCycleSpacer;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -19,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 
 /**
  * One JSON array file per cycle (SESSION_CYCLES_DIR/{cycleId}.spacers.json), same full-read/mutate/
@@ -30,6 +33,31 @@ import java.util.UUID;
 public class JsonFileCycleSpacersStoreAdapter implements CycleSpacersStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(JsonFileCycleSpacersStoreAdapter.class);
+
+    /** The only anchorModel written - see Stored. */
+    private static final String AFTER = "after";
+
+    /**
+     * What's actually in the file. A file written before spacers anchored to the call above them
+     * holds {@code beforeCallId} and no {@code anchorModel}; such an entry is legacy until a move
+     * converts it (mirrors the SQLite adapter's anchor_model column).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Stored(String id, String cycleId, String label, String beforeCallId, String afterCallId,
+                  String createdAt, String anchorTimestamp, String anchorModel) {
+
+        boolean legacy() {
+            return !AFTER.equals(anchorModel);
+        }
+
+        CycleSpacer toSpacer() {
+            return new CycleSpacer(id, cycleId, label, legacy() ? null : afterCallId, createdAt, legacy() ? null : anchorTimestamp);
+        }
+
+        Stored withAnchor(String newAfterCallId, String newAnchorTimestamp) {
+            return new Stored(id, cycleId, label, null, newAfterCallId, createdAt, newAnchorTimestamp, AFTER);
+        }
+    }
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -48,48 +76,53 @@ public class JsonFileCycleSpacersStoreAdapter implements CycleSpacersStorePort {
 
     @Override
     public synchronized List<CycleSpacer> findAllByCycle(String cycleId) {
-        return readAll(cycleId);
+        return readAll(cycleId).stream().map(Stored::toSpacer).toList();
     }
 
     @Override
-    public synchronized CycleSpacer create(String cycleId, String label, String beforeCallId, String anchorTimestamp) {
-        CycleSpacer spacer = new CycleSpacer(UUID.randomUUID().toString(), cycleId, label, beforeCallId, Instant.now().toString(), anchorTimestamp);
-        List<CycleSpacer> all = readAll(cycleId);
-        all.add(spacer);
+    public synchronized List<LegacyCycleSpacer> findLegacyByCycle(String cycleId) {
+        return readAll(cycleId).stream()
+                .filter(Stored::legacy)
+                .map(stored -> new LegacyCycleSpacer(stored.id(), stored.beforeCallId(), stored.anchorTimestamp()))
+                .toList();
+    }
+
+    @Override
+    public synchronized CycleSpacer create(String cycleId, String label, String afterCallId, String anchorTimestamp) {
+        Stored stored = new Stored(UUID.randomUUID().toString(), cycleId, label, null, afterCallId, Instant.now().toString(), anchorTimestamp, AFTER);
+        List<Stored> all = readAll(cycleId);
+        all.add(stored);
         writeAll(cycleId, all);
-        return spacer;
+        return stored.toSpacer();
     }
 
     @Override
     public synchronized Optional<CycleSpacer> rename(String cycleId, String spacerId, String label) {
-        return update(cycleId, spacerId, existing -> new CycleSpacer(existing.id(), existing.cycleId(), label, existing.beforeCallId(), existing.createdAt(), existing.anchorTimestamp()));
+        return update(cycleId, spacerId, existing -> new Stored(existing.id(), existing.cycleId(), label, existing.beforeCallId(),
+                existing.afterCallId(), existing.createdAt(), existing.anchorTimestamp(), existing.anchorModel()));
     }
 
     @Override
-    public synchronized Optional<CycleSpacer> move(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp) {
-        return update(cycleId, spacerId, existing -> new CycleSpacer(existing.id(), existing.cycleId(), existing.label(), beforeCallId, existing.createdAt(), anchorTimestamp));
+    public synchronized Optional<CycleSpacer> move(String cycleId, String spacerId, String afterCallId, String anchorTimestamp) {
+        return update(cycleId, spacerId, existing -> existing.withAnchor(afterCallId, anchorTimestamp));
     }
 
-    private Optional<CycleSpacer> update(String cycleId, String spacerId, java.util.function.UnaryOperator<CycleSpacer> mutation) {
-        List<CycleSpacer> all = readAll(cycleId);
-        CycleSpacer[] updated = new CycleSpacer[1];
+    private Optional<CycleSpacer> update(String cycleId, String spacerId, UnaryOperator<Stored> mutation) {
+        List<Stored> all = readAll(cycleId);
         for (int i = 0; i < all.size(); i++) {
             if (all.get(i).id().equals(spacerId)) {
-                updated[0] = mutation.apply(all.get(i));
-                all.set(i, updated[0]);
-                break;
+                Stored updated = mutation.apply(all.get(i));
+                all.set(i, updated);
+                writeAll(cycleId, all);
+                return Optional.of(updated.toSpacer());
             }
         }
-        if (updated[0] == null) {
-            return Optional.empty();
-        }
-        writeAll(cycleId, all);
-        return Optional.of(updated[0]);
+        return Optional.empty();
     }
 
     @Override
     public synchronized boolean delete(String cycleId, String spacerId) {
-        List<CycleSpacer> all = readAll(cycleId);
+        List<Stored> all = readAll(cycleId);
         boolean removed = all.removeIf(s -> s.id().equals(spacerId));
         if (removed) {
             writeAll(cycleId, all);
@@ -112,12 +145,14 @@ public class JsonFileCycleSpacersStoreAdapter implements CycleSpacersStorePort {
         if (capturedCallIds.isEmpty()) {
             return;
         }
-        List<CycleSpacer> all = readAll(cycleId);
+        List<Stored> all = readAll(cycleId);
         boolean changed = false;
         for (int i = 0; i < all.size(); i++) {
-            CycleSpacer spacer = all.get(i);
-            if (spacer.beforeCallId() != null && capturedCallIds.contains(spacer.beforeCallId())) {
-                all.set(i, new CycleSpacer(spacer.id(), spacer.cycleId(), spacer.label(), null, spacer.createdAt(), spacer.anchorTimestamp()));
+            Stored s = all.get(i);
+            String anchor = s.legacy() ? s.beforeCallId() : s.afterCallId();
+            if (anchor != null && capturedCallIds.contains(anchor)) {
+                all.set(i, new Stored(s.id(), s.cycleId(), s.label(), s.legacy() ? null : s.beforeCallId(),
+                        s.legacy() ? s.afterCallId() : null, s.createdAt(), s.anchorTimestamp(), s.anchorModel()));
                 changed = true;
             }
         }
@@ -130,13 +165,13 @@ public class JsonFileCycleSpacersStoreAdapter implements CycleSpacersStorePort {
         return Path.of(sessionCyclesDir, cycleId + ".spacers.json");
     }
 
-    private List<CycleSpacer> readAll(String cycleId) {
+    private List<Stored> readAll(String cycleId) {
         Path path = fileFor(cycleId);
         if (!Files.exists(path)) {
             return new ArrayList<>();
         }
         try {
-            CycleSpacer[] parsed = objectMapper.readValue(Files.readString(path), CycleSpacer[].class);
+            Stored[] parsed = objectMapper.readValue(Files.readString(path), Stored[].class);
             return new ArrayList<>(List.of(parsed));
         } catch (IOException e) {
             log.warn("Could not read spacers file {}, treating as empty: {}", path, e.getMessage());
@@ -144,7 +179,7 @@ public class JsonFileCycleSpacersStoreAdapter implements CycleSpacersStorePort {
         }
     }
 
-    private void writeAll(String cycleId, List<CycleSpacer> spacers) {
+    private void writeAll(String cycleId, List<Stored> spacers) {
         try {
             Path path = fileFor(cycleId);
             if (path.getParent() != null) {

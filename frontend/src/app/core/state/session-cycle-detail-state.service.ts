@@ -78,9 +78,6 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   /** Every spacer for the currently-open cycle - see CallReorderState. Reloaded whenever the open cycle changes. */
   readonly spacers = signal<readonly CycleSpacer[]>([]);
 
-  /** Pending debounced reloadSpacers() after a live push - see handleWsMessage. */
-  private spacersReloadTimer: ReturnType<typeof setTimeout> | null = null;
-
   /**
    * Whether selectedSources is final - i.e. the inbound-logging feature flag (and, if on, the
    * service list) has come back, or failed. Page one is only fetched once this is true: before, it
@@ -109,7 +106,6 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         const id = this.cycleId();
         this.capturedByKey.clear();
         this.liveCalls.set([]);
-        this.cancelSpacersReload();
         this.spacers.set([]);
         if (id) {
           this.api.listSpacers(id).subscribe((spacers) => this.spacers.set(spacers));
@@ -298,10 +294,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     }
   }
 
-  addSpacer(label: string, beforeCallId: string | null, anchorTimestamp: string | null): void {
+  addSpacer(label: string, afterCallId: string | null, anchorTimestamp: string | null): void {
     const id = this.cycleId();
     if (!id) return;
-    this.api.createSpacer(id, label, beforeCallId, anchorTimestamp).subscribe((spacer) => this.spacers.set([...this.spacers(), spacer]));
+    this.api.createSpacer(id, label, afterCallId, anchorTimestamp).subscribe((spacer) => this.spacers.set([...this.spacers(), spacer]));
   }
 
   renameSpacer(spacerId: string, label: string): void {
@@ -310,10 +306,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     this.api.renameSpacer(id, spacerId, label).subscribe((updated) => this.replaceSpacer(updated));
   }
 
-  moveSpacer(spacerId: string, beforeCallId: string | null, anchorTimestamp: string | null): void {
+  moveSpacer(spacerId: string, afterCallId: string | null, anchorTimestamp: string | null): void {
     const id = this.cycleId();
     if (!id) return;
-    this.api.moveSpacer(id, spacerId, beforeCallId, anchorTimestamp).subscribe((updated) => this.replaceSpacer(updated));
+    this.api.moveSpacer(id, spacerId, afterCallId, anchorTimestamp).subscribe((updated) => this.replaceSpacer(updated));
   }
 
   deleteSpacer(spacerId: string): void {
@@ -374,23 +370,8 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     // logging pushes the same call twice, once IN_PROGRESS then once resolved).
     this.liveCalls.set([call, ...this.liveCalls().filter((c) => c.id !== call.id)]);
     this.view.refresh();
-    // A trailing spacer (both anchor fields null) gets pinned to THIS call server-side the moment
-    // it's captured (SessionCyclesService#pinTrailingSpacersTo and its three twins), so the local
-    // copy has to be refetched or it keeps rendering as trailing - after this new call - forever.
-    // Only a trailing spacer is ever changed by a capture, so with none there's nothing to fetch,
-    // and a burst of pushes (two per call under two-phase capture) costs one request, not one each.
-    if (this.spacers().some((s) => s.beforeCallId == null && s.anchorTimestamp == null)) {
-      this.cancelSpacersReload();
-      this.spacersReloadTimer = setTimeout(() => {
-        this.spacersReloadTimer = null;
-        this.reloadSpacers();
-      }, 300);
-    }
-  }
-
-  private cancelSpacersReload(): void {
-    if (this.spacersReloadTimer != null) clearTimeout(this.spacersReloadTimer);
-    this.spacersReloadTimer = null;
+    // No spacer refetch: spacers are anchored to the call above them, so a newly captured call just
+    // lands below whatever spacer came before it - nothing about any spacer changes server-side.
   }
 
   /** Always a real network call - never served from a cache, so a call's detail is refetched every time it's expanded, even if it was already loaded before (this session or otherwise). `source` picks GET /session-cycles/{id}/calls/{callId}/detail vs the internal-calls equivalent - defaults to 'external' (via SessionCyclesApiService.getDetail) when omitted. */

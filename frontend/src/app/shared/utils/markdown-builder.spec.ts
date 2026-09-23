@@ -510,9 +510,9 @@ describe('buildBulkExportMarkdown with a whole session cycle', () => {
     expect(md).not.toContain('complete session cycle');
   });
 
-  it('renders a spacer as a heading immediately before the call it is anchored to', () => {
+  it('renders a spacer as a heading immediately after the call it is anchored to', () => {
     const calls = [makeCall({ id: 'call-1', timestamp: '2026-08-07T13:00:00Z' }), makeCall({ id: 'call-2', timestamp: '2026-08-07T13:05:00Z' })];
-    const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Retry attempt', beforeCallId: 'call-2' }]);
+    const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Retry attempt', afterCallId: 'call-1' }]);
 
     const headingIndex = md.indexOf('### 🏷️ Retry attempt');
     const call1Index = md.indexOf('id="call-1"');
@@ -522,12 +522,29 @@ describe('buildBulkExportMarkdown with a whole session cycle', () => {
     expect(headingIndex).toBeLessThan(call2Index);
   });
 
-  it('renders a spacer with a null beforeCallId at the very end of the calls section', () => {
-    const md = buildBulkExportMarkdown([makeCall()], makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'End of repro', beforeCallId: null }]);
+  it('keeps a spacer directly after its call even when a call the list was hiding (an OPTIONS preflight) is exported between them', () => {
+    const calls = [
+      makeCall({ id: 'call-1', timestamp: '2026-08-07T13:00:00Z' }),
+      makeCall({ id: 'preflight', method: 'OPTIONS', timestamp: '2026-08-07T13:01:00Z' }),
+      makeCall({ id: 'call-2', timestamp: '2026-08-07T13:05:00Z' }),
+    ];
+    const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Retry attempt', afterCallId: 'call-1' }]);
 
-    const headingIndex = md.indexOf('### 🏷️ End of repro');
-    const lastCallIndex = md.lastIndexOf('</details>');
-    expect(headingIndex).toBeGreaterThan(lastCallIndex);
+    const headingIndex = md.indexOf('### 🏷️ Retry attempt');
+    expect(headingIndex).toBeGreaterThan(md.indexOf('id="call-1"'));
+    expect(headingIndex).toBeLessThan(md.indexOf('id="call-2"')); // block 2 = the preflight
+  });
+
+  it('renders a spacer after the last call when it is anchored to it', () => {
+    const md = buildBulkExportMarkdown([makeCall()], makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'End of repro', afterCallId: 'call-1' }]);
+
+    expect(md.indexOf('### 🏷️ End of repro')).toBeGreaterThan(md.lastIndexOf('</details>'));
+  });
+
+  it('renders a spacer with no anchor above every call', () => {
+    const md = buildBulkExportMarkdown([makeCall()], makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Start of repro', afterCallId: null }]);
+
+    expect(md.indexOf('### 🏷️ Start of repro')).toBeLessThan(md.indexOf('id="call-1"'));
   });
 });
 

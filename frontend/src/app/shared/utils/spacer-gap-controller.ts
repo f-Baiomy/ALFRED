@@ -4,24 +4,30 @@ import { CallReorderState, CycleSpacer } from '../../core/state/call-selection.t
 import { callTime } from './call-utils';
 
 /**
- * Where a spacer is anchored - see CycleSpacer. A new or moved spacer always carries its anchor
- * call's timestamp alongside the id, so it can still be placed at the right point in time when that
- * call is filtered out, not loaded, or deleted.
+ * Where a spacer is anchored - see CycleSpacer: the call directly ABOVE it, plus that call's
+ * timestamp, so it can still be placed at the right point in time when that call is filtered out,
+ * not loaded, or deleted. Both null means "above every call".
  */
 export interface SpacerAnchor {
-  readonly beforeCallId: string | null;
+  readonly afterCallId: string | null;
   readonly anchorTimestamp: string | null;
 }
 
-/** "After every call" - both anchor fields null. */
-export const TRAILING_ANCHOR: SpacerAnchor = { beforeCallId: null, anchorTimestamp: null };
-
-function anchorOf(call: CallRecord): SpacerAnchor {
-  return { beforeCallId: call.id, anchorTimestamp: call.timestamp };
+/** What layoutSpacers needs of a spacer - a CycleSpacer, or an export's ExportedSpacer. */
+export interface AnchoredSpacer {
+  readonly afterCallId?: string | null;
+  readonly anchorTimestamp?: string | null;
 }
 
-function isTrailing(spacer: CycleSpacer): boolean {
-  return spacer.beforeCallId == null && spacer.anchorTimestamp == null;
+/** "Above every call" - both anchor fields null. */
+export const HEAD_ANCHOR: SpacerAnchor = { afterCallId: null, anchorTimestamp: null };
+
+function anchorOf(call: CallRecord): SpacerAnchor {
+  return { afterCallId: call.id, anchorTimestamp: call.timestamp };
+}
+
+function isHead(spacer: AnchoredSpacer): boolean {
+  return spacer.afterCallId == null && spacer.anchorTimestamp == null;
 }
 
 /**
@@ -47,7 +53,7 @@ export interface SpacerGapController {
 
 export function createSpacerGapController(reorderState: CallReorderState | null): SpacerGapController {
   const composingGapKey = signal<string | null | undefined>(undefined);
-  let pendingAnchor: SpacerAnchor = TRAILING_ANCHOR;
+  let pendingAnchor: SpacerAnchor = HEAD_ANCHOR;
   return {
     composingGapKey,
     addSpacerAt(gapKey: string | null, anchor: SpacerAnchor): void {
@@ -57,7 +63,7 @@ export function createSpacerGapController(reorderState: CallReorderState | null)
     confirmNewSpacer(label: string): void {
       const trimmed = label.trim();
       if (trimmed && reorderState) {
-        reorderState.addSpacer(trimmed, pendingAnchor.beforeCallId, pendingAnchor.anchorTimestamp);
+        reorderState.addSpacer(trimmed, pendingAnchor.afterCallId, pendingAnchor.anchorTimestamp);
       }
       composingGapKey.set(undefined);
     },
@@ -69,7 +75,7 @@ export function createSpacerGapController(reorderState: CallReorderState | null)
 
 /** How the list a spacer is being merged into is ordered - see spacerOrderFor. */
 export interface SpacerOrder {
-  /** Newest first - "before this call" in time is BELOW it on screen. */
+  /** Newest first - "after this call" in time is ABOVE it on screen. */
   readonly descending: boolean;
   /** Chronological at all - only then does a timestamp say where a spacer belongs among other calls. */
   readonly byTime: boolean;
@@ -85,13 +91,13 @@ export function spacerOrderFor(mode: SortMode): SpacerOrder {
  * position couldn't be worked out against what's currently shown - it renders at the very end,
  * flagged, rather than vanishing.
  */
-export type MergedWithSpacer<T> =
+export type MergedWithSpacer<T, S extends AnchoredSpacer = CycleSpacer> =
   | { readonly kind: 'item'; readonly item: T }
-  | { readonly kind: 'spacer'; readonly spacer: CycleSpacer; readonly detached: boolean };
+  | { readonly kind: 'spacer'; readonly spacer: S; readonly detached: boolean };
 
-export interface SpacerLayout<T> {
-  readonly merged: readonly MergedWithSpacer<T>[];
-  /** The anchor a new spacer gets when added in the gap directly above an anchor-eligible item, keyed by that item's call id. */
+export interface SpacerLayout<T, S extends AnchoredSpacer = CycleSpacer> {
+  readonly merged: readonly MergedWithSpacer<T, S>[];
+  /** The anchor a new spacer gets when added in the gap directly above an anchor-eligible item, keyed by that item's call id (its first row, for a call shown as two). */
   readonly gapAnchors: ReadonlyMap<string, SpacerAnchor>;
   /** The anchor for the trailing gap below the last item. */
   readonly tailAnchor: SpacerAnchor;
@@ -99,90 +105,93 @@ export interface SpacerLayout<T> {
 
 /**
  * Splices spacers into `items` - the shared merge behind the flat view's rows, the nested view's
- * roots, and the waterfall view's root groups. `anchorCallOf` returns the call an item stands for,
- * or null for an item no spacer can sit directly before (a waterfall group ahead of the first root,
- * a flat view's closing 'response' half); everything below only ever looks at eligible items.
+ * roots, the waterfall view's root groups, and the .md/.html exports' call blocks, so all of them
+ * put a spacer in the same place. `anchorCallOf` returns the call an item stands for, or null for
+ * an item no spacer can attach to (a waterfall group ahead of the first root); only eligible items
+ * are ever looked at below. A call may stand behind two items (a split request/response pair) -
+ * "after it" means after the last of them.
  *
  * Per spacer, the first rule that applies wins:
  *  a. EXACT - its anchor call is shown (or, in a tree view, `rootOf` maps it to a root that is):
- *     directly before it ascending; descending, directly before the next eligible item, i.e. just
- *     below it, since "before this call" in time is below it in a newest-first list.
- *  b. TIME - the list is chronological and the spacer has an anchorTimestamp: before the first
- *     eligible item at-or-after that time (ascending) / earlier than it (descending). This is what
- *     keeps a spacer at the same point in the story while a filter or server-side search hides its
- *     anchor call, or after that call was deleted.
- *  c. TRAILING - both anchor fields null: the tail ascending, the head descending.
- *  d. Otherwise DETACHED - after the tail, flagged. Never dropped: a spacer that silently vanishes
- *     under a filter reads as deleted.
+ *     directly after it; newest-first, directly above it. Calls that were hidden when the spacer
+ *     was added (OPTIONS preflights, a filter) and are shown now land BELOW it, never between it
+ *     and the call it was placed after - which is the whole point of anchoring to the call above.
+ *  b. TIME - the list is chronological and the spacer has an anchorTimestamp: after the last shown
+ *     call at-or-before that time. What keeps a spacer at the same point in the story while its
+ *     anchor call is hidden, not loaded, or deleted.
+ *  c. HEAD - both anchor fields null: above every call (below every call, newest-first).
+ *  d. Otherwise DETACHED - after everything, flagged. Never dropped: a spacer that silently
+ *     vanishes under a filter reads as deleted.
  *
  * Several spacers resolving to the same slot keep their input (creation) order.
  */
-export function layoutSpacers<T>(
+export function layoutSpacers<T, S extends AnchoredSpacer = CycleSpacer>(
   items: readonly T[],
   anchorCallOf: (item: T) => CallRecord | null,
-  spacers: readonly CycleSpacer[],
+  spacers: readonly S[],
   order: SpacerOrder,
   rootOf?: (callId: string) => string | undefined
-): SpacerLayout<T> {
+): SpacerLayout<T, S> {
   const { descending, byTime } = order;
   const calls = items.map(anchorCallOf);
 
-  // The gap above each eligible item. Ascending that's the item itself; descending the gap above a
-  // row is chronologically AFTER it, so it anchors to the eligible item above (trailing at the top).
+  // The gap above each eligible item (keyed by its call, first row only). The gap above a row is
+  // after whatever is shown above it; newest-first, it's after (in time) the row itself.
   const gapAnchors = new Map<string, SpacerAnchor>();
-  let previous: SpacerAnchor = TRAILING_ANCHOR;
+  let above: SpacerAnchor = HEAD_ANCHOR;
   let last: CallRecord | null = null;
   for (const call of calls) {
     if (!call) continue;
-    if (!gapAnchors.has(call.id)) gapAnchors.set(call.id, descending ? previous : anchorOf(call));
-    previous = anchorOf(call);
+    if (!gapAnchors.has(call.id)) gapAnchors.set(call.id, descending ? anchorOf(call) : above);
+    above = anchorOf(call);
     last = call;
   }
-  // Descending, the bottom of the list is its oldest end - a spacer there sits before the last call.
-  const tailAnchor = descending && last ? anchorOf(last) : TRAILING_ANCHOR;
+  // The bottom of the list: after the last call; newest-first that's the oldest end, before every call.
+  const tailAnchor = !descending && last ? anchorOf(last) : HEAD_ANCHOR;
 
   if (spacers.length === 0) {
     return { merged: items.map((item) => ({ kind: 'item' as const, item })), gapAnchors, tailAnchor };
   }
 
-  // Index of each eligible call's first row (ascending) / last row (descending), and of the next
-  // eligible item after any index (items.length = the tail slot).
-  const indexOfId = new Map<string, number>();
-  const nextEligible = new Array<number>(items.length);
-  let next = items.length;
-  for (let i = items.length - 1; i >= 0; i--) {
-    nextEligible[i] = next;
+  // slot i = directly before items[i]; items.length = the tail. "After item i" is the slot right
+  // after its last row (ascending) / right before its first row (descending, where after = above).
+  const slotAfter = new Map<string, number>();
+  for (let i = 0; i < items.length; i++) {
     const call = calls[i];
     if (!call) continue;
-    next = i;
-    if (!descending || !indexOfId.has(call.id)) indexOfId.set(call.id, i);
+    if (descending) {
+      if (!slotAfter.has(call.id)) slotAfter.set(call.id, i);
+    } else {
+      slotAfter.set(call.id, i + 1);
+    }
   }
 
   const slotByTime = (t: number): number => {
+    // Ascending: before the first eligible call later than t. Descending: before the first at-or-before t.
     for (let i = 0; i < items.length; i++) {
       const call = calls[i];
-      if (call && (descending ? callTime(call) < t : callTime(call) >= t)) return i;
+      if (call && (descending ? callTime(call) <= t : callTime(call) > t)) return i;
     }
     return items.length;
   };
 
-  const slots = new Map<number, CycleSpacer[]>();
-  const detached: CycleSpacer[] = [];
-  const place = (slot: number, spacer: CycleSpacer): void => {
+  const slots = new Map<number, S[]>();
+  const detached: S[] = [];
+  const place = (slot: number, spacer: S): void => {
     const list = slots.get(slot);
     if (list) list.push(spacer);
     else slots.set(slot, [spacer]);
   };
 
   for (const spacer of spacers) {
-    if (spacer.beforeCallId != null) {
-      let index = indexOfId.get(spacer.beforeCallId);
-      if (index === undefined && rootOf) {
-        const root = rootOf(spacer.beforeCallId);
-        if (root !== undefined) index = indexOfId.get(root);
+    if (spacer.afterCallId != null) {
+      let slot = slotAfter.get(spacer.afterCallId);
+      if (slot === undefined && rootOf) {
+        const root = rootOf(spacer.afterCallId);
+        if (root !== undefined) slot = slotAfter.get(root);
       }
-      if (index !== undefined) {
-        place(descending ? nextEligible[index] : index, spacer);
+      if (slot !== undefined) {
+        place(slot, spacer);
         continue;
       }
     }
@@ -193,14 +202,14 @@ export function layoutSpacers<T>(
         continue;
       }
     }
-    if (isTrailing(spacer)) {
-      place(descending ? 0 : items.length, spacer);
+    if (isHead(spacer)) {
+      place(descending ? items.length : 0, spacer);
       continue;
     }
     detached.push(spacer);
   }
 
-  const merged: MergedWithSpacer<T>[] = [];
+  const merged: MergedWithSpacer<T, S>[] = [];
   for (let i = 0; i <= items.length; i++) {
     for (const spacer of slots.get(i) ?? []) merged.push({ kind: 'spacer', spacer, detached: false });
     if (i < items.length) merged.push({ kind: 'item', item: items[i] });
@@ -210,11 +219,30 @@ export function layoutSpacers<T>(
 }
 
 /**
+ * The same merge, as "which spacers go right before this item" plus "which go after everything" -
+ * the shape the .md/.html export builders iterate in, so they place spacers exactly where the list
+ * does rather than by a lookup of their own.
+ */
+export function spacerSlots<T, S extends AnchoredSpacer>(merged: readonly MergedWithSpacer<T, S>[]): { before: ReadonlyMap<T, readonly S[]>; tail: readonly S[] } {
+  const before = new Map<T, S[]>();
+  let pending: S[] = [];
+  for (const entry of merged) {
+    if (entry.kind === 'spacer') {
+      pending.push(entry.spacer);
+    } else {
+      if (pending.length > 0) before.set(entry.item, pending);
+      pending = [];
+    }
+  }
+  return { before, tail: pending };
+}
+
+/**
  * Re-anchors the ONE spacer just dropped at `merged[droppedIndex]` (`merged` being the post-drop
- * order): ascending, to the next eligible item below it; descending, to the eligible item above it
- * (the same asymmetry as SpacerLayout.gapAnchors); trailing if there is none. Every other spacer is
- * left exactly as it is - they're attached to calls, not to list positions, so moving one divider
- * (or a call) must never rewrite the rest. Only calls moveSpacer if the anchor actually changed.
+ * order) to the eligible item directly above it - newest-first, directly below it, since that's the
+ * one it now follows in time; above every call if there is none. Every other spacer is left
+ * exactly as it is - they're attached to calls, not to list positions, so moving one divider (or a
+ * call) must never rewrite the rest. Only calls moveSpacer if the anchor actually changed.
  */
 export function reanchorDroppedSpacer<T>(
   merged: readonly MergedWithSpacer<T>[],
@@ -226,8 +254,8 @@ export function reanchorDroppedSpacer<T>(
   const entry = merged[droppedIndex];
   if (!entry || entry.kind !== 'spacer') return;
 
-  let anchor = TRAILING_ANCHOR;
-  const step = descending ? -1 : 1;
+  let anchor = HEAD_ANCHOR;
+  const step = descending ? 1 : -1;
   for (let j = droppedIndex + step; j >= 0 && j < merged.length; j += step) {
     const candidate = merged[j];
     const call = candidate.kind === 'item' ? anchorCallOf(candidate.item) : null;
@@ -238,8 +266,8 @@ export function reanchorDroppedSpacer<T>(
   }
 
   const { spacer } = entry;
-  if (anchor.beforeCallId !== spacer.beforeCallId || anchor.anchorTimestamp !== (spacer.anchorTimestamp ?? null)) {
-    reorderState.moveSpacer(spacer.id, anchor.beforeCallId, anchor.anchorTimestamp);
+  if (anchor.afterCallId !== (spacer.afterCallId ?? null) || anchor.anchorTimestamp !== (spacer.anchorTimestamp ?? null)) {
+    reorderState.moveSpacer(spacer.id, anchor.afterCallId, anchor.anchorTimestamp);
   }
 }
 

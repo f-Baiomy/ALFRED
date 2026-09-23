@@ -174,25 +174,25 @@ describe('CycleExportService', () => {
   it('passes a spacer straight through, keyed on the underlying call id it already anchors to', () => {
     service.exportCycle(CYCLE, 'markdown');
 
-    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'Retry attempt', beforeCallId: 'ext-1' }]);
+    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'Retry attempt', afterCallId: 'ext-1', anchorTimestamp: 't1' }]);
 
-    expect(exportDialog.state()?.spacers).toEqual([{ label: 'Retry attempt', beforeCallId: 'ext-1' }]);
+    expect(exportDialog.state()?.spacers).toEqual([{ label: 'Retry attempt', afterCallId: 'ext-1', anchorTimestamp: 't1' }]);
   });
 
-  it('passes through a spacer anchored to a call that never made it into the export - the builders drop it themselves', () => {
+  it('passes through a spacer anchored to a call that never made it into the export - the builders place it by time', () => {
     service.exportCycle(CYCLE, 'markdown');
 
-    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'Orphaned', beforeCallId: 'does-not-exist' }]);
+    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'Orphaned', afterCallId: 'does-not-exist' }]);
 
-    expect(exportDialog.state()?.spacers).toEqual([{ label: 'Orphaned', beforeCallId: 'does-not-exist' }]);
+    expect(exportDialog.state()?.spacers).toEqual([{ label: 'Orphaned', afterCallId: 'does-not-exist', anchorTimestamp: null }]);
   });
 
-  it('keeps a trailing spacer (beforeCallId null) as-is', () => {
+  it('keeps a spacer above every call (no anchor - the backend omits both fields) as-is', () => {
     service.exportCycle(CYCLE, 'markdown');
 
-    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'End of repro', beforeCallId: null }]);
+    flushThroughDetailThenSpacers([{ id: 's1', cycleId: 'cycle-1', label: 'Start of repro' }]);
 
-    expect(exportDialog.state()?.spacers).toEqual([{ label: 'End of repro', beforeCallId: null }]);
+    expect(exportDialog.state()?.spacers).toEqual([{ label: 'Start of repro', afterCallId: null, anchorTimestamp: null }]);
   });
 
   it('an empty cycle sets a message instead of opening the dialog', () => {

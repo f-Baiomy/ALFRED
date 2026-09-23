@@ -530,7 +530,7 @@ class SessionCyclesControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("s1"))
                 .andExpect(jsonPath("$[0].label").value("Checkout retry attempt"))
-                .andExpect(jsonPath("$[0].beforeCallId").value("call-1"));
+                .andExpect(jsonPath("$[0].afterCallId").value("call-1"));
     }
 
     @Test
@@ -550,7 +550,7 @@ class SessionCyclesControllerTest {
         mockMvc.perform(post("/session-cycles/missing/spacers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"label":"Retry attempt","beforeCallId":"call-1"}
+                                {"label":"Retry attempt","afterCallId":"call-1"}
                                 """))
                 .andExpect(status().isNotFound());
     }
@@ -563,7 +563,7 @@ class SessionCyclesControllerTest {
         mockMvc.perform(post("/session-cycles/c1/spacers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"label":"Retry attempt","beforeCallId":"call-1"}
+                                {"label":"Retry attempt","afterCallId":"call-1"}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value("s1"));
@@ -580,7 +580,7 @@ class SessionCyclesControllerTest {
                                 {"label":"Retry attempt"}
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.beforeCallId").doesNotExist());
+                .andExpect(jsonPath("$.afterCallId").doesNotExist());
     }
 
     @Test
@@ -616,7 +616,7 @@ class SessionCyclesControllerTest {
         mockMvc.perform(patch("/session-cycles/c1/spacers/missing/move")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"beforeCallId":"call-2"}
+                                {"afterCallId":"call-2"}
                                 """))
                 .andExpect(status().isNotFound());
     }
@@ -629,10 +629,10 @@ class SessionCyclesControllerTest {
         mockMvc.perform(patch("/session-cycles/c1/spacers/s1/move")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"beforeCallId":"call-2"}
+                                {"afterCallId":"call-2"}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.beforeCallId").value("call-2"));
+                .andExpect(jsonPath("$.afterCallId").value("call-2"));
     }
 
     @Test
@@ -643,7 +643,7 @@ class SessionCyclesControllerTest {
         mockMvc.perform(post("/session-cycles/c1/spacers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"label":"Retry attempt","beforeCallId":"call-1","anchorTimestamp":"2026-01-01T00:00:03Z"}
+                                {"label":"Retry attempt","afterCallId":"call-1","anchorTimestamp":"2026-01-01T00:00:03Z"}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.anchorTimestamp").value("2026-01-01T00:00:03Z"));
@@ -657,7 +657,7 @@ class SessionCyclesControllerTest {
         mockMvc.perform(patch("/session-cycles/c1/spacers/s1/move")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"beforeCallId":"call-2","anchorTimestamp":"2026-01-01T00:00:05Z"}
+                                {"afterCallId":"call-2","anchorTimestamp":"2026-01-01T00:00:05Z"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.anchorTimestamp").value("2026-01-01T00:00:05Z"));

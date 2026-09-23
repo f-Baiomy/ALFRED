@@ -3,9 +3,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.capture;
 import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
-import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
-import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import org.junit.jupiter.api.Test;
@@ -13,7 +11,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -25,8 +22,7 @@ class SessionCycleCaptureAdapterTest {
 
     private final SessionCycleMetadataStorePort metadataStore = mock(SessionCycleMetadataStorePort.class);
     private final CapturedCallsStorePort capturedCallsStore = mock(CapturedCallsStorePort.class);
-    private final CycleSpacersStorePort spacersStore = mock(CycleSpacersStorePort.class);
-    private final SessionCycleCaptureAdapter adapter = new SessionCycleCaptureAdapter(metadataStore, capturedCallsStore, spacersStore);
+    private final SessionCycleCaptureAdapter adapter = new SessionCycleCaptureAdapter(metadataStore, capturedCallsStore);
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "t", null, status);
@@ -51,44 +47,6 @@ class SessionCycleCaptureAdapterTest {
         verify(capturedCallsStore).append("recording-1", call);
         verify(capturedCallsStore).append("recording-2", call);
         verify(capturedCallsStore, never()).append("paused-1", call);
-    }
-
-    @Test
-    void onNewCallReAnchorsAnyTrailingSpacerToTheJustCapturedCallSoItStaysPutInsteadOfSlidingPastFutureCalls() {
-        CallRecord call = call();
-        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
-        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t", null);
-        CycleSpacer alreadyAnchored = new CycleSpacer("spacer-2", "recording-1", "Mid repro", "some-other-call", "t", null);
-        when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing, alreadyAnchored));
-
-        adapter.onNewCall(call);
-
-        verify(spacersStore).move("recording-1", "spacer-1", call.id(), call.timestamp());
-        verify(spacersStore, never()).move("recording-1", "spacer-2", call.id(), call.timestamp());
-    }
-
-    @Test
-    void onNewCallDoesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
-        CallRecord optionsCall = new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "OPTIONS", null, "t", 1.0, null, null);
-        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
-        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t", null);
-        when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing));
-
-        adapter.onNewCall(optionsCall);
-
-        verify(spacersStore, never()).move(any(), any(), any(), any());
-    }
-
-    @Test
-    void onNewCallDoesNotRePinASpacerWhoseAnchorCallWasDeletedSinceItIsStillPlacedByItsTimestamp() {
-        CallRecord call = call();
-        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
-        CycleSpacer orphaned = new CycleSpacer("spacer-1", "recording-1", "Anchor was deleted", null, "t", "2026-01-01T00:00:03Z");
-        when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(orphaned));
-
-        adapter.onNewCall(call);
-
-        verify(spacersStore, never()).move(any(), any(), any(), any());
     }
 
     @Test
