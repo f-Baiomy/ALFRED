@@ -41,6 +41,8 @@ export class AnswerPickerComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly answerId = input<string | null | undefined>(null);
+  readonly kind = input<'RECORDED' | 'FILE'>('RECORDED');
+  readonly status = input<number | null | undefined>(null);
   /** Emits the new stored answer's id - the rule editor writes it onto the action. */
   readonly answerChange = output<string>();
 
@@ -55,9 +57,12 @@ export class AnswerPickerComponent implements OnInit {
   readonly answer = signal<StoredAnswer | null>(null);
   /** True while an attached answer is being replaced - the picker shows instead of the card. */
   readonly changing = signal(false);
+  readonly uploadType = signal('');
+  readonly uploading = signal(false);
 
   readonly showPicker = computed(() => this.changing() || !this.answerId());
 
+  private selectedFile: File | null = null;
   private readonly queries = new Subject<{ direction: Direction; search: string }>();
 
   constructor() {
@@ -98,7 +103,7 @@ export class AnswerPickerComponent implements OnInit {
         this.total.set(page.total);
       });
     // An action that already has its answer shows the card, and needs no search until "Change…".
-    if (this.showPicker()) this.runSearch();
+    if (this.showPicker() && this.kind() === 'RECORDED') this.runSearch();
   }
 
   setDirection(direction: Direction): void {
@@ -132,7 +137,7 @@ export class AnswerPickerComponent implements OnInit {
 
   startChange(): void {
     this.changing.set(true);
-    this.runSearch();
+    if (this.kind() === 'RECORDED') this.runSearch();
   }
 
   cancelChange(): void {
@@ -180,6 +185,52 @@ export class AnswerPickerComponent implements OnInit {
 
   sizeText(bytes: number): string {
     return formatBytes(bytes);
+  }
+
+  onFile(event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0] ?? null;
+    this.selectedFile = file;
+    this.uploadType.set(file?.type || '');
+    this.error.set(null);
+  }
+
+  onUploadType(event: Event): void {
+    this.uploadType.set((event.target as HTMLInputElement).value);
+  }
+
+  upload(): void {
+    const file = this.selectedFile;
+    if (!file) return;
+    if (!this.uploadType().trim()) {
+      this.error.set('Say what content type the file is served as, e.g. application/json.');
+      return;
+    }
+    this.uploading.set(true);
+    this.error.set(null);
+    this.api
+      .uploadAnswer(file, this.uploadType().trim(), this.status() ?? null)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (answer) => {
+          this.uploading.set(false);
+          this.changing.set(false);
+          this.answer.set(answer);
+          this.answerChange.emit(answer.id);
+        },
+        error: (failure: HttpErrorResponse) => {
+          this.uploading.set(false);
+          if (failure.status === 413) {
+            const body = failure.error as { limitBytes?: number; sizeBytes?: number };
+            this.error.set(
+              `That file is ${formatBytes(body?.sizeBytes ?? file.size)}; a stored answer can be at most ${formatBytes(body?.limitBytes ?? 0)}.`
+            );
+          } else if (failure.status === 415) {
+            this.error.set('Say what content type the file is served as, e.g. application/json.');
+          } else {
+            this.error.set('Could not upload that file. Try again.');
+          }
+        },
+      });
   }
 }
 

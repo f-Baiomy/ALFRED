@@ -98,6 +98,15 @@ export class InterceptionApiService {
     return this.http.post<StoredAnswer>(`${this.baseUrl}/answers/from-call`, request);
   }
 
+  /** multipart/form-data: `file`, optional `contentType` and `status`. 413 carries limitBytes and sizeBytes. */
+  uploadAnswer(file: File, contentType: string, status: number | null): Observable<StoredAnswer> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    if (contentType) form.append('contentType', contentType);
+    if (status != null) form.append('status', String(status));
+    return this.http.post<StoredAnswer>(`${this.baseUrl}/answers`, form);
+  }
+
   getAnswer(id: string): Observable<StoredAnswer> {
     return this.http.get<StoredAnswer>(`${this.baseUrl}/answers/${encodeURIComponent(id)}`);
   }

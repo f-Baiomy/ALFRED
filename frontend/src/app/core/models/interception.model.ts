@@ -32,6 +32,7 @@ export type ActionType =
   | 'DISABLE_CACHE'
   | 'DISABLE_COMPRESSION'
   | 'ANSWER_WITH_RECORDED_CALL'
+  | 'ANSWER_WITH_FILE'
   | 'ABORT_REQUEST'
   | 'MOCK_RESPONSE'
   | 'PAUSE_REQUEST'
@@ -562,6 +563,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   DISABLE_CACHE: 'Disable cache (always get the full response)',
   DISABLE_COMPRESSION: 'Disable compression',
   ANSWER_WITH_RECORDED_CALL: 'Answer with a recorded call (never contact upstream)',
+  ANSWER_WITH_FILE: 'Answer with a file (never contact upstream)',
   ABORT_REQUEST: 'Abort request (kill the connection)',
   MOCK_RESPONSE: 'Mock response (never contact upstream)',
   PAUSE_REQUEST: 'Pause and wait for me (before forwarding)',
@@ -736,6 +738,10 @@ export function describeAction(action: RuleAction): string {
       return action.answerId || action.answerRef
         ? `Answer with a recorded call${action.status ? ` as ${action.status}` : ''} — host never called`
         : 'Answer with a recorded call — none picked yet';
+    case 'ANSWER_WITH_FILE':
+      return action.answerId || action.answerRef
+        ? `Answer with a file${action.status ? ` as ${action.status}` : ''} — host never called`
+        : 'Answer with a file — none uploaded yet';
     case 'REPLACE_WITH_RECORDED_RESPONSE':
       return action.answerId || action.answerRef
         ? 'Replace the response with a recorded one — host still called'
@@ -841,5 +847,10 @@ export interface CopyAnswerRequest {
 
 /** Whether an action serves a stored answer, and so needs the answer picker. */
 export function usesStoredAnswer(type: ActionType): boolean {
-  return type === 'ANSWER_WITH_RECORDED_CALL' || type === 'REPLACE_WITH_RECORDED_RESPONSE';
+  return type === 'ANSWER_WITH_RECORDED_CALL' || type === 'ANSWER_WITH_FILE' || type === 'REPLACE_WITH_RECORDED_RESPONSE';
+}
+
+/** Which kind of stored answer an action serves - the picker shows a search or an upload. */
+export function answerKindOf(type: ActionType): 'RECORDED' | 'FILE' {
+  return type === 'ANSWER_WITH_FILE' ? 'FILE' : 'RECORDED';
 }

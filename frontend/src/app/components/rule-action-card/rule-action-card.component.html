@@ -343,11 +343,19 @@
         }
 
         @if (editor.usesAnswer(step.action.type)) {
-          <app-answer-picker [answerId]="step.action.answerId" (answerChange)="editor.onAnswer(step.path, $event)" />
-          <label class="inline-field span-all">
-            <input type="checkbox" [checked]="step.action.refreshDates === true" (change)="editor.onToggle(step.path, 'refreshDates', $event)" />
-            <span>Refresh dates — move Date, Expires and cookie expiry forward to now</span>
-          </label>
+          <app-answer-picker [answerId]="step.action.answerId" [kind]="editor.answerKind(step.action.type)" [status]="step.action.status" (answerChange)="editor.onAnswer(step.path, $event)" />
+          @if (step.action.type !== 'ANSWER_WITH_FILE') {
+            <label class="inline-field span-all">
+              <input type="checkbox" [checked]="step.action.refreshDates === true" (change)="editor.onToggle(step.path, 'refreshDates', $event)" />
+              <span>Refresh dates — move Date, Expires and cookie expiry forward to now</span>
+            </label>
+          }
+          @if (step.action.type === 'ANSWER_WITH_FILE') {
+            <div class="inline-field">
+              <span>Status</span>
+              <app-status-picker [value]="step.action.status ?? 200" (valueChange)="editor.onStatusChange(step.path, $event)" />
+            </div>
+          }
           <small class="muted span-all">Deleting this rule deletes its stored answer, unless another rule uses it too.</small>
         }
 

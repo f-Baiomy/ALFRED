@@ -1,40 +1,52 @@
 <div class="answer-picker span-all">
   @if (showPicker()) {
-    <div class="answer-picker-bar">
-      <div class="answer-direction" role="group" aria-label="Which calls to pick from">
-        <button type="button" class="pill" [class.on]="direction() === 'outbound'" (click)="setDirection('outbound')">Outbound · supplier calls</button>
-        <button type="button" class="pill" [class.on]="direction() === 'inbound'" (click)="setDirection('inbound')">Inbound · into your projects</button>
-      </div>
-      <input type="search" class="answer-search" placeholder="Search URL or body…" [value]="search()" (input)="onSearch($event)" />
-      @if (changing()) {
-        <button type="button" class="pill" (click)="cancelChange()">Keep the current answer</button>
-      }
-    </div>
-
-    <small class="muted">
-      @if (loading()) {
-        Searching…
-      } @else {
-        {{ total() }} {{ total() === 1 ? 'match' : 'matches' }} · newest first{{ total() > results().length ? ' · showing ' + results().length : '' }}
-      }
-    </small>
-
-    <ul class="answer-results">
-      @for (call of results(); track call.id) {
-        <li>
-          <button type="button" class="answer-result" [disabled]="copying()" (click)="pick(call)">
-            <span class="answer-method">{{ call.method }}</span>
-            <span class="answer-status">{{ statusOf(call) }}</span>
-            <span class="answer-url">{{ call.url }}</span>
-            <span class="answer-time">{{ call.timestamp }}</span>
-          </button>
-        </li>
-      } @empty {
-        @if (!loading()) {
-          <li class="muted">No calls match.</li>
+    @if (kind() === 'RECORDED') {
+      <div class="answer-picker-bar">
+        <div class="answer-direction" role="group" aria-label="Which calls to pick from">
+          <button type="button" class="pill" [class.on]="direction() === 'outbound'" (click)="setDirection('outbound')">Outbound · supplier calls</button>
+          <button type="button" class="pill" [class.on]="direction() === 'inbound'" (click)="setDirection('inbound')">Inbound · into your projects</button>
+        </div>
+        <input type="search" class="answer-search" placeholder="Search URL or body…" [value]="search()" (input)="onSearch($event)" />
+        @if (changing()) {
+          <button type="button" class="pill" (click)="cancelChange()">Keep the current answer</button>
         }
-      }
-    </ul>
+      </div>
+
+      <small class="muted">
+        @if (loading()) {
+          Searching…
+        } @else {
+          {{ total() }} {{ total() === 1 ? 'match' : 'matches' }} · newest first{{ total() > results().length ? ' · showing ' + results().length : '' }}
+        }
+      </small>
+
+      <ul class="answer-results">
+        @for (call of results(); track call.id) {
+          <li>
+            <button type="button" class="answer-result" [disabled]="copying()" (click)="pick(call)">
+              <span class="answer-method">{{ call.method }}</span>
+              <span class="answer-status">{{ statusOf(call) }}</span>
+              <span class="answer-url">{{ call.url }}</span>
+              <span class="answer-time">{{ call.timestamp }}</span>
+            </button>
+          </li>
+        } @empty {
+          @if (!loading()) {
+            <li class="muted">No calls match.</li>
+          }
+        }
+      </ul>
+    } @else {
+      <div class="answer-picker-bar">
+        <input type="file" (change)="onFile($event)" />
+        <input type="text" class="answer-search" placeholder="Content type, e.g. application/json" [value]="uploadType()" (input)="onUploadType($event)" />
+        <button type="button" class="pill" [disabled]="uploading()" (click)="upload()">Upload</button>
+        @if (changing()) {
+          <button type="button" class="pill" (click)="cancelChange()">Keep the current answer</button>
+        }
+      </div>
+      <small class="muted">Served byte for byte. At most 10 MB.</small>
+    }
   } @else {
     @if (answer(); as stored) {
       <div class="answer-card">
@@ -50,7 +62,7 @@
         <div class="answer-card-meta">
           <span>status {{ stored.status ?? '—' }}</span>
           <span>size {{ sizeText(stored.sizeBytes) }}</span>
-          @if (stored.sourceDirection) {
+          @if (stored.kind === 'RECORDED' && stored.sourceDirection) {
             <span>from {{ stored.sourceDirection }} call {{ stored.sourceCallId }}</span>
           }
           @if (stored.recordedAt) {

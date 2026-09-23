@@ -31,6 +31,7 @@ import {
   MatchTestOperator,
   matchTestNeedsValue,
   usesStoredAnswer,
+  answerKindOf,
   RuleAction,
   RuleSource,
   actionPhase,
@@ -978,6 +979,10 @@ export class RuleEditorComponent implements OnInit {
     return usesStoredAnswer(type);
   }
 
+  answerKind(type: ActionType): 'RECORDED' | 'FILE' {
+    return answerKindOf(type);
+  }
+
   onAnswer(path: readonly number[], answerId: string): void {
     this.patchAt(path, { answerId });
   }
@@ -1213,6 +1218,8 @@ function defaultsFor(type: ActionType): RuleAction {
     case 'REPLACE_WITH_RECORDED_RESPONSE':
       // No answer yet: the picker on the card creates one, and saving without it is refused.
       return { type, answerId: null, refreshDates: false };
+    case 'ANSWER_WITH_FILE':
+      return { type, answerId: null, status: 200 };
     case 'REPLACE_IN_REQUEST_BODY':
     case 'REPLACE_IN_RESPONSE_BODY':
       // Literal and case-sensitive: the reading of the pattern that does exactly what it says.
