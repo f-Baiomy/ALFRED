@@ -1,4 +1,4 @@
-import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { Observable, Subscription, forkJoin, map, of, tap } from 'rxjs';
@@ -78,10 +78,22 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   /** Every spacer for the currently-open cycle - see CallReorderState. Reloaded whenever the open cycle changes. */
   readonly spacers = signal<readonly CycleSpacer[]>([]);
 
+  /** Pending debounced reloadSpacers() after a live push - see handleWsMessage. */
+  private spacersReloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Whether selectedSources is final - i.e. the inbound-logging feature flag (and, if on, the
+   * service list) has come back, or failed. Page one is only fetched once this is true: before, it
+   * was fetched on creation, again by the cycle effect, and again once the services resolved - three
+   * loads of the same list every time a cycle was opened.
+   */
+  private readonly sourcesKnown = signal(false);
+
   constructor() {
     this.view = createCallListView(computed(() => new Set(this.pinService.pinned().keys())), {
       pageSize: 200,
       defaultSortMode: 'oldest-call',
+      fetchOnCreate: false,
       customOrder: this.customOrder,
       liveCalls: this.liveCalls,
       onError: (message) => this.error.set(message),
@@ -97,10 +109,20 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         const id = this.cycleId();
         this.capturedByKey.clear();
         this.liveCalls.set([]);
-        this.view.resetSource();
+        this.cancelSpacersReload();
         this.spacers.set([]);
         if (id) {
           this.api.listSpacers(id).subscribe((spacers) => this.spacers.set(spacers));
+        }
+      },
+      { allowSignalWrites: true }
+    );
+
+    // The one page-one fetch per open cycle - see sourcesKnown.
+    effect(
+      () => {
+        if (this.cycleId() && this.sourcesKnown()) {
+          untracked(() => this.view.resetSource());
         }
       },
       { allowSignalWrites: true }
@@ -124,15 +146,25 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       { allowSignalWrites: true }
     );
 
-    this.internalLoggingApi.getFeatureEnabled().subscribe((res) => {
-      this.inboundLoggingFeatureEnabled.set(res.enabled);
-      if (!res.enabled) return;
-      this.internalLoggingApi.getServices().subscribe((services) => {
-        this.internalServices.set(services);
-        this.selectedSources.set(new Set([EXTERNAL_SOURCE_KEY, ...services.map((s) => s.name)]));
-        this.connectLiveUpdates();
-        this.view.resetSource();
-      });
+    this.internalLoggingApi.getFeatureEnabled().subscribe({
+      next: (res) => {
+        this.inboundLoggingFeatureEnabled.set(res.enabled);
+        if (!res.enabled) {
+          this.sourcesKnown.set(true);
+          return;
+        }
+        this.internalLoggingApi.getServices().subscribe({
+          next: (services) => {
+            this.internalServices.set(services);
+            this.selectedSources.set(new Set([EXTERNAL_SOURCE_KEY, ...services.map((s) => s.name)]));
+            this.connectLiveUpdates();
+            this.sourcesKnown.set(true);
+          },
+          // Still show the external calls rather than an empty page forever.
+          error: () => this.sourcesKnown.set(true),
+        });
+      },
+      error: () => this.sourcesKnown.set(true),
     });
 
     this.connectLiveUpdates();
@@ -266,10 +298,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     }
   }
 
-  addSpacer(label: string, beforeCallId: string | null): void {
+  addSpacer(label: string, beforeCallId: string | null, anchorTimestamp: string | null): void {
     const id = this.cycleId();
     if (!id) return;
-    this.api.createSpacer(id, label, beforeCallId).subscribe((spacer) => this.spacers.set([...this.spacers(), spacer]));
+    this.api.createSpacer(id, label, beforeCallId, anchorTimestamp).subscribe((spacer) => this.spacers.set([...this.spacers(), spacer]));
   }
 
   renameSpacer(spacerId: string, label: string): void {
@@ -278,10 +310,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     this.api.renameSpacer(id, spacerId, label).subscribe((updated) => this.replaceSpacer(updated));
   }
 
-  moveSpacer(spacerId: string, beforeCallId: string | null): void {
+  moveSpacer(spacerId: string, beforeCallId: string | null, anchorTimestamp: string | null): void {
     const id = this.cycleId();
     if (!id) return;
-    this.api.moveSpacer(id, spacerId, beforeCallId).subscribe((updated) => this.replaceSpacer(updated));
+    this.api.moveSpacer(id, spacerId, beforeCallId, anchorTimestamp).subscribe((updated) => this.replaceSpacer(updated));
   }
 
   deleteSpacer(spacerId: string): void {
@@ -342,15 +374,23 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     // logging pushes the same call twice, once IN_PROGRESS then once resolved).
     this.liveCalls.set([call, ...this.liveCalls().filter((c) => c.id !== call.id)]);
     this.view.refresh();
-    // A trailing spacer (beforeCallId null) gets re-anchored to THIS call server-side the moment
-    // it's captured (SessionCyclesService#pinTrailingSpacersTo / SessionCycleInternalCaptureAdapter's
-    // twin) so it stops sliding past future calls - but this client's `spacers` signal was fetched
-    // once at page load and otherwise only reloaded after removing a call (reloadSpacers), so
-    // without this it would keep rendering that spacer as trailing (still after every call,
-    // including this new one) forever, even though the backend already fixed its anchor. Confirmed
-    // live: the backend anchor was correct while the open page still showed the spacer at the very
-    // end.
-    this.reloadSpacers();
+    // A trailing spacer (both anchor fields null) gets pinned to THIS call server-side the moment
+    // it's captured (SessionCyclesService#pinTrailingSpacersTo and its three twins), so the local
+    // copy has to be refetched or it keeps rendering as trailing - after this new call - forever.
+    // Only a trailing spacer is ever changed by a capture, so with none there's nothing to fetch,
+    // and a burst of pushes (two per call under two-phase capture) costs one request, not one each.
+    if (this.spacers().some((s) => s.beforeCallId == null && s.anchorTimestamp == null)) {
+      this.cancelSpacersReload();
+      this.spacersReloadTimer = setTimeout(() => {
+        this.spacersReloadTimer = null;
+        this.reloadSpacers();
+      }, 300);
+    }
+  }
+
+  private cancelSpacersReload(): void {
+    if (this.spacersReloadTimer != null) clearTimeout(this.spacersReloadTimer);
+    this.spacersReloadTimer = null;
   }
 
   /** Always a real network call - never served from a cache, so a call's detail is refetched every time it's expanded, even if it was already loaded before (this session or otherwise). `source` picks GET /session-cycles/{id}/calls/{callId}/detail vs the internal-calls equivalent - defaults to 'external' (via SessionCyclesApiService.getDetail) when omitted. */
@@ -452,7 +492,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   private reloadSpacers(): void {
     const id = this.cycleId();
     if (!id) return;
-    this.api.listSpacers(id).subscribe((spacers) => this.spacers.set(spacers));
+    this.api.listSpacers(id).subscribe((spacers) => {
+      // Unchanged is the common case - skip the set so every view's merge doesn't recompute for nothing.
+      if (JSON.stringify(spacers) !== JSON.stringify(this.spacers())) this.spacers.set(spacers);
+    });
   }
 
   /** Drops the given keys out of the live-push buffer - see removeCall's doc for why this is necessary on every removal path, not just relying on view.refresh() alone. */

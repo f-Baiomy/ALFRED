@@ -9,6 +9,7 @@ import { CycleSpacer } from '../../core/state/call-selection.tokens';
 @Component({
   selector: 'app-spacer-chip',
   standalone: true,
+  host: { '[class.spacer-chip-detached]': 'detached()' },
   template: `
     @if (editing()) {
       <div class="spacer-chip spacer-chip-editing">
@@ -19,14 +20,28 @@ import { CycleSpacer } from '../../core/state/call-selection.tokens';
     } @else {
       <div class="spacer-chip">
         <span class="spacer-label">{{ spacer().label }}</span>
+        @if (detached()) {
+          <span class="spacer-detached-hint" title="Its anchor call is hidden by the current filter or sort">(anchor hidden)</span>
+        }
         <button type="button" class="spacer-icon-btn" (click)="editing.set(true)" aria-label="Rename spacer">&#9998;</button>
         <button type="button" class="spacer-icon-btn" (click)="remove.emit()" aria-label="Delete spacer">&#10005;</button>
       </div>
     }
   `,
+  styles: `
+    :host(.spacer-chip-detached) {
+      opacity: 0.6;
+    }
+    .spacer-detached-hint {
+      color: var(--text-faint);
+      font-size: 11px;
+    }
+  `,
 })
 export class SpacerChipComponent {
   readonly spacer = input.required<CycleSpacer>();
+  /** Its position couldn't be worked out against what's currently shown - see layoutSpacers' rule d. */
+  readonly detached = input(false);
   readonly rename = output<string>();
   readonly remove = output<void>();
 

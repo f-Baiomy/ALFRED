@@ -6,7 +6,16 @@ import { CallRecord } from '../../core/models/call.model';
 import { PinService } from '../../core/services/pin.service';
 import { CallListRow, callKey } from '../../shared/utils/call-utils';
 import { CallDepthInfo, CallTreeNode } from '../../shared/utils/call-tree';
-import { MergedWithSpacer, createSpacerGapController, mergeWithSpacers, reanchorSpacersAfterDrop } from '../../shared/utils/spacer-gap-controller';
+import {
+  MergedWithSpacer,
+  SpacerLayout,
+  TRAILING_ANCHOR,
+  createSpacerGapController,
+  layoutSpacers,
+  reanchorDroppedSpacer,
+  rootIndex,
+  spacerOrderFor,
+} from '../../shared/utils/spacer-gap-controller';
 import { CallCardComponent } from '../call-card/call-card.component';
 import { CallTreeNodeComponent } from '../call-tree-node/call-tree-node.component';
 import { CallWaterfallComponent } from '../call-waterfall/call-waterfall.component';
@@ -87,45 +96,78 @@ export class CallListComponent {
    * Scroll-to-parent behind the flat-depth view's depth badge - the one affordance replacing what
    * indentation would otherwise do. The flash class is removed on the animation's own end event
    * rather than a timeout, so a re-render mid-flash can't leave a card stuck highlighted.
+   *
+   * On a session-cycle page the id sits on the row wrapper rather than the card (the card may not be
+   * built yet - see the template), so the flash goes to whatever the row is currently showing.
    */
   revealParent(parentId: string): void {
     const target = document.getElementById(`call-row-${parentId}`);
     if (!target) return;
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target.classList.add('call-flash');
-    target.addEventListener('animationend', () => target.classList.remove('call-flash'), { once: true });
+    const flashed: Element = target.classList.contains('call-row')
+      ? (target.querySelector('.call-card-placeholder, app-call-card > .call') ?? target)
+      : target;
+    flashed.classList.add('call-flash');
+    flashed.addEventListener('animationend', () => flashed.classList.remove('call-flash'), { once: true });
   }
 
   readonly pinnedCalls = computed(() => [...this.pinService.pinned().values()]);
   readonly hasAnyData = computed(() => this.state.calls().length > 0 || this.pinnedCalls().length > 0);
   readonly dragEnabled = computed(() => !this.state.groupBySupplier() && (this.reorderState?.dragEnabled() ?? false));
 
+  /** How the lists are ordered right now - decides which side of its call a spacer sits on, and whether a hidden anchor can be placed by time. See layoutSpacers. */
+  private readonly spacerOrder = computed(() => spacerOrderFor(this.state.sortMode()));
+
+  /** A split call's closing 'response' row is never a spacer anchor - "before this call" means before its opening row. */
+  private static readonly flatAnchorCall = (row: CallListRow): CallRecord | null => (row.variant === 'response' ? null : row.call);
+  private static readonly nodeAnchorCall = (node: CallTreeNode): CallRecord => node.call;
+
   /**
-   * The flat list's own rows, with every spacer spliced in immediately before the call it's
-   * anchored to (or at the very end, for a spacer with beforeCallId null) - only ever non-trivial
-   * when reorderState is bound (session-cycle detail), since that's the only token that carries
-   * spacers at all. A spacer anchored to a call that isn't currently rendered (filtered out by
-   * search, or not yet loaded) is simply omitted - it reappears once its anchor call is visible
-   * again, rather than needing a fallback position that would just be wrong.
+   * The flat list's own rows with every spacer spliced in - only ever non-trivial when reorderState
+   * is bound (session-cycle detail), since that's the only token that carries spacers at all. A
+   * spacer whose anchor call isn't shown (filtered, searched out, not loaded, deleted) is placed by
+   * its anchor's timestamp instead of being dropped - see layoutSpacers for every rule.
    */
-  readonly mergedRows = computed<readonly MergedWithSpacer<CallListRow>[]>(() =>
-    mergeWithSpacers(this.state.visibleRows(), (row) => row.call.id, this.reorderState?.spacers() ?? [])
+  private readonly flatLayout = computed<SpacerLayout<CallListRow>>(() =>
+    layoutSpacers(this.state.visibleRows(), CallListComponent.flatAnchorCall, this.reorderState?.spacers() ?? [], this.spacerOrder())
   );
+  readonly mergedRows = computed(() => this.flatLayout().merged);
 
   readonly trackByMergedRowKey = (entry: MergedWithSpacer<CallListRow>) => (entry.kind === 'item' ? entry.item.rowKey : `spacer:${entry.spacer.id}`);
 
+  /** Nested child call id -> its root's id, so a spacer anchored to a child sits before that child's root instead of vanishing. */
+  private readonly rootOfChild = computed(() => rootIndex(this.state.callTree().map((node) => node.call), this.state.descendants()));
+
   /**
-   * The nested view's own top-level merge, over ROOT calls only - a spacer anchored to some deeply
-   * nested child simply never shows here, the same way it never shows in the waterfall view (both
-   * views group by root, not by every call). Reordering is call.id-anchored the same as the flat
-   * view, but only spacers can actually be dragged (see the template: every root's cdkDrag is
-   * disabled) - the tree's own order is derived from the calls, not something a user rearranges.
+   * The nested view's own top-level merge, over ROOT calls only (spacers sit between roots, never
+   * inside a subtree). Only spacers can actually be dragged here (see the template: every root's
+   * cdkDrag is disabled) - the tree's own order is derived from the calls, not something a user
+   * rearranges.
    */
-  readonly mergedRoots = computed<readonly MergedWithSpacer<CallTreeNode>[]>(() =>
-    mergeWithSpacers(this.state.callTree(), (node) => node.call.id, this.reorderState?.spacers() ?? [])
-  );
+  private readonly nestedLayout = computed<SpacerLayout<CallTreeNode>>(() => {
+    const rootOf = this.rootOfChild();
+    return layoutSpacers(this.state.callTree(), CallListComponent.nodeAnchorCall, this.reorderState?.spacers() ?? [], this.spacerOrder(), (id) => rootOf.get(id));
+  });
+  readonly mergedRoots = computed(() => this.nestedLayout().merged);
 
   readonly trackByMergedRootKey = (entry: MergedWithSpacer<CallTreeNode>) => (entry.kind === 'item' ? entry.item.call.id : `spacer:${entry.spacer.id}`);
+
+  /** Opens the composer in the gap above this row's call - the anchor comes from the layout, since in a newest-first list the gap above a call is NOT "before" it. */
+  addSpacerAbove(callId: string): void {
+    this.spacerGap.addSpacerAt(callId, this.flatLayout().gapAnchors.get(callId) ?? TRAILING_ANCHOR);
+  }
+
+  addSpacerAtTail(): void {
+    this.spacerGap.addSpacerAt(null, this.flatLayout().tailAnchor);
+  }
+
+  addSpacerAboveRoot(callId: string): void {
+    this.nestedSpacerGap.addSpacerAt(callId, this.nestedLayout().gapAnchors.get(callId) ?? TRAILING_ANCHOR);
+  }
+
+  addSpacerAtRootsTail(): void {
+    this.nestedSpacerGap.addSpacerAt(null, this.nestedLayout().tailAnchor);
+  }
 
   /** Flat view's own add/compose state - see the shared controller's doc. Nested has its own separate instance (nestedSpacerGap below) since the two views can each have their own composer open at once. */
   readonly spacerGap = createSpacerGapController(this.reorderState);
@@ -166,28 +208,29 @@ export class CallListComponent {
   }
 
   /**
-   * Drives both call reordering (unchanged - reorder() still gets the new call order) and spacer
-   * re-anchoring - see reanchorSpacersAfterDrop's doc for the anchor rule.
+   * Dropping a SPACER re-anchors that one spacer and nothing else - see reanchorDroppedSpacer.
+   * Dropping a CALL reorders calls only: every spacer stays attached to its own anchor call, so a
+   * spacer sitting before a call moves along with it.
    */
   onDrop(event: CdkDragDrop<readonly MergedWithSpacer<CallListRow>[]>): void {
     if (!this.reorderState || event.previousIndex === event.currentIndex) return;
+    const dragged = this.mergedRows()[event.previousIndex];
     const merged = [...this.mergedRows()];
     moveItemInArray(merged, event.previousIndex, event.currentIndex);
 
+    if (dragged?.kind === 'spacer') {
+      reanchorDroppedSpacer(merged, event.currentIndex, CallListComponent.flatAnchorCall, this.spacerOrder().descending, this.reorderState);
+      return;
+    }
     const reorderedCalls = merged.filter((entry) => entry.kind === 'item').map((entry) => (entry as { item: CallListRow }).item.call);
     this.reorderState.reorder(reorderedCalls);
-    reanchorSpacersAfterDrop(merged, (row) => row.call.id, this.reorderState);
   }
 
-  /**
-   * The nested view's drop handler - unlike onDrop above, calls/roots never move (every root's
-   * cdkDrag is disabled in the template), so this only ever needs to re-anchor spacers, never call
-   * reorderState.reorder().
-   */
+  /** The nested view's drop handler - roots never move (their cdkDrag is disabled), so only a dropped spacer is ever re-anchored. */
   onDropRoots(event: CdkDragDrop<readonly MergedWithSpacer<CallTreeNode>[]>): void {
     if (!this.reorderState || event.previousIndex === event.currentIndex) return;
     const merged = [...this.mergedRoots()];
     moveItemInArray(merged, event.previousIndex, event.currentIndex);
-    reanchorSpacersAfterDrop(merged, (node) => node.call.id, this.reorderState);
+    reanchorDroppedSpacer(merged, event.currentIndex, CallListComponent.nodeAnchorCall, this.spacerOrder().descending, this.reorderState);
   }
 }

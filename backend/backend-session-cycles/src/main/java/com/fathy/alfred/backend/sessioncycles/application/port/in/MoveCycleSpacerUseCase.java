@@ -6,6 +6,6 @@ import java.util.Optional;
 
 public interface MoveCycleSpacerUseCase {
 
-    /** @return empty if the cycle or the spacer doesn't exist. beforeCallId null means "after every call". */
-    Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId);
+    /** @return empty if the cycle or the spacer doesn't exist. beforeCallId and anchorTimestamp both null means "after every call" - see CycleSpacer. */
+    Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp);
 }

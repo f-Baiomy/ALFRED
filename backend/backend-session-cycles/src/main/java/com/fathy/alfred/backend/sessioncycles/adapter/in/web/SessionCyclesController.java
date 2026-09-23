@@ -343,7 +343,7 @@ public class SessionCyclesController {
 
     @PostMapping("/{id}/spacers")
     public ResponseEntity<CycleSpacer> createSpacer(@PathVariable String id, @Valid @RequestBody CreateCycleSpacerRequestDto request) {
-        return createCycleSpacerUseCase.createSpacer(id, request.label(), request.beforeCallId())
+        return createCycleSpacerUseCase.createSpacer(id, request.label(), request.beforeCallId(), request.anchorTimestamp())
                 .map(spacer -> ResponseEntity.status(HttpStatus.CREATED).body(spacer))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -358,7 +358,7 @@ public class SessionCyclesController {
     /** Re-anchors a spacer next to a different captured call - the backend half of dragging a spacer around in the call list. */
     @PatchMapping("/{id}/spacers/{spacerId}/move")
     public ResponseEntity<CycleSpacer> moveSpacer(@PathVariable String id, @PathVariable String spacerId, @RequestBody MoveCycleSpacerRequestDto request) {
-        return moveCycleSpacerUseCase.moveSpacer(id, spacerId, request.beforeCallId())
+        return moveCycleSpacerUseCase.moveSpacer(id, spacerId, request.beforeCallId(), request.anchorTimestamp())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

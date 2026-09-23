@@ -252,6 +252,19 @@ describe('CallWaterfallComponent', () => {
     expect(marked).toEqual([true, false, false, false, false, true]);
   });
 
+  it('wraps each root call\'s lines in one group, the only drag item per root - not one per line', () => {
+    const twoRoots = [
+      ...CALLS,
+      call('other', 20000, 500, { service_name: 'odeysys' }),
+    ];
+    const host: HTMLElement = createWaterfall(twoRoots).nativeElement;
+    const groups = Array.from(host.querySelectorAll('.waterfall-group'));
+
+    expect(groups.map((g) => g.querySelectorAll('.waterfall-line').length)).toEqual([5, 1]);
+    expect(host.querySelectorAll('.cdk-drag').length).toBe(2);
+    expect(host.querySelectorAll('.waterfall-line.cdk-drag').length).toBe(0);
+  });
+
   it('washes a bracketing row in its own level\'s hue, not one shared colour for every parent', () => {
     const host: HTMLElement = createWaterfall().nativeElement;
     const lines = Array.from(host.querySelectorAll('.waterfall-line'));

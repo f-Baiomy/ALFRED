@@ -25,8 +25,8 @@ public class SqliteCycleSpacersStoreAdapter implements CycleSpacersStorePort {
     }
 
     @Override
-    public CycleSpacer create(String cycleId, String label, String beforeCallId) {
-        return repository.createSpacer(cycleId, label, beforeCallId);
+    public CycleSpacer create(String cycleId, String label, String beforeCallId, String anchorTimestamp) {
+        return repository.createSpacer(cycleId, label, beforeCallId, anchorTimestamp);
     }
 
     @Override
@@ -35,8 +35,8 @@ public class SqliteCycleSpacersStoreAdapter implements CycleSpacersStorePort {
     }
 
     @Override
-    public Optional<CycleSpacer> move(String cycleId, String spacerId, String beforeCallId) {
-        return repository.moveSpacer(cycleId, spacerId, beforeCallId);
+    public Optional<CycleSpacer> move(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp) {
+        return repository.moveSpacer(cycleId, spacerId, beforeCallId, anchorTimestamp);
     }
 
     @Override

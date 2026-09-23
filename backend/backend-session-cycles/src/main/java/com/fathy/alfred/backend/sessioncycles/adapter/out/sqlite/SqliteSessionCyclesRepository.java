@@ -297,10 +297,20 @@ public class SqliteSessionCyclesRepository {
                   cycle_id TEXT NOT NULL,
                   label TEXT NOT NULL,
                   before_call_id TEXT,
-                  created_at TEXT
+                  created_at TEXT,
+                  anchor_timestamp TEXT
                 )
                 """);
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_cycle_spacers_cycle ON cycle_spacers(cycle_id)");
+        addSpacerAnchorTimestampColumnIfMissing();
+    }
+
+    /** anchor_timestamp came after cycle_spacers first shipped - CREATE TABLE IF NOT EXISTS won't add it to an existing database. Pre-existing rows read back as null (a legacy spacer, placed by its anchor call alone). */
+    private void addSpacerAnchorTimestampColumnIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(cycle_spacers)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("anchor_timestamp")) {
+            jdbcTemplate.execute("ALTER TABLE cycle_spacers ADD COLUMN anchor_timestamp TEXT");
+        }
     }
 
     private void initFts() {
@@ -1033,16 +1043,16 @@ public class SqliteSessionCyclesRepository {
 
     private static final RowMapper<CycleSpacer> SPACER_ROW_MAPPER = (rs, rowNum) -> new CycleSpacer(
             rs.getString("id"), rs.getString("cycle_id"), rs.getString("label"),
-            rs.getString("before_call_id"), rs.getString("created_at"));
+            rs.getString("before_call_id"), rs.getString("created_at"), rs.getString("anchor_timestamp"));
 
     public List<CycleSpacer> findAllSpacersByCycle(String cycleId) {
         return jdbcTemplate.query("SELECT * FROM cycle_spacers WHERE cycle_id = ? ORDER BY rowid ASC", SPACER_ROW_MAPPER, cycleId);
     }
 
-    public CycleSpacer createSpacer(String cycleId, String label, String beforeCallId) {
-        CycleSpacer spacer = new CycleSpacer(UUID.randomUUID().toString(), cycleId, label, beforeCallId, Instant.now().toString());
-        jdbcTemplate.update("INSERT INTO cycle_spacers (id, cycle_id, label, before_call_id, created_at) VALUES (?,?,?,?,?)",
-                spacer.id(), spacer.cycleId(), spacer.label(), spacer.beforeCallId(), spacer.createdAt());
+    public CycleSpacer createSpacer(String cycleId, String label, String beforeCallId, String anchorTimestamp) {
+        CycleSpacer spacer = new CycleSpacer(UUID.randomUUID().toString(), cycleId, label, beforeCallId, Instant.now().toString(), anchorTimestamp);
+        jdbcTemplate.update("INSERT INTO cycle_spacers (id, cycle_id, label, before_call_id, created_at, anchor_timestamp) VALUES (?,?,?,?,?,?)",
+                spacer.id(), spacer.cycleId(), spacer.label(), spacer.beforeCallId(), spacer.createdAt(), spacer.anchorTimestamp());
         return spacer;
     }
 
@@ -1054,8 +1064,9 @@ public class SqliteSessionCyclesRepository {
         return findSpacerById(cycleId, spacerId);
     }
 
-    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId) {
-        int updated = jdbcTemplate.update("UPDATE cycle_spacers SET before_call_id = ? WHERE cycle_id = ? AND id = ?", beforeCallId, cycleId, spacerId);
+    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp) {
+        int updated = jdbcTemplate.update("UPDATE cycle_spacers SET before_call_id = ?, anchor_timestamp = ? WHERE cycle_id = ? AND id = ?",
+                beforeCallId, anchorTimestamp, cycleId, spacerId);
         if (updated == 0) {
             return Optional.empty();
         }
@@ -1070,7 +1081,7 @@ public class SqliteSessionCyclesRepository {
         jdbcTemplate.update("DELETE FROM cycle_spacers WHERE cycle_id = ?", cycleId);
     }
 
-    /** See CycleSpacersStorePort#dropAnchorsTo - moves any spacer anchored to one of these captured-call ids to the end instead of leaving it unreachable. */
+    /** See CycleSpacersStorePort#dropAnchorsTo - clears the anchor id of any spacer pointing at one of these calls but leaves anchor_timestamp alone, so it stays at the same point in time instead of jumping to the end. */
     public void dropSpacerAnchorsTo(String cycleId, List<String> capturedCallIds) {
         if (capturedCallIds.isEmpty()) {
             return;

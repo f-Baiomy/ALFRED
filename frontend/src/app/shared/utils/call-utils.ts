@@ -298,7 +298,7 @@ export function statusRank(call: CallRecord): number {
  * Memoized because a comparator runs it O(n log n) times per sort, re-parsing the same handful of
  * timestamp strings over and over.
  */
-function callTime(call: CallRecord): number {
+export function callTime(call: CallRecord): number {
   const cached = callTimeCache.get(call);
   if (cached !== undefined) return cached;
 

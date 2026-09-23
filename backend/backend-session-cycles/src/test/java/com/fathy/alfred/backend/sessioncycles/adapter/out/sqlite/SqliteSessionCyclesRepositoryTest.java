@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import org.junit.jupiter.api.AfterEach;
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -470,5 +473,43 @@ class SqliteSessionCyclesRepositoryTest {
             responseCount.next();
             assertThat(responseCount.getInt("c")).isZero();
         }
+    }
+    @Test
+    void moveSpacerPersistsBothTheAnchorIdAndItsTimestamp() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        CycleSpacer created = repo.createSpacer("c1", "Retry", null, null);
+
+        repo.moveSpacer("c1", created.id(), "call-2", "2026-01-01T00:00:05Z");
+
+        assertThat(repo.findAllSpacersByCycle("c1")).singleElement().satisfies(spacer -> {
+            assertThat(spacer.beforeCallId()).isEqualTo("call-2");
+            assertThat(spacer.anchorTimestamp()).isEqualTo("2026-01-01T00:00:05Z");
+        });
+    }
+
+    @Test
+    void dropSpacerAnchorsToClearsTheAnchorIdButKeepsItsTimestampSoTheSpacerStaysInPlace() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        repo.createSpacer("c1", "Retry", "call-1", "2026-01-01T00:00:01Z");
+
+        repo.dropSpacerAnchorsTo("c1", List.of("call-1"));
+
+        assertThat(repo.findAllSpacersByCycle("c1")).singleElement().satisfies(spacer -> {
+            assertThat(spacer.beforeCallId()).isNull();
+            assertThat(spacer.anchorTimestamp()).isEqualTo("2026-01-01T00:00:01Z");
+        });
+    }
+
+    @Test
+    void initAddsTheAnchorTimestampColumnToASpacersTableFromBeforeItExistedAndOldRowsReadAsNull() throws Exception {
+        Path dbFile = tempDir.resolve("session-cycles.db");
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile)) {
+            connection.createStatement().execute("CREATE TABLE cycle_spacers (id TEXT PRIMARY KEY, cycle_id TEXT NOT NULL, label TEXT NOT NULL, before_call_id TEXT, created_at TEXT)");
+            connection.createStatement().execute("INSERT INTO cycle_spacers VALUES ('s1', 'c1', 'Old', 'call-1', '2026-01-01T00:00:00Z')");
+        }
+
+        SqliteSessionCyclesRepository repo = repositoryFor(dbFile);
+
+        assertThat(repo.findAllSpacersByCycle("c1")).containsExactly(new CycleSpacer("s1", "c1", "Old", "call-1", "2026-01-01T00:00:00Z", null));
     }
 }

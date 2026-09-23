@@ -272,6 +272,12 @@ export interface CallListViewOptions {
   /** Calls not yet confirmed by a fetch - shown ahead of the loaded window the instant a WebSocket push arrives, pruned once `refresh()`'s result includes them. */
   readonly liveCalls?: Signal<readonly CallRecord[]>;
   readonly onError?: (message: string | null) => void;
+  /**
+   * Fetch page one the moment the view is created (the default). The session-cycle detail page
+   * opts out: it can't know which sources to ask for until the inbound-services lookup returns, and
+   * fetching eagerly anyway meant opening a cycle loaded the same list three times over.
+   */
+  readonly fetchOnCreate?: boolean;
 }
 
 /**
@@ -348,7 +354,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     requests$.next({ offset, limit, replace });
   }
 
-  fetch(0, pageSize(), true);
+  if (options.fetchOnCreate ?? true) fetch(0, pageSize(), true);
 
   /**
    * A live-pushed call that doesn't match the currently-active supplier/id filters must not show

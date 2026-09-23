@@ -92,17 +92,43 @@ public class SessionCyclesInternalCallsService implements
         return capturedInternalCallsStore.findByCallId(cycleId, callId).map(captured -> CallDetail.of(captured.call()));
     }
 
+    /**
+     * Mirrors SessionCyclesService.removeCall: {@code callId} is the CapturedInternalCall wrapper's
+     * id, but a spacer anchors to the underlying CallRecord's id, so it's translated BEFORE the
+     * delete (the mapping stops existing once removeById succeeds). Without this, removing an
+     * inbound call left any spacer anchored to it pointing at nothing.
+     */
     @Override
     public boolean removeCall(String cycleId, String callId) {
-        return capturedInternalCallsStore.removeById(cycleId, callId);
+        String underlyingCallId = underlyingCallIdOf(cycleId, callId);
+        boolean removed = capturedInternalCallsStore.removeById(cycleId, callId);
+        if (removed && underlyingCallId != null) {
+            spacersStore.dropAnchorsTo(cycleId, List.of(underlyingCallId));
+        }
+        return removed;
     }
 
     @Override
     public Optional<RemoveCallsResult> removeCalls(String cycleId, List<String> callIds) {
         return metadataStore.findById(cycleId).map(cycle -> {
+            Set<String> wrapperIds = new HashSet<>(callIds);
+            List<String> underlyingCallIds = capturedInternalCallsStore.findAllByCycle(cycleId).stream()
+                    .filter(captured -> wrapperIds.contains(captured.id()))
+                    .map(captured -> captured.call().id())
+                    .toList();
             int removed = capturedInternalCallsStore.removeByIds(cycleId, callIds);
+            spacersStore.dropAnchorsTo(cycleId, underlyingCallIds);
             return new RemoveCallsResult(removed, callIds.size() - removed);
         });
+    }
+
+    /** @return the underlying CallRecord's id for the captured internal call with this wrapper id in this cycle, or null if no such captured call exists. */
+    private String underlyingCallIdOf(String cycleId, String wrapperId) {
+        return capturedInternalCallsStore.findAllByCycle(cycleId).stream()
+                .filter(captured -> captured.id().equals(wrapperId))
+                .map(captured -> captured.call().id())
+                .findFirst()
+                .orElse(null);
     }
 
     /** Mirrors SessionCyclesService.copyInto exactly, delegating to CapturedInternalCallsStorePort instead - manual duplication, not the recording fan-out, so it works regardless of RECORDING/PAUSED. */
@@ -138,8 +164,10 @@ public class SessionCyclesInternalCallsService implements
     private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
         if ("OPTIONS".equalsIgnoreCase(call.method())) return;
         for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
-            if (spacer.beforeCallId() == null) {
-                spacersStore.move(cycleId, spacer.id(), call.id());
+            // Both null = a true trailing spacer. One with only a timestamp lost its anchor call to a
+            // removal and is still placed by that time - re-pinning it here would yank it forward.
+            if (spacer.beforeCallId() == null && spacer.anchorTimestamp() == null) {
+                spacersStore.move(cycleId, spacer.id(), call.id(), call.timestamp());
             }
         }
     }

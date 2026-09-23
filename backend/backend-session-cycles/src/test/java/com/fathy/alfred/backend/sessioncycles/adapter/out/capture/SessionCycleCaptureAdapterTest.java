@@ -57,26 +57,38 @@ class SessionCycleCaptureAdapterTest {
     void onNewCallReAnchorsAnyTrailingSpacerToTheJustCapturedCallSoItStaysPutInsteadOfSlidingPastFutureCalls() {
         CallRecord call = call();
         when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
-        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t");
-        CycleSpacer alreadyAnchored = new CycleSpacer("spacer-2", "recording-1", "Mid repro", "some-other-call", "t");
+        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t", null);
+        CycleSpacer alreadyAnchored = new CycleSpacer("spacer-2", "recording-1", "Mid repro", "some-other-call", "t", null);
         when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing, alreadyAnchored));
 
         adapter.onNewCall(call);
 
-        verify(spacersStore).move("recording-1", "spacer-1", call.id());
-        verify(spacersStore, never()).move("recording-1", "spacer-2", call.id());
+        verify(spacersStore).move("recording-1", "spacer-1", call.id(), call.timestamp());
+        verify(spacersStore, never()).move("recording-1", "spacer-2", call.id(), call.timestamp());
     }
 
     @Test
     void onNewCallDoesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
         CallRecord optionsCall = new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "OPTIONS", null, "t", 1.0, null, null);
         when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
-        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t");
+        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t", null);
         when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing));
 
         adapter.onNewCall(optionsCall);
 
-        verify(spacersStore, never()).move(any(), any(), any());
+        verify(spacersStore, never()).move(any(), any(), any(), any());
+    }
+
+    @Test
+    void onNewCallDoesNotRePinASpacerWhoseAnchorCallWasDeletedSinceItIsStillPlacedByItsTimestamp() {
+        CallRecord call = call();
+        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
+        CycleSpacer orphaned = new CycleSpacer("spacer-1", "recording-1", "Anchor was deleted", null, "t", "2026-01-01T00:00:03Z");
+        when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(orphaned));
+
+        adapter.onNewCall(call);
+
+        verify(spacersStore, never()).move(any(), any(), any(), any());
     }
 
     @Test

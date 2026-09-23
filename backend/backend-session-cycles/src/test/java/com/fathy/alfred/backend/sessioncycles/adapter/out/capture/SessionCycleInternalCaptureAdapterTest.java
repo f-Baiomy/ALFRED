@@ -54,24 +54,36 @@ class SessionCycleInternalCaptureAdapterTest {
     void reAnchorsAnyTrailingSpacerToTheJustCapturedCallSoItStaysPutInsteadOfSlidingPastFutureCalls() {
         CallRecord call = call();
         when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
-        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t");
+        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t", null);
         when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing));
 
         adapter.onCallCompleted(call);
 
-        verify(spacersStore).move("recording-1", "spacer-1", call.id());
+        verify(spacersStore).move("recording-1", "spacer-1", call.id(), call.timestamp());
     }
 
     @Test
     void doesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
         CallRecord optionsCall = new CallRecord("call-1", "https://wildfly-proxy/x", "https://wildfly/x", "OPTIONS", null, "t", 1.0, null, null);
         when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
-        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t");
+        CycleSpacer trailing = new CycleSpacer("spacer-1", "recording-1", "End of repro", null, "t", null);
         when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(trailing));
 
         adapter.onCallCompleted(optionsCall);
 
-        verify(spacersStore, never()).move(any(), any(), any());
+        verify(spacersStore, never()).move(any(), any(), any(), any());
+    }
+
+    @Test
+    void doesNotRePinASpacerWhoseAnchorCallWasDeletedSinceItIsStillPlacedByItsTimestamp() {
+        CallRecord call = call();
+        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
+        CycleSpacer orphaned = new CycleSpacer("spacer-1", "recording-1", "Anchor was deleted", null, "t", "2026-01-01T00:00:03Z");
+        when(spacersStore.findAllByCycle("recording-1")).thenReturn(List.of(orphaned));
+
+        adapter.onCallCompleted(call);
+
+        verify(spacersStore, never()).move(any(), any(), any(), any());
     }
 
     @Test

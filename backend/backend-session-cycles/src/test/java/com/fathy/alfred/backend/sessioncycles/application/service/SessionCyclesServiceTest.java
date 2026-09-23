@@ -367,7 +367,7 @@ class SessionCyclesServiceTest {
     @Test
     void listSpacersDelegatesToTheStoreWhenTheCycleExists() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        CycleSpacer spacer = new CycleSpacer("s1", "c1", "Checkout retry attempt", "call-1", "2026-01-01T00:00:00Z");
+        CycleSpacer spacer = new CycleSpacer("s1", "c1", "Checkout retry attempt", "call-1", "2026-01-01T00:00:00Z", null);
         when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(spacer));
 
         assertThat(service.listSpacers("c1")).contains(List.of(spacer));
@@ -377,17 +377,17 @@ class SessionCyclesServiceTest {
     void createSpacerReturnsEmptyWhenTheCycleDoesNotExist() {
         when(metadataStore.findById("missing")).thenReturn(Optional.empty());
 
-        assertThat(service.createSpacer("missing", "Retry attempt", "call-1")).isEmpty();
-        verify(spacersStore, never()).create(any(), any(), any());
+        assertThat(service.createSpacer("missing", "Retry attempt", "call-1", null)).isEmpty();
+        verify(spacersStore, never()).create(any(), any(), any(), any());
     }
 
     @Test
     void createSpacerDelegatesToTheStoreWhenTheCycleExists() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
-        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", "call-1", "2026-01-01T00:00:00Z");
-        when(spacersStore.create("c1", "Retry attempt", "call-1")).thenReturn(created);
+        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", "call-1", "2026-01-01T00:00:00Z", null);
+        when(spacersStore.create("c1", "Retry attempt", "call-1", null)).thenReturn(created);
 
-        assertThat(service.createSpacer("c1", "Retry attempt", "call-1")).contains(created);
+        assertThat(service.createSpacer("c1", "Retry attempt", "call-1", null)).contains(created);
     }
 
     @Test
@@ -402,8 +402,8 @@ class SessionCyclesServiceTest {
     void moveSpacerReturnsEmptyWhenTheCycleDoesNotExist() {
         when(metadataStore.findById("missing")).thenReturn(Optional.empty());
 
-        assertThat(service.moveSpacer("missing", "s1", "call-2")).isEmpty();
-        verify(spacersStore, never()).move(any(), any(), any());
+        assertThat(service.moveSpacer("missing", "s1", "call-2", null)).isEmpty();
+        verify(spacersStore, never()).move(any(), any(), any(), any());
     }
 
     @Test
@@ -451,7 +451,7 @@ class SessionCyclesServiceTest {
     void copyIntoReAnchorsAnyTrailingSpacerToTheFirstNewlyAddedCallSoItStopsSlidingPastNewOnes() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
-        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z");
+        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z", null);
         // The real store would stop returning this as trailing once move() re-anchors it - the mock
         // has no state of its own, so this simulates that: trailing on the first lookup (before the
         // first call in the batch is captured), pinned by the second.
@@ -464,21 +464,33 @@ class SessionCyclesServiceTest {
         // Only re-anchored once, to the FIRST call of the batch - not re-pointed again for every
         // call added after it, which would just have it chase the newest one forever instead of
         // staying fixed at the boundary the user actually drew.
-        verify(spacersStore, org.mockito.Mockito.times(1)).move(eq("c1"), eq("s1"), any());
-        verify(spacersStore).move("c1", "s1", a.id());
+        verify(spacersStore, org.mockito.Mockito.times(1)).move(eq("c1"), eq("s1"), any(), any());
+        verify(spacersStore).move("c1", "s1", a.id(), a.timestamp());
     }
 
     @Test
     void copyIntoDoesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
-        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z");
+        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z", null);
         when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing));
         CallRecord optionsCall = new CallRecord("id-t1", "https://a.com-proxy/x", "https://a.com/x", "OPTIONS", null, "t1", 1.0, null, null);
 
         service.copyInto("c1", List.of(optionsCall));
 
-        verify(spacersStore, never()).move(any(), any(), any());
+        verify(spacersStore, never()).move(any(), any(), any(), any());
+    }
+
+    @Test
+    void copyIntoDoesNotRePinASpacerWhoseAnchorCallWasDeletedSinceItIsStillPlacedByItsTimestamp() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        CycleSpacer orphaned = new CycleSpacer("s1", "c1", "Anchor was deleted", null, "2026-01-01T00:00:00Z", "2026-01-01T00:00:03Z");
+        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(orphaned));
+
+        service.copyInto("c1", List.of(new CallRecord("id-t1", "https://a.com-proxy/x", "https://a.com/x", "GET", null, "t1", 1.0, null, null)));
+
+        verify(spacersStore, never()).move(any(), any(), any(), any());
     }
 
     @Test

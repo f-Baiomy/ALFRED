@@ -178,17 +178,17 @@ export class SessionCyclesApiService {
     return this.http.get<CycleSpacer[]>(`${this.baseUrl}/${id}/spacers`);
   }
 
-  createSpacer(id: string, label: string, beforeCallId: string | null): Observable<CycleSpacer> {
-    return this.http.post<CycleSpacer>(`${this.baseUrl}/${id}/spacers`, { label, beforeCallId });
+  createSpacer(id: string, label: string, beforeCallId: string | null, anchorTimestamp: string | null): Observable<CycleSpacer> {
+    return this.http.post<CycleSpacer>(`${this.baseUrl}/${id}/spacers`, { label, beforeCallId, anchorTimestamp });
   }
 
   renameSpacer(id: string, spacerId: string, label: string): Observable<CycleSpacer> {
     return this.http.patch<CycleSpacer>(`${this.baseUrl}/${id}/spacers/${spacerId}`, { label });
   }
 
-  /** Re-anchors a spacer next to a different captured call - the backend half of dragging a spacer around in the call list. */
-  moveSpacer(id: string, spacerId: string, beforeCallId: string | null): Observable<CycleSpacer> {
-    return this.http.patch<CycleSpacer>(`${this.baseUrl}/${id}/spacers/${spacerId}/move`, { beforeCallId });
+  /** Re-anchors a spacer next to a different captured call - the backend half of dragging a spacer around in the call list. Always sends both fields: the backend sets them exactly as given. */
+  moveSpacer(id: string, spacerId: string, beforeCallId: string | null, anchorTimestamp: string | null): Observable<CycleSpacer> {
+    return this.http.patch<CycleSpacer>(`${this.baseUrl}/${id}/spacers/${spacerId}/move`, { beforeCallId, anchorTimestamp });
   }
 
   deleteSpacer(id: string, spacerId: string): Observable<void> {

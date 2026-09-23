@@ -288,8 +288,8 @@ public class SessionCyclesService implements
     }
 
     @Override
-    public Optional<CycleSpacer> createSpacer(String cycleId, String label, String beforeCallId) {
-        return metadataStore.findById(cycleId).map(cycle -> spacersStore.create(cycleId, label, beforeCallId));
+    public Optional<CycleSpacer> createSpacer(String cycleId, String label, String beforeCallId, String anchorTimestamp) {
+        return metadataStore.findById(cycleId).map(cycle -> spacersStore.create(cycleId, label, beforeCallId, anchorTimestamp));
     }
 
     @Override
@@ -301,11 +301,11 @@ public class SessionCyclesService implements
     }
 
     @Override
-    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId) {
+    public Optional<CycleSpacer> moveSpacer(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp) {
         if (metadataStore.findById(cycleId).isEmpty()) {
             return Optional.empty();
         }
-        return spacersStore.move(cycleId, spacerId, beforeCallId);
+        return spacersStore.move(cycleId, spacerId, beforeCallId, anchorTimestamp);
     }
 
     @Override
@@ -371,8 +371,10 @@ public class SessionCyclesService implements
     private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
         if ("OPTIONS".equalsIgnoreCase(call.method())) return;
         for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
-            if (spacer.beforeCallId() == null) {
-                spacersStore.move(cycleId, spacer.id(), call.id());
+            // Both null = a true trailing spacer. One with only a timestamp lost its anchor call to a
+            // removal and is still placed by that time - re-pinning it here would yank it forward.
+            if (spacer.beforeCallId() == null && spacer.anchorTimestamp() == null) {
+                spacersStore.move(cycleId, spacer.id(), call.id(), call.timestamp());
             }
         }
     }

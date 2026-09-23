@@ -523,7 +523,7 @@ class SessionCyclesControllerTest {
 
     @Test
     void listSpacersReturnsEverySpacerForTheCycle() throws Exception {
-        CycleSpacer spacer = new CycleSpacer("s1", "c1", "Checkout retry attempt", "call-1", "2026-01-01T00:00:00Z");
+        CycleSpacer spacer = new CycleSpacer("s1", "c1", "Checkout retry attempt", "call-1", "2026-01-01T00:00:00Z", null);
         when(listCycleSpacersUseCase.listSpacers("c1")).thenReturn(Optional.of(List.of(spacer)));
 
         mockMvc.perform(get("/session-cycles/c1/spacers"))
@@ -545,7 +545,7 @@ class SessionCyclesControllerTest {
 
     @Test
     void createSpacerReturnsNotFoundWhenTheCycleIsMissing() throws Exception {
-        when(createCycleSpacerUseCase.createSpacer("missing", "Retry attempt", "call-1")).thenReturn(Optional.empty());
+        when(createCycleSpacerUseCase.createSpacer("missing", "Retry attempt", "call-1", null)).thenReturn(Optional.empty());
 
         mockMvc.perform(post("/session-cycles/missing/spacers")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -557,8 +557,8 @@ class SessionCyclesControllerTest {
 
     @Test
     void createSpacerReturns201WithTheCreatedSpacer() throws Exception {
-        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", "call-1", "2026-01-01T00:00:00Z");
-        when(createCycleSpacerUseCase.createSpacer("c1", "Retry attempt", "call-1")).thenReturn(Optional.of(created));
+        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", "call-1", "2026-01-01T00:00:00Z", null);
+        when(createCycleSpacerUseCase.createSpacer("c1", "Retry attempt", "call-1", null)).thenReturn(Optional.of(created));
 
         mockMvc.perform(post("/session-cycles/c1/spacers")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -571,8 +571,8 @@ class SessionCyclesControllerTest {
 
     @Test
     void createSpacerAcceptsANullBeforeCallIdMeaningAfterEveryCall() throws Exception {
-        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", null, "2026-01-01T00:00:00Z");
-        when(createCycleSpacerUseCase.createSpacer("c1", "Retry attempt", null)).thenReturn(Optional.of(created));
+        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", null, "2026-01-01T00:00:00Z", null);
+        when(createCycleSpacerUseCase.createSpacer("c1", "Retry attempt", null, null)).thenReturn(Optional.of(created));
 
         mockMvc.perform(post("/session-cycles/c1/spacers")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -597,7 +597,7 @@ class SessionCyclesControllerTest {
 
     @Test
     void renameSpacerReturnsTheUpdatedSpacer() throws Exception {
-        CycleSpacer renamed = new CycleSpacer("s1", "c1", "New label", "call-1", "2026-01-01T00:00:00Z");
+        CycleSpacer renamed = new CycleSpacer("s1", "c1", "New label", "call-1", "2026-01-01T00:00:00Z", null);
         when(renameCycleSpacerUseCase.renameSpacer("c1", "s1", "New label")).thenReturn(Optional.of(renamed));
 
         mockMvc.perform(patch("/session-cycles/c1/spacers/s1")
@@ -611,7 +611,7 @@ class SessionCyclesControllerTest {
 
     @Test
     void moveSpacerReturnsNotFoundWhenMissing() throws Exception {
-        when(moveCycleSpacerUseCase.moveSpacer("c1", "missing", "call-2")).thenReturn(Optional.empty());
+        when(moveCycleSpacerUseCase.moveSpacer("c1", "missing", "call-2", null)).thenReturn(Optional.empty());
 
         mockMvc.perform(patch("/session-cycles/c1/spacers/missing/move")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -623,8 +623,8 @@ class SessionCyclesControllerTest {
 
     @Test
     void moveSpacerReturnsTheReanchoredSpacer() throws Exception {
-        CycleSpacer moved = new CycleSpacer("s1", "c1", "Retry attempt", "call-2", "2026-01-01T00:00:00Z");
-        when(moveCycleSpacerUseCase.moveSpacer("c1", "s1", "call-2")).thenReturn(Optional.of(moved));
+        CycleSpacer moved = new CycleSpacer("s1", "c1", "Retry attempt", "call-2", "2026-01-01T00:00:00Z", null);
+        when(moveCycleSpacerUseCase.moveSpacer("c1", "s1", "call-2", null)).thenReturn(Optional.of(moved));
 
         mockMvc.perform(patch("/session-cycles/c1/spacers/s1/move")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -633,6 +633,34 @@ class SessionCyclesControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.beforeCallId").value("call-2"));
+    }
+
+    @Test
+    void createSpacerPassesTheAnchorTimestampThrough() throws Exception {
+        CycleSpacer created = new CycleSpacer("s1", "c1", "Retry attempt", "call-1", "2026-01-01T00:00:00Z", "2026-01-01T00:00:03Z");
+        when(createCycleSpacerUseCase.createSpacer("c1", "Retry attempt", "call-1", "2026-01-01T00:00:03Z")).thenReturn(Optional.of(created));
+
+        mockMvc.perform(post("/session-cycles/c1/spacers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"label":"Retry attempt","beforeCallId":"call-1","anchorTimestamp":"2026-01-01T00:00:03Z"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.anchorTimestamp").value("2026-01-01T00:00:03Z"));
+    }
+
+    @Test
+    void moveSpacerPassesTheAnchorTimestampThrough() throws Exception {
+        CycleSpacer moved = new CycleSpacer("s1", "c1", "Retry attempt", "call-2", "2026-01-01T00:00:00Z", "2026-01-01T00:00:05Z");
+        when(moveCycleSpacerUseCase.moveSpacer("c1", "s1", "call-2", "2026-01-01T00:00:05Z")).thenReturn(Optional.of(moved));
+
+        mockMvc.perform(patch("/session-cycles/c1/spacers/s1/move")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"beforeCallId":"call-2","anchorTimestamp":"2026-01-01T00:00:05Z"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.anchorTimestamp").value("2026-01-01T00:00:05Z"));
     }
 
     @Test

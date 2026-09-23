@@ -61,8 +61,10 @@ public class SessionCycleInternalCaptureAdapter implements NewInternalCallObserv
     private void pinTrailingSpacersTo(String cycleId, CallRecord call) {
         if ("OPTIONS".equalsIgnoreCase(call.method())) return;
         for (CycleSpacer spacer : spacersStore.findAllByCycle(cycleId)) {
-            if (spacer.beforeCallId() == null) {
-                spacersStore.move(cycleId, spacer.id(), call.id());
+            // Both null = a true trailing spacer. One with only a timestamp lost its anchor call to a
+            // removal and is still placed by that time - re-pinning it here would yank it forward.
+            if (spacer.beforeCallId() == null && spacer.anchorTimestamp() == null) {
+                spacersStore.move(cycleId, spacer.id(), call.id(), call.timestamp());
             }
         }
     }

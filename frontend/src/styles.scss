@@ -787,19 +787,24 @@ main {
 }
 
 /**
- * Reveals the button not just on hovering the thin gap itself, but also on hovering the row it sits
- * next to - either the row immediately AFTER it (a leading gap - the common case, in every view) or
- * the row immediately BEFORE it (the one trailing gap per list, after the last row). `:has()` is
- * what makes the "row after" direction possible at all: CSS has no combinator for "a later sibling
- * is hovered", only :has() checking a later sibling's own state. Doesn't fire when a spacer already
- * occupies this exact anchor (the spacer's own row sits between the gap and the call row then,
- * breaking the adjacency) - hovering the now-narrower gap strip itself still works for that case.
+ * One row of a session cycle's reorderable list - flat call, nested root, or waterfall root group -
+ * holding its own leading `.spacer-gap` plus the row itself, so hovering anywhere on the row reveals
+ * the "+ Add spacer" above it with a plain descendant selector. Spaced like the list it sits in, so
+ * the gap strip lands exactly where it did as a sibling of the row.
+ *
+ * Deliberately no `:has()` and no bare `div:hover +`: those made the browser re-check sibling
+ * styles on every hover change anywhere in a long list, not just on these rows. The only sibling
+ * selector left is the trailing gap after the last row, and it is scoped to this class.
  */
+.call-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
 .spacer-gap:hover .add-spacer-btn,
-.spacer-gap:has(+ app-call-card:hover) .add-spacer-btn,
-.spacer-gap:has(+ div:hover) .add-spacer-btn,
-app-call-card:hover + .spacer-gap .add-spacer-btn,
-div:hover + .spacer-gap .add-spacer-btn {
+.call-row:hover > .spacer-gap .add-spacer-btn,
+.call-row:hover + .spacer-gap .add-spacer-btn {
   display: flex;
 }
 
@@ -1730,7 +1735,14 @@ div:hover + .spacer-gap .add-spacer-btn {
 // media query below hides the axis under 880px - so on a narrow window every group ran flush into
 // the next and a list of folded calls read as one undifferentiated block. Not on the FIRST group:
 // there is nothing above it to be divided from.
-.waterfall-root-start:not(:first-child) {
+.waterfall-group {
+  gap: 0;
+}
+
+// Lines sit inside one .waterfall-group per root (see CallWaterfallComponent.groups), so "not the
+// first group" is what says there is a group above to be divided from - the root line itself is no
+// longer a direct child of .waterfall, and in a cycle its group may open with a spacer gap.
+.waterfall-group:not(:first-child) > .waterfall-root-start {
   margin-top: 0.75rem;
   padding-top: 0.55rem;
   border-top: 1px solid var(--border-strong);

@@ -6,7 +6,16 @@ import { CallDepthInfo, CallTreeNode, DepthRail, depthRails, depthTintClass } fr
 
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
 import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
-import { MergedWithSpacer, createSpacerGapController, mergeWithSpacers, reanchorSpacersAfterDrop } from '../../shared/utils/spacer-gap-controller';
+import {
+  MergedWithSpacer,
+  SpacerLayout,
+  TRAILING_ANCHOR,
+  createSpacerGapController,
+  layoutSpacers,
+  reanchorDroppedSpacer,
+  rootIndex,
+  spacerOrderFor,
+} from '../../shared/utils/spacer-gap-controller';
 import { CallCardComponent } from '../call-card/call-card.component';
 import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
 import { SpacerChipComponent } from '../spacer-chip/spacer-chip.component';
@@ -94,6 +103,19 @@ interface WaterfallRow {
 }
 
 /**
+ * One root call's whole run of lines (its opening row, every nested row, its closing row) - the unit
+ * a spacer sits between, and so the unit CDK drags around: one cdkDrag per group rather than one per
+ * line, which on a deep trace was most of the view's construction cost. Lines ahead of the first
+ * root (none today, but rows() doesn't promise it) form a group with no root, which nothing can
+ * anchor to.
+ */
+interface WaterfallGroup {
+  readonly key: string;
+  readonly root: CallRecord | null;
+  readonly rows: readonly WaterfallRow[];
+}
+
+/**
  * The 'waterfall' view (design B): every call as one compact line, hierarchy shown by a depth rail
  * and timing by a bar measured against its root call's window. Clicking a line expands the full
  * call card underneath it, so nothing is lost - it's just not all on screen at once.
@@ -124,31 +146,33 @@ interface WaterfallRow {
       </div>
     </ng-template>
     <div class="waterfall" cdkDropList [cdkDropListDisabled]="!reorderState" (cdkDropListDropped)="onDrop($event)">
-      @for (entry of mergedItems(); track trackByMergedItemKey(entry)) {
+      @for (entry of mergedGroups(); track trackByMergedGroupKey(entry)) {
         @if (entry.kind === 'spacer') {
-          <div class="spacer-row" cdkDrag>
+          <!-- \`detached\`: its position couldn't be worked out against what's shown (see layoutSpacers), so it sits at the end, dimmed, rather than vanishing. -->
+          <div class="spacer-row" [class.spacer-row-detached]="entry.detached" cdkDrag>
             <span class="spacer-drag-handle" cdkDragHandle>&#8942;&#8942;</span>
             <div class="spacer-line"></div>
-            <app-spacer-chip [spacer]="entry.spacer" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="reorderState?.deleteSpacer(entry.spacer.id)" />
+            <app-spacer-chip [spacer]="entry.spacer" [detached]="entry.detached" (rename)="reorderState?.renameSpacer(entry.spacer.id, $event)" (remove)="reorderState?.deleteSpacer(entry.spacer.id)" />
             <div class="spacer-line"></div>
           </div>
         } @else {
-          @let row = entry.item;
-          @if (row.startsRootGroup && reorderState) {
-            @if (spacerGap.composingBeforeCallId() === row.call.id) {
+          @let group = entry.item;
+          <!-- Never actually draggable (cdkDragDisabled) - only here so a spacer's drop position can land between two root groups. See onDrop. -->
+          <div class="waterfall-group call-row" cdkDrag [cdkDragDisabled]="true">
+          @if (group.root && reorderState) {
+            @if (spacerGap.composingGapKey() === group.root.id) {
               <ng-container [ngTemplateOutlet]="waterfallSpacerComposer" />
             } @else {
-              <!-- Sits immediately above the root group it would anchor a new spacer to - hover-revealed, see .spacer-gap. Spacers only ever sit between ROOT groups - one anchored to a nested child call has nothing to attach to here and simply doesn't render. -->
+              <!-- Sits immediately above the root group - hover-revealed, see .call-row. A spacer anchored to a nested child call shows here, above that child's root group (see layoutSpacers' rootOf). -->
               <div class="spacer-gap">
-                <button type="button" class="add-spacer-btn" (click)="spacerGap.addSpacerBefore(row.call.id)">
+                <button type="button" class="add-spacer-btn" (click)="addSpacerAbove(group.root.id)">
                   <span>+ Add spacer</span>
                 </button>
               </div>
             }
           }
+          @for (row of group.rows; track row.rowKey) {
         <div
-          cdkDrag
-          [cdkDragDisabled]="true"
           class="waterfall-line"
           [class]="row.ownTint"
           [class.expanded]="isExpanded(row.rowKey)"
@@ -293,15 +317,17 @@ interface WaterfallRow {
             </div>
           }
         </div>
+          }
+          </div>
         }
       }
       @if (reorderState) {
-        @if (spacerGap.composingBeforeCallId() === null) {
+        @if (spacerGap.composingGapKey() === null) {
           <ng-container [ngTemplateOutlet]="waterfallSpacerComposer" />
         } @else {
-          <!-- Sits after the last root group - the only place "add spacer after every call" can go. -->
+          <!-- Sits after the last root group. -->
           <div class="spacer-gap">
-            <button type="button" class="add-spacer-btn" (click)="spacerGap.addSpacerBefore(null)">
+            <button type="button" class="add-spacer-btn" (click)="addSpacerAtTail()">
               <span>+ Add spacer</span>
             </button>
           </div>
@@ -400,29 +426,53 @@ export class CallWaterfallComponent {
   readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
   readonly spacerGap = createSpacerGapController(this.reorderState);
 
-  /** Only a row that STARTS a root group can anchor a spacer here - a child row or a bracket's closing half returns null, meaning "not a valid anchor" (see mergeWithSpacers/reanchorSpacersAfterDrop's null handling), not "anchor to nothing". */
-  private static readonly anchorIdOf = (row: WaterfallRow): string | null => (row.startsRootGroup ? row.call.id : null);
+  /** rows() cut into one group per root call - see WaterfallGroup. */
+  readonly groups = computed<readonly WaterfallGroup[]>(() => {
+    const out: { key: string; root: CallRecord | null; rows: WaterfallRow[] }[] = [];
+    for (const row of this.rows()) {
+      if (row.startsRootGroup || out.length === 0) {
+        out.push({ key: row.startsRootGroup ? row.rowKey : `lead:${row.rowKey}`, root: row.startsRootGroup ? row.call : null, rows: [] });
+      }
+      out[out.length - 1].rows.push(row);
+    }
+    return out;
+  });
+
+  private static readonly groupAnchorCall = (group: WaterfallGroup): CallRecord | null => group.root;
+
+  private readonly spacerOrder = computed(() => spacerOrderFor(this.listState.sortMode()));
+
+  /** Nested child call id -> its root's id, so a spacer anchored to a child sits above that child's root group instead of vanishing. */
+  private readonly rootOfChild = computed(() => rootIndex(this.nodes().map((node) => node.call), this.listState.descendants()));
 
   /**
-   * rows() with every spacer spliced in immediately before the row that STARTS a root group (or at
-   * the very end, for a spacer with beforeCallId null) - spacers only ever sit between root groups
-   * here, mirroring the nested view's identical restriction.
+   * groups() with every spacer spliced in between them - spacers only ever sit between root groups
+   * here, mirroring the nested view. A spacer whose anchor isn't shown is placed by its anchor's
+   * timestamp instead of being dropped - see layoutSpacers for every rule.
    */
-  readonly mergedItems = computed<readonly MergedWithSpacer<WaterfallRow>[]>(() =>
-    mergeWithSpacers(this.rows(), CallWaterfallComponent.anchorIdOf, this.reorderState?.spacers() ?? [])
-  );
+  private readonly layout = computed<SpacerLayout<WaterfallGroup>>(() => {
+    const rootOf = this.rootOfChild();
+    return layoutSpacers(this.groups(), CallWaterfallComponent.groupAnchorCall, this.reorderState?.spacers() ?? [], this.spacerOrder(), (id) => rootOf.get(id));
+  });
+  readonly mergedGroups = computed(() => this.layout().merged);
 
-  readonly trackByMergedItemKey = (entry: MergedWithSpacer<WaterfallRow>) => (entry.kind === 'item' ? entry.item.rowKey : `spacer:${entry.spacer.id}`);
+  readonly trackByMergedGroupKey = (entry: MergedWithSpacer<WaterfallGroup>) => (entry.kind === 'item' ? entry.item.key : `spacer:${entry.spacer.id}`);
 
-  /**
-   * Only spacers ever actually move (every row's cdkDrag is disabled - see the template), so this
-   * only ever needs to re-anchor spacers, never reorder rows.
-   */
-  onDrop(event: CdkDragDrop<readonly MergedWithSpacer<WaterfallRow>[]>): void {
+  /** Opens the composer in the gap above this root group - see CallListComponent.addSpacerAbove for why the anchor comes from the layout. */
+  addSpacerAbove(rootId: string): void {
+    this.spacerGap.addSpacerAt(rootId, this.layout().gapAnchors.get(rootId) ?? TRAILING_ANCHOR);
+  }
+
+  addSpacerAtTail(): void {
+    this.spacerGap.addSpacerAt(null, this.layout().tailAnchor);
+  }
+
+  /** Groups never move (their cdkDrag is disabled), so only a dropped spacer is ever re-anchored. */
+  onDrop(event: CdkDragDrop<readonly MergedWithSpacer<WaterfallGroup>[]>): void {
     if (!this.reorderState || event.previousIndex === event.currentIndex) return;
-    const merged = [...this.mergedItems()];
+    const merged = [...this.mergedGroups()];
     moveItemInArray(merged, event.previousIndex, event.currentIndex);
-    reanchorSpacersAfterDrop(merged, CallWaterfallComponent.anchorIdOf, this.reorderState);
+    reanchorDroppedSpacer(merged, event.currentIndex, CallWaterfallComponent.groupAnchorCall, this.spacerOrder().descending, this.reorderState);
   }
 
   /** Selection is shared state, so a call ticked here is ticked in the flat and nested views too -

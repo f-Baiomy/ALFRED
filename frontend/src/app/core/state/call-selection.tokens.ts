@@ -60,11 +60,18 @@ export interface CallRemovalState {
 
 export const CALL_REMOVAL_STATE = new InjectionToken<CallRemovalState>('CALL_REMOVAL_STATE');
 
-/** A named divider between captured calls in a session cycle's call list - see CycleSpacersApiService. `beforeCallId: null` means "sits after every call". */
+/**
+ * A named divider between captured calls in a session cycle's call list - see CycleSpacersApiService.
+ * Attached to the call right after it (`beforeCallId`) and to that call's own timestamp
+ * (`anchorTimestamp`), so it can still be placed at the right point in time when that call is
+ * filtered out or deleted - see layoutSpacers. Both null means "sits after every call"; only a
+ * timestamp means its anchor call was deleted. The backend omits null fields, hence optional.
+ */
 export interface CycleSpacer {
   readonly id: string;
   readonly label: string;
   readonly beforeCallId: string | null;
+  readonly anchorTimestamp?: string | null;
 }
 
 /**
@@ -83,9 +90,9 @@ export interface CallReorderState {
   readonly dragEnabled: Signal<boolean>;
   reorder(orderedCalls: readonly CallRecord[]): void;
   readonly spacers: Signal<readonly CycleSpacer[]>;
-  addSpacer(label: string, beforeCallId: string | null): void;
+  addSpacer(label: string, beforeCallId: string | null, anchorTimestamp: string | null): void;
   renameSpacer(id: string, label: string): void;
-  moveSpacer(id: string, beforeCallId: string | null): void;
+  moveSpacer(id: string, beforeCallId: string | null, anchorTimestamp: string | null): void;
   deleteSpacer(id: string): void;
 }
 

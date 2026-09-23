@@ -184,7 +184,7 @@ class SessionCyclesInternalCallsServiceTest {
     void copyIntoReAnchorsAnyTrailingSpacerToTheFirstNewlyAddedCall() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of());
-        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z");
+        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z", null);
         // The real store would stop returning this as trailing once move() re-anchors it - see
         // SessionCyclesServiceTest's identical fixture for why this simulates that with a mock.
         when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing), List.of());
@@ -193,8 +193,8 @@ class SessionCyclesInternalCallsServiceTest {
         CallRecord b = call("t2");
         service.copyInto("c1", List.of(a, b));
 
-        verify(spacersStore, org.mockito.Mockito.times(1)).move(eq("c1"), eq("s1"), any());
-        verify(spacersStore).move("c1", "s1", a.id());
+        verify(spacersStore, org.mockito.Mockito.times(1)).move(eq("c1"), eq("s1"), any(), any());
+        verify(spacersStore).move("c1", "s1", a.id(), a.timestamp());
     }
 
     @Test
@@ -213,12 +213,58 @@ class SessionCyclesInternalCallsServiceTest {
     void copyIntoDoesNotAnchorATrailingSpacerToAnOptionsPreflightSinceThatWouldMakeItVanishFromEveryView() {
         when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
         when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of());
-        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z");
+        CycleSpacer trailing = new CycleSpacer("s1", "c1", "End of repro", null, "2026-01-01T00:00:00Z", null);
         when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(trailing));
         CallRecord optionsCall = new CallRecord("id-t1", "https://wildfly-proxy/x", "https://wildfly/x", "OPTIONS", null, "t1", 1.0, null, null);
 
         service.copyInto("c1", List.of(optionsCall));
 
-        verify(spacersStore, never()).move(any(), any(), any());
+        verify(spacersStore, never()).move(any(), any(), any(), any());
+    }
+
+    @Test
+    void copyIntoDoesNotRePinASpacerWhoseAnchorCallWasDeletedSinceItIsStillPlacedByItsTimestamp() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        CycleSpacer orphaned = new CycleSpacer("s1", "c1", "Anchor was deleted", null, "2026-01-01T00:00:00Z", "2026-01-01T00:00:03Z");
+        when(spacersStore.findAllByCycle("c1")).thenReturn(List.of(orphaned));
+
+        service.copyInto("c1", List.of(new CallRecord("id-t1", "https://a.com-proxy/x", "https://a.com/x", "GET", null, "t1", 1.0, null, null)));
+
+        verify(spacersStore, never()).move(any(), any(), any(), any());
+    }
+
+    @Test
+    void removeCallRepointsAnySpacerAnchoredToTheRemovedCallsUnderlyingId() {
+        CallRecord call = call("t1");
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(call)));
+        when(capturedInternalCallsStore.removeById("c1", "captured-t1")).thenReturn(true);
+
+        service.removeCall("c1", "captured-t1");
+
+        verify(spacersStore).dropAnchorsTo("c1", List.of("id-t1"));
+    }
+
+    @Test
+    void removeCallLeavesSpacersAloneWhenNothingWasRemoved() {
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        when(capturedInternalCallsStore.removeById("c1", "missing")).thenReturn(false);
+
+        service.removeCall("c1", "missing");
+
+        verify(spacersStore, never()).dropAnchorsTo(any(), any());
+    }
+
+    @Test
+    void removeCallsRepointsSpacersAnchoredToEveryRemovedCallsUnderlyingId() {
+        CallRecord a = call("t1");
+        CallRecord b = call("t2");
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of(captured(a), captured(b)));
+        when(capturedInternalCallsStore.removeByIds("c1", List.of("captured-t1", "captured-t2"))).thenReturn(2);
+
+        service.removeCalls("c1", List.of("captured-t1", "captured-t2"));
+
+        verify(spacersStore).dropAnchorsTo("c1", List.of("id-t1", "id-t2"));
     }
 }

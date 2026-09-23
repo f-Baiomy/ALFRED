@@ -52,8 +52,8 @@ public class JsonFileCycleSpacersStoreAdapter implements CycleSpacersStorePort {
     }
 
     @Override
-    public synchronized CycleSpacer create(String cycleId, String label, String beforeCallId) {
-        CycleSpacer spacer = new CycleSpacer(UUID.randomUUID().toString(), cycleId, label, beforeCallId, Instant.now().toString());
+    public synchronized CycleSpacer create(String cycleId, String label, String beforeCallId, String anchorTimestamp) {
+        CycleSpacer spacer = new CycleSpacer(UUID.randomUUID().toString(), cycleId, label, beforeCallId, Instant.now().toString(), anchorTimestamp);
         List<CycleSpacer> all = readAll(cycleId);
         all.add(spacer);
         writeAll(cycleId, all);
@@ -62,12 +62,12 @@ public class JsonFileCycleSpacersStoreAdapter implements CycleSpacersStorePort {
 
     @Override
     public synchronized Optional<CycleSpacer> rename(String cycleId, String spacerId, String label) {
-        return update(cycleId, spacerId, existing -> new CycleSpacer(existing.id(), existing.cycleId(), label, existing.beforeCallId(), existing.createdAt()));
+        return update(cycleId, spacerId, existing -> new CycleSpacer(existing.id(), existing.cycleId(), label, existing.beforeCallId(), existing.createdAt(), existing.anchorTimestamp()));
     }
 
     @Override
-    public synchronized Optional<CycleSpacer> move(String cycleId, String spacerId, String beforeCallId) {
-        return update(cycleId, spacerId, existing -> new CycleSpacer(existing.id(), existing.cycleId(), existing.label(), beforeCallId, existing.createdAt()));
+    public synchronized Optional<CycleSpacer> move(String cycleId, String spacerId, String beforeCallId, String anchorTimestamp) {
+        return update(cycleId, spacerId, existing -> new CycleSpacer(existing.id(), existing.cycleId(), existing.label(), beforeCallId, existing.createdAt(), anchorTimestamp));
     }
 
     private Optional<CycleSpacer> update(String cycleId, String spacerId, java.util.function.UnaryOperator<CycleSpacer> mutation) {
@@ -117,7 +117,7 @@ public class JsonFileCycleSpacersStoreAdapter implements CycleSpacersStorePort {
         for (int i = 0; i < all.size(); i++) {
             CycleSpacer spacer = all.get(i);
             if (spacer.beforeCallId() != null && capturedCallIds.contains(spacer.beforeCallId())) {
-                all.set(i, new CycleSpacer(spacer.id(), spacer.cycleId(), spacer.label(), null, spacer.createdAt()));
+                all.set(i, new CycleSpacer(spacer.id(), spacer.cycleId(), spacer.label(), null, spacer.createdAt(), spacer.anchorTimestamp()));
                 changed = true;
             }
         }

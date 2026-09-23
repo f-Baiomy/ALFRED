@@ -138,6 +138,8 @@ export class CallCardComponent {
    * (a session-cycle detail page, ungrouped, with CALL_REORDER_STATE bound) - drives whether the
    * drag-handle grip icon renders at all. The dashboard never sets this. */
   readonly dragHandle = input<boolean>(false);
+  /** False when the enclosing row already carries the scroll-to-parent id (the session-cycle flat list, whose card may not be built yet when a parent is revealed) - see anchorId. */
+  readonly anchored = input<boolean>(true);
   /**
    * 'full' (the default) renders exactly as before: one card with both request and response.
    * 'request'/'response' are the two halves of a split internal call (see splitCallsForDisplay()
@@ -337,7 +339,7 @@ export class CallCardComponent {
    * flat-depth view a split call renders twice, and two elements sharing one id would make
    * getElementById pick whichever came first rather than the call's opening row.
    */
-  readonly anchorId = computed(() => (this.variant() === 'response' ? null : `call-row-${this.call().id}`));
+  readonly anchorId = computed(() => (!this.anchored() || this.variant() === 'response' ? null : `call-row-${this.call().id}`));
   readonly spanOffsetPercent = computed(() => `${((this.depth()?.spanStart ?? 0) * 100).toFixed(2)}%`);
   /** Floored at a hairline so a very short call inside a very long root still renders something
    * visible rather than a zero-width sliver. */
