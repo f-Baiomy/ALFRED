@@ -51,39 +51,54 @@ public record CallRecord(
          * What an interception rule did to this call, or null when none touched it. Written only
          * when present, so a line for an untouched call is byte-for-byte what it was before.
          */
-        @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception
+        @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception,
+        @JsonProperty("resend_of") String resendOf,
+        @JsonProperty("resend_edits") String resendEdits
 ) {
+    /** Pre-resend shape. */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId, String serviceName, CallInterception interception) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId,
+                operationId, serviceName, interception, null, null);
+    }
+
     /** Pre-interception shape - every call site built before that field existed gets null. */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId, String serviceName) {
         this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId,
-                operationId, serviceName, null);
+                operationId, serviceName, null, null, null);
     }
 
     /** The same call carrying the interception record the completion webhook brought. */
     public CallRecord withInterception(CallInterception value) {
         return new CallRecord(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state,
-                sessionId, operationId, serviceName, value == null || value.isEmpty() ? null : value);
+                sessionId, operationId, serviceName, value == null || value.isEmpty() ? null : value, resendOf, resendEdits);
+    }
+
+    public CallRecord withResend(String of, String edits) {
+        return new CallRecord(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state,
+                sessionId, operationId, serviceName, interception, of, edits);
     }
 
     /** Pre-service-name shape - kept so a call site built before that field existed doesn't need to touch a new required argument. serviceName is null (treated as "unknown" by every reader). */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, null, null, null, null);
     }
 
     /** Pre-session/operation-id shape - kept so a call site built before those fields existed doesn't need to touch a new required argument. sessionId/operationId/serviceName are all null. */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, null, null, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, null, null, null, null, null, null);
     }
 
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error) {
         this(id, originalUrl, url, method, request, timestamp, durationMs, response, error,
-                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null);
+                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null, null, null, null);
     }
 
     /**
@@ -103,6 +118,6 @@ public record CallRecord(
         CallLifecycleStatus derived = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
                 call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName(),
-                call.interception());
+                call.interception(), call.resendOf(), call.resendEdits());
     }
 }

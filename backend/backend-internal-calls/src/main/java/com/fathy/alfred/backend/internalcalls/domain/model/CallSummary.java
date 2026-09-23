@@ -29,42 +29,52 @@ public record CallSummary(
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
         /** Carried into the list so a collapsed card can show its intercepted badge without a detail fetch - as backend-calls' summary does. */
-        @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception
+        @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception,
+        @JsonProperty("resend_of") String resendOf,
+        @JsonProperty("resend_edits") String resendEdits
 ) {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    /** Pre-resend shape. */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId, String serviceName, CallInterception interception) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId,
+                operationId, serviceName, interception, null, null);
+    }
 
     /** Pre-interception shape - every call site built before that field existed gets null. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
                         String sessionId, String operationId, String serviceName) {
         this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId,
-                operationId, serviceName, null);
+                operationId, serviceName, null, null, null);
     }
 
     /** Pre-service-name shape - every call site built before that field existed gets null (treated as "unknown" by every reader). */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
                         String sessionId, String operationId) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, null, null, null, null);
     }
 
     /** Pre-session/operation-id shape - every call site built before those fields existed gets null for both (and for serviceName). */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, null, null, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, null, null, null, null, null, null);
     }
 
     /** Pre-two-phase shape, kept for the same reason CallRecord keeps its own 9-arg constructor - every existing call site already only ever built an already-resolved summary, so state is derived from error here instead of requiring every caller to pass it explicitly. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName) {
         this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName,
-                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null);
+                (error != null && !error.isBlank()) ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED, null, null, null, null, null, null);
     }
 
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.interception());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.interception(), call.resendOf(), call.resendEdits());
     }
 
     /**
