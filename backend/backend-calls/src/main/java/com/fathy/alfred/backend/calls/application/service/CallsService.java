@@ -134,7 +134,7 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
         String id = valueOrGenerated(partial.id());
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
-                partial.sessionId(), partial.operationId(), partial.serviceName());
+                partial.sessionId(), partial.operationId(), partial.serviceName(), null, null, partial.resendOf(), partial.resendEdits());
         if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {
             return Optional.empty();
         }

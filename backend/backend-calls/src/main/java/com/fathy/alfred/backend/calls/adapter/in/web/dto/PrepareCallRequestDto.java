@@ -15,6 +15,8 @@ import com.fathy.alfred.backend.calls.domain.model.RequestData;
  * arrival port to (or its "unknown" bucket) - optional/additive, same shape as
  * PrepareInternalCallRequestDto's own {@code service_name} field; absent or null when the proxy
  * build sending this hasn't been updated yet, or couldn't resolve one.
+ * {@code resendOf} and {@code resendEdits} come from the proxy's X-Alfred-Resend-Of and
+ * X-Alfred-Resend-Edits headers, respectively - null when this is not a resend.
  */
 public record PrepareCallRequestDto(
         String id,
@@ -25,6 +27,8 @@ public record PrepareCallRequestDto(
         String timestamp,
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
-        @JsonProperty("service_name") String serviceName
+        @JsonProperty("service_name") String serviceName,
+        @JsonProperty("resend_of") String resendOf,
+        @JsonProperty("resend_edits") String resendEdits
 ) {
 }
