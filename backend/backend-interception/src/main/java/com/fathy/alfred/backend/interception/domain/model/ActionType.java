@@ -62,6 +62,11 @@ public enum ActionType {
      */
     ANSWER_WITH_RECORDED_CALL(Phase.REQUEST),
     /**
+     * Answers with an uploaded file - its bytes exactly, with the status the action sets or the
+     * one given at upload - and never contacts the host. For large or binary fixtures.
+     */
+    ANSWER_WITH_FILE(Phase.REQUEST),
+    /**
      * Kept for rules saved before {@link #SIMULATE_FAILURE} existed, and hidden from the editor's
      * picker - it is exactly {@code SIMULATE_FAILURE} with {@link FailureMode#CONNECTION_RESET}.
      * Still evaluated, because a stored rule must not stop working when the UI moves on.
@@ -153,13 +158,14 @@ public enum ActionType {
      */
     public boolean isTerminal() {
         return this == ABORT_REQUEST || this == MOCK_RESPONSE || this == SIMULATE_FAILURE
-                || this == ANSWER_WITH_RECORDED_CALL;
+                || this == ANSWER_WITH_RECORDED_CALL || this == ANSWER_WITH_FILE;
     }
 
     /** The kind of stored answer this action serves, or null for an action that uses none. */
     public StoredAnswer.Kind answerKind() {
         return switch (this) {
             case ANSWER_WITH_RECORDED_CALL, REPLACE_WITH_RECORDED_RESPONSE -> StoredAnswer.Kind.RECORDED;
+            case ANSWER_WITH_FILE -> StoredAnswer.Kind.FILE;
             default -> null;
         };
     }

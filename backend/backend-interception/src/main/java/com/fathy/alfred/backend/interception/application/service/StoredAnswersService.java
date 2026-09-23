@@ -124,6 +124,31 @@ public class StoredAnswersService implements ManageStoredAnswersUseCase {
     }
 
     @Override
+    public UploadResult upload(String contentType, Integer status, long sizeBytes, BodySource body) {
+        if (contentType == null || contentType.isBlank()) {
+            return new UploadResult.MissingContentType();
+        }
+        if (sizeBytes > maxAnswerBytes) {
+            return new UploadResult.TooLarge(maxAnswerBytes, sizeBytes);
+        }
+        byte[] bytes;
+        try {
+            bytes = body.read();
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException("Could not read the uploaded file", e);
+        }
+        if (bytes.length > maxAnswerBytes) {
+            return new UploadResult.TooLarge(maxAnswerBytes, bytes.length);
+        }
+        String type = contentType.strip();
+        StoredAnswer answer = new StoredAnswer(UUID.randomUUID().toString(), StoredAnswer.Kind.FILE,
+                status == null ? 200 : status, Map.of("content-type", type), type, bytes.length,
+                null, List.of(), null, null, null, null, Instant.now(clock).toString());
+        store.save(answer, bytes);
+        return new UploadResult.Created(answer);
+    }
+
+    @Override
     public Optional<AnswerView> get(String id) {
         if (!StoredAnswer.isValidId(id)) {
             return Optional.empty();

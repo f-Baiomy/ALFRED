@@ -329,7 +329,7 @@ public final class RuleValidator {
                     problems.add("SET_RESPONSE_ENCODING needs one of " + String.join(", ", RESPONSE_ENCODINGS) + ".");
                 }
             }
-            case ANSWER_WITH_RECORDED_CALL, REPLACE_WITH_RECORDED_RESPONSE -> {
+            case ANSWER_WITH_RECORDED_CALL, REPLACE_WITH_RECORDED_RESPONSE, ANSWER_WITH_FILE -> {
                 validateAnswer(action, problems, checks);
                 if (action.status() != null && (action.status() < 100 || action.status() > 599)) {
                     problems.add(action.type() + " needs a status code between 100 and 599, or none to keep the recorded one.");

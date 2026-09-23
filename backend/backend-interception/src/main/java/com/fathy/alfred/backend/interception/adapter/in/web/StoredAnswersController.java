@@ -9,12 +9,16 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -45,6 +49,40 @@ public class StoredAnswersController {
                     .body(Map.of("error", "answer-too-large", "limitBytes", tooLarge.limitBytes(),
                             "sizeBytes", tooLarge.sizeBytes()));
         };
+    }
+
+    /**
+     * Uploads a file as a FILE answer. Spring's multipart limit
+     * (spring.servlet.multipart.max-file-size, set to the same cap) rejects an oversized request
+     * before the controller runs; the use case checks again for a limit configured differently.
+     */
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Object> upload(@RequestPart("file") MultipartFile file,
+                                         @RequestParam(value = "contentType", required = false) String contentType,
+                                         @RequestParam(value = "status", required = false) Integer status) {
+        if (status != null && (status < 100 || status > 599)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "invalid-request",
+                    "problems", List.of("status must be between 100 and 599")));
+        }
+        String type = contentType != null && !contentType.isBlank() ? contentType : file.getContentType();
+        ManageStoredAnswersUseCase.UploadResult result = answers.upload(type, status, file.getSize(), file::getBytes);
+        return switch (result) {
+            case ManageStoredAnswersUseCase.UploadResult.Created created ->
+                    ResponseEntity.status(HttpStatus.CREATED).body(StoredAnswerDto.of(created.answer(), List.of()));
+            case ManageStoredAnswersUseCase.UploadResult.TooLarge tooLarge -> ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                    .body(Map.of("error", "answer-too-large", "limitBytes", tooLarge.limitBytes(),
+                            "sizeBytes", tooLarge.sizeBytes()));
+            case ManageStoredAnswersUseCase.UploadResult.MissingContentType missing -> ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                    .body(Map.of("error", "content-type-required"));
+        };
+    }
+
+    /** Spring's own multipart cap, hit before the controller runs - same 413 shape as the use case's. */
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> tooLarge(org.springframework.web.multipart.MaxUploadSizeExceededException e,
+                                                        jakarta.servlet.http.HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(Map.of("error", "answer-too-large",
+                "limitBytes", e.getMaxUploadSize(), "sizeBytes", request.getContentLengthLong()));
     }
 
     @GetMapping("/{id}")

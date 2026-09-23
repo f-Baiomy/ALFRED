@@ -63,7 +63,7 @@ REQUEST_ACTIONS = {
     'REPLACE_IN_REQUEST_BODY', 'REWRITE_URL', 'SET_METHOD',
     'REMOVE_REQUEST_JSON_FIELD', 'SET_REQUEST_BODY',
     'SET_REQUEST_COOKIE', 'REMOVE_REQUEST_COOKIE', 'SET_FORM_FIELD', 'REMOVE_FORM_FIELD',
-    'DISABLE_CACHE', 'DISABLE_COMPRESSION', 'ANSWER_WITH_RECORDED_CALL',
+    'DISABLE_CACHE', 'DISABLE_COMPRESSION', 'ANSWER_WITH_RECORDED_CALL', 'ANSWER_WITH_FILE',
     'ABORT_REQUEST', 'MOCK_RESPONSE', 'PAUSE_REQUEST', 'SEND_TO_HOST',
     'SIMULATE_FAILURE', 'IF_REQUEST',
 }
@@ -84,7 +84,7 @@ def _known_action(kind):
 
 # An action that ends the request phase: there is no upstream request left for a later rule to
 # modify, so evaluation stops rather than silently applying edits to something already gone.
-TERMINAL_REQUEST_ACTIONS = {'ABORT_REQUEST', 'MOCK_RESPONSE', 'SIMULATE_FAILURE', 'ANSWER_WITH_RECORDED_CALL'}
+TERMINAL_REQUEST_ACTIONS = {'ABORT_REQUEST', 'MOCK_RESPONSE', 'SIMULATE_FAILURE', 'ANSWER_WITH_RECORDED_CALL', 'ANSWER_WITH_FILE'}
 
 # What SIMULATE_FAILURE can reproduce - the mirror of the backend's FailureMode enum, matched by
 # string. Everything a supplier does that is NOT a status code.
@@ -1885,7 +1885,7 @@ class InterceptionEngine:
             verdict.record(rule, kind, f'{status}, upstream never contacted')
             return
 
-        if kind == 'ANSWER_WITH_RECORDED_CALL':
+        if kind in ('ANSWER_WITH_RECORDED_CALL', 'ANSWER_WITH_FILE'):
             if verdict.must_reach_host:
                 verdict.record(rule, kind, 'skipped - an earlier rule requires this call to reach the host')
                 return
@@ -1900,9 +1900,10 @@ class InterceptionEngine:
             # as one-sided - with the bytes as stored rather than re-encoded text.
             verdict.terminal = 'MOCK_RESPONSE'
             verdict.mock = {'status': status, 'headers': headers, 'body_bytes': body}
-            if action.get('refreshDates') is True:
+            if kind == 'ANSWER_WITH_RECORDED_CALL' and action.get('refreshDates') is True:
                 verdict.refresh_from = recorded_epoch(meta)
-            verdict.record(rule, kind, f'recorded answer {meta.get("id", "")}, {status}, upstream never contacted')
+            what = 'recorded answer' if kind == 'ANSWER_WITH_RECORDED_CALL' else 'file answer'
+            verdict.record(rule, kind, f'{what} {meta.get("id", "")}, {status}, upstream never contacted')
             return
 
         if kind == 'SIMULATE_FAILURE':

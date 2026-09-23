@@ -24,6 +24,19 @@ public interface ManageStoredAnswersUseCase {
     /** A stored answer from a rules file, under a fresh id. Refused (empty) when over the size cap. */
     Optional<StoredAnswer> importAnswer(StoredAnswer answer, byte[] body);
 
+    /**
+     * Stores an uploaded file as a FILE answer. {@code sizeBytes} is the size the upload
+     * declares, checked BEFORE {@code body} is read, so an oversized file is never buffered.
+     * The real length is checked again after reading.
+     */
+    UploadResult upload(String contentType, Integer status, long sizeBytes, BodySource body);
+
+    /** The upload's bytes, read on demand. */
+    @FunctionalInterface
+    interface BodySource {
+        byte[] read() throws java.io.IOException;
+    }
+
     /** The answer plus which rules use it - what the editor shows under an answer action. */
     record AnswerView(StoredAnswer answer, List<String> referencedByRuleIds) {
     }
@@ -39,6 +52,17 @@ public interface ManageStoredAnswersUseCase {
         }
 
         record TooLarge(long limitBytes, long sizeBytes) implements CopyResult {
+        }
+    }
+
+    sealed interface UploadResult {
+        record Created(StoredAnswer answer) implements UploadResult {
+        }
+
+        record TooLarge(long limitBytes, long sizeBytes) implements UploadResult {
+        }
+
+        record MissingContentType() implements UploadResult {
         }
     }
 }

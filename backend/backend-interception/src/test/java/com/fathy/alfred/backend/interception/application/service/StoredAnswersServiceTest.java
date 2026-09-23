@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.interception.application.service;
 
 import com.fathy.alfred.backend.interception.application.port.in.ManageStoredAnswersUseCase.CopyResult;
+import com.fathy.alfred.backend.interception.application.port.in.ManageStoredAnswersUseCase.UploadResult;
 import com.fathy.alfred.backend.interception.application.port.out.RecordedCallLookupPort;
 import com.fathy.alfred.backend.interception.application.port.out.RecordedCallLookupPort.RecordedResponse;
 import com.fathy.alfred.backend.interception.application.port.out.StoredAnswersStorePort;
@@ -206,6 +207,56 @@ class StoredAnswersServiceTest {
         assertThat(imported.headers()).containsOnlyKeys("Set-Cookie");
         assertThat(imported.secretsKept()).isTrue();
         assertThat(imported.secretNames()).containsExactly("set-cookie");
+    }
+
+    @Test
+    void anUploadIsStoredAsAFileAnswerWithOnlyItsContentType() {
+        UploadResult result = service.upload("text/csv", 201, 3, () -> "a,b".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(result).isInstanceOf(UploadResult.Created.class);
+        StoredAnswer answer = ((UploadResult.Created) result).answer();
+        assertThat(answer.kind()).isEqualTo(StoredAnswer.Kind.FILE);
+        assertThat(answer.status()).isEqualTo(201);
+        assertThat(answer.headers()).isEqualTo(Map.of("content-type", "text/csv"));
+        assertThat(answer.contentType()).isEqualTo("text/csv");
+        assertThat(answer.sizeBytes()).isEqualTo(3);
+        assertThat(answer.secretsKept()).isNull();
+        assertThat(answer.sourceDirection()).isNull();
+        assertThat(answer.createdAt()).isEqualTo(NOW.toString());
+        assertThat(store.bodies.get(answer.id())).isEqualTo("a,b".getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void anUploadOverTheCapIsRefusedBeforeItsBytesAreRead() {
+        UploadResult result = service.upload("text/plain", null, 101, () -> {
+            throw new AssertionError("read");
+        });
+
+        assertThat(result).isEqualTo(new UploadResult.TooLarge(100, 101));
+        assertThat(store.meta).isEmpty();
+    }
+
+    @Test
+    void anUploadWithABlankContentTypeIsRefused() {
+        UploadResult result = service.upload("  ", null, 1, () -> "x".getBytes());
+
+        assertThat(result).isInstanceOf(UploadResult.MissingContentType.class);
+    }
+
+    @Test
+    void aMissingStatusDefaultsTo200() {
+        UploadResult result = service.upload("text/plain", null, 1, () -> "x".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(result).isInstanceOf(UploadResult.Created.class);
+        StoredAnswer answer = ((UploadResult.Created) result).answer();
+        assertThat(answer.status()).isEqualTo(200);
+    }
+
+    @Test
+    void aDeclaredSizeThatLiesIsCheckedAgainstTheRealBytes() {
+        UploadResult result = service.upload("text/plain", 200, 1, () -> "x".repeat(101).getBytes(StandardCharsets.UTF_8));
+
+        assertThat(result).isEqualTo(new UploadResult.TooLarge(100, 101));
     }
 
     private StoredAnswer stored(String id, Instant createdAt) {

@@ -1398,6 +1398,7 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         'SET_RESPONSE_ENCODING': {'type': 'SET_RESPONSE_ENCODING', 'encoding': 'gzip'},
         'MOCK_RESPONSE': {'type': 'MOCK_RESPONSE', 'status': 418, 'body': 'teapot'},
         'ANSWER_WITH_RECORDED_CALL': {'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER},
+        'ANSWER_WITH_FILE': {'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER, 'status': 201},
         'REPLACE_WITH_RECORDED_RESPONSE': {'type': 'REPLACE_WITH_RECORDED_RESPONSE', 'answerId': ANSWER},
         # The mode that answers rather than kills, so there is something to record either end of.
         'SIMULATE_FAILURE': {'type': 'SIMULATE_FAILURE', 'failure': 'GATEWAY_ERROR', 'status': 503},
@@ -2631,6 +2632,50 @@ class StoredAnswerTest(unittest.TestCase):
         meta = os.path.join(self.tmp.name, 'answers', ANSWER + '.meta.json')
         os.utime(meta, (time.time() + 5, time.time() + 5))
         self.assertEqual(run(cache.load(ANSWER))[0][1], b'two')
+
+
+class FileAnswerTest(unittest.TestCase):
+    """Answering with an uploaded file - exact bytes, never contact upstream."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, *actions, rules=None):
+        return interception.InterceptionEngine('outbound', write_rules(
+            self.tmp.name, rules or [rule(actions=list(actions))]))
+
+    def test_the_exact_bytes_are_served_with_the_actions_status(self):
+        write_answer(self.tmp.name, status=200, headers={'content-type': 'application/pdf'}, body=b'%PDF-\x00\xff')
+        verdict = run(self.engine({'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER, 'status': 201})
+                      .apply_request(FakeFlow()))
+        self.assertEqual(verdict.terminal, 'MOCK_RESPONSE')
+        self.assertEqual(verdict.mock['status'], 201)
+        self.assertEqual(verdict.mock['body_bytes'], b'%PDF-\x00\xff')
+        self.assertEqual(verdict.mock['headers'], {'content-type': 'application/pdf'})
+        self.assertIn('file answer', verdict.applied[0].detail)
+        self.assertIn('upstream never contacted', verdict.applied[0].detail)
+
+    def test_without_a_status_the_stored_one_is_used(self):
+        write_answer(self.tmp.name, status=200)
+        verdict = run(self.engine({'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER})
+                      .apply_request(FakeFlow()))
+        self.assertEqual(verdict.mock['status'], 200)
+
+    def test_an_earlier_send_to_host_wins(self):
+        write_answer(self.tmp.name)
+        engine = self.engine(rules=[
+            rule(id='a', priority=1, actions=[{'type': 'SEND_TO_HOST'}]),
+            rule(id='b', priority=2, actions=[{'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER}])])
+        verdict = run(engine.apply_request(FakeFlow()))
+        self.assertIsNone(verdict.terminal)
+        self.assertEqual(verdict.applied[1].detail, 'skipped - an earlier rule requires this call to reach the host')
+
+    def test_a_missing_file_answer_lets_the_call_through(self):
+        verdict = run(self.engine({'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER})
+                      .apply_request(FakeFlow()))
+        self.assertIsNone(verdict.terminal)
+        self.assertEqual(verdict.applied[0].detail, f'skipped - stored answer {ANSWER} not found')
 
 
 if __name__ == '__main__':
