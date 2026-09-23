@@ -1195,7 +1195,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
 
 ### Linkage in the call slices
 
-- [ ] T097 [US8] Add the resend linkage to backend-calls.
+- [x] T097 [US8] Add the resend linkage to backend-calls.
   1. `BC/domain/model/CallRecord.java` (canonical record at lines 35-51, 15 components ending
      `CallTiming timing, CallInterception interception`): append two components
      ```java
@@ -1284,7 +1284,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
   9. Compile: `mvn -B -q -pl backend-calls -am test` in Docker (command at the top of this
      file). Fix every call site the compiler reports; do not change behaviour elsewhere.
 
-- [ ] T098 [P] [US8] Test the round trip in
+- [x] T098 [P] [US8] Test the round trip in
   `BCT/adapter/out/sqlite/SqliteCallsRepositoryTest.java` (uses `repositoryFor(tempDir.resolve("calls.db"), Long.MAX_VALUE)`
   from lines 33-64). Add `aResendLinkRoundTripsThroughEveryReadPath()`:
   - build a `CallRecord` with the 13-arg constructor (id `"resent-1"`, url
@@ -1300,7 +1300,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
   calls `receivePreparedCall` with a record whose `resendEdits()` is null (use an
   `ArgumentCaptor<CallRecord>`).
 
-- [ ] T099 [US8] Add the same linkage to backend-internal-calls and to session-cycle captures.
+- [x] T099 [US8] Add the same linkage to backend-internal-calls and to session-cycle captures.
   1. `BIC/domain/model/CallRecord.java` (14 components, lines 36-55, ending `interception`):
      append `resendOf` and `resendEdits` exactly as in T097 step 1 (same annotations; create
      `BIC/domain/model/RawJsonDeserializer.java` and `BIC/domain/model/ResendEdits.java` as
@@ -1337,7 +1337,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
 
 ### Proxy
 
-- [ ] T100 [P] [US8] Add `ResendHeadersTest` at the end of `PX/test_interception.py` (before
+- [x] T100 [P] [US8] Add `ResendHeadersTest` at the end of `PX/test_interception.py` (before
   `if __name__ == '__main__':`). Use a small fake for the client connection:
   ```python
   class FakeClientConn:
@@ -1363,7 +1363,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
   6. `test_no_client_connection_is_treated_as_not_the_backend`: a flow without
      `client_conn` returns `(None, None)` and does not raise.
 
-- [ ] T101 [US8] Implement the header hand-over in the proxy.
+- [x] T101 [US8] Implement the header hand-over in the proxy.
   1. `PX/interception.py`, near the other module constants, add:
      ```python
      RESEND_OF_HEADER = 'X-Alfred-Resend-Of'
@@ -1439,7 +1439,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
 
 ### New slice backend-resend
 
-- [ ] T102 [US8] Create the domain and remove the ArchUnit placeholder.
+- [x] T102 [US8] Create the domain and remove the ArchUnit placeholder.
   1. `backend/backend-architecture-test/src/test/java/com/fathy/alfred/backend/architecture/HexagonalArchitectureTest.java`
      lines 211-213: delete the comment and the `.allowEmptyShould(true)` line.
   2. Create these records in `BR/domain/model/` (package
@@ -1486,7 +1486,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
      ```
      Put each top-level type in its own file named after it.
 
-- [ ] T103 [US8] Create the ports.
+- [x] T103 [US8] Create the ports.
   1. `BR/application/port/in/ResendCallUseCase.java`:
      ```java
      public interface ResendCallUseCase {
@@ -1516,7 +1516,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
      session, not the current one.)
   4. `BR/application/port/out/CallSenderPort.java`: `SendOutcome send(OutgoingCall call);`
 
-- [ ] T104 [P] [US8] Write `BRT/application/service/ResendServiceTest.java` (plain JUnit 5 +
+- [x] T104 [P] [US8] Write `BRT/application/service/ResendServiceTest.java` (plain JUnit 5 +
   AssertJ, no Spring). Fakes: a `CallSourcePort` lambda returning a fixed `StoredCall`
   (direction `outbound`, id `orig-1`, method `POST`, originalUrl
   `https://api.supplier.test/v1/fares?x=1`, headers
@@ -1550,7 +1550,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
   9. `senderOutcomesMapThrough`: `ReverseProxyNotRunning` and `Failed("x")` from the sender
      become `ResendOutcome.ReverseProxyNotRunning` and `SendFailed("x")`.
 
-- [ ] T105 [US8] Implement `BR/application/service/ResendService.java`
+- [x] T105 [US8] Implement `BR/application/service/ResendService.java`
   (`@Service public class ResendService implements ResendCallUseCase`, constructor-injected
   `CallSourcePort`, `SessionValueLookupPort`, `CallSenderPort`). Behaviour, in this order:
   1. `load(direction, callId, cycleId)`; empty → `new NotFound()`.
@@ -1588,7 +1588,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
      `ReverseProxyNotRunning` → `ResendOutcome.ReverseProxyNotRunning`, `Failed` → `SendFailed`.
   Run `mvn -B -q -pl backend-resend -am test`; T104 passes.
 
-- [ ] T106 [US8] Implement `BR/adapter/out/http/JdkHttpCallSender.java`
+- [x] T106 [US8] Implement `BR/adapter/out/http/JdkHttpCallSender.java`
   (`@Component public class JdkHttpCallSender implements CallSenderPort`).
   1. Constructor parameters, all `@Value`:
      `${alfred.resend.forward-proxy-host:proxy}` forwardProxyHost,
@@ -1652,7 +1652,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
      - an unknown project → `Failed` mentioning the project.
      - the CA file missing → constructing the sender does not throw.
 
-- [ ] T107 [US8] Add `POST /resend`.
+- [x] T107 [US8] Add `POST /resend`.
   1. `BR/adapter/in/web/dto/ResendRequestDto.java`:
      ```java
      public record ResendRequestDto(
