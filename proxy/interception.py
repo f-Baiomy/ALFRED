@@ -33,6 +33,7 @@ import email.utils
 import json
 import os
 import re
+import socket
 import time
 import urllib.parse
 from http import HTTPStatus
@@ -98,6 +99,11 @@ FAILURE_MODES = {
     'CONNECTION_RESET', 'HANG_THEN_DROP', 'HANG_UNTIL_CALLER_GIVES_UP',
     'EMPTY_REPLY', 'TRUNCATED_BODY', 'GATEWAY_ERROR',
 }
+
+RESEND_OF_HEADER = 'X-Alfred-Resend-Of'
+RESEND_EDITS_HEADER = 'X-Alfred-Resend-Edits'
+MAX_RESEND_ID = 200
+MAX_RESEND_EDITS = 16384
 
 # How long "hang until the caller gives up" holds before Alfred stops waiting too. The point of
 # that mode is that the CALLER's timeout fires first; this only exists so a client with no timeout
@@ -868,6 +874,50 @@ class _AnswerCache:
         old = self._entries.pop(answer_id, None)
         if old is not None:
             self._bytes -= len(old[2])
+
+
+def take_resend_headers(flow, backend_addresses):
+    """(resend_of, resend_edits) for a call the backend is resending, and always removes both
+    headers - before any rule sees the request, and before the request leaves the proxy.
+
+    Honoured only when the peer is the backend itself: any other client could otherwise mark
+    its calls as resends of calls it never saw."""
+    headers = flow.request.headers
+    resend_of = headers.get(RESEND_OF_HEADER)
+    edits = headers.get(RESEND_EDITS_HEADER)
+    for name in (RESEND_OF_HEADER, RESEND_EDITS_HEADER):
+        if name in headers:
+            del headers[name]
+    conn = getattr(flow, 'client_conn', None)
+    peer = getattr(conn, 'peername', None) if conn is not None else None
+    if not peer or peer[0] not in backend_addresses:
+        return None, None
+    if not resend_of or len(resend_of) > MAX_RESEND_ID:
+        return None, None
+    if edits is not None:
+        try:
+            parsed = json.loads(edits) if len(edits) <= MAX_RESEND_EDITS else None
+        except ValueError:
+            parsed = None
+        edits = json.dumps(parsed, separators=(',', ':')) if isinstance(parsed, dict) else None
+    return resend_of.strip(), edits
+
+
+_backend_addresses = None
+
+
+def backend_addresses():
+    """The IPs BACKEND_HOST resolves to, resolved once and cached. Empty until it resolves."""
+    global _backend_addresses
+    if _backend_addresses is None:
+        host = os.environ.get('BACKEND_HOST', '').strip()
+        if not host:
+            return frozenset()
+        try:
+            _backend_addresses = frozenset(socket.gethostbyname_ex(host)[2])
+        except OSError:
+            return frozenset()
+    return _backend_addresses
 
 
 def answer_parts(meta, body, action):

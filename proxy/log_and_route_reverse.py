@@ -138,40 +138,16 @@ _toggle = _ToggleState()
 ENGINE = interception.InterceptionEngine('inbound')
 
 
-def _take_resend_headers(flow):
-    """Extracts and validates X-Alfred-Resend-Of and X-Alfred-Resend-Edits headers.
-
-    Returns (resend_of, resend_edits) tuple where each is either the header value
-    (non-empty string) or None if missing, empty, or invalid. Resend_edits is validated
-    to be valid JSON when present - invalid JSON is rejected silently (returns None).
-    """
-    resend_of = (flow.request.headers.get('X-Alfred-Resend-Of') or '').strip()
-    resend_edits = (flow.request.headers.get('X-Alfred-Resend-Edits') or '').strip()
-
-    # resend_of: non-empty string (UUID or call ID format not validated here,
-    # backend owns that validation via ResendEdits.normalise).
-    if not resend_of:
-        resend_of = None
-
-    # resend_edits: must be valid JSON if present. Invalid JSON silently rejected.
-    if resend_edits:
-        try:
-            parsed = json.loads(resend_edits)
-            # Must be a JSON object (dict), not array/string/null/number.
-            if not isinstance(parsed, dict):
-                resend_edits = None
-        except (json.JSONDecodeError, ValueError):
-            resend_edits = None
-    else:
-        resend_edits = None
-
-    return resend_of, resend_edits
-
-
 class RouteAndLog:
 
     async def request(self, flow):
         flow.metadata['start_time'] = time.time()
+
+        # Backend-only resend linkage headers - removed before any rule can see them (a rule
+        # matching on X-Alfred-Resend-Of must never fire), and before the call is logged. Read
+        # even when this project's logging is off below, so the headers never leak upstream
+        # either way.
+        resend_of, resend_edits = interception.take_resend_headers(flow, interception.backend_addresses())
 
         # Identify the project by the port this flow ARRIVED on - each listener was created with
         # its own upstream by reverse-proxy-entrypoint.sh, so mitmproxy has already decided where
@@ -202,9 +178,6 @@ class RouteAndLog:
         session_id = (flow.request.headers.get('X-Session-ID') or '').strip() or None
         operation_id = (flow.request.headers.get('X-Operation-Id') or '').strip() or None
 
-        # Resend linkage extraction and validation - both null if missing/invalid.
-        resend_of, resend_edits = _take_resend_headers(flow)
-
         call_log = {
             'id': call_id,
             # original_url = what the client called (its own Host header, e.g.
@@ -227,11 +200,10 @@ class RouteAndLog:
             # each call and filter by source without re-deriving it from the URL/port.
             'service_name': name,
         }
-        # Resend linkage only present for actual resends.
         if resend_of:
             call_log['resend_of'] = resend_of
             if resend_edits:
-                call_log['resend_edits'] = resend_edits
+                call_log['resend_edits'] = json.loads(resend_edits)
         applied = verdict.as_log()
         if applied:
             call_log['interception'] = applied

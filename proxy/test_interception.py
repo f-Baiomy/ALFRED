@@ -2678,5 +2678,96 @@ class FileAnswerTest(unittest.TestCase):
         self.assertEqual(verdict.applied[0].detail, f'skipped - stored answer {ANSWER} not found')
 
 
+class FakeClientConn:
+    def __init__(self, peer_ip):
+        self.peername = (peer_ip, 51234)
+
+
+class ResendHeadersTest(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, rules, source='outbound'):
+        return interception.InterceptionEngine(source, write_rules(self.tmp.name, rules))
+
+    def test_the_backend_peer_hands_over_both_values(self):
+        flow = FakeFlow(FakeRequest(headers={
+            'X-Alfred-Resend-Of': 'orig-1',
+            'X-Alfred-Resend-Edits': '{"headers":["x-a"]}',
+            'X-A': '1',
+        }))
+        flow.client_conn = FakeClientConn('172.18.0.5')
+
+        resend_of, resend_edits = interception.take_resend_headers(flow, {'172.18.0.5'})
+
+        self.assertEqual((resend_of, resend_edits), ('orig-1', '{"headers":["x-a"]}'))
+        self.assertNotIn('X-Alfred-Resend-Of', flow.request.headers)
+        self.assertNotIn('X-Alfred-Resend-Edits', flow.request.headers)
+        self.assertEqual(flow.request.headers.get('X-A'), '1')
+
+    def test_any_other_peer_is_ignored_but_the_headers_are_still_removed(self):
+        flow = FakeFlow(FakeRequest(headers={
+            'X-Alfred-Resend-Of': 'orig-1',
+            'X-Alfred-Resend-Edits': '{"headers":["x-a"]}',
+        }))
+        flow.client_conn = FakeClientConn('10.0.0.9')
+
+        result = interception.take_resend_headers(flow, {'172.18.0.5'})
+
+        self.assertEqual(result, (None, None))
+        self.assertNotIn('X-Alfred-Resend-Of', flow.request.headers)
+        self.assertNotIn('X-Alfred-Resend-Edits', flow.request.headers)
+
+    def test_invalid_edits_json_is_dropped(self):
+        flow = FakeFlow(FakeRequest(headers={
+            'X-Alfred-Resend-Of': 'orig-1',
+            'X-Alfred-Resend-Edits': 'not json',
+        }))
+        flow.client_conn = FakeClientConn('172.18.0.5')
+
+        result = interception.take_resend_headers(flow, {'172.18.0.5'})
+
+        self.assertEqual(result, ('orig-1', None))
+
+    def test_an_oversized_value_is_dropped(self):
+        flow = FakeFlow(FakeRequest(headers={
+            'X-Alfred-Resend-Of': 'x' * 201,
+        }))
+        flow.client_conn = FakeClientConn('172.18.0.5')
+        self.assertEqual(interception.take_resend_headers(flow, {'172.18.0.5'}), (None, None))
+
+        flow = FakeFlow(FakeRequest(headers={
+            'X-Alfred-Resend-Of': 'orig-1',
+            'X-Alfred-Resend-Edits': '{"a":"' + ('x' * 16384) + '"}',
+        }))
+        flow.client_conn = FakeClientConn('172.18.0.5')
+        resend_of, resend_edits = interception.take_resend_headers(flow, {'172.18.0.5'})
+        self.assertEqual(resend_of, 'orig-1')
+        self.assertIsNone(resend_edits)
+
+    def test_a_rule_matching_on_the_header_never_sees_it(self):
+        engine = self.engine([rule(
+            match={'headers': [{'name': 'X-Alfred-Resend-Of', 'operator': 'EXISTS'}]},
+            actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-T', 'value': '1'}])])
+        flow = FakeFlow(FakeRequest(headers={
+            'X-Alfred-Resend-Of': 'orig-1',
+        }))
+        flow.client_conn = FakeClientConn('172.18.0.5')
+
+        interception.take_resend_headers(flow, {'172.18.0.5'})
+        verdict = run(engine.apply_request(flow))
+
+        self.assertEqual(verdict.applied, [])
+
+    def test_no_client_connection_is_treated_as_not_the_backend(self):
+        flow = FakeFlow(FakeRequest(headers={'X-Alfred-Resend-Of': 'orig-1'}))
+
+        result = interception.take_resend_headers(flow, {'172.18.0.5'})
+
+        self.assertEqual(result, (None, None))
+
+
 if __name__ == '__main__':
     unittest.main()

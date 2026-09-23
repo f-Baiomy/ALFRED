@@ -139,40 +139,14 @@ if WEBHOOK_URL:
 ENGINE = interception.InterceptionEngine('outbound')
 
 
-def _take_resend_headers(flow):
-    """Extracts and validates X-Alfred-Resend-Of and X-Alfred-Resend-Edits headers.
-
-    Returns (resend_of, resend_edits) tuple where each is either the header value
-    (non-empty string) or None if missing, empty, or invalid. Resend_edits is validated
-    to be valid JSON when present - invalid JSON is rejected silently (returns None).
-    """
-    resend_of = (flow.request.headers.get('X-Alfred-Resend-Of') or '').strip()
-    resend_edits = (flow.request.headers.get('X-Alfred-Resend-Edits') or '').strip()
-
-    # resend_of: non-empty string (UUID or call ID format not validated here,
-    # backend owns that validation via ResendEdits.normalise).
-    if not resend_of:
-        resend_of = None
-
-    # resend_edits: must be valid JSON if present. Invalid JSON silently rejected.
-    if resend_edits:
-        try:
-            parsed = json.loads(resend_edits)
-            # Must be a JSON object (dict), not array/string/null/number.
-            if not isinstance(parsed, dict):
-                resend_edits = None
-        except (json.JSONDecodeError, ValueError):
-            resend_edits = None
-    else:
-        resend_edits = None
-
-    return resend_of, resend_edits
-
-
 class RouteAndLog:
 
     async def request(self, flow):
         flow.metadata['start_time'] = time.time()
+
+        # Backend-only resend linkage headers - removed before any rule can see them (a rule
+        # matching on X-Alfred-Resend-Of must never fire), and before the call is logged.
+        resend_of, resend_edits = interception.take_resend_headers(flow, interception.backend_addresses())
 
         # Which of this process's listeners the flow arrived on - the default/shared listener
         # resolves no name (FORWARD_PORT_MAP.get returns None), a project-specific one does. Set
@@ -215,9 +189,6 @@ class RouteAndLog:
         client_operation_id = (flow.request.headers.get('X-Operation-Id') or '').strip()
         operation_id = client_operation_id if client_operation_id else str(uuid.uuid4())
 
-        # Resend linkage extraction and validation - both null if missing/invalid.
-        resend_of, resend_edits = _take_resend_headers(flow)
-
         call_log = {
             'id': call_id,
             'original_url': flow.request.pretty_url,
@@ -236,11 +207,10 @@ class RouteAndLog:
         # rather than noisily sending service_name: null for the common case.
         if service_name:
             call_log['service_name'] = service_name
-        # Resend linkage only present for actual resends.
         if resend_of:
             call_log['resend_of'] = resend_of
             if resend_edits:
-                call_log['resend_edits'] = resend_edits
+                call_log['resend_edits'] = json.loads(resend_edits)
         # Only present when a rule actually did something, so an untouched call's payload is
         # byte-identical to what it was before this feature existed.
         applied = verdict.as_log()
