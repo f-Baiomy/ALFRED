@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsInRangeUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.FindRecentRequestHeadersUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceivePreparedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.out.CallFilterPort;
@@ -33,7 +34,7 @@ import java.util.UUID;
 
 @Service
 public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase, ReceiveNewCallUseCase,
-        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase {
+        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase, FindRecentRequestHeadersUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(CallsService.class);
 
@@ -172,6 +173,12 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
                 .toList();
         notificationPort.notifyCallCompleted(call, capturedByCycleIds);
         return true;
+    }
+
+    @Override
+    public List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> findRecent(String authority, int limit) {
+        int clamped = Math.max(1, Math.min(limit, FindRecentRequestHeadersUseCase.MAX_LIMIT));
+        return callLogPort.recentRequestHeaders(authority, clamped);
     }
 
     private static CallRecord withGeneratedId(CallRecord call) {

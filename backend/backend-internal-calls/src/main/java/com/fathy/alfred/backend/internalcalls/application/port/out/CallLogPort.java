@@ -6,8 +6,10 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
+import com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -84,4 +86,38 @@ public interface CallLogPort {
 
     /** Completed calls to this exact url only - see CallBaseline. */
     CallBaseline baselineFor(String url);
+
+    /**
+     * Request headers of the newest calls to {@code authority}, newest first, at most
+     * {@code limit} rows - backs "resend with current session". Matches on the authority of
+     * either the upstream {@code url} or the client-facing {@code originalUrl} (whichever
+     * parses and matches), since either could plausibly be what a caller means by "this host"
+     * for an inbound call.
+     */
+    default List<RecentRequestHeaders> recentRequestHeaders(String authority, int limit) {
+        List<RecentRequestHeaders> result = new java.util.ArrayList<>();
+        List<CallRecord> all = readAll();
+        for (int i = all.size() - 1; i >= 0 && result.size() < limit; i--) {
+            CallRecord call = all.get(i);
+            if (call.request() == null) {
+                continue;
+            }
+            if (matchesAuthority(call.url(), authority) || matchesAuthority(call.originalUrl(), authority)) {
+                result.add(new RecentRequestHeaders(call.id(), call.timestamp(), call.request().headers()));
+            }
+        }
+        return result;
+    }
+
+    private static boolean matchesAuthority(String url, String authority) {
+        if (url == null) {
+            return false;
+        }
+        try {
+            String callAuthority = URI.create(url).getRawAuthority();
+            return callAuthority != null && callAuthority.equalsIgnoreCase(authority);
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

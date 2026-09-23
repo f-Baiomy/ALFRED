@@ -7,8 +7,10 @@ import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
+import com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -93,4 +95,31 @@ public interface CallLogPort {
 
     /** Permanently deletes every logged call - the Database settings tab's "Clear calls" action. */
     void deleteAll();
+
+    /**
+     * Request headers of the newest calls to {@code authority}, newest first, at most {@code limit}
+     * rows - backs "resend with current session". Default falls back to scanning {@link #readAll()},
+     * matching on the authority of each call's own {@code url()} - correct for every adapter, though
+     * the SQLite adapter overrides it with an indexed query instead of a full scan.
+     */
+    default List<RecentRequestHeaders> recentRequestHeaders(String authority, int limit) {
+        List<RecentRequestHeaders> result = new java.util.ArrayList<>();
+        List<CallRecord> all = readAll();
+        for (int i = all.size() - 1; i >= 0 && result.size() < limit; i--) {
+            CallRecord call = all.get(i);
+            if (call.request() == null || call.url() == null) {
+                continue;
+            }
+            String callAuthority;
+            try {
+                callAuthority = URI.create(call.url()).getRawAuthority();
+            } catch (Exception e) {
+                continue;
+            }
+            if (callAuthority != null && callAuthority.equalsIgnoreCase(authority)) {
+                result.add(new RecentRequestHeaders(call.id(), call.timestamp(), call.request().headers()));
+            }
+        }
+        return result;
+    }
 }

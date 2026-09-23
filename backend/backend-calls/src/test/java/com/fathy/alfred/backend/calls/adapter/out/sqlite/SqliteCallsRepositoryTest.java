@@ -1010,4 +1010,26 @@ class SqliteCallsRepositoryTest {
         String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(summary);
         assertThat(json).contains("\"resend_edits\":{\"headers\":[\"x-a\"]}");
     }
+
+    @Test
+    void recentRequestHeadersReturnsTheNewestCallsToOneAuthorityOnly() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        repo.save(withHeaders("https://api.a.test/x", 1_000, Map.of("X-N", "1")));
+        repo.save(withHeaders("https://api.a.test/y", 2_000, Map.of("X-N", "2")));
+        repo.save(withHeaders("https://api.a.test/z", 3_000, Map.of("X-N", "3")));
+        repo.save(withHeaders("https://api.b.test/w", 4_000, Map.of("X-N", "4")));
+
+        List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> found = repo.recentRequestHeaders("api.a.test", 2);
+
+        assertThat(found).hasSize(2);
+        assertThat(found.get(0).headers()).containsEntry("X-N", "3");
+        assertThat(found.get(1).headers()).containsEntry("X-N", "2");
+        assertThat(repo.recentRequestHeaders("api.a.test:8443", 10)).isEmpty();
+        assertThat(repo.recentRequestHeaders("api.a.test%", 10)).isEmpty();
+    }
+
+    private static CallRecord withHeaders(String url, long millis, Map<String, String> headers) {
+        return new CallRecord(UUID.randomUUID().toString(), url, url, "GET", new RequestData(headers, null),
+                Instant.ofEpochMilli(millis).toString(), 1.0, new ResponseData(200, null, null), null);
+    }
 }

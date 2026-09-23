@@ -337,4 +337,28 @@ class InternalCallsFileLogAdapterTest {
 
         assertThat(adapterFor(file).readAll().get(0).interception()).isNull();
     }
+
+    @Test
+    void recentRequestHeadersReturnsTheNewestCallsToOneAuthorityOnly() throws Exception {
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
+        withUrlAndHeader(adapter, "http://api.a.test/x", "1", "https://client/x");
+        withUrlAndHeader(adapter, "http://api.a.test/y", "2", "https://client/y");
+        withUrlAndHeader(adapter, "http://api.a.test/z", "3", "https://client/z");
+        withUrlAndHeader(adapter, "http://api.b.test/w", "4", "https://client/w");
+
+        List<com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders> found =
+                adapter.recentRequestHeaders("api.a.test", 2);
+
+        assertThat(found).hasSize(2);
+        assertThat(found.get(0).headers()).containsEntry("X-N", "3");
+        assertThat(found.get(1).headers()).containsEntry("X-N", "2");
+    }
+
+    private static void withUrlAndHeader(InternalCallsFileLogAdapter adapter, String url, String n, String originalUrl) {
+        String id = UUID.randomUUID().toString();
+        CallRecord partial = new CallRecord(id, originalUrl, url, "GET",
+                new RequestData(java.util.Map.of("X-N", n), null), "t", null, null, null, CallLifecycleStatus.IN_PROGRESS);
+        adapter.prepare(partial);
+        adapter.complete(id, new ResponseData(200, null, "ok"), null, 1.0);
+    }
 }

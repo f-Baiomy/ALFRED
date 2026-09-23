@@ -854,6 +854,22 @@ public class SqliteCallsRepository {
         return result == null ? 0 : result;
     }
 
+    /** Backs "resend with current session" - request headers only (never call_response/body), newest first, for calls whose url's authority is {@code authority}. */
+    public List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> recentRequestHeaders(String authority, int limit) {
+        String escaped = authority.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        String sql = """
+                SELECT cm.id, cm.timestamp, cr.headers FROM (
+                    SELECT id, timestamp, timestamp_millis FROM call_metadata
+                    WHERE url LIKE ? ESCAPE '\\' OR url LIKE ? ESCAPE '\\' OR url LIKE ? ESCAPE '\\'
+                    ORDER BY timestamp_millis DESC LIMIT ?
+                ) cm LEFT JOIN call_request cr ON cr.call_id = cm.id
+                ORDER BY cm.timestamp_millis DESC
+                """;
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders(
+                        rs.getString("id"), rs.getString("timestamp"), fromJson(rs.getString("headers"))),
+                "%://" + escaped + "/%", "%://" + escaped + "?%", "%://" + escaped, limit);
+    }
+
     /** Bytes currently on disk for calls.db - drives the Database settings tab's file-size table. Returns 0 if the file doesn't exist yet rather than throwing. */
     public long storageSizeBytes() {
         try {

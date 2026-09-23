@@ -154,4 +154,9 @@ public class SqliteCallLogAdapter implements CallLogPort {
     public void deleteAll() {
         repository.deleteAll();
     }
+
+    @Override
+    public List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> recentRequestHeaders(String authority, int limit) {
+        return repository.recentRequestHeaders(authority, limit);
+    }
 }

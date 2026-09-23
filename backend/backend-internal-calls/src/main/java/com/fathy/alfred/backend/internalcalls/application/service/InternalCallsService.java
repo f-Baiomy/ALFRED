@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.internalcalls.application.service;
 
+import com.fathy.alfred.backend.internalcalls.application.port.in.FindRecentRequestHeadersUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallBaselineUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsInRangeUseCase;
@@ -36,7 +37,7 @@ import java.util.UUID;
  */
 @Service
 public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase,
-        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase {
+        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase, FindRecentRequestHeadersUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(InternalCallsService.class);
 
@@ -152,5 +153,11 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
     @Override
     public CallBaseline getBaseline(String url) {
         return url == null || url.isBlank() ? CallBaseline.empty(url) : callLogPort.baselineFor(url);
+    }
+
+    @Override
+    public List<com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders> findRecent(String authority, int limit) {
+        int clamped = Math.max(1, Math.min(limit, FindRecentRequestHeadersUseCase.MAX_LIMIT));
+        return callLogPort.recentRequestHeaders(authority, clamped);
     }
 }
