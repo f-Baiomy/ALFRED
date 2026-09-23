@@ -31,4 +31,19 @@
     </dependency>
   </dependencies>
 
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- JdkHttpCallSender's inbound send sets a Host header itself - the JDK's HttpClient
+               refuses that by default (host.md is a restricted header); this flag is the same one
+               docker-compose.yml sets via JAVA_TOOL_OPTIONS for the running backend. -->
+          <argLine>-Djdk.httpclient.allowRestrictedHeaders=host</argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
 </project>
