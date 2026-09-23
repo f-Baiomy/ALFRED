@@ -1736,7 +1736,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
      `a` calls, newest first, with their headers; `api.a.test:8443` matches nothing; an authority
      containing `%` matches nothing. Add an equivalent file-adapter test in backend-internal-calls.
 
-- [ ] T109 [US8] Add the bridges in backend-app, package `com.fathy.alfred.backend.resendbridge`
+- [x] T109 [US8] Add the bridges in backend-app, package `com.fathy.alfred.backend.resendbridge`
   (`BA/resendbridge/`). Copy the style of `BA/interceptionbridge/RecordedCallLookupAdapter.java`
   (fully qualified names for the two `GetCallDetailUseCase`s and the two `CallDetail`s).
   1. `CallSourceAdapter implements CallSourcePort`: inject the calls and internal-calls
