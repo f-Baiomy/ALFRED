@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallDetail;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyInternalCallsToCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.FindCapturedInternalCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallUseCase;
@@ -46,7 +47,8 @@ public class SessionCyclesInternalCallsService implements
         GetCapturedInternalCallDetailUseCase,
         RemoveCapturedInternalCallUseCase,
         RemoveCapturedInternalCallsUseCase,
-        CopyInternalCallsToCycleUseCase {
+        CopyInternalCallsToCycleUseCase,
+        FindCapturedInternalCallUseCase {
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedInternalCallsStorePort capturedInternalCallsStore;
@@ -89,6 +91,14 @@ public class SessionCyclesInternalCallsService implements
             return Optional.empty();
         }
         return capturedInternalCallsStore.findByCallId(cycleId, callId).map(captured -> CallDetail.of(captured.call()));
+    }
+
+    @Override
+    public Optional<com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall> findCaptured(String cycleId, String callId) {
+        if (metadataStore.findById(cycleId).isEmpty()) {
+            return Optional.empty();
+        }
+        return capturedInternalCallsStore.findByCallId(cycleId, callId);
     }
 
     /**

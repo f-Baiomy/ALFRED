@@ -10,6 +10,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateCycleSpa
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteCycleSpacerUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.DeleteSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.FindCapturedCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
@@ -74,7 +75,8 @@ public class SessionCyclesService implements
         CreateCycleSpacerUseCase,
         RenameCycleSpacerUseCase,
         MoveCycleSpacerUseCase,
-        DeleteCycleSpacerUseCase {
+        DeleteCycleSpacerUseCase,
+        FindCapturedCallUseCase {
 
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
@@ -238,6 +240,14 @@ public class SessionCyclesService implements
             return Optional.empty();
         }
         return capturedCallsStore.findByCallId(cycleId, callId).map(captured -> CallDetail.of(captured.call()));
+    }
+
+    @Override
+    public Optional<com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall> findCaptured(String cycleId, String callId) {
+        if (metadataStore.findById(cycleId).isEmpty()) {
+            return Optional.empty();
+        }
+        return capturedCallsStore.findByCallId(cycleId, callId);
     }
 
     /**
