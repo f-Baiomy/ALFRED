@@ -185,6 +185,12 @@ class RouteAndLog:
         client_operation_id = (flow.request.headers.get('X-Operation-Id') or '').strip()
         operation_id = client_operation_id if client_operation_id else str(uuid.uuid4())
 
+        # Resend linkage: X-Alfred-Resend-Of identifies the original call being resent,
+        # X-Alfred-Resend-Edits carries the edits made (header names only per data model §7).
+        # Both null for a normal call, only set when resending a logged call.
+        resend_of = (flow.request.headers.get('X-Alfred-Resend-Of') or '').strip()
+        resend_edits = (flow.request.headers.get('X-Alfred-Resend-Edits') or '').strip()
+
         call_log = {
             'id': call_id,
             'original_url': flow.request.pretty_url,
@@ -203,6 +209,11 @@ class RouteAndLog:
         # rather than noisily sending service_name: null for the common case.
         if service_name:
             call_log['service_name'] = service_name
+        # Resend linkage only present for actual resends.
+        if resend_of:
+            call_log['resend_of'] = resend_of
+            if resend_edits:
+                call_log['resend_edits'] = resend_edits
         # Only present when a rule actually did something, so an untouched call's payload is
         # byte-identical to what it was before this feature existed.
         applied = verdict.as_log()

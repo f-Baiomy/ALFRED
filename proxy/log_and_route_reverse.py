@@ -172,6 +172,12 @@ class RouteAndLog:
         session_id = (flow.request.headers.get('X-Session-ID') or '').strip() or None
         operation_id = (flow.request.headers.get('X-Operation-Id') or '').strip() or None
 
+        # Resend linkage: X-Alfred-Resend-Of identifies the original call being resent,
+        # X-Alfred-Resend-Edits carries the edits made (header names only per data model §7).
+        # Both null for a normal call, only set when resending a logged call.
+        resend_of = (flow.request.headers.get('X-Alfred-Resend-Of') or '').strip()
+        resend_edits = (flow.request.headers.get('X-Alfred-Resend-Edits') or '').strip()
+
         call_log = {
             'id': call_id,
             # original_url = what the client called (its own Host header, e.g.
@@ -194,6 +200,11 @@ class RouteAndLog:
             # each call and filter by source without re-deriving it from the URL/port.
             'service_name': name,
         }
+        # Resend linkage only present for actual resends.
+        if resend_of:
+            call_log['resend_of'] = resend_of
+            if resend_edits:
+                call_log['resend_edits'] = resend_edits
         applied = verdict.as_log()
         if applied:
             call_log['interception'] = applied
