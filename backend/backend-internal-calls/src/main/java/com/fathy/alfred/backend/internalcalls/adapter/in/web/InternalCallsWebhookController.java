@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.internalcalls.adapter.in.web.dto.PrepareInternal
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceivePreparedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
+import com.fathy.alfred.backend.internalcalls.domain.model.ResendEdits;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -54,6 +55,7 @@ public class InternalCallsWebhookController {
         }
         CallRecord partial = new CallRecord(body.id(), body.originalUrl(), body.url(), body.method(), body.request(),
                 body.timestamp(), null, null, null, null, body.sessionId(), body.operationId(), body.serviceName());
+        partial = partial.withResend(blankToNull(body.resendOf()), ResendEdits.normalise(body.resendEdits()));
         Optional<String> id = receivePreparedCallUseCase.receivePreparedCall(partial);
         return id.map(value -> ResponseEntity.ok(Map.of("id", value)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -76,5 +78,14 @@ public class InternalCallsWebhookController {
 
     private boolean secretMatches(String providedSecret) {
         return webhookSecret.isBlank() || webhookSecret.equals(providedSecret);
+    }
+
+    /** Blank becomes null; an implausibly long id (200+ chars - never a real call id) also becomes null rather than persisted verbatim. */
+    private static String blankToNull(String s) {
+        if (s == null || s.isBlank()) {
+            return null;
+        }
+        String stripped = s.strip();
+        return stripped.length() > 200 ? null : stripped;
     }
 }

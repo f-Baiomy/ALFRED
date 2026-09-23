@@ -108,6 +108,26 @@ class CallsWebhookControllerTest {
                 .andExpect(status().isNoContent());
     }
 
+    /** resend_edits arrives as a JSON string (a legal JSON value, just not an object) - ResendEdits.normalise rejects anything that isn't a JSON object, so it must come through as null rather than being persisted as unparseable/mismatched text. */
+    @Test
+    void prepareWithNonObjectResendEditsStoresNullRatherThanTheRawText() throws Exception {
+        when(receivePreparedCallUseCase.receivePreparedCall(any(CallRecord.class))).thenReturn(Optional.of("call-123"));
+        String body = """
+                {"original_url":"https://a.com-proxy/x","url":"https://a.com/x","method":"GET","timestamp":"t","resend_of":"o1","resend_edits":"not json"}
+                """;
+
+        mockMvc.perform(post("/calls/webhook/prepare")
+                        .header("X-Webhook-Secret", "correct-secret")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<CallRecord> captor = org.mockito.ArgumentCaptor.forClass(CallRecord.class);
+        verify(receivePreparedCallUseCase).receivePreparedCall(captor.capture());
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().resendOf()).isEqualTo("o1");
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().resendEdits()).isNull();
+    }
+
     @Test
     void completeRejectsAWrongSecretWithUnauthorized() throws Exception {
         mockMvc.perform(post("/calls/webhook/call-123/complete")

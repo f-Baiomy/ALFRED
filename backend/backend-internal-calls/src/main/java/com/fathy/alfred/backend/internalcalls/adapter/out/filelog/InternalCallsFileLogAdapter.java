@@ -266,9 +266,10 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
                 // filters for every completed call).
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
                         partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName())
+                        .withResend(partial.resendOf(), partial.resendEdits())
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
-                // silently dropping it. serviceName unknown too in this narrow, accepted-gap case.
+                // silently dropping it. serviceName/resend unknown too in this narrow, accepted-gap case.
                 : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null);
         save(resolved.withInterception(interception));
         return wasPending;

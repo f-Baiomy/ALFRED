@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -36,7 +37,7 @@ public record CallSummary(
         /** Null unless an interception rule touched this call - rides on the SUMMARY so the badge shows on a collapsed card with no detail fetch, same reasoning as timing. */
         CallInterception interception,
         @JsonProperty("resend_of") String resendOf,
-        @JsonProperty("resend_edits") String resendEdits
+        @JsonProperty("resend_edits") @JsonRawValue String resendEdits
 ) {
     /** Pre-resend shape. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,

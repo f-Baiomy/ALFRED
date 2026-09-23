@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCall;
+import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.LegacyCycleSpacer;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
@@ -103,6 +104,22 @@ class SqliteSessionCyclesRepositoryTest {
         List<CapturedCall> found = repo.findAllByCycle("c1");
         assertThat(found).hasSize(1);
         assertThat(found.get(0).call().url()).isEqualTo("https://a.com/x");
+    }
+
+    @Test
+    void aCapturedCallsResendLinkageRoundTripsThroughDetailAndSummary() throws Exception {
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        CallRecord call = call("https://a.com/x", "t1").withResend("orig-1", "{\"headers\":[\"x-a\"]}");
+
+        repo.append("c1", call);
+
+        CapturedCall detail = repo.findByCallId("c1", call.id()).orElseThrow();
+        assertThat(detail.call().resendOf()).isEqualTo("orig-1");
+        assertThat(detail.call().resendEdits()).isEqualTo("{\"headers\":[\"x-a\"]}");
+
+        CapturedCallSummary summary = repo.query("c1", "", "", "newest", 0, 10, true).items().get(0);
+        assertThat(summary.call().resendOf()).isEqualTo("orig-1");
+        assertThat(summary.call().resendEdits()).isEqualTo("{\"headers\":[\"x-a\"]}");
     }
 
     @Test

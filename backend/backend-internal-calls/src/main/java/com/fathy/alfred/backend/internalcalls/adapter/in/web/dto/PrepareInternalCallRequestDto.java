@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.internalcalls.adapter.in.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fathy.alfred.backend.internalcalls.domain.model.RequestData;
 
 /**
@@ -21,6 +22,8 @@ public record PrepareInternalCallRequestDto(
         String timestamp,
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
-        @JsonProperty("service_name") String serviceName
+        @JsonProperty("service_name") String serviceName,
+        @JsonProperty("resend_of") String resendOf,
+        @JsonProperty("resend_edits") JsonNode resendEdits
 ) {
 }

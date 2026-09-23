@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.calls.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 /**
@@ -53,7 +54,7 @@ public record CallRecord(
         /** The call this one resends, or null. Set from the proxy's X-Alfred-Resend-Of header. */
         @JsonProperty("resend_of") @JsonInclude(JsonInclude.Include.NON_NULL) String resendOf,
         /** What the resend changed, as JSON text - header NAMES only (data-model §7). */
-        @JsonProperty("resend_edits") @JsonInclude(JsonInclude.Include.NON_NULL) @JsonDeserialize(using = RawJsonDeserializer.class) String resendEdits
+        @JsonProperty("resend_edits") @JsonInclude(JsonInclude.Include.NON_NULL) @JsonRawValue @JsonDeserialize(using = RawJsonDeserializer.class) String resendEdits
 ) {
     /**
      * Pre-interception shape - the newest field, added the same backward-compatible way as timing

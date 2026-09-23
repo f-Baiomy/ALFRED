@@ -83,6 +83,22 @@ class InternalCallsFileLogAdapterTest {
     }
 
     @Test
+    void resendLinkageSurvivesPrepareCompleteAndAFileReload() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        InternalCallsFileLogAdapter adapter = adapterFor(file);
+        String id = UUID.randomUUID().toString();
+        CallRecord partial = prepared(id).withResend("orig-1", "{\"headers\":[\"x-a\"]}");
+        adapter.prepare(partial);
+
+        adapter.complete(id, new ResponseData(200, null, "ok"), null, 42.0);
+
+        InternalCallsFileLogAdapter reloaded = adapterFor(file);
+        CallRecord saved = reloaded.readAll().get(0);
+        assertThat(saved.resendOf()).isEqualTo("orig-1");
+        assertThat(saved.resendEdits()).isEqualTo("{\"headers\":[\"x-a\"]}");
+    }
+
+    @Test
     void completeWithoutAMatchingPrepareStillPersistsWhateverThePayloadAloneOffers() throws Exception {
         InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
 

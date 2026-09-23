@@ -2,6 +2,8 @@ package com.fathy.alfred.backend.internalcalls.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonRawValue;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * Mirrors the JSON shape written by the reverse proxy addon (proxy/log_and_route_reverse.py) and
@@ -52,8 +54,10 @@ public record CallRecord(
          * when present, so a line for an untouched call is byte-for-byte what it was before.
          */
         @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception,
-        @JsonProperty("resend_of") String resendOf,
-        @JsonProperty("resend_edits") String resendEdits
+        /** The call this one resends, or null. Set from the proxy's X-Alfred-Resend-Of header. */
+        @JsonProperty("resend_of") @JsonInclude(JsonInclude.Include.NON_NULL) String resendOf,
+        /** What the resend changed, as JSON text - header NAMES only (data-model §7). */
+        @JsonProperty("resend_edits") @JsonInclude(JsonInclude.Include.NON_NULL) @JsonRawValue @JsonDeserialize(using = RawJsonDeserializer.class) String resendEdits
 ) {
     /** Pre-resend shape. */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,

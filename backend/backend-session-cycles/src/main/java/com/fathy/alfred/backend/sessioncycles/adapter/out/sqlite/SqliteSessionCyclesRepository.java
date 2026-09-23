@@ -225,6 +225,7 @@ public class SqliteSessionCyclesRepository {
         addSessionOperationColumnsIfMissing();
         addTimingColumnsIfMissing();
         addInterceptionColumnIfMissing();
+        addResendColumnsIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS captured_call_request (
                   captured_call_id TEXT PRIMARY KEY REFERENCES captured_call_metadata(id) ON DELETE CASCADE,
@@ -287,6 +288,17 @@ public class SqliteSessionCyclesRepository {
         List<String> columns = jdbcTemplate.query("PRAGMA table_info(captured_call_metadata)", (rs, rowNum) -> rs.getString("name"));
         if (!columns.contains("interception")) {
             jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN interception TEXT");
+        }
+    }
+
+    /** See SqliteCallsRepository's identical column pair - resend_of/resend_edits postdate every other column here too. Both null for every call that isn't a resend (the overwhelming majority). */
+    private void addResendColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(captured_call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("resend_of")) {
+            jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN resend_of TEXT");
+        }
+        if (!columns.contains("resend_edits")) {
+            jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN resend_edits TEXT");
         }
     }
 
@@ -495,7 +507,7 @@ public class SqliteSessionCyclesRepository {
                    cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id,
                    cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection,
-                   cm.interception,
+                   cm.interception, cm.resend_of, cm.resend_edits,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM captured_call_metadata cm
@@ -524,8 +536,9 @@ public class SqliteSessionCyclesRepository {
                                  timestamp, timestamp_millis, duration_ms, status, status_rank,
                                  supplier, supplier_name, error, haystack, status_state, request_haystack,
                                  session_id, operation_id,
-                                 connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                 connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection,
+                                 resend_of, resend_edits)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO captured_call_request (captured_call_id, headers, body) VALUES (?,?,?)";
@@ -574,6 +587,8 @@ public class SqliteSessionCyclesRepository {
         ps.setString(19, call.sessionId());
         ps.setString(20, call.operationId());
         bindTiming(ps, 21, call.timing());
+        ps.setString(26, call.resendOf());
+        ps.setString(27, call.resendEdits());
     }
 
     /**
@@ -720,7 +735,7 @@ public class SqliteSessionCyclesRepository {
     /** See SqliteCallsRepository.SUMMARY_SQL's identical comment - list/search views never need request/response bodies. */
     private static final String SUMMARY_SQL =
             "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, "
-                    + "connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception FROM ";
+                    + "connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception, resend_of, resend_edits FROM ";
 
     public CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(cycleId, search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -923,7 +938,7 @@ public class SqliteSessionCyclesRepository {
                 rs.getString("call_id"), rs.getString("original_url"), rs.getString("url"), rs.getString("method"),
                 request, rs.getString("timestamp"), durationMs, response, rs.getString("error"),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")), rs.getString("session_id"), rs.getString("operation_id"),
-                null, timingOf(rs), interceptionOf(rs), null, null);
+                null, timingOf(rs), interceptionOf(rs), rs.getString("resend_of"), rs.getString("resend_edits"));
 
         return new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
     };
@@ -945,7 +960,8 @@ public class SqliteSessionCyclesRepository {
                 rs.getString("error"),
                 nullIfEmpty(rs.getString("supplier_name")),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
-                rs.getString("session_id"), rs.getString("operation_id"), null, timingOf(rs), interceptionOf(rs));
+                rs.getString("session_id"), rs.getString("operation_id"), null, timingOf(rs), interceptionOf(rs),
+                rs.getString("resend_of"), rs.getString("resend_edits"));
 
         return new CapturedCallSummary(rs.getString("id"), rs.getString("captured_at"), callSummary);
     };

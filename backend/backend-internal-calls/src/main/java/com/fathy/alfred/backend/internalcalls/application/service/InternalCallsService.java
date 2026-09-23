@@ -107,7 +107,8 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
         String id = valueOrGenerated(partial.id());
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
-                partial.sessionId(), partial.operationId(), partial.serviceName());
+                partial.sessionId(), partial.operationId(), partial.serviceName())
+                .withResend(partial.resendOf(), partial.resendEdits());
         callLogPort.prepare(prepared);
         notificationPort.notifyCallPrepared(prepared);
         return Optional.of(id);

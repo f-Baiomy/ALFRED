@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.adapter.in.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 
 /**
@@ -29,6 +30,6 @@ public record PrepareCallRequestDto(
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
         @JsonProperty("resend_of") String resendOf,
-        @JsonProperty("resend_edits") String resendEdits
+        @JsonProperty("resend_edits") JsonNode resendEdits
 ) {
 }

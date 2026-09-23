@@ -981,4 +981,33 @@ class SqliteCallsRepositoryTest {
         assertThat(found).hasSize(40);
         assertThat(found).allSatisfy(call -> assertThat(call.request()).isNull());
     }
+
+    @Test
+    void aResendLinkRoundTripsThroughEveryReadPath() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord call = new CallRecord("resent-1", "https://api.test/x", "https://api.test/x", "GET",
+                new RequestData(null, null), "t", null, null, null, CallLifecycleStatus.IN_PROGRESS,
+                null, null, null)
+                .withResend("orig-1", "{\"headers\":[\"x-a\"]}");
+
+        repo.save(call);
+
+        Optional<CallRecord> byId = repo.findById("resent-1");
+        assertThat(byId).isPresent();
+        assertThat(byId.get().resendOf()).isEqualTo("orig-1");
+        assertThat(byId.get().resendEdits()).isEqualTo("{\"headers\":[\"x-a\"]}");
+
+        List<CallRecord> all = repo.readAll();
+        CallRecord viaReadAll = all.stream().filter(c -> c.id().equals("resent-1")).findFirst().orElseThrow();
+        assertThat(viaReadAll.resendOf()).isEqualTo("orig-1");
+        assertThat(viaReadAll.resendEdits()).isEqualTo("{\"headers\":[\"x-a\"]}");
+
+        CallSummary summary = repo.query("", "", "newest", 0, 10, true).items().stream()
+                .filter(s -> s.id().equals("resent-1")).findFirst().orElseThrow();
+        assertThat(summary.resendOf()).isEqualTo("orig-1");
+        assertThat(summary.resendEdits()).isEqualTo("{\"headers\":[\"x-a\"]}");
+
+        String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(summary);
+        assertThat(json).contains("\"resend_edits\":{\"headers\":[\"x-a\"]}");
+    }
 }

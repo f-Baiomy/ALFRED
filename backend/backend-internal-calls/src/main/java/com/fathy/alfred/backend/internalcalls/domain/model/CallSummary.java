@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.internalcalls.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -31,7 +32,7 @@ public record CallSummary(
         /** Carried into the list so a collapsed card can show its intercepted badge without a detail fetch - as backend-calls' summary does. */
         @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception,
         @JsonProperty("resend_of") String resendOf,
-        @JsonProperty("resend_edits") String resendEdits
+        @JsonProperty("resend_edits") @JsonRawValue String resendEdits
 ) {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
