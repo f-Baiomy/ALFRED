@@ -42,7 +42,7 @@ public class FileResendLogAdapter implements ResendLogPort {
     }
 
     private synchronized void append(String type, Object record) {
-        Path path = Path.of(resends File);
+        Path path = Path.of(resendsFile);
         try {
             if (path.getParent() != null) {
                 Files.createDirectories(path.getParent());
@@ -50,7 +50,7 @@ public class FileResendLogAdapter implements ResendLogPort {
             String line = objectMapper.writeValueAsString(record);
             Files.writeString(path, line + System.lineSeparator(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException e) {
-            log.error("Failed to append {} to {}: {}", type, resends File, e.getMessage());
+            log.error("Failed to append {} to {}: {}", type, resendsFile, e.getMessage());
             throw new UncheckedIOException(e);
         }
     }
@@ -87,14 +87,14 @@ public class FileResendLogAdapter implements ResendLogPort {
     }
 
     private List<String> readLines() {
-        Path path = Path.of(resends File);
+        Path path = Path.of(resendsFile);
         if (!Files.exists(path)) {
             return List.of();
         }
         try {
             return Files.readAllLines(path);
         } catch (IOException e) {
-            log.error("Failed to read {}: {}", resends File, e.getMessage());
+            log.error("Failed to read {}: {}", resendsFile, e.getMessage());
             return List.of();
         }
     }

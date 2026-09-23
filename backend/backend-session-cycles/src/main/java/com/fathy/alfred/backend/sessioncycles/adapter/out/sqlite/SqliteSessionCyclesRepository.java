@@ -923,7 +923,7 @@ public class SqliteSessionCyclesRepository {
                 rs.getString("call_id"), rs.getString("original_url"), rs.getString("url"), rs.getString("method"),
                 request, rs.getString("timestamp"), durationMs, response, rs.getString("error"),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")), rs.getString("session_id"), rs.getString("operation_id"),
-                null, timingOf(rs), interceptionOf(rs));
+                null, timingOf(rs), interceptionOf(rs), null, null);
 
         return new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
     };

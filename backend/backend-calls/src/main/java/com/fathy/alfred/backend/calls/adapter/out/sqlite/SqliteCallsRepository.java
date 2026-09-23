@@ -236,6 +236,7 @@ public class SqliteCallsRepository {
         addSessionOperationColumnsIfMissing();
         addServiceNameColumnIfMissing();
         addTimingColumnsIfMissing();
+        addResendColumnsIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS call_request (
                   call_id TEXT PRIMARY KEY REFERENCES call_metadata(id) ON DELETE CASCADE,
@@ -292,6 +293,17 @@ public class SqliteCallsRepository {
         List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_metadata)", (rs, rowNum) -> rs.getString("name"));
         if (!columns.contains("service_name")) {
             jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN service_name TEXT");
+        }
+    }
+
+    /** {@code resend_of}/{@code resend_edits} postdate every other column - same ALTER TABLE pattern as {@link #addSessionOperationColumnsIfMissing}. Both null for every call that isn't a resend (the overwhelming majority). */
+    private void addResendColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("resend_of")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN resend_of TEXT");
+        }
+        if (!columns.contains("resend_edits")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN resend_edits TEXT");
         }
     }
 
@@ -426,8 +438,8 @@ public class SqliteCallsRepository {
     private static final String INSERT_METADATA_SQL = """
             INSERT INTO call_metadata (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
                                status, status_rank, supplier, supplier_name, error, haystack, status_state, request_haystack,
-                               session_id, operation_id, service_name)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                               session_id, operation_id, service_name, resend_of, resend_edits)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO call_request (call_id, headers, body) VALUES (?,?,?)";
@@ -471,6 +483,8 @@ public class SqliteCallsRepository {
         ps.setString(16, normalized.sessionId());
         ps.setString(17, normalized.operationId());
         ps.setString(18, normalized.serviceName());
+        ps.setString(19, normalized.resendOf());
+        ps.setString(20, normalized.resendEdits());
     }
 
     /** Binds one call's request-table row - always inserted (headers/body null if there is no request data). */
@@ -683,7 +697,7 @@ public class SqliteCallsRepository {
     private static final int MAX_OVERLAP_ROWS = 5000;
 
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception, resend_of, resend_edits FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -888,7 +902,7 @@ public class SqliteCallsRepository {
     private static final String DETAIL_SQL = """
             SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id, cm.service_name,
-                   cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
+                   cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception, cm.resend_of, cm.resend_edits,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM call_metadata cm
@@ -914,7 +928,7 @@ public class SqliteCallsRepository {
         return jdbcTemplate.query("""
                 SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                        cm.session_id, cm.operation_id, cm.service_name,
-                       cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
+                       cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception, cm.resend_of, cm.resend_edits,
                        cr.headers AS request_headers, cr.body AS request_body,
                        cp.headers AS response_headers, cp.body AS response_body
                 FROM call_metadata cm
@@ -1082,7 +1096,9 @@ public class SqliteCallsRepository {
                 rs.getString("operation_id"),
                 rs.getString("service_name"),
                 timingOf(rs),
-                interceptionOf(rs));
+                interceptionOf(rs),
+                rs.getString("resend_of"),
+                rs.getString("resend_edits"));
     };
 
     /** Reads a row of the OLD (pre-split) single-table {@code calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. That legacy table predates service_name entirely (it predates even session_id/operation_id), so this always passes null for it rather than reading a column that was never added to {@code calls}. */
@@ -1155,6 +1171,8 @@ public class SqliteCallsRepository {
                 null,
                 rs.getString("service_name"),
                 null,
+                null,
+                null,
                 null);
     };
 
@@ -1179,7 +1197,9 @@ public class SqliteCallsRepository {
                 rs.getString("operation_id"),
                 rs.getString("service_name"),
                 timingOf(rs),
-                interceptionOf(rs));
+                interceptionOf(rs),
+                rs.getString("resend_of"),
+                rs.getString("resend_edits"));
     };
 
     /**

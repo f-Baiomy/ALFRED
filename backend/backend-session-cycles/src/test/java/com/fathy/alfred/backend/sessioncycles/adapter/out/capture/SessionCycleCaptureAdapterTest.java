@@ -123,7 +123,7 @@ class SessionCycleCaptureAdapterTest {
                 null, null, null, null);
         CallRecord call = new CallRecord("call-1", "https://a.com-proxy/x", "https://a.com/x", "GET",
                 null, "t", 1.0, null, null, com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus.COMPLETED,
-                null, null, null, null, interception);
+                null, null, null, null, interception, null, null);
         when(capturedCallsStore.supportsTwoPhaseCapture()).thenReturn(true);
         when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
         adapter.onCallPrepared(call);
