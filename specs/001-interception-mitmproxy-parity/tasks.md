@@ -1693,7 +1693,7 @@ Jackson and store the re-serialised text, or null if it does not parse** (helper
      over the limit (set `@TestPropertySource(properties = "alfred.interception.max-answer-bytes=10")`
      and send an 11-character body) → 400; `verifyNoInteractions` on the use case for every 400.
 
-- [ ] T108 [US8] Add the recent-headers lookups to the two call slices.
+- [x] T108 [US8] Add the recent-headers lookups to the two call slices.
   1. `BC/application/port/in/FindRecentRequestHeadersUseCase.java`:
      ```java
      /** Request headers of the newest calls to one host - never bodies. Backs "resend with current session". */
