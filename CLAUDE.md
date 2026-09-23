@@ -4,7 +4,7 @@ Guidance for Claude Code working in this repo. See [AGENTS.md](AGENTS.md) for th
 
 ## What this is
 
-Alfred logs HTTP/HTTPS traffic in **both directions** around a Java app, via two mitmproxy services. **proxy** (forward mode, port 443, always running) logs *outbound* calls from any proxy-aware client (e.g. a Java app with `http.proxyHost`/`https.proxyHost` set, including live-injected via `wildfly-proxy-toggle/`'s Attach-API tool). **reverse-proxy** (reverse mode, one listener + published port PER PROJECT, opt-in via `settings.properties`'s `reverse_proxy_enabled` — many deployments only need outbound logging) logs *inbound* calls into any number of NAMED projects it fronts, routed by which `listenPort` a request arrived on (`REVERSE_PROXY_PORT_MAP`/`INTERNAL_CALL_SERVICES` = `name:listenPort:upstreamPort` triples, from `settings.properties`'s `internal_call_services`); callers stay on `localhost` so browser session cookies keep working. Each project's logging toggles independently, live. Neither persists anything — both POST to **backend** (Spring Boot multi-module Maven reactor, port 5000), which owns all persistence: outbound calls, inbound calls, comments, session-cycles, profiles, call-filter settings. **frontend** (Angular/nginx, port 3000) has four tabs: Live Calls (with an outbound/inbound/both source filter), Session Cycles, Profiles, Settings.
+Alfred logs HTTP/HTTPS traffic in **both directions** around a Java app, via two mitmproxy services. **proxy** (forward mode, port 443, always running) logs *outbound* calls from any proxy-aware client (e.g. a Java app with `http.proxyHost`/`https.proxyHost` set, including live-injected via `wildfly-proxy-toggle/`'s Attach-API tool). **reverse-proxy** (reverse mode, one listener + published port PER PROJECT, opt-in via `settings.properties`'s `reverse_proxy_enabled` — many deployments only need outbound logging) logs *inbound* calls into any number of NAMED projects it fronts, routed by which `listenPort` a request arrived on (`REVERSE_PROXY_PORT_MAP`/`INTERNAL_CALL_SERVICES` = `name:listenPort:upstreamPort` triples, from `settings.properties`'s `internal_call_services`); callers stay on `localhost` so browser session cookies keep working. Each project's logging toggles independently, live. Neither persists anything — both POST to **backend** (Spring Boot multi-module Maven reactor, port 5000), which owns all persistence: outbound calls, inbound calls, comments, session-cycles, profiles, call-filter settings. **frontend** (Angular/nginx) has four tabs: Live Calls (with an outbound/inbound/both source filter), Session Cycles, Profiles, Settings. It is served through **app-gateway** (nginx, `gateway/nginx.conf`, the only thing publishing host port 3000): the backend's API prefixes and `/ws/` go to `backend:5000`, everything else to `frontend:80`, so the browser talks to one origin (`window.BACKEND_URL = window.location.origin`, no CORS) and one Cloudflare Tunnel URL covers the whole app. A new backend route prefix must be added to the gateway's regex or it will be served the SPA.
 
 ## Commands
 
@@ -15,6 +15,18 @@ python3 deploy.py [service]    # on a set-up server: git pull + rebuild
 cd backend && mvn test          # JUnit5/Mockito/AssertJ + ArchUnit
 cd frontend && npm test && npm run build   # Karma/Jasmine; ng build
 ```
+
+Single tests / environment quirks:
+
+```bash
+# Backend needs JDK 21 (text blocks). If `mvn -version` shows an older JAVA_HOME, run Maven in Docker (Git Bash):
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd)/backend:/app" -v alfred-m2:/root/.m2 -w //app maven:3.9-eclipse-temurin-21 \
+  mvn -B -pl backend-session-cycles -am test -Dtest=SessionCyclesServiceTest -Dsurefire.failIfNoSpecifiedTests=false
+# Frontend, one spec, headless:
+cd frontend && npx ng test --watch=false --browsers=ChromeHeadless --include=src/app/shared/utils/spacer-gap-controller.spec.ts
+```
+
+After `docker compose up -d --build backend`, the gateway may keep the old container IP (502s) until `docker compose restart app-gateway`.
 
 ## Non-obvious rules
 
@@ -27,6 +39,7 @@ cd frontend && npm test && npm run build   # Karma/Jasmine; ng build
 - **`settings.properties` only fills a gap in `.env`, it never overwrites one already there** — `sync_env_from_settings()` in `start.py`/`restart.py` uses `env.setdefault()` for every deploy-time setting, so `.env` (gitignored, untouched by git) is what's actually running once a setting has been adopted once; `settings.properties` (tracked in git, reset by `python3 deploy.py`'s `git reset --hard`) only supplies the default the first time a deployment sees that key. To change an already-running setting, edit `.env` directly or delete that one line from it and re-run `start.py`/`restart.py` — editing `settings.properties` alone no longer does it once a setting has a real value.
 - **No polling anywhere** — every list is fetch-on-demand, driven by a WebSocket signaling "something changed." New list features follow this shape, not a `timer()`.
 - **Interception rules are evaluated inside the mitmproxy addons, never in the backend** - against a JSON snapshot backend publishes into `proxy/interception/` (the same mtime-cached flag-file pattern `reverse-proxy-enabled.flag` already uses), so no proxied request ever costs a backend round trip or a database query and rules keep applying while backend is down. **A delay must be `await asyncio.sleep()` in an `async def` hook, never `time.sleep()`** - mitmproxy runs one event loop for every connection it is proxying, so a blocking sleep freezes all of them. The one exception to the no-backend-on-the-request-path rule is a PAUSED call, where waiting is the feature; every pause carries a timeout and a default action so a caller can never be held forever. See docs/interception.md.
+- **Session-cycle spacers anchor to the call ABOVE them** (`afterCallId` + that call's `anchorTimestamp`), never the call below: calls hidden when a spacer was added (OPTIONS preflights are hidden by default, plus search/filters) must land *below* it when revealed, and a spacer added at the end of a recording cycle must stay put as new calls arrive - with nothing re-pinned on capture. Every place that renders spacers (flat/nested/waterfall views AND the .md/.html export builders) goes through one `layoutSpacers` in `shared/utils/spacer-gap-controller.ts`; don't add a second placement. Spacers stored in the older "before this call" form are converted lazily on first `listSpacers` (`LegacySpacerAnchors`).
 - Docker cannot touch the host — hosts-file/cert-store changes only happen via `start.py`/`start.sh`/`start.ps1`, never in-container.
 
 ## Detailed docs (read only when relevant)
