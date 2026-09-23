@@ -643,6 +643,94 @@ class RuleValidatorTest {
                 .anyMatch(p -> p.contains("repeats a group"));
     }
 
+    private static List<String> matchProblems(Map<String, Object> match) {
+        InterceptionRule rule = rule(JSON.convertValue(match, RuleMatch.class), action(Map.of("type", "DISABLE_CACHE")));
+        return RuleValidator.validate(rule);
+    }
+
+    @Test
+    void matchTestsNeedANameAnOperatorAndUsuallyAValue() {
+        assertThat(matchProblems(Map.of("headers", List.of(Map.of("name", "X-Tenant", "operator", "EXISTS"))))).isEmpty();
+        assertThat(matchProblems(Map.of("query", List.of(Map.of("name", "mode", "operator", "EQUALS", "value", "live"))))).isEmpty();
+        assertThat(matchProblems(Map.of("cookies", List.of(Map.of("operator", "EXISTS")))))
+                .anyMatch(p -> p.contains("Every cookie test needs a name"));
+        assertThat(matchProblems(Map.of("headers", List.of(Map.of("name", "X-Tenant", "operator", "EQUALS")))))
+                .anyMatch(p -> p.contains("needs a value to compare with"));
+        assertThat(matchProblems(Map.of("headers", List.of(Map.of("name", "X-Tenant")))))
+                .anyMatch(p -> p.contains("needs an operator"));
+    }
+
+    @Test
+    void aMatchesTestIsHeldToThePatternSafetyChecks() {
+        assertThat(matchProblems(Map.of("headers", List.of(Map.of("name", "X-Id", "operator", "MATCHES", "value", "^[0-9]+$")))))
+                .isEmpty();
+        assertThat(matchProblems(Map.of("headers", List.of(Map.of("name", "X-Id", "operator", "MATCHES", "value", "(a+)+")))))
+                .anyMatch(p -> p.contains("X-Id") && p.contains("repeats a group"));
+    }
+
+    @Test
+    void aMatchWithoutTestsKeepsItsStoredShape() throws Exception {
+        String json = JSON.writeValueAsString(RuleMatch.empty());
+        assertThat(json).doesNotContain("headers").doesNotContain("query").doesNotContain("cookies");
+    }
+
+    @Test
+    void aCookieNameMustBeAToken() {
+        assertThat(problemsOf(Map.of("type", "REMOVE_REQUEST_COOKIE", "name", "consent"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_REQUEST_COOKIE", "name", "my session", "value", "x")))
+                .anyMatch(p -> p.contains("can only use letters"));
+        assertThat(problemsOf(Map.of("type", "REMOVE_RESPONSE_COOKIE", "name", "a;b")))
+                .anyMatch(p -> p.contains("can only use letters"));
+        assertThat(problemsOf(Map.of("type", "REMOVE_REQUEST_COOKIE"))).anyMatch(p -> p.contains("needs a cookie name"));
+    }
+
+    @Test
+    void settingACookieNeedsAValueButAnEmptyOneIsAllowed() {
+        assertThat(problemsOf(Map.of("type", "SET_REQUEST_COOKIE", "name", "session", "value", ""))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_REQUEST_COOKIE", "name", "session")))
+                .anyMatch(p -> p.contains("needs a value"));
+    }
+
+    @Test
+    void sameSiteMustBeOneOfTheThreeBrowsersKnow() {
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_COOKIE", "name", "session", "value", "",
+                "cookieAttributes", Map.of("maxAge", 0, "sameSite", "Lax")))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_COOKIE", "name", "session", "value", "x",
+                "cookieAttributes", Map.of("sameSite", "Foo")))).anyMatch(p -> p.contains("Strict, Lax or None"));
+    }
+
+    @Test
+    void sameSiteNoneMustAlsoBeSecure() {
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_COOKIE", "name", "session", "value", "x",
+                "cookieAttributes", Map.of("sameSite", "None")))).anyMatch(p -> p.contains("must also be Secure"));
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_COOKIE", "name", "session", "value", "x",
+                "cookieAttributes", Map.of("sameSite", "None", "secure", true)))).isEmpty();
+    }
+
+    @Test
+    void aFormFieldNeedsANameThatCannotBreakAMultipartHeader() {
+        assertThat(problemsOf(Map.of("type", "SET_FORM_FIELD", "name", "amount", "value", "0"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "REMOVE_FORM_FIELD", "name", "amount"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_FORM_FIELD", "name", "amount"))).anyMatch(p -> p.contains("needs a value"));
+        assertThat(problemsOf(Map.of("type", "REMOVE_FORM_FIELD", "name", "a\"b")))
+                .anyMatch(p -> p.contains("cannot contain quotes"));
+    }
+
+    @Test
+    void cacheAndCompressionTakeNoParameters() {
+        assertThat(problemsOf(Map.of("type", "DISABLE_CACHE"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "DISABLE_COMPRESSION"))).isEmpty();
+    }
+
+    @Test
+    void aResponseEncodingMustBeOneTheProxyCanProduce() {
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_ENCODING", "encoding", "br"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_ENCODING", "encoding", "identity"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_ENCODING", "encoding", "lzma")))
+                .anyMatch(p -> p.contains("gzip, deflate, br, zstd, identity"));
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_ENCODING"))).anyMatch(p -> p.contains("needs one of"));
+    }
+
     @Test
     void setMethodNeedsAPlainMethodName() {
         assertThat(problemsOf(Map.of("type", "SET_METHOD", "method", "PUT"))).isEmpty();

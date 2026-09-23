@@ -2,6 +2,8 @@ package com.fathy.alfred.backend.interception.domain.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -42,6 +44,13 @@ public final class RuleValidator {
 
     /** Enough for if / else-if / else-if / else-if; past that it is a lookup table, not a rule. */
     private static final int MAX_BRANCHES = 8;
+
+    /** What SET_RESPONSE_ENCODING can produce - the mirror of RESPONSE_ENCODINGS in proxy/interception.py. */
+    private static final List<String> RESPONSE_ENCODINGS = List.of("gzip", "deflate", "br", "zstd", "identity");
+
+    private static final Set<String> SAME_SITE = Set.of("Strict", "Lax", "None");
+
+    private static final Pattern COOKIE_NAME = Pattern.compile("[!#$%&'*+\\-.^_`|~0-9A-Za-z]+");
 
     public static List<String> validate(InterceptionRule rule) {
         return validate(rule, SelfTargets.none());
@@ -133,6 +142,33 @@ public final class RuleValidator {
                 Pattern.compile(match.pathRegex());
             } catch (PatternSyntaxException e) {
                 problems.add("Path regex does not compile: " + e.getDescription() + ".");
+            }
+        }
+        validateMatchTests(match.headers(), "header", problems);
+        validateMatchTests(match.query(), "query parameter", problems);
+        validateMatchTests(match.cookies(), "cookie", problems);
+    }
+
+    private static void validateMatchTests(List<MatchTest> tests, String kind, List<String> problems) {
+        for (MatchTest test : tests) {
+            if (test == null || test.name() == null || test.name().isBlank()) {
+                problems.add("Every " + kind + " test needs a name.");
+                continue;
+            }
+            if (test.operator() == null) {
+                problems.add("The " + kind + " test on " + test.name() + " needs an operator.");
+                continue;
+            }
+            if (test.needsValue() && test.value() == null) {
+                problems.add("The " + kind + " test on " + test.name() + " needs a value to compare with.");
+            }
+            if (test.operator() == MatchTest.Operator.MATCHES && test.value() != null) {
+                // Held to the same checks as a find/replace pattern: the proxy runs this one on
+                // every call the cheaper matchers let through, in the event loop, so a pattern that
+                // can backtrack without end would stall all proxied traffic, not just this rule.
+                for (String problem : PatternSafety.problems(test.value(), true)) {
+                    problems.add("The " + kind + " test on " + test.name() + ": " + problem);
+                }
             }
         }
     }
@@ -254,6 +290,31 @@ public final class RuleValidator {
             case SET_METHOD -> {
                 if (action.method() == null || !action.method().strip().matches("[A-Za-z]+")) {
                     problems.add("SET_METHOD needs a method made of letters only, such as PUT.");
+                }
+            }
+            case SET_REQUEST_COOKIE, SET_RESPONSE_COOKIE -> {
+                requireCookieName(action, problems);
+                if (action.value() == null) {
+                    problems.add(action.type() + " needs a value - an empty one is allowed.");
+                }
+                if (action.type() == ActionType.SET_RESPONSE_COOKIE) {
+                    validateCookieAttributes(action.cookieAttributes(), problems);
+                }
+            }
+            case REMOVE_REQUEST_COOKIE, REMOVE_RESPONSE_COOKIE -> requireCookieName(action, problems);
+            case SET_FORM_FIELD -> {
+                requireFieldName(action, problems);
+                if (action.value() == null) {
+                    problems.add("SET_FORM_FIELD needs a value - an empty one is allowed.");
+                }
+            }
+            case REMOVE_FORM_FIELD -> requireFieldName(action, problems);
+            case DISABLE_CACHE, DISABLE_COMPRESSION -> {
+                // Neither takes any parameters.
+            }
+            case SET_RESPONSE_ENCODING -> {
+                if (action.encoding() == null || !RESPONSE_ENCODINGS.contains(action.encoding().strip().toLowerCase(Locale.ROOT))) {
+                    problems.add("SET_RESPONSE_ENCODING needs one of " + String.join(", ", RESPONSE_ENCODINGS) + ".");
                 }
             }
             // Deliberately not exhaustive-by-omission: a new ActionType with no case here would
@@ -419,6 +480,38 @@ public final class RuleValidator {
                 problems.add("\"" + condition.value() + "\" is not a number, so " + condition.operator()
                         + " cannot compare against it.");
             }
+        }
+    }
+
+    /** RFC 6265's cookie-name: an RFC 7230 token, so no separators, spaces or control characters. */
+    private static void requireCookieName(RuleAction action, List<String> problems) {
+        if (action.name() == null || action.name().isBlank()) {
+            problems.add(action.type() + " needs a cookie name.");
+        } else if (!COOKIE_NAME.matcher(action.name().strip()).matches()) {
+            problems.add(action.type() + "'s cookie name \"" + action.name().strip()
+                    + "\" can only use letters, digits and !#$%&'*+-.^_`|~.");
+        }
+    }
+
+    private static void validateCookieAttributes(CookieAttributes attributes, List<String> problems) {
+        if (attributes == null || attributes.sameSite() == null || attributes.sameSite().isBlank()) {
+            return;
+        }
+        String sameSite = attributes.sameSite().strip();
+        if (!SAME_SITE.contains(sameSite)) {
+            problems.add("SET_RESPONSE_COOKIE's SameSite must be Strict, Lax or None.");
+        } else if (sameSite.equals("None") && !Boolean.TRUE.equals(attributes.secure())) {
+            // Browsers drop a SameSite=None cookie that is not also Secure, so the rule would
+            // silently do nothing in exactly the cross-site case it was written for.
+            problems.add("SET_RESPONSE_COOKIE with SameSite=None must also be Secure - browsers reject it otherwise.");
+        }
+    }
+
+    private static void requireFieldName(RuleAction action, List<String> problems) {
+        requireName(action, problems);
+        if (action.name() != null && (action.name().contains("\"") || action.name().contains("\r")
+                || action.name().contains("\n"))) {
+            problems.add(action.type() + "'s field name cannot contain quotes or line breaks.");
         }
     }
 

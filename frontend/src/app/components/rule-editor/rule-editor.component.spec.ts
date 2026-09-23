@@ -40,6 +40,7 @@ describe('RuleEditorComponent', () => {
     http.match(`${BACKEND}/interception/enabled`).forEach((r) => r.flush({ enabled: true }));
     // The picker is built from what the backend reports, so the fixture has to report something:
     // an empty list would make every "what can go here" assertion vacuously pass.
+    http.match(`${BACKEND}/interception/sensitive-headers`).forEach((r) => r.flush({ names: ['cookie', 'x-api-key'] }));
     http.match(`${BACKEND}/interception/action-types`).forEach((r) =>
       r.flush([
         { type: 'DELAY_REQUEST', phase: 'request', terminal: false, pause: false, selectable: true },
@@ -227,6 +228,44 @@ describe('RuleEditorComponent', () => {
     expect(first().branches?.[0].combine).toBe('ANY');
     expect(first().branches?.[0].actions[0].status).toBe(401);
     expect(first().otherwise?.[0].type).toBe('SEND_TO_HOST');
+  });
+
+  it('loads match tests into one list and saves them back into their three lists', () => {
+    open({
+      id: 'r1',
+      name: 'Retry test',
+      enabled: true,
+      priority: 100,
+      stopProcessing: true,
+      actions: [{ type: 'DISABLE_CACHE' }],
+      match: {
+        headers: [{ name: 'x-test-scenario', operator: 'EQUALS', value: 'timeout' }],
+        cookies: [{ name: 'SESSIONID', operator: 'EXISTS' }],
+      },
+    });
+    expect(component.matchTests().map((row) => row.kind)).toEqual(['headers', 'cookies']);
+
+    component.addMatchTest();
+    component.patchMatchTest(2, { kind: 'query', name: ' mode ' });
+    component.onMatchTestOperator(2, 'EQUALS');
+    component.patchMatchTest(2, { value: 'sandbox' });
+    component.save();
+
+    const request = http.expectOne((r) => r.url.startsWith(`${BACKEND}/interception/rules`) && r.method !== 'GET');
+    expect(request.request.body.match.headers).toEqual([{ name: 'x-test-scenario', operator: 'EQUALS', value: 'timeout' }]);
+    expect(request.request.body.match.cookies).toEqual([{ name: 'SESSIONID', operator: 'EXISTS' }]);
+    expect(request.request.body.match.query).toEqual([{ name: 'mode', operator: 'EQUALS', value: 'sandbox' }]);
+    request.flush({ ...request.request.body, id: 'r1' });
+    http.match(`${BACKEND}/interception/rules`).forEach((r) => r.flush([]));
+  });
+
+  it('drops the value when a test switches to an operator that needs none', () => {
+    open();
+    component.addMatchTest();
+    component.onMatchTestOperator(0, 'EQUALS');
+    component.patchMatchTest(0, { value: 'x' });
+    component.onMatchTestOperator(0, 'NOT_EXISTS');
+    expect(component.matchTests()[0].value).toBeNull();
   });
 
   it('saves the project list rather than the single name it replaced', () => {

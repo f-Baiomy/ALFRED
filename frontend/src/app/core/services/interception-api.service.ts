@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import {
   ActionTypeInfo,
   InterceptionRule,
@@ -55,6 +56,11 @@ export class InterceptionApiService {
   /** Served by the backend so the action list has exactly one source (see InterceptionRulesController). */
   actionTypes(): Observable<ActionTypeInfo[]> {
     return this.http.get<ActionTypeInfo[]>(`${this.baseUrl}/action-types`);
+  }
+
+  /** The secret header and cookie names - the backend's SensitiveHeaders, the only copy there is. */
+  sensitiveHeaders(): Observable<string[]> {
+    return this.http.get<{ names: string[] }>(`${this.baseUrl}/sensitive-headers`).pipe(map((r) => r.names ?? []));
   }
 
   /**

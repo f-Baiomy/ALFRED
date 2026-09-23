@@ -90,6 +90,42 @@
       }
     </div>
 
+    <div class="field">
+      <span class="field-label">
+        Only when… <em>optional · every test must hold</em>
+        <app-help-popover [entries]="[matchTestHelp]" label="How do match tests work?" />
+      </span>
+      @for (row of matchTests(); track $index; let i = $index) {
+        <div class="cond-row">
+          <span class="cond-and">{{ i === 0 ? 'if' : 'and' }}</span>
+          <app-select-picker [options]="matchTestKindOptions" [value]="row.kind" (valueChange)="patchMatchTest(i, { kind: $any($event) })" />
+          <input
+            type="text"
+            class="cond-name"
+            [value]="row.name"
+            [placeholder]="row.kind === 'headers' ? 'x-test-scenario' : row.kind === 'query' ? 'mode' : 'SESSIONID'"
+            (input)="patchMatchTest(i, { name: $any($event.target).value })"
+          />
+          <app-select-picker [options]="matchTestOperatorOptions" [value]="row.operator" (valueChange)="onMatchTestOperator(i, $event)" />
+          @if (matchTestNeedsValue(row)) {
+            <input
+              type="text"
+              class="cond-value"
+              [value]="row.value ?? ''"
+              placeholder="value"
+              (input)="patchMatchTest(i, { value: $any($event.target).value })"
+            />
+            <label class="cond-case" title="Compare the value exactly as typed">
+              <input type="checkbox" [checked]="row.caseSensitive !== false" (change)="patchMatchTest(i, { caseSensitive: $any($event.target).checked })" />
+              Aa
+            </label>
+          }
+          <button type="button" class="icon-btn danger" title="Remove this test" (click)="removeMatchTest(i)">×</button>
+        </div>
+      }
+      <button type="button" class="pill add cond-add" (click)="addMatchTest()">+ Add test</button>
+    </div>
+
     <h3 class="section-title">Pipeline — what happens to a matching call</h3>
 
     @if (conflictHint(); as hint) {

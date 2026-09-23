@@ -24,6 +24,12 @@ import {
   FailureMode,
   InterceptionRule,
   InterceptionRuleDraft,
+  MATCH_TEST_KINDS,
+  MATCH_TEST_OPERATOR_LABELS,
+  MatchTest,
+  MatchTestKind,
+  MatchTestOperator,
+  matchTestNeedsValue,
   RuleAction,
   RuleSource,
   actionPhase,
@@ -33,11 +39,13 @@ import {
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
 import { RuleActionCardComponent } from '../rule-action-card/rule-action-card.component';
+import { HelpPopoverComponent } from '../help-popover/help-popover.component';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
 import {
   FAILURE_HELP,
   HelpEntry,
+  MATCH_TEST_HELP,
   helpForAction,
   helpForOperator,
   helpForSubject,
@@ -291,6 +299,9 @@ function defaultCondition(phase: ActionPhase): Condition {
  * (RuleValidator), and mirroring those checks client-side would create two rule-languages that
  * drift. The form only prevents the shapes it would be absurd to submit - an action with no type.
  */
+/** A match test while it is being edited: which list it belongs to, plus the test itself. */
+type MatchTestRow = MatchTest & { readonly kind: MatchTestKind };
+
 @Component({
   selector: 'app-rule-editor',
   standalone: true,
@@ -304,6 +315,7 @@ function defaultCondition(phase: ActionPhase): Condition {
     SelectPickerComponent,
     MultiSelectPickerComponent,
     RuleActionCardComponent,
+    HelpPopoverComponent,
     CdkDropList,
     CdkDrag,
   ],
@@ -345,6 +357,16 @@ export class RuleEditorComponent implements OnInit {
   readonly host = signal('');
   readonly pathContains = signal('');
   readonly pathRegex = signal('');
+  /** The "Only when…" rows - one list in the form, split back into headers/query/cookies on save. */
+  readonly matchTests = signal<MatchTestRow[]>([]);
+  readonly matchTestKindOptions: readonly SelectOption[] = (Object.keys(MATCH_TEST_KINDS) as MatchTestKind[]).map((kind) => ({
+    value: kind,
+    label: MATCH_TEST_KINDS[kind].replace(/^./, (c) => c.toUpperCase()),
+  }));
+  readonly matchTestOperatorOptions: readonly SelectOption[] = (
+    Object.keys(MATCH_TEST_OPERATOR_LABELS) as MatchTestOperator[]
+  ).map((operator) => ({ value: operator, label: MATCH_TEST_OPERATOR_LABELS[operator] }));
+  readonly matchTestHelp = MATCH_TEST_HELP;
 
   /** Mutable working copy - the domain type is readonly, and this is the one place a rule is edited. */
   readonly actions = signal<RuleAction[]>([]);
@@ -439,7 +461,34 @@ export class RuleEditorComponent implements OnInit {
     this.host.set(rule.match.host ?? '');
     this.pathContains.set(rule.match.pathContains ?? '');
     this.pathRegex.set(rule.match.pathRegex ?? '');
+    this.matchTests.set(
+      (Object.keys(MATCH_TEST_KINDS) as MatchTestKind[]).flatMap((kind) =>
+        (rule.match[kind] ?? []).map((test) => ({ kind, ...test }))
+      )
+    );
     this.actions.set(rule.actions.map((a) => ({ ...a })));
+  }
+
+  addMatchTest(): void {
+    this.matchTests.update((rows) => [...rows, { kind: 'headers', name: '', operator: 'EXISTS', value: null }]);
+  }
+
+  removeMatchTest(index: number): void {
+    this.matchTests.update((rows) => rows.filter((_, i) => i !== index));
+  }
+
+  patchMatchTest(index: number, patch: Partial<MatchTestRow>): void {
+    this.matchTests.update((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  onMatchTestOperator(index: number, value: string): void {
+    const operator = value as MatchTestOperator;
+    // A value left behind on EXISTS would be saved, shown nowhere, and confuse the next reader of the JSON.
+    this.patchMatchTest(index, matchTestNeedsValue(operator) ? { operator } : { operator, value: null, caseSensitive: null });
+  }
+
+  matchTestNeedsValue(row: MatchTestRow): boolean {
+    return matchTestNeedsValue(row.operator);
   }
 
   toggleMethod(method: string): void {
@@ -865,12 +914,76 @@ export class RuleEditorComponent implements OnInit {
     return type === 'DELAY_REQUEST' || type === 'DELAY_RESPONSE';
   }
 
+  /** A name and a plain-text value: headers, query parameters, cookies and form fields. */
   isHeaderSet(type: ActionType): boolean {
-    return type === 'SET_REQUEST_HEADER' || type === 'SET_RESPONSE_HEADER' || type === 'SET_QUERY_PARAM';
+    return (
+      type === 'SET_REQUEST_HEADER' ||
+      type === 'SET_RESPONSE_HEADER' ||
+      type === 'SET_QUERY_PARAM' ||
+      type === 'SET_REQUEST_COOKIE' ||
+      type === 'SET_RESPONSE_COOKIE' ||
+      type === 'SET_FORM_FIELD'
+    );
   }
 
   isNameOnly(type: ActionType): boolean {
-    return type === 'REMOVE_REQUEST_HEADER' || type === 'REMOVE_RESPONSE_HEADER' || type === 'REMOVE_QUERY_PARAM';
+    return (
+      type === 'REMOVE_REQUEST_HEADER' ||
+      type === 'REMOVE_RESPONSE_HEADER' ||
+      type === 'REMOVE_QUERY_PARAM' ||
+      type === 'REMOVE_REQUEST_COOKIE' ||
+      type === 'REMOVE_RESPONSE_COOKIE' ||
+      type === 'REMOVE_FORM_FIELD'
+    );
+  }
+
+  /** What the name field names, so a cookie card does not say "Name" like a header card does. */
+  nameLabel(type: ActionType): string {
+    if (type.endsWith('_COOKIE')) return 'Cookie';
+    if (type.endsWith('_FORM_FIELD')) return 'Field';
+    return 'Name';
+  }
+
+  isResponseCookie(type: ActionType): boolean {
+    return type === 'SET_RESPONSE_COOKIE';
+  }
+
+  readonly sameSiteOptions: readonly SelectOption[] = [
+    { value: '', label: 'not set' },
+    { value: 'Strict', label: 'Strict' },
+    { value: 'Lax', label: 'Lax' },
+    { value: 'None', label: 'None (needs Secure)' },
+  ];
+
+  /** One attribute of a Set-Cookie. An emptied text field is removed, not saved as "". */
+  onCookieAttribute(
+    path: readonly number[],
+    action: RuleAction,
+    part: 'path' | 'domain' | 'maxAge' | 'sameSite',
+    raw: string
+  ): void {
+    const parsed = Number.parseInt(raw, 10);
+    const value = part === 'maxAge' ? (Number.isFinite(parsed) ? parsed : null) : raw || null;
+    this.patchAt(path, { cookieAttributes: { ...(action.cookieAttributes ?? {}), [part]: value } });
+  }
+
+  onCookieFlag(path: readonly number[], action: RuleAction, part: 'secure' | 'httpOnly', event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.patchAt(path, { cookieAttributes: { ...(action.cookieAttributes ?? {}), [part]: checked } });
+  }
+
+  isEncoding(type: ActionType): boolean {
+    return type === 'SET_RESPONSE_ENCODING';
+  }
+
+  /** The mirror of the backend validator's list - everything mitmproxy can encode, plus none. */
+  readonly encodingOptions: readonly SelectOption[] = ['gzip', 'deflate', 'br', 'zstd', 'identity'].map((value) => ({
+    value,
+    label: value === 'identity' ? 'identity (uncompressed)' : value,
+  }));
+
+  onEncoding(path: readonly number[], value: string): void {
+    this.patchAt(path, { encoding: value });
   }
 
   isJsonField(type: ActionType): boolean {
@@ -949,7 +1062,7 @@ export class RuleEditorComponent implements OnInit {
 
   /** Takes no parameters at all - the card is the whole statement. */
   isBare(type: ActionType): boolean {
-    return type === 'ABORT_REQUEST' || type === 'SEND_TO_HOST';
+    return type === 'ABORT_REQUEST' || type === 'SEND_TO_HOST' || type === 'DISABLE_CACHE' || type === 'DISABLE_COMPRESSION';
   }
 
   isPause(type: ActionType): boolean {
@@ -1006,6 +1119,7 @@ export class RuleEditorComponent implements OnInit {
         host: this.host().trim() || null,
         pathContains: this.pathContains().trim() || null,
         pathRegex: this.pathRegex().trim() || null,
+        ...this.matchTestLists(),
       },
       actions: this.actions(),
     };
@@ -1016,6 +1130,14 @@ export class RuleEditorComponent implements OnInit {
       // open with every problem listed at once.
       if (result) this.closed.emit();
     });
+  }
+
+  private matchTestLists(): Record<MatchTestKind, MatchTest[]> {
+    const lists: Record<MatchTestKind, MatchTest[]> = { headers: [], query: [], cookies: [] };
+    for (const { kind, ...test } of this.matchTests()) {
+      lists[kind].push({ ...test, name: test.name.trim() });
+    }
+    return lists;
   }
 
   cancel(): void {
@@ -1062,6 +1184,21 @@ function defaultsFor(type: ActionType): RuleAction {
       return { type, path: '' };
     case 'SET_REQUEST_BODY':
       return { type, body: '' };
+    case 'SET_REQUEST_COOKIE':
+    case 'SET_FORM_FIELD':
+      return { type, name: '', value: '' };
+    case 'REMOVE_REQUEST_COOKIE':
+    case 'REMOVE_RESPONSE_COOKIE':
+    case 'REMOVE_FORM_FIELD':
+      return { type, name: '' };
+    case 'SET_RESPONSE_COOKIE':
+      // Expiring a session is the common reason to reach for this, so that is what a new one does.
+      return { type, name: '', value: '', cookieAttributes: { path: '/', maxAge: 0 } };
+    case 'DISABLE_CACHE':
+    case 'DISABLE_COMPRESSION':
+      return { type };
+    case 'SET_RESPONSE_ENCODING':
+      return { type, encoding: 'identity' };
     case 'REPLACE_IN_REQUEST_BODY':
     case 'REPLACE_IN_RESPONSE_BODY':
       // Literal and case-sensitive: the reading of the pattern that does exactly what it says.

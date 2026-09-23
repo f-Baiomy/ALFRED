@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { InterceptionRule, isActionEnabled, isTerminalAction } from '../../core/models/interception.model';
-import { describeAction, describeMatch } from '../../core/models/interception.model';
+import { RuleMatch, describeAction, describeMatch } from '../../core/models/interception.model';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { DesktopNotificationsService } from '../../core/services/desktop-notifications.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
@@ -35,7 +35,9 @@ export class InterceptionComponent {
 
   readonly importing = signal(false);
 
-  readonly describeMatch = describeMatch;
+  describeMatch(match: RuleMatch): string {
+    return describeMatch(match, this.state.sensitiveNames());
+  }
   readonly describeAction = describeAction;
   readonly isActionEnabled = isActionEnabled;
 

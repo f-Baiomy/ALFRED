@@ -8,7 +8,7 @@ import {
   OPERATOR_LABELS,
   SUBJECT_LABELS,
 } from '../../core/models/interception.model';
-import { ACTION_HELP, FAILURE_HELP, OPERATOR_HELP, SUBJECT_HELP } from './interception-help';
+import { ACTION_HELP, FAILURE_HELP, MATCH_TEST_HELP, OPERATOR_HELP, SUBJECT_HELP } from './interception-help';
 
 /**
  * The guard that keeps the help honest.
@@ -31,6 +31,11 @@ describe('interception help', () => {
 
     expect(subjects.filter((subject) => !SUBJECT_HELP[subject])).toEqual([]);
     expect(operators.filter((operator) => !OPERATOR_HELP[operator])).toEqual([]);
+  });
+
+  it('explains match tests, and why they beat a condition when stop processing is on', () => {
+    expect(MATCH_TEST_HELP.what.length).toBeGreaterThan(40);
+    expect(MATCH_TEST_HELP.warning).toContain('stop processing');
   });
 
   it('documents every failure mode', () => {

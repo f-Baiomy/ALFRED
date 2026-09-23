@@ -23,9 +23,45 @@ describe('interception model helpers', () => {
     it('shows a regex distinctly from a substring', () => {
       expect(describeMatch({ pathRegex: '/v\\d+/order' })).toContain('path ~ /v\\d+/order');
     });
+
+    it('states the match tests, showing a plain value and hiding a secret one', () => {
+      const sensitive = new Set(['x-api-key']);
+      const text = describeMatch(
+        {
+          headers: [
+            { name: 'x-test-scenario', operator: 'EQUALS', value: 'timeout' },
+            { name: 'X-Api-Key', operator: 'EQUALS', value: 's3cret' },
+          ],
+          query: [{ name: 'mode', operator: 'EXISTS' }],
+        },
+        sensitive
+      );
+      expect(text).toContain('only when header x-test-scenario equals "timeout"');
+      expect(text).toContain('header X-Api-Key equals (value hidden · 6 chars)');
+      expect(text).toContain('query mode exists');
+      expect(text).not.toContain('s3cret');
+    });
+
+    it('always hides a cookie value, and hides every value until the secret list has loaded', () => {
+      expect(describeMatch({ cookies: [{ name: 'features', operator: 'CONTAINS', value: 'beta' }] }, new Set())).not.toContain(
+        'beta'
+      );
+      expect(describeMatch({ headers: [{ name: 'x-tenant', operator: 'EQUALS', value: 'acme' }] })).not.toContain('acme');
+    });
   });
 
   describe('describeAction', () => {
+    it('names a cookie but never shows its value', () => {
+      expect(describeAction({ type: 'SET_REQUEST_COOKIE', name: 'session', value: 's3cret' })).toBe('Set request cookie session');
+      expect(
+        describeAction({ type: 'SET_RESPONSE_COOKIE', name: 'session', value: '', cookieAttributes: { maxAge: 0 } })
+      ).toBe('Expire response cookie session');
+    });
+
+    it('states the response encoding', () => {
+      expect(describeAction({ type: 'SET_RESPONSE_ENCODING', encoding: 'br' })).toBe('Re-encode the response as br');
+    });
+
     it('formats a delay with thousands separators', () => {
       expect(describeAction({ type: 'DELAY_REQUEST', durationMs: 10000 })).toBe('Delay request 10,000 ms');
     });

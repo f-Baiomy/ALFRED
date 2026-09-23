@@ -81,6 +81,60 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     warning:
       'The Host header follows the new target unless you keep the original - some hosts route on it. A rewrite that would land on Alfred itself (its backend, gateway or proxy listeners) is refused, because it would loop.',
   },
+  SET_REQUEST_COOKIE: {
+    title: 'Set request cookie',
+    code: 'SET_REQUEST_COOKIE',
+    what: 'Changes or adds one cookie on the call before it goes out. Every other cookie is sent exactly as the caller sent it.',
+    exampleIntro: 'Against Cookie: session=a1; consent=yes; theme=dark:',
+    examples: [
+      { from: 'consent = no', to: 'session=a1; consent=no; theme=dark' },
+      { from: 'locale = ar', to: 'the cookie is added at the end' },
+    ],
+    warning: 'The value is never written into the interception record - only the cookie name and its length.',
+  },
+  REMOVE_REQUEST_COOKIE: {
+    title: 'Remove request cookie',
+    code: 'REMOVE_REQUEST_COOKIE',
+    what: 'Drops one cookie from the call - how you test what the target does without a consent cookie, or with no session at all.',
+    exampleIntro: 'Against Cookie: session=a1; consent=yes; theme=dark:',
+    examples: [
+      { from: 'consent', to: 'session=a1; theme=dark' },
+      { from: 'session', to: 'the target sees an anonymous visitor' },
+    ],
+  },
+  SET_FORM_FIELD: {
+    title: 'Set form field',
+    code: 'SET_FORM_FIELD',
+    what: 'Changes or adds one field of a submitted form - urlencoded or multipart - and leaves every other field as sent.',
+    exampleIntro: 'Against amount=250&currency=EUR:',
+    examples: [
+      { from: 'amount = 0', to: 'amount=0&currency=EUR' },
+      { from: 'a multipart upload', to: 'the text field changes; the file part is untouched' },
+    ],
+    warning: 'A file part is never edited, and a body that is not a form (JSON, XML) is left alone and the log says so.',
+  },
+  REMOVE_FORM_FIELD: {
+    title: 'Remove form field',
+    code: 'REMOVE_FORM_FIELD',
+    what: 'Drops one field from a submitted form - the way to find out whether the server really requires it.',
+    examples: [{ from: 'currency', to: 'amount=250 is all that is sent' }],
+  },
+  DISABLE_CACHE: {
+    title: 'Disable cache',
+    code: 'DISABLE_CACHE',
+    what: 'Removes If-None-Match and If-Modified-Since from the request, so the host cannot answer 304 Not Modified and the full response - the one your other rules edit - always comes back.',
+    examples: [
+      { from: 'If-None-Match: "v7"', to: 'removed; the host sends 200 with the body' },
+      { from: 'neither header sent', to: 'nothing changes, and the log says so' },
+    ],
+  },
+  DISABLE_COMPRESSION: {
+    title: 'Disable compression',
+    code: 'DISABLE_COMPRESSION',
+    what: 'Sends Accept-Encoding: identity, so the host answers uncompressed - useful when a client mishandles gzip or br and you want to rule compression out.',
+    examples: [{ from: 'Accept-Encoding: gzip, br', to: 'Accept-Encoding: identity' }],
+    warning: 'A host may compress anyway; pair it with "Set response encoding: identity" to be sure the caller gets plain bytes.',
+  },
   SET_METHOD: {
     title: 'Set method',
     code: 'SET_METHOD',
@@ -270,6 +324,33 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     ],
     warning: 'The status and headers are untouched, so a 200 with content-length from the real reply still says 200.',
   },
+  SET_RESPONSE_COOKIE: {
+    title: 'Set response cookie',
+    code: 'SET_RESPONSE_COOKIE',
+    what: 'Sets one Set-Cookie the caller receives - replacing the one of the same name, or adding one - with the attributes you choose. The other Set-Cookie headers are kept.',
+    exampleIntro: 'To log the user out:',
+    examples: [
+      { from: 'session, Max-Age 0', to: 'Set-Cookie: session=; Path=/; Max-Age=0 - the browser drops it' },
+      { from: 'theme = dark, Path /', to: 'a new cookie alongside the supplier\'s' },
+    ],
+    warning: 'SameSite=None needs Secure, or browsers ignore the cookie. The value is never written into the interception record.',
+  },
+  REMOVE_RESPONSE_COOKIE: {
+    title: 'Remove response cookie',
+    code: 'REMOVE_RESPONSE_COOKIE',
+    what: 'Drops the Set-Cookie for one cookie name, so the caller never receives it. The cookie it already holds is not touched - use "Set response cookie" with Max-Age 0 to expire that.',
+    examples: [{ from: 'tracking', to: 'the other Set-Cookie headers still arrive' }],
+  },
+  SET_RESPONSE_ENCODING: {
+    title: 'Set response encoding',
+    code: 'SET_RESPONSE_ENCODING',
+    what: 'Decodes the response body and compresses it again with the encoding you pick - how you test a client against br or zstd when the supplier only ever sends gzip.',
+    examples: [
+      { from: 'gzip → br', to: 'same content, Content-Encoding: br' },
+      { from: 'gzip → identity', to: 'the caller gets the plain body' },
+      { from: 'already br', to: 'nothing changes, and the log says so' },
+    ],
+  },
   REMOVE_RESPONSE_JSON_FIELD: {
     title: 'Remove response JSON field',
     code: 'REMOVE_RESPONSE_JSON_FIELD',
@@ -329,6 +410,24 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     warning:
       'It never runs on a call that was mocked, failed or aborted in the request half — nothing came back to look at.',
   },
+};
+
+/**
+ * The "Only when…" match tests. Filed apart from ACTION_HELP and SUBJECT_HELP because a match test
+ * is neither: it decides whether the rule applies at all.
+ */
+export const MATCH_TEST_HELP: HelpEntry = {
+  title: 'Only when… (match tests)',
+  code: 'MATCH_TEST',
+  what: 'Narrows which calls the rule applies to, by a request header, a query parameter or a cookie. Every test must hold, and they are checked after direction, project, method, host and path.',
+  exampleIntro: 'With "header x-test-scenario equals timeout":',
+  examples: [
+    { from: 'the header is timeout', to: 'the rule applies' },
+    { from: 'no such header', to: 'the rule does not match, and later rules still run' },
+    { from: 'cookie SESSIONID exists', to: 'only logged-in calls' },
+  ],
+  warning:
+    'Why here and not in a condition: a rule with "stop processing" stops later rules for every call it matches. A condition runs after the rule has matched, so it would stop them for calls without the header too. A match test that fails means the rule never matched.',
 };
 
 export const SUBJECT_HELP: Readonly<Record<ConditionSubject, HelpEntry>> = {

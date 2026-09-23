@@ -10,10 +10,11 @@ import java.util.List;
  * someone wants, and the reason the UI states a rule's match back in plain language and shows how
  * many recent calls it would have hit before the rule is saved.
  *
- * <p>Deliberately a small, fixed set rather than a predicate language. Header, body and
- * response-status matchers were considered and left out of the first cut: the first two invite an
- * expression grammar, and a response-status matcher cannot work at all in the request phase, where
- * the decision to intercept has to be made. See docs/interception.md.
+ * <p>Deliberately a small, fixed set rather than a predicate language. Header, query and cookie
+ * tests ({@link MatchTest}) are a flat list that must all hold - no expression grammar. Body and
+ * response-status matchers are still left out: the first invites a grammar, and a response-status
+ * matcher cannot work at all in the request phase, where the decision to intercept has to be made.
+ * See docs/interception.md.
  *
  * <p>{@code source} and {@code serviceName} are the two Alfred-specific matchers and the reason
  * this is not a generic proxy rule: both addons already know, structurally rather than by
@@ -45,15 +46,33 @@ public record RuleMatch(
         /** Exact host, or a single leading wildcard label: {@code *.sabre.com}. */
         String host,
         String pathContains,
-        String pathRegex) {
+        String pathRegex,
+        /** Request header tests; empty means no header is tested. */
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<MatchTest> headers,
+        /** Query parameter tests. */
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<MatchTest> query,
+        /** Request cookie tests. */
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<MatchTest> cookies) {
 
     public RuleMatch {
         methods = methods == null ? List.of() : List.copyOf(methods);
+        headers = headers == null ? List.of() : List.copyOf(headers);
+        query = query == null ? List.of() : List.copyOf(query);
+        cookies = cookies == null ? List.of() : List.copyOf(cookies);
         serviceNames = serviceNames == null ? List.of() : List.copyOf(serviceNames);
         if (serviceNames.isEmpty() && serviceName != null && !serviceName.isBlank()) {
             serviceNames = List.of(serviceName);
         }
         serviceName = null;
+    }
+
+    /** The shape before header, query and cookie tests existed - no tests. */
+    public RuleMatch(String source, String serviceName, List<String> serviceNames, List<String> methods,
+                     String host, String pathContains, String pathRegex) {
+        this(source, serviceName, serviceNames, methods, host, pathContains, pathRegex, null, null, null);
     }
 
     public static RuleMatch empty() {

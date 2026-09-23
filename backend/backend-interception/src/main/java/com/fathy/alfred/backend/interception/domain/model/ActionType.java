@@ -41,6 +41,22 @@ public enum ActionType {
     /** Replaces the whole outgoing request body, any content type - the counterpart of SET_RESPONSE_BODY. */
     SET_REQUEST_BODY(Phase.REQUEST),
     /**
+     * Sets or removes ONE cookie on the Cookie header; every other cookie reaches the target byte
+     * for byte. The value is never written into the interception record.
+     */
+    SET_REQUEST_COOKIE(Phase.REQUEST),
+    REMOVE_REQUEST_COOKIE(Phase.REQUEST),
+    /**
+     * Sets or removes one field of a urlencoded or multipart form. A multipart file part is never
+     * edited; any other body is recorded as "not a form".
+     */
+    SET_FORM_FIELD(Phase.REQUEST),
+    REMOVE_FORM_FIELD(Phase.REQUEST),
+    /** Removes If-None-Match and If-Modified-Since, so the full response comes back rather than a 304. */
+    DISABLE_CACHE(Phase.REQUEST),
+    /** Asks for an uncompressed response (Accept-Encoding: identity). */
+    DISABLE_COMPRESSION(Phase.REQUEST),
+    /**
      * Kept for rules saved before {@link #SIMULATE_FAILURE} existed, and hidden from the editor's
      * picker - it is exactly {@code SIMULATE_FAILURE} with {@link FailureMode#CONNECTION_RESET}.
      * Still evaluated, because a stored rule must not stop working when the UI moves on.
@@ -81,6 +97,15 @@ public enum ActionType {
     REPLACE_IN_RESPONSE_BODY(Phase.RESPONSE),
     /** The response-body counterpart of {@link #REMOVE_REQUEST_JSON_FIELD}. */
     REMOVE_RESPONSE_JSON_FIELD(Phase.RESPONSE),
+    /**
+     * Sets one Set-Cookie line - replacing the one with the same cookie name, or adding one - with
+     * the attributes in {@link CookieAttributes}; {@code maxAge = 0} expires it. Other Set-Cookie
+     * lines are kept.
+     */
+    SET_RESPONSE_COOKIE(Phase.RESPONSE),
+    REMOVE_RESPONSE_COOKIE(Phase.RESPONSE),
+    /** Re-encodes the response body: decoded first, then compressed with the chosen encoding. */
+    SET_RESPONSE_ENCODING(Phase.RESPONSE),
     /** Whole body, any content type - for a payload that isn't JSON or a change too structural for a field path. */
     SET_RESPONSE_BODY(Phase.RESPONSE),
     /**

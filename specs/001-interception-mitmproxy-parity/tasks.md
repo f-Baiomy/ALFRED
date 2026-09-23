@@ -455,7 +455,7 @@ except for the skip records and the masking.
 
 **Independent Test**: quickstart check 5.
 
-- [ ] T051 [P] [US4] Add tests to `PX/test_interception.py`:
+- [X] T051 [P] [US4] Add tests to `PX/test_interception.py`:
   - `edit_cookie_header('session=a; consent=b; theme=c', 'consent', None)` returns
     `'session=a; theme=c'` exactly; set replaces a value; set appends a new cookie;
   - Set-Cookie set replaces the entry with the same name and keeps the others; remove; expire
@@ -466,9 +466,9 @@ except for the skip records and the masking.
 
   Extend `FakeRequest` / `FakeHeaders` with `get_all`/`set_all`, `urlencoded_form` and
   `multipart_form`. Add SAMPLES entries for all six actions.
-- [ ] T052 [P] [US4] Add `RuleValidatorTest` cases: a cookie name that is not a token is
+- [X] T052 [P] [US4] Add `RuleValidatorTest` cases: a cookie name that is not a token is
   rejected; `sameSite=Foo` is rejected; `SameSite=None` without `secure` is rejected.
-- [ ] T053 [US4] Create `BI/domain/model/CookieAttributes.java`, a record
+- [X] T053 [US4] Create `BI/domain/model/CookieAttributes.java`, a record
   `(path, domain, Integer maxAge, Boolean secure, Boolean httpOnly, String sameSite)`. Add the
   RuleAction field `cookieAttributes`. Add six ActionTypes:
   - `SET_REQUEST_COOKIE`, `REMOVE_REQUEST_COOKIE`
@@ -476,12 +476,12 @@ except for the skip records and the masking.
   - `SET_FORM_FIELD`, `REMOVE_FORM_FIELD`
 
   Add their validator cases.
-- [ ] T054 [US4] In `PX/interception.py`, add `edit_cookie_header`, a token-level edit that
+- [X] T054 [US4] In `PX/interception.py`, add `edit_cookie_header`, a token-level edit that
   preserves the separators and spacing of the other cookies, plus a `set_cookie_line` builder
   and handlers for all six actions. Form edits go through `request.urlencoded_form` /
   `request.multipart_form`; parts with a filename are skipped. The detail names the cookie or
   field and uses `mask_value` for the value.
-- [ ] T055 [US4] Frontend: add the types, labels and `describeAction` cases, masking cookie
+- [X] T055 [US4] Frontend: add the types, labels and `describeAction` cases, masking cookie
   values. Add card blocks:
   - a cookie name and value;
   - an attributes sub-block for SET_RESPONSE_COOKIE (path, domain, max-age, secure, http-only,
@@ -489,7 +489,7 @@ except for the skip records and the masking.
   - a form field name and value.
 
   Add `defaultsFor` entries.
-- [ ] T056 [P] [US4] Add help entries: expiring a session, dropping a consent cookie, changing a
+- [X] T056 [P] [US4] Add help entries: expiring a session, dropping a consent cookie, changing a
   form `amount`.
 
 ---
@@ -498,7 +498,7 @@ except for the skip records and the masking.
 
 **Independent Test**: quickstart check 6.
 
-- [ ] T057 [P] [US5] Add tests to `PX/test_interception.py`:
+- [X] T057 [P] [US5] Add tests to `PX/test_interception.py`:
   - DISABLE_CACHE records the header names it removed (`if-none-match, if-modified-since`), or
     `skipped - no conditional headers`;
   - DISABLE_COMPRESSION sets `accept-encoding: identity`;
@@ -506,18 +506,18 @@ except for the skip records and the masking.
     `identity` only decodes; a body already in that encoding records a skip.
 
   Add SAMPLES entries.
-- [ ] T058 [P] [US5] Add a `RuleValidatorTest` case: an encoding of `lzma` is rejected.
-- [ ] T059 [US5] Add `DISABLE_CACHE`, `DISABLE_COMPRESSION` and `SET_RESPONSE_ENCODING` to
+- [X] T058 [P] [US5] Add a `RuleValidatorTest` case: an encoding of `lzma` is rejected.
+- [X] T059 [US5] Add `DISABLE_CACHE`, `DISABLE_COMPRESSION` and `SET_RESPONSE_ENCODING` to
   `ActionType`. Add the RuleAction field `encoding`. The validator allows gzip, deflate, br,
   zstd and identity.
-- [ ] T060 [US5] Add handlers in `PX/interception.py`. DISABLE_CACHE pops the headers explicitly
+- [X] T060 [US5] Add handlers in `PX/interception.py`. DISABLE_CACHE pops the headers explicitly
   so it can record their names; it does not call `anticache()`.
-- [ ] T061 [US5] Frontend:
+- [X] T061 [US5] Frontend:
   - the DISABLE_* actions render through `isBare` with an explanatory else-text (card html
     :348-356);
   - SET_RESPONSE_ENCODING uses an `app-select-picker` with the five encodings;
   - add labels, `describeAction` cases and `defaultsFor` entries.
-- [ ] T062 [P] [US5] Add help entries.
+- [X] T062 [P] [US5] Add help entries.
 
 ---
 
@@ -525,7 +525,7 @@ except for the skip records and the masking.
 
 **Independent Test**: quickstart check 12.
 
-- [ ] T063 [P] [US11] Add tests to `MatchingTest` in `PX/test_interception.py`:
+- [X] T063 [P] [US11] Add tests to `MatchingTest` in `PX/test_interception.py`:
   - header EXISTS, NOT_EXISTS and EQUALS (case-insensitive name);
   - query EQUALS;
   - cookie CONTAINS;
@@ -533,19 +533,19 @@ except for the skip records and the masking.
   - a rule with `stopProcessing` and a header test does not stop a later rule when the header
     is absent;
   - the tests are evaluated after a failing host check (assert the header was never read).
-- [ ] T064 [P] [US11] Add `RuleValidatorTest` cases: a missing name; an EQUALS test without a
+- [X] T064 [P] [US11] Add `RuleValidatorTest` cases: a missing name; an EQUALS test without a
   value; a MATCHES test that fails `PatternSafety`.
-- [ ] T065 [US11] Create `BI/domain/model/MatchTest.java`, a record
+- [X] T065 [US11] Create `BI/domain/model/MatchTest.java`, a record
   `(String name, Operator operator, String value, Boolean caseSensitive)` with
   `enum Operator {EXISTS, NOT_EXISTS, EQUALS, CONTAINS, MATCHES}`. Add the `headers`, `query`
   and `cookies` lists to `BI/domain/model/RuleMatch.java`; the compact constructor turns null
   into `List.of()`. Extend `validateMatch` (`RuleValidator.java:98-120`).
-- [ ] T066 [US11] In `PX/interception.py`:
+- [X] T066 [US11] In `PX/interception.py`:
   - `Match.__init__` parses the three lists and pre-compiles the MATCHES regexes;
   - change `matches` to `matches(self, source, service_name, request)`, evaluating the new
     tests after the existing checks;
   - update the caller `_matching` (:914-931) and the MatchingTest call sites.
-- [ ] T067 [US11] Frontend:
+- [X] T067 [US11] Frontend:
   - add `MatchTest` and the three lists to `RuleMatch` in `FE/core/models/interception.model.ts`;
   - `describeMatch` (:514-525) states the tests, and masks the value when the name is in the
     sensitive list. The frontend gets that list **only** from `GET
@@ -558,7 +558,7 @@ except for the skip records and the masking.
     - add a "Only when…" section with a row per test: kind (Header / Query / Cookie), name,
       operator select, value, and remove;
     - save it in `save()` (:938-962).
-- [ ] T068 [P] [US11] Add a `MATCH_TEST_HELP` entry in `FE/shared/utils/interception-help.ts`
+- [X] T068 [P] [US11] Add a `MATCH_TEST_HELP` entry in `FE/shared/utils/interception-help.ts`
   that explains the `stopProcessing` precedence advantage over conditions. Extend
   `interception-help.spec.ts` to require it.
 

@@ -92,8 +92,13 @@ third-party `regex` module absent. Paths are relative to the repository root.
     - "remove" drops that entry;
     - "expire" is `set` with `Max-Age=0`.
   - **Forms**:
-    - `application/x-www-form-urlencoded` is edited through `request.urlencoded_form`;
-    - `multipart/form-data` text parts are edited through `request.multipart_form`;
+    - `multipart/form-data` text parts are edited at the byte level, part by part, on
+      `request.content` (changed during implementation: `request.multipart_form`'s setter
+      re-encodes every part with a bare `name=` disposition, which drops a file part's filename
+      and content type). Every part except the edited one is copied through unchanged, and a
+      value that contains the boundary is refused;
+    - urlencoded bodies are likewise edited pair by pair, so the other pairs keep their original
+      encoding;
     - a file part (one with a filename) is never edited;
     - any other content type is recorded as `skipped - not a form`.
 

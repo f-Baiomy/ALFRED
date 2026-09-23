@@ -216,7 +216,7 @@
 
         @if (editor.isHeaderSet(step.action.type)) {
           <label class="inline-field grow">
-            <span>Name</span>
+            <span>{{ editor.nameLabel(step.action.type) }}</span>
             <input type="text" [value]="step.action.name" (input)="editor.onText(step.path, 'name', $event)" />
           </label>
           <label class="inline-field grow">
@@ -225,9 +225,42 @@
           </label>
         }
 
+        @if (editor.isResponseCookie(step.action.type)) {
+          <label class="inline-field">
+            <span>Path</span>
+            <input type="text" [value]="step.action.cookieAttributes?.path ?? ''" (input)="editor.onCookieAttribute(step.path, step.action, 'path', $any($event.target).value)" placeholder="/" />
+          </label>
+          <label class="inline-field grow">
+            <span>Domain</span>
+            <input type="text" [value]="step.action.cookieAttributes?.domain ?? ''" (input)="editor.onCookieAttribute(step.path, step.action, 'domain', $any($event.target).value)" placeholder="not set" />
+          </label>
+          <label class="inline-field">
+            <span>Max-Age</span>
+            <input type="number" [value]="step.action.cookieAttributes?.maxAge" (input)="editor.onCookieAttribute(step.path, step.action, 'maxAge', $any($event.target).value)" placeholder="not set" />
+            <em>s</em>
+          </label>
+          <div class="inline-field">
+            <span>SameSite</span>
+            <app-select-picker
+              [options]="editor.sameSiteOptions"
+              [value]="step.action.cookieAttributes?.sameSite ?? ''"
+              (valueChange)="editor.onCookieAttribute(step.path, step.action, 'sameSite', $event)"
+            />
+          </div>
+          <label class="inline-field">
+            <input type="checkbox" [checked]="step.action.cookieAttributes?.secure === true" (change)="editor.onCookieFlag(step.path, step.action, 'secure', $event)" />
+            <span>Secure</span>
+          </label>
+          <label class="inline-field">
+            <input type="checkbox" [checked]="step.action.cookieAttributes?.httpOnly === true" (change)="editor.onCookieFlag(step.path, step.action, 'httpOnly', $event)" />
+            <span>HttpOnly</span>
+          </label>
+          <small class="muted span-all">Max-Age 0 expires the cookie. Replaces the Set-Cookie of the same name, or adds one; the others are kept.</small>
+        }
+
         @if (editor.isNameOnly(step.action.type)) {
           <label class="inline-field grow">
-            <span>Name</span>
+            <span>{{ editor.nameLabel(step.action.type) }}</span>
             <input type="text" [value]="step.action.name" (input)="editor.onText(step.path, 'name', $event)" />
           </label>
         }
@@ -307,6 +340,18 @@
             <span>Keep the original Host header</span>
           </label>
           <small class="muted span-all">Any target except Alfred itself - a rewrite into Alfred is refused, because it would loop through the proxy.</small>
+        }
+
+        @if (editor.isEncoding(step.action.type)) {
+          <div class="inline-field">
+            <span>Encoding</span>
+            <app-select-picker
+              [options]="editor.encodingOptions"
+              [value]="step.action.encoding ?? 'identity'"
+              (valueChange)="editor.onEncoding(step.path, $event)"
+            />
+          </div>
+          <small class="muted span-all">The body is decoded first, then compressed again - the caller gets the same content in a different encoding.</small>
         }
 
         @if (editor.isSetMethod(step.action.type)) {
@@ -460,6 +505,10 @@
       <p class="action-bare">
         @if (step.action.type === 'SEND_TO_HOST') {
           Forwards the call for real, and refuses any later rule that would mock or abort it.
+        } @else if (step.action.type === 'DISABLE_CACHE') {
+          Removes If-None-Match and If-Modified-Since, so the host sends the full response instead of 304 Not Modified.
+        } @else if (step.action.type === 'DISABLE_COMPRESSION') {
+          Asks the host for an uncompressed response (Accept-Encoding: identity).
         } @else {
           Kills the connection immediately — the caller sees a network failure, not a status code.
         }

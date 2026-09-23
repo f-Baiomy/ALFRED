@@ -25,6 +25,12 @@ export type ActionType =
   | 'SET_METHOD'
   | 'REMOVE_REQUEST_JSON_FIELD'
   | 'SET_REQUEST_BODY'
+  | 'SET_REQUEST_COOKIE'
+  | 'REMOVE_REQUEST_COOKIE'
+  | 'SET_FORM_FIELD'
+  | 'REMOVE_FORM_FIELD'
+  | 'DISABLE_CACHE'
+  | 'DISABLE_COMPRESSION'
   | 'ABORT_REQUEST'
   | 'MOCK_RESPONSE'
   | 'PAUSE_REQUEST'
@@ -39,6 +45,9 @@ export type ActionType =
   | 'SET_RESPONSE_BODY'
   | 'REPLACE_IN_RESPONSE_BODY'
   | 'REMOVE_RESPONSE_JSON_FIELD'
+  | 'SET_RESPONSE_COOKIE'
+  | 'REMOVE_RESPONSE_COOKIE'
+  | 'SET_RESPONSE_ENCODING'
   | 'REPLACE_RESPONSE'
   | 'PAUSE_RESPONSE'
   | 'IF_RESPONSE';
@@ -116,6 +125,60 @@ export interface RuleMatch {
   readonly host?: string | null;
   readonly pathContains?: string | null;
   readonly pathRegex?: string | null;
+  /** Request header tests. Every test in every list must hold. */
+  readonly headers?: readonly MatchTest[];
+  /** Query parameter tests. */
+  readonly query?: readonly MatchTest[];
+  /** Request cookie tests. */
+  readonly cookies?: readonly MatchTest[];
+}
+
+export type MatchTestOperator = 'EXISTS' | 'NOT_EXISTS' | 'EQUALS' | 'CONTAINS' | 'MATCHES';
+
+/**
+ * One header, query or cookie test in a rule's match. Unlike a condition, a failed test means the
+ * rule did not match at all - its stopProcessing does not fire and later rules still run.
+ */
+export interface MatchTest {
+  readonly name: string;
+  readonly operator: MatchTestOperator;
+  readonly value?: string | null;
+  /** Defaults to true. */
+  readonly caseSensitive?: boolean | null;
+}
+
+export type MatchTestKind = 'headers' | 'query' | 'cookies';
+
+export const MATCH_TEST_KINDS: Readonly<Record<MatchTestKind, string>> = {
+  headers: 'header',
+  query: 'query',
+  cookies: 'cookie',
+};
+
+export const MATCH_TEST_OPERATOR_LABELS: Readonly<Record<MatchTestOperator, string>> = {
+  EXISTS: 'exists',
+  NOT_EXISTS: 'does not exist',
+  EQUALS: 'equals',
+  CONTAINS: 'contains',
+  MATCHES: 'matches regex',
+};
+
+export function matchTestNeedsValue(operator: MatchTestOperator): boolean {
+  return operator !== 'EXISTS' && operator !== 'NOT_EXISTS';
+}
+
+/**
+ * "header x-tenant equals "acme"". A value is masked when its name is a secret one, and every
+ * cookie value is masked - `sensitive` null means the list has not loaded yet, and then every
+ * value is masked rather than any shown by mistake.
+ */
+export function describeMatchTest(kind: MatchTestKind, test: MatchTest, sensitive: ReadonlySet<string> | null): string {
+  const head = `${MATCH_TEST_KINDS[kind]} ${test.name}`;
+  const operator = MATCH_TEST_OPERATOR_LABELS[test.operator] ?? test.operator;
+  if (!matchTestNeedsValue(test.operator)) return `${head} ${operator}`;
+  const secret = kind === 'cookies' || sensitive === null || sensitive.has((test.name ?? '').trim().toLowerCase());
+  const value = secret ? `(value hidden · ${(test.value ?? '').length} chars)` : `"${test.value ?? ''}"`;
+  return `${head} ${operator} ${value}`;
 }
 
 export interface RuleAction {
@@ -488,6 +551,12 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   SET_METHOD: 'Set method',
   REMOVE_REQUEST_JSON_FIELD: 'Remove request JSON field',
   SET_REQUEST_BODY: 'Replace the request body',
+  SET_REQUEST_COOKIE: 'Set request cookie',
+  REMOVE_REQUEST_COOKIE: 'Remove request cookie',
+  SET_FORM_FIELD: 'Set form field',
+  REMOVE_FORM_FIELD: 'Remove form field',
+  DISABLE_CACHE: 'Disable cache (always get the full response)',
+  DISABLE_COMPRESSION: 'Disable compression',
   ABORT_REQUEST: 'Abort request (kill the connection)',
   MOCK_RESPONSE: 'Mock response (never contact upstream)',
   PAUSE_REQUEST: 'Pause and wait for me (before forwarding)',
@@ -502,6 +571,9 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   SET_RESPONSE_BODY: 'Replace the response body',
   REPLACE_IN_RESPONSE_BODY: 'Find & replace in response body',
   REMOVE_RESPONSE_JSON_FIELD: 'Remove response JSON field',
+  SET_RESPONSE_COOKIE: 'Set response cookie',
+  REMOVE_RESPONSE_COOKIE: 'Remove response cookie',
+  SET_RESPONSE_ENCODING: 'Set response encoding',
   REPLACE_RESPONSE: 'Reply with a different response',
   PAUSE_RESPONSE: 'Pause and wait for me (after the supplier answers)',
   IF_RESPONSE: 'Condition — look at the response, then decide',
@@ -574,7 +646,7 @@ export function describeBranch(branch: ConditionBranch): string {
   return branch.conditions.map(describeCondition).join(joiner);
 }
 
-export function describeMatch(match: RuleMatch): string {
+export function describeMatch(match: RuleMatch, sensitive: ReadonlySet<string> | null = null): string {
   const parts: string[] = [];
   const source = match.source ?? 'both';
   parts.push(source === 'both' ? 'any direction' : source);
@@ -584,6 +656,10 @@ export function describeMatch(match: RuleMatch): string {
   if (match.host) parts.push(match.host);
   if (match.pathContains) parts.push(`path contains ${match.pathContains}`);
   if (match.pathRegex) parts.push(`path ~ ${match.pathRegex}`);
+  const tests = (Object.keys(MATCH_TEST_KINDS) as MatchTestKind[]).flatMap((kind) =>
+    (match[kind] ?? []).map((test) => describeMatchTest(kind, test, sensitive))
+  );
+  if (tests.length) parts.push(`only when ${tests.join(' and ')}`);
   return parts.join(' · ');
 }
 
@@ -637,6 +713,19 @@ export function describeAction(action: RuleAction): string {
     case 'REMOVE_REQUEST_JSON_FIELD':
     case 'REMOVE_RESPONSE_JSON_FIELD':
       return `Remove ${action.path} (the key is gone, not null)`;
+    case 'SET_REQUEST_COOKIE':
+    case 'REMOVE_REQUEST_COOKIE':
+    case 'REMOVE_RESPONSE_COOKIE':
+    case 'SET_FORM_FIELD':
+    case 'REMOVE_FORM_FIELD':
+      // A name only - a cookie value is a session more often than not, and a chip is on screen.
+      return `${label} ${action.name ?? ''}`.trim();
+    case 'SET_RESPONSE_COOKIE':
+      return action.cookieAttributes?.maxAge === 0
+        ? `Expire response cookie ${action.name ?? ''}`.trim()
+        : `${label} ${action.name ?? ''}`.trim();
+    case 'SET_RESPONSE_ENCODING':
+      return `Re-encode the response as ${action.encoding ?? '?'}`;
     case 'SET_REQUEST_BODY':
       return `Replace request body (${(action.body ?? '').length} chars)${action.contentType ? `, ${action.contentType}` : ''}`;
     case 'REPLACE_IN_REQUEST_BODY':

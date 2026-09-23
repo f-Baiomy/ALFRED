@@ -142,6 +142,19 @@ export class InterceptionStateService {
     { initialValue: [] as ActionTypeInfo[] }
   );
 
+  /**
+   * Secret header and cookie names, lowercased. Null until loaded - and if the request fails -
+   * which describeMatch reads as "mask every value", so nothing is shown by mistake.
+   */
+  readonly sensitiveNames = toSignal(
+    this.api.sensitiveHeaders().pipe(
+      map((names) => new Set(names.map((n) => n.toLowerCase())) as ReadonlySet<string> | null),
+      catchError(() => of(null)),
+      shareReplay(1)
+    ),
+    { initialValue: null }
+  );
+
   /** The backend's word on which lane an action belongs to. Reactive: re-evaluates once the list loads. */
   phaseOf(type: ActionType | string): ActionPhase {
     return this.actionTypes().find((info) => info.type === type)?.phase ?? actionPhase(type);

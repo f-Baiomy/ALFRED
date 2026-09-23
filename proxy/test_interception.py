@@ -53,6 +53,32 @@ class FakeHeaders(dict):
         for existing in list(self.keys()):
             if existing.lower() == key.lower():
                 dict.__delitem__(self, existing)
+        self._multi().pop(key.lower(), None)
+
+    def _multi(self):
+        # dict's own constructor bypasses __init__-time setup, so the repeated-header store is
+        # created on first use.
+        if not hasattr(self, '_repeated'):
+            self._repeated = {}
+        return self._repeated
+
+    def get_all(self, key):
+        """mitmproxy keeps repeated headers (Set-Cookie above all) as separate values."""
+        if key.lower() in self._multi():
+            return list(self._multi()[key.lower()])
+        value = self.get(key)
+        return [] if value is None else [value]
+
+    def set_all(self, key, values):
+        values = list(values)
+        for existing in list(self.keys()):
+            if existing.lower() == key.lower():
+                dict.__delitem__(self, existing)
+        self._multi().pop(key.lower(), None)
+        if values:
+            dict.__setitem__(self, key, values[0])
+            if len(values) > 1:
+                self._multi()[key.lower()] = values
 
 
 class FakeMessage:
@@ -61,6 +87,15 @@ class FakeMessage:
         self.headers = FakeHeaders(headers or {})
         self.status_code = status
         self.reason = 'OK'
+
+    @property
+    def content(self):
+        """The body as bytes, as mitmproxy's .content is - the multipart edit works on it."""
+        return None if self.text is None else self.text.encode('utf-8', 'surrogateescape')
+
+    @content.setter
+    def content(self, value):
+        self.text = None if value is None else value.decode('utf-8', 'surrogateescape')
 
     def get_text(self, strict=True):
         """mitmproxy's own accessor, which _snapshot uses in preference to .text so an
@@ -184,6 +219,23 @@ class UrlRequest(FakeRequest):
     @property
     def pretty_url(self):
         return self.url
+
+
+class CodecMessage(FakeMessage):
+    """A response with mitmproxy's decode()/encode(): the calls are recorded, and the
+    Content-Encoding header follows them the way mitmproxy's does."""
+
+    def __init__(self, *args, **kwargs):
+        FakeMessage.__init__(self, *args, **kwargs)
+        self.codec_calls = []
+
+    def decode(self, strict=True):
+        self.codec_calls.append('decode')
+        del self.headers['content-encoding']
+
+    def encode(self, encoding):
+        self.codec_calls.append(f'encode:{encoding}')
+        self.headers['content-encoding'] = encoding
 
 
 class FakeFlow:
@@ -1318,6 +1370,16 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         'SET_METHOD': {'type': 'SET_METHOD', 'method': 'PUT'},
         'REMOVE_REQUEST_JSON_FIELD': {'type': 'REMOVE_REQUEST_JSON_FIELD', 'path': 'a'},
         'SET_REQUEST_BODY': {'type': 'SET_REQUEST_BODY', 'body': 'replaced'},
+        'SET_REQUEST_COOKIE': {'type': 'SET_REQUEST_COOKIE', 'name': 'theme', 'value': 'dark'},
+        'REMOVE_REQUEST_COOKIE': {'type': 'REMOVE_REQUEST_COOKIE', 'name': 'drop'},
+        'SET_FORM_FIELD': {'type': 'SET_FORM_FIELD', 'name': 'amount', 'value': '0'},
+        'REMOVE_FORM_FIELD': {'type': 'REMOVE_FORM_FIELD', 'name': 'amount'},
+        'SET_RESPONSE_COOKIE': {'type': 'SET_RESPONSE_COOKIE', 'name': 'drop', 'value': 'x',
+                                'cookieAttributes': {'maxAge': 0}},
+        'REMOVE_RESPONSE_COOKIE': {'type': 'REMOVE_RESPONSE_COOKIE', 'name': 'drop'},
+        'DISABLE_CACHE': {'type': 'DISABLE_CACHE'},
+        'DISABLE_COMPRESSION': {'type': 'DISABLE_COMPRESSION'},
+        'SET_RESPONSE_ENCODING': {'type': 'SET_RESPONSE_ENCODING', 'encoding': 'gzip'},
         'MOCK_RESPONSE': {'type': 'MOCK_RESPONSE', 'status': 418, 'body': 'teapot'},
         # The mode that answers rather than kills, so there is something to record either end of.
         'SIMULATE_FAILURE': {'type': 'SIMULATE_FAILURE', 'failure': 'GATEWAY_ERROR', 'status': 503},
@@ -1349,14 +1411,23 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def flow(self, phase):
+    # Actions whose sample needs a body other than the JSON fixture's to have anything to edit.
+    FORM_ACTIONS = {'SET_FORM_FIELD', 'REMOVE_FORM_FIELD'}
+
+    def flow(self, phase, kind=None):
         # No response during the REQUEST phase, as in a real flow - mitmproxy has not called
         # upstream yet. It matters: a response that exists when the request phase ends is how
         # finalize_request knows one was manufactured.
+        headers = {'X-Gone': 'x', 'Cookie': 'session=a; drop=1', 'If-None-Match': '"v1"'}
+        text = json.dumps({'a': 1})
+        if kind in self.FORM_ACTIONS:
+            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+            text = 'amount=12&currency=EUR'
         return FakeFlow(
-            FakeRequest(text=json.dumps({'a': 1}), headers={'X-Gone': 'x'}, query={'drop': '1'}),
+            FakeRequest(text=text, headers=headers, query={'drop': '1'}),
             None if phase == 'request'
-            else FakeMessage(status=200, text=json.dumps({'a': 1}), headers={'X-Gone': 'x'}))
+            else CodecMessage(status=200, text=json.dumps({'a': 1}),
+                              headers={'X-Gone': 'x', 'Set-Cookie': 'drop=1; Path=/'}))
 
     def test_every_action_type_has_a_sample(self):
         every = interception.REQUEST_ACTIONS | interception.RESPONSE_ACTIONS
@@ -1369,7 +1440,7 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         for kind, action in sorted(self.SAMPLES.items()):
             with self.subTest(action=kind):
                 phase = 'request' if kind in interception.REQUEST_ACTIONS else 'response'
-                flow = self.flow(phase)
+                flow = self.flow(phase, kind)
                 engine = interception.InterceptionEngine(
                     'outbound', write_rules(self.tmp.name, [rule(id=kind, actions=[action])]))
 
@@ -2132,6 +2203,314 @@ class SetRequestBodyTest(unittest.TestCase):
             self.assertEqual(flow.request.text, '<Order/>')
             self.assertEqual(flow.request.headers['content-type'], 'application/xml')
             self.assertEqual(verdict.applied[0].detail, '8 chars, application/xml')
+
+
+class CookieHeaderTest(unittest.TestCase):
+    """The token-level Cookie edit: the other cookies reach the target byte for byte."""
+
+    def test_removing_one_cookie_keeps_the_others_exactly(self):
+        self.assertEqual(
+            interception.edit_cookie_header('session=a; consent=b; theme=c', 'consent', None),
+            'session=a; theme=c')
+
+    def test_removing_the_first_cookie_leaves_no_leading_separator(self):
+        self.assertEqual(interception.edit_cookie_header('session=a; theme=c', 'session', None), 'theme=c')
+
+    def test_setting_replaces_the_value_in_place(self):
+        self.assertEqual(
+            interception.edit_cookie_header('session=a;consent=b; theme=c', 'consent', 'no'),
+            'session=a;consent=no; theme=c')
+
+    def test_setting_a_new_cookie_appends_it(self):
+        self.assertEqual(interception.edit_cookie_header('session=a', 'theme', 'dark'), 'session=a; theme=dark')
+        self.assertEqual(interception.edit_cookie_header('', 'theme', 'dark'), 'theme=dark')
+
+    def test_a_duplicated_cookie_is_set_once(self):
+        self.assertEqual(interception.edit_cookie_header('a=1; a=2; b=3', 'a', '9'), 'a=9; b=3')
+
+    def test_set_cookie_attributes_are_rendered_in_order(self):
+        self.assertEqual(
+            interception.set_cookie_line('session', 'x', {
+                'path': '/', 'domain': 'app.example', 'maxAge': 0, 'secure': True,
+                'httpOnly': True, 'sameSite': 'Strict'}),
+            'session=x; Path=/; Domain=app.example; Max-Age=0; Secure; HttpOnly; SameSite=Strict')
+        self.assertEqual(interception.set_cookie_line('a', 'b', None), 'a=b')
+
+
+class CookieActionsTest(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, *actions):
+        return interception.InterceptionEngine('outbound', write_rules(self.tmp.name, [rule(actions=list(actions))]))
+
+    def request(self, action, cookie='session=s3cret; consent=yes; theme=c'):
+        request = FakeRequest(headers={'Cookie': cookie})
+        verdict = run(self.engine(action).apply_request(FakeFlow(request)))
+        return request, verdict
+
+    def response(self, action, set_cookies=('session=s3cret; Path=/', 'theme=c')):
+        response = FakeMessage(status=200, text='{}')
+        response.headers.set_all('Set-Cookie', list(set_cookies))
+        verdict = run(self.engine(action).apply_response(FakeFlow(FakeRequest(), response)))
+        return response, verdict
+
+    def test_removing_a_request_cookie(self):
+        request, verdict = self.request({'type': 'REMOVE_REQUEST_COOKIE', 'name': 'consent'})
+        self.assertEqual(request.headers.get('Cookie'), 'session=s3cret; theme=c')
+        self.assertEqual(verdict.applied[0].detail, 'consent')
+
+    def test_removing_the_only_cookie_drops_the_header(self):
+        request, _ = self.request({'type': 'REMOVE_REQUEST_COOKIE', 'name': 'a'}, cookie='a=1')
+        self.assertNotIn('Cookie', request.headers)
+
+    def test_removing_a_cookie_that_is_not_there_is_recorded(self):
+        _, verdict = self.request({'type': 'REMOVE_REQUEST_COOKIE', 'name': 'nope'})
+        self.assertEqual(verdict.applied[0].detail, 'skipped - no such cookie')
+
+    def test_setting_a_request_cookie_never_logs_its_value(self):
+        request, verdict = self.request({'type': 'SET_REQUEST_COOKIE', 'name': 'session', 'value': 'n3wsecret'})
+        self.assertEqual(request.headers.get('Cookie'), 'session=n3wsecret; consent=yes; theme=c')
+        self.assertNotIn('n3wsecret', verdict.applied[0].detail)
+        self.assertNotIn('n3wsecret', json.dumps(verdict.as_log()))
+
+    def test_expiring_a_response_cookie_keeps_the_other_set_cookies(self):
+        response, verdict = self.response({'type': 'SET_RESPONSE_COOKIE', 'name': 'session', 'value': '',
+                                           'cookieAttributes': {'path': '/', 'maxAge': 0}})
+        self.assertEqual(response.headers.get_all('Set-Cookie'), ['session=; Path=/; Max-Age=0', 'theme=c'])
+        self.assertEqual(verdict.applied[0].detail, 'session (value not logged · 0 chars); Path=/; Max-Age=0')
+
+    def test_setting_a_new_response_cookie_appends_it(self):
+        response, _ = self.response({'type': 'SET_RESPONSE_COOKIE', 'name': 'consent', 'value': 'no'})
+        self.assertEqual(response.headers.get_all('Set-Cookie'),
+                         ['session=s3cret; Path=/', 'theme=c', 'consent=no'])
+
+    def test_removing_a_response_cookie(self):
+        response, verdict = self.response({'type': 'REMOVE_RESPONSE_COOKIE', 'name': 'session'})
+        self.assertEqual(response.headers.get_all('Set-Cookie'), ['theme=c'])
+        self.assertNotIn('s3cret', json.dumps(verdict.as_log()))
+
+    def test_removing_a_response_cookie_that_is_not_there_is_recorded(self):
+        _, verdict = self.response({'type': 'REMOVE_RESPONSE_COOKIE', 'name': 'nope'})
+        self.assertEqual(verdict.applied[0].detail, 'skipped - no such cookie')
+
+
+class FormFieldTest(unittest.TestCase):
+
+    BOUNDARY = 'XyZ'
+    MULTIPART = (
+        '--XyZ\r\nContent-Disposition: form-data; name="amount"\r\n\r\n12\r\n'
+        '--XyZ\r\nContent-Disposition: form-data; name="doc"; filename="a.pdf"\r\n'
+        'Content-Type: application/pdf\r\n\r\n%PDF-1\r\n'
+        '--XyZ--\r\n')
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def apply(self, action, text, content_type):
+        engine = interception.InterceptionEngine('outbound', write_rules(self.tmp.name, [rule(actions=[action])]))
+        request = FakeRequest(method='POST', text=text, headers={'Content-Type': content_type})
+        verdict = run(engine.apply_request(FakeFlow(request)))
+        return request, verdict
+
+    def test_setting_a_urlencoded_field_keeps_the_other_pairs_as_sent(self):
+        request, verdict = self.apply({'type': 'SET_FORM_FIELD', 'name': 'amount', 'value': '0'},
+                                      'note=a%20b&amount=12&currency=EUR', 'application/x-www-form-urlencoded')
+        self.assertEqual(request.text, 'note=a%20b&amount=0&currency=EUR')
+        self.assertEqual(verdict.applied[0].detail, 'amount=0')
+
+    def test_removing_a_urlencoded_field(self):
+        request, _ = self.apply({'type': 'REMOVE_FORM_FIELD', 'name': 'amount'},
+                                'amount=12&currency=EUR', 'application/x-www-form-urlencoded; charset=utf-8')
+        self.assertEqual(request.text, 'currency=EUR')
+
+    def test_a_secret_form_field_keeps_its_value_out_of_the_detail(self):
+        _, verdict = self.apply({'type': 'SET_FORM_FIELD', 'name': 'api-key', 'value': 's3cret'},
+                                'a=1', 'application/x-www-form-urlencoded')
+        self.assertNotIn('s3cret', verdict.applied[0].detail)
+
+    def test_a_multipart_text_field_is_edited_and_the_file_part_is_byte_identical(self):
+        request, verdict = self.apply({'type': 'SET_FORM_FIELD', 'name': 'amount', 'value': '0'},
+                                      self.MULTIPART, f'multipart/form-data; boundary={self.BOUNDARY}')
+        self.assertEqual(request.text, self.MULTIPART.replace('\r\n\r\n12\r\n', '\r\n\r\n0\r\n'))
+        self.assertEqual(verdict.applied[0].detail, 'amount=0')
+
+    def test_a_new_multipart_field_is_added_before_the_closing_boundary(self):
+        request, _ = self.apply({'type': 'SET_FORM_FIELD', 'name': 'note', 'value': 'hi'},
+                                self.MULTIPART, f'multipart/form-data; boundary="{self.BOUNDARY}"')
+        self.assertTrue(request.text.endswith(
+            '--XyZ\r\nContent-Disposition: form-data; name="note"\r\n\r\nhi\r\n--XyZ--\r\n'))
+        self.assertIn('filename="a.pdf"', request.text)
+
+    def test_removing_a_multipart_field(self):
+        request, _ = self.apply({'type': 'REMOVE_FORM_FIELD', 'name': 'amount'},
+                                self.MULTIPART, f'multipart/form-data; boundary={self.BOUNDARY}')
+        self.assertNotIn('name="amount"', request.text)
+        self.assertIn('%PDF-1', request.text)
+
+    def test_a_file_part_is_never_edited(self):
+        request, verdict = self.apply({'type': 'SET_FORM_FIELD', 'name': 'doc', 'value': 'x'},
+                                      self.MULTIPART, f'multipart/form-data; boundary={self.BOUNDARY}')
+        self.assertEqual(request.text, self.MULTIPART)
+        self.assertEqual(verdict.applied[0].detail, 'skipped - a file part, left untouched')
+
+    def test_a_value_carrying_the_boundary_is_refused(self):
+        request, verdict = self.apply({'type': 'SET_FORM_FIELD', 'name': 'amount', 'value': '--XyZ--'},
+                                      self.MULTIPART, f'multipart/form-data; boundary={self.BOUNDARY}')
+        self.assertEqual(request.text, self.MULTIPART)
+        self.assertTrue(verdict.applied[0].detail.startswith('skipped - '))
+
+    def test_a_json_body_is_not_a_form(self):
+        request, verdict = self.apply({'type': 'SET_FORM_FIELD', 'name': 'amount', 'value': '0'},
+                                      '{"amount":12}', 'application/json')
+        self.assertEqual(request.text, '{"amount":12}')
+        self.assertEqual(verdict.applied[0].detail, 'skipped - not a form')
+
+
+class CacheAndCompressionTest(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, action):
+        return interception.InterceptionEngine('outbound', write_rules(self.tmp.name, [rule(actions=[action])]))
+
+    def test_disable_cache_names_the_headers_it_removed(self):
+        request = FakeRequest(headers={'If-None-Match': '"v1"', 'If-Modified-Since': 'Mon', 'Accept': '*/*'})
+        verdict = run(self.engine({'type': 'DISABLE_CACHE'}).apply_request(FakeFlow(request)))
+        self.assertEqual(dict(request.headers), {'Accept': '*/*'})
+        self.assertEqual(verdict.applied[0].detail, 'if-none-match, if-modified-since')
+
+    def test_disable_cache_without_conditional_headers_is_recorded(self):
+        verdict = run(self.engine({'type': 'DISABLE_CACHE'}).apply_request(FakeFlow(FakeRequest())))
+        self.assertEqual(verdict.applied[0].detail, 'skipped - no conditional headers')
+
+    def test_disable_compression_asks_for_identity(self):
+        request = FakeRequest(headers={'Accept-Encoding': 'gzip, br'})
+        verdict = run(self.engine({'type': 'DISABLE_COMPRESSION'}).apply_request(FakeFlow(request)))
+        self.assertEqual(request.headers.get('accept-encoding'), 'identity')
+        self.assertEqual(verdict.applied[0].detail, 'accept-encoding: identity')
+
+    def response(self, encoding, current=None):
+        response = CodecMessage(status=200, text='{}', headers={'Content-Encoding': current} if current else {})
+        verdict = run(self.engine({'type': 'SET_RESPONSE_ENCODING', 'encoding': encoding})
+                      .apply_response(FakeFlow(FakeRequest(), response)))
+        return response, verdict
+
+    def test_a_new_encoding_decodes_first_then_encodes(self):
+        response, verdict = self.response('br', current='gzip')
+        self.assertEqual(response.codec_calls, ['decode', 'encode:br'])
+        self.assertEqual(verdict.applied[0].detail, 'gzip → br')
+
+    def test_identity_only_decodes(self):
+        response, verdict = self.response('identity', current='gzip')
+        self.assertEqual(response.codec_calls, ['decode'])
+        self.assertEqual(verdict.applied[0].detail, 'gzip → identity')
+
+    def test_a_body_already_in_that_encoding_is_recorded_as_skipped(self):
+        response, verdict = self.response('gzip', current='gzip')
+        self.assertEqual(response.codec_calls, [])
+        self.assertEqual(verdict.applied[0].detail, 'skipped - already gzip')
+
+    def test_an_unsupported_encoding_is_refused(self):
+        response, verdict = self.response('lzma')
+        self.assertEqual(response.codec_calls, [])
+        self.assertEqual(verdict.applied[0].detail, 'skipped - unsupported encoding lzma')
+
+
+class MatchTestsTest(unittest.TestCase):
+    """Header, query and cookie tests in a rule's match - evaluated last, and a failed one means the
+    rule did not match at all, so its stopProcessing never fires."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, rules):
+        return interception.InterceptionEngine('outbound', write_rules(self.tmp.name, rules))
+
+    def matched(self, match, request):
+        engine = self.engine([rule(match=match, actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Hit', 'value': '1'}])])
+        run(engine.apply_request(FakeFlow(request)))
+        return request.headers.get('X-Hit') == '1'
+
+    def test_header_exists_and_not_exists(self):
+        exists = {'headers': [{'name': 'x-tenant', 'operator': 'EXISTS'}]}
+        self.assertTrue(self.matched(exists, FakeRequest(headers={'X-Tenant': 'acme'})))
+        self.assertFalse(self.matched(exists, FakeRequest()))
+        absent = {'headers': [{'name': 'X-Tenant', 'operator': 'NOT_EXISTS'}]}
+        self.assertTrue(self.matched(absent, FakeRequest()))
+        self.assertFalse(self.matched(absent, FakeRequest(headers={'x-tenant': 'acme'})))
+
+    def test_header_equals_with_a_case_insensitive_name(self):
+        match = {'headers': [{'name': 'X-TENANT', 'operator': 'EQUALS', 'value': 'acme'}]}
+        self.assertTrue(self.matched(match, FakeRequest(headers={'x-tenant': 'acme'})))
+        self.assertFalse(self.matched(match, FakeRequest(headers={'x-tenant': 'ACME'})))
+        folded = {'headers': [{'name': 'X-Tenant', 'operator': 'EQUALS', 'value': 'acme', 'caseSensitive': False}]}
+        self.assertTrue(self.matched(folded, FakeRequest(headers={'x-tenant': 'ACME'})))
+
+    def test_query_equals(self):
+        match = {'query': [{'name': 'mode', 'operator': 'EQUALS', 'value': 'live'}]}
+        self.assertTrue(self.matched(match, FakeRequest(query={'mode': 'live'})))
+        self.assertFalse(self.matched(match, FakeRequest(query={'mode': 'test'})))
+
+    def test_cookie_contains(self):
+        match = {'cookies': [{'name': 'features', 'operator': 'CONTAINS', 'value': 'beta'}]}
+        self.assertTrue(self.matched(match, FakeRequest(headers={'Cookie': 'session=a; features=x,beta,y'})))
+        self.assertFalse(self.matched(match, FakeRequest(headers={'Cookie': 'session=beta'})))
+
+    def test_every_test_must_hold(self):
+        match = {'headers': [{'name': 'X-A', 'operator': 'EXISTS'}], 'query': [{'name': 'q', 'operator': 'EXISTS'}]}
+        self.assertFalse(self.matched(match, FakeRequest(headers={'X-A': '1'})))
+        self.assertTrue(self.matched(match, FakeRequest(headers={'X-A': '1'}, query={'q': '1'})))
+
+    def test_matches_compiles_once_at_load_not_per_call(self):
+        match = {'headers': [{'name': 'X-Id', 'operator': 'MATCHES', 'value': '^[0-9]+$'}]}
+        engine = self.engine([rule(match=match, actions=[{'type': 'DELAY_REQUEST', 'durationMs': 1}])])
+        real = interception.re.compile
+        calls = []
+
+        def counting(*args, **kwargs):
+            calls.append(args[0])
+            return real(*args, **kwargs)
+
+        interception.re.compile = counting
+        try:
+            for value in ('123', '456', 'abc'):
+                run(engine.apply_request(FakeFlow(FakeRequest(headers={'X-Id': value}))))
+        finally:
+            interception.re.compile = real
+        self.assertEqual(calls.count('^[0-9]+$'), 1)
+
+    def test_a_failed_test_does_not_stop_later_rules(self):
+        first = rule(id='a', priority=1, stopProcessing=True,
+                     match={'headers': [{'name': 'X-Only', 'operator': 'EXISTS'}]},
+                     actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-First', 'value': '1'}])
+        second = rule(id='b', priority=2, actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Second', 'value': '1'}])
+        request = FakeRequest()
+        run(self.engine([first, second]).apply_request(FakeFlow(request)))
+        self.assertNotIn('X-First', request.headers)
+        self.assertEqual(request.headers.get('X-Second'), '1')
+
+    def test_the_tests_are_never_read_when_the_host_already_fails(self):
+        class Untouchable(FakeHeaders):
+            def get(self, key, default=None):
+                raise AssertionError('headers read for a call the host check ruled out')
+
+            def get_all(self, key):
+                raise AssertionError('headers read for a call the host check ruled out')
+
+        request = FakeRequest(host='other.example')
+        request.headers = Untouchable()
+        match = {'host': 'api.supplier.com', 'headers': [{'name': 'X-A', 'operator': 'EXISTS'}],
+                 'cookies': [{'name': 's', 'operator': 'EXISTS'}]}
+        engine = self.engine([rule(match=match, actions=[{'type': 'DELAY_REQUEST', 'durationMs': 1}])])
+        verdict = run(engine.apply_request(FakeFlow(request)))
+        self.assertEqual(verdict.applied, [])
 
 
 if __name__ == '__main__':

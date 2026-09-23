@@ -50,6 +50,7 @@ describe('PausedCallsComponent', () => {
     http.expectOne(`${BACKEND}/interception/rules`).flush([]);
     http.expectOne(`${BACKEND}/interception/paused`).flush(calls);
     http.expectOne(`${BACKEND}/interception/enabled`).flush({ enabled: true });
+    http.match(`${BACKEND}/interception/sensitive-headers`).forEach((r) => r.flush({ names: ['cookie', 'x-api-key'] }));
     http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush([]));
     fixture.detectChanges();
     flushOpenCardDetail(calls);
@@ -106,6 +107,7 @@ describe('PausedCallsComponent', () => {
     http.expectOne(`${BACKEND}/interception/rules`).flush([]);
     http.expectOne(`${BACKEND}/interception/paused`).flush([summary]);
     http.expectOne(`${BACKEND}/interception/enabled`).flush({ enabled: true });
+    http.match(`${BACKEND}/interception/sensitive-headers`).forEach((r) => r.flush({ names: ['cookie', 'x-api-key'] }));
     http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush([]));
     fixture.detectChanges();
 

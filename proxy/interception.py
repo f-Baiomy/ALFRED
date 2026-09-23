@@ -30,6 +30,7 @@ import json
 import os
 import re
 import time
+import urllib.parse
 from http import HTTPStatus
 
 import regex_worker
@@ -57,6 +58,8 @@ REQUEST_ACTIONS = {
     'SET_QUERY_PARAM', 'REMOVE_QUERY_PARAM', 'SET_REQUEST_JSON_FIELD',
     'REPLACE_IN_REQUEST_BODY', 'REWRITE_URL', 'SET_METHOD',
     'REMOVE_REQUEST_JSON_FIELD', 'SET_REQUEST_BODY',
+    'SET_REQUEST_COOKIE', 'REMOVE_REQUEST_COOKIE', 'SET_FORM_FIELD', 'REMOVE_FORM_FIELD',
+    'DISABLE_CACHE', 'DISABLE_COMPRESSION',
     'ABORT_REQUEST', 'MOCK_RESPONSE', 'PAUSE_REQUEST', 'SEND_TO_HOST',
     'SIMULATE_FAILURE', 'IF_REQUEST',
 }
@@ -64,6 +67,7 @@ RESPONSE_ACTIONS = {
     'DELAY_RESPONSE', 'SET_RESPONSE_STATUS', 'SET_RESPONSE_HEADER',
     'REMOVE_RESPONSE_HEADER', 'SET_RESPONSE_JSON_FIELD', 'SET_RESPONSE_BODY',
     'REPLACE_IN_RESPONSE_BODY', 'REMOVE_RESPONSE_JSON_FIELD',
+    'SET_RESPONSE_COOKIE', 'REMOVE_RESPONSE_COOKIE', 'SET_RESPONSE_ENCODING',
     'REPLACE_RESPONSE', 'PAUSE_RESPONSE', 'IF_RESPONSE',
 }
 
@@ -94,6 +98,14 @@ FAILURE_MODES = {
 # that mode is that the CALLER's timeout fires first; this only exists so a client with no timeout
 # at all cannot pin a connection open forever.
 MAX_HANG_SECONDS = int(os.environ.get('INTERCEPTION_MAX_HANG_SECONDS', str(MAX_PAUSE_SECONDS)))
+
+# The request headers that let a server answer 304 Not Modified. DISABLE_CACHE removes exactly these
+# - the same two mitmproxy's anticache() removes - so the full response always comes back.
+CONDITIONAL_HEADERS = ('if-none-match', 'if-modified-since')
+
+# What SET_RESPONSE_ENCODING can produce: the Content-Encodings mitmproxy's encode() supports,
+# plus identity for "no compression". The mirror of the backend validator's list.
+RESPONSE_ENCODINGS = {'gzip', 'deflate', 'br', 'zstd', 'identity'}
 
 # Header names whose VALUE is never written into an interception record. The record says a header
 # was set and names it; the value would end up in the call log, in every export, and in the
@@ -159,7 +171,7 @@ class Match:
     so a rule with an empty match applies to all traffic (which is why the UI states the match
     back to the user in plain language before saving)."""
 
-    __slots__ = ('source', 'service_names', 'methods', 'host', 'path_contains', 'path_regex')
+    __slots__ = ('source', 'service_names', 'methods', 'host', 'path_contains', 'path_regex', 'tests')
 
     def __init__(self, raw):
         raw = raw or {}
@@ -185,8 +197,16 @@ class Match:
         # compilation on the hot path of every proxied call for every rule that has one.
         pattern = (raw.get('pathRegex') or '').strip()
         self.path_regex = re.compile(pattern) if pattern else None
+        # Header, query and cookie tests, flattened into one tuple so matching is a single loop.
+        # Empty for every rule saved before they existed, which then costs nothing extra.
+        self.tests = tuple(
+            test
+            for where in ('headers', 'query', 'cookies')
+            for test in (_MatchTest.parse(where, one) for one in (raw.get(where) or []))
+            if test is not None
+        )
 
-    def matches(self, source, service_name, method, host, path):
+    def matches(self, source, service_name, method, host, path, request=None):
         # Ordered cheapest first: a rule that doesn't apply to this direction costs one string
         # comparison, not a regex.
         if self.source is not None and self.source != source:
@@ -201,7 +221,87 @@ class Match:
             return False
         if self.path_regex is not None and not self.path_regex.search(path or ''):
             return False
+        # Last: the only checks that read the call's headers, and only reached by a call every
+        # cheaper check above already let through.
+        if self.tests:
+            cookies = None
+            for test in self.tests:
+                if test.where == 'cookies':
+                    if cookies is None:
+                        cookies = _request_cookies(request)
+                    value = cookies.get(test.name)
+                elif test.where == 'headers':
+                    value = request.headers.get(test.name)
+                else:
+                    value = request.query.get(test.name)
+                if not test.holds(value):
+                    return False
         return True
+
+
+class _MatchTest:
+    """One header, query or cookie test of a rule's match. MATCHES is compiled once, here, like
+    pathRegex - never per call."""
+
+    __slots__ = ('where', 'name', 'operator', 'value', 'folded', 'regex')
+
+    OPERATORS = {'EXISTS', 'NOT_EXISTS', 'EQUALS', 'CONTAINS', 'MATCHES'}
+
+    @classmethod
+    def parse(cls, where, raw):
+        if not isinstance(raw, dict):
+            return None
+        name = str(raw.get('name') or '').strip()
+        operator = str(raw.get('operator') or '').strip().upper()
+        if not name or operator not in cls.OPERATORS:
+            return None
+        test = cls()
+        test.where = where
+        # Cookies compare names exactly, as browsers do; header names are case-insensitive through
+        # mitmproxy's Headers itself.
+        test.name = name
+        test.operator = operator
+        value = raw.get('value')
+        test.value = None if value is None else str(value)
+        test.folded = raw.get('caseSensitive') is False
+        test.regex = None
+        if operator == 'MATCHES':
+            if test.value is None or len(test.value) > MAX_PATTERN_LENGTH:
+                return None
+            test.regex = re.compile(test.value, re.IGNORECASE if test.folded else 0)
+        elif test.folded and test.value is not None:
+            test.value = test.value.lower()
+        return test
+
+    def holds(self, actual):
+        if self.operator == 'EXISTS':
+            return actual is not None
+        if self.operator == 'NOT_EXISTS':
+            return actual is None
+        if actual is None or self.value is None and self.regex is None:
+            return False
+        actual = str(actual)
+        if self.operator == 'MATCHES':
+            return self.regex.search(actual) is not None
+        if self.folded:
+            actual = actual.lower()
+        if self.operator == 'EQUALS':
+            return actual == self.value
+        return self.value in actual
+
+
+def _request_cookies(request):
+    """name -> value for the request's cookies, first occurrence winning. Parsed from the raw
+    header rather than request.cookies so a test reads exactly what edit_cookie_header edits."""
+    out = {}
+    if request is None:
+        return out
+    for piece in '; '.join(request.headers.get_all('cookie')).split(';'):
+        name, eq, value = piece.partition('=')
+        name = name.strip()
+        if name and eq and name not in out:
+            out[name] = value.strip()
+    return out
 
 
 def _host_matches(pattern, host):
@@ -386,6 +486,235 @@ def _masked_url(url, verdict):
         name, eq, value = pair.partition('=')
         pieces.append(f'{name}={mask_value(value)}' if eq and verdict.masks(name) else pair)
     return f'{base}?{"&".join(pieces)}'
+
+
+def edit_cookie_header(header, name, value):
+    """A Cookie header with one cookie set (value) or removed (value None), and every other cookie
+    left exactly as it was - separators, spacing and order included.
+
+    mitmproxy's request.cookies view is deliberately not used: it re-serialises every cookie on
+    write, so a tester dropping `consent` would also see `session` re-quoted or re-spaced, and the
+    point of the edit is that nothing else moves. A cookie named twice is set once and its
+    duplicates dropped, because a server reading the second copy would never see the edit.
+    """
+    out, found = [], False
+    for piece in (header.split(';') if header else []):
+        if piece.split('=', 1)[0].strip() != name:
+            out.append(piece)
+            continue
+        if found or value is None:
+            found = True
+            continue
+        found = True
+        lead = piece[:len(piece) - len(piece.lstrip())]
+        out.append(f'{lead}{name}={value}')
+    if not found and value is not None:
+        out.append(f'{" " if out else ""}{name}={value}')
+    return ';'.join(out).lstrip()
+
+
+def _set_cookie_name(line):
+    return (line or '').split(';', 1)[0].split('=', 1)[0].strip()
+
+
+def set_cookie_line(name, value, attributes=None):
+    """A Set-Cookie value, attributes in the order RFC 6265 lists them. Only what the rule states
+    is written: an attribute left empty is absent, not defaulted."""
+    attributes = attributes if isinstance(attributes, dict) else {}
+    parts = [f'{name}={value}']
+    if attributes.get('path'):
+        parts.append(f"Path={attributes['path']}")
+    if attributes.get('domain'):
+        parts.append(f"Domain={attributes['domain']}")
+    if attributes.get('maxAge') is not None:
+        try:
+            parts.append(f"Max-Age={int(attributes['maxAge'])}")
+        except (TypeError, ValueError):
+            pass
+    if attributes.get('secure') is True:
+        parts.append('Secure')
+    if attributes.get('httpOnly') is True:
+        parts.append('HttpOnly')
+    if attributes.get('sameSite'):
+        parts.append(f"SameSite={attributes['sameSite']}")
+    return '; '.join(parts)
+
+
+def _cookie_detail(name, value):
+    # A cookie value is a session more often than not, so it is never written into the record -
+    # the same reason `cookie` and `set-cookie` are on the secret header list.
+    return name if value is None else f'{name} {mask_value(value)}'
+
+
+def _edit_request_cookie(request, rule, action, kind, verdict):
+    name = str(action.get('name') or '').strip()
+    if not name:
+        verdict.skip(rule, kind, 'no cookie name')
+        return
+    value = None if kind == 'REMOVE_REQUEST_COOKIE' else str(action.get('value', ''))
+    # HTTP/2 may split cookies over several Cookie headers; they are one list, joined as RFC 7540
+    # says, and written back as one header.
+    current = '; '.join(request.headers.get_all('cookie'))
+    updated = edit_cookie_header(current, name, value)
+    if updated == current:
+        verdict.skip(rule, kind, 'no such cookie' if value is None else 'already set')
+        return
+    if updated:
+        request.headers.set_all('cookie', [updated])
+    else:
+        del request.headers['cookie']
+    verdict.record(rule, kind, _cookie_detail(name, value))
+
+
+def _edit_response_cookie(response, rule, action, kind, verdict):
+    """Set replaces the Set-Cookie of the same name where it stood, or appends one; remove drops
+    it. Every other Set-Cookie line is kept as the supplier sent it."""
+    name = str(action.get('name') or '').strip()
+    if not name:
+        verdict.skip(rule, kind, 'no cookie name')
+        return
+    lines = response.headers.get_all('set-cookie')
+    if kind == 'REMOVE_RESPONSE_COOKIE':
+        kept = [line for line in lines if _set_cookie_name(line) != name]
+        if len(kept) == len(lines):
+            verdict.skip(rule, kind, 'no such cookie')
+            return
+        response.headers.set_all('set-cookie', kept)
+        verdict.record(rule, kind, name)
+        return
+
+    value = str(action.get('value', ''))
+    line = set_cookie_line(name, value, action.get('cookieAttributes'))
+    updated, placed = [], False
+    for existing in lines:
+        if _set_cookie_name(existing) != name:
+            updated.append(existing)
+        elif not placed:
+            updated.append(line)
+            placed = True
+    if not placed:
+        updated.append(line)
+    if updated == lines:
+        verdict.skip(rule, kind, 'already set')
+        return
+    response.headers.set_all('set-cookie', updated)
+    attributes = line.partition('; ')[2]
+    verdict.record(rule, kind, _cookie_detail(name, value) + (f'; {attributes}' if attributes else ''))
+
+
+def edit_urlencoded(text, name, value):
+    """A urlencoded body with one field set or removed (value None), every other pair left byte for
+    byte. None when there was nothing to remove. Hand-rolled for the same reason as
+    edit_cookie_header: request.urlencoded_form re-encodes every pair on write."""
+    out, found = [], False
+    for pair in (text.split('&') if text else []):
+        if urllib.parse.unquote_plus(pair.split('=', 1)[0]) != name:
+            out.append(pair)
+            continue
+        if found or value is None:
+            found = True
+            continue
+        found = True
+        out.append(f'{urllib.parse.quote_plus(name)}={urllib.parse.quote_plus(value)}')
+    if not found:
+        if value is None:
+            return None
+        out.append(f'{urllib.parse.quote_plus(name)}={urllib.parse.quote_plus(value)}')
+    return '&'.join(out)
+
+
+_PART_NAME = re.compile(rb'(?i)\bname=(?:"([^"]*)"|([^;\s]+))')
+_PART_FILENAME = re.compile(rb'(?i)\bfilename\*?=')
+_BOUNDARY = re.compile(r'(?i)\bboundary=(?:"([^"]+)"|([^;\s]+))')
+
+
+def _part_disposition(head):
+    """(field name, is a file) for one multipart part's header block, or None without one."""
+    for line in head.split(b'\r\n'):
+        if line.lower().startswith(b'content-disposition:'):
+            found = _PART_NAME.search(line)
+            if not found:
+                return None
+            raw = found.group(1) if found.group(1) is not None else found.group(2)
+            return raw.decode('utf-8', 'replace'), bool(_PART_FILENAME.search(line))
+    return None
+
+
+def edit_multipart(content, content_type, name, value):
+    """A multipart/form-data body with one text field set or removed. Returns (body, None), or
+    (None, reason) when nothing was changed.
+
+    Edited at the byte level, part by part, rather than through request.multipart_form: that
+    setter re-encodes every part with a bare `name=` disposition, so a file part would lose its
+    filename and content type - the upload the tester was not touching would break. Here every
+    part but the edited one is copied through untouched, and a file part is never edited.
+    """
+    found_boundary = _BOUNDARY.search(content_type or '')
+    if not found_boundary:
+        return None, 'no multipart boundary'
+    boundary = (found_boundary.group(1) or found_boundary.group(2)).encode('ascii', 'replace')
+    delimiter = b'--' + boundary
+    encoded = None if value is None else value.encode('utf-8')
+    if encoded is not None and delimiter in encoded:
+        return None, 'the value contains the multipart boundary'
+    segments = (content or b'').split(delimiter)
+    if len(segments) < 3:
+        return None, 'not a form'
+    parts, found = [], False
+    for part in segments[1:-1]:
+        head, sep, _body = part.partition(b'\r\n\r\n')
+        disposition = _part_disposition(head)
+        if not disposition or disposition[0] != name:
+            parts.append(part)
+            continue
+        if disposition[1]:
+            return None, 'a file part, left untouched'
+        if found or encoded is None:
+            found = True
+            continue
+        found = True
+        parts.append(head + sep + encoded + b'\r\n')
+    if not found:
+        if encoded is None:
+            return None, 'no such field'
+        head = b'\r\nContent-Disposition: form-data; name="' + name.encode('utf-8') + b'"'
+        parts.append(head + b'\r\n\r\n' + encoded + b'\r\n')
+    return segments[0] + b''.join(delimiter + part for part in parts) + delimiter + segments[-1], None
+
+
+def _edit_form_field(request, rule, action, kind, verdict):
+    name = str(action.get('name') or '').strip()
+    if not name or any(c in name for c in '"\r\n'):
+        verdict.skip(rule, kind, 'no valid field name')
+        return
+    value = None if kind == 'REMOVE_FORM_FIELD' else str(action.get('value', ''))
+    content_type = request.headers.get('content-type') or ''
+    kind_of_form = content_type.split(';', 1)[0].strip().lower()
+    if kind_of_form == 'application/x-www-form-urlencoded':
+        text = request.text or ''
+        updated = edit_urlencoded(text, name, value)
+        if updated is None:
+            verdict.skip(rule, kind, 'no such field')
+            return
+        if updated == text:
+            verdict.skip(rule, kind, 'already set')
+            return
+        request.text = updated
+    elif kind_of_form == 'multipart/form-data':
+        updated, reason = edit_multipart(request.content, content_type, name, value)
+        if updated is None:
+            verdict.skip(rule, kind, reason)
+            return
+        if updated == request.content:
+            verdict.skip(rule, kind, 'already set')
+            return
+        request.content = updated
+    else:
+        verdict.skip(rule, kind, 'not a form')
+        return
+    # The body itself is in the before/after snapshot, so masking here only hides what a secret
+    # field name says it should - the same rule as a query parameter.
+    verdict.record(rule, kind, verdict.named(name, value))
 
 
 def _positive_int(value):
@@ -1223,7 +1552,7 @@ class InterceptionEngine:
         out = []
         for rule in ruleset.rules:
             try:
-                if rule.match.matches(self.source, service_name, request.method, host, path):
+                if rule.match.matches(self.source, service_name, request.method, host, path, request):
                     out.append(rule)
                     if rule.stop_processing:
                         break
@@ -1351,6 +1680,35 @@ class InterceptionEngine:
             if content_type:
                 request.headers['content-type'] = content_type
             verdict.record(rule, kind, f'{len(request.text)} chars' + (f', {content_type}' if content_type else ''))
+            return
+
+        if kind in ('SET_REQUEST_COOKIE', 'REMOVE_REQUEST_COOKIE'):
+            _edit_request_cookie(request, rule, action, kind, verdict)
+            return
+
+        if kind in ('SET_FORM_FIELD', 'REMOVE_FORM_FIELD'):
+            _edit_form_field(request, rule, action, kind, verdict)
+            return
+
+        if kind == 'DISABLE_CACHE':
+            # Popped by name rather than through mitmproxy's anticache(), so the record can say
+            # which of the two the caller actually sent - "nothing to remove" is the answer to
+            # "why did I still get a 304" more often than not.
+            removed = [name for name in CONDITIONAL_HEADERS if name in request.headers]
+            for name in removed:
+                del request.headers[name]
+            if removed:
+                verdict.record(rule, kind, ', '.join(removed))
+            else:
+                verdict.skip(rule, kind, 'no conditional headers')
+            return
+
+        if kind == 'DISABLE_COMPRESSION':
+            if (request.headers.get('accept-encoding') or '').strip().lower() == 'identity':
+                verdict.skip(rule, kind, 'already identity')
+            else:
+                request.headers['accept-encoding'] = 'identity'
+                verdict.record(rule, kind, 'accept-encoding: identity')
             return
 
         if kind == 'SET_METHOD':
@@ -1560,6 +1918,27 @@ class InterceptionEngine:
 
         if kind == 'REMOVE_RESPONSE_JSON_FIELD':
             _remove_field_from(response, rule, action, kind, verdict)
+            return
+
+        if kind in ('SET_RESPONSE_COOKIE', 'REMOVE_RESPONSE_COOKIE'):
+            _edit_response_cookie(response, rule, action, kind, verdict)
+            return
+
+        if kind == 'SET_RESPONSE_ENCODING':
+            encoding = str(action.get('encoding') or '').strip().lower()
+            if encoding not in RESPONSE_ENCODINGS:
+                verdict.skip(rule, kind, f'unsupported encoding {encoding or "(none)"}')
+                return
+            current = (response.headers.get('content-encoding') or 'identity').strip().lower()
+            if current == encoding:
+                verdict.skip(rule, kind, f'already {encoding}')
+                return
+            # Decode first, always: encode() on a body that is still gzipped would compress the
+            # compressed bytes, and the caller would decode once and read garbage.
+            response.decode()
+            if encoding != 'identity':
+                response.encode(encoding)
+            verdict.record(rule, kind, f'{current} → {encoding}')
             return
 
         if kind == 'SET_RESPONSE_BODY':

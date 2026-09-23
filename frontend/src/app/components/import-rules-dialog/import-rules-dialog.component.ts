@@ -70,7 +70,7 @@ export class ImportRulesDialogComponent {
       return {
         index,
         rule,
-        match: describeMatch(rule.match ?? {}),
+        match: describeMatch(rule.match ?? {}, this.state.sensitiveNames()),
         actions: actions.map((a) => describeAction(a)),
         pauses: actions.some((a) => a.type.startsWith('PAUSE_')),
         terminal: actions.some((a) => isTerminalAction(a.type)),

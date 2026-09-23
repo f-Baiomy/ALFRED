@@ -53,6 +53,7 @@ describe('ImportRulesDialogComponent', () => {
     http.expectOne(`${BACKEND}/interception/rules`).flush(existing);
     http.expectOne(`${BACKEND}/interception/paused`).flush([]);
     http.expectOne(`${BACKEND}/interception/enabled`).flush({ enabled: true });
+    http.match(`${BACKEND}/interception/sensitive-headers`).forEach((r) => r.flush({ names: ['cookie', 'x-api-key'] }));
     http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush([]));
     fixture.detectChanges();
   }

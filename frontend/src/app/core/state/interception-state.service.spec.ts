@@ -70,6 +70,7 @@ describe('InterceptionStateService', () => {
     http.expectOne(`${BACKEND}/interception/paused`).flush(options.paused ?? []);
     http.expectOne(`${BACKEND}/interception/enabled`).flush({ enabled: options.enabled ?? false });
     // Read lazily by the editor's action picker, but subscribed eagerly by toSignal.
+    http.match(`${BACKEND}/interception/sensitive-headers`).forEach((r) => r.flush({ names: ['cookie', 'x-api-key'] }));
     http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush([]));
   }
 
@@ -89,6 +90,7 @@ describe('InterceptionStateService', () => {
     http.expectOne(`${BACKEND}/interception/rules`).flush([]);
     http.expectOne(`${BACKEND}/interception/paused`).flush([]);
     http.expectOne(`${BACKEND}/interception/enabled`).error(new ProgressEvent('offline'));
+    http.match(`${BACKEND}/interception/sensitive-headers`).forEach((r) => r.flush({ names: ['cookie', 'x-api-key'] }));
     http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush([]));
 
     // A feature that can change live traffic must never read as ON because a request failed.
@@ -323,6 +325,7 @@ describe('action phase and terminal flags come from the backend', () => {
     http.expectOne(`${BACKEND}/interception/rules`).flush([]);
     http.expectOne(`${BACKEND}/interception/paused`).flush([]);
     http.expectOne(`${BACKEND}/interception/enabled`).flush({ enabled: false });
+    http.match(`${BACKEND}/interception/sensitive-headers`).forEach((r) => r.flush({ names: ['cookie', 'x-api-key'] }));
     http.match(`${BACKEND}/interception/action-types`).forEach((r) => r.flush(types));
   });
 
