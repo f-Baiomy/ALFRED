@@ -139,6 +139,36 @@ if WEBHOOK_URL:
 ENGINE = interception.InterceptionEngine('outbound')
 
 
+def _take_resend_headers(flow):
+    """Extracts and validates X-Alfred-Resend-Of and X-Alfred-Resend-Edits headers.
+
+    Returns (resend_of, resend_edits) tuple where each is either the header value
+    (non-empty string) or None if missing, empty, or invalid. Resend_edits is validated
+    to be valid JSON when present - invalid JSON is rejected silently (returns None).
+    """
+    resend_of = (flow.request.headers.get('X-Alfred-Resend-Of') or '').strip()
+    resend_edits = (flow.request.headers.get('X-Alfred-Resend-Edits') or '').strip()
+
+    # resend_of: non-empty string (UUID or call ID format not validated here,
+    # backend owns that validation via ResendEdits.normalise).
+    if not resend_of:
+        resend_of = None
+
+    # resend_edits: must be valid JSON if present. Invalid JSON silently rejected.
+    if resend_edits:
+        try:
+            parsed = json.loads(resend_edits)
+            # Must be a JSON object (dict), not array/string/null/number.
+            if not isinstance(parsed, dict):
+                resend_edits = None
+        except (json.JSONDecodeError, ValueError):
+            resend_edits = None
+    else:
+        resend_edits = None
+
+    return resend_of, resend_edits
+
+
 class RouteAndLog:
 
     async def request(self, flow):
@@ -185,11 +215,8 @@ class RouteAndLog:
         client_operation_id = (flow.request.headers.get('X-Operation-Id') or '').strip()
         operation_id = client_operation_id if client_operation_id else str(uuid.uuid4())
 
-        # Resend linkage: X-Alfred-Resend-Of identifies the original call being resent,
-        # X-Alfred-Resend-Edits carries the edits made (header names only per data model §7).
-        # Both null for a normal call, only set when resending a logged call.
-        resend_of = (flow.request.headers.get('X-Alfred-Resend-Of') or '').strip()
-        resend_edits = (flow.request.headers.get('X-Alfred-Resend-Edits') or '').strip()
+        # Resend linkage extraction and validation - both null if missing/invalid.
+        resend_of, resend_edits = _take_resend_headers(flow)
 
         call_log = {
             'id': call_id,
