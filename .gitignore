@@ -45,3 +45,6 @@ Thumbs.db
 # directory is tracked (both proxies bind-mount it), the snapshot inside it is not. Same treatment
 # as reverse-proxy-enabled.flag above.
 proxy/interception/rules.json
+
+# CodeGraph code-intelligence index - local, machine-specific, rebuilt from the sources (see CLAUDE.md).
+.codegraph/

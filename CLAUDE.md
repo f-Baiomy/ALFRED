@@ -28,6 +28,8 @@ cd frontend && npx ng test --watch=false --browsers=ChromeHeadless --include=src
 
 After `docker compose up -d --build backend`, the gateway may keep the old container IP (502s) until `docker compose restart app-gateway`.
 
+**Code search: use CodeGraph first when `.codegraph/` exists** (a local, gitignored index - not every clone has one). `codegraph_explore` (MCP) or `codegraph explore "<symbols or question>"` (shell) returns a symbol's current source plus its callers/blast radius in one call - e.g. `layoutSpacers` shows the three views and both export builders that depend on it. Fall back to Grep/Read for non-code files and literal text searches.
+
 ## Non-obvious rules
 
 - **`backend` is a hexagonal-per-vertical-slice Maven reactor** — one module per feature, enforced by Maven module boundaries (compile error) and an ArchUnit suite (`backend-architecture-test`). New features must follow this shape — see docs/architecture.md first.
