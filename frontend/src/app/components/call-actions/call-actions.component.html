@@ -17,4 +17,16 @@
       {{ exportLoading() ? 'Loading...' : 'Export report...' }}
     </button>
   </app-action-menu>
+  <button
+    type="button"
+    class="action-btn resend-btn"
+    title="Resend this call with optional header edits"
+    (click)="openResendEditor()"
+  >⟳ Resend</button>
 </div>
+<app-resend-editor
+  [visible]="resendEditorVisible()"
+  [callId]="call().id"
+  (closed)="closeResendEditor()"
+  (submitted)="onResendSubmitted($event)"
+></app-resend-editor>

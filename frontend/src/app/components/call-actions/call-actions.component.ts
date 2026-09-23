@@ -9,12 +9,14 @@ import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
+import { ResendEditorComponent } from '../resend-editor/resend-editor.component';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { redactCall } from '../../shared/utils/redact';
 import { downloadJson } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
 import { copyToClipboard } from '../../shared/utils/clipboard';
+import { ResendEditorState } from '../../shared/model/resend';
 
 /**
  * Pin / copy-as-cURL / download-as-JSON / export-report actions for a single call - cURL/JSON/
@@ -31,7 +33,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 @Component({
   selector: 'app-call-actions',
   standalone: true,
-  imports: [ActionMenuComponent],
+  imports: [ActionMenuComponent, ResendEditorComponent],
   templateUrl: './call-actions.component.html',
 })
 export class CallActionsComponent {
@@ -47,6 +49,7 @@ export class CallActionsComponent {
   readonly curlLoading = signal(false);
   readonly exportLoading = signal(false);
   readonly downloadLoading = signal(false);
+  readonly resendEditorVisible = signal(false);
 
   readonly isPinned = computed(() => this.pinService.isPinned(this.call()));
 
@@ -99,6 +102,22 @@ export class CallActionsComponent {
         this.exportLoading.set(false);
         this.exportDialog.open([call], metadata, new Map([[call.id, comments]]), 'markdown');
       });
+  }
+
+  openResendEditor(): void {
+    this.resendEditorVisible.set(true);
+  }
+
+  closeResendEditor(): void {
+    this.resendEditorVisible.set(false);
+  }
+
+  /** Actual resend execution (re-issuing the request through Alfred's own proxy with
+   * X-Alfred-Resend-Of/-Edits headers) is a separate, not-yet-built step - this records the
+   * user's editing intent and closes the dialog; wiring it to a live re-send is tracked
+   * separately once the execution path (which proxy listener re-issues it, and how) is decided. */
+  onResendSubmitted(_state: ResendEditorState): void {
+    this.resendEditorVisible.set(false);
   }
 
   /** Resolves to a fully-hydrated CallRecord (request/response headers+bodies present) - always a real fetch, even if this same call was hydrated by an earlier action, so detail is never served stale. */
