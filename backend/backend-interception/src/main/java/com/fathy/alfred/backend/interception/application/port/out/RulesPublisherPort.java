@@ -1,8 +1,10 @@
 package com.fathy.alfred.backend.interception.application.port.out;
 
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
+import com.fathy.alfred.backend.interception.domain.model.StoredAnswer;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Publishes the active rule set to wherever the proxy reads it from.
@@ -25,5 +27,14 @@ public interface RulesPublisherPort {
      * half-written file disables interception until the next write (see the loader's error path),
      * which would turn every save into a brief outage of the feature.
      */
-    void publish(boolean enabled, List<InterceptionRule> rules);
+    void publish(boolean enabled, List<InterceptionRule> rules, List<PublishedAnswer> answers);
+
+    /**
+     * A stored answer the published rules refer to. The body is a supplier because answers are
+     * immutable: an implementation that already published this id does not need the bytes again,
+     * and a republish of forty rules should not read forty bodies from the database to find that
+     * out.
+     */
+    record PublishedAnswer(StoredAnswer meta, Supplier<byte[]> body) {
+    }
 }

@@ -86,6 +86,33 @@ public class SqliteInterceptionRulesRepository {
                 )""");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS interception_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_interception_priority ON interception_rules(priority)");
+        // Stored answers: metadata and body in separate tables, so a listing never reads a body.
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS stored_answers (
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    status INTEGER,
+                    headers_json TEXT NOT NULL,
+                    content_type TEXT,
+                    size_bytes INTEGER NOT NULL,
+                    secrets_kept INTEGER,
+                    secret_names_json TEXT,
+                    source_direction TEXT,
+                    source_call_id TEXT,
+                    source_cycle_id TEXT,
+                    recorded_at TEXT,
+                    created_at TEXT NOT NULL
+                )""");
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS stored_answer_bodies (
+                    answer_id TEXT PRIMARY KEY REFERENCES stored_answers(id) ON DELETE CASCADE,
+                    body BLOB NOT NULL
+                )""");
+    }
+
+    /** For {@link SqliteStoredAnswersStoreAdapter}, which shares this database and its pool. */
+    JdbcTemplate jdbc() {
+        return jdbcTemplate;
     }
 
     @PreDestroy

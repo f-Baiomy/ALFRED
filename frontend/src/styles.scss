@@ -7893,3 +7893,149 @@ h1.page-title {
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* Answer picker - the stored-answer actions' call search, secrets prompt and attached-answer card. */
+.answer-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+
+  .muted {
+    color: var(--text-faint);
+  }
+}
+
+.answer-picker-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.answer-direction {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.answer-search {
+  flex: 1;
+  min-width: 12rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.72rem;
+  font-family: inherit;
+}
+
+.answer-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 14rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  li.muted {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.72rem;
+  }
+}
+
+.answer-result {
+  display: grid;
+  grid-template-columns: 4rem 3.2rem 1fr auto;
+  gap: 0.5rem;
+  width: 100%;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.72rem;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--card-inner);
+  }
+
+  &:disabled {
+    cursor: progress;
+    opacity: 0.6;
+  }
+}
+
+.answer-method {
+  font-weight: 600;
+}
+
+.answer-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.answer-time {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.answer-card,
+.answer-secrets {
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.72rem;
+}
+
+.answer-card-head,
+.answer-secrets-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.answer-card-head .pill,
+.answer-secrets-actions .pill:first-child {
+  margin-left: auto;
+}
+
+.answer-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  margin-top: 0.35rem;
+  color: var(--text-dim);
+}
+
+.answer-badge {
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+
+  &.warn {
+    color: var(--amber);
+    border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+  }
+}
+
+.answer-secrets {
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+
+  ul {
+    margin: 0.35rem 0;
+    padding-left: 1.1rem;
+  }
+}

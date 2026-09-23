@@ -9,7 +9,7 @@ import { ImportRulesDialogComponent } from '../../components/import-rules-dialog
 import { PausedCallsComponent } from '../../components/paused-calls/paused-calls.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
 import { downloadJson } from '../../shared/utils/download';
-import { buildRulesFile, rulesFileName } from '../../shared/utils/interception-rules-file';
+import { rulesFileName } from '../../shared/utils/interception-rules-file';
 
 /**
  * The Interception tab: the rule list, the master switch, and the paused-call inspector.
@@ -79,9 +79,13 @@ export class InterceptionComponent {
     this.exportRules([rule]);
   }
 
+  /**
+   * Through the backend: a rule that answers with a stored answer needs that answer's body in the
+   * file, and only the backend has it.
+   */
   private exportRules(rules: readonly InterceptionRule[]): void {
     if (rules.length === 0) return;
-    downloadJson(buildRulesFile(rules), rulesFileName(rules));
+    this.state.exportRules(rules.map((rule) => rule.id)).subscribe((file) => downloadJson(file, rulesFileName(rules)));
   }
 
   /**

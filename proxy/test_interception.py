@@ -258,6 +258,22 @@ def write_rules(tmpdir, rules, enabled=True, **extra):
     return path
 
 
+ANSWER = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
+
+
+def write_answer(tmpdir, answer_id=ANSWER, status=503, headers=None, body=b'{"fare":0}', recorded_at=None):
+    """A stored answer as the backend publishes it, beside the rules file in tmpdir."""
+    directory = os.path.join(tmpdir, 'answers')
+    os.makedirs(directory, exist_ok=True)
+    meta = {'id': answer_id, 'kind': 'RECORDED', 'status': status,
+            'headers': headers if headers is not None else {'content-type': 'application/json'},
+            'recordedAt': recorded_at}
+    with open(os.path.join(directory, answer_id + '.meta.json'), 'w', encoding='utf-8') as f:
+        json.dump(meta, f)
+    with open(os.path.join(directory, answer_id + '.body'), 'wb') as f:
+        f.write(body)
+
+
 def rule(**kwargs):
     base = {'id': 'r1', 'name': 'Test rule', 'enabled': True, 'priority': 100,
             'match': {}, 'actions': []}
@@ -1381,6 +1397,8 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         'DISABLE_COMPRESSION': {'type': 'DISABLE_COMPRESSION'},
         'SET_RESPONSE_ENCODING': {'type': 'SET_RESPONSE_ENCODING', 'encoding': 'gzip'},
         'MOCK_RESPONSE': {'type': 'MOCK_RESPONSE', 'status': 418, 'body': 'teapot'},
+        'ANSWER_WITH_RECORDED_CALL': {'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER},
+        'REPLACE_WITH_RECORDED_RESPONSE': {'type': 'REPLACE_WITH_RECORDED_RESPONSE', 'answerId': ANSWER},
         # The mode that answers rather than kills, so there is something to record either end of.
         'SIMULATE_FAILURE': {'type': 'SIMULATE_FAILURE', 'failure': 'GATEWAY_ERROR', 'status': 503},
         # A branch that matches the fixture and changes something, so the generic before/after
@@ -1410,6 +1428,7 @@ class EveryActionIsCoveredTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        write_answer(self.tmp.name)
 
     # Actions whose sample needs a body other than the JSON fixture's to have anything to edit.
     FORM_ACTIONS = {'SET_FORM_FIELD', 'REMOVE_FORM_FIELD'}
@@ -1449,7 +1468,9 @@ class EveryActionIsCoveredTest(unittest.TestCase):
                     if verdict.terminal == 'MOCK_RESPONSE':
                         # What the addon does with the verdict, so the mock is a real response by
                         # the time the phase is finalized.
-                        flow.response = FakeMessage(status=verdict.mock['status'], text=verdict.mock['body'])
+                        mock = verdict.mock
+                        text = mock['body'] if 'body' in mock else mock['body_bytes'].decode('utf-8')
+                        flow.response = FakeMessage(status=mock['status'], text=text)
                     elif verdict.terminal == 'SIMULATE_FAILURE':
                         spec = interception.failure_plan(verdict.failure)['response']
                         if spec:
@@ -2511,6 +2532,105 @@ class MatchTestsTest(unittest.TestCase):
         engine = self.engine([rule(match=match, actions=[{'type': 'DELAY_REQUEST', 'durationMs': 1}])])
         verdict = run(engine.apply_request(FakeFlow(request)))
         self.assertEqual(verdict.applied, [])
+
+
+class StoredAnswerTest(unittest.TestCase):
+    """Answering with a recorded call: the response the backend published beside the rules."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, *actions, rules=None):
+        return interception.InterceptionEngine('outbound', write_rules(
+            self.tmp.name, rules or [rule(actions=list(actions))]))
+
+    def test_answering_short_circuits_with_the_recorded_status_headers_and_body(self):
+        write_answer(self.tmp.name, headers={'content-type': 'application/json', 'x-trace': 't1'})
+        verdict = run(self.engine({'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER}).apply_request(FakeFlow()))
+        self.assertEqual(verdict.terminal, 'MOCK_RESPONSE')
+        self.assertEqual(verdict.mock['status'], 503)
+        self.assertEqual(verdict.mock['headers'], {'content-type': 'application/json', 'x-trace': 't1'})
+        self.assertEqual(verdict.mock['body_bytes'], b'{"fare":0}')
+        self.assertIn('upstream never contacted', verdict.applied[0].detail)
+
+    def test_the_action_status_overrides_the_recorded_one(self):
+        write_answer(self.tmp.name)
+        verdict = run(self.engine({'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER, 'status': 200})
+                      .apply_request(FakeFlow()))
+        self.assertEqual(verdict.mock['status'], 200)
+
+    def test_an_earlier_send_to_host_wins(self):
+        write_answer(self.tmp.name)
+        engine = self.engine(rules=[
+            rule(id='a', priority=1, actions=[{'type': 'SEND_TO_HOST'}]),
+            rule(id='b', priority=2, actions=[{'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER}])])
+        verdict = run(engine.apply_request(FakeFlow()))
+        self.assertIsNone(verdict.terminal)
+        self.assertEqual(verdict.applied[1].detail, 'skipped - an earlier rule requires this call to reach the host')
+
+    def test_a_missing_answer_is_recorded_and_the_call_goes_on(self):
+        verdict = run(self.engine({'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER}).apply_request(FakeFlow()))
+        self.assertIsNone(verdict.terminal)
+        self.assertEqual(verdict.applied[0].detail, f'skipped - stored answer {ANSWER} not found')
+
+    def test_an_id_that_is_not_a_uuid_never_opens_a_file(self):
+        opened = []
+        real_open = open
+
+        def spy(path, *args, **kwargs):
+            opened.append(str(path))
+            return real_open(path, *args, **kwargs)
+
+        engine = self.engine({'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': '../rules'})
+        import builtins
+        builtins.open = spy
+        try:
+            verdict = run(engine.apply_request(FakeFlow()))
+        finally:
+            builtins.open = real_open
+        self.assertEqual(verdict.applied[0].detail, 'skipped - invalid stored answer id')
+        self.assertFalse([p for p in opened if 'answers' in p or p.endswith('.body')], opened)
+
+    def test_replacing_the_response_keeps_the_real_call_and_swaps_what_comes_back(self):
+        write_answer(self.tmp.name, status=500, headers={'content-type': 'text/plain'}, body=b'recorded')
+        response = FakeMessage(status=200, text='live', headers={'X-Live': '1', 'Content-Type': 'application/json'})
+        verdict = run(self.engine({'type': 'REPLACE_WITH_RECORDED_RESPONSE', 'answerId': ANSWER})
+                      .apply_response(FakeFlow(FakeRequest(), response)))
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.text, 'recorded')
+        self.assertEqual(dict(response.headers), {'content-type': 'text/plain', 'content-length': '8'})
+        self.assertIn('upstream was really called', verdict.applied[0].detail)
+
+    def test_refresh_dates_carries_the_recording_time_to_the_addon(self):
+        write_answer(self.tmp.name, recorded_at='Tue, 22 Sep 2026 10:00:00 GMT')
+        verdict = run(self.engine({'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER, 'refreshDates': True})
+                      .apply_request(FakeFlow()))
+        self.assertEqual(verdict.refresh_from, 1790071200.0)
+
+    def test_without_refresh_dates_nothing_is_moved(self):
+        write_answer(self.tmp.name, recorded_at='Tue, 22 Sep 2026 10:00:00 GMT')
+        verdict = run(self.engine({'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER}).apply_request(FakeFlow()))
+        self.assertIsNone(verdict.refresh_from)
+
+    def test_the_cache_evicts_the_least_recently_used_above_its_cap(self):
+        ids = ['3f2504e0-4f89-41d3-9a0c-0305e82c330' + str(n) for n in range(3)]
+        for answer_id in ids:
+            write_answer(self.tmp.name, answer_id=answer_id, body=b'x' * 40)
+        cache = interception._AnswerCache(os.path.join(self.tmp.name, 'answers'), cap_bytes=100)
+        for answer_id in ids:
+            run(cache.load(answer_id))
+        self.assertEqual(list(cache._entries), ids[1:])
+        self.assertLessEqual(cache._bytes, 100)
+
+    def test_a_cached_answer_is_re_read_when_it_is_republished(self):
+        write_answer(self.tmp.name, body=b'one')
+        cache = interception._AnswerCache(os.path.join(self.tmp.name, 'answers'))
+        self.assertEqual(run(cache.load(ANSWER))[0][1], b'one')
+        write_answer(self.tmp.name, body=b'two')
+        meta = os.path.join(self.tmp.name, 'answers', ANSWER + '.meta.json')
+        os.utime(meta, (time.time() + 5, time.time() + 5))
+        self.assertEqual(run(cache.load(ANSWER))[0][1], b'two')
 
 
 if __name__ == '__main__':

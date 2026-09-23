@@ -224,7 +224,12 @@ describe('InterceptionStateService', () => {
     service.importRules([{ name: 'A', match: {}, actions: [] }], false).subscribe();
 
     const request = http.expectOne(`${BACKEND}/interception/rules/import`);
-    expect(request.request.body).toEqual({ rules: [{ name: 'A', match: {}, actions: [] }], enable: false });
+    expect(request.request.body).toEqual({
+      alfredInterceptionRules: 2,
+      rules: [{ name: 'A', match: {}, actions: [] }],
+      answers: [],
+      enable: false,
+    });
     request.flush({ imported: 1, rejected: 0, results: [] });
     http.expectOne(`${BACKEND}/interception/rules`).flush([]);
   });

@@ -30,6 +30,7 @@ import {
   MatchTestKind,
   MatchTestOperator,
   matchTestNeedsValue,
+  usesStoredAnswer,
   RuleAction,
   RuleSource,
   actionPhase,
@@ -972,6 +973,15 @@ export class RuleEditorComponent implements OnInit {
     this.patchAt(path, { cookieAttributes: { ...(action.cookieAttributes ?? {}), [part]: checked } });
   }
 
+  /** The actions that serve a stored answer - the card shows the answer picker for them. */
+  usesAnswer(type: ActionType): boolean {
+    return usesStoredAnswer(type);
+  }
+
+  onAnswer(path: readonly number[], answerId: string): void {
+    this.patchAt(path, { answerId });
+  }
+
   isEncoding(type: ActionType): boolean {
     return type === 'SET_RESPONSE_ENCODING';
   }
@@ -1199,6 +1209,10 @@ function defaultsFor(type: ActionType): RuleAction {
       return { type };
     case 'SET_RESPONSE_ENCODING':
       return { type, encoding: 'identity' };
+    case 'ANSWER_WITH_RECORDED_CALL':
+    case 'REPLACE_WITH_RECORDED_RESPONSE':
+      // No answer yet: the picker on the card creates one, and saving without it is refused.
+      return { type, answerId: null, refreshDates: false };
     case 'REPLACE_IN_REQUEST_BODY':
     case 'REPLACE_IN_RESPONSE_BODY':
       // Literal and case-sensitive: the reading of the pattern that does exactly what it says.

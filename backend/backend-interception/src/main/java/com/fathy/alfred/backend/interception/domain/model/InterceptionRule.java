@@ -2,7 +2,10 @@ package com.fathy.alfred.backend.interception.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * One interception rule: what to match, and what to do about it.
@@ -60,5 +63,36 @@ public record InterceptionRule(
     /** Whether this rule can hold a caller's connection open waiting for a human. */
     public boolean pauses() {
         return actions.stream().anyMatch(a -> a.type() != null && a.type().isPause());
+    }
+
+    /** Every stored answer this rule's actions refer to, nested branches included. */
+    public Set<String> answerIds() {
+        Set<String> ids = new LinkedHashSet<>();
+        collectAnswerIds(actions, ids);
+        return ids;
+    }
+
+    /** Every stored answer any of these rules refers to. */
+    public static Set<String> answerIdsOf(Collection<InterceptionRule> rules) {
+        Set<String> ids = new LinkedHashSet<>();
+        for (InterceptionRule rule : rules) {
+            ids.addAll(rule.answerIds());
+        }
+        return ids;
+    }
+
+    private static void collectAnswerIds(List<RuleAction> actions, Set<String> ids) {
+        if (actions == null) {
+            return;
+        }
+        for (RuleAction action : actions) {
+            if (action == null) {
+                continue;
+            }
+            if (action.answerId() != null && !action.answerId().isBlank()) {
+                ids.add(action.answerId());
+            }
+            collectAnswerIds(action.nested(), ids);
+        }
     }
 }

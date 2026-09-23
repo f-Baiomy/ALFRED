@@ -17,16 +17,35 @@ import { InterceptionRule, InterceptionRuleDraft } from '../../core/models/inter
  * half-working its way through an array of the wrong shape.
  */
 export const RULES_FILE_MARKER = 'alfredInterceptionRules';
-export const RULES_FILE_VERSION = 1;
+/**
+ * 2 embeds the stored answers the rules use (`answers`, referred to by `answerRef`), and is written
+ * by the backend, which has their bodies. 1 is still read: it is exactly 2 without answers.
+ */
+export const RULES_FILE_VERSION = 2;
+
+/** A stored answer inside a rules file. Headers carry secrets only when `secretsKept` is true. */
+export interface ExportedAnswer {
+  readonly ref: string;
+  readonly kind: 'RECORDED' | 'FILE';
+  readonly status?: number | null;
+  readonly contentType?: string | null;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly secretsKept?: boolean | null;
+  readonly sourceDirection?: string | null;
+  readonly recordedAt?: string | null;
+  readonly bodyBase64: string;
+}
 
 export interface RulesFile {
   readonly alfredInterceptionRules: number;
   readonly exportedAt: string;
   readonly rules: readonly InterceptionRuleDraft[];
+  readonly answers?: readonly ExportedAnswer[];
 }
 
 export interface RulesFileParse {
   readonly rules: readonly InterceptionRuleDraft[];
+  readonly answers: readonly ExportedAnswer[];
   /** Why this file could not be read at all. Null when `rules` is usable. */
   readonly error: string | null;
 }
@@ -53,9 +72,13 @@ export function toRuleDraft(rule: InterceptionRule): InterceptionRuleDraft {
   };
 }
 
+/**
+ * A version-1 file, built here without the backend. Only right for rules that use no stored answer
+ * - one that does needs the backend's version-2 export, which embeds the answer's body.
+ */
 export function buildRulesFile(rules: readonly InterceptionRule[], now = new Date()): RulesFile {
   return {
-    [RULES_FILE_MARKER]: RULES_FILE_VERSION,
+    [RULES_FILE_MARKER]: 1,
     exportedAt: now.toISOString(),
     rules: rules.map(toRuleDraft),
   } as RulesFile;
@@ -87,11 +110,11 @@ export function parseRulesFile(text: string): RulesFileParse {
   try {
     parsed = JSON.parse(text);
   } catch (e) {
-    return { rules: [], error: `That file is not valid JSON: ${(e as Error).message}` };
+    return { rules: [], answers: [], error: `That file is not valid JSON: ${(e as Error).message}` };
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return { rules: [], error: 'That file does not look like an Alfred rules export.' };
+    return { rules: [], answers: [], error: 'That file does not look like an Alfred rules export.' };
   }
 
   const file = parsed as Record<string, unknown>;
@@ -101,6 +124,7 @@ export function parseRulesFile(text: string): RulesFileParse {
     const looksLikeCalls = Array.isArray(file['events']) || Array.isArray(file['calls']);
     return {
       rules: [],
+      answers: [],
       error: looksLikeCalls
         ? 'That is a calls export, not a rules export. Import it from Live Calls instead.'
         : 'That file does not look like an Alfred rules export.',
@@ -110,21 +134,30 @@ export function parseRulesFile(text: string): RulesFileParse {
   if ((file[RULES_FILE_MARKER] as number) > RULES_FILE_VERSION) {
     return {
       rules: [],
-      error: `That file was written by a newer version of Alfred (format ${file[RULES_FILE_MARKER]}). Update this one first.`,
+      answers: [],
+      error: `That file was written by a newer version of Alfred (format ${file[RULES_FILE_MARKER]}). This one reads formats 1 and 2 - update it first.`,
     };
   }
 
   if (!Array.isArray(file['rules'])) {
-    return { rules: [], error: 'That rules export has no rules in it.' };
+    return { rules: [], answers: [], error: 'That rules export has no rules in it.' };
   }
 
   const rules = (file['rules'] as unknown[]).filter(
     (rule): rule is InterceptionRuleDraft => typeof rule === 'object' && rule !== null && !Array.isArray(rule)
   );
   if (rules.length === 0) {
-    return { rules: [], error: 'That rules export has no rules in it.' };
+    return { rules: [], answers: [], error: 'That rules export has no rules in it.' };
   }
-  return { rules, error: null };
+  // Kept only when they have what an import needs; anything else is dropped here rather than sent.
+  const answers = (Array.isArray(file['answers']) ? (file['answers'] as unknown[]) : []).filter(
+    (answer): answer is ExportedAnswer =>
+      typeof answer === 'object' &&
+      answer !== null &&
+      typeof (answer as ExportedAnswer).ref === 'string' &&
+      typeof (answer as ExportedAnswer).bodyBase64 === 'string'
+  );
+  return { rules, answers, error: null };
 }
 
 /**

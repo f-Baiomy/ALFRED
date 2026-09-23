@@ -6,20 +6,23 @@ import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.PatternSafety;
 import com.fathy.alfred.backend.interception.domain.model.SelfTargets;
 import com.fathy.alfred.backend.interception.domain.model.SensitiveHeaders;
+import com.fathy.alfred.backend.interception.domain.model.StoredAnswer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Writes the rules snapshot both mitmproxy addons read.
@@ -45,6 +48,11 @@ public class FileRulesPublisherAdapter implements RulesPublisherPort {
 
     private static final Logger log = LoggerFactory.getLogger(FileRulesPublisherAdapter.class);
 
+    /** Beside the snapshot, in the directory already shared with both proxies. */
+    static final String ANSWERS_DIR = "answers";
+    static final String META_SUFFIX = ".meta.json";
+    static final String BODY_SUFFIX = ".body";
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Value("${INTERCEPTION_RULES_FILE:/appdata/interception-rules.json}")
@@ -61,7 +69,7 @@ public class FileRulesPublisherAdapter implements RulesPublisherPort {
     }
 
     @Override
-    public synchronized void publish(boolean enabled, List<InterceptionRule> rules) {
+    public synchronized void publish(boolean enabled, List<InterceptionRule> rules, List<PublishedAnswer> answers) {
         List<InterceptionRule> active = rules.stream().filter(InterceptionRule::enabled).toList();
 
         Map<String, Object> snapshot = new LinkedHashMap<>();
@@ -77,19 +85,14 @@ public class FileRulesPublisherAdapter implements RulesPublisherPort {
                 "maxPatternLength", PatternSafety.MAX_PATTERN_LENGTH,
                 "regexTimeoutMs", regexTimeoutMs));
 
-        Path path = Path.of(rulesFile);
+        Path path = Path.of(rulesFile).toAbsolutePath();
         try {
-            if (path.getParent() != null) {
-                Files.createDirectories(path.getParent());
-            }
-            Path temp = Files.createTempFile(path.getParent(), ".interception-rules", ".tmp");
-            try {
-                Files.writeString(temp, mapper.writeValueAsString(snapshot), StandardCharsets.UTF_8);
-                move(temp, path);
-            } catch (IOException e) {
-                Files.deleteIfExists(temp);
-                throw e;
-            }
+            Files.createDirectories(path.getParent());
+            // Answers first, the snapshot after: a proxy that sees a rule can always find its answer.
+            Path answersDir = path.getParent().resolve(ANSWERS_DIR);
+            Set<String> published = writeAnswers(answersDir, answers);
+            writeAtomically(path.getParent(), path, mapper.writeValueAsBytes(snapshot));
+            deleteUnpublishedAnswers(answersDir, published);
             log.info("Published {} active interception rule(s), master switch {}", active.size(),
                     enabled ? "ON" : "off");
         } catch (IOException e) {
@@ -97,6 +100,77 @@ public class FileRulesPublisherAdapter implements RulesPublisherPort {
             // running, which is the worst state this feature can be in.
             log.error("Could not publish interception rules to {} - the proxy is still running the "
                     + "previous rule set: {}", rulesFile, e.getMessage());
+        }
+    }
+
+    /**
+     * Writes {@code <id>.body} and then {@code <id>.meta.json} for every answer not already there.
+     * Answers are immutable, so an id whose meta file exists is complete and is not rewritten - the
+     * body supplier is not even called.
+     */
+    private Set<String> writeAnswers(Path dir, List<PublishedAnswer> answers) throws IOException {
+        Set<String> ids = new HashSet<>();
+        if (answers.isEmpty() && !Files.isDirectory(dir)) {
+            return ids;
+        }
+        Files.createDirectories(dir);
+        for (PublishedAnswer answer : answers) {
+            String id = answer.meta().id();
+            if (!StoredAnswer.isValidId(id)) {
+                // Never joined onto a path. The validator already refuses such an id on save.
+                log.warn("Not publishing a stored answer with an invalid id");
+                continue;
+            }
+            ids.add(id);
+            Path meta = dir.resolve(id + META_SUFFIX);
+            if (Files.exists(meta)) {
+                continue;
+            }
+            writeAtomically(dir, dir.resolve(id + BODY_SUFFIX), answer.body().get());
+            writeAtomically(dir, meta, mapper.writeValueAsBytes(proxyMeta(answer.meta())));
+        }
+        return ids;
+    }
+
+    /** What the proxy needs to serve an answer - no source call, no secret names, nothing it would not use. */
+    private static Map<String, Object> proxyMeta(StoredAnswer answer) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("id", answer.id());
+        meta.put("kind", answer.kind() == null ? null : answer.kind().name());
+        meta.put("status", answer.status());
+        meta.put("headers", answer.headers());
+        meta.put("contentType", answer.contentType());
+        meta.put("sizeBytes", answer.sizeBytes());
+        meta.put("recordedAt", answer.recordedAt());
+        return meta;
+    }
+
+    /** Removes the files of every answer no published rule uses any more. */
+    private void deleteUnpublishedAnswers(Path dir, Set<String> keep) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            for (Path file : files.toList()) {
+                String name = file.getFileName().toString();
+                String id = name.endsWith(META_SUFFIX) ? name.substring(0, name.length() - META_SUFFIX.length())
+                        : name.endsWith(BODY_SUFFIX) ? name.substring(0, name.length() - BODY_SUFFIX.length())
+                        : null;
+                if (id != null && !keep.contains(id)) {
+                    Files.deleteIfExists(file);
+                }
+            }
+        }
+    }
+
+    private void writeAtomically(Path dir, Path target, byte[] content) throws IOException {
+        Path temp = Files.createTempFile(dir, ".alfred", ".tmp");
+        try {
+            Files.write(temp, content);
+            move(temp, target);
+        } catch (IOException e) {
+            Files.deleteIfExists(temp);
+            throw e;
         }
     }
 

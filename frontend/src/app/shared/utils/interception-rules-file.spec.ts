@@ -121,6 +121,43 @@ describe('the interception rules file', () => {
       expect(parsed.error).toContain('newer version');
     });
 
+    it('names both formats it reads when a file is too new', () => {
+      expect(parseRulesFile(JSON.stringify({ [RULES_FILE_MARKER]: 3, rules: [{ name: 'x' }] })).error).toContain('formats 1 and 2');
+    });
+
+    it('reads a version-1 file as rules with no answers', () => {
+      const parsed = parseRulesFile(JSON.stringify(buildRulesFile([rule()])));
+
+      expect(parsed.error).toBeNull();
+      expect(parsed.rules.length).toBe(1);
+      expect(parsed.answers).toEqual([]);
+    });
+
+    it('reads a version-2 file with its embedded answers, and drops an answer it could not import', () => {
+      const file = {
+        [RULES_FILE_MARKER]: 2,
+        exportedAt: '2026-09-23T12:00:00Z',
+        rules: [{ name: 'Replay', match: {}, actions: [{ type: 'ANSWER_WITH_RECORDED_CALL', answerRef: 'a1' }] }],
+        answers: [
+          { ref: 'a1', kind: 'RECORDED', status: 503, headers: {}, bodyBase64: 'e30=' },
+          { ref: 'a2', kind: 'RECORDED' },
+        ],
+      };
+
+      const parsed = parseRulesFile(JSON.stringify(file));
+
+      expect(parsed.error).toBeNull();
+      expect(parsed.rules[0].actions[0].answerRef).toBe('a1');
+      expect(parsed.answers.map((answer) => answer.ref)).toEqual(['a1']);
+    });
+
+    it('still refuses a calls export in version-2 terms', () => {
+      const parsed = parseRulesFile(JSON.stringify({ events: [], answers: [] }));
+
+      expect(parsed.answers).toEqual([]);
+      expect(parsed.error).toContain('calls export');
+    });
+
     it('says so when the file is a rules export with no rules in it', () => {
       expect(parseRulesFile(JSON.stringify({ [RULES_FILE_MARKER]: 1, rules: [] })).error)
         .toContain('no rules in it');

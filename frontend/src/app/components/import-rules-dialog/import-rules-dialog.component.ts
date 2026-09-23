@@ -8,7 +8,7 @@ import {
   isTerminalAction,
 } from '../../core/models/interception.model';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
-import { parseRulesFile } from '../../shared/utils/interception-rules-file';
+import { ExportedAnswer, parseRulesFile } from '../../shared/utils/interception-rules-file';
 
 /** One row of the preview: the rule, and what is worth knowing about it before it exists. */
 export interface RulePreview {
@@ -53,6 +53,8 @@ export class ImportRulesDialogComponent {
   readonly importing = signal(false);
 
   private readonly parsed = signal<readonly InterceptionRuleDraft[]>([]);
+  /** The stored answers a version-2 file embeds - sent as they are; the backend gives them fresh ids. */
+  private answers: readonly ExportedAnswer[] = [];
 
   /** Set once the import has run - the dialog then shows what happened instead of what would. */
   readonly result = signal<RuleImportResult | null>(null);
@@ -122,6 +124,7 @@ export class ImportRulesDialogComponent {
       const parse = parseRulesFile(String(reader.result ?? ''));
       this.parseError.set(parse.error);
       this.parsed.set(parse.rules);
+      this.answers = parse.answers;
     };
     reader.onerror = () => {
       this.parseError.set('That file could not be read.');
@@ -144,7 +147,7 @@ export class ImportRulesDialogComponent {
   runImport(): void {
     if (!this.hasFile() || this.importing()) return;
     this.importing.set(true);
-    this.state.importRules(this.parsed(), this.enableAfterImport()).subscribe({
+    this.state.importRules(this.parsed(), this.enableAfterImport(), this.answers).subscribe({
       next: (result) => {
         this.importing.set(false);
         this.result.set(result);

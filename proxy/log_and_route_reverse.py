@@ -216,11 +216,14 @@ class RouteAndLog:
 
         if verdict.terminal == 'MOCK_RESPONSE':
             mock = verdict.mock or {}
+            body = mock.get('body_bytes')
             flow.response = http.Response.make(
                 mock.get('status', 200),
-                (mock.get('body') or '').encode('utf-8'),
+                body if body is not None else (mock.get('body') or '').encode('utf-8'),
                 mock.get('headers') or {},
             )
+            if verdict.refresh_from is not None:
+                interception.refresh_dates(flow.response, verdict.refresh_from)
             return
 
         if verdict.terminal == 'ABORT_REQUEST':

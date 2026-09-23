@@ -4,6 +4,7 @@ import { RuleAction, isActionEnabled } from '../../core/models/interception.mode
 import { SelectPickerComponent } from '../select-picker/select-picker.component';
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
 import { HelpPopoverComponent } from '../help-popover/help-popover.component';
+import { AnswerPickerComponent } from '../answer-picker/answer-picker.component';
 import type { RuleEditorComponent } from '../rule-editor/rule-editor.component';
 
 /**
@@ -48,6 +49,7 @@ export interface ActionStep {
   imports: [
     SelectPickerComponent,
     StatusPickerComponent,
+    AnswerPickerComponent,
     HelpPopoverComponent,
     CdkDropList,
     CdkDrag,

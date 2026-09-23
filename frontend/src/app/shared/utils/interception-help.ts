@@ -135,6 +135,19 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     examples: [{ from: 'Accept-Encoding: gzip, br', to: 'Accept-Encoding: identity' }],
     warning: 'A host may compress anyway; pair it with "Set response encoding: identity" to be sure the caller gets plain bytes.',
   },
+  ANSWER_WITH_RECORDED_CALL: {
+    title: 'Answer with a recorded call',
+    code: 'ANSWER_WITH_RECORDED_CALL',
+    what: 'Answers the call with a response Alfred logged earlier - its status, headers and body - and never contacts the host. Pick the call once; the response is copied into the rule, so it keeps working after the call has left the log.',
+    exampleIntro: "Reproducing yesterday's broken fare quote:",
+    examples: [
+      { from: 'pick yesterday 16:42 POST /fares/quote · 500', to: 'every matching call gets that exact 500 today' },
+      { from: 'refresh dates on', to: 'Date and Expires move forward, so the answer is not already stale' },
+      { from: 'an earlier rule sends to the host', to: 'the answer is skipped, and the log says so' },
+    ],
+    warning:
+      'If the response carried secrets (Set-Cookie, Authorization…) you choose to keep or strip them. Kept secrets are served to every caller and travel with the rule: Export and Duplicate include them in plain text.',
+  },
   SET_METHOD: {
     title: 'Set method',
     code: 'SET_METHOD',
@@ -350,6 +363,16 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
       { from: 'gzip → identity', to: 'the caller gets the plain body' },
       { from: 'already br', to: 'nothing changes, and the log says so' },
     ],
+  },
+  REPLACE_WITH_RECORDED_RESPONSE: {
+    title: 'Replace with a recorded response',
+    code: 'REPLACE_WITH_RECORDED_RESPONSE',
+    what: "Lets the real call happen, then hands the caller a response recorded earlier instead of the host's answer - so the supplier still sees and logs the call, while the client under test gets the recorded reply.",
+    examples: [
+      { from: 'host answers 200', to: 'caller receives the recorded 500' },
+      { from: 'answer missing', to: 'the real response goes through, and the log says so' },
+    ],
+    warning: 'Kept secrets in the recorded response are served to every caller and are included in plain text when the rule is exported or duplicated.',
   },
   REMOVE_RESPONSE_JSON_FIELD: {
     title: 'Remove response JSON field',

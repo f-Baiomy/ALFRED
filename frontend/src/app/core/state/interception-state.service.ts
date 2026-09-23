@@ -1,3 +1,4 @@
+import { ExportedAnswer, RulesFile } from '../../shared/utils/interception-rules-file';
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Observable, Subject, asyncScheduler, merge, of } from 'rxjs';
@@ -291,8 +292,17 @@ export class InterceptionStateService {
     });
   }
 
-  importRules(rules: readonly InterceptionRuleDraft[], enable: boolean): Observable<RuleImportResult> {
-    return this.api.importRules(rules, enable).pipe(tap(() => this.refreshRules()));
+  /** A version-2 rules file with the answers the rules use embedded - see InterceptionApiService.exportRules. */
+  exportRules(ids: readonly string[]): Observable<RulesFile> {
+    return this.api.exportRules(ids);
+  }
+
+  importRules(
+    rules: readonly InterceptionRuleDraft[],
+    enable: boolean,
+    answers: readonly ExportedAnswer[] = []
+  ): Observable<RuleImportResult> {
+    return this.api.importRules(rules, enable, answers).pipe(tap(() => this.refreshRules()));
   }
 
   takeControl(callId: string): Observable<void> {

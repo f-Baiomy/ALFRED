@@ -29,6 +29,8 @@ class InterceptionRulesServiceTest {
     private CountingNotifications notifications;
     private InterceptionRulesService service;
     private BreakpointService breakpoints;
+    private StoredAnswersServiceTest.InMemoryAnswers answerStore;
+    private StoredAnswersService answers;
 
     static class InMemoryStore implements InterceptionRulesStorePort {
         List<InterceptionRule> rules = new ArrayList<>();
@@ -56,10 +58,13 @@ class InterceptionRulesServiceTest {
         boolean lastEnabled;
         List<InterceptionRule> lastRules = List.of();
 
-        public void publish(boolean enabled, List<InterceptionRule> rules) {
+        List<PublishedAnswer> lastAnswers = List.of();
+
+        public void publish(boolean enabled, List<InterceptionRule> rules, List<PublishedAnswer> answers) {
             publishes++;
             lastEnabled = enabled;
             lastRules = List.copyOf(rules);
+            lastAnswers = List.copyOf(answers);
         }
     }
 
@@ -82,8 +87,11 @@ class InterceptionRulesServiceTest {
         publisher = new RecordingPublisher();
         notifications = new CountingNotifications();
         breakpoints = new BreakpointService(notifications);
+        answerStore = new StoredAnswersServiceTest.InMemoryAnswers();
+        answers = new StoredAnswersService(answerStore, (direction, callId, cycleId) -> java.util.Optional.empty(),
+                store, 10_485_760);
         service = new InterceptionRulesService(store, publisher, notifications, breakpoints,
-                new SelfTargets(Set.of("backend"), Set.of("localhost:5000")));
+                new SelfTargets(Set.of("backend"), Set.of("localhost:5000")), answers);
     }
 
     private static InterceptionRule delayRule(String name, int priority) {
@@ -338,7 +346,8 @@ class InterceptionRulesServiceTest {
         store.rules.add(delayRule("Preexisting", 10).withId("id-1"));
         store.enabled = true;
 
-        new InterceptionRulesService(store, publisher, notifications, new BreakpointService(notifications), SelfTargets.none())
+        new InterceptionRulesService(store, publisher, notifications, new BreakpointService(notifications), SelfTargets.none(),
+                answers)
                 .republishOnStartup();
 
         assertThat(publisher.lastEnabled).isTrue();
@@ -401,5 +410,51 @@ class InterceptionRulesServiceTest {
         // Nothing can decide on a call whose rule no longer exists, so holding its caller open
         // until the timeout is just a caller waiting for nobody.
         assertThat(breakpoints.pending()).isEmpty();
+    }
+
+    private String storedAnswer() {
+        String id = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+        answerStore.save(new com.fathy.alfred.backend.interception.domain.model.StoredAnswer(id,
+                com.fathy.alfred.backend.interception.domain.model.StoredAnswer.Kind.RECORDED, 503, Map.of(), null, 2,
+                null, List.of(), "outbound", "c1", null, null, java.time.Instant.now().toString()), "{}".getBytes());
+        return id;
+    }
+
+    @Test
+    void aRuleAnsweringWithAStoredAnswerPublishesThatAnswerBesideIt() {
+        String id = storedAnswer();
+
+        service.create(StoredAnswersServiceTest.ruleUsing(id));
+
+        assertThat(publisher.lastAnswers).extracting(a -> a.meta().id()).containsExactly(id);
+    }
+
+    @Test
+    void aRuleCannotBeSavedAgainstAnAnswerThatDoesNotExist() {
+        assertThatThrownBy(() -> service.create(StoredAnswersServiceTest.ruleUsing("3f2504e0-4f89-41d3-9a0c-0305e82c3399")))
+                .isInstanceOf(ManageInterceptionRulesUseCase.InvalidRuleException.class)
+                .hasMessageContaining("does not exist");
+    }
+
+    @Test
+    void deletingTheLastRuleThatUsesAnAnswerDeletesTheAnswer() {
+        String id = storedAnswer();
+        InterceptionRule saved = service.create(StoredAnswersServiceTest.ruleUsing(id));
+
+        service.delete(saved.id());
+
+        assertThat(answerStore.meta).doesNotContainKey(id);
+        assertThat(publisher.lastAnswers).isEmpty();
+    }
+
+    @Test
+    void aDisabledRulesAnswerIsNotPublishedButIsKept() {
+        String id = storedAnswer();
+        InterceptionRule saved = service.create(StoredAnswersServiceTest.ruleUsing(id));
+
+        service.setEnabled(saved.id(), false);
+
+        assertThat(publisher.lastAnswers).isEmpty();
+        assertThat(answerStore.meta).containsKey(id);
     }
 }

@@ -342,6 +342,15 @@
           <small class="muted span-all">Any target except Alfred itself - a rewrite into Alfred is refused, because it would loop through the proxy.</small>
         }
 
+        @if (editor.usesAnswer(step.action.type)) {
+          <app-answer-picker [answerId]="step.action.answerId" (answerChange)="editor.onAnswer(step.path, $event)" />
+          <label class="inline-field span-all">
+            <input type="checkbox" [checked]="step.action.refreshDates === true" (change)="editor.onToggle(step.path, 'refreshDates', $event)" />
+            <span>Refresh dates — move Date, Expires and cookie expiry forward to now</span>
+          </label>
+          <small class="muted span-all">Deleting this rule deletes its stored answer, unless another rule uses it too.</small>
+        }
+
         @if (editor.isEncoding(step.action.type)) {
           <div class="inline-field">
             <span>Encoding</span>

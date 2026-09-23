@@ -57,6 +57,11 @@ public enum ActionType {
     /** Asks for an uncompressed response (Accept-Encoding: identity). */
     DISABLE_COMPRESSION(Phase.REQUEST),
     /**
+     * Answers with a response recorded earlier - status, headers and body - and never contacts the
+     * host. How yesterday's bug is reproduced today without the supplier's help.
+     */
+    ANSWER_WITH_RECORDED_CALL(Phase.REQUEST),
+    /**
      * Kept for rules saved before {@link #SIMULATE_FAILURE} existed, and hidden from the editor's
      * picker - it is exactly {@code SIMULATE_FAILURE} with {@link FailureMode#CONNECTION_RESET}.
      * Still evaluated, because a stored rule must not stop working when the UI moves on.
@@ -115,6 +120,11 @@ public enum ActionType {
      * the client under test sees whatever you need it to.
      */
     REPLACE_RESPONSE(Phase.RESPONSE),
+    /**
+     * The response-phase counterpart of {@link #ANSWER_WITH_RECORDED_CALL}: the host IS called and
+     * its answer is then replaced by the recorded one, so the real call still shows up upstream.
+     */
+    REPLACE_WITH_RECORDED_RESPONSE(Phase.RESPONSE),
     PAUSE_RESPONSE(Phase.RESPONSE),
     /** The response-phase counterpart of {@link #IF_REQUEST}. */
     IF_RESPONSE(Phase.RESPONSE);
@@ -142,7 +152,16 @@ public enum ActionType {
      * should be told about rather than have silently resolved by ordering.
      */
     public boolean isTerminal() {
-        return this == ABORT_REQUEST || this == MOCK_RESPONSE || this == SIMULATE_FAILURE;
+        return this == ABORT_REQUEST || this == MOCK_RESPONSE || this == SIMULATE_FAILURE
+                || this == ANSWER_WITH_RECORDED_CALL;
+    }
+
+    /** The kind of stored answer this action serves, or null for an action that uses none. */
+    public StoredAnswer.Kind answerKind() {
+        return switch (this) {
+            case ANSWER_WITH_RECORDED_CALL, REPLACE_WITH_RECORDED_RESPONSE -> StoredAnswer.Kind.RECORDED;
+            default -> null;
+        };
     }
 
     /**

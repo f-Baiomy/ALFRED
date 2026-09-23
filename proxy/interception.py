@@ -26,6 +26,10 @@ inert verdict after one dict lookup, and the addons behave exactly as they did b
 module existed.
 """
 
+import asyncio
+import collections
+import datetime
+import email.utils
 import json
 import os
 import re
@@ -59,7 +63,7 @@ REQUEST_ACTIONS = {
     'REPLACE_IN_REQUEST_BODY', 'REWRITE_URL', 'SET_METHOD',
     'REMOVE_REQUEST_JSON_FIELD', 'SET_REQUEST_BODY',
     'SET_REQUEST_COOKIE', 'REMOVE_REQUEST_COOKIE', 'SET_FORM_FIELD', 'REMOVE_FORM_FIELD',
-    'DISABLE_CACHE', 'DISABLE_COMPRESSION',
+    'DISABLE_CACHE', 'DISABLE_COMPRESSION', 'ANSWER_WITH_RECORDED_CALL',
     'ABORT_REQUEST', 'MOCK_RESPONSE', 'PAUSE_REQUEST', 'SEND_TO_HOST',
     'SIMULATE_FAILURE', 'IF_REQUEST',
 }
@@ -68,6 +72,7 @@ RESPONSE_ACTIONS = {
     'REMOVE_RESPONSE_HEADER', 'SET_RESPONSE_JSON_FIELD', 'SET_RESPONSE_BODY',
     'REPLACE_IN_RESPONSE_BODY', 'REMOVE_RESPONSE_JSON_FIELD',
     'SET_RESPONSE_COOKIE', 'REMOVE_RESPONSE_COOKIE', 'SET_RESPONSE_ENCODING',
+    'REPLACE_WITH_RECORDED_RESPONSE',
     'REPLACE_RESPONSE', 'PAUSE_RESPONSE', 'IF_RESPONSE',
 }
 
@@ -79,7 +84,7 @@ def _known_action(kind):
 
 # An action that ends the request phase: there is no upstream request left for a later rule to
 # modify, so evaluation stops rather than silently applying edits to something already gone.
-TERMINAL_REQUEST_ACTIONS = {'ABORT_REQUEST', 'MOCK_RESPONSE', 'SIMULATE_FAILURE'}
+TERMINAL_REQUEST_ACTIONS = {'ABORT_REQUEST', 'MOCK_RESPONSE', 'SIMULATE_FAILURE', 'ANSWER_WITH_RECORDED_CALL'}
 
 # What SIMULATE_FAILURE can reproduce - the mirror of the backend's FailureMode enum, matched by
 # string. Everything a supplier does that is NOT a status code.
@@ -797,6 +802,116 @@ class RuleSet:
 EMPTY_RULESET = RuleSet()
 
 
+# Stored answers are published by the backend beside the snapshot, as answers/<id>.meta.json and
+# answers/<id>.body. The id is a file name, so it must be exactly a canonical UUID before it is
+# joined onto the directory - this pattern is the proxy's half of the FR-024 path-traversal guard.
+ANSWER_ID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+ANSWER_CACHE_BYTES = int(os.environ.get('INTERCEPTION_ANSWER_CACHE_BYTES', str(32 * 1024 * 1024)))
+
+
+class _AnswerCache:
+    """Stored answers read from disk once and kept in memory, least recently used first out, up to
+    ANSWER_CACHE_BYTES of bodies. An entry is re-read when its meta file's mtime changes.
+
+    The read itself runs in a thread: a body can be 10 MB, and reading it on the event loop would
+    stall every connection this proxy carries for the duration."""
+
+    def __init__(self, directory, cap_bytes=None):
+        self._dir = directory
+        self._cap = ANSWER_CACHE_BYTES if cap_bytes is None else cap_bytes
+        self._entries = collections.OrderedDict()   # id -> (mtime, meta, body)
+        self._bytes = 0
+
+    async def load(self, answer_id):
+        """(meta, body) for a stored answer, or (None, reason) when there is none to serve."""
+        answer_id = str(answer_id or '')
+        if not ANSWER_ID.fullmatch(answer_id):
+            return None, 'invalid stored answer id'
+        meta_path = os.path.join(self._dir, answer_id + '.meta.json')
+        try:
+            mtime = os.path.getmtime(meta_path)
+        except OSError:
+            self._forget(answer_id)
+            return None, f'stored answer {answer_id} not found'
+        cached = self._entries.get(answer_id)
+        if cached is not None and cached[0] == mtime:
+            self._entries.move_to_end(answer_id)
+            return (cached[1], cached[2]), None
+        try:
+            meta, body = await asyncio.to_thread(self._read, answer_id, meta_path)
+        except (OSError, ValueError):
+            self._forget(answer_id)
+            return None, f'stored answer {answer_id} not found'
+        self._remember(answer_id, mtime, meta, body)
+        return (meta, body), None
+
+    def _read(self, answer_id, meta_path):
+        with open(meta_path, encoding='utf-8') as f:
+            meta = json.load(f)
+        with open(os.path.join(self._dir, answer_id + '.body'), 'rb') as f:
+            body = f.read()
+        if not isinstance(meta, dict):
+            raise ValueError('meta is not an object')
+        return meta, body
+
+    def _remember(self, answer_id, mtime, meta, body):
+        self._forget(answer_id)
+        if len(body) > self._cap:
+            return  # served, but too big to keep
+        self._entries[answer_id] = (mtime, meta, body)
+        self._bytes += len(body)
+        while self._bytes > self._cap and self._entries:
+            _, (_, _, evicted) = self._entries.popitem(last=False)
+            self._bytes -= len(evicted)
+
+    def _forget(self, answer_id):
+        old = self._entries.pop(answer_id, None)
+        if old is not None:
+            self._bytes -= len(old[2])
+
+
+def answer_parts(meta, body, action):
+    """status, headers and body for a stored answer, with the action's own status winning."""
+    status = action.get('status')
+    if status is None:
+        status = meta.get('status')
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        status = 200
+    headers = meta.get('headers') if isinstance(meta.get('headers'), dict) else {}
+    return status, {str(k): str(v) for k, v in headers.items()}, body
+
+
+def recorded_epoch(meta):
+    """When a recorded answer was recorded, as epoch seconds, or None when it cannot be told."""
+    value = meta.get('recordedAt')
+    if not value:
+        return None
+    try:
+        return email.utils.parsedate_to_datetime(str(value)).timestamp()
+    except (TypeError, ValueError):
+        pass
+    try:
+        return datetime.datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp()
+    except ValueError:
+        return None
+
+
+def refresh_dates(response, recorded_at):
+    """Moves Date, Expires, Last-Modified and cookie expiry forward by the time since recording, so
+    a recorded answer does not arrive already expired. mitmproxy's own refresh() does the shifting,
+    measured from timestamp_start - which is set to the recording time for the call, then put back."""
+    if recorded_at is None or not hasattr(response, 'refresh'):
+        return
+    started = response.timestamp_start
+    response.timestamp_start = recorded_at
+    try:
+        response.refresh()
+    finally:
+        response.timestamp_start = started
+
+
 class _RulesCache:
     """Re-reads RULES_FILE only when its mtime changes - identical idiom to
     log_and_route_reverse.py's _ToggleState. A missing file is the normal state for a deployment
@@ -1127,14 +1242,14 @@ class Verdict:
     waiting on a human - is described here and carried out by the addon's async hook.
     """
 
-    __slots__ = ('delay_ms', 'terminal', 'mock', 'failure', 'pause', 'applied', 'must_reach_host',
+    __slots__ = ('delay_ms', 'terminal', 'mock', 'failure', 'pause', 'applied', 'must_reach_host', 'refresh_from',
                  'sensitive', 'self_targets', 'pre_request', 'pre_response', 'synthetic_response',
                  'original_request', 'original_response', 'final_request', 'final_response')
 
     def __init__(self):
         self.delay_ms = 0
         self.terminal = None      # 'ABORT_REQUEST' | 'MOCK_RESPONSE' | 'SIMULATE_FAILURE' | None
-        self.mock = None          # {'status':int,'headers':dict,'body':str}
+        self.mock = None          # {'status','headers','body':str} or, for a stored answer, 'body_bytes'
         self.failure = None       # {'mode':str,'durationMs':int,'status':int|None,'body':str|None}
         self.pause = None         # {'phase':'request'|'response','timeoutSeconds':int,'onTimeout':str,'ruleId','ruleName'}
         self.applied = []
@@ -1157,6 +1272,8 @@ class Verdict:
         # _apply_request_action. This is what makes "always really call this endpoint" expressible
         # as a narrow, high-priority exception to a broad mocking rule.
         self.must_reach_host = False
+        # ANSWER_WITH_RECORDED_CALL with refreshDates: when the answer was recorded (epoch seconds).
+        self.refresh_from = None
         # Which header names this call's record must mask - the published list of the ruleset
         # that matched it (see RuleSet.sensitive).
         self.sensitive = frozenset(SENSITIVE_HEADERS)
@@ -1539,6 +1656,8 @@ class InterceptionEngine:
         # process, since a given mitmproxy addon only ever sees one direction.
         self.source = source
         self._cache = _RulesCache(rules_file)
+        # Beside the snapshot, wherever that is - the backend publishes both into one directory.
+        self._answers = _AnswerCache(os.path.join(os.path.dirname(os.path.abspath(rules_file or RULES_FILE)), 'answers'))
 
     def enabled(self):
         return not self._cache.current().inert
@@ -1766,6 +1885,26 @@ class InterceptionEngine:
             verdict.record(rule, kind, f'{status}, upstream never contacted')
             return
 
+        if kind == 'ANSWER_WITH_RECORDED_CALL':
+            if verdict.must_reach_host:
+                verdict.record(rule, kind, 'skipped - an earlier rule requires this call to reach the host')
+                return
+            loaded, reason = await self._answers.load(action.get('answerId'))
+            if loaded is None:
+                # The call goes on to the host: a missing answer must not become an invented one.
+                verdict.skip(rule, kind, reason)
+                return
+            meta, body = loaded
+            status, headers, body = answer_parts(meta, body, action)
+            # Carried out exactly like a mock - the addon builds the response, the log records it
+            # as one-sided - with the bytes as stored rather than re-encoded text.
+            verdict.terminal = 'MOCK_RESPONSE'
+            verdict.mock = {'status': status, 'headers': headers, 'body_bytes': body}
+            if action.get('refreshDates') is True:
+                verdict.refresh_from = recorded_epoch(meta)
+            verdict.record(rule, kind, f'recorded answer {meta.get("id", "")}, {status}, upstream never contacted')
+            return
+
         if kind == 'SIMULATE_FAILURE':
             if verdict.must_reach_host:
                 verdict.record(rule, kind, 'skipped - an earlier rule requires this call to reach the host')
@@ -1966,6 +2105,24 @@ class InterceptionEngine:
             if body is not None:
                 response.text = str(body)
             verdict.record(rule, kind, f'{response.status_code}, upstream was really called')
+            return
+
+        if kind == 'REPLACE_WITH_RECORDED_RESPONSE':
+            loaded, reason = await self._answers.load(action.get('answerId'))
+            if loaded is None:
+                verdict.skip(rule, kind, reason)
+                return
+            meta, body = loaded
+            status, headers, body = answer_parts(meta, body, action)
+            set_status(response, status)
+            response.headers.clear()
+            for name, value in headers.items():
+                response.headers[name] = value
+            response.content = body
+            response.headers['content-length'] = str(len(body))
+            if action.get('refreshDates') is True:
+                refresh_dates(response, recorded_epoch(meta))
+            verdict.record(rule, kind, f'recorded answer {meta.get("id", "")}, {status}, upstream was really called')
             return
 
         if kind == 'PAUSE_RESPONSE':

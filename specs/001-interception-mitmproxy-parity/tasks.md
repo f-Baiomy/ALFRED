@@ -573,7 +573,7 @@ including inbound sources and the keep/strip prompt.
 
 ### Tests first
 
-- [ ] T069 [P] [US6] `BIT/application/service/StoredAnswersServiceTest.java`, with fake ports,
+- [X] T069 [P] [US6] `BIT/application/service/StoredAnswersServiceTest.java`, with fake ports,
   covering:
   - a copy over the cap is refused with `limitBytes` and `sizeBytes`;
   - a response with `set-cookie` and no `keepSecrets` gives `SecretsDecisionRequired` with
@@ -583,21 +583,21 @@ including inbound sources and the keep/strip prompt.
   - no secrets gives `secretsKept=null`;
   - `retainReferenced` deletes unreferenced answers;
   - the orphan sweep deletes unreferenced answers older than 1 h and keeps newer ones.
-- [ ] T070 [P] [US6] `BIT/adapter/out/sqlite/SqliteStoredAnswersStoreAdapterTest.java`, against
+- [X] T070 [P] [US6] `BIT/adapter/out/sqlite/SqliteStoredAnswersStoreAdapterTest.java`, against
   a `@TempDir` DB file: save, find the metadata without the body, find the body, delete
   (cascade).
-- [ ] T071 [P] [US6] Extend `BIT/adapter/out/rulesfile/FileRulesPublisherAdapterTest.java`:
+- [X] T071 [P] [US6] Extend `BIT/adapter/out/rulesfile/FileRulesPublisherAdapterTest.java`:
   - answers are written as `answers/<id>.meta.json` and `.body`;
   - they are written before `rules.json`, checked by write order through a spy or by mtime;
   - unreferenced files are deleted.
-- [ ] T072 [P] [US6] Add `RuleValidatorTest` cases: an `answerId` of `../rules` or
+- [X] T072 [P] [US6] Add `RuleValidatorTest` cases: an `answerId` of `../rules` or
   `a/b`, rejected as not a UUID; an `answerId` that does not exist; a FILE
   answer used by ANSWER_WITH_RECORDED_CALL; two terminals (ANSWER_WITH_RECORDED_CALL plus
   MOCK_RESPONSE); SEND_TO_HOST plus ANSWER_WITH_RECORDED_CALL.
-- [ ] T073 [P] [US6] Extend `BIT/application/service/InterceptionRulesServiceTest.java`: export
+- [X] T073 [P] [US6] Extend `BIT/application/service/InterceptionRulesServiceTest.java`: export
   version 2 embeds the answers with `answerRef`; importing version 2 creates new answer ids and
   rewrites the references; importing version 1 still works.
-- [ ] T074 [P] [US6] In `PX/test_interception.py`, add `StoredAnswerTest`, using `_AnswerCache`
+- [X] T074 [P] [US6] In `PX/test_interception.py`, add `StoredAnswerTest`, using `_AnswerCache`
   on a tmpdir:
   - ANSWER_WITH_RECORDED_CALL is terminal and short-circuits with the recorded status, headers
     and body;
@@ -613,12 +613,12 @@ including inbound sources and the keep/strip prompt.
 
 ### Implementation
 
-- [ ] T075 [US6] Create `BI/domain/model/StoredAnswer.java`, a record per data-model §4, with
+- [X] T075 [US6] Create `BI/domain/model/StoredAnswer.java`, a record per data-model §4, with
   `enum Kind {RECORDED, FILE}`. Add `ANSWER_WITH_RECORDED_CALL(Phase.REQUEST)` and
   `REPLACE_WITH_RECORDED_RESPONSE(Phase.RESPONSE)` to `ActionType`, and add
   ANSWER_WITH_RECORDED_CALL to `isTerminal()` (:91-93). Add the RuleAction fields `answerId`
   and `refreshDates`.
-- [ ] T076 [US6] Create the ports:
+- [X] T076 [US6] Create the ports:
   - `BI/application/port/out/StoredAnswersStorePort.java`: `save(StoredAnswer, byte[])`,
     `findMeta(id)`, `findBody(id)`, `listMeta()`, `delete(id)`;
   - `BI/application/port/out/RecordedCallLookupPort.java`:
@@ -628,17 +628,17 @@ including inbound sources and the keep/strip prompt.
   - `BI/application/port/in/ManageStoredAnswersUseCase.java`: `copyFromCall(...)`, which
     returns a sealed result `Created | SecretsDecisionRequired(List<String>) | NotFound |
     TooLarge(limit, size)`, plus `upload(...)` (used in US7), `get(id)` and `body(id)`.
-- [ ] T077 [US6] Add the stored-answer tables (data-model §4) to the schema bootstrap of
+- [X] T077 [US6] Add the stored-answer tables (data-model §4) to the schema bootstrap of
   `BI/adapter/out/sqlite/SqliteInterceptionRulesRepository.java` (:74-88). Create
   `BI/adapter/out/sqlite/SqliteStoredAnswersStoreAdapter.java`, which re-uses that repository's
   pool through a package-private accessor, is annotated `@ConditionalOnProperty(prefix =
   "alfred.storage.interception", name = "type", havingValue = "sqlite", matchIfMissing = true)`,
   and never selects the body in `listMeta`.
-- [ ] T078 [P] [US6] Create `BI/adapter/out/filestore/JsonFileStoredAnswersStoreAdapter.java`
+- [X] T078 [P] [US6] Create `BI/adapter/out/filestore/JsonFileStoredAnswersStoreAdapter.java`
   (`havingValue = "file"`). It keeps the metadata in
   `${INTERCEPTION_ANSWERS_DIR:/appdata/interception-answers}/index.json` and the bodies as
   `<id>.body`, and writes atomically with a temp file and a move.
-- [ ] T079 [US6] Create `BI/application/service/StoredAnswersService.java`:
+- [X] T079 [US6] Create `BI/application/service/StoredAnswersService.java`:
   - `@Value("${alfred.interception.max-answer-bytes}")`;
   - secret detection over `SensitiveHeaders.NAMES`;
   - a strip path;
@@ -647,17 +647,17 @@ including inbound sources and the keep/strip prompt.
 
   In `InterceptionRulesService.persist` (:234-239), collect the answer ids of every rule, call
   `retainReferenced`, and then publish.
-- [ ] T080 [US6] Change `RulesPublisherPort.publish` (`BI/application/port/out/RulesPublisherPort.java:28`) to
+- [X] T080 [US6] Change `RulesPublisherPort.publish` (`BI/application/port/out/RulesPublisherPort.java:28`) to
   `publish(boolean enabled, List<InterceptionRule> rules, List<PublishedAnswer> answers)`.
   `FileRulesPublisherAdapter` then writes each answer's meta and body atomically into
   `answers/` **before** `rules.json`, and deletes answer files that are no longer referenced.
   Update `RecordingPublisher` in `InterceptionRulesServiceTest`.
-- [ ] T081 [US6] Extend `RuleValidator`: add the parameter
+- [X] T081 [US6] Extend `RuleValidator`: add the parameter
   `Function<String, Optional<StoredAnswer.Kind>> answerKinds` to the overload from T041.
   `answerId` must match the UUID pattern (data-model §9) before it is looked up.
   ANSWER_WITH_RECORDED_CALL and REPLACE_WITH_RECORDED_RESPONSE require RECORDED; add them to
   the terminal and SEND_TO_HOST conflict counting (:55-94).
-- [ ] T082 [US6] Create `BI/adapter/in/web/StoredAnswersController.java` with these routes, per
+- [X] T082 [US6] Create `BI/adapter/in/web/StoredAnswersController.java` with these routes, per
   contracts/rest-api.md:
   - `POST /interception/answers/from-call`
   - `GET /interception/answers/{id}`
@@ -665,7 +665,7 @@ including inbound sources and the keep/strip prompt.
 
   The DTO `BI/adapter/in/web/dto/CopyAnswerRequestDto.java` is validated with `@Valid`. The
   sealed result maps to 201 / 409 / 404 / 413.
-- [ ] T083 [US6] Create the bridge `BA/interceptionbridge/RecordedCallLookupAdapter.java`
+- [X] T083 [US6] Create the bridge `BA/interceptionbridge/RecordedCallLookupAdapter.java`
   (`@Component implements RecordedCallLookupPort`). It resolves:
   - `outbound` through backend-calls' detail use case;
   - `inbound` through backend-internal-calls' `GetCallDetailUseCase` (`BIC/application/port/in/GetCallDetailUseCase.java:10`);
@@ -674,11 +674,11 @@ including inbound sources and the keep/strip prompt.
   Follow the `BA/filtering/CallFilterAdapter.java` pattern. Add a test in
   `backend/backend-app/src/test/java/com/fathy/alfred/backend/interceptionbridge/RecordedCallLookupAdapterTest.java`
   with mocked use cases.
-- [ ] T084 [US6] Rules export and import, version 2: add `GET /interception/rules/export?ids=`
+- [X] T084 [US6] Rules export and import, version 2: add `GET /interception/rules/export?ids=`
   to `BI/adapter/in/web/InterceptionRulesController.java`, and extend
   `InterceptionRulesService.importRules` (:176-205) and `ImportRequestDto` (:94) to accept
   `answers[]`, per contracts/rules-snapshot-and-file.md §3.
-- [ ] T085 [US6] In `PX/interception.py`:
+- [X] T085 [US6] In `PX/interception.py`:
   - add `_AnswerCache`: mtime-checked per file, and an LRU capped by
     `INTERCEPTION_ANSWER_CACHE_BYTES`. It accepts only ids that fully match the UUID pattern
     in data-model §9 before joining them onto the answers directory (the FR-024 path-traversal
@@ -692,11 +692,11 @@ including inbound sources and the keep/strip prompt.
   In both addons' `_decide` (`PX/log_and_route.py:238-242`, `PX/log_and_route_reverse.py`),
   accept `body_bytes`, and call `flow.response.refresh()` when `refresh_dates` is set. Also call
   it after a response-phase replace, in the `response` hook.
-- [ ] T086 [US6] Frontend services and state:
+- [X] T086 [US6] Frontend services and state:
   - add `StoredAnswer` / `SecretsDecisionRequired` types in `FE/core/models/interception.model.ts`;
   - add `copyAnswerFromCall`, `getAnswer`, `exportRules(ids)` and a version-2 `importRules` in
     `FE/core/services/interception-api.service.ts`.
-- [ ] T087 [US6] Create `FE/components/answer-picker/answer-picker.component.{ts,html}`, a
+- [X] T087 [US6] Create `FE/components/answer-picker/answer-picker.component.{ts,html}`, a
   standalone component using signals:
   - a direction toggle (Outbound / Inbound) and a search box that calls
     `CallsApiService.getCalls(source, …)`;
@@ -706,19 +706,28 @@ including inbound sources and the keep/strip prompt.
   - once an answer exists, it shows its metadata (status, size, source, secretsKept badge).
 
   `rule-action-card` renders it for the answer actions.
-- [ ] T088 [US6] Rules file version 2:
+- [X] T088 [US6] Rules file version 2:
   - in `FE/shared/utils/interception-rules-file.ts`, `parseRulesFile` accepts versions 1 and 2;
   - `FE/pages/interception/interception.component.ts:70-83` exports through
     `exportRules(ids)`, then `downloadJson`;
   - `import-rules-dialog` posts the version-2 answers;
   - duplicate keeps `answerId`, which `interception-state.service.ts:251-261` already does.
-- [ ] T089 [P] [US6] Frontend specs:
+- [X] T089 [P] [US6] Frontend specs:
   - `FE/shared/utils/interception-rules-file.spec.ts`: version-1 and version-2 parsing, and a
     calls export still rejected;
   - `FE/components/answer-picker/answer-picker.component.spec.ts`: a 409 leads to the prompt,
     and the retry carries `keepSecrets`.
-- [ ] T090 [P] [US6] Add labels, `describeAction` cases and help entries for both actions, with a
+- [X] T090 [P] [US6] Add labels, `describeAction` cases and help entries for both actions, with a
   worked example of reproducing yesterday's bug. The warning covers kept secrets.
+
+**Implementation notes (US6)**:
+- `retainReferenced(ids)` became `release(before, after)`: an answer is deleted only when a save
+  stops a rule referring to it, plus the 1 h orphan sweep. Deleting every unreferenced answer on
+  each save would delete one just picked in an open editor whenever another rule was saved.
+- The version-2 file transform (`answerId` to `answerRef` and back) lives in
+  `InterceptionRulesController`, since it is a file-format concern; the service still does the import.
+- `recordedAt` is the recorded response's `Date` header. `refreshDates` shifts through mitmproxy's
+  own `Response.refresh()`, measured from that time.
 
 ---
 

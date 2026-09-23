@@ -3,7 +3,9 @@ package com.fathy.alfred.backend.interception.domain.model;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -36,7 +38,7 @@ public final class RuleValidator {
      * handed down through every nested branch, so a condition's inner actions are held to exactly
      * the same checks as top-level ones.
      */
-    private record Checks(SelfTargets selfTargets) {
+    private record Checks(SelfTargets selfTargets, Function<String, Optional<StoredAnswer.Kind>> answerKinds) {
     }
 
     /** Two levels: a condition, and a condition inside one of its branches. See validateConditional. */
@@ -62,7 +64,17 @@ public final class RuleValidator {
      *                    only known then.
      */
     public static List<String> validate(InterceptionRule rule, SelfTargets selfTargets) {
-        Checks checks = new Checks(selfTargets == null ? SelfTargets.none() : selfTargets);
+        return validate(rule, selfTargets, id -> Optional.empty());
+    }
+
+    /**
+     * @param answerKinds what kind of stored answer an id names, or empty when there is none. Only
+     *                    ever asked about an id that is already a well-formed UUID.
+     */
+    public static List<String> validate(InterceptionRule rule, SelfTargets selfTargets,
+                                        Function<String, Optional<StoredAnswer.Kind>> answerKinds) {
+        Checks checks = new Checks(selfTargets == null ? SelfTargets.none() : selfTargets,
+                answerKinds == null ? id -> Optional.empty() : answerKinds);
         List<String> problems = new ArrayList<>();
 
         if (rule.name() == null || rule.name().isBlank()) {
@@ -317,6 +329,12 @@ public final class RuleValidator {
                     problems.add("SET_RESPONSE_ENCODING needs one of " + String.join(", ", RESPONSE_ENCODINGS) + ".");
                 }
             }
+            case ANSWER_WITH_RECORDED_CALL, REPLACE_WITH_RECORDED_RESPONSE -> {
+                validateAnswer(action, problems, checks);
+                if (action.status() != null && (action.status() < 100 || action.status() > 599)) {
+                    problems.add(action.type() + " needs a status code between 100 and 599, or none to keep the recorded one.");
+                }
+            }
             // Deliberately not exhaustive-by-omission: a new ActionType with no case here would
             // otherwise be saved with no validation at all, and fail only once it reached the proxy.
             default -> problems.add("Unknown action type " + action.type() + ".");
@@ -480,6 +498,30 @@ public final class RuleValidator {
                 problems.add("\"" + condition.value() + "\" is not a number, so " + condition.operator()
                         + " cannot compare against it.");
             }
+        }
+    }
+
+    /**
+     * The id must be a UUID before it is looked up at all: it becomes a file name in the published
+     * answers directory, so this is where "../rules" is stopped (FR-024). Then it must exist, and be
+     * the kind of answer this action serves.
+     */
+    private static void validateAnswer(RuleAction action, List<String> problems, Checks checks) {
+        String id = action.answerId();
+        if (id == null || id.isBlank()) {
+            problems.add(action.type() + " needs a stored answer - pick a call to answer with.");
+            return;
+        }
+        if (!StoredAnswer.isValidId(id)) {
+            problems.add(action.type() + "'s stored answer id is not a valid id.");
+            return;
+        }
+        Optional<StoredAnswer.Kind> kind = checks.answerKinds().apply(id);
+        if (kind.isEmpty()) {
+            problems.add(action.type() + "'s stored answer " + id + " does not exist - pick the call again.");
+        } else if (kind.get() != action.type().answerKind()) {
+            problems.add(action.type() + " needs a " + action.type().answerKind().name().toLowerCase(Locale.ROOT)
+                    + " answer, not a " + kind.get().name().toLowerCase(Locale.ROOT) + " one.");
         }
     }
 

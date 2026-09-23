@@ -31,6 +31,7 @@ export type ActionType =
   | 'REMOVE_FORM_FIELD'
   | 'DISABLE_CACHE'
   | 'DISABLE_COMPRESSION'
+  | 'ANSWER_WITH_RECORDED_CALL'
   | 'ABORT_REQUEST'
   | 'MOCK_RESPONSE'
   | 'PAUSE_REQUEST'
@@ -48,6 +49,7 @@ export type ActionType =
   | 'SET_RESPONSE_COOKIE'
   | 'REMOVE_RESPONSE_COOKIE'
   | 'SET_RESPONSE_ENCODING'
+  | 'REPLACE_WITH_RECORDED_RESPONSE'
   | 'REPLACE_RESPONSE'
   | 'PAUSE_RESPONSE'
   | 'IF_RESPONSE';
@@ -229,6 +231,8 @@ export interface RuleAction {
   readonly encoding?: string | null;
   /** The stored-answer actions: which stored answer. */
   readonly answerId?: string | null;
+  /** In a rules FILE only: the file-local name of an embedded answer, mapped to a fresh answerId on import. */
+  readonly answerRef?: string | null;
   /** The recorded-call actions: move Date, Expires and cookie expiry forward to now. */
   readonly refreshDates?: boolean | null;
   /** The message actions: client, server or both. */
@@ -557,6 +561,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   REMOVE_FORM_FIELD: 'Remove form field',
   DISABLE_CACHE: 'Disable cache (always get the full response)',
   DISABLE_COMPRESSION: 'Disable compression',
+  ANSWER_WITH_RECORDED_CALL: 'Answer with a recorded call (never contact upstream)',
   ABORT_REQUEST: 'Abort request (kill the connection)',
   MOCK_RESPONSE: 'Mock response (never contact upstream)',
   PAUSE_REQUEST: 'Pause and wait for me (before forwarding)',
@@ -574,6 +579,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   SET_RESPONSE_COOKIE: 'Set response cookie',
   REMOVE_RESPONSE_COOKIE: 'Remove response cookie',
   SET_RESPONSE_ENCODING: 'Set response encoding',
+  REPLACE_WITH_RECORDED_RESPONSE: 'Replace with a recorded response',
   REPLACE_RESPONSE: 'Reply with a different response',
   PAUSE_RESPONSE: 'Pause and wait for me (after the supplier answers)',
   IF_RESPONSE: 'Condition — look at the response, then decide',
@@ -726,6 +732,14 @@ export function describeAction(action: RuleAction): string {
         : `${label} ${action.name ?? ''}`.trim();
     case 'SET_RESPONSE_ENCODING':
       return `Re-encode the response as ${action.encoding ?? '?'}`;
+    case 'ANSWER_WITH_RECORDED_CALL':
+      return action.answerId || action.answerRef
+        ? `Answer with a recorded call${action.status ? ` as ${action.status}` : ''} — host never called`
+        : 'Answer with a recorded call — none picked yet';
+    case 'REPLACE_WITH_RECORDED_RESPONSE':
+      return action.answerId || action.answerRef
+        ? 'Replace the response with a recorded one — host still called'
+        : 'Replace with a recorded response — none picked yet';
     case 'SET_REQUEST_BODY':
       return `Replace request body (${(action.body ?? '').length} chars)${action.contentType ? `, ${action.contentType}` : ''}`;
     case 'REPLACE_IN_REQUEST_BODY':
@@ -792,4 +806,40 @@ export function actionPhase(type: ActionType | string): ActionPhase {
   if (info) return info.phase;
   if (type.endsWith('_MESSAGE')) return 'message';
   return type.includes('RESPONSE') && type !== 'MOCK_RESPONSE' ? 'response' : 'request';
+}
+
+/** A response Alfred keeps so a rule can answer with it - metadata only; the body has its own route. */
+export interface StoredAnswer {
+  readonly id: string;
+  readonly kind: 'RECORDED' | 'FILE';
+  readonly status: number | null;
+  readonly contentType?: string | null;
+  readonly sizeBytes: number;
+  /** Null when there were no secrets to decide about. */
+  readonly secretsKept?: boolean | null;
+  /** Names only - a secret's value never leaves the backend through this. */
+  readonly secretNames?: readonly string[];
+  readonly sourceDirection?: 'outbound' | 'inbound' | null;
+  readonly sourceCallId?: string | null;
+  readonly recordedAt?: string | null;
+  readonly createdAt: string;
+  readonly referencedByRuleIds?: readonly string[];
+}
+
+/** The 409 from POST /interception/answers/from-call: the response carries secrets, keep or strip? */
+export interface SecretsDecisionRequired {
+  readonly error: 'secrets-decision-required';
+  readonly secretNames: readonly string[];
+}
+
+export interface CopyAnswerRequest {
+  readonly direction: 'outbound' | 'inbound';
+  readonly callId: string;
+  readonly cycleId?: string | null;
+  readonly keepSecrets?: boolean | null;
+}
+
+/** Whether an action serves a stored answer, and so needs the answer picker. */
+export function usesStoredAnswer(type: ActionType): boolean {
+  return type === 'ANSWER_WITH_RECORDED_CALL' || type === 'REPLACE_WITH_RECORDED_RESPONSE';
 }

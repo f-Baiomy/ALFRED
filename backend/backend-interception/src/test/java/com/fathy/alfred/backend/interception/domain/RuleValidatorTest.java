@@ -10,6 +10,7 @@ import com.fathy.alfred.backend.interception.domain.model.RuleAction;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
 import com.fathy.alfred.backend.interception.domain.model.RuleValidator;
 import com.fathy.alfred.backend.interception.domain.model.SelfTargets;
+import com.fathy.alfred.backend.interception.domain.model.StoredAnswer;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -672,6 +673,48 @@ class RuleValidatorTest {
     void aMatchWithoutTestsKeepsItsStoredShape() throws Exception {
         String json = JSON.writeValueAsString(RuleMatch.empty());
         assertThat(json).doesNotContain("headers").doesNotContain("query").doesNotContain("cookies");
+    }
+
+    private static final String ANSWER = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
+    private static List<String> answerProblems(Map<String, Object> fields, StoredAnswer.Kind existing) {
+        return RuleValidator.validate(rule(RuleMatch.empty(), action(fields)), SelfTargets.none(),
+                id -> ANSWER.equals(id) ? java.util.Optional.ofNullable(existing) : java.util.Optional.empty());
+    }
+
+    @Test
+    void anAnswerIdMustBeAUuidBeforeItIsLookedUp() {
+        for (String id : List.of("../rules", "a/b", ANSWER.toUpperCase(), ANSWER + "x")) {
+            assertThat(answerProblems(Map.of("type", "ANSWER_WITH_RECORDED_CALL", "answerId", id), StoredAnswer.Kind.RECORDED))
+                    .withFailMessage(id).anyMatch(p -> p.contains("not a valid id"));
+        }
+        assertThat(answerProblems(Map.of("type", "ANSWER_WITH_RECORDED_CALL", "answerId", ANSWER), StoredAnswer.Kind.RECORDED))
+                .isEmpty();
+    }
+
+    @Test
+    void anAnswerMustExistAndBeTheRightKind() {
+        assertThat(answerProblems(Map.of("type", "ANSWER_WITH_RECORDED_CALL", "answerId", ANSWER), null))
+                .anyMatch(p -> p.contains("does not exist"));
+        assertThat(answerProblems(Map.of("type", "REPLACE_WITH_RECORDED_RESPONSE", "answerId", ANSWER), StoredAnswer.Kind.FILE))
+                .anyMatch(p -> p.contains("needs a recorded answer, not a file one"));
+        assertThat(answerProblems(Map.of("type", "ANSWER_WITH_RECORDED_CALL"), StoredAnswer.Kind.RECORDED))
+                .anyMatch(p -> p.contains("needs a stored answer"));
+    }
+
+    @Test
+    void answeringWithARecordedCallEndsTheRequestLikeAMock() {
+        InterceptionRule both = rule(RuleMatch.empty(),
+                action(Map.of("type", "ANSWER_WITH_RECORDED_CALL", "answerId", ANSWER)),
+                action(Map.of("type", "MOCK_RESPONSE", "status", 200)));
+        assertThat(RuleValidator.validate(both, SelfTargets.none(), id -> java.util.Optional.of(StoredAnswer.Kind.RECORDED)))
+                .anyMatch(p -> p.contains("only end a request once"));
+
+        InterceptionRule withSend = rule(RuleMatch.empty(),
+                action(Map.of("type", "SEND_TO_HOST")),
+                action(Map.of("type", "ANSWER_WITH_RECORDED_CALL", "answerId", ANSWER)));
+        assertThat(RuleValidator.validate(withSend, SelfTargets.none(), id -> java.util.Optional.of(StoredAnswer.Kind.RECORDED)))
+                .anyMatch(p -> p.contains("both sends the call to the host and short-circuits it"));
     }
 
     @Test

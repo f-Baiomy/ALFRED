@@ -1,15 +1,18 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import {
   ActionTypeInfo,
+  CopyAnswerRequest,
   InterceptionRule,
   InterceptionRuleDraft,
   PauseDecision,
   PausedCall,
   RuleImportResult,
+  StoredAnswer,
 } from '../models/interception.model';
+import { ExportedAnswer, RulesFile } from '../../shared/utils/interception-rules-file';
 import { AppConfigService } from './app-config.service';
 
 @Injectable({ providedIn: 'root' })
@@ -67,8 +70,36 @@ export class InterceptionApiService {
    * One request for a whole file, not one per rule. Twenty creates would be twenty round trips,
    * twenty republishes to the proxy and twenty WebSocket pushes each refetching the rule list.
    */
-  importRules(rules: readonly InterceptionRuleDraft[], enable: boolean): Observable<RuleImportResult> {
-    return this.http.post<RuleImportResult>(`${this.baseUrl}/rules/import`, { rules, enable });
+  /** `answers` are the stored answers a version-2 file embeds; the backend gives each a fresh id. */
+  importRules(
+    rules: readonly InterceptionRuleDraft[],
+    enable: boolean,
+    answers: readonly ExportedAnswer[] = []
+  ): Observable<RuleImportResult> {
+    return this.http.post<RuleImportResult>(`${this.baseUrl}/rules/import`, {
+      alfredInterceptionRules: 2,
+      rules,
+      answers,
+      enable,
+    });
+  }
+
+  /**
+   * A version-2 rules file, built by the backend because only it has the stored answers' bodies to
+   * embed. No ids means every rule.
+   */
+  exportRules(ids: readonly string[]): Observable<RulesFile> {
+    const params = ids.length ? new HttpParams().set('ids', ids.join(',')) : new HttpParams();
+    return this.http.get<RulesFile>(`${this.baseUrl}/rules/export`, { params });
+  }
+
+  /** Answers 201 with the answer, or 409 `SecretsDecisionRequired` until `keepSecrets` is given. */
+  copyAnswerFromCall(request: CopyAnswerRequest): Observable<StoredAnswer> {
+    return this.http.post<StoredAnswer>(`${this.baseUrl}/answers/from-call`, request);
+  }
+
+  getAnswer(id: string): Observable<StoredAnswer> {
+    return this.http.get<StoredAnswer>(`${this.baseUrl}/answers/${encodeURIComponent(id)}`);
   }
 
   /** Summaries only - no request/response bodies. See getPausedDetail for why. */

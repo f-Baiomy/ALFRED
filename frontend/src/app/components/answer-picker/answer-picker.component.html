@@ -1,0 +1,92 @@
+<div class="answer-picker span-all">
+  @if (showPicker()) {
+    <div class="answer-picker-bar">
+      <div class="answer-direction" role="group" aria-label="Which calls to pick from">
+        <button type="button" class="pill" [class.on]="direction() === 'outbound'" (click)="setDirection('outbound')">Outbound · supplier calls</button>
+        <button type="button" class="pill" [class.on]="direction() === 'inbound'" (click)="setDirection('inbound')">Inbound · into your projects</button>
+      </div>
+      <input type="search" class="answer-search" placeholder="Search URL or body…" [value]="search()" (input)="onSearch($event)" />
+      @if (changing()) {
+        <button type="button" class="pill" (click)="cancelChange()">Keep the current answer</button>
+      }
+    </div>
+
+    <small class="muted">
+      @if (loading()) {
+        Searching…
+      } @else {
+        {{ total() }} {{ total() === 1 ? 'match' : 'matches' }} · newest first{{ total() > results().length ? ' · showing ' + results().length : '' }}
+      }
+    </small>
+
+    <ul class="answer-results">
+      @for (call of results(); track call.id) {
+        <li>
+          <button type="button" class="answer-result" [disabled]="copying()" (click)="pick(call)">
+            <span class="answer-method">{{ call.method }}</span>
+            <span class="answer-status">{{ statusOf(call) }}</span>
+            <span class="answer-url">{{ call.url }}</span>
+            <span class="answer-time">{{ call.timestamp }}</span>
+          </button>
+        </li>
+      } @empty {
+        @if (!loading()) {
+          <li class="muted">No calls match.</li>
+        }
+      }
+    </ul>
+  } @else {
+    @if (answer(); as stored) {
+      <div class="answer-card">
+        <div class="answer-card-head">
+          <b>✓ Stored answer</b>
+          @if (stored.secretsKept === true) {
+            <span class="answer-badge warn">SECRETS KEPT</span>
+          } @else if (stored.secretsKept === false) {
+            <span class="answer-badge">SECRETS STRIPPED</span>
+          }
+          <button type="button" class="pill" (click)="startChange()">Change…</button>
+        </div>
+        <div class="answer-card-meta">
+          <span>status {{ stored.status ?? '—' }}</span>
+          <span>size {{ sizeText(stored.sizeBytes) }}</span>
+          @if (stored.sourceDirection) {
+            <span>from {{ stored.sourceDirection }} call {{ stored.sourceCallId }}</span>
+          }
+          @if (stored.recordedAt) {
+            <span>recorded {{ stored.recordedAt }}</span>
+          }
+        </div>
+        @if (stored.secretsKept === true) {
+          <small class="muted">Kept secrets travel with the rule: Export and Duplicate include them in plain text.</small>
+        }
+      </div>
+    } @else {
+      <small class="muted">Loading the stored answer…</small>
+    }
+  }
+
+  @if (pending(); as ask) {
+    <div class="answer-secrets" role="alertdialog" aria-label="The chosen response carries secrets">
+      <b>⚠ This response contains {{ ask.secretNames.length }} secret {{ ask.secretNames.length === 1 ? 'header' : 'headers' }}</b>
+      <ul>
+        @for (name of ask.secretNames; track name) {
+          <li><code>{{ name }}</code> (value not shown)</li>
+        }
+      </ul>
+      <p class="muted">
+        Keep serves them to every caller exactly as recorded. Strip removes them before the response is stored; they never
+        reach the rule. Kept secrets travel with the rule: Export and Duplicate include them in plain text.
+      </p>
+      <div class="answer-secrets-actions">
+        <button type="button" class="pill" (click)="cancelSecrets()">Cancel</button>
+        <button type="button" class="pill" [disabled]="copying()" (click)="keepSecrets(false)">Strip them</button>
+        <button type="button" class="pill" [disabled]="copying()" (click)="keepSecrets(true)">Keep them</button>
+      </div>
+    </div>
+  }
+
+  @if (error(); as message) {
+    <div class="rule-warning danger">{{ message }}</div>
+  }
+</div>

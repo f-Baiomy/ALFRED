@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -40,17 +41,21 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     private final BreakpointUseCase breakpoints;
     /** Where a REWRITE_URL may never point - checked on every save, see RuleValidator. */
     private final SelfTargets selfTargets;
+    /** The answers the rules refer to - validated against, published beside them, released with them. */
+    private final StoredAnswersService answers;
 
     public InterceptionRulesService(InterceptionRulesStorePort store,
                                     RulesPublisherPort publisher,
                                     InterceptionNotificationPort notifications,
                                     BreakpointUseCase breakpoints,
-                                    SelfTargets selfTargets) {
+                                    SelfTargets selfTargets,
+                                    StoredAnswersService answers) {
         this.store = store;
         this.publisher = publisher;
         this.notifications = notifications;
         this.breakpoints = breakpoints;
         this.selfTargets = selfTargets;
+        this.answers = answers;
     }
 
     /**
@@ -61,7 +66,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
      */
     @PostConstruct
     void republishOnStartup() {
-        publisher.publish(store.isEnabled(), store.findAll());
+        publish(store.isEnabled(), store.findAll());
     }
 
     @Override
@@ -188,7 +193,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
 
         for (int index = 0; index < incoming.size(); index++) {
             InterceptionRule candidate = incoming.get(index).withEnabled(enable).withPriority(nextPriority);
-            List<String> problems = RuleValidator.validate(candidate, selfTargets);
+            List<String> problems = RuleValidator.validate(candidate, selfTargets, answers::kindOf);
             if (!problems.isEmpty()) {
                 // Rejected on its own, not on behalf of the file - see RuleImportResult.
                 outcomes.add(RuleImportResult.Outcome.rejected(index, candidate.name(), problems));
@@ -217,7 +222,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     @Override
     public void setMasterSwitch(boolean on) {
         store.setEnabled(on);
-        publisher.publish(on, store.findAll());
+        publish(on, store.findAll());
         notifications.rulesChanged();
         if (!on) {
             // Off means off, including the calls already being held. Publishing the snapshot only
@@ -229,17 +234,29 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     }
 
     private void validate(InterceptionRule rule) {
-        List<String> problems = RuleValidator.validate(rule, selfTargets);
+        List<String> problems = RuleValidator.validate(rule, selfTargets, answers::kindOf);
         if (!problems.isEmpty()) {
             throw new InvalidRuleException(problems);
         }
     }
 
-    /** Persist, publish, notify - in that order, and never one without the others. */
+    /**
+     * Persist, publish, notify - in that order, and never one without the others. The answers a
+     * rule stopped using are deleted only after the new snapshot is published, so there is no
+     * moment when a published rule refers to an answer that is already gone.
+     */
     private void persist(List<InterceptionRule> rules) {
+        Set<String> referencedBefore = InterceptionRule.answerIdsOf(store.findAll());
         rules.sort(Comparator.comparingInt(InterceptionRule::priority));
         store.saveAll(rules);
-        publisher.publish(store.isEnabled(), rules);
+        publish(store.isEnabled(), rules);
+        answers.release(referencedBefore, InterceptionRule.answerIdsOf(rules));
         notifications.rulesChanged();
+    }
+
+    /** Only enabled rules reach the proxy, and so only their answers do. */
+    private void publish(boolean enabled, List<InterceptionRule> rules) {
+        Set<String> used = InterceptionRule.answerIdsOf(rules.stream().filter(InterceptionRule::enabled).toList());
+        publisher.publish(enabled, rules, answers.publishable(used));
     }
 }
