@@ -51,7 +51,7 @@
     }
     @if (call().resendOf; as originalId) {
       <a class="call-id-chip resend-chip" [href]="'?requestId=' + originalId" [title]="resendTooltip()">
-        ↻ resend of {{ shortId(originalId) }}
+        ↻ resend of {{ shortId(originalId) }}{{ resendBatchLabel() ? ' · ' + resendBatchLabel() : '' }}
       </a>
     }
   </div>
@@ -207,6 +207,10 @@
       <ng-container [ngTemplateOutlet]="urlsBlock" />
       <ng-container [ngTemplateOutlet]="idsBlock" />
 
+      @if (call().resendOf) {
+        <app-resend-panel [call]="call()" />
+      }
+
       @if (interception(); as intercepted) {
         <app-interception-panel
           [interception]="intercepted"
@@ -324,6 +328,10 @@
 
     @if (call().error) {
       <div class="error-banner">&#9888; {{ call().error }}</div>
+    }
+
+    @if (call().resendOf) {
+      <app-resend-panel [call]="call()" />
     }
 
     <!-- The single-card variant shows both halves in one card, so both panels sit here, request

@@ -1,7 +1,9 @@
 <!-- Renders nothing when this half was never modified. An "unchanged" notice on every intercepted
      call's other half would be noise, and absent must not be mistaken for unchanged. -->
 @if (hasChange()) {
-  <div class="intercept-panel" [class.hand]="editedByHand()">
+  <div class="intercept-panel" [class.hand]="editedByHand()" [class.embedded]="embedded()">
+    <!-- Embedded (inside the Resent panel): only the viewer, the host panel has its own head. -->
+    @if (!embedded()) {
     <button type="button" class="intercept-panel-head" (click)="toggle()">
       <span class="intercept-panel-icon">{{ editedByHand() ? '✎' : '⚡' }}</span>
       <span class="intercept-panel-title">
@@ -12,10 +14,11 @@
       </span>
       <span class="intercept-panel-toggle">{{ open() ? '▲ hide' : '▼ show what changed' }}</span>
     </button>
+    }
 
-    @if (open()) {
+    @if (expanded()) {
       <div class="intercept-panel-body">
-        @if (actions().length > 0) {
+        @if (!embedded() && actions().length > 0) {
           <div class="intercept-actions">
             @for (action of actions(); track $index) {
               <!-- A rule that can take three different paths is only useful if the log says
@@ -149,7 +152,9 @@
           </div>
 
           <p class="intercept-legend">
-            @if (synthetic()) {
+            @if (labels(); as custom) {
+              {{ custom.legend }}
+            } @else if (synthetic()) {
               Nothing was sent to the host and nothing came back — the whole reply above is
               Alfred's.
             } @else if (phase() === 'request') {

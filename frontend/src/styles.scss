@@ -8472,3 +8472,80 @@ app-header-editor {
     flex: 1 1 auto;
   }
 }
+
+/* Resent panel (ResendPanelComponent) - built on .intercept-panel so a resent card reads like an
+   intercepted one; only the cycle flow and the step detail are its own. */
+.resend-panel .intercept-panel-icon {
+  color: var(--purple-light);
+}
+
+.resend-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0.2rem;
+  overflow-x: auto;
+  padding-bottom: 0.4rem;
+}
+
+.resend-flow-arrow {
+  align-self: center;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+}
+
+.resend-flow-node {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 6.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-2);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &.on {
+    border-color: var(--purple);
+    background: color-mix(in srgb, var(--purple) 18%, transparent);
+  }
+}
+
+.rfn-title {
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.rfn-line {
+  font-size: 0.64rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.resend-step-detail {
+  font-size: 0.72rem;
+  line-height: 1.6;
+  padding: 0.4rem 0 0.6rem;
+  border-top: 1px solid var(--border);
+
+  .was {
+    text-decoration: line-through;
+    color: var(--text-faint);
+  }
+
+  code {
+    font-size: 0.68rem;
+  }
+}
+
+.resend-halves {
+  margin-top: 0.2rem;
+}
+
+.intercept-panel.embedded {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}

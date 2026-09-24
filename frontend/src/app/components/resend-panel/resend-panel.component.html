@@ -1,0 +1,145 @@
+<!-- The intercepted-call panel's twin: same frame and head, so a resent card reads the same way as
+     an intercepted one. -->
+<div class="intercept-panel resend-panel">
+  <button type="button" class="intercept-panel-head" (click)="toggle()">
+    <span class="intercept-panel-icon">↻</span>
+    <span class="intercept-panel-title">
+      Resent from {{ originLabel() }}
+      <em>{{ headSummary() }}</em>
+    </span>
+    <span class="intercept-panel-toggle">{{ open() ? '▲ hide' : '▼ show the whole cycle' }}</span>
+  </button>
+
+  @if (open()) {
+    <div class="intercept-panel-body">
+      <div class="resend-flow" role="tablist" aria-label="The cycle of this resend">
+        @for (s of steps(); track s.key; let i = $index) {
+          @if (i > 0) {
+            <span class="resend-flow-arrow" aria-hidden="true">→</span>
+          }
+          <button
+            type="button"
+            role="tab"
+            class="resend-flow-node"
+            [class.on]="step() === s.key"
+            [attr.aria-selected]="step() === s.key"
+            (click)="select(s.key)"
+          >
+            <span class="rfn-title">{{ i + 1 }} · {{ s.title }}</span>
+            <span class="rfn-line">{{ s.line }}</span>
+          </button>
+        }
+      </div>
+
+      <div class="resend-step-detail">
+        @switch (step()) {
+          @case ('original') {
+            @if (original(); as o) {
+              <div>
+                <span class="badge">{{ summary().method?.from ?? call().method }}</span>
+                {{ statusText(o.response?.status) }} · <code>{{ summary().url?.from ?? call().url }}</code>
+                · from {{ originLabel() }}
+                @if (o.timestamp) {
+                  · {{ o.timestamp }}
+                }
+                @if (durationOf(o)) {
+                  · {{ durationOf(o) }}
+                }
+                @if (originalHref(); as href) {
+                  · <a [href]="href">open original</a>
+                }
+              </div>
+            } @else if (originalGone()) {
+              <div class="muted">The original call has left {{ originLabel() }} - only what this resend recorded is shown.</div>
+            } @else {
+              <div class="muted">Loading the original…</div>
+            }
+          }
+          @case ('edits') {
+            @if (summary().method; as m) {
+              <div>Method <span class="was">{{ m.from }}</span> → {{ m.to }}</div>
+            }
+            @if (summary().url; as u) {
+              <div>URL <span class="was">{{ u.from }}</span> → {{ u.to }}</div>
+            }
+            @if (summary().headers?.length) {
+              <div>Headers set, added or removed: @for (h of summary().headers; track h) {<code>{{ h }}</code> }</div>
+            }
+            @if (summary().body) {
+              <div>Body edited - see Request · Diff below.</div>
+            }
+            @if (!summary().method && !summary().url && !summary().headers?.length && !summary().body) {
+              <div class="muted">Resent exactly as the original was sent.</div>
+            }
+          }
+          @case ('session') {
+            @for (s of summary().session ?? []; track s.name) {
+              <div><code>{{ s.name }}</code> ← the newest call to this host (<code>{{ s.fromCallId }}</code>); the value is never shown.</div>
+            } @empty {
+              <div class="muted">No session values were swapped in.</div>
+            }
+          }
+          @case ('sent') {
+            <div>
+              @if (call().source === 'internal') {
+                To {{ call().service_name ?? 'the project' }}'s reverse-proxy listener, as inbound
+              } @else {
+                Through the forward proxy, as outbound
+              }
+              @if (batchLabel(); as b) {
+                · {{ b }}
+              }
+            </div>
+          }
+          @case ('rules') {
+            @for (a of rules(); track $index) {
+              <div><b>{{ a.ruleName || 'Manual edit' }}</b> · {{ a.action }}@if (a.detail) { · {{ a.detail }} }</div>
+            } @empty {
+              <div class="muted">No interception rule touched this resend.</div>
+            }
+            @if (rules().length) {
+              <div class="muted">The full before/after of those rules is in the ⚡ panel on this card, as for any call.</div>
+            }
+          }
+          @case ('upstream') {
+            <div>
+              {{ hostOf(call().url) }} answered
+              @if (durationOf(call())) {
+                in {{ durationOf(call()) }}
+              }
+              @if (original(); as o) {
+                <span class="muted">(original: {{ hostOf(summary().url?.from ?? call().url) }}{{ durationOf(o) ? ', ' + durationOf(o) : '' }})</span>
+              }
+            </div>
+          }
+          @case ('response') {
+            <div>
+              {{ call().response?.status != null ? statusText(call().response!.status) : call().error ?? 'No response' }}
+              @if (original(); as o) {
+                · original was {{ statusText(o.response?.status) }}
+              }
+              @if (responseChange(); as change) {
+                · {{ change }}
+              }
+            </div>
+          }
+        }
+      </div>
+
+      <div class="intercept-views resend-halves">
+        <button type="button" [class.on]="half() === 'request'" (click)="half.set('request')">Request</button>
+        <button type="button" [class.on]="half() === 'response'" (click)="half.set('response')">Response</button>
+      </div>
+
+      @if (loading()) {
+        <div class="intercept-empty">Loading both calls…</div>
+      } @else if (originalGone()) {
+        <div class="intercept-empty">The original call is no longer available, so there is nothing to compare with.</div>
+      } @else if (half() === 'request') {
+        <app-interception-panel [interception]="requestView()" phase="request" [embedded]="true" [labels]="requestLabels" />
+      } @else {
+        <app-interception-panel [interception]="responseView()" phase="response" [embedded]="true" [labels]="responseLabels" />
+      }
+    </div>
+  }
+</div>

@@ -14,6 +14,8 @@ import {
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
+import { ResendPanelComponent } from '../resend-panel/resend-panel.component';
+import { resendSummaryOf } from '../../shared/utils/resend-summary';
 import { WsMessagesComponent } from '../ws-messages/ws-messages.component';
 import { OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
@@ -51,7 +53,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
   'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel, ' +
-  'app-interception-panel, .drag-handle';
+  'app-interception-panel, app-resend-panel, .drag-handle';
 
 /**
  * One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the
@@ -67,7 +69,7 @@ const SELECTION_EXEMPT_SELECTOR =
 @Component({
   selector: 'app-call-card',
   standalone: true,
-  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent, WsMessagesComponent],
+  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent, ResendPanelComponent, WsMessagesComponent],
   templateUrl: './call-card.component.html',
 })
 export class CallCardComponent {
@@ -590,6 +592,12 @@ export class CallCardComponent {
 
   toggleWsMessages(): void {
     this.wsMessagesOpen.update((open) => !open);
+  }
+
+  /** "2 of 4 in batch" for one call of a multi-call resend, else null. */
+  resendBatchLabel(): string | null {
+    const batch = resendSummaryOf(this.call())?.batch;
+    return batch ? `${batch.index} of ${batch.total} in batch` : null;
   }
 
   /** Summarizes call().resendEdits (`{method?, url?, headers?, body?, session?}`) into the resend chip's tooltip - names and shapes only, never a value. */

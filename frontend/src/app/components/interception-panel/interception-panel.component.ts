@@ -73,7 +73,17 @@ export class InterceptionPanelComponent {
    */
   readonly detailNeeded = output<void>();
 
+  /**
+   * Drawn inside another panel (the Resent panel's request/response views) rather than on its
+   * own: no head, no action list, always open - just the before/after/diff viewer with its tools.
+   */
+  readonly embedded = input(false);
+
+  /** Replaces the default before/after words and legend - the Resent panel's sides are two calls, not a rule's in and out. */
+  readonly labels = input<{ readonly title: string; readonly before: string; readonly after: string; readonly legend: string } | null>(null);
+
   readonly open = signal(false);
+  readonly expanded = computed(() => this.embedded() || this.open());
   readonly view = signal<InterceptView>('diff');
 
   readonly original = computed<OriginalHttp | null>(() =>
@@ -138,13 +148,13 @@ export class InterceptionPanelComponent {
    * opened: a line diff of two large bodies is real work on the main thread.
    */
   private readonly computed = computed<HttpDiff | null>(() =>
-    this.open() ? buildHttpDiff(this.diffBase(), this.after()) : null
+    this.expanded() ? buildHttpDiff(this.diffBase(), this.after()) : null
   );
 
   readonly diff = this.computed;
 
   /** The current side has not arrived yet - shown as loading rather than as an empty diff. */
-  readonly awaitingDetail = computed(() => this.open() && this.after() == null);
+  readonly awaitingDetail = computed(() => this.expanded() && this.after() == null);
 
   readonly summary = computed(() => {
     if (this.synthetic()) return 'nothing was sent to the host';
@@ -159,6 +169,8 @@ export class InterceptionPanelComponent {
   });
 
   readonly label = computed(() => {
+    const override = this.labels();
+    if (override) return override;
     if (this.synthetic()) {
       return {
         title: 'Alfred answered this — the host was never contacted',
