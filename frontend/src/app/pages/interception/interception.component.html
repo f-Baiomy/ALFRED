@@ -121,7 +121,7 @@
 </main>
 
 @if (editing(); as target) {
-  <app-rule-editor [rule]="target === 'new' ? null : target" [draft]="target === 'new' ? draft() : null" [snapshot]="target === 'new' ? snapshot() : null" [pickedAnswer]="pickedAnswer()" (closed)="closeEditor()" />
+  <app-rule-editor [rule]="target === 'new' ? null : target" [draft]="target === 'new' ? draft() : null" [snapshot]="target === 'new' ? snapshot() : null" [pickedAnswer]="pickedAnswer()" [pickedCopy]="pickedCopy()" (closed)="closeEditor()" />
 }
 
 @if (importing()) {

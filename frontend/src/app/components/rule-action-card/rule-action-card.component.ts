@@ -5,6 +5,10 @@ import { SelectPickerComponent } from '../select-picker/select-picker.component'
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
 import { HelpPopoverComponent } from '../help-popover/help-popover.component';
 import { AnswerPickerComponent } from '../answer-picker/answer-picker.component';
+import { BodyEditorComponent } from '../body-editor/body-editor.component';
+import { HeaderEditorComponent } from '../header-editor/header-editor.component';
+import { CopyFromCallComponent } from '../copy-from-call/copy-from-call.component';
+import { ReplacePreviewComponent } from '../replace-preview/replace-preview.component';
 import type { RuleEditorComponent } from '../rule-editor/rule-editor.component';
 
 /**
@@ -50,6 +54,10 @@ export interface ActionStep {
     SelectPickerComponent,
     StatusPickerComponent,
     AnswerPickerComponent,
+    BodyEditorComponent,
+    HeaderEditorComponent,
+    CopyFromCallComponent,
+    ReplacePreviewComponent,
     HelpPopoverComponent,
     CdkDropList,
     CdkDrag,

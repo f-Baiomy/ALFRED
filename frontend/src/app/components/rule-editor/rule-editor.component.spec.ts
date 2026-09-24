@@ -126,6 +126,37 @@ describe('RuleEditorComponent', () => {
     sessionStorage.removeItem('alfred_call_picker');
   });
 
+  it('applies a copy: fields onto the action, headers and method as their own actions right after it', () => {
+    open(null);
+    component.actions.set([{ type: 'DELAY_REQUEST', durationMs: 5 }, { type: 'SET_REQUEST_BODY', body: '' }, { type: 'SET_RESPONSE_STATUS', status: 500 }]);
+    component.openCopy([1]);
+    expect(component.isCopyOpen([1])).toBeTrue();
+
+    component.applyCopy([1], {
+      patch: { body: '<Q/>', contentType: 'text/xml' },
+      extra: [
+        { type: 'SET_REQUEST_HEADER', name: 'SOAPAction', value: '"Q"' },
+        { type: 'SET_METHOD', method: 'POST' },
+      ],
+    });
+
+    expect(component.actions().map((a) => a.type)).toEqual(['DELAY_REQUEST', 'SET_REQUEST_BODY', 'SET_REQUEST_HEADER', 'SET_METHOD', 'SET_RESPONSE_STATUS']);
+    expect(component.actions()[1]).toEqual({ type: 'SET_REQUEST_BODY', body: '<Q/>', contentType: 'text/xml' });
+    expect(component.isCopyOpen([1])).toBeFalse();
+  });
+
+  it("edits a mock's own headers through rows, dropping removed and empty ones", () => {
+    open(null);
+    component.actions.set([{ type: 'MOCK_RESPONSE', status: 200, headers: { A: '1' }, body: '' }]);
+    expect(component.headerRowsOf(component.actions()[0])).toEqual([{ name: 'A', value: '1', removed: false }]);
+    component.onActionHeaders([0], [
+      { name: 'A', value: '1', removed: true },
+      { name: 'B', value: '2', removed: false, added: true },
+      { name: ' ', value: 'x', removed: false },
+    ]);
+    expect(component.actions()[0].headers).toEqual({ B: '2' });
+  });
+
   it('offers only configured projects, not the catch-all bucket', () => {
     // "unknown" is where traffic that arrived on no configured listener lands - not a project
     // anybody would scope a rule to.

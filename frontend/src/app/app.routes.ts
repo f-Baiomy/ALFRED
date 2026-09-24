@@ -1,7 +1,6 @@
 import { Routes } from '@angular/router';
 import { MainLayoutComponent } from './layout/main-layout/main-layout.component';
 import { DashboardComponent } from './pages/dashboard/dashboard.component';
-import { InterceptionComponent } from './pages/interception/interception.component';
 import { EditViewPageComponent } from './pages/edit-view/edit-view-page.component';
 import { JsonViewPageComponent } from './pages/json-view/json-view-page.component';
 import { ProfilesListComponent } from './pages/profiles-list/profiles-list.component';
@@ -18,7 +17,8 @@ export const routes: Routes = [
       { path: 'cycles', component: SessionCyclesListComponent },
       { path: 'cycles/:id', component: SessionCycleDetailComponent },
       { path: 'profiles', component: ProfilesListComponent },
-      { path: 'interception', component: InterceptionComponent },
+      // Lazy: the rule editor and its action panels are the heaviest page and most visits never open it.
+      { path: 'interception', loadComponent: () => import('./pages/interception/interception.component').then((m) => m.InterceptionComponent) },
       { path: 'settings', component: SettingsComponent },
     ],
   },

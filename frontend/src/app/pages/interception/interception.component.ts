@@ -2,6 +2,7 @@ import { Component, computed, effect, inject, signal, untracked } from '@angular
 import { directionOf } from '../../core/models/call-ref.model';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { AnswerPreselect } from '../../components/answer-picker/answer-picker.component';
+import { CopyPreload } from '../../components/copy-from-call/copy-from-call.component';
 import { EditorSnapshot, RULE_ANSWER_REQUESTER } from '../../components/rule-editor/rule-editor.component';
 import { InterceptionRule, isActionEnabled, isTerminalAction } from '../../core/models/interception.model';
 import { RuleMatch, describeAction, describeMatch } from '../../core/models/interception.model';
@@ -46,6 +47,7 @@ export class InterceptionComponent {
   /** A form parked by the rule editor's "Pick from anywhere…", reopened on Return or Cancel. */
   readonly snapshot = signal<EditorSnapshot | null>(null);
   readonly pickedAnswer = signal<AnswerPreselect | null>(null);
+  readonly pickedCopy = signal<CopyPreload | null>(null);
 
   private readonly picker = inject(CallPickerService);
 
@@ -62,7 +64,8 @@ export class InterceptionComponent {
         const picked = result?.picked[0];
         this.draft.set(null);
         this.snapshot.set(snapshot);
-        this.pickedAnswer.set(picked ? { direction: directionOf(picked.ref), callId: picked.ref.callId, cycleId: picked.ref.cycleId } : null);
+        this.pickedAnswer.set(picked && snapshot.purpose !== 'copy' ? { direction: directionOf(picked.ref), callId: picked.ref.callId, cycleId: picked.ref.cycleId } : null);
+        this.pickedCopy.set(picked && snapshot.purpose === 'copy' ? { ref: picked.ref, call: picked.call } : null);
         // Closed first so an editor still open from before the pick is rebuilt from the snapshot, not reused.
         this.editing.set(null);
         queueMicrotask(() => this.editing.set('new'));
@@ -100,6 +103,7 @@ export class InterceptionComponent {
     this.draft.set(null);
     this.snapshot.set(null);
     this.pickedAnswer.set(null);
+    this.pickedCopy.set(null);
     this.editing.set('new');
   }
 
@@ -161,6 +165,7 @@ export class InterceptionComponent {
     this.draft.set(null);
     this.snapshot.set(null);
     this.pickedAnswer.set(null);
+    this.pickedCopy.set(null);
     this.editing.set(null);
   }
 

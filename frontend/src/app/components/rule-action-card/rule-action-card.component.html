@@ -417,6 +417,16 @@
               Literal text: characters like <code>$</code>, <code>.</code> and <code>(</code> match themselves.
             }
           </small>
+          <div class="span-all">
+            <app-replace-preview
+              [action]="step.action"
+              [ruleHost]="editor.host()"
+              [rulePath]="editor.pathContains()"
+              [ruleMethods]="editor.selectedMethods()"
+              [ruleSource]="editor.source()"
+              [ruleServiceNames]="editor.serviceNames()"
+            />
+          </div>
         }
 
         @if (editor.isStatus(step.action.type)) {
@@ -429,11 +439,39 @@
           </div>
         }
 
+        @if (editor.copyTargetFor(step.action.type); as copyTarget) {
+          <div class="span-all rac-copy">
+            @if (editor.isCopyOpen(step.path)) {
+              <app-copy-from-call
+                [target]="copyTarget"
+                [ruleHost]="editor.host()"
+                [rulePath]="editor.pathContains()"
+                [ruleMethods]="editor.selectedMethods()"
+                [ruleSource]="editor.source()"
+                [ruleServiceNames]="editor.serviceNames()"
+                [preload]="editor.copyPreload()"
+                (applied)="editor.applyCopy(step.path, $event)"
+                (cancelled)="editor.closeCopy()"
+                (pickAnywhere)="editor.pickCopyFromAnywhere(step.path)"
+              />
+            } @else {
+              <button type="button" class="pill" title="Take the body (and, if you want, headers, method, URL) from a logged call - then edit it here" (click)="editor.openCopy(step.path)">
+                ⧉ Copy from a call…
+              </button>
+            }
+          </div>
+        }
+
         @if (editor.isBodyOnly(step.action.type)) {
-          <label class="inline-field grow span-all">
-            <span>Body</span>
-            <textarea rows="3" [value]="step.action.body" (input)="editor.onText(step.path, 'body', $event)"></textarea>
-          </label>
+          <div class="span-all">
+            <app-body-editor
+              [value]="step.action.body ?? ''"
+              label="Body"
+              openInTabLabel="Open in a big tab"
+              (valueChange)="editor.onBodyValue(step.path, $event)"
+              (openInTab)="editor.openBodyInTab(step.path, step.action)"
+            />
+          </div>
           @if (step.action.type === 'SET_REQUEST_BODY') {
             <label class="inline-field grow">
               <span>Content type</span>
@@ -451,10 +489,19 @@
               (valueChange)="editor.onStatusChange(step.path, $event)"
             />
           </div>
-          <label class="inline-field grow span-all">
-            <span>Body</span>
-            <textarea rows="3" [value]="step.action.body" (input)="editor.onText(step.path, 'body', $event)"></textarea>
-          </label>
+          <div class="span-all">
+            <small class="muted">Headers {{ editor.isMock(step.action.type) ? 'the caller receives' : 'to set on what the caller receives' }}</small>
+            <app-header-editor [headers]="editor.headerRowsOf(step.action)" (headersChange)="editor.onActionHeaders(step.path, $event)" />
+          </div>
+          <div class="span-all">
+            <app-body-editor
+              [value]="step.action.body ?? ''"
+              label="Body"
+              openInTabLabel="Open in a big tab"
+              (valueChange)="editor.onBodyValue(step.path, $event)"
+              (openInTab)="editor.openBodyInTab(step.path, step.action)"
+            />
+          </div>
           <small class="muted span-all">
             @if (editor.isMock(step.action.type)) {
               The host is never contacted — nothing after this action runs, and the supplier never sees the call.

@@ -1,0 +1,46 @@
+<div class="replace-preview">
+  <button type="button" class="pill" [class.on]="open()" (click)="toggle()">
+    {{ open() ? '▲ Hide the preview' : '▶ Try on a call…' }}
+  </button>
+
+  @if (open()) {
+    @if (loading()) {
+      <small class="muted">Loading the call…</small>
+    } @else {
+    @if (call(); as c) {
+      <div class="rp-head">
+        <small class="muted">
+          <span class="badge">{{ c.method }}</span> {{ c.url }} ·
+          @if (result(); as r) {
+            @if (r.text !== null) {
+              <b>{{ r.count }} replacement{{ r.count === 1 ? '' : 's' }}</b>
+            } @else {
+              <b>would be skipped: {{ r.reason }}</b> - the body goes out untouched
+            }
+          }
+        </small>
+        <button type="button" class="pill" (click)="pickAnother()">Try another call</button>
+      </div>
+      @if (view(); as v) {
+        <app-interception-panel [interception]="v" [phase]="phase()" [embedded]="true" [labels]="labels" />
+      }
+      <small class="muted">A preview in the browser's regex engine - the proxy runs Python's. Common patterns behave the same.</small>
+    } @else {
+      <app-call-finder
+        [part]="phase()"
+        pickLabel="Try the replace on this call"
+        [allowPickAnywhere]="false"
+        [ruleHost]="ruleHost()"
+        [rulePath]="rulePath()"
+        [ruleMethods]="ruleMethods()"
+        [ruleSource]="ruleSource()"
+        [ruleServiceNames]="ruleServiceNames()"
+        (chosen)="onChosen($event)"
+      />
+    }
+    }
+    @if (error(); as message) {
+      <div class="rule-warning danger">{{ message }}</div>
+    }
+  }
+</div>

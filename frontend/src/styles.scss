@@ -8780,3 +8780,114 @@ app-header-editor {
 .br-spacer {
   flex: 1;
 }
+
+/* "Copy from a call…" (CopyFromCallComponent) and "Try on a call…" (ReplacePreviewComponent) on the
+   body-shaped rule actions. The finder inside both is CallFinderComponent, styled by .answer-*. */
+.rac-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.copy-from-call,
+.replace-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.copy-from-call {
+  border: 1px solid var(--purple);
+  border-radius: 9px;
+  padding: 0.6rem 0.7rem;
+  background: var(--card-inner);
+}
+
+.cfc-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  b {
+    margin-right: auto;
+  }
+}
+
+.cfc-steps {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.cfc-step {
+  font-size: 0.64rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+
+  &.on {
+    color: var(--purple-light);
+    border-color: var(--purple);
+  }
+}
+
+.cfc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.cfc-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.cfc-sub {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  margin-bottom: 0.2rem;
+}
+
+.cfc-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  min-width: 0;
+
+  code {
+    font-size: 0.68rem;
+  }
+}
+
+.cfc-value {
+  color: var(--text-faint);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.66rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.cfc-secret {
+  font-size: 0.6rem;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  border: 1px solid var(--amber, #e0a33a);
+  color: var(--amber, #e0a33a);
+}
+
+.cfc-actions,
+.rp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.replace-preview > .pill {
+  align-self: flex-start;
+}

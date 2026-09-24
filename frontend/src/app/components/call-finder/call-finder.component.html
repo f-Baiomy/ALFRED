@@ -1,0 +1,132 @@
+<div class="call-finder">
+  <div class="answer-picker-bar">
+    <div class="answer-direction" role="group" aria-label="Which calls to pick from">
+      <button type="button" class="pill" [class.on]="direction() === 'outbound'" (click)="setDirection('outbound')">Outbound · supplier calls</button>
+      <button type="button" class="pill" [class.on]="direction() === 'inbound'" (click)="setDirection('inbound')">Inbound · into your projects</button>
+    </div>
+    <ng-content select="[finderActions]" />
+  </div>
+
+  <div class="answer-search-row">
+    <input
+      type="search"
+      class="answer-search"
+      placeholder="fares host:api.supplier.com status:5xx method:POST"
+      aria-label="Search calls"
+      [value]="search()"
+      (input)="onSearch($event)"
+    />
+    <button type="button" class="pill" [class.on]="showHelp()" aria-label="Search help" (click)="showHelp.set(!showHelp())">?</button>
+    @if (allowPickAnywhere()) {
+    <button type="button" class="pill" title="Go to Live Calls or any session cycle and pick the call there" (click)="pickAnywhere.emit()">
+      Pick from anywhere…
+    </button>
+    }
+  </div>
+  @if (showHelp()) {
+    <div class="answer-help muted">
+      <code>host:</code> hostname, or <code>*.example.com</code> ·
+      <code>path:</code> path or query contains ·
+      <code>method:</code> GET,POST ·
+      <code>status:</code> 2xx, 404, failed ·
+      <code>body:</code> text in a header or body.
+      Anything else searches method, URL, status, headers and bodies. Quote values with spaces: <code>body:"fare expired"</code>.
+    </div>
+  }
+
+  @if (ruleFilterAvailable()) {
+    <div class="answer-chips">
+      <button type="button" class="pill answer-rule-chip" [class.on]="useRule()" [attr.aria-pressed]="useRule()" (click)="toggleRule()">
+        {{ useRule() ? '✓' : '+' }} Matches this rule: {{ ruleFilterLabel() }}
+      </button>
+    </div>
+  }
+  <div class="answer-chips" role="group" aria-label="Method">
+    <span class="answer-chip-label">Method</span>
+    @for (m of methodChips; track m) {
+      <button type="button" class="pill" [class.on]="chipOn('methods', m)" [attr.aria-pressed]="chipOn('methods', m)" (click)="toggleChip('methods', m)">{{ m }}</button>
+    }
+  </div>
+  <div class="answer-chips" role="group" aria-label="Status">
+    <span class="answer-chip-label">Status</span>
+    @for (s of statusChips; track s) {
+      <button type="button" class="pill" [class.on]="chipOn('statuses', s)" [attr.aria-pressed]="chipOn('statuses', s)" (click)="toggleChip('statuses', s)">{{ s }}</button>
+    }
+  </div>
+  <div class="answer-chips" role="group" aria-label="When">
+    <span class="answer-chip-label">When</span>
+    @for (w of windowChips; track w.label) {
+      <button type="button" class="pill" [class.on]="windowMinutes() === w.minutes" [attr.aria-pressed]="windowMinutes() === w.minutes" (click)="setWindow(w.minutes)">{{ w.label }}</button>
+    }
+  </div>
+
+  <small class="muted answer-count">
+    @if (loading() && results().length === 0) {
+      Searching…
+    } @else {
+      {{ countText() }}
+    }
+  </small>
+
+  <ul class="answer-results" (keydown)="onResultsKeydown($event)">
+    @for (call of results(); track call.id; let i = $index) {
+      <li>
+        <button
+          type="button"
+          class="answer-result"
+          [class.open]="preview()?.callId === call.id"
+          [attr.aria-expanded]="preview()?.callId === call.id"
+          [attr.tabindex]="activeIndex() === i || (activeIndex() < 0 && i === 0) ? 0 : -1"
+          (click)="togglePreview(call, i)"
+        >
+          <span class="badge answer-method" [class]="methodClassOf(call)">{{ call.method }}</span>
+          <span class="badge answer-status" [class]="statusClassOf(call)" [title]="statusTitle(call)">{{ statusOf(call) }}</span>
+          <span class="answer-url" [title]="call.url">
+            <span class="answer-host">{{ call.service_name && direction() === 'inbound' ? call.service_name + ' · ' : '' }}{{ hostOf(call) }}</span>
+            {{ pathOf(call) }}
+          </span>
+          <span class="duration answer-duration" [class]="durationClassOf(call)">{{ durationText(call) }}</span>
+          <span class="answer-time" [title]="whenTitle(call)">{{ whenText(call) }}</span>
+          <span class="answer-chevron" aria-hidden="true">{{ preview()?.callId === call.id ? '▾' : '▸' }}</span>
+        </button>
+        @if (preview(); as p) {
+          @if (p.callId === call.id) {
+            <div class="answer-preview">
+              @if (p.loading) {
+                <small class="muted">Loading the {{ part() }}…</small>
+              } @else if (p.failed) {
+                <small class="muted">Could not load this {{ part() }}.</small>
+              } @else {
+                <small class="muted">
+                  @if (part() === 'response') {
+                    {{ p.status != null ? statusTitle(call) : 'No response' }} ·
+                  } @else {
+                    Request ·
+                  }
+                  {{ p.contentType || 'no content type' }} · {{ p.headerCount }} header{{ p.headerCount === 1 ? '' : 's' }} · {{ sizeText(p.sizeBytes) }}
+                </small>
+                @if (p.body) {
+                  <pre class="answer-preview-body">{{ p.body }}</pre>
+                } @else {
+                  <small class="muted">Empty body.</small>
+                }
+              }
+              <div class="answer-preview-actions">
+                <button type="button" class="pill" [disabled]="!canChoose(call)" (click)="choose(call)">{{ pickLabel() }}</button>
+              </div>
+            </div>
+          }
+        }
+      </li>
+    } @empty {
+      @if (!loading()) {
+        <li class="muted">No calls match. Remove a filter or widen the time range.</li>
+      }
+    }
+  </ul>
+  @if (hasMore() && results().length > 0) {
+    <div class="answer-more">
+      <button type="button" class="pill" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
+    </div>
+  }
+</div>

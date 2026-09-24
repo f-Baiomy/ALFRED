@@ -1,5 +1,5 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, DragDropRegistry } from '@angular/cdk/drag-drop';
-import { Component, ElementRef, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import {
   ACTION_LABELS,
   ActionPhase,
@@ -40,7 +40,11 @@ import {
 } from '../../core/models/interception.model';
 import { CallRuleDraft } from '../../core/services/rule-draft.service';
 import { CallPickerService } from '../../core/services/call-picker.service';
+import { EditTabService } from '../../core/services/edit-tab.service';
+import { CopyResult, CopyTarget, copyTargetOf } from '../../shared/utils/copy-from-call';
+import { HeaderRow } from '../../shared/utils/header-rows';
 import { AnswerPreselect } from '../answer-picker/answer-picker.component';
+import { CopyPreload } from '../copy-from-call/copy-from-call.component';
 
 export const RULE_ANSWER_REQUESTER = 'rule-answer';
 
@@ -49,8 +53,10 @@ export interface EditorSnapshot {
   /** The rule being edited, or null for a new one. */
   readonly ruleId: string | null;
   readonly draft: InterceptionRuleDraft;
-  /** The answer action the picked call is for. */
+  /** The action the picked call is for. */
   readonly answerPath: readonly number[];
+  /** What the pick is for: a stored answer (default, for snapshots written before this existed) or "Copy from a call…". */
+  readonly purpose?: 'answer' | 'copy';
 }
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
@@ -349,6 +355,8 @@ export class RuleEditorComponent implements OnInit {
   @Input() snapshot: EditorSnapshot | null = null;
   /** The call picked for the snapshot's answer action - copied as soon as that action's picker opens. */
   @Input() pickedAnswer: AnswerPreselect | null = null;
+  /** The call picked for the snapshot's "Copy from a call…" - the copy panel reopens at "choose what to copy". */
+  @Input() pickedCopy: CopyPreload | null = null;
 
   private readonly picker = inject(CallPickerService);
   @Output() readonly closed = new EventEmitter<void>();
@@ -476,7 +484,11 @@ export class RuleEditorComponent implements OnInit {
 
     if (this.snapshot) {
       this.loadFrom(this.snapshot.draft);
-      if (this.pickedAnswer) {
+      if (this.snapshot.purpose === 'copy') {
+        // Reopen the copy panel either way - on Cancel too, so the user is back where they left.
+        this.copyOpenAt.set(this.snapshot.answerPath.join('.'));
+        this.copyPreload.set(this.pickedCopy);
+      } else if (this.pickedAnswer) {
         this.answerPreselect.set(this.pickedAnswer);
         this.answerPreselectPath.set(this.snapshot.answerPath);
       }
@@ -1233,14 +1245,24 @@ export class RuleEditorComponent implements OnInit {
    * pick's `resume` and InterceptionComponent reopens it from there on Return or Cancel.
    */
   pickAnswerFromAnywhere(path: readonly number[]): void {
+    this.parkAndPick(path, 'answer', `Answer for rule "${this.name().trim() || 'new rule'}"`);
+  }
+
+  /** "Copy from a call…" → Pick from anywhere: the same parking, reopened at the copy step with the picked call. */
+  pickCopyFromAnywhere(path: readonly number[]): void {
+    this.parkAndPick(path, 'copy', `Call to copy into rule "${this.name().trim() || 'new rule'}"`);
+  }
+
+  private parkAndPick(path: readonly number[], purpose: 'answer' | 'copy', title: string): void {
     const snapshot: EditorSnapshot = {
       ruleId: this.rule?.id ?? this.snapshot?.ruleId ?? null,
       draft: this.buildDraft(),
       answerPath: [...path],
+      purpose,
     };
     this.picker.start({
       requester: RULE_ANSWER_REQUESTER,
-      title: `Answer for rule "${this.name().trim() || 'new rule'}"`,
+      title,
       mode: 'single',
       returnUrl: '/interception',
       returnLabel: 'the rule editor',
@@ -1250,6 +1272,72 @@ export class RuleEditorComponent implements OnInit {
     // anywhere. Nothing is lost: the form is in the snapshot.
     this.closed.emit();
   }
+
+  // ---- "Copy from a call…" (SET_REQUEST_BODY, SET_RESPONSE_BODY, MOCK_RESPONSE, REPLACE_RESPONSE) ----
+
+  /** Which action's copy panel is open, by path - one at a time. */
+  readonly copyOpenAt = signal<string | null>(null);
+  /** A call picked on another tab for the copy panel at copyOpenAt - opens it at "choose what to copy". */
+  readonly copyPreload = signal<CopyPreload | null>(null);
+
+  copyTargetFor(type: ActionType): CopyTarget | null {
+    return copyTargetOf(type);
+  }
+
+  isCopyOpen(path: readonly number[]): boolean {
+    return this.copyOpenAt() === path.join('.');
+  }
+
+  openCopy(path: readonly number[]): void {
+    this.copyPreload.set(null);
+    this.copyOpenAt.set(path.join('.'));
+  }
+
+  closeCopy(): void {
+    this.copyOpenAt.set(null);
+    this.copyPreload.set(null);
+  }
+
+  /**
+   * The copied parts land on this action and, for what it cannot hold itself (headers, method,
+   * URL), as ordinary actions right after it in the same list - so each shows in its lane and can
+   * be edited or removed like any other.
+   */
+  applyCopy(path: readonly number[], result: CopyResult): void {
+    this.patchAt(path, result.patch);
+    const listPath = path.slice(0, -1);
+    const index = path[path.length - 1] + 1;
+    this.actions.update((actions) =>
+      result.extra.reduce((acc, action, i) => insertInList(acc, listPath, index + i, action), actions as RuleAction[])
+    );
+    this.closeCopy();
+  }
+
+  /** Header rows for an action's own headers map (MOCK_RESPONSE / REPLACE_RESPONSE). */
+  headerRowsOf(action: RuleAction): HeaderRow[] {
+    return Object.entries(action.headers ?? {}).map(([name, value]) => ({ name, value, removed: false }));
+  }
+
+  onActionHeaders(path: readonly number[], rows: HeaderRow[]): void {
+    const kept = rows.filter((r) => !r.removed && r.name.trim());
+    this.patchAt(path, { headers: kept.length ? Object.fromEntries(kept.map((r) => [r.name.trim(), r.value])) : null });
+  }
+
+  onBodyValue(path: readonly number[], body: string): void {
+    this.patchAt(path, { body });
+  }
+
+  /** Opens an action's body full-page in a new tab; every edit there lands back on the action. */
+  openBodyInTab(path: readonly number[], action: RuleAction): void {
+    const key = `rule-${this.rule?.id ?? 'new'}-${path.join('.')}-body`;
+    this.editTabStops.get(key)?.();
+    this.editTabStops.set(key, this.editTab.listen(key, { value: (value) => this.patchAt(path, { body: value }) }));
+    this.editTab.open(key, { kind: 'body', title: `${this.labelFor(action.type)} · ${this.name().trim() || 'new rule'}`, value: action.body ?? '' });
+  }
+
+  private readonly editTab = inject(EditTabService);
+  private readonly editTabStops = new Map<string, () => void>();
+  private readonly stopEditTabsOnDestroy = inject(DestroyRef).onDestroy(() => this.editTabStops.forEach((stop) => stop()));
 
   /** The preselect for the answer action at `path` only - other answer actions search as usual. */
   preselectFor(path: readonly number[]): AnswerPreselect | null {

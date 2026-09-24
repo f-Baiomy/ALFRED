@@ -1,0 +1,103 @@
+<div class="copy-from-call">
+  <div class="cfc-head">
+    <b>Copy from a call</b>
+    <span class="cfc-steps">
+      <span class="cfc-step" [class.on]="!source()">1 Find a call</span>
+      <span class="cfc-step" [class.on]="!!source()">2 Choose what to copy</span>
+    </span>
+    <button type="button" class="pill" (click)="cancelled.emit()">Cancel</button>
+  </div>
+
+  @if (loading()) {
+    <small class="muted">Loading the call…</small>
+  } @else {
+  @if (source(); as s) {
+    @if (choices(); as c) {
+      <small class="muted">
+        From <span class="badge">{{ s.method }}</span> {{ shortUrl(s.url) }}
+        @if (!isRequest() && s.status != null) {
+          · {{ s.status }}
+        }
+        · {{ picked()?.where }}. Everything you copy stays editable in the rule.
+      </small>
+
+      <div class="cfc-grid">
+        <div class="cfc-col">
+          <label class="cfc-check">
+            <input type="checkbox" [checked]="c.body" (change)="set('body', $event)" />
+            <span>Body → this action ({{ bodyLines() }} line{{ bodyLines() === 1 ? '' : 's' }})</span>
+          </label>
+          @if (isRequest()) {
+            <label class="cfc-check">
+              <input type="checkbox" [checked]="c.contentType" [disabled]="!s.contentType" (change)="set('contentType', $event)" />
+              <span>Content type → <code>{{ s.contentType || 'none' }}</code></span>
+            </label>
+            <label class="cfc-check">
+              <input type="checkbox" [checked]="c.method" (change)="set('method', $event)" />
+              <span>Method → adds "Set method {{ s.method }}"</span>
+            </label>
+            <label class="cfc-check">
+              <input type="checkbox" [checked]="c.url" (change)="set('url', $event)" />
+              <span>URL → adds "Rewrite URL" to {{ shortUrl(s.url) }}</span>
+            </label>
+          }
+          @if (isWhole()) {
+            <label class="cfc-check">
+              <input type="checkbox" [checked]="c.status" [disabled]="s.status == null" (change)="set('status', $event)" />
+              <span>Status → {{ s.status ?? 'none' }}</span>
+            </label>
+          }
+        </div>
+
+        <div class="cfc-col">
+          <div class="cfc-sub">
+            Headers →
+            {{ isWhole() ? "this action's headers" : 'one "Set ' + (isRequest() ? 'request' : 'response') + ' header" action each' }}
+            <button type="button" class="link-btn" (click)="setAllHeaders(true)">all</button>
+            <button type="button" class="link-btn" (click)="setAllHeaders(false)">none</button>
+          </div>
+          @for (h of s.headers; track h.name) {
+            <label class="cfc-check">
+              <input type="checkbox" [checked]="c.headers[h.name]" (change)="setHeader(h.name, $event)" />
+              <code>{{ h.name }}</code>
+              @if (h.secret) {
+                <span class="cfc-secret" title="Copying it puts the credential in the rule in plain text - Export and Duplicate include it">secret</span>
+              } @else {
+                <span class="cfc-value" [title]="h.value">{{ h.value }}</span>
+              }
+            </label>
+          } @empty {
+            <small class="muted">No headers to copy.</small>
+          }
+          @if (s.skipped.length) {
+            <small class="muted">Not copied (computed per call): {{ s.skipped.join(', ') }}</small>
+          }
+        </div>
+      </div>
+
+      <div class="cfc-actions">
+        <button type="button" class="pill" (click)="back()">Back</button>
+        <button type="button" class="pill on" (click)="apply()">
+          Apply to the rule{{ tickedHeaders() && !isWhole() ? ' (+' + tickedHeaders() + ' header action' + (tickedHeaders() === 1 ? '' : 's') + ')' : '' }}
+        </button>
+      </div>
+    }
+  } @else {
+    <app-call-finder
+      [part]="part()"
+      pickLabel="Copy into this rule…"
+      [ruleHost]="ruleHost()"
+      [rulePath]="rulePath()"
+      [ruleMethods]="ruleMethods()"
+      [ruleSource]="ruleSource()"
+      [ruleServiceNames]="ruleServiceNames()"
+      (chosen)="onChosen($event)"
+      (pickAnywhere)="pickAnywhere.emit()"
+    />
+  }
+  }
+
+  @if (error(); as message) {
+    <div class="rule-warning danger">{{ message }}</div>
+  }
+</div>

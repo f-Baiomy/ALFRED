@@ -2,6 +2,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { AppConfigService } from '../../core/services/app-config.service';
+import { By } from '@angular/platform-browser';
+import { CallFinderComponent } from '../call-finder/call-finder.component';
 import { AnswerPickerComponent } from './answer-picker.component';
 
 const BACKEND = 'http://backend.test:5000';
@@ -30,6 +32,12 @@ describe('AnswerPickerComponent', () => {
 
   afterEach(() => http.verify());
 
+  /** The search lives in the child finder; the picker only decides what choosing means. */
+  function finder(): CallFinderComponent {
+    fixture.detectChanges();
+    return fixture.debugElement.query(By.directive(CallFinderComponent)).componentInstance;
+  }
+
   const C1 = { id: 'c1', original_url: 'u', url: 'https://api.supplier.com/v2/fares/quote', method: 'POST', timestamp: 't', duration_ms: 1, status: 500 };
 
   function summary(id: string, method: string, url: string, status: number | null) {
@@ -56,9 +64,9 @@ describe('AnswerPickerComponent', () => {
   it('searches outbound calls first, and inbound ones through the internal-calls endpoint', fakeAsync(() => {
     fixture.detectChanges();
     flushSearch('calls');
-    expect(component.results().length).toBe(1);
+    expect(finder().results().length).toBe(1);
 
-    component.setDirection('inbound');
+    finder().setDirection('inbound');
     flushSearch('internal-calls');
   }));
 
@@ -66,7 +74,7 @@ describe('AnswerPickerComponent', () => {
     fixture.detectChanges();
     flushSearch('calls');
 
-    component.pick(component.results()[0]);
+    component.onChosen({ call: finder().results()[0], direction: finder().direction() });
     const first = http.expectOne(`${BACKEND}/interception/answers/from-call`);
     expect(first.request.body).toEqual({ direction: 'outbound', callId: 'c1', cycleId: null, keepSecrets: null });
     first.flush({ error: 'secrets-decision-required', secretNames: ['set-cookie', 'x-auth-token'] }, { status: 409, statusText: 'Conflict' });
@@ -87,7 +95,7 @@ describe('AnswerPickerComponent', () => {
     fixture.detectChanges();
     flushSearch('calls');
 
-    component.pick(component.results()[0]);
+    component.onChosen({ call: finder().results()[0], direction: finder().direction() });
     http
       .expectOne(`${BACKEND}/interception/answers/from-call`)
       .flush({ error: 'answer-too-large', limitBytes: 10485760, sizeBytes: 12582912 }, { status: 413, statusText: 'Too Large' });
@@ -137,9 +145,9 @@ describe('AnswerPickerComponent', () => {
     ]);
     expect(req.request.params.get('search')).toBe('/v2/fares');
     expect(req.request.params.get('limit')).toBe('200');
-    expect(component.results().map((c) => c.id)).toEqual(['a']);
+    expect(finder().results().map((c) => c.id)).toEqual(['a']);
 
-    component.toggleRule();
+    finder().toggleRule();
     const plain = flushSearch('calls');
     expect(plain.request.params.get('search')).toBe('');
     expect(plain.request.params.get('limit')).toBe('20');
@@ -158,12 +166,12 @@ describe('AnswerPickerComponent', () => {
     fixture.detectChanges();
     flushSearch('calls');
 
-    component.onSearch({ target: { value: 'fares status:2xx' } } as unknown as Event);
+    finder().onSearch({ target: { value: 'fares status:2xx' } } as unknown as Event);
     flushSearch('calls', [summary('ok', 'GET', 'https://a.com/fares', 200), summary('bad', 'GET', 'https://a.com/fares', 500)]);
-    expect(component.results().map((c) => c.id)).toEqual(['ok']);
+    expect(finder().results().map((c) => c.id)).toEqual(['ok']);
 
-    component.toggleChip('methods', 'GET');
-    expect(component.search()).toBe('fares method:GET status:2xx');
+    finder().toggleChip('methods', 'GET');
+    expect(finder().search()).toBe('fares method:GET status:2xx');
     flushSearch('calls', []);
   }));
 
@@ -171,7 +179,7 @@ describe('AnswerPickerComponent', () => {
     fixture.detectChanges();
     flushSearch('calls');
 
-    component.onSearch({ target: { value: 'status:404' } } as unknown as Event);
+    finder().onSearch({ target: { value: 'status:404' } } as unknown as Event);
     const noMatch = Array.from({ length: 200 }, (_, i) => summary(`n${i}`, 'GET', 'https://a.com/x', 200));
     flushSearch('calls', noMatch, 1000);
     const second = flushSearch('calls', [summary('hit', 'GET', 'https://a.com/x', 404), ...noMatch.slice(1)], 1000);
@@ -182,27 +190,27 @@ describe('AnswerPickerComponent', () => {
     flushSearch('calls', noMatch, 1000);
     tick(300);
     http.expectNone((r) => r.url === `${BACKEND}/calls`);
-    expect(component.results().map((c) => c.id)).toEqual(['hit']);
-    expect(component.countText()).toBe('1 match in the newest 1000 of 1000 calls');
-    expect(component.hasMore()).toBeFalse();
+    expect(finder().results().map((c) => c.id)).toEqual(['hit']);
+    expect(finder().countText()).toBe('1 match in the newest 1000 of 1000 calls');
+    expect(finder().hasMore()).toBeFalse();
   }));
 
   it('previews the response on click, and only its button copies it', fakeAsync(() => {
     fixture.detectChanges();
     flushSearch('calls');
 
-    const call = component.results()[0];
-    component.togglePreview(call, 0);
+    const call = finder().results()[0];
+    finder().togglePreview(call, 0);
     http
       .expectOne(`${BACKEND}/calls/c1/detail`)
       .flush({ response: { status: 500, headers: { 'Content-Type': 'application/json' }, body: '{"error":"fare expired"}' } });
-    const preview = component.preview()!;
+    const preview = finder().preview()!;
     expect(preview.contentType).toBe('application/json');
     expect(preview.sizeBytes).toBe(24);
     expect(preview.body).toContain('"error": "fare expired"');
     http.expectNone(`${BACKEND}/interception/answers/from-call`);
 
-    component.pick(call);
+    component.onChosen({ call: call, direction: finder().direction() });
     http.expectOne(`${BACKEND}/interception/answers/from-call`).flush(ANSWER, { status: 201, statusText: 'Created' });
     expect(emitted).toEqual([ANSWER.id]);
   }));

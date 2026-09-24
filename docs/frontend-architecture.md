@@ -102,6 +102,27 @@ live call's id, so the id alone cannot say which copy was picked. Load one in fu
   anywhere…" (multi, refuses the cycle's own calls via `refuseOrigin`, copies with
   `copyCallsInto` on Return), and the multi-call resend editor's "Add calls from anywhere…".
 
+**Finding a call, and copying one into a rule.**
+- `CallFinderComponent` (`components/call-finder/`) is the one call search: `host:`/`path:`/
+  `method:`/`status:`/`body:` tokens, chips, "Matches this rule", preview of the request or
+  response (`[part]`), Load more, optional "Pick from anywhere…". It only emits `(chosen)` - the
+  stored-answer picker copies an answer, "Copy from a call…" copies fields, the replace preview
+  runs a find & replace. Use it rather than another search list.
+- `CopyFromCallComponent` + `shared/utils/copy-from-call.ts` on SET_REQUEST_BODY,
+  SET_RESPONSE_BODY, MOCK_RESPONSE and REPLACE_RESPONSE: tick body / content type / status /
+  each header (secret ones tagged and unticked; Host, Content-Length and other per-call headers
+  never offered) / method / URL. What the action can hold lands on it (a mock keeps its own
+  headers map); the rest becomes ordinary actions right after it (`applyCopy`: one Set header per
+  header, Set method, Rewrite URL) so every copied part is visible and editable in the lane.
+  "Pick from anywhere…" parks the editor with `EditorSnapshot.purpose = 'copy'` and reopens the
+  panel at "choose what to copy" with `[pickedCopy]`.
+- `ReplacePreviewComponent` ("Try on a call…") on REPLACE_IN_*_BODY runs
+  `shared/utils/replace-preview.ts` - the proxy's `_Pattern.replace` semantics (literal unless
+  regex, case-sensitive unless off, at most N, Python `\1` templates) - against a picked call and
+  shows the result in the embedded interception diff. Browser regex, so exotic patterns can differ.
+- Every rule-action body field uses `app-body-editor` (colours, find & replace, Format, big tab via
+  `EditTabService`); the Interception page is lazy-loaded to keep this out of the initial bundle.
+
 **Resend: one draft model, two dialogs, one journey panel.**
 - `shared/utils/resend-draft.ts` is the only place a form becomes `ResendEdits`: `draftFrom(call,
   cycleId)`, `editsOf(draft)` (only what differs; a removed header → null, an added one → value;
