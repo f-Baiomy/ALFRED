@@ -288,6 +288,15 @@ public class SqliteSessionCyclesRepository {
         if (!columns.contains("interception")) {
             jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN interception TEXT");
         }
+        // Same story for a resend: the live list showed "↻ resend of" and its Resent panel, the
+        // same call captured into a recording cycle showed neither, because these were never
+        // stored. resend_edits is one JSON document, like interception.
+        if (!columns.contains("resend_of")) {
+            jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN resend_of TEXT");
+        }
+        if (!columns.contains("resend_edits")) {
+            jdbcTemplate.execute("ALTER TABLE captured_call_metadata ADD COLUMN resend_edits TEXT");
+        }
     }
 
     /** No foreign key to captured_call_metadata - a spacer's anchor is repointed (never cascade-deleted) when its anchor call is removed, so the divider itself survives (see dropAnchorsTo). */
@@ -495,7 +504,7 @@ public class SqliteSessionCyclesRepository {
                    cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id,
                    cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection,
-                   cm.interception,
+                   cm.interception, cm.resend_of, cm.resend_edits,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM captured_call_metadata cm
@@ -524,8 +533,9 @@ public class SqliteSessionCyclesRepository {
                                  timestamp, timestamp_millis, duration_ms, status, status_rank,
                                  supplier, supplier_name, error, haystack, status_state, request_haystack,
                                  session_id, operation_id,
-                                 connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                 connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection,
+                                 resend_of, resend_edits)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO captured_call_request (captured_call_id, headers, body) VALUES (?,?,?)";
@@ -574,6 +584,10 @@ public class SqliteSessionCyclesRepository {
         ps.setString(19, call.sessionId());
         ps.setString(20, call.operationId());
         bindTiming(ps, 21, call.timing());
+        // Known at prepare time (the proxy reads X-Alfred-Resend-* off the request), so written
+        // here with the row, not by completeCapturedCall.
+        ps.setString(26, call.resendOf());
+        ps.setString(27, writeResendEdits(call.resendEdits()));
     }
 
     /**
@@ -720,7 +734,7 @@ public class SqliteSessionCyclesRepository {
     /** See SqliteCallsRepository.SUMMARY_SQL's identical comment - list/search views never need request/response bodies. */
     private static final String SUMMARY_SQL =
             "SELECT id, captured_at, call_id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, "
-                    + "connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception FROM ";
+                    + "connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception, resend_of, resend_edits FROM ";
 
     public CallListSupport.Page<CapturedCallSummary> query(String cycleId, String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(cycleId, search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -923,7 +937,7 @@ public class SqliteSessionCyclesRepository {
                 rs.getString("call_id"), rs.getString("original_url"), rs.getString("url"), rs.getString("method"),
                 request, rs.getString("timestamp"), durationMs, response, rs.getString("error"),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")), rs.getString("session_id"), rs.getString("operation_id"),
-                null, timingOf(rs), interceptionOf(rs));
+                null, timingOf(rs), interceptionOf(rs), rs.getString("resend_of"), resendEditsOf(rs));
 
         return new CapturedCall(rs.getString("id"), rs.getString("captured_at"), call);
     };
@@ -945,7 +959,8 @@ public class SqliteSessionCyclesRepository {
                 rs.getString("error"),
                 nullIfEmpty(rs.getString("supplier_name")),
                 CallLifecycleStatus.valueOf(rs.getString("status_state")),
-                rs.getString("session_id"), rs.getString("operation_id"), null, timingOf(rs), interceptionOf(rs));
+                rs.getString("session_id"), rs.getString("operation_id"), null, timingOf(rs), interceptionOf(rs),
+                rs.getString("resend_of"), resendEditsOf(rs));
 
         return new CapturedCallSummary(rs.getString("id"), rs.getString("captured_at"), callSummary);
     };
@@ -981,6 +996,31 @@ public class SqliteSessionCyclesRepository {
             return INTERCEPTION_MAPPER.writeValueAsString(interception);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             log.warn("Could not store interception record for a captured call: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** The opaque resend summary (see backend-resend's ResendService), stored and read back whole like interception. */
+    private static String writeResendEdits(Object edits) {
+        if (edits == null) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.writeValueAsString(edits);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.warn("Could not store resend summary for a captured call: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static Object resendEditsOf(ResultSet rs) throws SQLException {
+        String json = rs.getString("resend_edits");
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.readValue(json, Object.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             return null;
         }
     }

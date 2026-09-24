@@ -128,7 +128,10 @@ public record CallRecord(
         }
         boolean hasError = call.error() != null && !call.error().isBlank();
         CallLifecycleStatus derived = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
+        // Every field carried over - rebuilding through a shorter constructor here silently dropped
+        // timing, interception and the resend fields of any call normalized on its way into storage.
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
-                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName());
+                call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName(),
+                call.timing(), call.interception(), call.resendOf(), call.resendEdits());
     }
 }

@@ -299,6 +299,31 @@ class SqliteSessionCyclesRepositoryTest {
     }
 
     @Test
+    void aResentCallCapturedIntoARecordingCycleKeepsItsResendOfAndSummary() throws Exception {
+        // A resend captured into a recording cycle showed no "resend of" and no Resent panel there,
+        // while the same call on the live list showed both: neither field was ever stored.
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        String callId = UUID.randomUUID().toString();
+        Map<String, Object> edits = Map.of(
+                "origin", Map.of("direction", "outbound", "cycleId", "cy-9"),
+                "headers", List.of("X-Bulk-Test"),
+                "batch", Map.of("id", "b1", "index", 2, "total", 3));
+        CallRecord base = preparedCall(callId, "https://a.com/x");
+        // state null on purpose - the append path normalizes it, which used to drop these fields too.
+        CallRecord resent = new CallRecord(base.id(), base.originalUrl(), base.url(), base.method(), base.request(),
+                base.timestamp(), null, null, null, null, null, null, null, null, null, "orig-1", edits);
+        repo.append("c1", resent);
+        repo.completeCapturedCall("c1", callId, new ResponseData(409, null, "{}"), null, 5.0, null, null);
+
+        CapturedCall found = repo.findAllByCycle("c1").get(0);
+        assertThat(found.call().resendOf()).isEqualTo("orig-1");
+        assertThat(found.call().resendEdits()).isEqualTo(edits);
+        var summary = repo.query("c1", "", "", "newest", 0, 10, true).items().get(0);
+        assertThat(summary.call().resendOf()).isEqualTo("orig-1");
+        assertThat(summary.call().resendEdits()).isEqualTo(edits);
+    }
+
+    @Test
     void aCapturedCallNoRuleTouchedCarriesNoInterceptionRecordAtAll() throws Exception {
         SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
         String callId = UUID.randomUUID().toString();
