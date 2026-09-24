@@ -100,7 +100,31 @@ live call's id, so the id alone cannot say which copy was picked. Load one in fu
 - Current requesters: the answer picker ("Pick from anywhere…"), the resend dialog ("Pick another
   call…"; mounted in `main-layout` so it opens on every page), and a cycle's "Add calls from
   anywhere…" (multi, refuses the cycle's own calls via `refuseOrigin`, copies with
-  `copyCallsInto` on Return).
+  `copyCallsInto` on Return), and the multi-call resend editor's "Add calls from anywhere…".
+
+**Resend: one draft model, two dialogs, one journey panel.**
+- `shared/utils/resend-draft.ts` is the only place a form becomes `ResendEdits`: `draftFrom(call,
+  cycleId)`, `editsOf(draft)` (only what differs; a removed header → null, an added one → value;
+  the body compared with `bodiesDiffer`, so **Format alone is never an edit** - a signed SOAP
+  envelope goes out byte-for-byte unless its content changed), plus the "edit all at once" ops
+  (`setHeaderOnAll` case-insensitive, `removeHeaderFromAll`, `findReplaceAll`/`countMatches`,
+  `setMethodOnAll`, `setHostOnAll` - outbound only, inbound always goes to its project's listener -
+  `setCurrentSessionOnAll`, `moveDraft`).
+- `ResendCallEditorComponent` edits one draft with `app-header-editor` (Rows | JSON) and
+  `app-body-editor` - the paused-call inspector's editor, same tokenizers and colours as the call
+  card, with find and find & replace - and can open either part in a big tab (`/edit`, see
+  `EditTabService`), whose edits stream back live over a BroadcastChannel.
+- `ResendDialogComponent` (one call) and `BulkResendDialogComponent` ("Resend selected…": send
+  order with drag/arrows/untick-to-skip, per-call editing, edit-all tools, stop-at-first-failure,
+  delay between sends) both use it; both are mounted once in `main-layout`. The multi-call state
+  and send loop live in `BulkResendDialogService` (root) so they survive the dialog hiding while
+  picking more calls, and sends run strictly one at a time in list order, each tagged with a
+  `batch {id, index, total}`.
+- `ResendPanelComponent` on every resent call's card shows its whole cycle (original → edits →
+  session → sent → rules → upstream → response) and embeds `InterceptionPanelComponent`
+  (`[embedded]`, `[labels]`) for Original / Resent / Diff of the request AND the response. It finds
+  the original through `resend_edits.origin {direction, cycleId}` (see `shared/utils/resend-summary.ts`;
+  older resends without it fall back to the live log) and fetches nothing until opened.
 
 **`ResendDialogComponent` (`components/resend-dialog/`)**, opened through a `ResendDialogService`
 following the existing `ExportDialogService` pattern, edits a hydrated call's method/URL/headers/

@@ -28,37 +28,11 @@
         </div>
       } @else {
         <div class="resend-form">
-          <label class="inline-field">
-            <span>Method</span>
-            <input type="text" [value]="method()" (input)="onMethod($event)" />
-          </label>
-          <label class="inline-field grow span-all">
-            <span>URL</span>
-            <input type="text" [value]="url()" (input)="onUrl($event)" />
-          </label>
-
-          <div class="resend-headers span-all">
-            <small class="muted">Headers</small>
-            @for (row of headers(); track row.name) {
-              <div class="resend-header-row" [class.removed]="row.removed">
-                <code>{{ row.name }}</code>
-                <input type="text" [value]="row.value" [disabled]="row.removed" (input)="onHeaderValue($index, $event)" />
-                <button type="button" class="pill" (click)="toggleHeaderRemoved($index)">
-                  {{ row.removed ? 'Keep' : 'Remove' }}
-                </button>
-              </div>
-            }
-          </div>
-
-          <label class="inline-field grow span-all">
-            <span>Body</span>
-            <textarea rows="4" [value]="body()" (input)="onBody($event)"></textarea>
-          </label>
-
-          <label class="inline-field span-all">
-            <input type="checkbox" [checked]="useCurrentSession()" (change)="toggleUseCurrentSession($event)" />
-            <span>Resend with current session - substitutes the newest cookie/authorization value for this host</span>
-          </label>
+          @if (draft(); as d) {
+            <div class="span-all">
+              <app-resend-call-editor [draft]="d" (draftChange)="draft.set($event)" />
+            </div>
+          }
 
           @if (error(); as message) {
             <div class="rule-warning danger span-all">{{ message }}</div>

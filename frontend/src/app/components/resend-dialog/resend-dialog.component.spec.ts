@@ -46,18 +46,18 @@ describe('ResendDialogComponent', () => {
     dialogService.open(CALL);
     fixture.detectChanges();
 
-    expect(component.method()).toBe('GET');
-    expect(component.url()).toBe('https://api.supplier.com/fares');
-    expect(component.body()).toBe('{"a":1}');
-    expect(component.headers()).toEqual([{ name: 'Accept', value: 'application/json', removed: false }]);
+    const d = component.draft()!;
+    expect(d.method).toBe('GET');
+    expect(d.url).toBe('https://api.supplier.com/fares');
+    expect(d.body).toBe('{"a":1}');
+    expect(d.headers).toEqual([{ name: 'Accept', value: 'application/json', removed: false }]);
   });
 
   it('builds an edits payload with only what actually changed, and direction from the call source', () => {
     dialogService.open(CALL);
     fixture.detectChanges();
 
-    component.method.set('POST');
-    component.url.set('https://api.supplier.com/fares');
+    component.draft.update((d) => ({ ...d!, method: 'POST' }));
     component.send();
 
     const req = http.expectOne(`${BACKEND}/resend`);
@@ -71,7 +71,7 @@ describe('ResendDialogComponent', () => {
     dialogService.open(CALL);
     fixture.detectChanges();
 
-    component.toggleHeaderRemoved(0);
+    component.draft.update((d) => ({ ...d!, headers: d!.headers.map((h) => ({ ...h, removed: true })) }));
     component.send();
 
     const req = http.expectOne(`${BACKEND}/resend`);
@@ -86,6 +86,20 @@ describe('ResendDialogComponent', () => {
     component.send();
 
     const req = http.expectOne(`${BACKEND}/resend`);
+    expect(req.request.body.edits).toEqual({});
+    req.flush({ newCallId: 'n1', status: 200, durationMs: 3, sessionValuesUsed: [] });
+  });
+
+  it('resends a cycle copy with its cycle, and never sends a reformatted SOAP body as an edit', () => {
+    const soap = '<?xml version="1.0"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><Q>1</Q></soap:Body></soap:Envelope>';
+    dialogService.open({ ...CALL, request: { headers: { SOAPAction: '"Q"' }, body: soap } }, 'cy1');
+    fixture.detectChanges();
+
+    component.draft.update((d) => ({ ...d!, body: soap.replace(/></g, '>\n  <') }));
+    component.send();
+
+    const req = http.expectOne(`${BACKEND}/resend`);
+    expect(req.request.body.cycleId).toBe('cy1');
     expect(req.request.body.edits).toEqual({});
     req.flush({ newCallId: 'n1', status: 200, durationMs: 3, sessionValuesUsed: [] });
   });

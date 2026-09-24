@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { PickBarComponent } from '../../components/pick-bar/pick-bar.component';
 import { ResendDialogComponent } from '../../components/resend-dialog/resend-dialog.component';
+import { BulkResendDialogComponent } from '../../components/bulk-resend-dialog/bulk-resend-dialog.component';
 import { ThemePickerComponent } from '../../components/theme-picker/theme-picker.component';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 
@@ -9,7 +10,7 @@ import { InterceptionStateService } from '../../core/state/interception-state.se
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ThemePickerComponent, PickBarComponent, ResendDialogComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ThemePickerComponent, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent],
   templateUrl: './main-layout.component.html',
 })
 export class MainLayoutComponent {

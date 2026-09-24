@@ -1,30 +1,29 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
-import { ResendApiService, ResendResult } from '../../core/services/resend-api.service';
-import { ResendDialogService } from '../../core/services/resend-dialog.service';
 import { Router } from '@angular/router';
+import { PickedCall, refOf } from '../../core/models/call-ref.model';
+import { resendError } from '../../core/services/bulk-resend-dialog.service';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { CallRefDetailService } from '../../core/services/call-ref-detail.service';
-import { PickedCall, refOf } from '../../core/models/call-ref.model';
+import { ResendApiService, ResendResult } from '../../core/services/resend-api.service';
+import { ResendDialogService } from '../../core/services/resend-dialog.service';
+import { directionOf } from '../../core/models/call-ref.model';
+import { ResendDraft, draftFrom, editsOf } from '../../shared/utils/resend-draft';
+import { ResendCallEditorComponent } from '../resend-call-editor/resend-call-editor.component';
 
 const RESEND_REQUESTER = 'resend';
 
-interface HeaderRow {
-  name: string;
-  value: string;
-  /** Removed from the resent call entirely - a header edited down to "no value", not "empty string". */
-  removed: boolean;
-}
-
 /**
- * One instance lives in the main layout, so it opens from any page; ResendDialogService.state drives whether it's visible and
- * for which call. Opening resets the form from that call's own method/url/headers/body - every
- * field stays freely editable, since the point of resending is usually to change exactly one of
- * them and see what happens.
+ * One instance lives in the main layout, so it opens from any page; ResendDialogService.state
+ * drives whether it's visible and for which call. Opening starts a fresh draft from that call's
+ * own request, edited through the same ResendCallEditorComponent the multi-call resend uses - so
+ * the headers and body get the call card's formatter, colours, find and find-and-replace, and
+ * "Format" alone is never sent as an edit (see editsOf).
  */
 @Component({
   selector: 'app-resend-dialog',
   standalone: true,
+  imports: [ResendCallEditorComponent],
   templateUrl: './resend-dialog.component.html',
 })
 export class ResendDialogComponent {
@@ -35,12 +34,7 @@ export class ResendDialogComponent {
   private readonly router = inject(Router);
 
   readonly state = this.dialogService.state;
-
-  readonly method = signal('');
-  readonly url = signal('');
-  readonly headers = signal<HeaderRow[]>([]);
-  readonly body = signal('');
-  readonly useCurrentSession = signal(false);
+  readonly draft = signal<ResendDraft | null>(null);
 
   readonly sending = signal(false);
   readonly error = signal<string | null>(null);
@@ -84,49 +78,16 @@ export class ResendDialogComponent {
       });
     });
 
-    // Resets the form to the newly-opened call's own request - not an update, so re-opening the
-    // same dialog for a different call never leaves a stale edit behind.
+    // A fresh draft per opened call - never an update, so re-opening for a different call never
+    // leaves a stale edit behind.
     effect(() => {
       const current = this.state();
       untracked(() => {
-        if (!current) return;
-        const call = current.call;
-        this.method.set(call.method);
-        this.url.set(call.url);
-        this.body.set(call.request?.body ?? '');
-        this.headers.set(
-          Object.entries(call.request?.headers ?? {}).map(([name, value]) => ({ name, value, removed: false }))
-        );
-        this.useCurrentSession.set(false);
+        this.draft.set(current ? draftFrom(current.call, current.cycleId) : null);
         this.error.set(null);
         this.result.set(null);
       });
     });
-  }
-
-  onMethod(event: Event): void {
-    this.method.set((event.target as HTMLInputElement).value);
-  }
-
-  onUrl(event: Event): void {
-    this.url.set((event.target as HTMLInputElement).value);
-  }
-
-  onBody(event: Event): void {
-    this.body.set((event.target as HTMLTextAreaElement).value);
-  }
-
-  onHeaderValue(index: number, event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    this.headers.update((rows) => rows.map((row, i) => (i === index ? { ...row, value } : row)));
-  }
-
-  toggleHeaderRemoved(index: number): void {
-    this.headers.update((rows) => rows.map((row, i) => (i === index ? { ...row, removed: !row.removed } : row)));
-  }
-
-  toggleUseCurrentSession(event: Event): void {
-    this.useCurrentSession.set((event.target as HTMLInputElement).checked);
   }
 
   close(): void {
@@ -134,35 +95,17 @@ export class ResendDialogComponent {
   }
 
   send(): void {
-    const current = this.state();
-    if (!current || this.sending()) return;
-    const call = current.call;
-
-    const editedHeaders: Record<string, string | null> = {};
-    for (const row of this.headers()) {
-      const original = call.request?.headers?.[row.name];
-      if (row.removed) {
-        editedHeaders[row.name] = null;
-      } else if (row.value !== original) {
-        editedHeaders[row.name] = row.value;
-      }
-    }
-    const edits = {
-      ...(this.method() !== call.method ? { method: this.method() } : {}),
-      ...(this.url() !== call.url ? { url: this.url() } : {}),
-      ...(Object.keys(editedHeaders).length ? { headers: editedHeaders } : {}),
-      ...(this.body() !== (call.request?.body ?? '') ? { body: this.body() } : {}),
-    };
-
+    const draft = this.draft();
+    if (!draft || this.sending()) return;
     this.sending.set(true);
     this.error.set(null);
     this.api
       .resend({
-        direction: call.source === 'internal' ? 'inbound' : 'outbound',
-        callId: call.id,
-        cycleId: current.cycleId,
-        edits,
-        useCurrentSession: this.useCurrentSession(),
+        direction: directionOf(draft.ref),
+        callId: draft.ref.callId,
+        cycleId: draft.ref.cycleId,
+        edits: editsOf(draft),
+        useCurrentSession: draft.useCurrentSession,
       })
       .subscribe({
         next: (result) => {
@@ -171,17 +114,8 @@ export class ResendDialogComponent {
         },
         error: (failure: HttpErrorResponse) => {
           this.sending.set(false);
-          this.error.set(errorMessage(failure));
+          this.error.set(resendError(failure));
         },
       });
   }
-}
-
-function errorMessage(failure: HttpErrorResponse): string {
-  const body = failure.error as { error?: string; message?: string } | null;
-  if (body?.error === 'call-not-found') return 'That call could not be found - it may have left the log.';
-  if (body?.error === 'reverse-proxy-not-running') return "This project's reverse-proxy listener isn't running.";
-  if (body?.error === 'send-failed') return `The resend failed: ${body.message ?? 'unknown error'}.`;
-  if (body?.error === 'invalid-request') return 'One of the edits is too large to resend.';
-  return 'Could not resend that call. Try again.';
 }

@@ -1,0 +1,156 @@
+@if (service.visible()) {
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card bulk-resend-dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Resend calls">
+      <div class="resend-head">
+        <h2>Resend {{ drafts().length }} call{{ drafts().length === 1 ? '' : 's' }}</h2>
+        @if (editedCount()) {
+          <small class="muted">{{ editedCount() }} edited</small>
+        }
+        <button type="button" class="pill" [disabled]="service.running()" (click)="addFromAnywhere()">Add calls from anywhere…</button>
+        <button type="button" class="pill" aria-label="Close" (click)="close()">✕</button>
+      </div>
+
+      <div class="br-tabs" role="tablist">
+        <button type="button" role="tab" class="pill" [class.on]="mode() === 'call'" (click)="mode.set('call')">Edit a call</button>
+        <button type="button" role="tab" class="pill" [class.on]="mode() === 'all'" (click)="mode.set('all')">Edit all at once</button>
+      </div>
+
+      <div class="br-body">
+        <div class="br-list">
+          <small class="muted">Send order · drag or use the arrows · untick to skip</small>
+          <div cdkDropList [cdkDropListData]="drafts()" [cdkDropListDisabled]="service.running()" (cdkDropListDropped)="drop($event)">
+            @for (d of drafts(); track d.key; let i = $index) {
+              <div
+                class="br-row"
+                cdkDrag
+                [class.on]="mode() === 'call' && selected()?.key === d.key"
+                [class.off]="!d.include"
+                (click)="select(d)"
+              >
+                <span class="drag-handle" cdkDragHandle aria-hidden="true">☰</span>
+                <input type="checkbox" [checked]="d.include" [attr.aria-label]="'Include call ' + (i + 1)" (click)="$event.stopPropagation()" (change)="toggleInclude(d, $event)" />
+                <span class="br-index">{{ i + 1 }}</span>
+                <span class="badge">{{ d.method }}</span>
+                <!-- Path only: the row is narrow and the host is usually the same for the whole
+                     batch; the full URL is in the tooltip and in the editor. -->
+                <span class="br-url" [title]="d.url">{{ pathOf(d.url) }}</span>
+                @if (isEdited(d)) {
+                  <span class="br-badge edited" [title]="describeEdits(d).join(' · ')">edited</span>
+                }
+                @if (resultOf(d); as r) {
+                  <span class="br-badge" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.error ?? ''">{{ r.ok ? r.status : 'failed' }}</span>
+                }
+                <span class="br-move">
+                  <button type="button" class="icon-btn" aria-label="Move up" [disabled]="i === 0 || service.running()" (click)="move(i, -1, $event)">▲</button>
+                  <button type="button" class="icon-btn" aria-label="Move down" [disabled]="i === drafts().length - 1 || service.running()" (click)="move(i, 1, $event)">▼</button>
+                  <button type="button" class="icon-btn" aria-label="Remove from this resend" [disabled]="service.running()" (click)="remove(d, $event)">✕</button>
+                </span>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="br-right">
+          @if (mode() === 'call') {
+            @if (selected(); as d) {
+              <div class="br-call-head">
+                <small class="muted">{{ originOf(d) }}</small>
+                @if (isEdited(d)) {
+                  <button type="button" class="pill" (click)="reset(d)">Reset this call</button>
+                }
+              </div>
+              <app-resend-call-editor [draft]="d" (draftChange)="updateDraft($event)" />
+
+              @if (resultOf(d); as r) {
+                <div class="br-result" [class.ok]="r.ok" [class.bad]="!r.ok">
+                  @if (r.ok) {
+                    ✓ Sent · {{ r.status }} in {{ r.durationMs }} ms ·
+                    <a [href]="newCallHref(r)">view the new call</a> ·
+                    <button type="button" class="link-btn" (click)="viewCycle(d)">{{ journeyOf(d) ? 'hide the cycle' : 'view the cycle' }}</button>
+                  } @else {
+                    ✗ {{ r.error }}
+                  }
+                </div>
+                @if (journeyOf(d) === 'loading') {
+                  <small class="muted">Loading the resent call…</small>
+                } @else if (journeyOf(d) === 'missing') {
+                  <small class="muted">The resent call is not in the log yet - try again in a moment.</small>
+                } @else if (asCall(journeyOf(d))) {
+                  <app-resend-panel [call]="asCall(journeyOf(d))!" />
+                }
+              }
+            }
+          } @else {
+            <small class="muted">Applies to the {{ included().length }} ticked call{{ included().length === 1 ? '' : 's' }}. Each stays editable on its own afterwards.</small>
+
+            <fieldset class="br-tool">
+              <legend>Set or remove a header</legend>
+              <div class="br-tool-row">
+                <input type="text" placeholder="Authorization" aria-label="Header name" [value]="headerName()" (input)="text(headerName.set, $event)" />
+                <input type="text" placeholder="Bearer new-token" aria-label="Header value" [value]="headerValue()" (input)="text(headerValue.set, $event)" />
+                <button type="button" class="pill" [disabled]="!headerName().trim()" (click)="setHeader()">Set on all</button>
+                <button type="button" class="pill" [disabled]="!headerName().trim()" (click)="removeHeader()">Remove from all</button>
+              </div>
+            </fieldset>
+
+            <fieldset class="br-tool">
+              <legend>Find and replace</legend>
+              <div class="br-tool-row">
+                <input type="text" placeholder="Find" aria-label="Find" [value]="find()" (input)="text(find.set, $event)" />
+                <input type="text" placeholder="Replace with" aria-label="Replace with" [value]="replace()" (input)="text(replace.set, $event)" />
+                <button type="button" class="pill" [disabled]="!matchCount()" (click)="replaceAll()">Replace all</button>
+              </div>
+              <div class="br-tool-row">
+                <label><input type="checkbox" [checked]="inUrl()" (change)="checked(inUrl.set, $event)" /> URL</label>
+                <label><input type="checkbox" [checked]="inHeaders()" (change)="checked(inHeaders.set, $event)" /> header values</label>
+                <label><input type="checkbox" [checked]="inBody()" (change)="checked(inBody.set, $event)" /> body</label>
+                <label><input type="checkbox" [checked]="regex()" (change)="checked(regex.set, $event)" /> regex</label>
+                <label><input type="checkbox" [checked]="matchCase()" (change)="checked(matchCase.set, $event)" /> match case</label>
+                @if (findError(); as err) {
+                  <small class="br-error">{{ err }}</small>
+                } @else if (matchCount() !== null) {
+                  <small class="muted">{{ matchCount() }} match{{ matchCount() === 1 ? '' : 'es' }} in {{ included().length }} calls</small>
+                }
+              </div>
+            </fieldset>
+
+            <fieldset class="br-tool">
+              <legend>Method and host</legend>
+              <div class="br-tool-row">
+                <input type="text" class="br-short" placeholder="keep method" aria-label="Method" [value]="method()" (input)="text(method.set, $event)" />
+                <input type="text" placeholder="api.staging.supplier.com" aria-label="Host" [value]="host()" (input)="text(host.set, $event)" />
+                <button type="button" class="pill" [disabled]="!method().trim() && !host().trim()" (click)="applyMethodAndHost()">Apply</button>
+              </div>
+              <small class="muted">The host applies to outbound calls only; inbound calls always go to their own project.</small>
+            </fieldset>
+
+            <fieldset class="br-tool">
+              <label><input type="checkbox" (change)="setSessionOnAll($event)" /> <b>Use current session on all</b></label>
+            </fieldset>
+          }
+          @if (notice(); as message) {
+            <small class="br-notice">{{ message }}</small>
+          }
+        </div>
+      </div>
+
+      <div class="br-foot">
+        <label><input type="checkbox" [checked]="stopOnFailure()" (change)="checked(stopOnFailure.set, $event)" /> Stop at first failure</label>
+        <label>Delay between sends <input type="number" min="0" max="60000" step="50" class="br-short" [value]="delayMs()" (input)="onDelay($event)" /> ms</label>
+        <span class="br-spacer"></span>
+        @if (service.running()) {
+          <small class="muted">Sending {{ service.progress() + 1 }}/{{ service.total() }}…</small>
+          <button type="button" class="pill" (click)="service.stop()">Stop</button>
+        } @else if (service.total()) {
+          <small class="muted">
+            {{ service.stoppedEarly() ? 'Stopped after ' + service.progress() + '/' + service.total() + ' - one failed.' : 'Sent ' + service.progress() + '/' + service.total() + '.' }}
+          </small>
+        }
+        <button type="button" class="pill" (click)="close()">Close</button>
+        <button type="button" class="pill on" [disabled]="service.running() || included().length === 0" (click)="send()">
+          Resend {{ included().length }} call{{ included().length === 1 ? '' : 's' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

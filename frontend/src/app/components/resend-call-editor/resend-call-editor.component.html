@@ -1,0 +1,30 @@
+@if (draft(); as d) {
+  <div class="resend-call-editor">
+    <div class="rce-line">
+      <input type="text" class="rce-method" aria-label="Method" [value]="d.method" (input)="onMethod($event)" />
+      <input type="text" class="rce-url" aria-label="URL" [value]="d.url" (input)="onUrl($event)" />
+    </div>
+    @if (inbound()) {
+      <small class="muted">Inbound: the path and query can change; it always goes to this project's reverse-proxy listener.</small>
+    }
+
+    <div class="rce-part">
+      @if (inTab().has('headers')) {
+        <small class="rce-in-tab">Editing in another tab - changes land here as you type.</small>
+      }
+      <app-header-editor [headers]="d.headers" openInTabLabel="Open in a big tab" (headersChange)="onHeaders($event)" (openInTab)="openInTab('headers')" />
+    </div>
+
+    <div class="rce-part">
+      @if (inTab().has('body')) {
+        <small class="rce-in-tab">Editing in another tab - changes land here as you type.</small>
+      }
+      <app-body-editor [value]="d.body" label="Body" openInTabLabel="Open in a big tab" (valueChange)="onBody($event)" (openInTab)="openInTab('body')" />
+    </div>
+
+    <label class="rce-session">
+      <input type="checkbox" [checked]="d.useCurrentSession" (change)="onSession($event)" />
+      <span>Use current session - swap in the newest cookie/authorization value for this host</span>
+    </label>
+  </div>
+}
