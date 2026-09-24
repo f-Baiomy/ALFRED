@@ -5,6 +5,9 @@ import { PausedCall } from '../../core/models/interception.model';
 import { AppConfigService } from '../../core/services/app-config.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { PausedCallsComponent } from './paused-calls.component';
+import { By } from '@angular/platform-browser';
+import { BodyEditorComponent } from '../body-editor/body-editor.component';
+import { HeaderEditorComponent } from '../header-editor/header-editor.component';
 
 const BACKEND = 'http://backend.test:5000';
 
@@ -70,6 +73,24 @@ describe('PausedCallsComponent', () => {
         const id = request.request.url.split('/').pop() ?? '';
         request.flush(byId.get(id) ?? null);
       });
+  }
+
+  /**
+   * The body editor on screen. Its own state (mode, search, painted lines) lives in the shared
+   * BodyEditorComponent now, so assertions about it read the child - after a render, because
+   * the child only sees a new body once its input is set.
+   */
+  function editor(): BodyEditorComponent {
+    fixture.detectChanges();
+    const el = fixture.debugElement.query(By.directive(BodyEditorComponent));
+    return el.componentInstance as BodyEditorComponent;
+  }
+
+  /** The header editor, on the Headers tab - which is where it lives. */
+  function headerEditor(): HeaderEditorComponent {
+    component.tab.set('headers');
+    fixture.detectChanges();
+    return fixture.debugElement.query(By.directive(HeaderEditorComponent)).componentInstance as HeaderEditorComponent;
   }
 
   afterEach(() => {
@@ -326,7 +347,7 @@ describe('PausedCallsComponent', () => {
   it('claims the call on the first keystroke, without waiting for the button', () => {
     load([paused()]);
 
-    component.onBodyInput({ target: { value: '{"edited":true}' } } as unknown as Event);
+    component.onBodyChange('{"edited":true}');
 
     const request = http.expectOne(`${BACKEND}/interception/paused/call-1/control`);
     expect(request.request.method).toBe('POST');
@@ -337,7 +358,7 @@ describe('PausedCallsComponent', () => {
   it('does not re-claim a call it already holds', () => {
     load([paused({ heldAt: Date.now() })]);
 
-    component.onBodyInput({ target: { value: '{"edited":true}' } } as unknown as Event);
+    component.onBodyChange('{"edited":true}');
 
     http.expectNone(`${BACKEND}/interception/paused/call-1/control`);
   });
@@ -366,7 +387,7 @@ describe('PausedCallsComponent', () => {
       // byte-identical to never having paused.
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1', b: '2' }, body: '{}' } })]);
 
-      component.onHeaderValue(1, { target: { value: 'changed' } } as unknown as Event);
+      headerEditor().onValue(1, { target: { value: 'changed' } } as unknown as Event);
 
       expect(component.headerChanges()).toEqual({ b: 'changed' });
       expect(component.headerChangeCount()).toBe(1);
@@ -376,7 +397,7 @@ describe('PausedCallsComponent', () => {
     it('removes a header by sending a null value, which is what the proxy reads as delete', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
 
-      component.toggleHeaderRemoved(0);
+      headerEditor().toggleRemoved(0);
 
       expect(component.headerChanges()).toEqual({ a: null });
       // The row stays, struck through - "did I delete it or was it never here" must stay answerable.
@@ -387,8 +408,8 @@ describe('PausedCallsComponent', () => {
     it('un-removing a header puts it back with nothing to send', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
 
-      component.toggleHeaderRemoved(0);
-      component.toggleHeaderRemoved(0);
+      headerEditor().toggleRemoved(0);
+      headerEditor().toggleRemoved(0);
 
       expect(component.headerChanges()).toEqual({});
       expect(component.dirty()).toBeFalse();
@@ -397,8 +418,8 @@ describe('PausedCallsComponent', () => {
     it('drops an added header that is removed again rather than sending a blank one', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{}' } })]);
 
-      component.addHeader();
-      component.toggleHeaderRemoved(0);
+      headerEditor().addRow();
+      headerEditor().toggleRemoved(0);
 
       expect(component.headerRows().length).toBe(0);
     });
@@ -406,7 +427,7 @@ describe('PausedCallsComponent', () => {
     it('carries the header edits on the release', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
 
-      component.onHeaderValue(0, { target: { value: '2' } } as unknown as Event);
+      headerEditor().onValue(0, { target: { value: '2' } } as unknown as Event);
       component.release(true);
 
       const request = http.expectOne(`${BACKEND}/interception/paused/call-1/decision`);
@@ -465,7 +486,7 @@ describe('PausedCallsComponent', () => {
     // exactly what taking control exists to prevent.
     load([paused()]);
 
-    component.addHeader();
+    headerEditor().addRow();
 
     http.expectOne(`${BACKEND}/interception/paused/call-1/control`).flush(null);
     http.expectOne(`${BACKEND}/interception/paused`).flush([]);
@@ -477,7 +498,7 @@ describe('PausedCallsComponent', () => {
     // away that had triggered the claim. Only a second edit ever survived.
     load([paused({ response: { status: 200, headers: { a: '1' }, body: '{}' } })]);
 
-    component.onHeaderValue(0, { target: { value: 'edited' } } as unknown as Event);
+    headerEditor().onValue(0, { target: { value: 'edited' } } as unknown as Event);
     http.expectOne(`${BACKEND}/interception/paused/call-1/control`).flush(null);
     // The refresh the claim triggers, with the same call carrying its new heldAt.
     http
@@ -491,7 +512,7 @@ describe('PausedCallsComponent', () => {
   it('still drops edits when a different call is selected', () => {
     load([paused(), paused({ callId: 'call-2', heldAt: Date.now() })]);
 
-    component.onBodyInput({ target: { value: 'for call one' } } as unknown as Event);
+    component.onBodyChange('for call one');
     http.expectOne(`${BACKEND}/interception/paused/call-1/control`).flush(null);
     http.expectOne(`${BACKEND}/interception/paused`).flush([paused({ heldAt: Date.now() }), paused({ callId: 'call-2' })]);
 
@@ -531,7 +552,7 @@ describe('PausedCallsComponent', () => {
     it('sends nothing when the body was only reformatted', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
 
-      component.format();
+      editor().format();
       component.release(true);
 
       const request = http.expectOne(`${BACKEND}/interception/paused/call-1/decision`);
@@ -543,7 +564,7 @@ describe('PausedCallsComponent', () => {
     it('sends exactly what is on screen once a value really changes', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
 
-      component.onBodyInput({ target: { value: '{\n  "a": 2\n}' } } as unknown as Event);
+      component.onBodyChange('{\n  "a": 2\n}');
       expect(component.bodyEdited()).toBeTrue();
 
       component.release(true);
@@ -557,17 +578,17 @@ describe('PausedCallsComponent', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: 'grant_type=x&scope=read' } })]);
 
       expect(component.currentBody()).toBe('grant_type=x&scope=read');
-      expect(component.canFormat()).toBeFalse();
+      expect(editor().canFormat()).toBeFalse();
       expect(component.bodyKind()).toBe('text');
     });
 
     it('reports a body that stops parsing while it is being typed', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
 
-      component.onBodyInput({ target: { value: '{"a":' } } as unknown as Event);
+      component.onBodyChange('{"a":');
 
-      expect(component.validity().state).toBe('invalid');
-      expect(component.validity().message?.length).toBeGreaterThan(0);
+      expect(editor().validity().state).toBe('invalid');
+      expect(editor().validity().message?.length).toBeGreaterThan(0);
     });
 
     it('counts and cycles through matches', () => {
@@ -578,45 +599,45 @@ describe('PausedCallsComponent', () => {
         }),
       ]);
 
-      component.onQuery({ target: { value: 'seats' } } as unknown as Event);
-      expect(component.matches().length).toBe(2);
-      expect(component.matchLabel()).toBe('1/2');
+      editor().onQuery({ target: { value: 'seats' } } as unknown as Event);
+      expect(editor().matches().length).toBe(2);
+      expect(editor().matchLabel()).toBe('1/2');
 
-      component.step(1);
-      expect(component.matchLabel()).toBe('2/2');
+      editor().step(1);
+      expect(editor().matchLabel()).toBe('2/2');
       // Wraps rather than stopping at the end.
-      component.step(1);
-      expect(component.matchLabel()).toBe('1/2');
+      editor().step(1);
+      expect(editor().matchLabel()).toBe('1/2');
     });
 
     it('says so when nothing matches, rather than looking broken', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
 
-      component.onQuery({ target: { value: 'zzz' } } as unknown as Event);
+      editor().onQuery({ target: { value: 'zzz' } } as unknown as Event);
 
-      expect(component.matchLabel()).toBe('no matches');
+      expect(editor().matchLabel()).toBe('no matches');
     });
 
     it('renders Inspect with the same line/token shape the call cards use', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
 
-      expect(component.inspectLines().length).toBe(0); // nothing built while in Edit
-      component.setBodyMode('inspect');
+      expect(editor().inspectLines().length).toBe(0); // nothing built while in Edit
+      editor().setBodyMode('inspect');
 
-      const lines = component.inspectLines();
+      const lines = editor().inspectLines();
       expect(lines.length).toBeGreaterThan(1);
       expect(lines[0].index).toBe(0);
       expect(lines[0].tokens.length).toBeGreaterThan(0);
-      expect(component.inspectVariant()).toBe('json');
+      expect(editor().inspectVariant()).toBe('json');
     });
 
     it('colours a SOAP body as markup, and a form-encoded one as plain text', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: SOAP } })]);
-      component.setBodyMode('inspect');
-      expect(component.inspectVariant()).toBe('json'); // the tokenizer differs, the renderer does not
+      editor().setBodyMode('inspect');
+      expect(editor().inspectVariant()).toBe('json'); // the tokenizer differs, the renderer does not
 
-      component.onBodyInput({ target: { value: 'grant_type=x' } } as unknown as Event);
-      expect(component.inspectVariant()).toBe('plain');
+      component.onBodyChange('grant_type=x');
+      expect(editor().inspectVariant()).toBe('plain');
     });
   });
 
@@ -626,9 +647,9 @@ describe('PausedCallsComponent', () => {
     it('paints the same tokens Inspect would, so the two cannot disagree', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
 
-      const painted = component.editorLines();
-      component.setBodyMode('inspect');
-      const inspected = component.inspectLines();
+      const painted = editor().editorLines();
+      editor().setBodyMode('inspect');
+      const inspected = editor().inspectLines();
 
       expect(painted.length).toBe(inspected.length);
       expect(painted[0].tokens.map((t) => [t.cls, t.text]))
@@ -638,7 +659,7 @@ describe('PausedCallsComponent', () => {
     it('colours a JSON key, string and number the way the call cards do', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":"x","b":2}' } })]);
 
-      const classes = component.editorLines().flatMap((line) => line.tokens.map((t) => t.cls));
+      const classes = editor().editorLines().flatMap((line) => line.tokens.map((t) => t.cls));
 
       expect(classes).toContain('k'); // key -> --tok-key
       expect(classes).toContain('s'); // string -> --tok-string
@@ -648,7 +669,7 @@ describe('PausedCallsComponent', () => {
     it('colours XML through the XML tokenizer, not the JSON one', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: SOAP } })]);
 
-      const tokens = component.editorLines().flatMap((line) => line.tokens);
+      const tokens = editor().editorLines().flatMap((line) => line.tokens);
 
       expect(tokens.some((t) => t.cls === 'k' && t.text.startsWith('<soap:'))).toBeTrue();
     });
@@ -656,32 +677,32 @@ describe('PausedCallsComponent', () => {
     it('leaves a plain-text body uncoloured rather than colouring it as JSON', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: 'grant_type=x&scope=read' } })]);
 
-      expect(component.editorLines().flatMap((l) => l.tokens).every((t) => !t.cls)).toBeTrue();
+      expect(editor().editorLines().flatMap((l) => l.tokens).every((t) => !t.cls)).toBeTrue();
     });
 
     it('highlights search matches in the editor, not only in Inspect', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"seats":1}' } })]);
 
-      component.onQuery({ target: { value: 'seats' } } as unknown as Event);
+      editor().onQuery({ target: { value: 'seats' } } as unknown as Event);
 
-      expect(component.editorLines().flatMap((l) => l.tokens).some((t) => t.highlighted)).toBeTrue();
+      expect(editor().editorLines().flatMap((l) => l.tokens).some((t) => t.highlighted)).toBeTrue();
     });
 
     it('switches the paint off for a body too large to retokenize per keystroke', () => {
       // Worse to make typing unusable than to show monochrome text.
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: BIG } })]);
 
-      expect(component.overlayEnabled()).toBeFalse();
-      expect(component.editorLines()).toEqual([]);
+      expect(editor().overlayEnabled()).toBeFalse();
+      expect(editor().editorLines()).toEqual([]);
     });
 
     it('builds nothing for the layer that is not on screen', () => {
       load([paused({ heldAt: Date.now(), response: { status: 200, headers: {}, body: '{"a":1}' } })]);
 
-      expect(component.inspectLines()).toEqual([]);
-      component.setBodyMode('inspect');
-      expect(component.editorLines()).toEqual([]);
-      expect(component.inspectLines().length).toBeGreaterThan(0);
+      expect(editor().inspectLines()).toEqual([]);
+      editor().setBodyMode('inspect');
+      expect(editor().editorLines()).toEqual([]);
+      expect(editor().inspectLines().length).toBeGreaterThan(0);
     });
 
     it('keeps the editor a fixed size and scrolls the body inside it', () => {
@@ -699,11 +720,11 @@ describe('PausedCallsComponent', () => {
         }),
       ]);
 
-      const editor = fixture.nativeElement.querySelector('.body-editor') as HTMLElement;
+      const box = fixture.nativeElement.querySelector('.body-editor') as HTMLElement;
       const area = fixture.nativeElement.querySelector('.body-editor textarea') as HTMLTextAreaElement;
 
-      expect(component.lineNumbers().length).toBeGreaterThan(190);
-      expect(editor.getBoundingClientRect().height).toBeLessThan(700);
+      expect(editor().lineNumbers().length).toBeGreaterThan(190);
+      expect(box.getBoundingClientRect().height).toBeLessThan(700);
       expect(area.scrollHeight).toBeGreaterThan(area.clientHeight);
     });
 
@@ -727,7 +748,7 @@ describe('PausedCallsComponent', () => {
 
       area.scrollTop = 120;
       area.scrollLeft = 30;
-      component.syncGutter();
+      editor().syncGutter();
 
       expect(pre.scrollTop).toBe(area.scrollTop);
       expect(pre.scrollLeft).toBe(area.scrollLeft);
@@ -791,7 +812,7 @@ describe('PausedCallsComponent', () => {
 
       expect(component.tab()).toBe('response');
       expect(component.currentBody()).toContain('CONFIRMED');
-      expect(component.effectiveMode()).toBe('inspect');
+      expect(editor().effectiveMode()).toBe('inspect');
     });
 
     it('shows each half on its own tab rather than one over the other', () => {

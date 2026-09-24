@@ -1,4 +1,4 @@
-import { Component, DestroyRef, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { interval } from 'rxjs';
 import {
@@ -14,21 +14,10 @@ import {
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
 import { SelectPickerComponent } from '../select-picker/select-picker.component';
-import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
-import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
-import { highlightTokens, tokenizeJsonText } from '../../shared/utils/json-tokenizer';
-import { tokenizeXmlText } from '../../shared/utils/xml-tokenizer';
-import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
-import {
-  BodyKind,
-  LIVE_CHECK_LIMIT,
-  detectBodyKind,
-  findMatches,
-  formatBody,
-  minifyBody,
-  normalizeBody,
-  validateBody,
-} from '../../shared/utils/body-format';
+import { BodyEditorComponent } from '../body-editor/body-editor.component';
+import { HeaderEditorComponent } from '../header-editor/header-editor.component';
+import { BodyKind, detectBodyKind, formatBody, normalizeBody } from '../../shared/utils/body-format';
+import { HeaderRow } from '../../shared/utils/header-rows';
 
 /** One editable header row. `removed` keeps the row on screen, struck through, rather than vanishing. */
 export interface EditableHeader {
@@ -49,9 +38,6 @@ const OUTCOMES: Record<string, string> = {
   'never-came-back': 'No answer ever arrived',
 };
 
-/** Edit it, or read it the way the call cards render a body. */
-type BodyMode = 'edit' | 'inspect';
-
 /**
  * The breakpoint inspector: calls the proxy is holding open while somebody decides what happens to
  * them.
@@ -65,20 +51,22 @@ type BodyMode = 'edit' | 'inspect';
  * The ticker is the one timer in the app and it is not polling - it re-renders a countdown from
  * data already in hand and makes no requests. The list itself still arrives by WebSocket push, like
  * everything else (see docs/frontend-architecture.md).
+ *
+ * The body and the header rows are edited by the shared BodyEditorComponent and
+ * HeaderEditorComponent - the editors' own state (mode, search, the text being typed) lives
+ * there, and this component only hears about each change through valueChange/headersChange.
+ * What an edit MEANS for a held call - whether it is dirty, what a release carries, when typing
+ * claims the call - stays here, because none of that is the editor's business.
  */
 @Component({
   selector: 'app-paused-calls',
   standalone: true,
-  imports: [StatusPickerComponent, SelectPickerComponent, JsonFlatViewComponent, JsonTokensComponent],
+  imports: [StatusPickerComponent, SelectPickerComponent, BodyEditorComponent, HeaderEditorComponent],
   templateUrl: './paused-calls.component.html',
 })
 export class PausedCallsComponent {
   readonly state = inject(InterceptionStateService);
   private readonly destroyRef = inject(DestroyRef);
-
-  private readonly bodyArea = viewChild<ElementRef<HTMLTextAreaElement>>('bodyArea');
-  private readonly gutter = viewChild<ElementRef<HTMLElement>>('gutter');
-  private readonly highlight = viewChild<ElementRef<HTMLElement>>('highlight');
 
   private readonly selectedId = signal<string | null>(null);
   readonly tab = signal<Tab>('response');
@@ -96,8 +84,6 @@ export class PausedCallsComponent {
   readonly editedHeaders = signal<EditableHeader[] | null>(null);
   readonly busy = signal(false);
 
-  readonly bodyMode = signal<BodyMode>('edit');
-
   /**
    * Stop this call a second time when the supplier answers.
    *
@@ -106,8 +92,6 @@ export class PausedCallsComponent {
    * whole cycle, just without a second stop.
    */
   readonly follow = signal(false);
-  readonly query = signal('');
-  readonly matchIndex = signal(0);
 
   /** The paste-everything box, open only while it is being used. */
   readonly replaceOpen = signal(false);
@@ -289,76 +273,17 @@ export class PausedCallsComponent {
     return groups;
   });
 
-  // ---- reading and searching the body ----------------------------------------------------
-
-  readonly validity = computed(() => validateBody(this.currentBody(), this.bodyKind()));
-
-  readonly canFormat = computed(() => formatBody(this.currentBody(), this.bodyKind()) !== null);
-
-  readonly bodyStats = computed(() => {
-    const text = this.currentBody();
-    if (!text) return '';
-    const lines = text.split('\n').length;
-    const kb = (new Blob([text]).size / 1024).toFixed(1);
-    return `${lines.toLocaleString()} ${lines === 1 ? 'line' : 'lines'} · ${kb} KB`;
-  });
-
-  /** One number per line, for the gutter beside the textarea. */
-  readonly lineNumbers = computed(() =>
-    Array.from({ length: this.currentBody().split('\n').length }, (_, i) => i + 1)
-  );
-
-  readonly matches = computed(() => findMatches(this.currentBody(), this.query()));
-
-  readonly matchLabel = computed(() => {
-    const total = this.matches().length;
-    if (!this.query()) return '';
-    return total === 0 ? 'no matches' : `${Math.min(this.matchIndex() + 1, total)}/${total}`;
-  });
-
   /**
-   * The same tokenize → highlight → split pipeline the call cards run, so neither the editor nor
-   * Inspect is a lookalike of that view - they render the very tokens it renders, told which
-   * tokenizer to use. One computed feeds both layers, so the coloured text behind the caret and
-   * the read-only view can never disagree about what a body says.
+   * Which card-half the editors belong to - the same `callId:phase` key the reset effect below
+   * uses. The template re-creates the editors whenever it changes, which is what resets their own
+   * state (Edit/Inspect, the search, replace options) for a new call exactly where the effect
+   * resets this component's: selecting another call starts clean, and a list refresh of the SAME
+   * call (claiming it re-fetches the queue) keeps everything - see the effect for why.
    */
-  private readonly tokenizedLines = computed<readonly LineTokens[]>(() => {
-    const text = this.currentBody();
-    const tokens = this.bodyKind() === 'xml' ? tokenizeXmlText(text) : tokenizeJsonText(text);
-    const highlighted = highlightTokens(tokens, this.query()).tokens;
-    return splitTokensIntoLines(highlighted).map((tokensOnLine, index) => ({ index, tokens: tokensOnLine }));
+  readonly editorKey = computed(() => {
+    const call = this.selected();
+    return call ? `${call.callId}:${call.phase}` : '';
   });
-
-  /**
-   * A half nobody can change is always shown in Inspect, whatever the Edit/Inspect buttons last
-   * said. It is the call cards' own view, so reading the request you already sent or the response
-   * that came back gets the same colouring, line numbers and search as editing one - rather than
-   * the flat grey <pre> this used to drop to.
-   */
-  readonly effectiveMode = computed<BodyMode>(() => (this.editable() ? this.bodyMode() : 'inspect'));
-
-  readonly inspectLines = computed<readonly LineTokens[]>(() =>
-    this.effectiveMode() === 'inspect' ? this.tokenizedLines() : []
-  );
-
-  /**
-   * Whether the editor paints coloured text behind the caret.
-   *
-   * Off past the same size limit the validity check uses, and for the same reason: re-tokenizing
-   * a 6 MB body on every keystroke would make typing unusable, which is a worse failure than
-   * monochrome text. Inspect still renders it, because that view is windowed.
-   */
-  readonly overlayEnabled = computed(() => this.currentBody().length <= LIVE_CHECK_LIMIT);
-
-  readonly editorLines = computed<readonly LineTokens[]>(() =>
-    this.effectiveMode() === 'edit' && this.overlayEnabled() ? this.tokenizedLines() : []
-  );
-
-  /** Plain text gets no syntax colouring - pretending otherwise would colour a SOAP fault as JSON. */
-  readonly inspectVariant = computed(() => (this.bodyKind() === 'text' ? 'plain' : 'json'));
-
-  /** Which match the flat view should mark as current, counted the way that component counts them. */
-  readonly activeMatch = computed(() => (this.matches().length === 0 ? -1 : this.matchIndex()));
 
   constructor() {
     interval(1000)
@@ -390,9 +315,7 @@ export class PausedCallsComponent {
         this.replaceText.set('');
         this.replaceError.set(null);
         this.failureOpen.set(false);
-        this.query.set('');
-        this.matchIndex.set(0);
-        this.bodyMode.set('edit');
+        // The editors' own mode and search are reset by re-creating them - see editorKey.
         this.follow.set(false);
         // Not only when the user clicks a row: a call auto-selected because it is first in the
         // queue, and the answer to a call you were following arriving on its other half, both
@@ -516,119 +439,33 @@ export class PausedCallsComponent {
     return call.onTimeout === 'abort' ? 'aborts' : 'releases unchanged';
   }
 
-  onBodyInput(event: Event): void {
-    this.editedBody.set((event.target as HTMLTextAreaElement).value);
+  /**
+   * Every change the body editor makes - a keystroke, Format, Minify, a find & replace.
+   *
+   * Claims the call only when the change is one of substance. That keeps the rule this screen
+   * always had - a real edit is proof somebody is here and stops the clock; reformatting is not an
+   * edit (see bodyEdited) and never claimed anything - now that Format arrives through the same
+   * output as typing.
+   */
+  onBodyChange(value: string): void {
+    const before = this.currentBody();
+    this.editedBody.set(value);
+    const kind = detectBodyKind(value);
+    if (normalizeBody(value, kind) !== normalizeBody(before, kind)) this.claimOnEdit();
+  }
+
+  /**
+   * Every change the header editor makes. It hands back the whole row list - removed rows struck
+   * through rather than gone, hand-added ones flagged - which is exactly the working copy
+   * headerChanges diffs against what arrived, so only what really differs is sent.
+   */
+  onHeadersChange(rows: readonly HeaderRow[]): void {
+    this.editedHeaders.set(rows.map((row) => ({ ...row, added: !!row.added })));
     this.claimOnEdit();
-  }
-
-  format(): void {
-    const formatted = formatBody(this.currentBody(), this.bodyKind());
-    // Only ever null when the body cannot be parsed, and the button is disabled then - but a
-    // keyboard or a race should not blank somebody's body.
-    if (formatted !== null) this.editedBody.set(formatted);
-  }
-
-  minify(): void {
-    const minified = minifyBody(this.currentBody(), this.bodyKind());
-    if (minified !== null) this.editedBody.set(minified);
-  }
-
-  onQuery(event: Event): void {
-    this.query.set((event.target as HTMLInputElement).value);
-    this.matchIndex.set(0);
-    this.revealMatch();
-  }
-
-  step(delta: number): void {
-    const total = this.matches().length;
-    if (total === 0) return;
-    this.matchIndex.set((this.matchIndex() + delta + total) % total);
-    this.revealMatch();
-  }
-
-  setBodyMode(mode: BodyMode): void {
-    this.bodyMode.set(mode);
-    this.revealMatch();
-  }
-
-  /**
-   * Puts the current match on screen. In Edit that means selecting it in the textarea, which is
-   * the only way to point at a position inside one - a textarea cannot carry highlight marks.
-   * Inspect does its own highlighting, so there is nothing to do but let it scroll.
-   */
-  private revealMatch(): void {
-    if (this.bodyMode() !== 'edit') return;
-    const at = this.matches()[this.matchIndex()];
-    if (at === undefined) return;
-    const area = this.bodyArea()?.nativeElement;
-    if (!area) return;
-    area.focus();
-    area.setSelectionRange(at, at + this.query().length);
-    // Roughly centre the line: a textarea has no scrollIntoView for a character offset.
-    const line = this.currentBody().slice(0, at).split('\n').length - 1;
-    const lineHeight = area.scrollHeight / Math.max(1, this.currentBody().split('\n').length);
-    area.scrollTop = Math.max(0, line * lineHeight - area.clientHeight / 2);
-    this.syncGutter();
-  }
-
-  /**
-   * The gutter and the coloured layer are separate elements, so both have to be told where the
-   * textarea scrolled to. The overlay needs BOTH axes: the textarea does not wrap, and a
-   * horizontal scroll that moved only the caret would slide the text out from under it.
-   */
-  syncGutter(): void {
-    const area = this.bodyArea()?.nativeElement;
-    if (!area) return;
-    const gutter = this.gutter()?.nativeElement;
-    if (gutter) gutter.scrollTop = area.scrollTop;
-    const highlight = this.highlight()?.nativeElement;
-    if (highlight) {
-      highlight.scrollTop = area.scrollTop;
-      highlight.scrollLeft = area.scrollLeft;
-    }
   }
 
   onStatusChange(status: number): void {
     this.editedStatus.set(status);
-    this.claimOnEdit();
-  }
-
-  /** Starts a working copy on first edit, so an untouched call still sends nothing. */
-  private workingHeaders(): EditableHeader[] {
-    const existing = this.editedHeaders();
-    if (existing) return existing;
-    const headers = this.editableHttp()?.headers ?? {};
-    return Object.entries(headers).map(([name, value]) => ({ name, value, removed: false, added: false }));
-  }
-
-  onHeaderName(index: number, event: Event): void {
-    const name = (event.target as HTMLInputElement).value;
-    this.editedHeaders.set(this.workingHeaders().map((row, i) => (i === index ? { ...row, name } : row)));
-    this.claimOnEdit();
-  }
-
-  onHeaderValue(index: number, event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    this.editedHeaders.set(this.workingHeaders().map((row, i) => (i === index ? { ...row, value } : row)));
-    this.claimOnEdit();
-  }
-
-  /**
-   * Removing keeps the row, struck through and undoable. A row that simply vanished would leave
-   * "did I delete content-type, or was it never there" unanswerable on a call being held open.
-   */
-  toggleHeaderRemoved(index: number): void {
-    this.editedHeaders.set(
-      this.workingHeaders()
-        .map((row, i) => (i === index ? { ...row, removed: !row.removed } : row))
-        // A row added by hand and then removed never existed, so it goes entirely.
-        .filter((row) => !(row.added && row.removed))
-    );
-    this.claimOnEdit();
-  }
-
-  addHeader(): void {
-    this.editedHeaders.set([...this.workingHeaders(), { name: '', value: '', removed: false, added: true }]);
     this.claimOnEdit();
   }
 

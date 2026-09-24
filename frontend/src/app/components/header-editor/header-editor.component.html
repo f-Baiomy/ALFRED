@@ -1,0 +1,60 @@
+<div class="header-editor-toolbar">
+  <div class="body-modes" role="group" aria-label="Header view">
+    <button type="button" [class.on]="view() === 'rows'" (click)="setView('rows')">Rows</button>
+    <button type="button" [class.on]="view() === 'json'" (click)="setView('json')">JSON</button>
+  </div>
+  @if (!readOnly() && view() === 'rows') {
+    <button type="button" class="action-btn" (click)="addRow()">+ Add header</button>
+  }
+  @if (openInTabLabel(); as tabLabel) {
+    <button type="button" class="action-btn body-editor-open-tab" (click)="openInTab.emit()">{{ tabLabel }}</button>
+  }
+</div>
+
+@if (view() === 'rows') {
+  <div class="header-editor-rows">
+    @for (row of rows(); track $index) {
+      <div class="header-editor-row" [class.removed]="row.removed" [class.added]="row.added">
+        <input
+          class="header-editor-name"
+          type="text"
+          spellcheck="false"
+          placeholder="header-name"
+          [value]="row.name"
+          [readOnly]="readOnly()"
+          [disabled]="row.removed"
+          (input)="onName($index, $event)"
+        />
+        <input
+          class="header-editor-value"
+          type="text"
+          spellcheck="false"
+          placeholder="value"
+          [value]="row.value"
+          [readOnly]="readOnly()"
+          [disabled]="row.removed"
+          (input)="onValue($index, $event)"
+        />
+        @if (!readOnly()) {
+          <button
+            type="button"
+            class="icon-btn"
+            [title]="row.removed ? 'Keep this header after all' : 'Remove this header'"
+            (click)="toggleRemoved($index)"
+          >{{ row.removed ? '↺' : '✕' }}</button>
+        }
+      </div>
+    } @empty {
+      <div class="empty">No headers.</div>
+    }
+  </div>
+} @else {
+  @if (jsonError(); as error) {
+    <div class="header-editor-json-error">{{ error }}</div>
+  }
+  <app-body-editor label="Headers" [value]="jsonText()" [readOnly]="readOnly()" (valueChange)="onJson($event)">
+    @if (!readOnly()) {
+      A header you delete here is removed, not kept.
+    }
+  </app-body-editor>
+}

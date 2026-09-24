@@ -1,0 +1,24 @@
+@if (expired()) {
+  <div class="panel-view-expired">
+    <h1>This editor has expired</h1>
+    <p>Go back to the tab you opened it from and click "Open in a big tab" again.</p>
+  </div>
+} @else {
+  <div class="view-page">
+    <header class="view-page-header">
+      <div class="view-page-title">
+        <span class="dot"></span>
+        <h1>{{ title() }}</h1>
+      </div>
+      <small class="muted edit-view-hint">Every change is applied in the tab you opened this from as you make it.</small>
+      <button type="button" class="dialog-btn" (click)="done()">Done</button>
+    </header>
+    <main class="view-page-body edit-view-body">
+      @if (kind() === 'headers') {
+        <app-header-editor [headers]="rows()" initialView="json" (headersChange)="onHeadersChange($event)" />
+      } @else {
+        <app-body-editor [value]="value()" [label]="title() || 'Body'" (valueChange)="onBodyChange($event)" />
+      }
+    </main>
+  </div>
+}

@@ -1,0 +1,134 @@
+<div class="body-toolbar">
+  @if (!readOnly()) {
+    <div class="body-modes">
+      <button type="button" [class.on]="bodyMode() === 'edit'" (click)="setBodyMode('edit')">Edit</button>
+      <button type="button" [class.on]="bodyMode() === 'inspect'" (click)="setBodyMode('inspect')">Inspect</button>
+    </div>
+  } @else {
+    <span class="body-readonly">read-only</span>
+  }
+
+  <div class="body-find">
+    <input
+      type="text"
+      [placeholder]="'Find in ' + label().toLowerCase() + '…'"
+      spellcheck="false"
+      [value]="query()"
+      (input)="onQuery($event)"
+      (keydown.enter)="step(1)"
+    />
+    <!-- Regex / Match case change what FIND means too, so they stay visible here once the row
+         that sets them is shut - otherwise a count of 0 would have no visible explanation. -->
+    @if (!replaceOpen()) {
+      @for (tag of optionTags(); track tag) {
+        <span class="body-editor-option-tag" title="Set in the Replace row">{{ tag }}</span>
+      }
+    }
+    @if (matchLabel()) {
+      <span class="body-match-count" [class.bad]="findError()">{{ matchLabel() }}</span>
+      @if (!findError()) {
+        <button type="button" class="icon-btn" title="Previous match" (click)="step(-1)">‹</button>
+        <button type="button" class="icon-btn" title="Next match" (click)="step(1)">›</button>
+      }
+    }
+  </div>
+
+  @if (!readOnly()) {
+    <button type="button" class="action-btn" [class.on]="replaceOpen()" (click)="toggleReplace()">Replace</button>
+    <button type="button" class="action-btn" [disabled]="!canFormat()" (click)="format()">Format</button>
+    <button type="button" class="action-btn" [disabled]="!canFormat()" (click)="minify()">Minify</button>
+  }
+
+  @switch (validity().state) {
+    @case ('valid') {
+      <span class="body-validity ok">valid {{ bodyKind() === 'xml' ? 'XML' : 'JSON' }} ✓</span>
+    }
+    @case ('invalid') {
+      <span class="body-validity bad" [title]="validity().message ?? ''">✗ {{ validity().message }}</span>
+    }
+    @case ('unchecked') {
+      <span class="body-validity">too large to check while typing</span>
+    }
+    @default {
+      @if (text()) {
+        <span class="body-validity">plain text — nothing to format</span>
+      }
+    }
+  }
+
+  @if (openInTabLabel(); as tabLabel) {
+    <button type="button" class="action-btn body-editor-open-tab" (click)="openInTab.emit()">{{ tabLabel }}</button>
+  }
+</div>
+
+@if (replaceOpen() && !readOnly()) {
+  <div class="body-editor-replace">
+    <input
+      type="text"
+      placeholder="Replace with…"
+      spellcheck="false"
+      [value]="replacement()"
+      (input)="onReplacement($event)"
+      (keydown.enter)="replaceCurrent()"
+    />
+    <button type="button" class="action-btn" [disabled]="!canReplace()" (click)="replaceCurrent()">Replace</button>
+    <button type="button" class="action-btn" [disabled]="!canReplace()" (click)="replaceAllMatches()">Replace all</button>
+    <label class="body-editor-check">
+      <input type="checkbox" [checked]="regex()" (change)="onRegex($event)" />
+      Regex
+    </label>
+    <label class="body-editor-check">
+      <input type="checkbox" [checked]="matchCase()" (change)="onMatchCase($event)" />
+      Match case
+    </label>
+    @if (findError(); as error) {
+      <span class="body-editor-find-error" [title]="error">✗ {{ error }}</span>
+    } @else if (replaceNote()) {
+      <span class="body-editor-replace-note">{{ replaceNote() }}</span>
+    } @else if (regex()) {
+      <span class="body-editor-replace-note">$1, $&lt;name&gt; and $&amp; refer to the match</span>
+    }
+  </div>
+}
+
+@if (effectiveMode() === 'edit') {
+  <div class="body-editor">
+    <!-- A separate element, so it has to be told where the textarea scrolled to. -->
+    <div class="body-gutter" #gutter>
+      @for (n of lineNumbers(); track n) {
+        <span>{{ n }}</span>
+      }
+    </div>
+    <!-- Two layers in exact register: the coloured text is painted by a <pre> underneath, and the
+         textarea on top has transparent glyphs but a real caret and selection. A textarea cannot
+         colour its own content, and this is the only way to keep native editing while showing
+         syntax. Their font metrics come from one set of custom properties on .body-editor
+         precisely so they cannot drift apart. -->
+    <div class="body-input-stack">
+      @if (overlayEnabled()) {
+        <pre class="body-highlight" aria-hidden="true" #highlight>@for (line of editorLines(); track line.index) {<div class="hl-line"><app-json-tokens [tokens]="line.tokens" [activeMatchIndex]="activeMatch()" /></div>}</pre>
+      }
+      <textarea
+        class="body-editor-input"
+        [class.painted]="overlayEnabled()"
+        spellcheck="false"
+        wrap="off"
+        [attr.aria-label]="label()"
+        #bodyArea
+        [value]="text()"
+        (input)="onBodyInput($event)"
+        (scroll)="syncGutter()"
+      ></textarea>
+    </div>
+  </div>
+} @else {
+  <!-- The very same component the call cards render a body with, told which tokenizer to use.
+       Read-only on purpose: this is for finding the thing you are about to change. -->
+  <app-json-flat-view [lines]="inspectLines()" [variant]="inspectVariant()" [activeMatchIndex]="activeMatch()" />
+}
+
+<p class="body-foot">
+  <!-- Whatever the host wants said about this body - what sending it means, say. -->
+  <ng-content />
+  <span class="body-stats">{{ bodyStats() }}</span>
+</p>

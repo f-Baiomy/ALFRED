@@ -7178,59 +7178,6 @@ h1.page-title {
   }
 }
 
-.paused-headers.editable {
-  max-height: 300px;
-
-  .paused-header-row {
-    align-items: center;
-    gap: 0.5rem;
-
-    input {
-      background: var(--card-inner);
-      border: 1px solid transparent;
-      border-radius: 6px;
-      color: inherit;
-      font-family: inherit;
-      font-size: 0.7rem;
-      padding: 0.25rem 0.4rem;
-
-      &:hover:not(:disabled) {
-        border-color: var(--border);
-      }
-
-      &:focus {
-        outline: none;
-        border-color: var(--border-strong);
-      }
-
-      &:disabled {
-        opacity: 0.5;
-      }
-    }
-
-    input.paused-header-name {
-      min-width: 170px;
-      flex-shrink: 0;
-    }
-
-    input.paused-header-value {
-      flex: 1;
-      min-width: 0;
-    }
-
-    /* Struck through rather than gone: "did I delete this, or was it never here" must stay
-       answerable while a real caller is being held open. */
-    &.removed input {
-      text-decoration: line-through;
-      color: var(--text-faint);
-    }
-
-    &.added input.paused-header-name {
-      color: var(--green);
-    }
-  }
-}
-
 .paused-tab-badge {
   margin-left: 0.35rem;
   background: color-mix(in srgb, var(--amber) 24%, transparent);
@@ -7798,8 +7745,7 @@ h1.page-title {
   display: flex;
 }
 
-.body-highlight,
-.body-editor .paused-body {
+.body-highlight {
   font-family: var(--body-font);
   font-size: var(--body-size);
   line-height: var(--body-line);
@@ -7825,19 +7771,6 @@ h1.page-title {
   min-height: calc(var(--body-size) * var(--body-line));
 }
 
-/* Transparent glyphs, real caret. The text you read is the painted layer underneath. */
-.body-editor .paused-body.painted {
-  color: transparent;
-  caret-color: var(--text);
-  background: none;
-
-  &::selection {
-    /* The selection rectangle is the only thing that still paints from this layer, so it has to
-       be visible against the colours showing through it. */
-    background: color-mix(in srgb, var(--purple) 45%, transparent);
-  }
-}
-
 .body-gutter {
   display: flex;
   flex-direction: column;
@@ -7858,19 +7791,6 @@ h1.page-title {
   height: 100%;
   min-height: 0;
   align-self: stretch;
-}
-
-.body-editor .paused-body {
-  border-radius: 0;
-  background: none;
-  overflow: auto;
-  flex: 1;
-  min-width: 0;
-  /* Fills the editor rather than setting its size - see the note on .body-editor's height. */
-  min-height: 0;
-  height: 100%;
-  position: relative;
-  resize: none;
 }
 
 .body-foot {
@@ -8311,4 +8231,244 @@ h1.page-title {
   justify-content: flex-end;
   flex-wrap: wrap;
   align-items: center;
+}
+
+/* ---------- Shared body & header editors (app-body-editor, app-header-editor, /edit) ----------
+   The paused-call inspector's body editor, lifted out so every place that edits a body by hand
+   gets the same one. The toolbar/gutter/overlay classes it already used (.body-toolbar,
+   .body-editor, .body-gutter, .body-highlight, .body-foot...) are shared as-is; what used to be
+   `.body-editor .paused-body` is now the textarea's own class, so the editor carries no paused-*
+   selector and the paste-a-whole-call textarea (.paused-body) keeps its own rules untouched. */
+
+app-body-editor,
+app-header-editor {
+  display: block;
+  min-width: 0;
+}
+
+.body-editor-input {
+  font-family: var(--body-font);
+  font-size: var(--body-size);
+  line-height: var(--body-line);
+  padding: var(--body-pad) 0.8rem;
+  white-space: pre;
+  tab-size: 2;
+  border: 0;
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  overflow: auto;
+  flex: 1;
+  min-width: 0;
+  /* Fills the editor rather than setting its size - see the note on .body-editor's height. */
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  resize: none;
+
+  &:focus {
+    outline: none;
+  }
+
+  /* Transparent glyphs, real caret. The text you read is the painted layer underneath. */
+  &.painted {
+    color: transparent;
+    caret-color: var(--text);
+
+    &::selection {
+      /* The selection rectangle is the only thing that still paints from this layer, so it has
+         to be visible against the colours showing through it. */
+      background: color-mix(in srgb, var(--purple) 45%, transparent);
+    }
+  }
+}
+
+/* The editor's focus ring, now that the textarea inside it draws no border of its own. */
+.body-editor:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--purple) 18%, transparent);
+}
+
+.body-toolbar .action-btn.on {
+  border-color: var(--purple);
+  color: var(--purple-light);
+}
+
+.body-match-count.bad {
+  color: var(--red);
+}
+
+/* Regex / Match case, flagged beside the find box while the Replace row that sets them is shut. */
+.body-editor-option-tag {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.62rem;
+  color: var(--purple-light);
+  border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent);
+  border-radius: 5px;
+  padding: 0 0.3rem;
+}
+
+.body-editor-replace {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: -0.15rem 0 0.5rem;
+
+  input[type='text'] {
+    background: var(--card-inner);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.72rem;
+    padding: 0.3rem 0.5rem;
+    width: 170px;
+
+    &:focus {
+      outline: none;
+      border-color: var(--border-strong);
+    }
+  }
+}
+
+.body-editor-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.body-editor-find-error {
+  font-size: 0.68rem;
+  color: var(--red);
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body-editor-replace-note {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+}
+
+.body-editor-open-tab {
+  white-space: nowrap;
+}
+
+/* Header rows - the inspector's editable rows, under their own names. */
+.header-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+
+  .body-editor-open-tab {
+    margin-left: auto;
+  }
+}
+
+.header-editor-rows {
+  max-height: 300px;
+  overflow: auto;
+}
+
+.header-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--purple) 9%, transparent);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.7rem;
+
+  input {
+    background: var(--card-inner);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: inherit;
+    font-family: inherit;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.4rem;
+
+    &:hover:not(:disabled) {
+      border-color: var(--border);
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--border-strong);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+
+  input.header-editor-name {
+    color: var(--tok-key);
+    min-width: 170px;
+    flex-shrink: 0;
+  }
+
+  input.header-editor-value {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Struck through rather than gone: "did I delete this, or was it never here" must stay
+     answerable. */
+  &.removed input {
+    text-decoration: line-through;
+    color: var(--text-faint);
+  }
+
+  &.added input.header-editor-name {
+    color: var(--green);
+  }
+}
+
+.header-editor-json-error {
+  color: var(--red);
+  font-size: 0.72rem;
+  margin-bottom: 0.4rem;
+}
+
+/* The /edit tab: the same editors, given the whole window. Every link from the page down to the
+   editor box is a flex item with min-height: 0, for the reason spelled out on .view-page-body -
+   one inline host element in the chain and the box sizes to its content instead of the window. */
+.edit-view-hint {
+  margin-right: auto;
+}
+
+.edit-view-body {
+  flex-direction: column;
+
+  > app-body-editor,
+  > app-header-editor,
+  app-header-editor > app-body-editor,
+  app-json-flat-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .body-editor {
+    flex: 1 1 auto;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    resize: none;
+  }
+
+  .header-editor-rows {
+    max-height: none;
+    flex: 1 1 auto;
+  }
 }

@@ -271,115 +271,26 @@
               <!-- Pretty-printed on arrival: a 4 KB payload on one line cannot be read, let
                    alone edited. Formatting is not an edit - see bodyEdited - so doing it does
                    not change what a release sends. -->
-              <div class="body-toolbar">
-                @if (editable()) {
-                  <div class="body-modes">
-                    <button type="button" [class.on]="bodyMode() === 'edit'" (click)="setBodyMode('edit')">Edit</button>
-                    <button type="button" [class.on]="bodyMode() === 'inspect'" (click)="setBodyMode('inspect')">Inspect</button>
-                  </div>
-                } @else {
-                  <span class="body-readonly">read-only</span>
-                }
-
-                <div class="body-find">
-                  <input
-                    type="text"
-                    placeholder="Find in body…"
-                    spellcheck="false"
-                    [value]="query()"
-                    (input)="onQuery($event)"
-                    (keydown.enter)="step(1)"
-                  />
-                  @if (matchLabel()) {
-                    <span class="body-match-count">{{ matchLabel() }}</span>
-                    <button type="button" class="icon-btn" title="Previous match" (click)="step(-1)">‹</button>
-                    <button type="button" class="icon-btn" title="Next match" (click)="step(1)">›</button>
-                  }
-                </div>
-
-                @if (editable()) {
-                  <button type="button" class="action-btn" [disabled]="!canFormat()" (click)="format()">Format</button>
-                  <button type="button" class="action-btn" [disabled]="!canFormat()" (click)="minify()">Minify</button>
-                }
-
-                @switch (validity().state) {
-                  @case ('valid') {
-                    <span class="body-validity ok">valid {{ bodyKind() === 'xml' ? 'XML' : 'JSON' }} ✓</span>
-                  }
-                  @case ('invalid') {
-                    <span class="body-validity bad" [title]="validity().message ?? ''">
-                      ✗ {{ validity().message }}
-                    </span>
-                  }
-                  @case ('unchecked') {
-                    <span class="body-validity">too large to check while typing</span>
-                  }
-                  @default {
-                    @if (currentBody()) {
-                      <span class="body-validity">plain text — nothing to format</span>
+              <!-- Keyed on the call half (see editorKey): a different call gets a fresh editor, so
+                   its mode and search start clean, while a re-fetch of the same call keeps them. -->
+              @for (key of [editorKey()]; track 'half:' + key) {
+                <app-body-editor [value]="currentBody()" [readOnly]="!editable()" (valueChange)="onBodyChange($event)">
+                  @if (!editable()) {
+                    @if (tab() === 'request' && !holding()) {
+                      This is the request as Alfred actually sent it.
+                    } @else if (tab() === 'response') {
+                      This is the response as the caller actually received it.
                     }
+                  } @else if (bodyEdited()) {
+                    <strong>Sent as shown</strong>, formatting included.
+                    @if (bodyKind() === 'xml') {
+                      Re-indenting an XML body changes its bytes, which matters if it is signed.
+                    }
+                  } @else {
+                    Formatting only — the original bytes will be sent.
                   }
-                }
-              </div>
-
-              @if (effectiveMode() === 'edit') {
-                <div class="body-editor">
-                  <!-- A separate element, so it has to be told where the textarea scrolled to. -->
-                  <div class="body-gutter" #gutter>
-                    @for (n of lineNumbers(); track n) {
-                      <span>{{ n }}</span>
-                    }
-                  </div>
-                  <!-- Two layers in exact register: the coloured text is painted by a <pre>
-                       underneath, and the textarea on top has transparent glyphs but a real
-                       caret and selection. A textarea cannot colour its own content, and this
-                       is the only way to keep native editing while showing syntax. Their font
-                       metrics come from one set of custom properties on .body-editor precisely
-                       so they cannot drift apart. -->
-                  <div class="body-input-stack">
-                    @if (overlayEnabled()) {
-                      <pre class="body-highlight" aria-hidden="true" #highlight>@for (line of editorLines(); track line.index) {<div class="hl-line"><app-json-tokens [tokens]="line.tokens" [activeMatchIndex]="activeMatch()" /></div>}</pre>
-                    }
-                    <textarea
-                      class="paused-body"
-                      [class.painted]="overlayEnabled()"
-                      spellcheck="false"
-                      wrap="off"
-                      #bodyArea
-                      [value]="currentBody()"
-                      (input)="onBodyInput($event)"
-                      (scroll)="syncGutter()"
-                    ></textarea>
-                  </div>
-                </div>
-              } @else {
-                <!-- The very same component the call cards render a body with, told which
-                     tokenizer to use. Read-only on purpose: this is for finding the thing you
-                     are about to change. -->
-                <app-json-flat-view
-                  [lines]="inspectLines()"
-                  [variant]="inspectVariant()"
-                  [activeMatchIndex]="activeMatch()"
-                />
+                </app-body-editor>
               }
-
-              <p class="body-foot">
-                @if (!editable()) {
-                  @if (tab() === 'request' && !holding()) {
-                    This is the request as Alfred actually sent it.
-                  } @else if (tab() === 'response') {
-                    This is the response as the caller actually received it.
-                  }
-                } @else if (bodyEdited()) {
-                  <strong>Sent as shown</strong>, formatting included.
-                  @if (bodyKind() === 'xml') {
-                    Re-indenting an XML body changes its bytes, which matters if it is signed.
-                  }
-                } @else {
-                  Formatting only — the original bytes will be sent.
-                }
-                <span class="body-stats">{{ bodyStats() }}</span>
-              </p>
             } @else if (!holding()) {
               <!-- Nothing left to patch, so both halves are simply shown. -->
               @for (group of shownHeaderRows(); track group.title) {
@@ -401,41 +312,12 @@
                   Editing a header claims the call and stops its countdown. Only what you change is
                   sent — the rest reaches its destination untouched.
                 </small>
-                <button type="button" class="action-btn" (click)="addHeader()">+ Add header</button>
               </div>
 
-              <div class="paused-headers editable">
-                @for (row of headerRows(); track $index) {
-                  <div class="paused-header-row" [class.removed]="row.removed" [class.added]="row.added">
-                    <input
-                      class="paused-header-name"
-                      type="text"
-                      spellcheck="false"
-                      placeholder="header-name"
-                      [value]="row.name"
-                      [disabled]="row.removed"
-                      (input)="onHeaderName($index, $event)"
-                    />
-                    <input
-                      class="paused-header-value"
-                      type="text"
-                      spellcheck="false"
-                      placeholder="value"
-                      [value]="row.value"
-                      [disabled]="row.removed"
-                      (input)="onHeaderValue($index, $event)"
-                    />
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      [title]="row.removed ? 'Keep this header after all' : 'Remove this header'"
-                      (click)="toggleHeaderRemoved($index)"
-                    >{{ row.removed ? '↺' : '✕' }}</button>
-                  </div>
-                } @empty {
-                  <div class="empty">No headers.</div>
-                }
-              </div>
+              <!-- Keyed like the body editor above, so its Rows/JSON choice starts fresh per call. -->
+              @for (key of [editorKey()]; track 'half:' + key) {
+                <app-header-editor [headers]="headerRows()" (headersChange)="onHeadersChange($event)" />
+              }
 
               <!-- For a change too structural to make row by row - swapping a whole response for
                    another one you already have. Deliberately explicit that omission means removal. -->
