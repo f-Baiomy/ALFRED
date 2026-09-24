@@ -3,6 +3,7 @@ import { InterceptionRule, isActionEnabled, isTerminalAction } from '../../core/
 import { RuleMatch, describeAction, describeMatch } from '../../core/models/interception.model';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { DesktopNotificationsService } from '../../core/services/desktop-notifications.service';
+import { CallRuleDraft, RuleDraftService } from '../../core/services/rule-draft.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 import { ImportRulesDialogComponent } from '../../components/import-rules-dialog/import-rules-dialog.component';
@@ -33,7 +34,14 @@ export class InterceptionComponent {
   /** The rule currently open in the editor: a rule to edit, 'new' for a blank one, null for closed. */
   readonly editing = signal<InterceptionRule | 'new' | null>(null);
 
+  /** Set when this page was opened from a call card's "Use as answer in a new rule…" - the new rule starts from that call. */
+  readonly draft = signal<CallRuleDraft | null>(inject(RuleDraftService).take());
+
   readonly importing = signal(false);
+
+  constructor() {
+    if (this.draft()) this.editing.set('new');
+  }
 
   describeMatch(match: RuleMatch): string {
     return describeMatch(match, this.state.sensitiveNames());
@@ -62,6 +70,7 @@ export class InterceptionComponent {
 
   newRule(): void {
     this.state.clearProblems();
+    this.draft.set(null);
     this.editing.set('new');
   }
 
@@ -119,6 +128,8 @@ export class InterceptionComponent {
 
   closeEditor(): void {
     this.state.clearProblems();
+    // Used once - the next "New rule" starts blank.
+    this.draft.set(null);
     this.editing.set(null);
   }
 

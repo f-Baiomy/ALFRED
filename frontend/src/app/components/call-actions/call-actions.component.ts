@@ -6,7 +6,9 @@ import { Comment } from '../../core/models/comment.model';
 import { PinService } from '../../core/services/pin.service';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
+import { Router } from '@angular/router';
 import { ResendDialogService } from '../../core/services/resend-dialog.service';
+import { RuleDraftService } from '../../core/services/rule-draft.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
@@ -43,6 +45,8 @@ export class CallActionsComponent {
   private readonly commentsApi = inject(CommentsApiService);
   private readonly redactions = inject(RedactionsStore);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
+  private readonly ruleDraft = inject(RuleDraftService);
+  private readonly router = inject(Router);
 
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
@@ -115,6 +119,15 @@ export class CallActionsComponent {
       this.resendLoading.set(false);
       this.resendDialog.open(call);
     });
+  }
+
+  /** Only a call that got a response has anything to answer with. */
+  readonly canAnswerWith = computed(() => this.call().response?.status != null);
+
+  /** Opens Interception on a new rule matching this call, answered by its response - the copy itself happens there, where the secrets prompt lives. */
+  useAsAnswer(): void {
+    this.ruleDraft.start(this.call());
+    this.router.navigate(['/interception']);
   }
 
   private fetchComments(call: CallRecord) {

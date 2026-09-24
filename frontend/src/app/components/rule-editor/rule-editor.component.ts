@@ -38,6 +38,8 @@ import {
   isActionEnabled,
   isTerminalAction,
 } from '../../core/models/interception.model';
+import { CallRuleDraft } from '../../core/services/rule-draft.service';
+import { AnswerPreselect } from '../answer-picker/answer-picker.component';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
 import { RuleActionCardComponent } from '../rule-action-card/rule-action-card.component';
@@ -329,6 +331,8 @@ type MatchTestRow = MatchTest & { readonly kind: MatchTestKind };
 export class RuleEditorComponent implements OnInit {
   /** Null for a brand-new rule. */
   @Input() rule: InterceptionRule | null = null;
+  /** A new rule started from a logged call - seeds its match and an answer from that call. Ignored when `rule` is set. */
+  @Input() draft: CallRuleDraft | null = null;
   @Output() readonly closed = new EventEmitter<void>();
 
   readonly state = inject(InterceptionStateService);
@@ -453,6 +457,10 @@ export class RuleEditorComponent implements OnInit {
     });
 
     const rule = this.rule;
+    if (!rule && this.draft) {
+      this.seedFromCall(this.draft);
+      return;
+    }
     if (!rule) {
       // A new rule starts with one delay action rather than none: an empty action list is the one
       // thing the backend always rejects, and "here is the shape of an action" is a better first
@@ -483,6 +491,24 @@ export class RuleEditorComponent implements OnInit {
       )
     );
     this.actions.set(rule.actions.map((a) => ({ ...a })));
+  }
+
+  /**
+   * The call that answers this rule, copied as soon as the picker opens - set only for a rule
+   * started from a call card, and only for the one answer action seeded with it.
+   */
+  readonly answerPreselect = signal<AnswerPreselect | null>(null);
+
+  /** Matches exactly the kind of call it came from, answered by that call's own response. */
+  private seedFromCall(draft: CallRuleDraft): void {
+    this.name.set(`Answer ${draft.method} ${draft.path}`.trim());
+    this.source.set(draft.direction);
+    this.serviceNames.set(draft.serviceName ? [draft.serviceName] : []);
+    this.selectedMethods.set(draft.method ? [draft.method] : []);
+    this.host.set(draft.host);
+    this.pathContains.set(draft.path);
+    this.actions.set([defaultsFor('ANSWER_WITH_RECORDED_CALL')]);
+    this.answerPreselect.set({ direction: draft.direction, callId: draft.callId });
   }
 
   addMatchTest(): void {
@@ -1019,6 +1045,8 @@ export class RuleEditorComponent implements OnInit {
 
   onAnswer(path: readonly number[], answerId: string): void {
     this.patchAt(path, { answerId });
+    // Used once: an answer action added after this one searches like any other.
+    this.answerPreselect.set(null);
   }
 
   isEncoding(type: ActionType): boolean {

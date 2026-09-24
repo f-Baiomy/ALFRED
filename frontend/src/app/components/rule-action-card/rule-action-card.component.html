@@ -346,6 +346,12 @@
           <app-answer-picker
             [answerId]="step.action.answerId"
             [uploadMode]="editor.usesUploadedAnswer(step.action.type)"
+            [ruleHost]="editor.host()"
+            [rulePath]="editor.pathContains()"
+            [ruleMethods]="editor.selectedMethods()"
+            [ruleSource]="editor.source()"
+            [ruleServiceNames]="editor.serviceNames()"
+            [preselect]="step.action.answerId ? null : editor.answerPreselect()"
             (answerChange)="editor.onAnswer(step.path, $event)"
           />
           @if (!editor.usesUploadedAnswer(step.action.type)) {

@@ -19,5 +19,10 @@
     <button type="button" class="filter-option-item" title="Resend this call through Alfred" [disabled]="resendLoading()" (click)="openResend()">
       {{ resendLoading() ? 'Loading...' : 'Resend…' }}
     </button>
+    @if (canAnswerWith()) {
+      <button type="button" class="filter-option-item" title="Start an interception rule that answers matching calls with this call's response" (click)="useAsAnswer()">
+        Use as answer in a new rule…
+      </button>
+    }
   </app-action-menu>
 </div>

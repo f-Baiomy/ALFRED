@@ -30,14 +30,17 @@ describe('AnswerPickerComponent', () => {
 
   afterEach(() => http.verify());
 
-  function flushSearch(url: string): void {
+  const C1 = { id: 'c1', original_url: 'u', url: 'https://api.supplier.com/v2/fares/quote', method: 'POST', timestamp: 't', duration_ms: 1, status: 500 };
+
+  function summary(id: string, method: string, url: string, status: number | null) {
+    return { id, original_url: url, url, method, timestamp: new Date().toISOString(), duration_ms: 10, status };
+  }
+
+  function flushSearch(url: string, calls: unknown[] = [C1], total = calls.length) {
     tick(300);
-    http
-      .expectOne((r) => r.url === `${BACKEND}/${url}`)
-      .flush({
-        calls: [{ id: 'c1', original_url: 'u', url: 'https://api.supplier.com/v2/fares/quote', method: 'POST', timestamp: 't', duration_ms: 1, status: 500 }],
-        total: 1,
-      });
+    const req = http.expectOne((r) => r.url === `${BACKEND}/${url}`);
+    req.flush({ calls, total });
+    return req;
   }
 
   const ANSWER = {
@@ -119,6 +122,100 @@ describe('AnswerPickerComponent', () => {
     req.flush({ ...ANSWER, kind: 'FILE', id: ANSWER.id, secretsKept: null, secretNames: [] });
 
     expect(emitted).toEqual([ANSWER.id]);
+  }));
+
+  it('narrows to the rule by default: the path goes to the server, method and host are checked here', fakeAsync(() => {
+    fixture.componentRef.setInput('ruleHost', 'api.supplier.com');
+    fixture.componentRef.setInput('rulePath', '/v2/fares');
+    fixture.componentRef.setInput('ruleMethods', ['POST']);
+    fixture.detectChanges();
+
+    const req = flushSearch('calls', [
+      summary('a', 'POST', 'https://api.supplier.com/v2/fares/quote', 500),
+      summary('b', 'GET', 'https://api.supplier.com/v2/fares', 200),
+      summary('c', 'POST', 'https://other.com/v2/fares', 200),
+    ]);
+    expect(req.request.params.get('search')).toBe('/v2/fares');
+    expect(req.request.params.get('limit')).toBe('200');
+    expect(component.results().map((c) => c.id)).toEqual(['a']);
+
+    component.toggleRule();
+    const plain = flushSearch('calls');
+    expect(plain.request.params.get('search')).toBe('');
+    expect(plain.request.params.get('limit')).toBe('20');
+  }));
+
+  it("starts on inbound for an inbound rule, and sends the rule's projects", fakeAsync(() => {
+    fixture.componentRef.setInput('ruleSource', 'inbound');
+    fixture.componentRef.setInput('ruleServiceNames', ['shop']);
+    fixture.detectChanges();
+
+    const req = flushSearch('internal-calls');
+    expect(req.request.params.get('serviceNames')).toBe('shop');
+  }));
+
+  it('filters by a typed status token, and a chip edits the same text', fakeAsync(() => {
+    fixture.detectChanges();
+    flushSearch('calls');
+
+    component.onSearch({ target: { value: 'fares status:2xx' } } as unknown as Event);
+    flushSearch('calls', [summary('ok', 'GET', 'https://a.com/fares', 200), summary('bad', 'GET', 'https://a.com/fares', 500)]);
+    expect(component.results().map((c) => c.id)).toEqual(['ok']);
+
+    component.toggleChip('methods', 'GET');
+    expect(component.search()).toBe('fares method:GET status:2xx');
+    flushSearch('calls', []);
+  }));
+
+  it('keeps scanning older pages on its own until something matches, then Load more reads the next page', fakeAsync(() => {
+    fixture.detectChanges();
+    flushSearch('calls');
+
+    component.onSearch({ target: { value: 'status:404' } } as unknown as Event);
+    const noMatch = Array.from({ length: 200 }, (_, i) => summary(`n${i}`, 'GET', 'https://a.com/x', 200));
+    flushSearch('calls', noMatch, 1000);
+    const second = flushSearch('calls', [summary('hit', 'GET', 'https://a.com/x', 404), ...noMatch.slice(1)], 1000);
+    expect(second.request.params.get('offset')).toBe('200');
+    // Still under the fill target, so it reads on - capped, never the whole log.
+    flushSearch('calls', noMatch, 1000);
+    flushSearch('calls', noMatch, 1000);
+    flushSearch('calls', noMatch, 1000);
+    tick(300);
+    http.expectNone((r) => r.url === `${BACKEND}/calls`);
+    expect(component.results().map((c) => c.id)).toEqual(['hit']);
+    expect(component.countText()).toBe('1 match in the newest 1000 of 1000 calls');
+    expect(component.hasMore()).toBeFalse();
+  }));
+
+  it('previews the response on click, and only its button copies it', fakeAsync(() => {
+    fixture.detectChanges();
+    flushSearch('calls');
+
+    const call = component.results()[0];
+    component.togglePreview(call, 0);
+    http
+      .expectOne(`${BACKEND}/calls/c1/detail`)
+      .flush({ response: { status: 500, headers: { 'Content-Type': 'application/json' }, body: '{"error":"fare expired"}' } });
+    const preview = component.preview()!;
+    expect(preview.contentType).toBe('application/json');
+    expect(preview.sizeBytes).toBe(24);
+    expect(preview.body).toContain('"error": "fare expired"');
+    http.expectNone(`${BACKEND}/interception/answers/from-call`);
+
+    component.pick(call);
+    http.expectOne(`${BACKEND}/interception/answers/from-call`).flush(ANSWER, { status: 201, statusText: 'Created' });
+    expect(emitted).toEqual([ANSWER.id]);
+  }));
+
+  it('copies a preselected call straight away, through the same secrets prompt', fakeAsync(() => {
+    fixture.componentRef.setInput('preselect', { direction: 'inbound', callId: 'in-7' });
+    fixture.detectChanges();
+
+    const req = http.expectOne(`${BACKEND}/interception/answers/from-call`);
+    expect(req.request.body).toEqual({ direction: 'inbound', callId: 'in-7', keepSecrets: null });
+    req.flush({ error: 'secrets-decision-required', secretNames: ['set-cookie'] }, { status: 409, statusText: 'Conflict' });
+    expect(component.pending()?.callId).toBe('in-7');
+    flushSearch('internal-calls', []);
   }));
 
   it('states the cap and the size when an upload is too large', fakeAsync(() => {

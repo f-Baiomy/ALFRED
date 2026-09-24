@@ -66,6 +66,29 @@ describe('RuleEditorComponent', () => {
 
   const first = (): RuleAction => component.actions()[0];
 
+  it('starts a rule from a call: its match, and an answer copied from that call at once', () => {
+    component.draft = {
+      direction: 'inbound',
+      callId: 'in-7',
+      method: 'PUT',
+      host: '',
+      path: '/app/api/cart/item',
+      serviceName: 'odeysys',
+    };
+    open(null);
+
+    expect(component.name()).toBe('Answer PUT /app/api/cart/item');
+    expect(component.source()).toBe('inbound');
+    expect(component.serviceNames()).toEqual(['odeysys']);
+    expect(component.selectedMethods()).toEqual(['PUT']);
+    expect(component.pathContains()).toBe('/app/api/cart/item');
+    expect(component.actions().map((a) => a.type)).toEqual(['ANSWER_WITH_RECORDED_CALL']);
+
+    const copy = http.expectOne(`${BACKEND}/interception/answers/from-call`);
+    expect(copy.request.body).toEqual({ direction: 'inbound', callId: 'in-7', keepSecrets: null });
+    copy.flush({ error: 'secrets-decision-required', secretNames: ['set-cookie'] }, { status: 409, statusText: 'Conflict' });
+  });
+
   it('offers only configured projects, not the catch-all bucket', () => {
     // "unknown" is where traffic that arrived on no configured listener lands - not a project
     // anybody would scope a rule to.

@@ -381,6 +381,13 @@ and `.body` the same atomic-write-before-`rules.json` way the rules snapshot its
 `REPLACE_WITH_RECORDED_RESPONSE` is `MOCK_RESPONSE`'s counterpart to `REPLACE_RESPONSE` - the real
 call still happens and is logged, but the caller sees the recorded answer instead.
 
+**Finding the call to answer with.** The picker narrows to the rule's own host, path, methods and
+projects by default, takes `host:` / `path:` / `method:` / `status:` / `body:` tokens, and previews
+a response before copying it. A rule can also be started from the call itself: "Use as answer in a
+new rule…" in a Live Calls card's Export menu. `body:` is the one filter only the backend can
+check (list rows carry no bodies), so it takes the server's single `search` string; the rest are
+applied in the browser to bigger pages. See docs/frontend-architecture.md.
+
 **Keeping or stripping secrets.** Copying a call's response into a stored answer
 (`POST /interception/answers/from-call`) checks its headers (and any `Set-Cookie` cookies) against
 `SensitiveHeaders.NAMES`. If any are present and the caller hasn't said what to do, the service

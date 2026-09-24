@@ -56,12 +56,23 @@ before `actionTypes` has loaded once.
 **`AnswerPickerComponent` (`components/answer-picker/`)** is how `ANSWER_WITH_RECORDED_CALL`/
 `REPLACE_WITH_RECORDED_RESPONSE`/`ANSWER_WITH_FILE` get their `StoredAnswer`, rendered by
 `rule-action-card` for exactly those three action types. A direction toggle (Outbound/Inbound) plus
-a search box reuses `CallsApiService.getCalls(source, …)` rather than a bespoke picker endpoint -
-picking a call posts `copyAnswerFromCall`; on a 409 (`SecretsDecisionRequired`) it shows the
+a search box reuses `CallsApiService.getCalls(source, …)` rather than a bespoke picker endpoint.
+The box takes `host:`/`path:`/`method:`/`status:`/`body:` tokens (`shared/utils/answer-search.ts`);
+the Method/Status/When chips edit the same text via `toggleToken`, so the box is the only filter
+state. Only ONE substring reaches the server (`toServerSearch`: body, else free text, else path,
+else host) - everything else is checked client-side on 200-call pages, auto-reading at most 5 pages
+until 10 rows show, then `Load more` by offset. The rule's own host/path/methods/projects arrive as
+`rule*` inputs and narrow the list by default ("Matches this rule" chip, removable). Clicking a row
+lazily fetches `getDetail` for a preview; only the preview's button copies. Copying posts
+`copyAnswerFromCall`; on a 409 (`SecretsDecisionRequired`) it shows the
 keep/strip dialog listing `secretNames` and warns that kept secrets travel with exported rules,
 then retries with the caller's choice. Once an answer exists it shows status/size/source and a
 `secretsKept` badge. An "Upload file" mode swaps the call search for `<input type="file">` plus a
-`StatusPickerComponent`, posted through `uploadAnswer()` as `FormData`. See docs/interception.md's
+`StatusPickerComponent`, posted through `uploadAnswer()` as `FormData`. A call card's Export menu
+also has "Use as answer in a new rule…": `RuleDraftService` (root, handed over once via `take()`)
+carries a `CallRuleDraft` to the Interception page, which opens `RuleEditorComponent` with
+`[draft]` - seeding the match from the call and one `ANSWER_WITH_RECORDED_CALL` whose picker gets
+`preselect` and copies that call at once, through the same keep/strip prompt. See docs/interception.md's
 "Stored answers" section for the backend side of the keep/strip decision and the no-total-cap
 retention rule.
 
