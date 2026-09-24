@@ -45,8 +45,12 @@ import { CopyResult, CopyTarget, copyTargetOf } from '../../shared/utils/copy-fr
 import { HeaderRow } from '../../shared/utils/header-rows';
 import { AnswerPreselect } from '../answer-picker/answer-picker.component';
 import { CopyPreload } from '../copy-from-call/copy-from-call.component';
+import { MatchFillResult, MatchFromCallComponent } from '../match-from-call/match-from-call.component';
+import { MatchForm, MatchSource, mergeTests, whyNotMatching } from '../../shared/utils/match-from-call';
 
 export const RULE_ANSWER_REQUESTER = 'rule-answer';
+
+export type PickPurpose = 'answer' | 'copy' | 'match';
 
 /** The rule editor's whole unsaved form, JSON-safe, parked while the user picks a call on another tab. */
 export interface EditorSnapshot {
@@ -55,8 +59,8 @@ export interface EditorSnapshot {
   readonly draft: InterceptionRuleDraft;
   /** The action the picked call is for. */
   readonly answerPath: readonly number[];
-  /** What the pick is for: a stored answer (default, for snapshots written before this existed) or "Copy from a call…". */
-  readonly purpose?: 'answer' | 'copy';
+  /** What the pick is for: a stored answer (default, for snapshots written before this existed), "Copy from a call…" or "Fill from a call…" (the match; answerPath unused). */
+  readonly purpose?: PickPurpose;
 }
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
@@ -341,6 +345,7 @@ type MatchTestRow = MatchTest & { readonly kind: MatchTestKind };
     MultiSelectPickerComponent,
     RuleActionCardComponent,
     HelpPopoverComponent,
+    MatchFromCallComponent,
     CdkDropList,
     CdkDrag,
   ],
@@ -484,7 +489,11 @@ export class RuleEditorComponent implements OnInit {
 
     if (this.snapshot) {
       this.loadFrom(this.snapshot.draft);
-      if (this.snapshot.purpose === 'copy') {
+      if (this.snapshot.purpose === 'match') {
+        // Reopened either way, like the copy panel - on Cancel the user is back at the finder.
+        this.matchFillPreload.set(this.pickedCopy);
+        this.matchFillOpen.set(true);
+      } else if (this.snapshot.purpose === 'copy') {
         // Reopen the copy panel either way - on Cancel too, so the user is back where they left.
         this.copyOpenAt.set(this.snapshot.answerPath.join('.'));
         this.copyPreload.set(this.pickedCopy);
@@ -1253,7 +1262,7 @@ export class RuleEditorComponent implements OnInit {
     this.parkAndPick(path, 'copy', `Call to copy into rule "${this.name().trim() || 'new rule'}"`);
   }
 
-  private parkAndPick(path: readonly number[], purpose: 'answer' | 'copy', title: string): void {
+  private parkAndPick(path: readonly number[], purpose: PickPurpose, title: string): void {
     const snapshot: EditorSnapshot = {
       ruleId: this.rule?.id ?? this.snapshot?.ruleId ?? null,
       draft: this.buildDraft(),
@@ -1271,6 +1280,73 @@ export class RuleEditorComponent implements OnInit {
     // The editor is a modal over the tab bar - it has to get out of the way for the user to go
     // anywhere. Nothing is lost: the form is in the snapshot.
     this.closed.emit();
+  }
+
+  // ---- "Fill from a call…" (the Match section) ----
+
+  readonly matchFillOpen = signal(false);
+  /** A call picked on another tab - the panel opens at "choose and adjust". */
+  readonly matchFillPreload = signal<CopyPreload | null>(null);
+  /** The last fill: which call, and the match as it was before, for Undo. Cleared by Undo or another fill. */
+  readonly matchFilled = signal<{ readonly source: MatchSource; readonly label: string; readonly before: MatchForm } | null>(null);
+
+  /** The form's match in the shape match-from-call.ts reads. */
+  readonly currentMatch = computed<MatchForm>(() => ({
+    source: this.source(),
+    serviceNames: this.serviceNames(),
+    host: this.host(),
+    pathContains: this.pathContains(),
+    pathRegex: this.pathRegex(),
+    methods: this.selectedMethods(),
+    tests: this.matchTests(),
+  }));
+
+  /** Live: why the edited match would no longer match the call it was filled from - empty while it still does. */
+  readonly matchFillCheck = computed(() => {
+    const filled = this.matchFilled();
+    return filled ? whyNotMatching(this.currentMatch(), filled.source) : [];
+  });
+
+  openMatchFill(): void {
+    this.matchFillPreload.set(null);
+    this.matchFillOpen.set(true);
+  }
+
+  closeMatchFill(): void {
+    this.matchFillOpen.set(false);
+    this.matchFillPreload.set(null);
+  }
+
+  pickMatchFromAnywhere(): void {
+    this.parkAndPick([], 'match', `Call to fill the match of rule "${this.name().trim() || 'new rule'}"`);
+  }
+
+  /** Checked fields replace the form's; tests merge (same kind + name replaced, the rest added). */
+  applyMatchFill(result: MatchFillResult): void {
+    const fill = result.fill;
+    this.matchFilled.set({ source: result.source, label: result.label, before: this.currentMatch() });
+    if (fill.source) this.source.set(fill.source);
+    if (fill.serviceNames) this.serviceNames.set(fill.serviceNames);
+    if (fill.host !== undefined) this.host.set(fill.host);
+    if (fill.pathContains !== undefined) this.pathContains.set(fill.pathContains);
+    if (fill.pathRegex !== undefined) this.pathRegex.set(fill.pathRegex);
+    if (fill.methods) this.selectedMethods.set(fill.methods);
+    if (fill.tests.length) this.matchTests.update((rows) => mergeTests<MatchTestRow>(rows, fill.tests.map((t) => ({ ...t }))));
+    this.closeMatchFill();
+  }
+
+  undoMatchFill(): void {
+    const filled = this.matchFilled();
+    if (!filled) return;
+    const m = filled.before;
+    this.source.set(m.source);
+    this.serviceNames.set(m.serviceNames);
+    this.host.set(m.host);
+    this.pathContains.set(m.pathContains);
+    this.pathRegex.set(m.pathRegex);
+    this.selectedMethods.set(m.methods);
+    this.matchTests.set(m.tests.map((t) => ({ ...t })) as MatchTestRow[]);
+    this.matchFilled.set(null);
   }
 
   // ---- "Copy from a call…" (SET_REQUEST_BODY, SET_RESPONSE_BODY, MOCK_RESPONSE, REPLACE_RESPONSE) ----

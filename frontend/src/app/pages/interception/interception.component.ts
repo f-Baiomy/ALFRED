@@ -64,8 +64,9 @@ export class InterceptionComponent {
         const picked = result?.picked[0];
         this.draft.set(null);
         this.snapshot.set(snapshot);
-        this.pickedAnswer.set(picked && snapshot.purpose !== 'copy' ? { direction: directionOf(picked.ref), callId: picked.ref.callId, cycleId: picked.ref.cycleId } : null);
-        this.pickedCopy.set(picked && snapshot.purpose === 'copy' ? { ref: picked.ref, call: picked.call } : null);
+        this.pickedAnswer.set(picked && (snapshot.purpose ?? 'answer') === 'answer' ? { direction: directionOf(picked.ref), callId: picked.ref.callId, cycleId: picked.ref.cycleId } : null);
+        // "Copy from a call…" and "Fill from a call…" both reopen at their choose step with the picked call.
+        this.pickedCopy.set(picked && (snapshot.purpose === 'copy' || snapshot.purpose === 'match') ? { ref: picked.ref, call: picked.call } : null);
         // Closed first so an editor still open from before the pick is rebuilt from the snapshot, not reused.
         this.editing.set(null);
         queueMicrotask(() => this.editing.set('new'));

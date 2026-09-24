@@ -34,8 +34,40 @@
       </label>
     </div>
 
-    <h3 class="section-title">Match — which traffic this affects</h3>
+    <div class="section-title-row">
+      <h3 class="section-title">Match — which traffic this affects</h3>
+      @if (!matchFillOpen()) {
+        <button type="button" class="pill" (click)="openMatchFill()" title="Fill direction, host, path, method and tests from a logged call, then edit them">
+          ⧉ Fill from a call…
+        </button>
+      }
+    </div>
     <p class="section-hint">Every field is optional. An empty field matches anything.</p>
+
+    @if (matchFillOpen()) {
+      <app-match-from-call
+        [current]="currentMatch()"
+        [preload]="matchFillPreload()"
+        (applied)="applyMatchFill($event)"
+        (cancelled)="closeMatchFill()"
+        (pickAnywhere)="pickMatchFromAnywhere()"
+      />
+    }
+
+    @if (matchFilled(); as filled) {
+      <div class="match-filled" [class.off]="matchFillCheck().length > 0">
+        <span>
+          Filled from <b>{{ filled.label }}</b> - the fields below are yours to edit.
+          <button type="button" class="link-btn" (click)="undoMatchFill()">Undo</button>
+          <button type="button" class="link-btn" (click)="matchFilled.set(null)" title="Hide this - nothing in the form changes">Dismiss</button>
+        </span>
+        @if (matchFillCheck().length === 0) {
+          <span class="mf-ok">✓ still matches that call</span>
+        } @else {
+          <span class="mf-bad">✕ no longer matches that call: {{ matchFillCheck().join(' · ') }}</span>
+        }
+      </div>
+    }
 
     <div class="field-grid">
       <div class="field">

@@ -120,6 +120,14 @@ live call's id, so the id alone cannot say which copy was picked. Load one in fu
   `shared/utils/replace-preview.ts` - the proxy's `_Pattern.replace` semantics (literal unless
   regex, case-sensitive unless off, at most N, Python `\1` templates) - against a picked call and
   shows the result in the embedded interception diff. Browser regex, so exotic patterns can differ.
+- `MatchFromCallComponent` + `shared/utils/match-from-call.ts` ("Fill from a call…" on the Match
+  section): direction, project (inbound), host (exact or `*.parent`), path (whole, a prefix, or a
+  regex with ids generalised), method, plus headers / query / cookies as "Only when…" tests - all
+  editable before they land, tests unchecked by default and "equals" their value - secrets and
+  cookies too, tagged "secret" since a checked one saves its value in the rule in plain text. Checked fields replace the form's; tests merge by kind + name. The editor keeps the
+  picked call (`matchFilled`) for Undo and a live `whyNotMatching` check that mirrors the proxy's
+  `Match` (path tested with its query, `*.` hosts, header names case-insensitive). Pick from
+  anywhere parks with `EditorSnapshot.purpose = 'match'`.
 - Every rule-action body field uses `app-body-editor` (colours, find & replace, Format, big tab via
   `EditTabService`); the Interception page is lazy-loaded to keep this out of the initial bundle.
 

@@ -1,0 +1,130 @@
+<div class="copy-from-call match-from-call">
+  <div class="cfc-head">
+    <b>Fill the match from a call</b>
+    <span class="cfc-steps">
+      <span class="cfc-step" [class.on]="!source()">1 Find a call</span>
+      <span class="cfc-step" [class.on]="!!source()">2 Choose and adjust</span>
+    </span>
+    <button type="button" class="pill" (click)="cancelled.emit()">Cancel</button>
+  </div>
+
+  @if (loading()) {
+    <small class="muted">Loading the call…</small>
+  } @else {
+  @if (source(); as s) {
+    @if (choices(); as c) {
+      <small class="muted">
+        From <span class="badge">{{ s.method }}</span> {{ s.host }}{{ s.path }} · {{ s.direction }} · {{ where() }}.
+        Checked fields replace what the rule has; everything stays editable afterwards.
+      </small>
+
+      <div class="mfc-table">
+        <div class="mfc-row mfc-headrow">
+          <span></span><span>Field</span><span>From the call</span><span>Now in rule</span>
+        </div>
+
+        <div class="mfc-row">
+          <input type="checkbox" [checked]="c.direction" (change)="toggle('direction', $event)" aria-label="Direction" />
+          <span>Direction</span>
+          <span>{{ s.direction }}</span>
+          <span class="muted">{{ now('direction') }}</span>
+        </div>
+
+        @if (s.serviceName) {
+          <div class="mfc-row">
+            <input type="checkbox" [checked]="c.project" (change)="toggle('project', $event)" aria-label="Project" />
+            <span>Project</span>
+            <span>{{ s.serviceName }}</span>
+            <span class="muted">{{ now('project') }}</span>
+          </div>
+        }
+
+        @if (s.host) {
+          <div class="mfc-row">
+            <input type="checkbox" [checked]="c.host" (change)="toggle('host', $event)" aria-label="Host" />
+            <span>Host</span>
+            <span class="mfc-edit">
+              @if (hostOptions().length > 1) {
+                <app-select-picker [options]="hostOptions()" [value]="c.hostValue" (valueChange)="setHost($event)" />
+              }
+              <input type="text" [value]="c.hostValue" (input)="setHost($any($event.target).value)" />
+            </span>
+            <span class="muted">{{ now('host') }}</span>
+          </div>
+        }
+
+        <div class="mfc-row">
+          <input type="checkbox" [checked]="c.path" (change)="toggle('path', $event)" aria-label="Path" />
+          <span>Path</span>
+          <span class="mfc-edit mfc-path">
+            <app-select-picker [options]="pathOptions()" [value]="pathPreset()" (valueChange)="choosePath($event)" />
+            <span class="mfc-form">
+              <button type="button" class="pill" [class.on]="c.pathForm === 'contains'" (click)="setPathForm('contains')">contains</button>
+              <button type="button" class="pill" [class.on]="c.pathForm === 'regex'" (click)="setPathForm('regex')">regex</button>
+            </span>
+            <input type="text" [value]="c.pathValue" (input)="setPathValue($any($event.target).value)" />
+          </span>
+          <span class="muted">{{ now('path') }}</span>
+        </div>
+
+        <div class="mfc-row">
+          <input type="checkbox" [checked]="c.method" (change)="toggle('method', $event)" aria-label="Method" />
+          <span>Method</span>
+          <span>{{ s.method }}</span>
+          <span class="muted">{{ now('method') }}</span>
+        </div>
+      </div>
+
+      <div class="cfc-sub mfc-tests-head">
+        Tests from the request → "Only when…" ({{ checkedTests() }} checked)
+        <button type="button" class="link-btn" (click)="setAllTests(true)">check all</button>
+        <button type="button" class="link-btn" (click)="setAllTests(false)">check none</button>
+      </div>
+      <div class="mfc-table">
+        @for (t of c.tests; track t.kind + ':' + t.name; let i = $index) {
+          <div class="mfc-row mfc-test">
+            <input type="checkbox" [checked]="t.on" (change)="patchTest(i, { on: $any($event.target).checked })" [attr.aria-label]="kindLabels[t.kind] + ' ' + t.name" />
+            <span>{{ kindLabels[t.kind] }}</span>
+            <span class="mfc-edit">
+              <code class="mfc-name">{{ t.name }}</code>
+              @if (t.secret) {
+                <span class="cfc-secret" title="A credential - checked with a value, the value is saved in the rule in plain text (Export and Duplicate include it). Switch to 'exists' to test only that it is there.">secret</span>
+              }
+              <app-select-picker [options]="operatorOptions" [value]="t.operator" (valueChange)="editTest(i, { operator: $any($event) })" />
+              @if (needsValue(t)) {
+                <input type="text" [value]="t.value" (input)="editTest(i, { value: $any($event.target).value })" />
+              }
+            </span>
+            <span class="muted">{{ isSoapAction(t) ? 'tells SOAP operations apart' : '' }}</span>
+          </div>
+        } @empty {
+          <small class="muted">This call has no headers, query parameters or cookies to test.</small>
+        }
+      </div>
+
+      <div class="cfc-actions">
+        <button type="button" class="pill" (click)="back()">Back</button>
+        <button type="button" class="pill on" (click)="apply()">
+          Fill match{{ checkedTests() ? ' (+' + checkedTests() + ' test' + (checkedTests() === 1 ? '' : 's') + ')' : '' }}
+        </button>
+      </div>
+    }
+  } @else {
+    <app-call-finder
+      part="request"
+      pickLabel="Fill the match from this call…"
+      [ruleHost]="current().host"
+      [rulePath]="current().pathContains"
+      [ruleMethods]="current().methods"
+      [ruleSource]="current().source"
+      [ruleServiceNames]="current().serviceNames"
+      (chosen)="onChosen($event)"
+      (pickAnywhere)="pickAnywhere.emit()"
+    />
+  }
+  }
+
+  @if (error(); as message) {
+    <div class="rule-warning danger">{{ message }}</div>
+  }
+</div>

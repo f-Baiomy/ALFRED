@@ -145,6 +145,74 @@ describe('RuleEditorComponent', () => {
     expect(component.isCopyOpen([1])).toBeFalse();
   });
 
+  it('fills the match from a call, keeps it editable, checks it live, and undoes it', () => {
+    open(null);
+    component.host.set('old.host');
+    component.matchTests.set([
+      { kind: 'headers', name: 'soapaction', operator: 'EXISTS', value: null },
+      { kind: 'query', name: 'mode', operator: 'EQUALS', value: 'x' },
+    ]);
+    component.openMatchFill();
+    expect(component.matchFillOpen()).toBeTrue();
+
+    const source = {
+      direction: 'outbound' as const,
+      serviceName: null,
+      method: 'POST',
+      host: 'api.sabre.com',
+      path: '/v2/order',
+      pathWithQuery: '/v2/order?mode=x',
+      tests: [
+        { kind: 'headers' as const, name: 'SOAPAction', value: '"Confirm"', secret: false },
+        { kind: 'query' as const, name: 'mode', value: 'x', secret: false },
+      ],
+    };
+    component.applyMatchFill({
+      fill: { source: 'outbound', host: 'api.sabre.com', pathContains: '/v2/order', pathRegex: '', methods: ['POST'], tests: [{ kind: 'headers', name: 'SOAPAction', operator: 'EQUALS', value: '"Confirm"' }] },
+      source,
+      label: 'POST api.sabre.com/v2/order',
+    });
+
+    expect(component.matchFillOpen()).toBeFalse();
+    expect(component.source()).toBe('outbound');
+    expect(component.host()).toBe('api.sabre.com');
+    expect(component.selectedMethods()).toEqual(['POST']);
+    // Same header test replaced in place, the query test kept.
+    expect(component.matchTests()).toEqual([
+      { kind: 'headers', name: 'SOAPAction', operator: 'EQUALS', value: '"Confirm"' },
+      { kind: 'query', name: 'mode', operator: 'EQUALS', value: 'x' },
+    ]);
+    expect(component.matchFillCheck()).toEqual([]);
+
+    component.host.set('*.amadeus.com');
+    expect(component.matchFillCheck()).toEqual(['host *.amadeus.com does not match api.sabre.com']);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.match-filled.off')?.textContent).toContain('no longer matches that call');
+
+    component.undoMatchFill();
+    expect(component.host()).toBe('old.host');
+    expect(component.source()).toBe('both');
+    expect(component.matchTests().map((t) => t.name)).toEqual(['soapaction', 'mode']);
+    expect(component.matchFilled()).toBeNull();
+  });
+
+  it('parks the form for a match pick elsewhere, and reopens the fill panel', () => {
+    open(null);
+    component.pickMatchFromAnywhere();
+    const picker = TestBed.inject(CallPickerService);
+    const snapshot = picker.request()!.resume as EditorSnapshot;
+    expect(snapshot.purpose).toBe('match');
+    picker.start({ requester: 'x', title: '', mode: 'single', returnUrl: '/', returnLabel: '' });
+
+    fixture.destroy();
+    fixture = TestBed.createComponent(RuleEditorComponent);
+    component = fixture.componentInstance;
+    component.snapshot = snapshot;
+    open(null);
+    expect(component.matchFillOpen()).toBeTrue();
+    sessionStorage.removeItem('alfred_call_picker');
+  });
+
   it("edits a mock's own headers through rows, dropping removed and empty ones", () => {
     open(null);
     component.actions.set([{ type: 'MOCK_RESPONSE', status: 200, headers: { A: '1' }, body: '' }]);
