@@ -737,21 +737,21 @@ including inbound sources and the keep/strip prompt.
 
 **Independent Test**: quickstart check 8.
 
-- [ ] T091 [P] [US7] Create
+- [X] T091 [P] [US7] Create
   `BIT/adapter/in/web/StoredAnswersControllerTest.java` (`@WebMvcTest` with the existing
   `TestApplication`), covering: a multipart upload returns 201; over the cap returns 413 with
   `limitBytes`; no content type returns 415. Add upload cases to `StoredAnswersServiceTest`.
-- [ ] T092 [P] [US7] Add tests to `PX/test_interception.py`: ANSWER_WITH_FILE serves the exact
+- [X] T092 [P] [US7] Add tests to `PX/test_interception.py`: ANSWER_WITH_FILE serves the exact
   bytes with the action's status override; it is terminal and latch-aware. Add a SAMPLES entry.
-- [ ] T093 [US7] Add `ANSWER_WITH_FILE(Phase.REQUEST)` to `ActionType` and to `isTerminal()`.
+- [X] T093 [US7] Add `ANSWER_WITH_FILE(Phase.REQUEST)` to `ActionType` and to `isTerminal()`.
   The validator requires a FILE answer and a status of 100..599 when it is given.
-- [ ] T094 [US7] Add `POST /interception/answers` (multipart: `file`, `contentType`, `status`)
+- [X] T094 [US7] Add `POST /interception/answers` (multipart: `file`, `contentType`, `status`)
   to `StoredAnswersController`, together with `StoredAnswersService.upload`. It checks the size
   before reading all the bytes (using `MultipartFile.getSize()`) and requires a non-blank
   content type.
-- [ ] T095 [US7] Add the ANSWER_WITH_FILE handler to `PX/interception.py`, re-using the
+- [X] T095 [US7] Add the ANSWER_WITH_FILE handler to `PX/interception.py`, re-using the
   `_AnswerCache` and mock path from T085.
-- [ ] T096 [US7] Frontend:
+- [X] T096 [US7] Frontend:
   - `answer-picker` gains an "Upload file" mode, with an `<input type="file">`, `FormData`
     through a new `uploadAnswer()` in `interception-api.service.ts`, and a status picker
     (`StatusPickerComponent`);
@@ -765,7 +765,7 @@ including inbound sources and the keep/strip prompt.
 
 ### Linkage in the call slices
 
-- [ ] T097 [US8] Resend linkage in backend-calls:
+- [X] T097 [US8] Resend linkage in backend-calls:
   - add `resend_of` and `resend_edits` to `BC/adapter/in/web/dto/PrepareCallRequestDto.java`
     and to `BC/domain/model/CallRecord.java` (as `resendOf`, `resendEdits`), with an overload
     that keeps the positional call sites;
@@ -775,10 +775,10 @@ including inbound sources and the keep/strip prompt.
     docs/architecture.md on the shared RowMapper trap);
   - `FileCallLogAdapter` passes them through;
   - expose both on `CallSummaryDto`.
-- [ ] T098 [P] [US8] Add a round-trip test in
+- [X] T098 [P] [US8] Add a round-trip test in
   `BCT/adapter/out/sqlite/SqliteCallsRepositoryTest.java` (or the existing SQLite test class):
   a prepare with `resend_of` reads back through `query()`, `findById()` **and** `readAll()`.
-- [ ] T099 [US8] Add the same fields to backend-internal-calls:
+- [X] T099 [US8] Add the same fields to backend-internal-calls:
   - `BIC/domain/model/CallRecord.java`
   - the prepare DTO
   - the NDJSON line and the list DTO
@@ -787,12 +787,12 @@ including inbound sources and the keep/strip prompt.
 
 ### Proxy
 
-- [ ] T100 [P] [US8] Add `ResendHeadersTest` to `PX/test_interception.py`:
+- [X] T100 [P] [US8] Add `ResendHeadersTest` to `PX/test_interception.py`:
   - with the peer equal to the backend address, `X-Alfred-Resend-Of` and `X-Alfred-Resend-Edits`
     become payload fields and are removed from the request;
   - with any other peer, both are removed and ignored;
   - a rule matching on the header never sees it.
-- [ ] T101 [US8] Add `take_resend_headers(flow, backend_addresses)` to `PX/interception.py`. It
+- [X] T101 [US8] Add `take_resend_headers(flow, backend_addresses)` to `PX/interception.py`. It
   returns `(resend_of, resend_edits)` and always deletes the headers. `backend_addresses` is
   resolved once from `BACKEND_HOST` with `socket.gethostbyname_ex`. Call it at the top of both
   addons' `request` hooks, **before** `ENGINE.apply_request`, and add the results to the
@@ -800,7 +800,7 @@ including inbound sources and the keep/strip prompt.
 
 ### New slice backend-resend
 
-- [ ] T102 [US8] Remove the temporary `.allowEmptyShould(true)` from `resendSliceMustNotDependOnOtherSlices` in `HexagonalArchitectureTest.java` (added in T002 while the slice had no classes). Create the domain:
+- [X] T102 [US8] Remove the temporary `.allowEmptyShould(true)` from `resendSliceMustNotDependOnOtherSlices` in `HexagonalArchitectureTest.java` (added in T002 while the slice had no classes). Create the domain:
   - `BR/domain/model/ResendRequest.java`: `(direction, callId, cycleId, ResendEdits edits,
     boolean useCurrentSession)`;
   - `BR/domain/model/ResendEdits.java`: `(method, url, Map<String,String> headers, String body)`,
@@ -809,25 +809,25 @@ including inbound sources and the keep/strip prompt.
     serviceName)`;
   - `BR/domain/model/ResendResult.java`: `(newCallId, status, durationMs,
     List<SessionValueUse>)`.
-- [ ] T103 [US8] Create the ports:
+- [X] T103 [US8] Create the ports:
   - `BR/application/port/in/ResendCallUseCase.java`;
   - `BR/application/port/out/CallSourcePort.java`:
     `Optional<StoredCall> load(direction, callId, cycleId)`;
   - `BR/application/port/out/SessionValueLookupPort.java`:
     `List<SessionValue> newest(direction, host, Set<String> names, String cycleId)`;
   - `BR/application/port/out/CallSenderPort.java`: `SendOutcome send(OutgoingCall)`.
-- [ ] T104 [P] [US8] Write `BRT/application/service/ResendServiceTest.java` (fake ports):
+- [X] T104 [P] [US8] Write `BRT/application/service/ResendServiceTest.java` (fake ports):
   - edits are applied, and `resend_edits` lists the header names but never their values;
   - the original `X-Request-Id` is replaced by a fresh UUID, which is returned as `newCallId`;
   - `X-Alfred-Resend-Of` and `X-Alfred-Resend-Edits` are added;
   - `useCurrentSession` substitutes the newest cookie or authorization value and reports
     `{name, fromCallId}`;
   - with nothing newer, the originals are kept and the result says so.
-- [ ] T105 [US8] Create `BR/application/service/ResendService.java` (`@Service implements
+- [X] T105 [US8] Create `BR/application/service/ResendService.java` (`@Service implements
   ResendCallUseCase`), passing T104. Session headers are the sensitive names from
   `authorization` and `cookie`, defined locally with a comment pointing at
   `SensitiveHeaders`: slices may not share code.
-- [ ] T106 [US8] Create `BR/adapter/out/http/JdkHttpCallSender.java` (`implements CallSenderPort`):
+- [X] T106 [US8] Create `BR/adapter/out/http/JdkHttpCallSender.java` (`implements CallSenderPort`):
   - one `HttpClient`, with an `SSLContext` built from the PEM at
     `${alfred.resend.mitm-ca-file}` and a timeout from `${alfred.resend.timeout-ms}`;
   - **outbound**: `ProxySelector.of(proxy:<port>)`, where `<port>` is the internal port mapped
@@ -842,14 +842,14 @@ including inbound sources and the keep/strip prompt.
 
   Test it in `BRT/adapter/out/http/JdkHttpCallSenderTest.java` against a local
   `com.sun.net.httpserver.HttpServer`, checking the headers and the Host override.
-- [ ] T107 [US8] Create `BR/adapter/in/web/ResendController.java` for `POST /resend`, with
+- [X] T107 [US8] Create `BR/adapter/in/web/ResendController.java` for `POST /resend`, with
   `BR/adapter/in/web/dto/ResendRequestDto.java` (`@Valid`). It maps to 200 / 404 / 409 / 502
   per contracts/rest-api.md. It enforces the edit limits in the contract with Bean Validation
   (`@Size`) plus a check of the body's byte length, and returns 400 over a limit. The
   controller test covers each limit. Add a test-only
   `backend/backend-resend/src/test/java/com/fathy/alfred/backend/resend/TestApplication.java`
   and `BRT/adapter/in/web/ResendControllerTest.java`.
-- [ ] T108 [US8] Add the in-port `BC/application/port/in/FindRecentRequestHeadersUseCase.java`,
+- [X] T108 [US8] Add the in-port `BC/application/port/in/FindRecentRequestHeadersUseCase.java`,
   implemented in `CallsService`:
   - `SqliteCallsRepository` selects the newest ≤ 200 `call_metadata` rows whose `url` host
     matches, ordered by `timestamp_millis DESC`, and joins `call_request.headers` for those
@@ -858,7 +858,7 @@ including inbound sources and the keep/strip prompt.
 
   Add the backend-internal-calls equivalent in `BIC/application/port/in/`, as a ring scan. Test
   both.
-- [ ] T109 [US8] Create the bridges `BA/resendbridge/CallSourceAdapter.java` (calls,
+- [X] T109 [US8] Create the bridges `BA/resendbridge/CallSourceAdapter.java` (calls,
   internal-calls and session-cycles detail use cases) and
   `BA/resendbridge/SessionValueLookupAdapter.java` (the two T108 use cases, plus a scan of the
   cycle's captured calls). Test them with mocks in
@@ -866,22 +866,22 @@ including inbound sources and the keep/strip prompt.
 
 ### Frontend
 
-- [ ] T110 [US8] Add `FE/core/services/resend-api.service.ts` (`resend(req)`). Add `resendOf`
+- [X] T110 [US8] Add `FE/core/services/resend-api.service.ts` (`resend(req)`). Add `resendOf`
   and `resendEdits` to `CallRecord` in `FE/core/models/call.model.ts`, and map them in
   `toCallRecord`.
-- [ ] T111 [US8] Create `FE/components/resend-dialog/resend-dialog.component.{ts,html}`,
+- [X] T111 [US8] Create `FE/components/resend-dialog/resend-dialog.component.{ts,html}`,
   standalone and opened through a new `ResendDialogService` that follows `ExportDialogService`:
   - editable method, URL, header rows and body, pre-filled from the hydrated call;
   - a "Resend with current session" checkbox;
   - after the send, the result: a link to the new call, plus the session values used, shown as
     names and source calls only.
-- [ ] T112 [US8] Add "Resend…" to the Export menu in
+- [X] T112 [US8] Add "Resend…" to the Export menu in
   `FE/components/call-actions/call-actions.component.html:9-19`, and a bulk "Resend selected" to
   `FE/components/bulk-actions-bar/bulk-actions-bar.component.{html,ts}`. Bulk resend sends the
   calls one at a time in the selection's display order, with a progress count, and stops on the
   first 409. On `FE/components/call-card/call-card.component.html`, add a "↻ resend of <id>"
   chip that links to the original, with the edits summarised in its tooltip.
-- [ ] T113 [P] [US8] Frontend specs: bulk resend preserves the order and awaits each call
+- [X] T113 [P] [US8] Frontend specs: bulk resend preserves the order and awaits each call
   (`bulk-actions-bar.component.spec.ts`); the dialog builds the edits payload correctly
   (`resend-dialog.component.spec.ts`).
 
@@ -893,7 +893,7 @@ including inbound sources and the keep/strip prompt.
 
 ### Proxy
 
-- [ ] T114 [P] [US9] Write `PX/test_ws_messages.py`, with a fake clock and a fake queue:
+- [X] T114 [P] [US9] Write `PX/test_ws_messages.py`, with a fake clock and a fake queue:
   - the batcher flushes at 50 messages or at 500 ms, whichever comes first;
   - `closed:true` is sent at the end;
   - `seq` increases per connection.
@@ -905,17 +905,17 @@ including inbound sources and the keep/strip prompt.
   - an unknown MESSAGE kind records a skip.
 
   Add SAMPLES entries under `MESSAGE_ACTIONS`.
-- [ ] T115 [US9] Add `REPLACE_IN_MESSAGE`, `DROP_MESSAGE` and `DELAY_MESSAGE` with
+- [X] T115 [US9] Add `REPLACE_IN_MESSAGE`, `DROP_MESSAGE` and `DELAY_MESSAGE` with
   `Phase.MESSAGE` to `ActionType`. Add the RuleAction fields `messageDirection` and `contains`.
   The validator enforces a valid direction and `durationMs` ≤ MAX_DELAY_MS, and rejects MESSAGE
   actions inside `IF_*`. Add the matching `RuleValidatorTest` cases.
-- [ ] T116 [US9] In `PX/interception.py`:
+- [X] T116 [US9] In `PX/interception.py`:
   - add `MESSAGE_ACTIONS`;
   - add `async def apply_message(self, rules, message, from_client) -> MessageVerdict`, where
     `MessageVerdict` carries `delay_ms`, `dropped`, `edited`, `original` and `applied`;
   - add `match_for_websocket(flow, service_name)`, which returns the matched rules that have
     MESSAGE actions.
-- [ ] T117 [US9] Create `PX/ws_messages.py`, a per-connection batcher. Its state is in
+- [X] T117 [US9] Create `PX/ws_messages.py`, a per-connection batcher. Its state is in
   `flow.metadata['ws']`, and it pushes batches onto the addon's existing webhook queue with the
   URL `{WEBHOOK_URL}/{call_id}/ws-messages`. In both addons, add:
   - `websocket_start`, which caches the rules from `match_for_websocket`;
@@ -928,7 +928,7 @@ including inbound sources and the keep/strip prompt.
 
 ### Backend
 
-- [ ] T118 [P] [US9] Add backend tests:
+- [X] T118 [P] [US9] Add backend tests:
   - `SqliteCallsRepository`: `call_ws_message` insert; the cap deletes the lowest `seq` rows
     and increments `ws_dropped`; the page query order;
   - `CallsWebhookControllerTest`: the ws-messages endpoint checks the secret; an unknown id
@@ -937,7 +937,7 @@ including inbound sources and the keep/strip prompt.
   - **retention**, for both file adapters: after the call log evicts call X, the next
     compaction leaves no message with `callId = X`, so the file does not grow once the call
     log is full.
-- [ ] T119 [US9] backend-calls:
+- [X] T119 [US9] backend-calls:
   - add `WsMessage` and `WsMessagesPage` records in `BC/domain/model/`;
   - add port methods `appendWsMessages(callId, list, closed, closeCode)` and
     `wsMessages(callId, offset, limit)`;
@@ -950,7 +950,7 @@ including inbound sources and the keep/strip prompt.
   - add `POST /calls/webhook/{id}/ws-messages` to `CallsWebhookController` and
     `GET /calls/{id}/ws-messages` to the calls controller, with the limit clamped to 1..500;
   - the WebSocket notifier sends `{"type":"ws-messages-appended","callId"}` on `/ws/calls`.
-- [ ] T120 [US9] backend-internal-calls:
+- [X] T120 [US9] backend-internal-calls:
   - an adapter for the same port, `BIC/adapter/out/filelog/InternalWsMessagesFileAdapter.java`,
     writing `${INTERNAL_WS_MESSAGES_FILE:/appdata/internal-ws-messages.log}` with the
     append-and-compact scheme of `InternalCallsFileLogAdapter`. Compaction drops the messages
@@ -961,7 +961,7 @@ including inbound sources and the keep/strip prompt.
 
 ### Frontend
 
-- [ ] T121 [US9] Create `FE/core/models/ws-message.model.ts` and add `getWsMessages(source, id,
+- [X] T121 [US9] Create `FE/core/models/ws-message.model.ts` and add `getWsMessages(source, id,
   offset, limit)` to `FE/core/services/calls-api.service.ts`. Create
   `FE/components/ws-messages/ws-messages.component.{ts,html}`:
   - a windowed list with a direction arrow, time and type;
@@ -971,14 +971,14 @@ including inbound sources and the keep/strip prompt.
   `call-card` shows "WebSocket · N messages" for status-101 calls and embeds the component,
   loaded on expand. `calls-state.service.ts` re-fetches for open panels on
   `ws-messages-appended`, with no timer.
-- [ ] T122 [US9] Add WebSocket messages to the calls exports:
+- [X] T122 [US9] Add WebSocket messages to the calls exports:
   - `FE/shared/utils/bulk-json-builder.ts` adds `wsMessages` to the call's event;
   - `FE/shared/utils/import-parser.ts` reads them back, as the exact inverse;
   - `markdown-builder.ts` and `html-builder.ts` render every message untruncated.
 
   Add spec cases: a round trip through `buildBulkExportPayload`, then `parseImportedCalls`; and
   a large-message no-truncation guard.
-- [ ] T123 [US9] Add a "Messages" lane to the rule editor, driven by `phaseOf === 'MESSAGE'`:
+- [X] T123 [US9] Add a "Messages" lane to the rule editor, driven by `phaseOf === 'MESSAGE'`:
   - `rule-editor.component.html`, after the response lane;
   - a card block with a direction select, the pattern inputs from US1, `contains` and a
     duration;
@@ -990,17 +990,17 @@ including inbound sources and the keep/strip prompt.
 
 **Independent Test**: quickstart check 11.
 
-- [ ] T124 [P] [US10] Add tests to `PX/test_interception.py`:
+- [X] T124 [P] [US10] Add tests to `PX/test_interception.py`:
   - set and remove on existing `trailers`;
   - `trailers is None` records `skipped - no trailers`.
 
   Add SAMPLES entries (the fakes gain `trailers`).
-- [ ] T125 [US10] Add the four actions to `ActionType`:
+- [X] T125 [US10] Add the four actions to `ActionType`:
   - `SET_REQUEST_TRAILER`, `REMOVE_REQUEST_TRAILER`
   - `SET_RESPONSE_TRAILER`, `REMOVE_RESPONSE_TRAILER`
 
   Add validator cases, and handlers in `PX/interception.py`.
-- [ ] T126 [US10] Frontend:
+- [X] T126 [US10] Frontend:
   - re-use the `isHeaderSet` / `isNameOnly` predicates by adding the trailer types to them;
   - add labels, `describeAction` cases, `defaultsFor` entries and help entries.
 
@@ -1008,7 +1008,7 @@ including inbound sources and the keep/strip prompt.
 
 ## Phase 14: Polish and cross-cutting
 
-- [ ] T127 [P] Update `docs/interception.md`:
+- [X] T127 [P] Update `docs/interception.md`:
   - the Actions table and MESSAGE lane;
   - matcher tests and the precedence note;
   - stored answers, including the keep/strip question and the no-total-cap decision;
@@ -1019,22 +1019,22 @@ including inbound sources and the keep/strip prompt.
     backend and the `default` validator case;
   - "Intentionally left for later": remove the inbound interception-record item, and add
     WebSocket capture in cycles.
-- [ ] T128 [P] Update `docs/architecture.md`:
+- [X] T128 [P] Update `docs/architecture.md`:
   - the `backend-resend` slice and its isolation rule;
   - the `interceptionbridge` / `resendbridge` packages;
   - the inbound interception record;
   - the `call_ws_message` table and cap;
   - `FindRecentRequestHeadersUseCase`, and why it is windowed.
-- [ ] T129 [P] Update `docs/frontend-architecture.md` (the answer picker, resend dialog, WebSocket
+- [X] T129 [P] Update `docs/frontend-architecture.md` (the answer picker, resend dialog, WebSocket
   message list, and phase/terminal from the backend) and `docs/supplier-integrations.md` (the
   resend path, the certs mount, `X-Alfred-*` headers, the WebSocket hooks, and `regex_worker`).
-- [ ] T130 [P] Update `CLAUDE.md` and `AGENTS.md`: the module list (`backend-resend`), the
+- [X] T130 [P] Update `CLAUDE.md` and `AGENTS.md`: the module list (`backend-resend`), the
   gateway prefix list (`resend`), and one line each on regex-in-a-process and stored answers.
   Update `docs/feature-requests/interception-mitmproxy-parity.md` with a note at the top that
   the spec supersedes it.
-- [ ] T131 Run the full suites: proxy unittest, `mvn test` (including ArchUnit), then
+- [X] T131 Run the full suites: proxy unittest, `mvn test` (including ArchUnit), then
   `npx ng test --watch=false --browsers=ChromeHeadless`, then `npm run build`. Fix any failures.
-- [ ] T132 Run quickstart.md checks 1–13 against the rebuilt stack
+- [X] T132 Run quickstart.md checks 1–13 against the rebuilt stack
   (`docker compose up -d --build …`, then `docker compose restart app-gateway`). Record each
   measured result in `docs/interception.md`, in the existing "measured: …" style.
 

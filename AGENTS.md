@@ -47,10 +47,12 @@ One module per feature. Maven module boundaries make an undeclared cross-slice i
 | `backend-session-cycles` | Manual recording sessions that capture calls (depends on `backend-calls` **and** `backend-internal-calls`) |
 | `backend-profiles` | Leaf slice, standalone profile store |
 | `backend-settings` | Call-filter whitelist/blacklist/mode — which *outbound* calls get logged at all |
-| `backend-app` | Composition root: main class, `DatabaseStatsController`, migrations |
+| `backend-interception` | Traffic interception/fault-injection rules, the paused-call registry, and stored answers (recorded-call or uploaded-file, for the ANSWER_WITH_*/REPLACE_WITH_RECORDED_RESPONSE actions) |
+| `backend-resend` | Resends a previously-logged call (outbound or inbound, optionally edited) back through the appropriate mitmproxy service; a leaf slice reached only through `backend-app`'s `resendbridge` |
+| `backend-app` | Composition root: main class, `DatabaseStatsController`, migrations, `interceptionbridge`/`resendbridge` |
 | `backend-architecture-test` | Test-only, holds the ArchUnit suite |
 
-Isolation rules currently enforced: `calls`, `internal-calls`, `comments`, `profiles`, `settings` are each fully isolated from every other slice. The only allowed edges are `export→calls`, `session-cycles→calls`, `session-cycles→internal-calls`. → `docs/architecture.md`
+Isolation rules currently enforced: `calls`, `internal-calls`, `comments`, `profiles`, `settings`, `interception` and `resend` are each fully isolated from every other slice (including from each other). The only allowed edges are `export→calls`, `session-cycles→calls`, `session-cycles→internal-calls`. → `docs/architecture.md`
 
 ## Frontend routes (`frontend/src/app/`, standalone Angular + signals, no NgModules/NgRx)
 
@@ -81,6 +83,8 @@ cd frontend && npm test && npm run build  # Karma/Jasmine; ng build
 - **No polling anywhere** — every list is fetch-on-demand, driven by a WebSocket signaling "something changed." New list features follow this shape, not a `timer()`.
 - **Exports never truncate or summarize call data** (`.md`/`.json`/`.html`/cURL) — hard requirement, guarded by tests asserting on large generated bodies.
 - **Docker cannot touch the host** — hosts-file/cert-store/WildFly-run-config changes only happen via `start.py`/`start.sh`/`start.ps1`/`sync-wildfly-port-offset.py`, never in-container.
+- **A `regex: true` interception pattern runs in its own persistent `multiprocessing` worker process** (`proxy/regex_worker.py`), never on the addon's own event loop, with a timeout that kills and restarts the worker — CPython's `re` holds the GIL for the duration of a match, so a pathological pattern in-process would freeze every connection the proxy is carrying. → `docs/interception.md`
+- **Stored answers come in two kinds** — `RECORDED` (copied from a logged call, outbound or inbound, with a keep/strip-secrets decision when the response carries sensitive headers or cookies) and `FILE` (uploaded through the editor) — backing the `ANSWER_WITH_RECORDED_CALL`/`ANSWER_WITH_FILE`/`REPLACE_WITH_RECORDED_RESPONSE` actions. No total cap on how many exist; an answer is deleted only once nothing references it. → `docs/interception.md`
 
 ## Deeper docs (follow the pointer, don't re-derive)
 

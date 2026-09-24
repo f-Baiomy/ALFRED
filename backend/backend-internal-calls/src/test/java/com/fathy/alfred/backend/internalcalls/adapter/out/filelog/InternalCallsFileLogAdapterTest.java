@@ -32,6 +32,7 @@ class InternalCallsFileLogAdapterTest {
         InternalCallsFileLogAdapter adapter = new InternalCallsFileLogAdapter();
         setField(adapter, "internalCallsFile", file.toString());
         setField(adapter, "retentionRows", retentionRows);
+        setField(adapter, "wsMaxMessages", 1000);
         return adapter;
     }
 
@@ -51,6 +52,67 @@ class InternalCallsFileLogAdapterTest {
         InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("missing.log"));
 
         assertThat(adapter.readAll()).isEmpty();
+    }
+
+    @Test
+    void recentRequestHeadersScansTheRingForTheHostNewestFirst() throws Exception {
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
+        adapter.prepare(new CallRecord("id-1", "http://localhost:9001/x", "http://localhost:9001/x", "GET",
+                new RequestData(java.util.Map.of("Authorization", "Bearer old"), null), "t", null, null, null,
+                CallLifecycleStatus.IN_PROGRESS, null, null, "svc"));
+        adapter.complete("id-1", new ResponseData(200, null, null), null, 1.0);
+        adapter.prepare(new CallRecord("id-2", "http://localhost:9001/y", "http://localhost:9001/y", "GET",
+                new RequestData(java.util.Map.of("Authorization", "Bearer new"), null), "t", null, null, null,
+                CallLifecycleStatus.IN_PROGRESS, null, null, "svc"));
+        adapter.complete("id-2", new ResponseData(200, null, null), null, 1.0);
+        adapter.prepare(new CallRecord("id-3", "http://other:9002/z", "http://other:9002/z", "GET",
+                new RequestData(java.util.Map.of("Authorization", "Bearer other"), null), "t", null, null, null,
+                CallLifecycleStatus.IN_PROGRESS, null, null, "svc"));
+        adapter.complete("id-3", new ResponseData(200, null, null), null, 1.0);
+
+        List<com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders> found =
+                adapter.recentRequestHeaders("localhost", 10);
+
+        assertThat(found).extracting(com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders::callId)
+                .containsExactly("id-2", "id-1");
+    }
+
+    @Test
+    void wsMessagesCapAtWsMaxMessagesAndCountDropped() throws Exception {
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
+        setField(adapter, "wsMaxMessages", 3);
+        List<com.fathy.alfred.backend.internalcalls.domain.model.WsMessage> batch =
+                java.util.stream.IntStream.rangeClosed(1, 5)
+                        .mapToObj(i -> new com.fathy.alfred.backend.internalcalls.domain.model.WsMessage(
+                                i, "client", 1000L * i, "text", "m" + i, null, null, null))
+                        .toList();
+
+        adapter.appendWsMessages("call-1", batch, false, null);
+
+        var page = adapter.wsMessages("call-1", 0, 10);
+        assertThat(page.messages()).extracting(com.fathy.alfred.backend.internalcalls.domain.model.WsMessage::seq)
+                .containsExactly(3, 4, 5);
+        assertThat(page.dropped()).isEqualTo(2);
+    }
+
+    @Test
+    void wsMessagesForACallTheRingHasEvictedArePrunedOnTheNextCompaction() throws Exception {
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"), 2);
+        String evictedId = UUID.randomUUID().toString();
+        adapter.prepare(prepared(evictedId));
+        adapter.complete(evictedId, new ResponseData(200, null, "ok"), null, 1.0);
+        adapter.appendWsMessages(evictedId, List.of(new com.fathy.alfred.backend.internalcalls.domain.model.WsMessage(
+                1, "client", 1000L, "text", "hi", null, null, null)), false, null);
+        assertThat(adapter.wsMessages(evictedId, 0, 10).messages()).hasSize(1);
+
+        // Two more calls push the ring (retentionRows=2) past evictedId.
+        for (int i = 0; i < 2; i++) {
+            String id = UUID.randomUUID().toString();
+            adapter.prepare(prepared(id));
+            adapter.complete(id, new ResponseData(200, null, "ok"), null, 1.0);
+        }
+
+        assertThat(adapter.wsMessages(evictedId, 0, 10).messages()).isEmpty();
     }
 
     @Test

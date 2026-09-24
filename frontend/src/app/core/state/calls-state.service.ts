@@ -7,7 +7,6 @@ import {
   CallOverlapCandidate,
   CallRecord,
   CallSummaryDto,
-  CallsClearedEvent,
   CallsWsMessage,
   InternalCallsWsMessage,
   SortMode,
@@ -15,6 +14,7 @@ import {
 } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
 import { PinService } from '../services/pin.service';
+import { WsMessagesEventsService } from '../services/ws-messages-events.service';
 import { AppConfigService } from '../services/app-config.service';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { CallViewMode } from '../../shared/utils/call-tree';
@@ -39,6 +39,7 @@ export type { CallStats, CallStatusFilter, SupplierGroup, SupplierOption } from 
 export class CallsStateService implements CallSelectionState, BulkSelectionState, CallListControlsState {
   private readonly api = inject(CallsApiService);
   private readonly pinService = inject(PinService);
+  private readonly wsMessagesEvents = inject(WsMessagesEventsService);
   private readonly config = inject(AppConfigService);
   private readonly internalLoggingApi = inject(InternalLoggingApiService);
 
@@ -237,7 +238,7 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     }
   }
 
-  private subscribeToWs<T extends { call: CallSummaryDto } | CallsClearedEvent>(wsUrl: string, source: CallEndpointSource): Subscription {
+  private subscribeToWs<T extends CallsWsMessage | InternalCallsWsMessage>(wsUrl: string, source: CallEndpointSource): Subscription {
     // Re-fetch on every reconnect, not just on every push: a call logged while the socket was away
     // is never pushed to this client at all, so without this it stays invisible until the NEXT
     // call happens to arrive - which on a quiet supplier can be a very long time.
@@ -246,7 +247,11 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     );
   }
 
-  private handleWsMessage(message: { call: CallSummaryDto } | CallsClearedEvent, source: CallEndpointSource): void {
+  private handleWsMessage(message: CallsWsMessage | InternalCallsWsMessage, source: CallEndpointSource): void {
+    if ('type' in message && message.type === 'ws-messages-appended') {
+      this.wsMessagesEvents.notifyAppended(message.callId);
+      return;
+    }
     if (!('call' in message)) {
       this.liveCalls.set([]);
       this.view.refresh();

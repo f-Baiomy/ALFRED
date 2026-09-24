@@ -7,9 +7,14 @@ import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
+import com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
+import com.fathy.alfred.backend.calls.domain.model.WsMessage;
+import com.fathy.alfred.backend.calls.domain.model.WsMessagesPage;
 
+import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -93,4 +98,51 @@ public interface CallLogPort {
 
     /** Permanently deletes every logged call - the Database settings tab's "Clear calls" action. */
     void deleteAll();
+
+    /**
+     * Appends one WebSocket connection's newly-batched messages to {@code callId}'s own list -
+     * capped at {@code alfred.calls.ws-max-messages} per call (oldest dropped first, counted).
+     * {@code closed}/{@code closeCode} are recorded so a caller inspecting an already-finished
+     * connection's messages can tell it ended cleanly. Silently a no-op for an unknown call id -
+     * a batch arriving after the call itself was trimmed by retention has nowhere left to go.
+     */
+    void appendWsMessages(String callId, List<WsMessage> messages, boolean closed, Integer closeCode);
+
+    /** One call's WebSocket messages, oldest first, paginated - see WsMessagesPage. */
+    WsMessagesPage wsMessages(String callId, int offset, int limit);
+
+    /** The largest page {@link #recentRequestHeaders} will ever return - see FindRecentRequestHeadersUseCase. */
+    int MAX_RECENT_REQUEST_HEADERS = 200;
+
+    /**
+     * The newest calls to {@code host}, request headers only, newest first, capped at
+     * {@link #MAX_RECENT_REQUEST_HEADERS}. Default implementation scans {@link #readAll()} in
+     * reverse (oldest-first order, per that method's own doc) - correct for the file adapter,
+     * which has nothing better to index into; SqliteCallsRepository overrides this with a query
+     * that never selects a body.
+     */
+    default List<RecentRequestHeaders> recentRequestHeaders(String host, int limit) {
+        int cap = Math.min(limit, MAX_RECENT_REQUEST_HEADERS);
+        List<RecentRequestHeaders> out = new ArrayList<>();
+        List<CallRecord> all = readAll();
+        for (int i = all.size() - 1; i >= 0 && out.size() < cap; i--) {
+            CallRecord call = all.get(i);
+            if (call.request() == null || !hostMatches(call.url(), host)) {
+                continue;
+            }
+            out.add(new RecentRequestHeaders(call.id(), call.request().headers()));
+        }
+        return out;
+    }
+
+    private static boolean hostMatches(String url, String host) {
+        if (url == null || host == null) {
+            return false;
+        }
+        try {
+            return host.equalsIgnoreCase(URI.create(url).getHost());
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
 }

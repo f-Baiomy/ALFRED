@@ -83,29 +83,86 @@ backend record and by `interception.py`'s `Match`), because the rules file on di
 than the container reading it, and silently widening a project-scoped rule to all traffic is the
 worst direction for that mistake to go.
 
-**Deliberately not implemented:** header, body and query matchers (they invite an expression
-grammar) and response-status matching (it cannot work in the request phase, where the decision to
-intercept has to be made). See [Adding a matcher](#adding-a-matcher).
+### Header, query and cookie matchers
+
+`RuleMatch` carries `headers`, `query` and `cookies` - each a list of `MatchTest(name, operator,
+value, caseSensitive)` with `Operator` one of `EXISTS`, `NOT_EXISTS`, `EQUALS`, `CONTAINS`,
+`MATCHES`. They are evaluated **after** the existing `source`/`serviceNames`/`methods`/`host`/
+`pathContains`/`pathRegex` checks - cheapest first, so a rule that fails on host never reads a
+header at all (`MatchingTest` in `test_interception.py` pins this by asserting the header was
+never read once a preceding check already failed). A `MATCHES` test compiles its regex once, at
+rule load, exactly like `pathRegex`. Header name comparison is case-insensitive regardless of
+`caseSensitive` (HTTP header names always are); `caseSensitive` only affects the value comparison.
+
+**Precedence note:** these tests combine with `stopProcessing` the same way every other match
+field does - a rule whose header test doesn't hold simply doesn't match, and evaluation moves on
+to the next rule, so `stopProcessing` on an earlier rule never suppresses a later rule whose own
+header check would have failed anyway (`MatchingTest`'s
+`stopProcessingDoesNotStopALaterRuleFromBeingEvaluatedIndependently`-style case).
+
+The frontend's `describeMatch` states these tests in plain language and masks the value when the
+tested header/cookie name is in the sensitive list - fetched from `GET
+/interception/sensitive-headers` (a `sensitiveHeaders` signal in `interception-state.service.ts`),
+never a second copy of `SensitiveHeaders.NAMES` in the frontend.
+
+**Still deliberately not implemented:** body matchers (they invite an expression grammar) and
+response-status matching (it cannot work in the request phase, where the decision to intercept has
+to be made). See [Adding a matcher](#adding-a-matcher).
 
 ## Actions
 
 A rule is a pipeline: **request actions → the host → response actions**. The editor draws it that
 way, because whether a call reaches the host decides whether the response half runs at all.
 
-| Request phase | Response phase |
-|---|---|
-| `DELAY_REQUEST` | `DELAY_RESPONSE` |
-| `SET_REQUEST_HEADER` / `REMOVE_REQUEST_HEADER` | `SET_RESPONSE_HEADER` / `REMOVE_RESPONSE_HEADER` |
-| `SET_QUERY_PARAM` / `REMOVE_QUERY_PARAM` | `SET_RESPONSE_STATUS` |
-| `SET_REQUEST_JSON_FIELD` | `SET_RESPONSE_JSON_FIELD` |
-| `SEND_TO_HOST` | `SET_RESPONSE_BODY`, `REPLACE_RESPONSE` |
-| `SIMULATE_FAILURE`, `MOCK_RESPONSE` | |
-| `PAUSE_REQUEST` | `PAUSE_RESPONSE` |
-| `IF_REQUEST` | `IF_RESPONSE` |
+| Request phase | Response phase | Message phase (WebSocket) |
+|---|---|---|
+| `DELAY_REQUEST` | `DELAY_RESPONSE` | `DELAY_MESSAGE` |
+| `SET_REQUEST_HEADER` / `REMOVE_REQUEST_HEADER` | `SET_RESPONSE_HEADER` / `REMOVE_RESPONSE_HEADER` | `REPLACE_IN_MESSAGE` |
+| `SET_REQUEST_TRAILER` / `REMOVE_REQUEST_TRAILER` | `SET_RESPONSE_TRAILER` / `REMOVE_RESPONSE_TRAILER` | `DROP_MESSAGE` |
+| `SET_QUERY_PARAM` / `REMOVE_QUERY_PARAM` | `SET_RESPONSE_STATUS` | |
+| `SET_REQUEST_JSON_FIELD` / `REMOVE_REQUEST_JSON_FIELD` | `SET_RESPONSE_JSON_FIELD` / `REMOVE_RESPONSE_JSON_FIELD` | |
+| `REPLACE_IN_REQUEST_BODY` | `REPLACE_IN_RESPONSE_BODY` | |
+| `SET_REQUEST_BODY` | `SET_RESPONSE_BODY` | |
+| `REWRITE_URL`, `SET_METHOD` | `SET_RESPONSE_ENCODING` | |
+| `SET_REQUEST_COOKIE` / `REMOVE_REQUEST_COOKIE` | `SET_RESPONSE_COOKIE` / `REMOVE_RESPONSE_COOKIE` | |
+| `SET_FORM_FIELD` / `REMOVE_FORM_FIELD` | | |
+| `DISABLE_CACHE`, `DISABLE_COMPRESSION` | | |
+| `ANSWER_WITH_RECORDED_CALL`, `ANSWER_WITH_FILE` | `REPLACE_WITH_RECORDED_RESPONSE` | |
+| `SEND_TO_HOST` | `REPLACE_RESPONSE` | |
+| `SIMULATE_FAILURE`, `MOCK_RESPONSE` | | |
+| `PAUSE_REQUEST` | `PAUSE_RESPONSE` | |
+| `IF_REQUEST` | `IF_RESPONSE` | |
 
 `ABORT_REQUEST` still runs for rules that already use it, but the editor no longer offers it - it
 is exactly `SIMULATE_FAILURE` with `CONNECTION_RESET`. `ActionType.isSelectable()` is what hides
 it, so the rule keeps working and only the picker moved on.
+
+### The MESSAGE lane
+
+`MESSAGE` is a third `ActionType.Phase`, next to `REQUEST`/`RESPONSE`: it runs once per WebSocket
+text message rather than once per call, and has neither a request nor a response of its own to
+change. `REPLACE_IN_MESSAGE` reuses the same `_Pattern` literal/regex machinery as
+`REPLACE_IN_REQUEST_BODY`/`REPLACE_IN_RESPONSE_BODY` (see [Find and replace](#json-field-paths)
+above), applied to one message's text and scoped by `messageDirection` (`to_server`/`to_client`).
+`DROP_MESSAGE` drops the message outright, or only when it `contains` a given substring.
+`DELAY_MESSAGE` returns a delay honoured with `asyncio.sleep()`, the same never-block rule as
+`DELAY_REQUEST`/`DELAY_RESPONSE`. A `MESSAGE` action cannot be nested inside `IF_REQUEST`/
+`IF_RESPONSE` - conditions branch on the HTTP exchange, and a WebSocket message has neither.
+
+`proxy/ws_messages.py`'s `MessageBatcher` is per-connection: it batches messages onto the same
+webhook queue the call log already uses (`{WEBHOOK_URL}/{call_id}/ws-messages`), flushing at 50
+messages or 500 ms, whichever comes first, and assigns each message its `seq` - a call has exactly
+one WebSocket connection, so that per-connection counter is already the call-scoped sequence
+`call_ws_message`'s primary key needs. `websocket_start` caches the rules that have MESSAGE
+actions for that flow (`match_for_websocket`); `websocket_message` awaits
+`InterceptionEngine.apply_message`, then applies whatever the verdict says (sleep, `message.drop()`,
+or assigns `message.text`/`.content` for an edit) before adding the message to the batch;
+`websocket_end` does the final flush carrying `closeCode`.
+
+`GET /calls/{id}/ws-messages` (and the backend-internal-calls equivalent) page the stored
+messages; a call card shows "WebSocket · N messages" for a status-101 call, loaded on expand, with
+an edited/dropped badge per message and "N earlier messages not recorded" when the store's cap
+dropped any (see [Logging integration](#logging-integration) below for the cap itself).
 
 ### Where the explanations live
 
@@ -282,6 +339,73 @@ kept in step by `RuleValidatorTest.acceptsTheDottedPathSubsetTheEngineImplements
 
 A body with no matching path is returned **byte-identical**, never re-serialised — so a 5.9 MB
 payload that no rule actually changed is not reformatted for nothing.
+
+### Regex safety
+
+`REPLACE_IN_REQUEST_BODY`/`REPLACE_IN_RESPONSE_BODY`/`REPLACE_IN_MESSAGE` and `REWRITE_URL`'s
+pattern form all default to **literal** find/replace; regex is opt-in per action
+(`regex: true`). Two independent layers keep a user-supplied pattern from taking the proxy down:
+
+- **`PatternSafety.problems(pattern, regex)`** (`backend-interception`) refuses the obviously
+  dangerous shapes at save time - nested quantifiers (`(a+)+`, `(a*)*`, `(a|aa)+`), named groups,
+  lookbehind, possessive/atomic groups, and anything over 500 characters. It is a character
+  scanner tracking group depth, not a regex - checking regex safety with more regex would be
+  answering the question with the question.
+- **`proxy/regex_worker.py`** is the backstop for whatever still runs long: one persistent
+  `multiprocessing` worker (context `forkserver`), talked to over a duplex `Pipe`, serialised
+  through an `asyncio.Lock`. CPython's `re` holds the GIL for the whole of a match, so a
+  pathological pattern backtracking for minutes would otherwise freeze every connection this proxy
+  is carrying - the module docstring spells this out. After `INTERCEPTION_REGEX_TIMEOUT_MS`
+  (default 2000ms) the worker is `terminate()`d, `join(1)`d, and a fresh one started for the next
+  request; the caller is told the match `timed_out` and the action is recorded as skipped
+  (`skipped - pattern timed out after N ms`), body untouched. The worker keeps an LRU of 64
+  compiled patterns, since a rule's pattern is the same on every call. The pipe wait runs on its
+  own single-thread `ThreadPoolExecutor`, never the default executor, so it can't queue behind
+  anything else.
+
+  Literal and case-sensitive matching never goes near any of this - `_Pattern` in
+  `interception.py` uses plain `str.count`/`str.replace` in-process; literal and
+  case-insensitive uses `re.escape` + `re.IGNORECASE` in-process too, since an escaped literal is
+  linear regardless of case folding. Only an action explicitly switched to `regex: true` pays for
+  the worker process.
+
+## Stored answers — answering with a recorded call or an uploaded file
+
+`ANSWER_WITH_RECORDED_CALL`/`REPLACE_WITH_RECORDED_RESPONSE` reproduce a response Alfred already
+logged (outbound or inbound, optionally scoped to a session-cycle capture); `ANSWER_WITH_FILE`
+serves a file uploaded through the editor. All three are backed by one `StoredAnswer` (`RECORDED`
+or `FILE` kind) - status, headers and body, published into `proxy/interception/answers/<id>.meta.json`
+and `.body` the same atomic-write-before-`rules.json` way the rules snapshot itself is published
+(see [How rules reach the proxy](#how-rules-reach-the-proxy)). `ANSWER_WITH_RECORDED_CALL` and
+`ANSWER_WITH_FILE` are terminal, exactly like `MOCK_RESPONSE`: the host is never contacted.
+`REPLACE_WITH_RECORDED_RESPONSE` is `MOCK_RESPONSE`'s counterpart to `REPLACE_RESPONSE` - the real
+call still happens and is logged, but the caller sees the recorded answer instead.
+
+**Keeping or stripping secrets.** Copying a call's response into a stored answer
+(`POST /interception/answers/from-call`) checks its headers (and any `Set-Cookie` cookies) against
+`SensitiveHeaders.NAMES`. If any are present and the caller hasn't said what to do, the service
+refuses with a `SecretsDecisionRequired(secretNames)` (409) rather than silently keeping or
+silently stripping - a decision this consequential doesn't get a default. The answer-picker's
+keep/strip dialog lists the names and warns that **kept secrets travel with exported rules** (a
+rules file with an embedded stored answer is a plausible way for a bearer token to leave the
+deployment), then retries the copy with an explicit `keepSecrets` flag. `keepSecrets=false` strips
+the sensitive headers and the cookies riding on `Set-Cookie` with them; `keepSecrets=true` keeps
+everything and records `secretsKept=true` on the answer's metadata so the UI can badge it. An
+answer with no secrets at all records `secretsKept=null` - "nothing to decide" is a third state,
+not folded into either boolean.
+
+**No total cap, one per-answer cap.** There is no limit on how many stored answers a deployment can
+hold - the constraint that matters is per-answer size
+(`alfred.interception.max-answer-bytes`, default 10MB, shared with the multipart upload limit), not
+a count. Instead, an answer is deleted when nothing references it any more: `release(before, after)`
+runs on every rule save and deletes an answer that a save just stopped referencing, plus a
+`@Scheduled` orphan sweep (`StoredAnswersService`, every 10 minutes) that deletes any answer unused
+for over an hour (`ORPHAN_GRACE`). The hour of grace is deliberate - deleting every unreferenced
+answer on save would delete one just picked in an open editor the moment another, unrelated rule
+gets saved. `_AnswerCache` on the proxy side is a separate, unrelated cap: an mtime-checked LRU
+bounded by `INTERCEPTION_ANSWER_CACHE_BYTES` (default 32MB), and it only accepts an id that fully
+matches the UUID pattern before joining it onto the answers directory - the path-traversal guard
+for `answerId`.
 
 ## Breakpoints — pausing a call
 
@@ -784,6 +908,35 @@ rewrote `authorization` records the header name only. Enforced at the source
 (`interception.py`'s `SENSITIVE_HEADERS`), and it matters because this text is echoed verbatim into
 every `.md`/`.html` export — the same constraint `redaction.model.ts` documents.
 
+**Masking mechanics.** `mask_value(value)` returns `f'(value not logged · {len(value)} chars)'` -
+the length survives because "auth header changed length" is still diagnostic without the token
+itself. `RuleSet` reads `sensitiveHeaders` from the published snapshot
+(`FileRulesPublisherAdapter`, sourced from `SensitiveHeaders.NAMES` - `BI/domain/model/
+SensitiveHeaders.java` - the single source of truth for the eight names, also exposed at `GET
+/interception/sensitive-headers` for the frontend), falling back to the proxy's own hardcoded
+`SENSITIVE_HEADERS` if the snapshot is missing the key. Masking applies uniformly: a header value
+in `_snapshot`'s before/after capture, `SET_QUERY_PARAM`'s `detail` when the parameter name is
+sensitive, a cookie or form-field value's `detail` (US4), and a `MatchTest`/condition's `detail`
+when the tested name is sensitive - one function, applied everywhere a value could otherwise leak,
+rather than reimplemented per action.
+
+### Resend headers
+
+A resent call (see the API section below) carries `X-Alfred-Resend-Of` and, when it was sent with
+edits, `X-Alfred-Resend-Edits` (a JSON-serialized `ResendEdits`) on its way back out through
+whichever proxy the original call went through. `take_resend_headers(flow, backend_addresses)` in
+`interception.py` pops both headers off the request **unconditionally** - so neither a rule nor the
+call log ever sees them, and a rule that happened to match on either header can never fire - and
+returns `(resend_of, resend_edits)` only when the peer address of the connection carrying the
+request is really the backend's own address (`backend_addresses`, resolved once from
+`BACKEND_HOST` via `socket.gethostbyname_ex`). Any other peer gets the headers stripped and the
+values discarded: a client could otherwise forge either header to make an ordinary call masquerade
+as a resend of another. Both addons call this at the very top of their `request` hook, before
+`InterceptionEngine.apply_request` ever runs, and thread the result into the `prepare` webhook
+payload as `resend_of`/`resend_edits` so the resulting `CallRecord` carries them. A malformed
+`resend_edits` value is treated as absent rather than raised - a bad header must not take the whole
+call down with it.
+
 `interception` is **null** for every call no rule touched, so an ordinary call's stored shape is
 unchanged by this feature existing.
 
@@ -964,6 +1117,73 @@ the status line, marked headers and marked body. The same rule returning a SOAP 
 > `navigator.clipboard` and never restored it, so whichever spec Karma happened to run next
 > inherited it — failing intermittently on nothing but spec order. It restores it now.
 
+## quickstart.md live verification
+
+Run against the rebuilt Docker stack (`docker compose up -d --build`, then `docker compose
+restart app-gateway`), through the real forward proxy at `127.0.0.2:443`, against `httpbin.org`
+and `postman-echo.com` as live upstreams (no local supplier was available in this environment).
+
+**A real deploy bug was caught and fixed by this pass**: `backend` crash-looped on startup with
+`No default constructor found` for `JdkHttpCallSender` — Spring couldn't disambiguate between its
+two constructors without an explicit `@Autowired`, and separately `alfred.resend.forward-proxy`
+in the constructor didn't match `alfred.resend.forward-proxy-host` in `application.properties`.
+Both fixed; the whole resend feature was unreachable in a real deploy until this fix.
+
+1. **Literal replace (US1)** — verified on a plain (uncompressed) body: `REPLACE_IN_RESPONSE_BODY`
+   `EUR`→`USD` against a POST echoed by `httpbin.org/anything`, `EUR` replaced everywhere, body
+   re-serialized correctly. The gzip decode/recompress path itself is exercised by
+   `test_interception.py`'s `CodecMessage` round-trip tests, not separately live-verified — no
+   gzip-compressed live target with controllable body text was available.
+2. **Regex timeout (US1, SC-003)** — not live-exercised (crafting a pattern that passes
+   `PatternSafety`'s nested-repeat/overlapping-alternative static check yet is still slow at 5 MB
+   is itself an adversarial-input search). Relying on `regex_worker.py`'s own dedicated timeout
+   suite (8 tests, all passing) and `PatternSafetyTest`'s 25 cases.
+3. **Rewrite URL (US2)** — measured: `REWRITE_URL` from `httpbin.org/get?qc=3` to
+   `postman-echo.com/get`, live response actually came back from `postman-echo.com` (its own
+   `cf-ray`/cookies present), `Host` header followed the new target, query string preserved, and
+   the interception record logged both targets: `https://httpbin.org/get?qc=3 →
+   https://postman-echo.com/get?qc=3`.
+4. **Remove JSON field (US3)** — measured: `REMOVE_RESPONSE_JSON_FIELD args.debug` against
+   `?debug=1&keep=yes` — `args` came back as `{"keep":"yes"}`, no `debug` key at all (not null).
+5. **Cookies (US4)** — measured: `REMOVE_REQUEST_COOKIE consent` against `Cookie: session=a;
+   consent=b; theme=c` — upstream received `Cookie: session=a; theme=c` byte-for-byte, and the
+   interception record showed `"Cookie":"(value not logged · 29 chars)"` / `"(value not logged ·
+   18 chars)"` for the before/after, never the raw value.
+6. **Encoding (US5)** — measured: `SET_RESPONSE_ENCODING br` on `httpbin.org/get`'s plain
+   response — `content-encoding: br` present on the wire, `curl --compressed` decoded it
+   transparently, and the decoded JSON matched the original byte-for-byte.
+7. **Recorded answer (US6, SC-004)** — measured: recorded a live `httpbin.org` call as an answer,
+   built a rule with `ANSWER_WITH_RECORDED_CALL`, then called the matching path 5 more times —
+   **34–37 ms** per call (vs. 595–650 ms for the real round trip earlier in the same run), same
+   latency class as `MOCK_RESPONSE`. The upstream was never re-contacted (`"upstream never
+   contacted"` in the record). The rule kept serving the answer after the source call was gone
+   from the log, confirming the answer is a copy, not a live reference.
+8. **File answer (US7)** — not live-exercised this pass (no multipart upload driven through the
+   real API in this session); covered by `StoredAnswersServiceTest`/`StoredAnswersControllerTest`
+   (upload, 413-over-limit, byte-exact serving).
+9. **Resend (US8, SC-008)** — measured: resent a live `httpbin.org` call outbound with an edited
+   header (`X-Resend-Test`). The new card showed `resend_of: <original call id>` and
+   `resend_edits: {"headers":["X-Resend-Test"]}`, and the edit reached the real upstream.
+10. **WebSocket (US9, SC-009)** — not live-exercised (no WebSocket echo endpoint was set up in
+    this environment for a sustained 100 msg/s × 20 s load test). Covered by
+    `ws_messages.py`'s `MessageBatcher` test suite (batching, cap, eviction) and
+    `MessageActionsTest`'s 9 proxy-side tests.
+11. **Trailers (US10)** — not live-exercised (needs a real HTTP/2 or gRPC endpoint that actually
+    sends trailers; curl/mitmproxy's plain HTTP/1.1 path here never has any). Covered by
+    `test_interception.py`'s `test_set_and_remove_request_trailer` /
+    `test_response_trailers` / the `trailers is None` skip-case tests.
+12. **Matchers (US11)** — measured: rule A (`host httpbin.org` + `header x-test EXISTS`,
+    `stopProcessing`, priority 5) and rule B (`host httpbin.org`, priority 10) — a call without
+    `x-test` got `X-Rule: B`; a call with `x-test: yes` got `X-Rule: A` only (B's `stopProcessing`
+    precedence held).
+13. **No-rule overhead (SC-002)** — measured: 60 calls to `httpbin.org` with interception ON
+    (published rules present, none matching) vs. 60 with interception OFF entirely — **p50 635 ms
+    ON vs. 641 ms OFF, p95 739 ms ON vs. 1,126 ms OFF** (OFF's tail was worse, from real internet
+    jitter to a public host, not proxy overhead). No measurable engine overhead when nothing
+    matches. This environment's numbers are dominated by real network variance to a public
+    internet host rather than local supplier latency — a controlled local-supplier run would give
+    tighter numbers, but the ON-vs-OFF parity is the claim being checked, and it held.
+
 ## Safety
 
 - **Off by default.** A feature that can change live traffic is never on because nobody said
@@ -1014,20 +1234,39 @@ cd proxy && python -m unittest test_interception -v
 ### Adding an action
 
 1. Add the constant to `ActionType` (Java) — the enum **is** the wire format, so the name must match
-   what the engine looks for. Put it in the right `Phase`: that is what decides which lane of the
-   editor's pipeline it appears in. (`MOCK_RESPONSE` is a REQUEST-phase action despite its name.)
-2. Add its required-field check to `RuleValidator.validateAction`.
-3. Handle it in `interception.py`'s `_apply_request_action` or `_apply_response_action`, and add it
-   to `REQUEST_ACTIONS` / `RESPONSE_ACTIONS`.
-4. Add a label to `ACTION_LABELS` and a field row to `rule-editor.component.html`.
+   what the engine looks for. Put it in the right `Phase` (`REQUEST`, `RESPONSE`, or `MESSAGE` for
+   a WebSocket action): that is what decides which lane of the editor's pipeline it appears in, and
+   is also what `phaseOf()`/`isTerminal()` derive - see below. (`MOCK_RESPONSE` is a REQUEST-phase
+   action despite its name.) If the action is terminal, add it to `ActionType.isTerminal()` too;
+   the frontend never hardcodes this list, it asks the backend (next point).
+2. Add its required-field check to `RuleValidator.validateAction`. The `switch` has no
+   catch-all-by-omission: an unmatched type falls to `default -> problems.add("Unknown action type
+   " + action.type() + ".")`, so a new `ActionType` with no case here is refused at save time
+   instead of reaching the proxy unvalidated.
+3. Handle it in `interception.py`'s `_apply_request_action`/`_apply_response_action`/
+   `_apply_message_action` (message-phase), and add it to `REQUEST_ACTIONS`/`RESPONSE_ACTIONS`/
+   `MESSAGE_ACTIONS`.
+4. Add a label to `ACTION_LABELS` and a field row to `rule-action-card.component.html`.
 5. Add defaults to `defaultsFor()` so a freshly added action is already valid.
 6. If it needs a condition, nothing to do - conditions are generic and work with any action of
-   the right phase.
+   the right phase (MESSAGE actions cannot be nested in `IF_REQUEST`/`IF_RESPONSE` at all, since a
+   WebSocket message has neither a request nor a response for the condition to inspect).
 7. If it takes a status, use `StatusPickerComponent`, never a number input - the thing a user
    knows is "service unavailable", not that it is 503.
 8. Add it to `EveryActionIsCoveredTest.SAMPLES` in `proxy/test_interception.py` — that suite walks
-   `REQUEST_ACTIONS`/`RESPONSE_ACTIONS` themselves, so this is a failing build, not a checklist
-   item you can miss.
+   `REQUEST_ACTIONS`/`RESPONSE_ACTIONS`/`MESSAGE_ACTIONS` themselves, so this is a failing build,
+   not a checklist item you can miss.
+
+**`phaseOf`/`isTerminal` come from the backend, not a hardcoded frontend list.**
+`InterceptionStateService.phaseOf(type)`/`isTerminal(type)` are computed from the `actionTypes`
+signal (`GET /interception/action-types`, which already carries each type's phase and terminal
+flag from `ActionType`). Every place that used to hardcode "these types are terminal" or "this type
+belongs to this phase" - `alwaysShortCircuits`/`conflictHint` in the rule editor, the import
+preview's terminal flag, the phase filter in the interception panel - now calls these two methods
+instead, with `actionPhase`'s old hardcoded logic kept only as a fallback used before the action
+types have loaded. This is why step 1 above (`Phase`, `isTerminal()`) is the only place a new
+action's terminal/phase status needs to be declared - nothing on the frontend needs a matching
+edit.
 
 The action picker reads `/interception/action-types`, so nothing needs a hardcoded list.
 
@@ -1054,6 +1293,8 @@ it does not, nothing is, and it belongs in that test's `NO_CHANGE` map with the 
 - **Per-rule hit counts** in the UI. The proxy reports a rule firing on the call webhook rather than
   writing back into the rules store on every request, so the counts have to be derived from logged
   calls.
-- **`backend-internal-calls`** stores no interception record yet — inbound rules *apply* correctly,
-  but the record does not appear on an inbound call's log entry. That slice has no SQLite adapter
-  and its own flat-file shape; outbound (`backend-calls`) is complete.
+- **WebSocket messages captured into a session cycle.** A cycle's captured-calls store has no
+  `wsMessages`/`ws_message_count` column yet, so a WebSocket call captured into a recording cycle
+  shows no message list on that cycle's own detail page, even though the identical call on Live
+  Calls shows it correctly (the same shape of gap `docs/architecture.md`'s "A call captured into a
+  cycle" note describes for `timing`/`interception`).

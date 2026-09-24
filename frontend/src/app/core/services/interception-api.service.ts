@@ -102,6 +102,15 @@ export class InterceptionApiService {
     return this.http.get<StoredAnswer>(`${this.baseUrl}/answers/${encodeURIComponent(id)}`);
   }
 
+  /** Answers 201 with the answer, or 413/415 - the ANSWER_WITH_FILE counterpart of copyAnswerFromCall. */
+  uploadAnswer(file: File, contentType?: string | null, status?: number | null): Observable<StoredAnswer> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    if (contentType) form.append('contentType', contentType);
+    if (status != null) form.append('status', String(status));
+    return this.http.post<StoredAnswer>(`${this.baseUrl}/answers`, form);
+  }
+
   /** Summaries only - no request/response bodies. See getPausedDetail for why. */
   listPaused(): Observable<PausedCall[]> {
     return this.http.get<PausedCall[]>(`${this.baseUrl}/paused`);

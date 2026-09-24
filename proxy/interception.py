@@ -33,6 +33,7 @@ import email.utils
 import json
 import os
 import re
+import socket
 import time
 import urllib.parse
 from http import HTTPStatus
@@ -59,32 +60,39 @@ MAX_PAUSE_SECONDS = int(os.environ.get('INTERCEPTION_MAX_PAUSE_SECONDS', '300'))
 
 REQUEST_ACTIONS = {
     'DELAY_REQUEST', 'SET_REQUEST_HEADER', 'REMOVE_REQUEST_HEADER',
+    'SET_REQUEST_TRAILER', 'REMOVE_REQUEST_TRAILER',
     'SET_QUERY_PARAM', 'REMOVE_QUERY_PARAM', 'SET_REQUEST_JSON_FIELD',
     'REPLACE_IN_REQUEST_BODY', 'REWRITE_URL', 'SET_METHOD',
     'REMOVE_REQUEST_JSON_FIELD', 'SET_REQUEST_BODY',
     'SET_REQUEST_COOKIE', 'REMOVE_REQUEST_COOKIE', 'SET_FORM_FIELD', 'REMOVE_FORM_FIELD',
-    'DISABLE_CACHE', 'DISABLE_COMPRESSION', 'ANSWER_WITH_RECORDED_CALL',
+    'DISABLE_CACHE', 'DISABLE_COMPRESSION', 'ANSWER_WITH_RECORDED_CALL', 'ANSWER_WITH_FILE',
     'ABORT_REQUEST', 'MOCK_RESPONSE', 'PAUSE_REQUEST', 'SEND_TO_HOST',
     'SIMULATE_FAILURE', 'IF_REQUEST',
 }
 RESPONSE_ACTIONS = {
     'DELAY_RESPONSE', 'SET_RESPONSE_STATUS', 'SET_RESPONSE_HEADER',
-    'REMOVE_RESPONSE_HEADER', 'SET_RESPONSE_JSON_FIELD', 'SET_RESPONSE_BODY',
+    'REMOVE_RESPONSE_HEADER', 'SET_RESPONSE_TRAILER', 'REMOVE_RESPONSE_TRAILER',
+    'SET_RESPONSE_JSON_FIELD', 'SET_RESPONSE_BODY',
     'REPLACE_IN_RESPONSE_BODY', 'REMOVE_RESPONSE_JSON_FIELD',
     'SET_RESPONSE_COOKIE', 'REMOVE_RESPONSE_COOKIE', 'SET_RESPONSE_ENCODING',
     'REPLACE_WITH_RECORDED_RESPONSE',
     'REPLACE_RESPONSE', 'PAUSE_RESPONSE', 'IF_RESPONSE',
 }
 
+# A WebSocket message action runs once per message, after the handshake - a third lane alongside
+# REQUEST_ACTIONS/RESPONSE_ACTIONS (see ActionType.Phase.MESSAGE in the backend).
+MESSAGE_ACTIONS = {'REPLACE_IN_MESSAGE', 'DROP_MESSAGE', 'DELAY_MESSAGE'}
+
 def _known_action(kind):
     """Whether ANY phase of this engine understands `kind`. Anything else came from a rules file
     newer than this proxy, and is recorded as skipped rather than silently ignored."""
-    return kind in REQUEST_ACTIONS or kind in RESPONSE_ACTIONS
+    return kind in REQUEST_ACTIONS or kind in RESPONSE_ACTIONS or kind in MESSAGE_ACTIONS
 
 
 # An action that ends the request phase: there is no upstream request left for a later rule to
 # modify, so evaluation stops rather than silently applying edits to something already gone.
-TERMINAL_REQUEST_ACTIONS = {'ABORT_REQUEST', 'MOCK_RESPONSE', 'SIMULATE_FAILURE', 'ANSWER_WITH_RECORDED_CALL'}
+TERMINAL_REQUEST_ACTIONS = {'ABORT_REQUEST', 'MOCK_RESPONSE', 'SIMULATE_FAILURE', 'ANSWER_WITH_RECORDED_CALL',
+                             'ANSWER_WITH_FILE'}
 
 # What SIMULATE_FAILURE can reproduce - the mirror of the backend's FailureMode enum, matched by
 # string. Everything a supplier does that is NOT a status code.
@@ -142,7 +150,62 @@ def _masked_snapshot(snapshot, names):
     masked = dict(snapshot)
     masked['headers'] = {k: (mask_value(v) if _sensitive(k, names) else v)
                          for k, v in snapshot['headers'].items()}
+    if snapshot.get('trailers') is not None:
+        masked['trailers'] = {k: (mask_value(v) if _sensitive(k, names) else v)
+                              for k, v in snapshot['trailers'].items()}
     return masked
+
+
+# The two headers Alfred's own resend feature (backend-resend) adds so the resent call can be
+# linked back to its original - see docs/interception.md. Named after Alfred, not mitmproxy: a
+# client sending these on an ordinary call must never be able to make it masquerade as a resend.
+RESEND_OF_HEADER = 'X-Alfred-Resend-Of'
+RESEND_EDITS_HEADER = 'X-Alfred-Resend-Edits'
+
+
+def take_resend_headers(flow, backend_addresses):
+    """Pops X-Alfred-Resend-Of/X-Alfred-Resend-Edits off the request - always, so neither a rule
+    nor the call log ever sees them, and a rule matching on either header can never fire - and
+    returns (resend_of, resend_edits) only when the caller that set them really is Alfred's own
+    backend, identified by the peer address of the connection carrying the request. A client could
+    otherwise forge either header to make an ordinary call masquerade as a resend of another.
+
+    resend_edits arrives as a JSON string (backend-resend's ResendEdits, serialized); a value that
+    fails to parse is treated as absent rather than raised, since a malformed header must not take
+    the whole call down with it.
+    """
+    headers = flow.request.headers
+    resend_of = headers.get(RESEND_OF_HEADER)
+    resend_edits_raw = headers.get(RESEND_EDITS_HEADER)
+    if RESEND_OF_HEADER in headers:
+        del headers[RESEND_OF_HEADER]
+    if RESEND_EDITS_HEADER in headers:
+        del headers[RESEND_EDITS_HEADER]
+
+    peer = getattr(flow.client_conn, 'peername', None)
+    if not peer or peer[0] not in (backend_addresses or ()):
+        return None, None
+
+    resend_edits = None
+    if resend_edits_raw:
+        try:
+            resend_edits = json.loads(resend_edits_raw)
+        except (TypeError, ValueError):
+            resend_edits = None
+    return (resend_of or None), resend_edits
+
+
+def resolve_backend_addresses(backend_host=None):
+    """The IP addresses BACKEND_HOST currently resolves to, refreshed once per addon startup -
+    resolved by IP rather than by hostname because flow.client_conn.peername is always an IP.
+    Returns an empty tuple (never raises) when the host can't be resolved yet, e.g. before Docker's
+    embedded DNS has the backend container's name - the resend headers are then simply never
+    trusted until the next process restart, rather than crashing the addon."""
+    host = backend_host if backend_host is not None else os.environ.get('BACKEND_HOST', 'backend')
+    try:
+        return tuple(socket.gethostbyname_ex(host)[2])
+    except OSError:
+        return ()
 
 
 def _snapshot(message, include_target=False):
@@ -157,6 +220,9 @@ def _snapshot(message, include_target=False):
     except Exception:
         body = None
     snapshot = {'headers': dict(message.headers), 'body': body}
+    trailers = getattr(message, 'trailers', None)
+    if trailers is not None:
+        snapshot['trailers'] = dict(trailers)
     status = getattr(message, 'status_code', None)
     if status is not None:
         snapshot['status'] = status
@@ -1750,6 +1816,26 @@ class InterceptionEngine:
                 verdict.skip(rule, kind, 'no such header')
             return
 
+        if kind == 'SET_REQUEST_TRAILER':
+            name = (action.get('name') or '').strip()
+            if request.trailers is None:
+                verdict.skip(rule, kind, 'no trailers')
+            elif name:
+                request.trailers[name] = str(action.get('value', ''))
+                verdict.record(rule, kind, verdict.named(name))
+            return
+
+        if kind == 'REMOVE_REQUEST_TRAILER':
+            name = (action.get('name') or '').strip()
+            if request.trailers is None:
+                verdict.skip(rule, kind, 'no trailers')
+            elif name and name in request.trailers:
+                del request.trailers[name]
+                verdict.record(rule, kind, name)
+            elif name:
+                verdict.skip(rule, kind, 'no such trailer')
+            return
+
         if kind == 'SET_QUERY_PARAM':
             name = (action.get('name') or '').strip()
             if name:
@@ -1905,6 +1991,22 @@ class InterceptionEngine:
             verdict.record(rule, kind, f'recorded answer {meta.get("id", "")}, {status}, upstream never contacted')
             return
 
+        if kind == 'ANSWER_WITH_FILE':
+            if verdict.must_reach_host:
+                verdict.record(rule, kind, 'skipped - an earlier rule requires this call to reach the host')
+                return
+            loaded, reason = await self._answers.load(action.get('answerId'))
+            if loaded is None:
+                # The call goes on to the host: a missing answer must not become an invented one.
+                verdict.skip(rule, kind, reason)
+                return
+            meta, body = loaded
+            status, headers, body = answer_parts(meta, body, action)
+            verdict.terminal = 'MOCK_RESPONSE'
+            verdict.mock = {'status': status, 'headers': headers, 'body_bytes': body}
+            verdict.record(rule, kind, f'uploaded file {meta.get("id", "")}, {status}, upstream never contacted')
+            return
+
         if kind == 'SIMULATE_FAILURE':
             if verdict.must_reach_host:
                 verdict.record(rule, kind, 'skipped - an earlier rule requires this call to reach the host')
@@ -2042,6 +2144,26 @@ class InterceptionEngine:
                 verdict.skip(rule, kind, 'no such header')
             return
 
+        if kind == 'SET_RESPONSE_TRAILER':
+            name = (action.get('name') or '').strip()
+            if response.trailers is None:
+                verdict.skip(rule, kind, 'no trailers')
+            elif name:
+                response.trailers[name] = str(action.get('value', ''))
+                verdict.record(rule, kind, verdict.named(name))
+            return
+
+        if kind == 'REMOVE_RESPONSE_TRAILER':
+            name = (action.get('name') or '').strip()
+            if response.trailers is None:
+                verdict.skip(rule, kind, 'no trailers')
+            elif name and name in response.trailers:
+                del response.trailers[name]
+                verdict.record(rule, kind, name)
+            elif name:
+                verdict.skip(rule, kind, 'no such trailer')
+            return
+
         if kind == 'SET_RESPONSE_JSON_FIELD':
             updated = set_json_field(response.text, action.get('path'), action.get('value'))
             if updated is not None:
@@ -2146,6 +2268,100 @@ class InterceptionEngine:
             'ruleId': rule.id,
             'ruleName': rule.name,
         }
+
+    def match_for_websocket(self, flow, service_name=None):
+        """The rules with at least one MESSAGE action that match this flow - resolved ONCE, at the
+        handshake (websocket_start), not per message: a WebSocket connection can carry thousands of
+        messages, and re-running every rule's match against the same request for each one would be
+        pure waste when the request never changes after the handshake."""
+        ruleset = self._cache.current()
+        if ruleset.inert:
+            return ()
+        request = flow.request
+        host = (request.pretty_host or request.host or '')
+        path = request.path or ''
+        out = []
+        for rule in ruleset.rules:
+            if not any(a.get('type') in MESSAGE_ACTIONS for a in rule.actions):
+                continue
+            try:
+                if rule.match.matches(self.source, service_name, request.method, host, path, request):
+                    out.append(rule)
+                    if rule.stop_processing:
+                        break
+            except Exception as e:
+                print(f"[interception] rule {rule.name!r} failed to match, skipping: {e}")
+        return out
+
+    async def apply_message(self, rules, message, from_client):
+        """Applies every MESSAGE action of the given (pre-matched) rules to one WebSocket message,
+        in rule order. `rules` is whatever match_for_websocket returned for this connection.
+
+        DROP_MESSAGE is terminal for the message the same way a request-phase terminal is for a
+        call: once a message is dropped, no later action has anything left to act on."""
+        verdict = MessageVerdict()
+        direction = 'client' if from_client else 'server'
+        for rule in rules:
+            for action in rule.actions:
+                kind = action.get('type')
+                if kind not in MESSAGE_ACTIONS:
+                    if not _known_action(kind):
+                        verdict.skip(rule, kind, f'unknown action {kind}')
+                    continue
+                wants = (action.get('messageDirection') or 'both')
+                if wants not in ('both', direction):
+                    continue
+                if kind == 'DROP_MESSAGE':
+                    contains = action.get('contains')
+                    if contains and not (message.is_text and contains in message.text):
+                        verdict.skip(rule, kind, 'no match')
+                        continue
+                    verdict.dropped = True
+                    verdict.record(rule, kind, 'dropped')
+                    return verdict
+                if kind == 'DELAY_MESSAGE':
+                    ms = _clamp_delay(action.get('durationMs'))
+                    if ms:
+                        verdict.delay_ms += ms
+                        verdict.record(rule, kind, f'{ms} ms')
+                    continue
+                if kind == 'REPLACE_IN_MESSAGE':
+                    if not message.is_text:
+                        verdict.skip(rule, kind, 'binary message')
+                        continue
+                    pattern = action.get('__pattern') or _Pattern(action)
+                    new_text, n, reason = await pattern.replace(message.text)
+                    if new_text is None:
+                        verdict.skip(rule, kind, reason)
+                        continue
+                    if verdict.original is None:
+                        verdict.original = message.text
+                    message.text = new_text
+                    verdict.edited = new_text
+                    verdict.record(rule, kind, f'{n} replacement' + ('' if n == 1 else 's'))
+                    continue
+        return verdict
+
+
+class MessageVerdict:
+    """What happened to one WebSocket message - the MESSAGE-phase counterpart of Verdict, much
+    smaller because a message has no delay-vs-pause distinction, no terminal-vs-mock split, and
+    only one "before" to keep (its own original content, not a whole request/response pair)."""
+
+    __slots__ = ('delay_ms', 'dropped', 'edited', 'original', 'applied')
+
+    def __init__(self):
+        self.delay_ms = 0
+        self.dropped = False
+        self.edited = None
+        self.original = None
+        self.applied = []
+
+    def record(self, rule, action, detail=None):
+        self.applied.append(Applied(rule.id, rule.name, action, detail))
+
+    def skip(self, rule, action, reason):
+        self.record(rule, action, f'skipped - {reason}')
 
 
 # Metadata a breakpoint decision leaves on the flow, so the response half of a call can honour

@@ -343,11 +343,17 @@
         }
 
         @if (editor.usesAnswer(step.action.type)) {
-          <app-answer-picker [answerId]="step.action.answerId" (answerChange)="editor.onAnswer(step.path, $event)" />
-          <label class="inline-field span-all">
-            <input type="checkbox" [checked]="step.action.refreshDates === true" (change)="editor.onToggle(step.path, 'refreshDates', $event)" />
-            <span>Refresh dates — move Date, Expires and cookie expiry forward to now</span>
-          </label>
+          <app-answer-picker
+            [answerId]="step.action.answerId"
+            [uploadMode]="editor.usesUploadedAnswer(step.action.type)"
+            (answerChange)="editor.onAnswer(step.path, $event)"
+          />
+          @if (!editor.usesUploadedAnswer(step.action.type)) {
+            <label class="inline-field span-all">
+              <input type="checkbox" [checked]="step.action.refreshDates === true" (change)="editor.onToggle(step.path, 'refreshDates', $event)" />
+              <span>Refresh dates — move Date, Expires and cookie expiry forward to now</span>
+            </label>
+          }
           <small class="muted span-all">Deleting this rule deletes its stored answer, unless another rule uses it too.</small>
         }
 
@@ -508,6 +514,51 @@
             />
           </div>
           <small class="muted span-all">The caller's connection is held open the whole time it is paused.</small>
+        }
+
+        @if (editor.isMessageAction(step.action.type)) {
+          <div class="inline-field">
+            <span>Direction</span>
+            <app-select-picker
+              [options]="editor.messageDirectionOptions"
+              [value]="step.action.messageDirection ?? 'both'"
+              (valueChange)="editor.onMessageDirectionChange(step.path, $event)"
+            />
+          </div>
+
+          @if (step.action.type === 'REPLACE_IN_MESSAGE') {
+            <label class="inline-field grow">
+              <span>Find</span>
+              <input type="text" [value]="step.action.pattern ?? ''" (input)="editor.onText(step.path, 'pattern', $event)" placeholder="ping" />
+            </label>
+            <label class="inline-field grow">
+              <span>Replace with</span>
+              <input type="text" [value]="step.action.replacement ?? ''" (input)="editor.onText(step.path, 'replacement', $event)" placeholder="pong" />
+            </label>
+            <label class="inline-field">
+              <input type="checkbox" [checked]="step.action.regex === true" (change)="editor.onToggle(step.path, 'regex', $event)" />
+              <span>Regex</span>
+            </label>
+            <label class="inline-field">
+              <input type="checkbox" [checked]="step.action.caseSensitive !== false" (change)="editor.onToggle(step.path, 'caseSensitive', $event)" />
+              <span>Match case</span>
+            </label>
+          }
+
+          @if (step.action.type === 'DROP_MESSAGE') {
+            <label class="inline-field grow span-all">
+              <span>Only messages containing</span>
+              <input type="text" [value]="step.action.contains ?? ''" (input)="editor.onText(step.path, 'contains', $event)" placeholder="leave empty to drop every message" />
+            </label>
+          }
+
+          @if (step.action.type === 'DELAY_MESSAGE') {
+            <label class="inline-field">
+              <span>Delay</span>
+              <input type="number" min="0" [value]="step.action.durationMs" (input)="editor.onNumber(step.path, 'durationMs', $event)" />
+              <em>ms</em>
+            </label>
+          }
         }
       </div>
     } @else {

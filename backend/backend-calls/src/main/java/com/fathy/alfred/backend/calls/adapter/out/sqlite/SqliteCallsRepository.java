@@ -80,6 +80,10 @@ public class SqliteCallsRepository {
     @Value("${alfred.storage.calls.max-size-bytes:107374182400}")
     private long maxSizeBytes;
 
+    /** Per-call cap on retained WebSocket messages - see data-model.md §8. */
+    @Value("${alfred.calls.ws-max-messages:1000}")
+    private int wsMaxMessages;
+
     private HikariDataSource dataSource;
     private JdbcTemplate jdbcTemplate;
     private volatile boolean ftsAvailable;
@@ -236,6 +240,7 @@ public class SqliteCallsRepository {
         addSessionOperationColumnsIfMissing();
         addServiceNameColumnIfMissing();
         addTimingColumnsIfMissing();
+        addResendColumnsIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS call_request (
                   call_id TEXT PRIMARY KEY REFERENCES call_metadata(id) ON DELETE CASCADE,
@@ -250,6 +255,14 @@ public class SqliteCallsRepository {
                   body TEXT
                 )
                 """);
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS call_ws_message(
+                  call_id TEXT NOT NULL REFERENCES call_metadata(id) ON DELETE CASCADE,
+                  seq INTEGER NOT NULL, direction TEXT NOT NULL, ts_millis INTEGER NOT NULL,
+                  type TEXT NOT NULL, content TEXT, content_base64 TEXT, original_content TEXT,
+                  action TEXT, PRIMARY KEY(call_id, seq))
+                """);
+        addWsColumnsIfMissing();
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_timestamp_millis ON call_metadata(timestamp_millis)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_supplier ON call_metadata(supplier)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_status_rank ON call_metadata(status_rank)");
@@ -284,6 +297,87 @@ public class SqliteCallsRepository {
         // Nullable because almost every call has none.
         if (!columns.contains("interception")) {
             jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN interception TEXT");
+        }
+    }
+
+    private static final String INSERT_WS_MESSAGE_SQL = """
+            INSERT OR REPLACE INTO call_ws_message
+                (call_id, seq, direction, ts_millis, type, content, content_base64, original_content, action)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            """;
+
+    /**
+     * `seq` is assigned by the proxy's per-connection batcher (ws_messages.MessageBatcher), not
+     * here - a call has exactly one WebSocket connection, so the batcher's own 1-based counter is
+     * already the call-scoped sequence this table's primary key needs.
+     */
+    public void appendWsMessages(String callId, List<com.fathy.alfred.backend.calls.domain.model.WsMessage> messages,
+                                  boolean closed, Integer closeCode) {
+        List<String> found = jdbcTemplate.query("SELECT id FROM call_metadata WHERE id = ?",
+                (rs, n) -> rs.getString("id"), callId);
+        if (found.isEmpty()) {
+            return;
+        }
+        for (var message : messages) {
+            jdbcTemplate.update(INSERT_WS_MESSAGE_SQL, callId, message.seq(), message.direction(), message.tsMillis(),
+                    message.type(), message.content(), message.contentBase64(), message.originalContent(), message.action());
+        }
+        int droppedNow = 0;
+        if (!messages.isEmpty()) {
+            Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM call_ws_message WHERE call_id = ?", Integer.class, callId);
+            if (count != null && count > wsMaxMessages) {
+                droppedNow = count - wsMaxMessages;
+                jdbcTemplate.update("""
+                        DELETE FROM call_ws_message WHERE call_id = ? AND seq IN (
+                            SELECT seq FROM call_ws_message WHERE call_id = ? ORDER BY seq ASC LIMIT ?)
+                        """, callId, callId, droppedNow);
+            }
+        }
+        jdbcTemplate.update("""
+                UPDATE call_metadata
+                SET ws_message_count = COALESCE(ws_message_count, 0) + ? - ?, ws_dropped = COALESCE(ws_dropped, 0) + ?
+                WHERE id = ?
+                """, messages.size(), droppedNow, droppedNow, callId);
+    }
+
+    public com.fathy.alfred.backend.calls.domain.model.WsMessagesPage wsMessages(String callId, int offset, int limit) {
+        List<com.fathy.alfred.backend.calls.domain.model.WsMessage> messages = jdbcTemplate.query("""
+                SELECT seq, direction, ts_millis, type, content, content_base64, original_content, action
+                FROM call_ws_message WHERE call_id = ? ORDER BY seq ASC LIMIT ? OFFSET ?
+                """, (rs, n) -> new com.fathy.alfred.backend.calls.domain.model.WsMessage(
+                        rs.getInt("seq"), rs.getString("direction"), rs.getLong("ts_millis"), rs.getString("type"),
+                        rs.getString("content"), rs.getString("content_base64"), rs.getString("original_content"), rs.getString("action")),
+                callId, limit, offset);
+        List<int[]> counts = jdbcTemplate.query(
+                "SELECT COALESCE(ws_message_count, 0), COALESCE(ws_dropped, 0) FROM call_metadata WHERE id = ?",
+                (rs, n) -> new int[] {rs.getInt(1), rs.getInt(2)}, callId);
+        int total = counts.isEmpty() ? 0 : counts.get(0)[0];
+        int dropped = counts.isEmpty() ? 0 : counts.get(0)[1];
+        return new com.fathy.alfred.backend.calls.domain.model.WsMessagesPage(messages, total, dropped);
+    }
+
+    private void addWsColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("ws_message_count")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN ws_message_count INTEGER");
+        }
+        if (!columns.contains("ws_dropped")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN ws_dropped INTEGER");
+        }
+    }
+
+    /**
+     * {@code resend_of}/{@code resend_edits} postdate every other column - added the same ALTER
+     * TABLE way. Known at prepare time (unlike interception, which is only known at completion),
+     * so they are written by the initial INSERT, not the completion UPDATE.
+     */
+    private void addResendColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("resend_of")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN resend_of TEXT");
+        }
+        if (!columns.contains("resend_edits")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN resend_edits TEXT");
         }
     }
 
@@ -426,8 +520,8 @@ public class SqliteCallsRepository {
     private static final String INSERT_METADATA_SQL = """
             INSERT INTO call_metadata (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
                                status, status_rank, supplier, supplier_name, error, haystack, status_state, request_haystack,
-                               session_id, operation_id, service_name)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                               session_id, operation_id, service_name, resend_of, resend_edits)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO call_request (call_id, headers, body) VALUES (?,?,?)";
@@ -471,6 +565,8 @@ public class SqliteCallsRepository {
         ps.setString(16, normalized.sessionId());
         ps.setString(17, normalized.operationId());
         ps.setString(18, normalized.serviceName());
+        ps.setString(19, normalized.resendOf());
+        ps.setString(20, writeJson(normalized.resendEdits()));
     }
 
     /** Binds one call's request-table row - always inserted (headers/body null if there is no request data). */
@@ -683,7 +779,7 @@ public class SqliteCallsRepository {
     private static final int MAX_OVERLAP_ROWS = 5000;
 
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception, resend_of, resend_edits FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -885,10 +981,37 @@ public class SqliteCallsRepository {
      * SessionCycleCaptureAdapter has no such correction - whatever it's handed here is what gets
      * written to captured_call_metadata, permanently.
      */
+    private static final String RECENT_REQUEST_HEADERS_SQL = """
+            SELECT cm.id, cr.headers AS request_headers
+            FROM call_metadata cm
+            JOIN call_request cr ON cr.call_id = cm.id
+            WHERE cm.url LIKE ? OR cm.url LIKE ? OR cm.url LIKE ? OR cm.url LIKE ?
+            ORDER BY cm.timestamp_millis DESC
+            LIMIT ?
+            """;
+
+    /**
+     * Never selects call_request.body or anything from call_response - see FindRecentRequestHeadersUseCase.
+     * The four patterns are a host-boundary match without a dedicated host column (scheme-agnostic,
+     * since the boundary that matters is what follows the host): exactly {@code ://host} at the end
+     * of the url, or followed by {@code /}, {@code :} (a port) or {@code ?} - so "api.example.com"
+     * never matches "api.example.com.evil.com".
+     */
+    public List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> recentRequestHeaders(String host, int limit) {
+        int cap = Math.min(limit, com.fathy.alfred.backend.calls.application.port.out.CallLogPort.MAX_RECENT_REQUEST_HEADERS);
+        String suffix = "://" + host;
+        return jdbcTemplate.query(RECENT_REQUEST_HEADERS_SQL, (rs, rowNum) ->
+                        new com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders(
+                                rs.getString("id"), fromJson(rs.getString("request_headers"))),
+                "%" + suffix + "/%", "%" + suffix + ":%", "%" + suffix + "?%", "%" + suffix,
+                cap);
+    }
+
     private static final String DETAIL_SQL = """
             SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id, cm.service_name,
                    cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
+                   cm.resend_of, cm.resend_edits,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM call_metadata cm
@@ -915,6 +1038,7 @@ public class SqliteCallsRepository {
                 SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                        cm.session_id, cm.operation_id, cm.service_name,
                        cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
+                       cm.resend_of, cm.resend_edits,
                        cr.headers AS request_headers, cr.body AS request_body,
                        cp.headers AS response_headers, cp.body AS response_body
                 FROM call_metadata cm
@@ -1082,7 +1206,9 @@ public class SqliteCallsRepository {
                 rs.getString("operation_id"),
                 rs.getString("service_name"),
                 timingOf(rs),
-                interceptionOf(rs));
+                interceptionOf(rs),
+                rs.getString("resend_of"),
+                resendEditsOf(rs));
     };
 
     /** Reads a row of the OLD (pre-split) single-table {@code calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. That legacy table predates service_name entirely (it predates even session_id/operation_id), so this always passes null for it rather than reading a column that was never added to {@code calls}. */
@@ -1179,7 +1305,9 @@ public class SqliteCallsRepository {
                 rs.getString("operation_id"),
                 rs.getString("service_name"),
                 timingOf(rs),
-                interceptionOf(rs));
+                interceptionOf(rs),
+                rs.getString("resend_of"),
+                resendEditsOf(rs));
     };
 
     /**
@@ -1221,6 +1349,31 @@ public class SqliteCallsRepository {
 
     private static final com.fasterxml.jackson.databind.ObjectMapper INTERCEPTION_MAPPER =
             new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** Stored as JSON text, opaque to this repository - see CallRecord.resendEdits. */
+    private String writeJson(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.writeValueAsString(value);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.warn("Could not store resend edits for a call: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static Object resendEditsOf(ResultSet rs) throws SQLException {
+        String json = rs.getString("resend_edits");
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.readValue(json, Object.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return null;
+        }
+    }
 
     private static CallTiming timingOf(ResultSet rs) throws SQLException {
         Double connect = nullableDouble(rs, "connect_ms");

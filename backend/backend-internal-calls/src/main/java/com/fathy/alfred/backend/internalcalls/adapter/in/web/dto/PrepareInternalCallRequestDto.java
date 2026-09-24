@@ -11,6 +11,9 @@ import com.fathy.alfred.backend.internalcalls.domain.model.RequestData;
  * X-Session-ID/X-Operation-Id header values - same blank-fallback treatment (stays null, never
  * invented server-side). {@code serviceName} is the project name proxy/log_and_route_reverse.py
  * resolved this flow's arrival port to (or its "unknown" bucket) - always sent, never blank.
+ * {@code resendOf}/{@code resendEdits} are taken from the X-Alfred-Resend-Of/X-Alfred-Resend-Edits
+ * request headers (see PX/interception.py's take_resend_headers) - present only when this call
+ * was sent through Alfred's own resend feature.
  */
 public record PrepareInternalCallRequestDto(
         String id,
@@ -21,6 +24,8 @@ public record PrepareInternalCallRequestDto(
         String timestamp,
         @JsonProperty("session_id") String sessionId,
         @JsonProperty("operation_id") String operationId,
-        @JsonProperty("service_name") String serviceName
+        @JsonProperty("service_name") String serviceName,
+        @JsonProperty("resend_of") String resendOf,
+        @JsonProperty("resend_edits") Object resendEdits
 ) {
 }

@@ -30,6 +30,7 @@ class FileCallLogAdapterTest {
         FileCallLogAdapter adapter = new FileCallLogAdapter();
         setField(adapter, "recentCallsFile", recentCallsFile.toString());
         setField(adapter, "maxLimit", maxLimit);
+        setField(adapter, "wsMaxMessages", 1000);
         return adapter;
     }
 
@@ -89,6 +90,40 @@ class FileCallLogAdapterTest {
         adapter.save(call("POST"));
 
         assertThat(adapter.readAll()).extracting(CallRecord::method).containsExactly("GET", "POST");
+    }
+
+    @Test
+    void recentRequestHeadersScansForTheHostNewestFirst() throws Exception {
+        FileCallLogAdapter adapter = adapterFor(tempDir.resolve("RECENT_CALLS.log"));
+        adapter.save(new CallRecord("id-1", "https://api.supplier.com/a", "https://api.supplier.com/a", "GET",
+                new RequestData(java.util.Map.of("Authorization", "Bearer old"), null), "t", 1.0, null, null));
+        adapter.save(new CallRecord("id-2", "https://api.supplier.com/b", "https://api.supplier.com/b", "GET",
+                new RequestData(java.util.Map.of("Authorization", "Bearer new"), null), "t", 1.0, null, null));
+        adapter.save(new CallRecord("id-3", "https://other.example.com/c", "https://other.example.com/c", "GET",
+                new RequestData(java.util.Map.of("Authorization", "Bearer other"), null), "t", 1.0, null, null));
+
+        List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> found =
+                adapter.recentRequestHeaders("api.supplier.com", 10);
+
+        assertThat(found).extracting(com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders::callId)
+                .containsExactly("id-2", "id-1");
+    }
+
+    @Test
+    void wsMessagesAppendAndCapAtWsMaxMessages() throws Exception {
+        FileCallLogAdapter adapter = adapterFor(tempDir.resolve("RECENT_CALLS.log"));
+        setField(adapter, "wsMaxMessages", 3);
+        List<com.fathy.alfred.backend.calls.domain.model.WsMessage> batch = java.util.stream.IntStream.rangeClosed(1, 5)
+                .mapToObj(i -> new com.fathy.alfred.backend.calls.domain.model.WsMessage(
+                        i, "client", 1000L * i, "text", "m" + i, null, null, null))
+                .toList();
+
+        adapter.appendWsMessages("call-1", batch, false, null);
+
+        var page = adapter.wsMessages("call-1", 0, 10);
+        assertThat(page.messages()).extracting(com.fathy.alfred.backend.calls.domain.model.WsMessage::seq)
+                .containsExactly(3, 4, 5);
+        assertThat(page.dropped()).isEqualTo(2);
     }
 
     @Test

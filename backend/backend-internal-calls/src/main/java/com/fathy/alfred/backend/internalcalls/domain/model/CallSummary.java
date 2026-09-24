@@ -29,16 +29,28 @@ public record CallSummary(
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
         /** Carried into the list so a collapsed card can show its intercepted badge without a detail fetch - as backend-calls' summary does. */
-        @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception
+        @JsonInclude(JsonInclude.Include.NON_NULL) CallInterception interception,
+        /** The id of the original call this one is a resend of, or null - see backend-calls' CallSummary.resendOf. */
+        @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("resend_of") String resendOf,
+        /** Opaque JSON - see backend-calls' CallRecord.resendEdits for the shape. */
+        @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("resend_edits") Object resendEdits
 ) {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    /** Pre-resend shape - every call site built before these fields existed gets null for both. */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId, String serviceName, CallInterception interception) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId,
+                operationId, serviceName, interception, null, null);
+    }
 
     /** Pre-interception shape - every call site built before that field existed gets null. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
                         String sessionId, String operationId, String serviceName) {
         this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId,
-                operationId, serviceName, null);
+                operationId, serviceName, null, null, null);
     }
 
     /** Pre-service-name shape - every call site built before that field existed gets null (treated as "unknown" by every reader). */
@@ -64,7 +76,7 @@ public record CallSummary(
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.interception());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.interception(), call.resendOf(), call.resendEdits());
     }
 
     /**

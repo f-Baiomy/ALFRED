@@ -1,5 +1,6 @@
 import { CallEndpointSource, CallRecord } from '../../core/models/call.model';
 import { CallInterception } from '../../core/models/interception.model';
+import { WsMessage } from '../../core/models/ws-message.model';
 
 /**
  * Reads an Alfred .json export back into CallRecords - the inverse of bulk-json-builder.ts.
@@ -31,6 +32,7 @@ interface Partial_ {
   state?: CallRecord['state'];
   supplierName?: string | null;
   interception?: CallInterception;
+  wsMessages?: readonly WsMessage[];
 }
 
 export interface ImportParseResult {
@@ -173,6 +175,7 @@ function mergeEvents(events: readonly unknown[]): ImportParseResult {
       session_id: partial.session_id,
       operation_id: partial.operation_id,
       interception: partial.interception,
+      wsMessages: partial.wsMessages,
     });
   }
 
@@ -210,6 +213,12 @@ function fill(into: Partial_, raw: Record<string, unknown>): void {
   const interception = raw['interception'];
   if (interception && typeof interception === 'object' && Array.isArray((interception as CallInterception).applied)) {
     set('interception', interception as CallInterception);
+  }
+  // Written by bulk-json-builder on a call event or a split call's request event - the exact
+  // inverse of eventsForCall's own `wsMessages: call.wsMessages`.
+  const wsMessages = raw['wsMessages'];
+  if (Array.isArray(wsMessages)) {
+    set('wsMessages', wsMessages as readonly WsMessage[]);
   }
 
   // A split call's request event carries the request timestamp and its response event carries the

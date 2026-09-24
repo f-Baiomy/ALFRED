@@ -517,4 +517,15 @@ describe('toCallRecord for an inbound call', () => {
     expect(call.source).toBe('internal');
     expect(call.interception).toEqual(interception);
   });
+
+  it('keeps resendOf and resendEdits', () => {
+    const call = toCallRecord(
+      { id: 'c2', original_url: 'http://localhost:8083/x', url: 'http://host:8080/x', method: 'GET',
+        timestamp: 't', duration_ms: 1, status: 200, service_name: 'core-service',
+        resend_of: 'c1', resend_edits: { headers: ['Accept'] } } as CallSummaryDto,
+      'internal'
+    );
+    expect(call.resendOf).toBe('c1');
+    expect(call.resendEdits).toEqual({ headers: ['Accept'] });
+  });
 });

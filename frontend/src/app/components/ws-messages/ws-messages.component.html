@@ -1,0 +1,47 @@
+<div class="ws-messages">
+  @if (dropped() > 0) {
+    <small class="muted">{{ dropped() }} earlier {{ dropped() === 1 ? 'message' : 'messages' }} not recorded</small>
+  }
+
+  <ul class="ws-message-list">
+    @for (message of messages(); track message.seq) {
+      <li class="ws-message" [class.dropped]="message.action === 'dropped'" [class.edited]="message.action === 'edited'">
+        <span class="ws-message-direction">{{ message.direction === 'client' ? '→' : '←' }}</span>
+        <span class="ws-message-time">{{ time(message.tsMillis) }}</span>
+        <span class="ws-message-type">{{ message.type }}</span>
+        @if (message.action === 'dropped') {
+          <span class="ws-message-badge">dropped</span>
+        } @else if (message.action === 'edited') {
+          <span class="ws-message-badge">edited</span>
+        }
+        @if (message.type === 'text') {
+          <span class="ws-message-content">{{ message.content }}</span>
+        } @else {
+          <span class="ws-message-content muted">binary ({{ message.contentBase64?.length ?? 0 }} base64 chars)</span>
+        }
+        @if (message.originalContent != null) {
+          <button type="button" class="pill" (click)="toggleOriginal(message.seq)">
+            {{ expandedOriginal() === message.seq ? 'Hide original' : 'Show original' }}
+          </button>
+          @if (expandedOriginal() === message.seq) {
+            <pre class="ws-message-original">{{ message.originalContent }}</pre>
+          }
+        }
+      </li>
+    } @empty {
+      @if (!loading()) {
+        <li class="muted">No WebSocket messages recorded.</li>
+      }
+    }
+  </ul>
+
+  @if (loading()) {
+    <small class="muted">Loading…</small>
+  }
+  @if (error(); as message) {
+    <div class="rule-warning danger">{{ message }}</div>
+  }
+  @if (!loading() && messages().length < total()) {
+    <button type="button" class="pill" (click)="loadMore()">Load more</button>
+  }
+</div>

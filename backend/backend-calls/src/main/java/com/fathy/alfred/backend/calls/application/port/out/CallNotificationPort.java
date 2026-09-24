@@ -18,4 +18,7 @@ public interface CallNotificationPort {
 
     /** Fired after every logged call is deleted at once (the Database settings tab's "Clear calls" action) - no payload, callers just refetch GET /calls, same as SessionCycleNotificationPort.notifySessionCyclesChanged(). */
     void notifyCallsCleared();
+
+    /** Payload-free: a call's panel, if open, re-fetches GET /calls/{id}/ws-messages rather than the event carrying the messages themselves. */
+    void notifyWsMessagesAppended(String callId);
 }

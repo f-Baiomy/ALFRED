@@ -214,6 +214,35 @@
       </div>
     </div>
 
+    <!-- A third, independent lane: a WebSocket message runs once per message after the handshake,
+         not once per request/response, so it has neither a host step nor a position relative to
+         the pipeline above - see ActionType.Phase.MESSAGE in the backend. -->
+    <div class="pipeline-lane">
+      <div class="pipeline-lane-head">
+        <span class="pipeline-step">💬</span>
+        Messages — every WebSocket message on this call
+      </div>
+      <div
+        class="lane-drop-list"
+        cdkDropList
+        [id]="laneListId('message')"
+        [cdkDropListConnectedTo]="dropListIds()"
+        [cdkDropListEnterPredicate]="canDropInto"
+        (cdkDropListDropped)="onActionDropped($event)"
+      >
+        @for (step of messageSteps(); track step.index) {
+          <app-rule-action-card cdkDrag [cdkDragData]="step" (cdkDragMoved)="onDragMoved()" [step]="step" [editor]="self" />
+        } @empty {
+          <p class="pipeline-empty">Nothing — every message passes through unchanged.</p>
+        }
+      </div>
+      <div class="add-action-group">
+        @for (type of messageActionTypes(); track type) {
+          <button type="button" class="pill add" (click)="addAction(type)">+ {{ actionLabels[type] }}</button>
+        }
+      </div>
+    </div>
+
     <label class="checkbox-field">
       <input type="checkbox" [checked]="stopProcessing()" (change)="stopProcessing.set($any($event.target).checked)" />
       <span>Stop after this rule — don't evaluate any rule below it for a matching call</span>

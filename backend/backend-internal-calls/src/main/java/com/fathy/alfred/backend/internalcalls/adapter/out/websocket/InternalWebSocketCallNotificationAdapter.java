@@ -47,4 +47,14 @@ public class InternalWebSocketCallNotificationAdapter implements CallNotificatio
     public void notifyCallsCleared() {
         handler.broadcast(CALLS_CLEARED_EVENT);
     }
+
+    @Override
+    public void notifyWsMessagesAppended(String callId) {
+        try {
+            handler.broadcast(objectMapper.writeValueAsString(
+                    java.util.Map.of("type", "ws-messages-appended", "callId", callId)));
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize ws-messages-appended event: {}", e.getMessage());
+        }
+    }
 }

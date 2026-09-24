@@ -38,6 +38,8 @@ export function toCallRecord(dto: CallSummaryDto, source?: CallEndpointSource): 
     // spreading the DTO, so anything not named here is silently dropped. That is what hid the
     // before/after of an edited call - the backend sent it and the frontend threw it away.
     interception: dto.interception,
+    resendOf: dto.resend_of,
+    resendEdits: dto.resend_edits,
     source,
   };
 }

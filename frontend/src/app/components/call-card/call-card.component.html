@@ -49,6 +49,11 @@
         Operation: {{ copiedChip() === 'operation' ? 'Copied!' : shortId(call().operation_id!) }}
       </button>
     }
+    @if (call().resendOf; as originalId) {
+      <a class="call-id-chip resend-chip" [href]="'?requestId=' + originalId" [title]="resendTooltip()">
+        ↻ resend of {{ shortId(originalId) }}
+      </a>
+    }
   </div>
 </ng-template>
 
@@ -337,5 +342,16 @@
     }
 
     <ng-container [ngTemplateOutlet]="blocksStrip" />
+
+    @if (isWebSocketCall()) {
+      <div class="ws-messages-toggle">
+        <button type="button" class="pill" (click)="toggleWsMessages()">
+          {{ wsMessagesOpen() ? 'Hide WebSocket messages' : 'WebSocket · view messages' }}
+        </button>
+        @if (wsMessagesOpen()) {
+          <app-ws-messages [callId]="call().id" [source]="call().source ?? 'external'" />
+        }
+      </div>
+    }
   }
 </div>

@@ -1,3 +1,8 @@
+> **Superseded.** `specs/001-interception-mitmproxy-parity/` (spec.md, plan.md, data-model.md,
+> tasks.md) is the authoritative, up-to-date record of this feature — it reflects what was
+> actually built, including where the implementation diverged from this request. Read that
+> directory first; this document is kept only as the original input.
+
 # Feature request: interception rule actions at parity with mitmproxy
 
 > Input for `/speckit-specify`. It describes WHAT to add and WHY, plus the constraints that

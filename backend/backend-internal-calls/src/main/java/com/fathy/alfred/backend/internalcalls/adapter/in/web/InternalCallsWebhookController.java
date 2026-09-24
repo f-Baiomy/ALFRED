@@ -2,8 +2,10 @@ package com.fathy.alfred.backend.internalcalls.adapter.in.web;
 
 import com.fathy.alfred.backend.internalcalls.adapter.in.web.dto.CompleteInternalCallRequestDto;
 import com.fathy.alfred.backend.internalcalls.adapter.in.web.dto.PrepareInternalCallRequestDto;
+import com.fathy.alfred.backend.internalcalls.adapter.in.web.dto.WsMessagesWebhookRequestDto;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceivePreparedCallUseCase;
+import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveWsMessagesUseCase;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -27,16 +29,19 @@ public class InternalCallsWebhookController {
 
     private final ReceivePreparedCallUseCase receivePreparedCallUseCase;
     private final ReceiveCompletedCallUseCase receiveCompletedCallUseCase;
+    private final ReceiveWsMessagesUseCase receiveWsMessagesUseCase;
 
     @Value("${alfred.webhook.secret:}")
     private String webhookSecret;
 
     public InternalCallsWebhookController(
             ReceivePreparedCallUseCase receivePreparedCallUseCase,
-            ReceiveCompletedCallUseCase receiveCompletedCallUseCase
+            ReceiveCompletedCallUseCase receiveCompletedCallUseCase,
+            ReceiveWsMessagesUseCase receiveWsMessagesUseCase
     ) {
         this.receivePreparedCallUseCase = receivePreparedCallUseCase;
         this.receiveCompletedCallUseCase = receiveCompletedCallUseCase;
+        this.receiveWsMessagesUseCase = receiveWsMessagesUseCase;
     }
 
     /**
@@ -53,7 +58,8 @@ public class InternalCallsWebhookController {
             return ResponseEntity.status(401).build();
         }
         CallRecord partial = new CallRecord(body.id(), body.originalUrl(), body.url(), body.method(), body.request(),
-                body.timestamp(), null, null, null, null, body.sessionId(), body.operationId(), body.serviceName());
+                body.timestamp(), null, null, null, null, body.sessionId(), body.operationId(), body.serviceName(),
+                null, body.resendOf(), body.resendEdits());
         Optional<String> id = receivePreparedCallUseCase.receivePreparedCall(partial);
         return id.map(value -> ResponseEntity.ok(Map.of("id", value)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -72,6 +78,20 @@ public class InternalCallsWebhookController {
         boolean found = receiveCompletedCallUseCase.receiveCompletedCall(id, body.response(), body.error(), body.durationMs(),
                 body.interception());
         return found ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/internal-calls/webhook/{id}/ws-messages")
+    public ResponseEntity<Void> wsMessages(
+            @RequestHeader(name = "X-Webhook-Secret", required = false) String providedSecret,
+            @PathVariable String id,
+            @RequestBody WsMessagesWebhookRequestDto body
+    ) {
+        if (!secretMatches(providedSecret)) {
+            return ResponseEntity.status(401).build();
+        }
+        receiveWsMessagesUseCase.receiveWsMessages(id, body.messages() == null ? java.util.List.of() : body.messages(),
+                Boolean.TRUE.equals(body.closed()), body.closeCode());
+        return ResponseEntity.noContent().build();
     }
 
     private boolean secretMatches(String providedSecret) {

@@ -31,6 +31,7 @@ import {
   MatchTestOperator,
   matchTestNeedsValue,
   usesStoredAnswer,
+  usesUploadedAnswer as usesUploadedAnswerType,
   RuleAction,
   RuleSource,
   actionPhase,
@@ -197,9 +198,12 @@ function realIndexForLanePosition(actions: readonly RuleAction[], phase: ActionP
  */
 const TOP_REQUEST_LIST = 'top:request';
 const TOP_RESPONSE_LIST = 'top:response';
+const TOP_MESSAGE_LIST = 'top:message';
 
 function laneListId(phase: ActionPhase): string {
-  return phase === 'request' ? TOP_REQUEST_LIST : TOP_RESPONSE_LIST;
+  if (phase === 'request') return TOP_REQUEST_LIST;
+  if (phase === 'response') return TOP_RESPONSE_LIST;
+  return TOP_MESSAGE_LIST;
 }
 
 function nestedListId(listPath: readonly number[]): string {
@@ -386,6 +390,11 @@ export class RuleEditorComponent implements OnInit {
       .filter((t) => t.phase === 'response' && t.selectable !== false)
       .map((t) => t.type)
   );
+  readonly messageActionTypes = computed(() =>
+    this.state.actionTypes()
+      .filter((t) => t.phase === 'message' && t.selectable !== false)
+      .map((t) => t.type)
+  );
 
   /**
    * A rule with a terminal action never reaches a pause, and two terminals contradict each other.
@@ -415,6 +424,12 @@ export class RuleEditorComponent implements OnInit {
     this.actions()
       .map((action, index) => ({ action, index, path: [index] }))
       .filter((step) => actionPhase(step.action.type) === 'response')
+  );
+
+  readonly messageSteps = computed(() =>
+    this.actions()
+      .map((action, index) => ({ action, index, path: [index] }))
+      .filter((step) => actionPhase(step.action.type) === 'message')
   );
 
   /**
@@ -545,7 +560,7 @@ export class RuleEditorComponent implements OnInit {
   // whether the two ends are the same list (a reorder) or different ones (a move across scopes).
 
   /** Every drop list currently on screen, connected to every other one. */
-  readonly dropListIds = computed(() => [TOP_REQUEST_LIST, TOP_RESPONSE_LIST, ...collectListIds(this.actions())]);
+  readonly dropListIds = computed(() => [TOP_REQUEST_LIST, TOP_RESPONSE_LIST, TOP_MESSAGE_LIST, ...collectListIds(this.actions())]);
 
   /**
    * This component, for the action cards to call back into - `[editor]="self"`.
@@ -611,6 +626,7 @@ export class RuleEditorComponent implements OnInit {
     if (!dragged) return false;
     if (drop.id === TOP_REQUEST_LIST) return actionPhase(dragged.action.type) === 'request';
     if (drop.id === TOP_RESPONSE_LIST) return actionPhase(dragged.action.type) === 'response';
+    if (drop.id === TOP_MESSAGE_LIST) return actionPhase(dragged.action.type) === 'message';
     const listPath = parseNestedListId(drop.id);
     return this.nestableTypes(listPath.slice(0, -1)).includes(dragged.action.type);
   };
@@ -624,8 +640,8 @@ export class RuleEditorComponent implements OnInit {
       if (!moved) return actions;
       const without = removeAt(actions, dragged.path);
 
-      if (toId === TOP_REQUEST_LIST || toId === TOP_RESPONSE_LIST) {
-        const phase: ActionPhase = toId === TOP_REQUEST_LIST ? 'request' : 'response';
+      if (toId === TOP_REQUEST_LIST || toId === TOP_RESPONSE_LIST || toId === TOP_MESSAGE_LIST) {
+        const phase: ActionPhase = toId === TOP_REQUEST_LIST ? 'request' : toId === TOP_RESPONSE_LIST ? 'response' : 'message';
         return insertInList(without, [], realIndexForLanePosition(without, phase, event.currentIndex), moved);
       }
 
@@ -873,6 +889,20 @@ export class RuleEditorComponent implements OnInit {
     this.patchAt(path, { onTimeout: value === 'abort' ? 'abort' : 'release' });
   }
 
+  isMessageAction(type: ActionType): boolean {
+    return type === 'REPLACE_IN_MESSAGE' || type === 'DROP_MESSAGE' || type === 'DELAY_MESSAGE';
+  }
+
+  readonly messageDirectionOptions: readonly SelectOption[] = [
+    { value: 'both', label: 'Both directions' },
+    { value: 'client', label: 'Client → server' },
+    { value: 'server', label: 'Server → client' },
+  ];
+
+  onMessageDirectionChange(path: readonly number[], value: string): void {
+    this.patchAt(path, { messageDirection: value as 'client' | 'server' | 'both' });
+  }
+
   /**
    * The raw JSON text of an action's `value`, so a user can write a number, a string, `true` or
    * `null` and get that type through to the body rather than everything becoming a string - which
@@ -920,6 +950,8 @@ export class RuleEditorComponent implements OnInit {
     return (
       type === 'SET_REQUEST_HEADER' ||
       type === 'SET_RESPONSE_HEADER' ||
+      type === 'SET_REQUEST_TRAILER' ||
+      type === 'SET_RESPONSE_TRAILER' ||
       type === 'SET_QUERY_PARAM' ||
       type === 'SET_REQUEST_COOKIE' ||
       type === 'SET_RESPONSE_COOKIE' ||
@@ -931,6 +963,8 @@ export class RuleEditorComponent implements OnInit {
     return (
       type === 'REMOVE_REQUEST_HEADER' ||
       type === 'REMOVE_RESPONSE_HEADER' ||
+      type === 'REMOVE_REQUEST_TRAILER' ||
+      type === 'REMOVE_RESPONSE_TRAILER' ||
       type === 'REMOVE_QUERY_PARAM' ||
       type === 'REMOVE_REQUEST_COOKIE' ||
       type === 'REMOVE_RESPONSE_COOKIE' ||
@@ -976,6 +1010,11 @@ export class RuleEditorComponent implements OnInit {
   /** The actions that serve a stored answer - the card shows the answer picker for them. */
   usesAnswer(type: ActionType): boolean {
     return usesStoredAnswer(type);
+  }
+
+  /** ANSWER_WITH_FILE's answer comes from an upload, not a picked call - the picker shows upload mode. */
+  usesUploadedAnswer(type: ActionType): boolean {
+    return usesUploadedAnswerType(type);
   }
 
   onAnswer(path: readonly number[], answerId: string): void {
@@ -1171,10 +1210,15 @@ function defaultsFor(type: ActionType): RuleAction {
     case 'SET_REQUEST_HEADER':
     case 'SET_RESPONSE_HEADER':
       return { type, name: 'X-Alfred-Test', value: 'true' };
+    case 'SET_REQUEST_TRAILER':
+    case 'SET_RESPONSE_TRAILER':
+      return { type, name: '', value: '' };
     case 'SET_QUERY_PARAM':
       return { type, name: '', value: '' };
     case 'REMOVE_REQUEST_HEADER':
     case 'REMOVE_RESPONSE_HEADER':
+    case 'REMOVE_REQUEST_TRAILER':
+    case 'REMOVE_RESPONSE_TRAILER':
     case 'REMOVE_QUERY_PARAM':
       return { type, name: '' };
     case 'SET_REQUEST_JSON_FIELD':
@@ -1213,6 +1257,15 @@ function defaultsFor(type: ActionType): RuleAction {
     case 'REPLACE_WITH_RECORDED_RESPONSE':
       // No answer yet: the picker on the card creates one, and saving without it is refused.
       return { type, answerId: null, refreshDates: false };
+    case 'ANSWER_WITH_FILE':
+      // No answer yet: the picker's upload mode creates one, and saving without it is refused.
+      return { type, answerId: null };
+    case 'REPLACE_IN_MESSAGE':
+      return { type, messageDirection: 'both', pattern: '', replacement: '', regex: false, caseSensitive: true };
+    case 'DROP_MESSAGE':
+      return { type, messageDirection: 'both', contains: '' };
+    case 'DELAY_MESSAGE':
+      return { type, messageDirection: 'both', durationMs: 1000 };
     case 'REPLACE_IN_REQUEST_BODY':
     case 'REPLACE_IN_RESPONSE_BODY':
       // Literal and case-sensitive: the reading of the pattern that does exactly what it says.

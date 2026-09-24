@@ -1,4 +1,5 @@
 import { CallInterception } from './interception.model';
+import { WsMessage } from './ws-message.model';
 /** Which REST resource/store a call came from - selecting sources that span both is handled one level up by requesting 'external' and 'internal' separately and merging (see CallsStateService.fetchPageForSource). */
 export type CallEndpointSource = 'external' | 'internal';
 
@@ -88,6 +89,17 @@ export interface CallRecord {
    * actually happened. See docs/interception.md.
    */
   readonly interception?: CallInterception | null;
+  /** The id of the original call this one is a resend of, or undefined - see backend CallRecord.resendOf. */
+  readonly resendOf?: string | null;
+  /** Opaque JSON summary of what changed before this resend - `{method?, url?, headers?, body?, session?}`. Never a value, only names. */
+  readonly resendEdits?: Record<string, unknown> | null;
+  /**
+   * Every WebSocket message on this call (status 101), fetched and attached only when exporting -
+   * see bulk-json-builder.ts/markdown-builder.ts/html-builder.ts, which render it untruncated the
+   * same way request/response bodies are. Undefined everywhere else: the live card fetches its own
+   * window through WsMessagesComponent instead of carrying the whole list on every CallRecord.
+   */
+  readonly wsMessages?: readonly WsMessage[];
   /** Which backend endpoint this call was fetched from - stamped client-side in toCallRecord(), never part of the wire shape. Undefined only for a CapturedCall's wrapped CallRecord (session-cycles never captures 'internal' calls, so it's always implicitly 'external' there). Needed so getCallDetail() knows whether to fetch GET /calls/{id}/detail or GET /internal-calls/{id}/detail once a call from a merged 'both' list is expanded. */
   readonly source?: CallEndpointSource;
 }
@@ -125,6 +137,8 @@ export interface CallSummaryDto {
   readonly timing?: CallTiming | null;
   /** Present only for a call an interception rule touched - see CallRecord.interception. */
   readonly interception?: CallInterception | null;
+  readonly resend_of?: string | null;
+  readonly resend_edits?: Record<string, unknown> | null;
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle
@@ -144,7 +158,13 @@ export interface CallsClearedEvent {
   readonly type: 'calls-cleared';
 }
 
-export type CallsWsMessage = CallEvent | CallsClearedEvent;
+/** Payload-free: a call's own WebSocket-messages panel, if open, re-fetches GET /calls/{id}/ws-messages rather than the event carrying the messages. */
+export interface WsMessagesAppendedEvent {
+  readonly type: 'ws-messages-appended';
+  readonly callId: string;
+}
+
+export type CallsWsMessage = CallEvent | CallsClearedEvent | WsMessagesAppendedEvent;
 
 /**
  * A single entry in the Sources bar's selection set - either the reserved key 'external' (today's
@@ -163,7 +183,7 @@ export interface InternalCallEvent {
 }
 
 /** The other /ws/internal-calls broadcast shape - mirrors CallsClearedEvent, sent when internal calls are cleared. */
-export type InternalCallsWsMessage = InternalCallEvent | CallsClearedEvent;
+export type InternalCallsWsMessage = InternalCallEvent | CallsClearedEvent | WsMessagesAppendedEvent;
 
 export type SessionCycleStatus = 'RECORDING' | 'PAUSED';
 

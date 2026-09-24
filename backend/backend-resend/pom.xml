@@ -31,4 +31,19 @@
     </dependency>
   </dependencies>
 
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- Mirrors the backend container's own JAVA_TOOL_OPTIONS (docker-compose.yml) - lets
+               JdkHttpCallSenderTest set the Host header on an inbound request the same way the
+               real deployment does. -->
+          <argLine>-Djdk.httpclient.allowRestrictedHeaders=host</argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
 </project>

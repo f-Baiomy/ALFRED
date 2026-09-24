@@ -183,6 +183,28 @@ function interceptionSection(call: CallRecord, phase: 'request' | 'response', le
   return lines;
 }
 
+/** Every WebSocket message on this call, untruncated - same no-truncation guarantee as request/response bodies. */
+function wsMessagesSection(call: CallRecord, level: number): string[] {
+  const messages = call.wsMessages;
+  if (!messages || messages.length === 0) return [];
+  const hashes = '#'.repeat(level);
+  const lines: string[] = [`${hashes} 🔌 WebSocket messages`, ''];
+  for (const message of messages) {
+    const arrow = message.direction === 'client' ? '→' : '←';
+    const badge = message.action ? ` \`${message.action}\`` : '';
+    lines.push(`**${arrow} #${message.seq}** \`${new Date(message.tsMillis).toISOString()}\`${badge}`, '');
+    if (message.type === 'text') {
+      lines.push(codeBlock('Content', message.content), '');
+    } else {
+      lines.push(`Binary message (${message.contentBase64?.length ?? 0} base64 characters)`, '');
+    }
+    if (message.originalContent != null) {
+      lines.push(codeBlock('Original (before the rule edited it)', message.originalContent), '');
+    }
+  }
+  return lines;
+}
+
 function flaggedIssuesSection(comments: readonly Comment[], level = 2): string {
   if (comments.length === 0) return '';
 
@@ -265,6 +287,7 @@ export function buildExportMarkdown(
   }
   lines.push('');
   lines.push(...interceptionSection(call, 'response', 3));
+  lines.push(...wsMessagesSection(call, 3));
   lines.push('---', '');
   lines.push(`*Exported from Alfred/Frontend*`);
 
@@ -512,6 +535,7 @@ function renderBlockBody(block: RenderBlock, allComments: readonly Comment[]): s
       lines.push('');
     }
     lines.push(...interceptionSection(call, 'response', 4));
+    lines.push(...wsMessagesSection(call, 4));
   }
 
   return lines;

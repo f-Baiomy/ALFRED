@@ -24,6 +24,9 @@ public interface ManageStoredAnswersUseCase {
     /** A stored answer from a rules file, under a fresh id. Refused (empty) when over the size cap. */
     Optional<StoredAnswer> importAnswer(StoredAnswer answer, byte[] body);
 
+    /** A stored answer from an uploaded file - the FILE counterpart of {@link #copyFromCall}. */
+    UploadResult upload(byte[] body, String contentType, Integer status);
+
     /** The answer plus which rules use it - what the editor shows under an answer action. */
     record AnswerView(StoredAnswer answer, List<String> referencedByRuleIds) {
     }
@@ -39,6 +42,17 @@ public interface ManageStoredAnswersUseCase {
         }
 
         record TooLarge(long limitBytes, long sizeBytes) implements CopyResult {
+        }
+    }
+
+    sealed interface UploadResult {
+        record Created(StoredAnswer answer) implements UploadResult {
+        }
+
+        record MissingContentType() implements UploadResult {
+        }
+
+        record TooLarge(long limitBytes, long sizeBytes) implements UploadResult {
         }
     }
 }

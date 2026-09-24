@@ -521,10 +521,11 @@ describe('RuleEditorComponent', () => {
 
       expect(ids).toContain(component.laneListId('request'));
       expect(ids).toContain(component.laneListId('response'));
+      expect(ids).toContain(component.laneListId('message'));
       expect(ids).toContain(component.listId([0, 0]));
       expect(ids).toContain(component.listId([0, 1]));
       expect(ids).toContain(component.listId([0, -1]));
-      expect(ids.length).toBe(5);
+      expect(ids.length).toBe(6);
     });
   });
 });

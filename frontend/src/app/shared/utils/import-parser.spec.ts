@@ -297,3 +297,30 @@ describe('parseImportedCalls with interception records', () => {
     expect(result.calls.every((c) => c.interception === undefined)).toBeTrue();
   });
 });
+
+describe('parseImportedCalls with WebSocket messages', () => {
+  it('round-trips every message on a WebSocket call, untruncated', () => {
+    const bigContent = 'x'.repeat(500_000);
+    const wsMessages = [
+      { seq: 1, direction: 'client' as const, tsMillis: 1000, type: 'text' as const, content: 'hello' },
+      { seq: 2, direction: 'server' as const, tsMillis: 2000, type: 'text' as const, content: bigContent, action: 'edited', originalContent: 'small' },
+      { seq: 3, direction: 'client' as const, tsMillis: 3000, type: 'binary' as const, contentBase64: 'AAA=' },
+    ];
+    const wsCall = call({ id: 'ws-call', startMs: 0, durationMs: 1, response: { status: 101, headers: {}, body: '' }, wsMessages });
+
+    const { payload, result } = roundTrip([wsCall]);
+
+    const event = payload.events.find((e) => e.callId === 'ws-call') as { wsMessages?: readonly unknown[] };
+    expect(event.wsMessages).toEqual(wsMessages);
+
+    const imported = result.calls.find((c) => c.id === 'ws-call')!;
+    expect(imported.wsMessages).toEqual(wsMessages);
+    expect((imported.wsMessages![1] as { content: string }).content.length).toBe(500_000);
+  });
+
+  it('leaves a call with no WebSocket messages without the field', () => {
+    const { payload, result } = roundTrip(nestedFixture());
+    expect(JSON.stringify(payload)).not.toContain('"wsMessages"');
+    expect(result.calls.every((c) => c.wsMessages === undefined)).toBeTrue();
+  });
+});

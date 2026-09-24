@@ -14,6 +14,7 @@ import {
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
+import { WsMessagesComponent } from '../ws-messages/ws-messages.component';
 import { OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
@@ -64,7 +65,7 @@ const SELECTION_EXEMPT_SELECTOR =
 @Component({
   selector: 'app-call-card',
   standalone: true,
-  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent],
+  imports: [CallActionsComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent, WsMessagesComponent],
   templateUrl: './call-card.component.html',
 })
 export class CallCardComponent {
@@ -572,6 +573,32 @@ export class CallCardComponent {
   /** Truncates an id chip's value down to its first 8 characters for display - the full value is still what gets copied (see copyChip), this is purely a rendering shortcut for a UUID that would otherwise dominate the card's width. */
   shortId(value: string): string {
     return value.length > 8 ? value.slice(0, 8) + '…' : value;
+  }
+
+  readonly wsMessagesOpen = signal(false);
+
+  isWebSocketCall(): boolean {
+    return this.call().response?.status === 101;
+  }
+
+  toggleWsMessages(): void {
+    this.wsMessagesOpen.update((open) => !open);
+  }
+
+  /** Summarizes call().resendEdits (`{method?, url?, headers?, body?, session?}`) into the resend chip's tooltip - names and shapes only, never a value. */
+  resendTooltip(): string {
+    const edits = this.call().resendEdits;
+    if (!edits) return 'Resent with no edits';
+    const parts: string[] = [];
+    if (edits['method']) parts.push('method changed');
+    if (edits['url']) parts.push('URL changed');
+    if (Array.isArray(edits['headers']) && edits['headers'].length) parts.push(`headers changed: ${(edits['headers'] as string[]).join(', ')}`);
+    if (edits['body']) parts.push('body changed');
+    if (Array.isArray(edits['session']) && edits['session'].length) {
+      const names = (edits['session'] as { name: string }[]).map((s) => s.name).join(', ');
+      parts.push(`session substituted: ${names}`);
+    }
+    return parts.length ? parts.join(' · ') : 'Resent with no edits';
   }
 
   copyChip(chip: 'request' | 'session' | 'operation', value: string): void {

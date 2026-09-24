@@ -3,6 +3,7 @@ import { HeaderComponent } from '../../components/header/header.component';
 import { StatsBarComponent } from '../../components/stats-bar/stats-bar.component';
 import { CallListComponent } from '../../components/call-list/call-list.component';
 import { ExportDialogComponent } from '../../components/export-dialog/export-dialog.component';
+import { ResendDialogComponent } from '../../components/resend-dialog/resend-dialog.component';
 import { CopyToCyclesDialogComponent } from '../../components/copy-to-cycles-dialog/copy-to-cycles-dialog.component';
 import { BulkActionsBarComponent } from '../../components/bulk-actions-bar/bulk-actions-bar.component';
 import { CallsStateService } from '../../core/state/calls-state.service';
@@ -10,7 +11,7 @@ import { CallsStateService } from '../../core/state/calls-state.service';
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [HeaderComponent, StatsBarComponent, CallListComponent, ExportDialogComponent, CopyToCyclesDialogComponent, BulkActionsBarComponent],
+  imports: [HeaderComponent, StatsBarComponent, CallListComponent, ExportDialogComponent, ResendDialogComponent, CopyToCyclesDialogComponent, BulkActionsBarComponent],
   templateUrl: './dashboard.component.html',
 })
 export class DashboardComponent {

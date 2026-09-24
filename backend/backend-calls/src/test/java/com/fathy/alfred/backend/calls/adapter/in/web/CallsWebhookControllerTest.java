@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.calls.adapter.in.web;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceivePreparedCallUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.ReceiveWsMessagesUseCase;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +44,9 @@ class CallsWebhookControllerTest {
 
     @MockBean
     private ReceiveCompletedCallUseCase receiveCompletedCallUseCase;
+
+    @MockBean
+    private ReceiveWsMessagesUseCase receiveWsMessagesUseCase;
 
     @Test
     void rejectsAMissingSecretWithUnauthorized() throws Exception {

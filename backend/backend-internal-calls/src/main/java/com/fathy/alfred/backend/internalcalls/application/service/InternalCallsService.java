@@ -3,9 +3,12 @@ package com.fathy.alfred.backend.internalcalls.application.service;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallBaselineUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsInRangeUseCase;
+import com.fathy.alfred.backend.internalcalls.application.port.in.FindRecentRequestHeadersUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase;
+import com.fathy.alfred.backend.internalcalls.application.port.in.GetWsMessagesUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceivePreparedCallUseCase;
+import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveWsMessagesUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.internalcalls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.internalcalls.application.port.out.NewInternalCallObserverPort;
@@ -17,7 +20,10 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsPage;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
+import com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
+import com.fathy.alfred.backend.internalcalls.domain.model.WsMessage;
+import com.fathy.alfred.backend.internalcalls.domain.model.WsMessagesPage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,7 +42,8 @@ import java.util.UUID;
  */
 @Service
 public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase,
-        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase {
+        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase, FindRecentRequestHeadersUseCase,
+        ReceiveWsMessagesUseCase, GetWsMessagesUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(InternalCallsService.class);
 
@@ -107,7 +114,8 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
         String id = valueOrGenerated(partial.id());
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
-                partial.sessionId(), partial.operationId(), partial.serviceName());
+                partial.sessionId(), partial.operationId(), partial.serviceName(), null,
+                partial.resendOf(), partial.resendEdits());
         callLogPort.prepare(prepared);
         notificationPort.notifyCallPrepared(prepared);
         return Optional.of(id);
@@ -151,5 +159,22 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
     @Override
     public CallBaseline getBaseline(String url) {
         return url == null || url.isBlank() ? CallBaseline.empty(url) : callLogPort.baselineFor(url);
+    }
+
+    @Override
+    public List<RecentRequestHeaders> recentRequestHeaders(String host, int limit) {
+        return callLogPort.recentRequestHeaders(host, limit);
+    }
+
+    @Override
+    public void receiveWsMessages(String callId, List<WsMessage> messages, boolean closed, Integer closeCode) {
+        callLogPort.appendWsMessages(callId, messages, closed, closeCode);
+        notificationPort.notifyWsMessagesAppended(callId);
+    }
+
+    @Override
+    public WsMessagesPage getWsMessages(String callId, int offset, int limit) {
+        int cap = Math.max(1, Math.min(limit, 500));
+        return callLogPort.wsMessages(callId, Math.max(0, offset), cap);
     }
 }

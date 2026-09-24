@@ -17,17 +17,33 @@ backend-session-cycles    depends on backend-calls AND backend-internal-calls (i
 backend-profiles          leaf slice, no deps either direction
 backend-settings          call-filter whitelist/blacklist/mode config (CallFilterSettings) - which supplier
                           calls get logged in the first place, NOT the internal-calls logging toggle above
-backend-interception      traffic interception/fault-injection rules + the paused-call (breakpoint) registry.
-                          Leaf slice. Does NOT evaluate rules - matching/mutation happen inside the mitmproxy
-                          addons against a snapshot this slice publishes to a file both proxies read; the record
-                          of what a rule did travels back on the EXISTING call webhook into backend-calls, so the
-                          two slices meet in the payload, not in code. See docs/interception.md.
+backend-interception      traffic interception/fault-injection rules + the paused-call (breakpoint) registry +
+                          stored answers (recorded-call / uploaded-file, for ANSWER_WITH_RECORDED_CALL /
+                          ANSWER_WITH_FILE / REPLACE_WITH_RECORDED_RESPONSE). Leaf slice. Does NOT evaluate
+                          rules - matching/mutation happen inside the mitmproxy addons against a snapshot this
+                          slice publishes to a file both proxies read; the record of what a rule did travels
+                          back on the EXISTING call webhook into backend-calls (outbound) and
+                          backend-internal-calls (inbound), so the interception slice meets the call slices in
+                          the payload, not in code. See docs/interception.md.
+backend-resend            resends a previously-logged call (outbound or inbound, optionally edited) back through
+                          the appropriate mitmproxy service and reports the result. Leaf slice: it reads the
+                          original call only through its own out-ports (CallSourcePort, SessionValueLookupPort),
+                          which backend-app's resendbridge implements against calls/internal-calls/session-cycles
+                          - it never depends on those slices directly, the same shape as CallFilterAdapter below.
+                          A resent call re-enters the system on the ordinary webhook, exactly like any other
+                          proxied call - this slice never writes to backend-calls directly. See
+                          docs/interception.md's "Adding an action" for how REPLACE_IN_* actions and resend
+                          share nothing but the wire shape, and docs/supplier-integrations.md for the sending
+                          path.
 backend-app               composition root, owns spring-boot-maven-plugin repackage, DatabaseStatsController,
-                          the CallFilterAdapter bridging calls→settings, CommentCallIdMigration
+                          the CallFilterAdapter bridging calls→settings, CommentCallIdMigration, the
+                          interceptionbridge package (bridges backend-interception's RecordedCallLookupPort to
+                          the calls/internal-calls/session-cycles detail use cases) and the resendbridge package
+                          (bridges backend-resend's CallSourcePort/SessionValueLookupPort the same way)
 backend-architecture-test test-only, holds the ArchUnit suite (see docs/testing.md)
 ```
 
-Each slice: `domain.model` / `application.port.in|out` / `application.service` / `adapter.in.web` / `adapter.out.*`. Maven module boundaries make any cross-slice import not listed below a compile error; ArchUnit enforces intra-slice layering direction, domain purity (no Spring; Jackson is allowed), and slice isolation. Current isolation rules (`HexagonalArchitectureTest`): `calls`, `internal-calls`, `comments`, `profiles`, and `settings` are each fully isolated from every other slice; the only allowed cross-slice edges are `export→calls`, `session-cycles→calls`, and `session-cycles→internal-calls` (`interception` is isolated from every slice, including `calls`) (session-cycles is the one slice allowed to depend on more than one other).
+Each slice: `domain.model` / `application.port.in|out` / `application.service` / `adapter.in.web` / `adapter.out.*`. Maven module boundaries make any cross-slice import not listed below a compile error; ArchUnit enforces intra-slice layering direction, domain purity (no Spring; Jackson is allowed), and slice isolation. Current isolation rules (`HexagonalArchitectureTest`): `calls`, `internal-calls`, `comments`, `profiles`, `settings`, `interception` and `resend` are each fully isolated from every other slice (from each other too - `interception` cannot depend on `resend` or vice versa); the only allowed cross-slice edges are `export→calls`, `session-cycles→calls`, and `session-cycles→internal-calls` (session-cycles is the one slice allowed to depend on more than one other). `resend`'s own isolation rule (`resendSliceMustNotDependOnOtherSlices`) is worth reading for why a slice that obviously needs logged calls still has zero compile-time dependency on `calls`/`internal-calls`/`sessioncycles`: it reads them only through its own out-ports, `CallSourcePort` and `SessionValueLookupPort`, which `backend-app`'s `resendbridge` package implements against those slices' own use cases - the same bridge-in-the-composition-root shape `CallFilterAdapter` already uses for calls→settings. Sending a resend goes back out through the proxies, so the resent call reaches `backend-calls`/`backend-internal-calls` on the ordinary webhook, never by a direct call from `backend-resend`.
 
 **DTO vs. reusing the domain type directly:** reuse the domain record (`CallRecord`, `Comment`, `ExportMetadata`) when the wire shape matches exactly. Add a `dto` type only when the boundary needs something the domain type shouldn't carry (e.g. `CommentRequestDto`'s Bean Validation annotations).
 
@@ -47,6 +63,39 @@ Each slice: `domain.model` / `application.port.in|out` / `application.service` /
 
 **`RECENT_CALLS.log` (file mode) is a ring buffer** capped at `alfred.calls.max-limit` (env `RECENT_CALLS_MAX_LIMIT`, default 200) — `save()` does a synchronized read-modify-write, trimming from the front. `GET /calls?limit=` is clamped server-side to the same range. **`calls.db` (SQLite mode, the default) uses size-based retention instead** — `ALFRED_CALLS_MAX_SIZE_BYTES` (docker-compose default 10GB); once exceeded, oldest calls are dropped until back under it, not a row-count cap. **`internal-calls.log` (inbound) is a ring buffer too**, but on its OWN property — `alfred.internal-calls.retention-rows` (env `INTERNAL_CALLS_RETENTION_ROWS`, default 1500), deliberately separate from `alfred.internal-calls.max-limit` (default 200), which is only the largest page `GET /internal-calls` will serve. One property used to do both jobs, which capped retention at a single page: inbound calls were evicted within minutes of real traffic and disappeared from the live list with nothing on screen to say so. **A new call is APPENDED as one line; the file is rewritten only when it outgrows the cap plus slack** (half the retention, floored at 50 — so one compaction per ~750 calls at the default, not one rewrite per call), and that rewrite is streamed line-by-line into a sibling temp file then atomically moved, so the file never exists in memory as a single String and a crash mid-write can't destroy the existing calls. This replaced a rebuild-the-whole-file-per-call `save()`: at 1500 rows × a real ~28 KB call that was 150–250 MB of transient allocation to record ONE call, and under concurrent inbound traffic the backend hit `OutOfMemoryError` **inside the webhook handler and dropped the call silently** — the proxy delivered every webhook and logged no failure, so the loss was invisible from both ends and looked like intermittent under-load flakiness. Measured on the running stack: 60 concurrent inbound calls → 4 stored, 504 OOMs; after the fix, 80 concurrent → 80 stored, 0 OOMs. Sequential traffic was always fine, which is what disguised it. Retention still can't go to five figures on a flat file: this is the one slice with no SQLite adapter, so its entire retained window stays resident in memory (~90 MB at 1500 rows, cached as both raw line text and parsed records) — which is what `backend`'s 2g `mem_limit` is sized for. **Session-cycles' captured-calls storage has no cap either way** — unbounded growth is intentional (a cycle is a bounded manual recording, not an ambient log).
 
+**`backend-internal-calls` now records an interception outcome too, mirroring `backend-calls`'
+`CallInterception` field for field** (`BIC/domain/model/CallInterception.java`, deliberately
+duplicated rather than shared - the two slices don't depend on each other and this is the one
+place their record shapes need to agree) - `applied`/`skipped` entries, before/after snapshots, and
+now also `resendOf`/`resendEdits` (a resent inbound call's linkage back to the call it was resent
+from) and `recentRequestHeaders` (denormalized onto the record at completion time, the same
+windowed lookup `FindRecentRequestHeadersUseCase` below performs for outbound calls, so resend's
+session-value substitution has header history to search on the inbound side without a second
+query path). It rides the same `CompleteInternalCallRequestDto` → `InternalCallsService.complete` →
+`InternalCallsFileLogAdapter` merge-and-append path as every other field added after initial
+rollout, written into the NDJSON line as one JSON document exactly like `call_metadata.interception`
+is on the SQLite side (`backend-internal-calls` has no SQLite adapter - see above). Exposed on both
+the list DTO and the detail from `InternalCallsController`, and carried through session-cycles'
+captured-copy the same way `timing` is (see "A call captured into a cycle" in docs/interception.md
+for the SQLite-side version of this same class of bug, and why `backend-internal-calls`' single
+read/write path never had it).
+
+**`call_ws_message` holds one call's WebSocket messages, capped per call rather than in total.**
+Schema: `(call_id, seq, direction, ts_millis, type, content, content_base64, original_content,
+action)`, primary key `(call_id, seq)`, `call_id` cascading from `call_metadata`. `seq` is assigned
+by the proxy's own per-connection batcher (`ws_messages.MessageBatcher`), not the database - a call
+has exactly one WebSocket connection, so the batcher's 1-based counter is already the call-scoped
+sequence this table needs, and `appendWsMessages` does a plain `INSERT OR REPLACE`. The cap is
+`alfred.calls.ws-max-messages` (env `ALFRED_CALLS_WS_MAX_MESSAGES`, default 1000, with
+`alfred.internal-calls.ws-max-messages`/`INTERNAL_CALLS_WS_MAX_MESSAGES` as backend-internal-calls'
+own separate property on its own flat-file equivalent) - enforced in the same transaction as the
+insert: once a call's row count exceeds it, the oldest rows by `seq` are deleted down to the cap
+and `call_metadata.ws_dropped` is incremented by the same amount, so the frontend can render "N
+earlier messages not recorded" instead of the list silently starting mid-conversation. This is a
+**per-call** cap, independent of `alfred.calls.max-size-bytes`/the inbound ring buffer's
+retention-rows cap described above - a single very chatty WebSocket call cannot itself blow either
+of those budgets, since its own messages evict each other first.
+
 **The Settings → Database table lists `internal-calls.log` alongside the `.db` files.** It was missing until it became the third-largest store on disk and the only one actively evicting, with the page showing neither. The "Total calls" metric and its donut above the table remain the **outbound** breakdown only (they pair with "Clear all saved calls", which deletes `calls.db`); inbound's row count lives in the table.
 
 **Session-cycles captures calls without `backend-calls` knowing session-cycles exists**: `NewCallObserverPort` (owned by `backend-calls`, `CallsService` takes `List<NewCallObserverPort>` — empty list if the module isn't on the classpath) is implemented by `SessionCycleCaptureAdapter`, which appends to every currently-`RECORDING` cycle's file per webhook call and returns the ids that captured it — those ride along in the `/ws/calls` broadcast so an open cycle-detail page can filter the same socket.
@@ -62,5 +111,20 @@ Each slice: `domain.model` / `application.port.in|out` / `application.service` /
 **`GET /calls` and `GET /session-cycles/{id}/calls` are fully server-paginated, sorted, and filtered** - `search`/`supplier`/`sort`/`offset`/`limit` query params, response shape `{calls, total}` (`CallsPage`/`CapturedCallsPage`). `CallListSupport` (`backend-calls`' `application.service` package) holds the shared filter/sort/paginate logic - both `CallsService.getCalls` and `SessionCyclesService.listCalls` call it via a `Function<T, CallRecord>` extractor (`Function.identity()` for calls, `CapturedCall::call` for captured calls), so a call ranks/searches/sorts identically regardless of which endpoint serves it. `sort` mirrors the frontend's `SortMode` values exactly except `"custom"` (drag-and-drop order), which the backend doesn't know about - the frontend never sends it. `"oldest"`/`"newest"` are relative to the *source* list's natural order (oldest-first/insertion order for both `RECENT_CALLS.log` and a cycle's captured-calls file), not a field on `CallRecord` - `"oldest-call"`/`"newest-call"` sort by parsed `timestamp` instead, accepting both Java's `Instant.toString()` format and the proxy's Python `isoformat()` offset format (`OffsetDateTime` fallback). `offset`/`limit` are clamped the same way the old `limit`-only param was (`alfred.calls.max-limit`, default 200).
 
 **Pagination itself is a property-driven toggle, `alfred.calls.pagination-enabled` (env `ALFRED_PAGINATION_ENABLED`), disabled by default.** `CallListSupport.apply`'s `paginationEnabled` param controls it: when `false`, `offset` is ignored (always 0) *and* the effective limit is forced to `maxLimit` regardless of what the caller requested - not the caller's small `limit`, which would make every "Load more" click re-fetch and re-append the exact same first N items forever, since offset is also being ignored (this exact bug was caught live before shipping). Disabled reproduces the pre-pagination "everything up to maxLimit in one response" behavior byte-for-byte - the frontend needs zero changes either way, since "Load more" simply finds nothing left to load (`remainingCount` is `total - loaded`, and `total` already equals everything).
+
+**`FindRecentRequestHeadersUseCase` is windowed to `CallLogPort.MAX_RECENT_REQUEST_HEADERS` (200),
+not the whole log, because it exists for one narrow purpose: resend's "use current session"
+substitution.** `recentRequestHeaders(host, limit)` returns the newest calls to a given host,
+request headers only (no bodies, ever), newest first. `SqliteCallsRepository` overrides the
+default with a query that selects only `call_metadata` rows plus `call_request.headers` for those
+rows and always carries a `LIMIT` - the port's own default implementation instead scans
+`readAll()` in reverse, correct only for the file adapter (which holds everything in memory
+anyway) and exactly the kind of unbounded default the `readAll()`-over-SQLite trap documented above
+warns about, which is why the cap exists as a named constant on the port rather than being left to
+each caller to remember. `backend-app`'s `resendbridge.SessionValueLookupAdapter` calls this
+(alongside a scan of a session-cycle's captured calls) to find the newest cookie/authorization
+value for a host when a resend asks to substitute the current session - 200 is enough recent
+history to find a live session value without paying to walk an entire deployment's call log to
+answer "what's the newest header this host has seen."
 
 **Security posture:** DTOs validated via `@Valid` + `GlobalExceptionHandler`; `GET /calls?limit=` clamped; deletes return 404/204/409 (`409` = session-cycle still recording, must pause first) via explicit outcome enums, not re-derived checks; CORS origins and webhook secret (`X-Webhook-Secret` vs `alfred.webhook.secret`/`WEBHOOK_SECRET`) are env-configurable, default permissive; adapters never swallow file I/O errors silently (SLF4J WARN/ERROR) and check writability at `@PostConstruct`.

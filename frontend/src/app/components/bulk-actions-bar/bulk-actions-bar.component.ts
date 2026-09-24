@@ -1,11 +1,13 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, WritableSignal, inject, signal } from '@angular/core';
-import { Observable, forkJoin, of } from 'rxjs';
-import { catchError, map, switchMap } from 'rxjs/operators';
+import { Observable, forkJoin, from, of } from 'rxjs';
+import { catchError, concatMap, map, switchMap, takeWhile, tap } from 'rxjs/operators';
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { Comment } from '../../core/models/comment.model';
 import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE } from '../../core/state/call-selection.tokens';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
+import { ResendApiService } from '../../core/services/resend-api.service';
 import { CopyToCyclesDialogService } from '../../core/services/copy-to-cycles-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -40,6 +42,7 @@ import { downloadText } from '../../shared/utils/download';
 export class BulkActionsBarComponent {
   private readonly exportApi = inject(ExportApiService);
   private readonly exportDialog = inject(ExportDialogService);
+  private readonly resendApi = inject(ResendApiService);
   private readonly copyToCyclesDialog = inject(CopyToCyclesDialogService);
   private readonly commentsApi = inject(CommentsApiService);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
@@ -53,6 +56,10 @@ export class BulkActionsBarComponent {
   readonly jsonLoading = signal(false);
   readonly postmanLoading = signal(false);
   readonly duplicateLoading = signal(false);
+  readonly resendLoading = signal(false);
+  readonly resendProgress = signal(0);
+  readonly resendTotal = signal(0);
+  readonly resendStoppedEarly = signal(false);
 
   selectAll(): void {
     this.state.selectAll();
@@ -100,6 +107,39 @@ export class BulkActionsBarComponent {
       this.duplicateLoading.set(false);
       this.copyToCyclesDialog.open(calls);
     });
+  }
+
+  /**
+   * Sends the selection one call at a time, in display order - never concurrently, since the point
+   * is to reproduce a sequence of calls the way it originally happened, not to fire a burst. Stops
+   * at the first failure (409 reverse-proxy-not-running chief among them) rather than skipping
+   * ahead, so a bulk resend is either a faithful prefix of the original sequence or nothing.
+   */
+  resendSelected(): void {
+    const selected = this.state.selectedCalls();
+    if (selected.length === 0 || this.resendLoading()) return;
+    this.resendLoading.set(true);
+    this.resendProgress.set(0);
+    this.resendTotal.set(selected.length);
+    this.resendStoppedEarly.set(false);
+
+    from(selected)
+      .pipe(
+        concatMap((call) =>
+          this.resendApi
+            .resend({ direction: call.source === 'internal' ? 'inbound' : 'outbound', callId: call.id })
+            .pipe(
+              map(() => ({ ok: true as const })),
+              catchError((error: HttpErrorResponse) => of({ ok: false as const, error }))
+            )
+        ),
+        tap((outcome) => {
+          this.resendProgress.update((n) => n + 1);
+          if (!outcome.ok) this.resendStoppedEarly.set(true);
+        }),
+        takeWhile((outcome) => outcome.ok, true)
+      )
+      .subscribe({ complete: () => this.resendLoading.set(false) });
   }
 
   async removeSelected(): Promise<void> {

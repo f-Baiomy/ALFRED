@@ -6,6 +6,7 @@ import { Comment } from '../../core/models/comment.model';
 import { PinService } from '../../core/services/pin.service';
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
+import { ResendDialogService } from '../../core/services/resend-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
@@ -38,6 +39,7 @@ export class CallActionsComponent {
   private readonly pinService = inject(PinService);
   private readonly exportApi = inject(ExportApiService);
   private readonly exportDialog = inject(ExportDialogService);
+  private readonly resendDialog = inject(ResendDialogService);
   private readonly commentsApi = inject(CommentsApiService);
   private readonly redactions = inject(RedactionsStore);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
@@ -47,6 +49,7 @@ export class CallActionsComponent {
   readonly curlLoading = signal(false);
   readonly exportLoading = signal(false);
   readonly downloadLoading = signal(false);
+  readonly resendLoading = signal(false);
 
   readonly isPinned = computed(() => this.pinService.isPinned(this.call()));
 
@@ -104,6 +107,14 @@ export class CallActionsComponent {
   /** Resolves to a fully-hydrated CallRecord (request/response headers+bodies present) - always a real fetch, even if this same call was hydrated by an earlier action, so detail is never served stale. */
   private hydrated(call: CallRecord): Observable<CallRecord> {
     return this.controlsState.getCallDetail(call.id, call.source).pipe(map((detail) => ({ ...call, ...detail })));
+  }
+
+  openResend(): void {
+    this.resendLoading.set(true);
+    this.hydrated(this.call()).subscribe((call) => {
+      this.resendLoading.set(false);
+      this.resendDialog.open(call);
+    });
   }
 
   private fetchComments(call: CallRecord) {

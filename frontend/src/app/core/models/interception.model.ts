@@ -17,6 +17,8 @@ export type ActionType =
   | 'DELAY_REQUEST'
   | 'SET_REQUEST_HEADER'
   | 'REMOVE_REQUEST_HEADER'
+  | 'SET_REQUEST_TRAILER'
+  | 'REMOVE_REQUEST_TRAILER'
   | 'SET_QUERY_PARAM'
   | 'REMOVE_QUERY_PARAM'
   | 'SET_REQUEST_JSON_FIELD'
@@ -32,6 +34,7 @@ export type ActionType =
   | 'DISABLE_CACHE'
   | 'DISABLE_COMPRESSION'
   | 'ANSWER_WITH_RECORDED_CALL'
+  | 'ANSWER_WITH_FILE'
   | 'ABORT_REQUEST'
   | 'MOCK_RESPONSE'
   | 'PAUSE_REQUEST'
@@ -42,6 +45,8 @@ export type ActionType =
   | 'SET_RESPONSE_STATUS'
   | 'SET_RESPONSE_HEADER'
   | 'REMOVE_RESPONSE_HEADER'
+  | 'SET_RESPONSE_TRAILER'
+  | 'REMOVE_RESPONSE_TRAILER'
   | 'SET_RESPONSE_JSON_FIELD'
   | 'SET_RESPONSE_BODY'
   | 'REPLACE_IN_RESPONSE_BODY'
@@ -52,7 +57,10 @@ export type ActionType =
   | 'REPLACE_WITH_RECORDED_RESPONSE'
   | 'REPLACE_RESPONSE'
   | 'PAUSE_RESPONSE'
-  | 'IF_RESPONSE';
+  | 'IF_RESPONSE'
+  | 'REPLACE_IN_MESSAGE'
+  | 'DROP_MESSAGE'
+  | 'DELAY_MESSAGE';
 
 /**
  * How a call can be broken at the transport level rather than with a status code.
@@ -547,6 +555,8 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   DELAY_REQUEST: 'Delay request',
   SET_REQUEST_HEADER: 'Set request header',
   REMOVE_REQUEST_HEADER: 'Remove request header',
+  SET_REQUEST_TRAILER: 'Set request trailer',
+  REMOVE_REQUEST_TRAILER: 'Remove request trailer',
   SET_QUERY_PARAM: 'Set query parameter',
   REMOVE_QUERY_PARAM: 'Remove query parameter',
   SET_REQUEST_JSON_FIELD: 'Set JSON field in request body',
@@ -562,6 +572,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   DISABLE_CACHE: 'Disable cache (always get the full response)',
   DISABLE_COMPRESSION: 'Disable compression',
   ANSWER_WITH_RECORDED_CALL: 'Answer with a recorded call (never contact upstream)',
+  ANSWER_WITH_FILE: 'Answer with an uploaded file (never contact upstream)',
   ABORT_REQUEST: 'Abort request (kill the connection)',
   MOCK_RESPONSE: 'Mock response (never contact upstream)',
   PAUSE_REQUEST: 'Pause and wait for me (before forwarding)',
@@ -572,6 +583,8 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   SET_RESPONSE_STATUS: 'Set response status',
   SET_RESPONSE_HEADER: 'Set response header',
   REMOVE_RESPONSE_HEADER: 'Remove response header',
+  SET_RESPONSE_TRAILER: 'Set response trailer',
+  REMOVE_RESPONSE_TRAILER: 'Remove response trailer',
   SET_RESPONSE_JSON_FIELD: 'Set JSON field in response body',
   SET_RESPONSE_BODY: 'Replace the response body',
   REPLACE_IN_RESPONSE_BODY: 'Find & replace in response body',
@@ -583,6 +596,9 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   REPLACE_RESPONSE: 'Reply with a different response',
   PAUSE_RESPONSE: 'Pause and wait for me (after the supplier answers)',
   IF_RESPONSE: 'Condition — look at the response, then decide',
+  REPLACE_IN_MESSAGE: 'Find & replace in a WebSocket message',
+  DROP_MESSAGE: 'Drop a WebSocket message',
+  DELAY_MESSAGE: 'Delay a WebSocket message',
 };
 
 export const SUBJECT_LABELS: Readonly<Record<ConditionSubject, string>> = {
@@ -678,10 +694,14 @@ export function describeAction(action: RuleAction): string {
       return `${label} ${(action.durationMs ?? 0).toLocaleString()} ms`;
     case 'SET_REQUEST_HEADER':
     case 'SET_RESPONSE_HEADER':
+    case 'SET_REQUEST_TRAILER':
+    case 'SET_RESPONSE_TRAILER':
     case 'SET_QUERY_PARAM':
       return `${label} ${action.name}`;
     case 'REMOVE_REQUEST_HEADER':
     case 'REMOVE_RESPONSE_HEADER':
+    case 'REMOVE_REQUEST_TRAILER':
+    case 'REMOVE_RESPONSE_TRAILER':
     case 'REMOVE_QUERY_PARAM':
       return `${label} ${action.name}`;
     case 'SET_REQUEST_JSON_FIELD':
@@ -740,6 +760,10 @@ export function describeAction(action: RuleAction): string {
       return action.answerId || action.answerRef
         ? 'Replace the response with a recorded one — host still called'
         : 'Replace with a recorded response — none picked yet';
+    case 'ANSWER_WITH_FILE':
+      return action.answerId || action.answerRef
+        ? `Answer with an uploaded file${action.status ? ` as ${action.status}` : ''} — host never called`
+        : 'Answer with an uploaded file — none uploaded yet';
     case 'SET_REQUEST_BODY':
       return `Replace request body (${(action.body ?? '').length} chars)${action.contentType ? `, ${action.contentType}` : ''}`;
     case 'REPLACE_IN_REQUEST_BODY':
@@ -759,6 +783,19 @@ export function describeAction(action: RuleAction): string {
         `Pause ${action.type === 'PAUSE_REQUEST' ? 'request' : 'response'} — ` +
         (action.timeoutSeconds == null ? 'no timeout set' : `wait ${action.timeoutSeconds}s`)
       );
+    case 'REPLACE_IN_MESSAGE': {
+      const shown = action.regex ? `/${action.pattern ?? ''}/` : `"${action.pattern ?? ''}"`;
+      const direction = action.messageDirection && action.messageDirection !== 'both' ? ` (${action.messageDirection})` : '';
+      return `In WebSocket messages${direction}, replace ${shown} → "${action.replacement ?? ''}"`;
+    }
+    case 'DROP_MESSAGE': {
+      const direction = action.messageDirection && action.messageDirection !== 'both' ? ` from the ${action.messageDirection}` : '';
+      return action.contains ? `Drop WebSocket messages${direction} containing "${action.contains}"` : `Drop every WebSocket message${direction}`;
+    }
+    case 'DELAY_MESSAGE': {
+      const direction = action.messageDirection && action.messageDirection !== 'both' ? ` (${action.messageDirection})` : '';
+      return `Delay WebSocket messages${direction} by ${action.durationMs ?? 0}ms`;
+    }
     default:
       return label;
   }
@@ -841,5 +878,10 @@ export interface CopyAnswerRequest {
 
 /** Whether an action serves a stored answer, and so needs the answer picker. */
 export function usesStoredAnswer(type: ActionType): boolean {
-  return type === 'ANSWER_WITH_RECORDED_CALL' || type === 'REPLACE_WITH_RECORDED_RESPONSE';
+  return type === 'ANSWER_WITH_RECORDED_CALL' || type === 'REPLACE_WITH_RECORDED_RESPONSE' || type === 'ANSWER_WITH_FILE';
+}
+
+/** Whether an action's stored answer comes from an uploaded file rather than a picked call. */
+export function usesUploadedAnswer(type: ActionType): boolean {
+  return type === 'ANSWER_WITH_FILE';
 }

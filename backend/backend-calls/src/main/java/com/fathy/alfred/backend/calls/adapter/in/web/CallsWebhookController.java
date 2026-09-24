@@ -2,9 +2,11 @@ package com.fathy.alfred.backend.calls.adapter.in.web;
 
 import com.fathy.alfred.backend.calls.adapter.in.web.dto.CompleteCallRequestDto;
 import com.fathy.alfred.backend.calls.adapter.in.web.dto.PrepareCallRequestDto;
+import com.fathy.alfred.backend.calls.adapter.in.web.dto.WsMessagesWebhookRequestDto;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceivePreparedCallUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.ReceiveWsMessagesUseCase;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +32,7 @@ public class CallsWebhookController {
     private final ReceiveNewCallUseCase receiveNewCallUseCase;
     private final ReceivePreparedCallUseCase receivePreparedCallUseCase;
     private final ReceiveCompletedCallUseCase receiveCompletedCallUseCase;
+    private final ReceiveWsMessagesUseCase receiveWsMessagesUseCase;
 
     @Value("${alfred.webhook.secret:}")
     private String webhookSecret;
@@ -37,11 +40,13 @@ public class CallsWebhookController {
     public CallsWebhookController(
             ReceiveNewCallUseCase receiveNewCallUseCase,
             ReceivePreparedCallUseCase receivePreparedCallUseCase,
-            ReceiveCompletedCallUseCase receiveCompletedCallUseCase
+            ReceiveCompletedCallUseCase receiveCompletedCallUseCase,
+            ReceiveWsMessagesUseCase receiveWsMessagesUseCase
     ) {
         this.receiveNewCallUseCase = receiveNewCallUseCase;
         this.receivePreparedCallUseCase = receivePreparedCallUseCase;
         this.receiveCompletedCallUseCase = receiveCompletedCallUseCase;
+        this.receiveWsMessagesUseCase = receiveWsMessagesUseCase;
     }
 
     /** @deprecated superseded by {@link #prepare}/{@link #complete} - kept only for rollout safety, see the class doc. */
@@ -75,7 +80,8 @@ public class CallsWebhookController {
             return ResponseEntity.status(401).build();
         }
         CallRecord partial = new CallRecord(body.id(), body.originalUrl(), body.url(), body.method(), body.request(),
-                body.timestamp(), null, null, null, null, body.sessionId(), body.operationId(), body.serviceName());
+                body.timestamp(), null, null, null, null, body.sessionId(), body.operationId(), body.serviceName(),
+                null, null, body.resendOf(), body.resendEdits());
         Optional<String> id = receivePreparedCallUseCase.receivePreparedCall(partial);
         return id.map(value -> ResponseEntity.ok(Map.of("id", value)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -93,6 +99,21 @@ public class CallsWebhookController {
         }
         boolean found = receiveCompletedCallUseCase.receiveCompletedCall(id, body.response(), body.error(), body.durationMs(), body.timing(), body.interception());
         return found ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    }
+
+    /** No 404 for an unknown id - a batch for a call retention already trimmed is silently dropped (see ReceiveWsMessagesUseCase), same as CallLogPort.appendWsMessages's own doc. */
+    @PostMapping("/calls/webhook/{id}/ws-messages")
+    public ResponseEntity<Void> wsMessages(
+            @RequestHeader(name = "X-Webhook-Secret", required = false) String providedSecret,
+            @PathVariable String id,
+            @RequestBody WsMessagesWebhookRequestDto body
+    ) {
+        if (!secretMatches(providedSecret)) {
+            return ResponseEntity.status(401).build();
+        }
+        receiveWsMessagesUseCase.receiveWsMessages(id, body.messages() == null ? java.util.List.of() : body.messages(),
+                Boolean.TRUE.equals(body.closed()), body.closeCode());
+        return ResponseEntity.noContent().build();
     }
 
     private boolean secretMatches(String providedSecret) {

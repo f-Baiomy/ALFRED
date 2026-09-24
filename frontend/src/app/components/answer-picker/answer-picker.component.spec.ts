@@ -104,4 +104,35 @@ describe('AnswerPickerComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('SECRETS STRIPPED');
     expect(fixture.nativeElement.textContent).not.toContain('set-cookie');
   }));
+
+  it('uploads a file when uploadMode is set, without searching for calls', fakeAsync(() => {
+    fixture.componentRef.setInput('uploadMode', true);
+    fixture.detectChanges();
+
+    const file = new File(['{}'], 'stub.json', { type: 'application/json' });
+    component.uploadFile.set(file);
+    component.uploadContentType.set('application/json');
+    component.upload();
+
+    const req = http.expectOne(`${BACKEND}/interception/answers`);
+    expect(req.request.body instanceof FormData).toBeTrue();
+    req.flush({ ...ANSWER, kind: 'FILE', id: ANSWER.id, secretsKept: null, secretNames: [] });
+
+    expect(emitted).toEqual([ANSWER.id]);
+  }));
+
+  it('states the cap and the size when an upload is too large', fakeAsync(() => {
+    fixture.componentRef.setInput('uploadMode', true);
+    fixture.detectChanges();
+
+    component.uploadFile.set(new File(['x'], 'big.bin', { type: 'application/octet-stream' }));
+    component.upload();
+
+    http
+      .expectOne(`${BACKEND}/interception/answers`)
+      .flush({ error: 'answer-too-large', limitBytes: 10485760, sizeBytes: 12582912 }, { status: 413, statusText: 'Too Large' });
+
+    expect(component.error()).toContain('12.0 MB');
+    expect(component.error()).toContain('10.0 MB');
+  }));
 });

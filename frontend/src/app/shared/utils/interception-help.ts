@@ -148,6 +148,18 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     warning:
       'If the response carried secrets (Set-Cookie, Authorization…) you choose to keep or strip them. Kept secrets are served to every caller and travel with the rule: Export and Duplicate include them in plain text.',
   },
+  ANSWER_WITH_FILE: {
+    title: 'Answer with an uploaded file',
+    code: 'ANSWER_WITH_FILE',
+    what: 'Answers the call with a file you upload - status, content type and body - and never contacts the host. For stubbing a response no call has ever produced, such as a webhook payload a partner has only described in a spec.',
+    exampleIntro: 'Stubbing a payment webhook nobody has sent you yet:',
+    examples: [
+      { from: 'upload payment-confirmed.json, content type application/json', to: 'every matching call gets that exact body' },
+      { from: 'status 200 chosen at upload', to: 'overridden per rule with the status field below' },
+      { from: 'an earlier rule sends to the host', to: 'the answer is skipped, and the log says so' },
+    ],
+    warning: 'The uploaded bytes are served exactly as given - Alfred does not template or re-encode them.',
+  },
   SET_METHOD: {
     title: 'Set method',
     code: 'SET_METHOD',
@@ -187,6 +199,20 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     what: 'Strips the header before the request is forwarded — how you reproduce a caller that forgot to authenticate.',
     examples: [{ from: 'authorization', to: 'the supplier receives the call with no auth header at all' }],
     warning: 'Removing a header that was never there does nothing and is not an error.',
+  },
+  SET_REQUEST_TRAILER: {
+    title: 'Set request trailer',
+    code: 'SET_REQUEST_TRAILER',
+    what: 'Adds or replaces a trailer on the outgoing request — a header sent after the body, on a chunked or HTTP/2 request that actually carries trailers.',
+    examples: [{ from: 'x-checksum = abc123', to: 'the trailer arrives after the body, not before it' }],
+    warning: 'A request with no trailers is left unchanged, and the log records the action as skipped.',
+  },
+  REMOVE_REQUEST_TRAILER: {
+    title: 'Remove request trailer',
+    code: 'REMOVE_REQUEST_TRAILER',
+    what: 'Drops one trailer from the outgoing request.',
+    examples: [{ from: 'x-checksum', to: 'the trailer is gone; the body and headers are unaffected' }],
+    warning: 'A request with no trailers is left unchanged, and the log records the action as skipped.',
   },
   SET_QUERY_PARAM: {
     title: 'Set query parameter',
@@ -315,6 +341,20 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     what: 'Strips a header before the caller sees it — how you find out what your client does without one.',
     examples: [{ from: 'content-type', to: 'the caller must guess how to parse the body' }],
   },
+  SET_RESPONSE_TRAILER: {
+    title: 'Set response trailer',
+    code: 'SET_RESPONSE_TRAILER',
+    what: 'Adds or replaces a trailer on the reply — a header sent after the body, on a chunked, gRPC or HTTP/2 response that actually carries trailers.',
+    examples: [{ from: 'grpc-status = 0', to: 'the caller reads it after the body has fully arrived' }],
+    warning: 'A response with no trailers is left unchanged, and the log records the action as skipped.',
+  },
+  REMOVE_RESPONSE_TRAILER: {
+    title: 'Remove response trailer',
+    code: 'REMOVE_RESPONSE_TRAILER',
+    what: 'Drops one trailer from the reply — how you test a gRPC-style client against a status that never arrives.',
+    examples: [{ from: 'grpc-status', to: 'the caller receives the response without that trailer' }],
+    warning: 'A response with no trailers is left unchanged, and the log records the action as skipped.',
+  },
   SET_RESPONSE_JSON_FIELD: {
     title: 'Set JSON field in response body',
     code: 'SET_RESPONSE_JSON_FIELD',
@@ -432,6 +472,31 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
     ],
     warning:
       'It never runs on a call that was mocked, failed or aborted in the request half — nothing came back to look at.',
+  },
+  REPLACE_IN_MESSAGE: {
+    title: 'Find & replace in a WebSocket message',
+    code: 'REPLACE_IN_MESSAGE',
+    what: 'Rewrites text anywhere in a WebSocket frame as it passes through, on either side of the connection you choose.',
+    examples: [
+      { from: 'ping → pong, client → server', to: 'only frames the client sends are rewritten' },
+      { from: 'regex "price":(\\d+) → "price":0', to: 'every price in a server push becomes free' },
+    ],
+    warning: 'A binary frame is left alone — only text frames are searched, matching mitmproxy’s own behaviour.',
+  },
+  DROP_MESSAGE: {
+    title: 'Drop a WebSocket message',
+    code: 'DROP_MESSAGE',
+    what: 'Stops one WebSocket frame from reaching the other side, with the connection itself left open.',
+    examples: [
+      { from: 'contains "heartbeat"', to: 'only heartbeat frames are swallowed; everything else still arrives' },
+      { from: 'empty filter', to: 'every frame in that direction is dropped' },
+    ],
+  },
+  DELAY_MESSAGE: {
+    title: 'Delay a WebSocket message',
+    code: 'DELAY_MESSAGE',
+    what: 'Holds one frame before it is relayed — how you find out whether a client copes with a slow peer without breaking the connection.',
+    examples: [{ from: '1000 ms, server → client', to: 'a push from the server arrives a second late' }],
   },
 };
 

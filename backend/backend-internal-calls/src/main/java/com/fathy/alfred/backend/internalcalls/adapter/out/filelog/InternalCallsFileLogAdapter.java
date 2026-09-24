@@ -97,6 +97,34 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
      */
     private int linesOnDisk = -1;
 
+    /** Per-call cap on retained WebSocket messages - mirrors backend-calls' own property. */
+    @Value("${alfred.internal-calls.ws-max-messages:1000}")
+    private int wsMaxMessages;
+
+    /**
+     * WebSocket messages, kept in memory only - never written to internal-calls.log or a sibling
+     * file. Consistent with this slice's own design, not a shortcut: it has no SQLite adapter and
+     * already keeps its whole retained window resident in memory (see docs/architecture.md on why
+     * backend's mem_limit is 2g), so messages for calls the ring still retains living in memory
+     * too costs nothing this slice doesn't already pay. Pruned in {@link #save} whenever the ring
+     * evicts a call, so this map's size stays bounded by retentionRows * wsMaxMessages the same
+     * way the ring itself is bounded.
+     */
+    private final Map<String, List<com.fathy.alfred.backend.internalcalls.domain.model.WsMessage>> wsMessagesByCallId =
+            new ConcurrentHashMap<>();
+    private final Map<String, Integer> wsDroppedByCallId = new ConcurrentHashMap<>();
+
+    private void pruneWsMessages(List<CachedLine> retained) {
+        if (wsMessagesByCallId.isEmpty()) {
+            return;
+        }
+        var retainedIds = retained.stream().map(line -> line.record() != null ? line.record().id() : null)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        wsMessagesByCallId.keySet().removeIf(id -> !retainedIds.contains(id));
+        wsDroppedByCallId.keySet().removeIf(id -> !retainedIds.contains(id));
+    }
+
     /**
      * One line of the file together with its parsed form ({@code null} when that line failed to
      * parse). Caching both keeps save able to rewrite the file from the original line text,
@@ -184,6 +212,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             next.add(added);
             if (next.size() > retentionRows) {
                 next = new ArrayList<>(next.subList(next.size() - retentionRows, next.size()));
+                pruneWsMessages(next);
             }
 
             if (linesOnDisk + 1 > compactionThreshold()) {
@@ -265,7 +294,8 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
                 // at completion time would silently break the session-id/operation-id/source
                 // filters for every completed call).
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
-                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName())
+                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName(),
+                        null, partial.resendOf(), partial.resendEdits())
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
                 // silently dropping it. serviceName unknown too in this narrow, accepted-gap case.
@@ -499,5 +529,36 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
     private static Double at(List<Double> sorted, double percentile) {
         int index = Math.min(sorted.size() - 1, Math.max(0, (int) Math.floor(sorted.size() * percentile)));
         return sorted.get(index);
+    }
+
+    @Override
+    public void appendWsMessages(String callId, List<com.fathy.alfred.backend.internalcalls.domain.model.WsMessage> messages,
+                                  boolean closed, Integer closeCode) {
+        if (messages.isEmpty()) {
+            return;
+        }
+        List<com.fathy.alfred.backend.internalcalls.domain.model.WsMessage> existing =
+                wsMessagesByCallId.computeIfAbsent(callId, id -> Collections.synchronizedList(new ArrayList<>()));
+        synchronized (existing) {
+            existing.addAll(messages);
+            int overflow = existing.size() - wsMaxMessages;
+            if (overflow > 0) {
+                existing.subList(0, overflow).clear();
+                wsDroppedByCallId.merge(callId, overflow, Integer::sum);
+            }
+        }
+    }
+
+    @Override
+    public com.fathy.alfred.backend.internalcalls.domain.model.WsMessagesPage wsMessages(String callId, int offset, int limit) {
+        List<com.fathy.alfred.backend.internalcalls.domain.model.WsMessage> all = wsMessagesByCallId.getOrDefault(callId, List.of());
+        List<com.fathy.alfred.backend.internalcalls.domain.model.WsMessage> page;
+        int total;
+        synchronized (all) {
+            total = all.size();
+            page = all.stream().skip(Math.max(0, offset)).limit(Math.max(0, limit)).toList();
+        }
+        return new com.fathy.alfred.backend.internalcalls.domain.model.WsMessagesPage(
+                page, total, wsDroppedByCallId.getOrDefault(callId, 0));
     }
 }

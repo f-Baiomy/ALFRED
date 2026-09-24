@@ -82,11 +82,12 @@ class FakeHeaders(dict):
 
 
 class FakeMessage:
-    def __init__(self, text=None, headers=None, status=None):
+    def __init__(self, text=None, headers=None, status=None, trailers=None):
         self.text = text
         self.headers = FakeHeaders(headers or {})
         self.status_code = status
         self.reason = 'OK'
+        self.trailers = None if trailers is None else FakeHeaders(trailers)
 
     @property
     def content(self):
@@ -106,8 +107,8 @@ class FakeMessage:
 
 
 class FakeRequest(FakeMessage):
-    def __init__(self, method='GET', host='example.com', path='/', text=None, headers=None, query=None):
-        FakeMessage.__init__(self, text=text, headers=headers)
+    def __init__(self, method='GET', host='example.com', path='/', text=None, headers=None, query=None, trailers=None):
+        FakeMessage.__init__(self, text=text, headers=headers, trailers=trailers)
         self.method = method
         self.host = host
         self.pretty_host = host
@@ -238,12 +239,18 @@ class CodecMessage(FakeMessage):
         self.headers['content-encoding'] = encoding
 
 
+class FakeClientConn:
+    def __init__(self, peername=('203.0.113.5', 51000)):
+        self.peername = peername
+
+
 class FakeFlow:
-    def __init__(self, request=None, response=None):
+    def __init__(self, request=None, response=None, peername=('203.0.113.5', 51000)):
         self.request = request or FakeRequest()
         self.response = response
         self.metadata = {}
         self.killed = False
+        self.client_conn = FakeClientConn(peername)
 
     def kill(self):
         self.killed = True
@@ -261,11 +268,12 @@ def write_rules(tmpdir, rules, enabled=True, **extra):
 ANSWER = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
 
 
-def write_answer(tmpdir, answer_id=ANSWER, status=503, headers=None, body=b'{"fare":0}', recorded_at=None):
+def write_answer(tmpdir, answer_id=ANSWER, status=503, headers=None, body=b'{"fare":0}', recorded_at=None,
+                  kind='RECORDED'):
     """A stored answer as the backend publishes it, beside the rules file in tmpdir."""
     directory = os.path.join(tmpdir, 'answers')
     os.makedirs(directory, exist_ok=True)
-    meta = {'id': answer_id, 'kind': 'RECORDED', 'status': status,
+    meta = {'id': answer_id, 'kind': kind, 'status': status,
             'headers': headers if headers is not None else {'content-type': 'application/json'},
             'recordedAt': recorded_at}
     with open(os.path.join(directory, answer_id + '.meta.json'), 'w', encoding='utf-8') as f:
@@ -453,6 +461,27 @@ class RequestActionsTest(unittest.TestCase):
         self.assertEqual(flow.request.headers['X-Alfred-Test'], 'true')
         self.assertNotIn('X-Drop-Me', flow.request.headers)
 
+    def test_set_and_remove_request_trailer(self):
+        engine = self.engine([
+            {'type': 'SET_REQUEST_TRAILER', 'name': 'X-Checksum', 'value': 'abc123'},
+            {'type': 'REMOVE_REQUEST_TRAILER', 'name': 'X-Drop-Me'},
+        ])
+        flow = FakeFlow(FakeRequest(trailers={'X-Drop-Me': 'gone'}))
+        run(engine.apply_request(flow))
+        self.assertEqual(flow.request.trailers['X-Checksum'], 'abc123')
+        self.assertNotIn('X-Drop-Me', flow.request.trailers)
+
+    def test_request_trailer_actions_are_skipped_when_there_are_no_trailers(self):
+        engine = self.engine([
+            {'type': 'SET_REQUEST_TRAILER', 'name': 'X-Checksum', 'value': 'abc123'},
+            {'type': 'REMOVE_REQUEST_TRAILER', 'name': 'X-Checksum'},
+        ])
+        flow = FakeFlow(FakeRequest())
+        verdict = run(engine.apply_request(flow))
+        self.assertIsNone(flow.request.trailers)
+        details = [a.detail for a in verdict.applied]
+        self.assertTrue(all('skipped - no trailers' in d for d in details), details)
+
     def test_sensitive_header_value_is_never_recorded(self):
         engine = self.engine([{'type': 'SET_REQUEST_HEADER', 'name': 'Authorization', 'value': 'Bearer hunter2'}])
         flow = FakeFlow()
@@ -599,6 +628,25 @@ class ResponseActionsTest(unittest.TestCase):
         ]).apply_response(flow))
         self.assertEqual(flow.response.headers['X-Alfred'], 'mocked')
         self.assertNotIn('X-Cache', flow.response.headers)
+
+    def test_response_trailers(self):
+        flow = self.flow(trailers={'X-Drop-Me': 'gone'})
+        run(self.engine([
+            {'type': 'SET_RESPONSE_TRAILER', 'name': 'X-Checksum', 'value': 'abc123'},
+            {'type': 'REMOVE_RESPONSE_TRAILER', 'name': 'X-Drop-Me'},
+        ]).apply_response(flow))
+        self.assertEqual(flow.response.trailers['X-Checksum'], 'abc123')
+        self.assertNotIn('X-Drop-Me', flow.response.trailers)
+
+    def test_response_trailer_actions_are_skipped_when_there_are_no_trailers(self):
+        flow = self.flow()
+        verdict = run(self.engine([
+            {'type': 'SET_RESPONSE_TRAILER', 'name': 'X-Checksum', 'value': 'abc123'},
+            {'type': 'REMOVE_RESPONSE_TRAILER', 'name': 'X-Checksum'},
+        ]).apply_response(flow))
+        self.assertIsNone(flow.response.trailers)
+        details = [a.detail for a in verdict.applied]
+        self.assertTrue(all('skipped - no trailers' in d for d in details), details)
 
     def test_json_field(self):
         flow = self.flow(text=json.dumps({'status': 'CONFIRMED', 'itinerary': {'seatsRemaining': 14}}))
@@ -1378,6 +1426,8 @@ class EveryActionIsCoveredTest(unittest.TestCase):
     SAMPLES = {
         'SET_REQUEST_HEADER': {'type': 'SET_REQUEST_HEADER', 'name': 'X-A', 'value': '1'},
         'REMOVE_REQUEST_HEADER': {'type': 'REMOVE_REQUEST_HEADER', 'name': 'X-Gone'},
+        'SET_REQUEST_TRAILER': {'type': 'SET_REQUEST_TRAILER', 'name': 'X-Trailer-A', 'value': '1'},
+        'REMOVE_REQUEST_TRAILER': {'type': 'REMOVE_REQUEST_TRAILER', 'name': 'X-Trailer-Gone'},
         'SET_QUERY_PARAM': {'type': 'SET_QUERY_PARAM', 'name': 'q', 'value': '2'},
         'REMOVE_QUERY_PARAM': {'type': 'REMOVE_QUERY_PARAM', 'name': 'drop'},
         'SET_REQUEST_JSON_FIELD': {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'a', 'value': 9},
@@ -1399,6 +1449,7 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         'MOCK_RESPONSE': {'type': 'MOCK_RESPONSE', 'status': 418, 'body': 'teapot'},
         'ANSWER_WITH_RECORDED_CALL': {'type': 'ANSWER_WITH_RECORDED_CALL', 'answerId': ANSWER},
         'REPLACE_WITH_RECORDED_RESPONSE': {'type': 'REPLACE_WITH_RECORDED_RESPONSE', 'answerId': ANSWER},
+        'ANSWER_WITH_FILE': {'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER},
         # The mode that answers rather than kills, so there is something to record either end of.
         'SIMULATE_FAILURE': {'type': 'SIMULATE_FAILURE', 'failure': 'GATEWAY_ERROR', 'status': 503},
         # A branch that matches the fixture and changes something, so the generic before/after
@@ -1412,6 +1463,8 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         'SET_RESPONSE_STATUS': {'type': 'SET_RESPONSE_STATUS', 'status': 500},
         'SET_RESPONSE_HEADER': {'type': 'SET_RESPONSE_HEADER', 'name': 'X-A', 'value': '1'},
         'REMOVE_RESPONSE_HEADER': {'type': 'REMOVE_RESPONSE_HEADER', 'name': 'X-Gone'},
+        'SET_RESPONSE_TRAILER': {'type': 'SET_RESPONSE_TRAILER', 'name': 'X-Trailer-A', 'value': '1'},
+        'REMOVE_RESPONSE_TRAILER': {'type': 'REMOVE_RESPONSE_TRAILER', 'name': 'X-Trailer-Gone'},
         'SET_RESPONSE_JSON_FIELD': {'type': 'SET_RESPONSE_JSON_FIELD', 'path': 'a', 'value': 9},
         'SET_RESPONSE_BODY': {'type': 'SET_RESPONSE_BODY', 'body': 'replaced'},
         'REPLACE_IN_RESPONSE_BODY': {'type': 'REPLACE_IN_RESPONSE_BODY', 'pattern': '1', 'replacement': '2'},
@@ -1432,6 +1485,9 @@ class EveryActionIsCoveredTest(unittest.TestCase):
 
     # Actions whose sample needs a body other than the JSON fixture's to have anything to edit.
     FORM_ACTIONS = {'SET_FORM_FIELD', 'REMOVE_FORM_FIELD'}
+    # Actions whose sample needs trailers present to have anything to edit.
+    TRAILER_ACTIONS = {'SET_REQUEST_TRAILER', 'REMOVE_REQUEST_TRAILER',
+                        'SET_RESPONSE_TRAILER', 'REMOVE_RESPONSE_TRAILER'}
 
     def flow(self, phase, kind=None):
         # No response during the REQUEST phase, as in a real flow - mitmproxy has not called
@@ -1442,11 +1498,12 @@ class EveryActionIsCoveredTest(unittest.TestCase):
         if kind in self.FORM_ACTIONS:
             headers['Content-Type'] = 'application/x-www-form-urlencoded'
             text = 'amount=12&currency=EUR'
+        trailers = {'X-Trailer-Gone': 'x'} if kind in self.TRAILER_ACTIONS else None
         return FakeFlow(
-            FakeRequest(text=text, headers=headers, query={'drop': '1'}),
+            FakeRequest(text=text, headers=headers, query={'drop': '1'}, trailers=trailers),
             None if phase == 'request'
             else CodecMessage(status=200, text=json.dumps({'a': 1}),
-                              headers={'X-Gone': 'x', 'Set-Cookie': 'drop=1; Path=/'}))
+                              headers={'X-Gone': 'x', 'Set-Cookie': 'drop=1; Path=/'}, trailers=trailers))
 
     def test_every_action_type_has_a_sample(self):
         every = interception.REQUEST_ACTIONS | interception.RESPONSE_ACTIONS
@@ -2631,6 +2688,238 @@ class StoredAnswerTest(unittest.TestCase):
         meta = os.path.join(self.tmp.name, 'answers', ANSWER + '.meta.json')
         os.utime(meta, (time.time() + 5, time.time() + 5))
         self.assertEqual(run(cache.load(ANSWER))[0][1], b'two')
+
+
+class FakeWsMessage:
+    """Enough of mitmproxy's WebSocketMessage (see websocket.py) for apply_message: is_text/text
+    for a text frame, content for a binary one, drop() to mark it dropped, from_client for
+    direction."""
+
+    def __init__(self, text=None, content=None, from_client=True):
+        self._text = text
+        self.content = content if content is not None else (text.encode() if text is not None else b'')
+        self.from_client = from_client
+        self.dropped = False
+
+    @property
+    def is_text(self):
+        return self._text is not None
+
+    @property
+    def text(self):
+        if self._text is None:
+            raise AttributeError('binary message has no text')
+        return self._text
+
+    @text.setter
+    def text(self, value):
+        self._text = value
+        self.content = value.encode()
+
+    def drop(self):
+        self.dropped = True
+
+
+class MessageActionsTest(unittest.TestCase):
+    """apply_message / match_for_websocket - MESSAGE-phase actions on one WebSocket message."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, *actions, rules=None):
+        return interception.InterceptionEngine('outbound', write_rules(
+            self.tmp.name, rules or [rule(actions=list(actions))]))
+
+    def matched(self, *actions, rules=None):
+        engine = self.engine(*actions, rules=rules)
+        return engine, engine.match_for_websocket(FakeFlow())
+
+    def test_replace_in_message_edits_only_the_configured_direction(self):
+        engine, rules = self.matched({'type': 'REPLACE_IN_MESSAGE', 'messageDirection': 'client',
+                                       'pattern': 'secret', 'replacement': 'REDACTED'})
+
+        client_msg = FakeWsMessage(text='the secret is out', from_client=True)
+        verdict = run(engine.apply_message(rules, client_msg, from_client=True))
+        self.assertEqual(client_msg.text, 'the REDACTED is out')
+        self.assertEqual(verdict.edited, 'the REDACTED is out')
+        self.assertIn('1 replacement', verdict.applied[0].detail)
+
+        server_msg = FakeWsMessage(text='the secret is out', from_client=False)
+        verdict = run(engine.apply_message(rules, server_msg, from_client=False))
+        self.assertEqual(server_msg.text, 'the secret is out')
+        self.assertIsNone(verdict.edited)
+        self.assertEqual(verdict.applied, [])
+
+    def test_drop_message_with_contains_drops_the_message_and_records_it(self):
+        engine, rules = self.matched({'type': 'DROP_MESSAGE', 'contains': 'ping'})
+
+        matching = FakeWsMessage(text='ping')
+        verdict = run(engine.apply_message(rules, matching, from_client=True))
+        self.assertTrue(verdict.dropped)
+        self.assertEqual(verdict.applied[0].detail, 'dropped')
+
+        other = FakeWsMessage(text='pong')
+        verdict = run(engine.apply_message(rules, other, from_client=True))
+        self.assertFalse(verdict.dropped)
+        self.assertEqual(verdict.applied[0].detail, 'skipped - no match')
+
+    def test_drop_message_with_no_contains_drops_every_message(self):
+        engine, rules = self.matched({'type': 'DROP_MESSAGE'})
+
+        verdict = run(engine.apply_message(rules, FakeWsMessage(text='anything'), from_client=True))
+        self.assertTrue(verdict.dropped)
+
+    def test_delay_message_returns_a_delay(self):
+        engine, rules = self.matched({'type': 'DELAY_MESSAGE', 'durationMs': 250})
+
+        verdict = run(engine.apply_message(rules, FakeWsMessage(text='x'), from_client=True))
+        self.assertEqual(verdict.delay_ms, 250)
+
+    def test_an_unknown_message_kind_records_a_skip(self):
+        # apply_message is tested directly here (bypassing match_for_websocket, which pre-filters
+        # to rules it recognises as having a MESSAGE action) so a kind newer than this proxy build
+        # still gets a recorded skip rather than being silently dropped.
+        engine = self.engine()
+        prepared = interception._prepare_actions([{'type': 'BOGUS_MESSAGE_KIND'}])
+
+        class _Rule:
+            id = 'r1'
+            name = 'Test'
+            actions = prepared
+
+        verdict = run(engine.apply_message([_Rule()], FakeWsMessage(text='x'), from_client=True))
+        self.assertEqual(verdict.applied[0].detail, 'skipped - unknown action BOGUS_MESSAGE_KIND')
+
+    def test_binary_messages_skip_replace_in_message(self):
+        engine, rules = self.matched({'type': 'REPLACE_IN_MESSAGE', 'pattern': 'a', 'replacement': 'b'})
+
+        binary = FakeWsMessage(content=b'\x00\x01')
+        verdict = run(engine.apply_message(rules, binary, from_client=True))
+        self.assertEqual(verdict.applied[0].detail, 'skipped - binary message')
+
+    def test_match_for_websocket_only_returns_rules_with_a_message_action(self):
+        engine, rules = self.matched({'type': 'SET_REQUEST_HEADER', 'name': 'X-A', 'value': '1'})
+        self.assertEqual(rules, [])
+
+    # One sample per MESSAGE action, mirroring EveryActionIsCoveredTest.SAMPLES for the request/
+    # response phases - walked below so a MESSAGE action added later and forgotten here is a
+    # failing build, not a silently uncovered one.
+    SAMPLES = {
+        'REPLACE_IN_MESSAGE': {'type': 'REPLACE_IN_MESSAGE', 'pattern': 'a', 'replacement': 'b'},
+        'DROP_MESSAGE': {'type': 'DROP_MESSAGE'},
+        'DELAY_MESSAGE': {'type': 'DELAY_MESSAGE', 'durationMs': 1},
+    }
+
+    def test_every_message_action_type_has_a_sample(self):
+        self.assertEqual(set(self.SAMPLES), interception.MESSAGE_ACTIONS)
+
+    def test_every_message_action_sample_records_something(self):
+        for kind, sample in self.SAMPLES.items():
+            with self.subTest(kind=kind):
+                engine, rules = self.matched(sample)
+                verdict = run(engine.apply_message(rules, FakeWsMessage(text='a'), from_client=True))
+                self.assertTrue(verdict.applied, f'{kind} recorded nothing')
+
+
+class ResendHeadersTest(unittest.TestCase):
+    """take_resend_headers: the proxy's half of linking a resent call back to its original."""
+
+    BACKEND_ADDRESSES = ('10.0.0.5',)
+
+    def test_from_the_backend_the_headers_become_payload_fields_and_are_removed(self):
+        request = FakeRequest(headers={
+            'X-Alfred-Resend-Of': 'call-1',
+            'X-Alfred-Resend-Edits': '{"method":{"from":"GET","to":"POST"}}',
+        })
+        flow = FakeFlow(request=request, peername=('10.0.0.5', 54000))
+
+        resend_of, resend_edits = interception.take_resend_headers(flow, self.BACKEND_ADDRESSES)
+
+        self.assertEqual(resend_of, 'call-1')
+        self.assertEqual(resend_edits, {'method': {'from': 'GET', 'to': 'POST'}})
+        self.assertNotIn('X-Alfred-Resend-Of', request.headers)
+        self.assertNotIn('X-Alfred-Resend-Edits', request.headers)
+
+    def test_from_any_other_peer_both_are_removed_and_ignored(self):
+        request = FakeRequest(headers={'X-Alfred-Resend-Of': 'call-1', 'X-Alfred-Resend-Edits': '{}'})
+        flow = FakeFlow(request=request, peername=('203.0.113.9', 54000))
+
+        resend_of, resend_edits = interception.take_resend_headers(flow, self.BACKEND_ADDRESSES)
+
+        self.assertIsNone(resend_of)
+        self.assertIsNone(resend_edits)
+        self.assertNotIn('X-Alfred-Resend-Of', request.headers)
+        self.assertNotIn('X-Alfred-Resend-Edits', request.headers)
+
+    def test_a_rule_matching_on_the_header_never_sees_it(self):
+        request = FakeRequest(headers={'X-Alfred-Resend-Of': 'call-1'})
+        flow = FakeFlow(request=request, peername=('10.0.0.5', 54000))
+        interception.take_resend_headers(flow, self.BACKEND_ADDRESSES)
+
+        match = {'headers': [{'name': 'X-Alfred-Resend-Of', 'operator': 'EXISTS'}]}
+        engine = interception.InterceptionEngine('outbound', write_rules(
+            tempfile.mkdtemp(), [rule(match=match, actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Hit', 'value': '1'}])]))
+        verdict = run(engine.apply_request(flow))
+        self.assertNotIn('X-Hit', request.headers)
+        self.assertEqual(verdict.applied, [])
+
+    def test_no_headers_present_returns_none_and_none(self):
+        flow = FakeFlow(peername=('10.0.0.5', 54000))
+        resend_of, resend_edits = interception.take_resend_headers(flow, self.BACKEND_ADDRESSES)
+        self.assertIsNone(resend_of)
+        self.assertIsNone(resend_edits)
+
+    def test_an_unparseable_edits_value_is_treated_as_absent(self):
+        request = FakeRequest(headers={'X-Alfred-Resend-Of': 'call-1', 'X-Alfred-Resend-Edits': 'not json'})
+        flow = FakeFlow(request=request, peername=('10.0.0.5', 54000))
+
+        resend_of, resend_edits = interception.take_resend_headers(flow, self.BACKEND_ADDRESSES)
+
+        self.assertEqual(resend_of, 'call-1')
+        self.assertIsNone(resend_edits)
+
+
+class AnswerWithFileTest(unittest.TestCase):
+    """Answering with an uploaded file: the same stored-answer plumbing, an answer with kind FILE."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, *actions, rules=None):
+        return interception.InterceptionEngine('outbound', write_rules(
+            self.tmp.name, rules or [rule(actions=list(actions))]))
+
+    def test_serves_the_exact_uploaded_bytes(self):
+        write_answer(self.tmp.name, kind='FILE', status=200,
+                     headers={'content-type': 'text/plain'}, body=b'stub body')
+        verdict = run(self.engine({'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER}).apply_request(FakeFlow()))
+        self.assertEqual(verdict.terminal, 'MOCK_RESPONSE')
+        self.assertEqual(verdict.mock['status'], 200)
+        self.assertEqual(verdict.mock['headers'], {'content-type': 'text/plain'})
+        self.assertEqual(verdict.mock['body_bytes'], b'stub body')
+        self.assertIn('upstream never contacted', verdict.applied[0].detail)
+
+    def test_the_action_status_overrides_the_uploaded_one(self):
+        write_answer(self.tmp.name, kind='FILE', status=200)
+        verdict = run(self.engine({'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER, 'status': 503})
+                      .apply_request(FakeFlow()))
+        self.assertEqual(verdict.mock['status'], 503)
+
+    def test_an_earlier_send_to_host_wins(self):
+        write_answer(self.tmp.name, kind='FILE')
+        engine = self.engine(rules=[
+            rule(id='a', priority=1, actions=[{'type': 'SEND_TO_HOST'}]),
+            rule(id='b', priority=2, actions=[{'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER}])])
+        verdict = run(engine.apply_request(FakeFlow()))
+        self.assertIsNone(verdict.terminal)
+        self.assertEqual(verdict.applied[1].detail, 'skipped - an earlier rule requires this call to reach the host')
+
+    def test_a_missing_answer_is_recorded_and_the_call_goes_on(self):
+        verdict = run(self.engine({'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER}).apply_request(FakeFlow()))
+        self.assertIsNone(verdict.terminal)
+        self.assertEqual(verdict.applied[0].detail, f'skipped - stored answer {ANSWER} not found')
 
 
 if __name__ == '__main__':

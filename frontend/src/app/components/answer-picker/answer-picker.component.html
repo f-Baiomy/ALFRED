@@ -1,5 +1,31 @@
 <div class="answer-picker span-all">
-  @if (showPicker()) {
+  @if (showPicker() && uploadMode()) {
+    <div class="answer-upload">
+      <label class="inline-field span-all">
+        <span>File</span>
+        <input type="file" (change)="onFileSelected($event)" />
+      </label>
+      @if (uploadFile(); as file) {
+        <small class="muted">{{ file.name }} · {{ sizeText(file.size) }}</small>
+      }
+      <label class="inline-field grow">
+        <span>Content type</span>
+        <input type="text" [value]="uploadContentType()" (input)="onUploadContentType($event)" placeholder="application/json" />
+      </label>
+      <div class="inline-field">
+        <span>Status</span>
+        <app-status-picker [value]="uploadStatus()" placeholder="Keep default (200)" (valueChange)="onUploadStatus($event)" />
+      </div>
+      <div class="answer-upload-actions">
+        @if (changing()) {
+          <button type="button" class="pill" (click)="cancelChange()">Keep the current answer</button>
+        }
+        <button type="button" class="pill" [disabled]="!uploadFile() || copying()" (click)="upload()">
+          {{ copying() ? 'Uploading…' : 'Upload' }}
+        </button>
+      </div>
+    </div>
+  } @else if (showPicker()) {
     <div class="answer-picker-bar">
       <div class="answer-direction" role="group" aria-label="Which calls to pick from">
         <button type="button" class="pill" [class.on]="direction() === 'outbound'" (click)="setDirection('outbound')">Outbound · supplier calls</button>

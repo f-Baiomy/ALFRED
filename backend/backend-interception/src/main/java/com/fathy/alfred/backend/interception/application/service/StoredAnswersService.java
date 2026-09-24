@@ -161,6 +161,23 @@ public class StoredAnswersService implements ManageStoredAnswersUseCase {
         return Optional.of(fresh);
     }
 
+    @Override
+    public UploadResult upload(byte[] body, String contentType, Integer status) {
+        if (contentType == null || contentType.isBlank()) {
+            return new UploadResult.MissingContentType();
+        }
+        if (body == null || body.length > maxAnswerBytes) {
+            return new UploadResult.TooLarge(maxAnswerBytes, body == null ? 0 : body.length);
+        }
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("content-type", contentType);
+        StoredAnswer answer = new StoredAnswer(
+                UUID.randomUUID().toString(), StoredAnswer.Kind.FILE, status, headers, contentType, body.length,
+                null, List.of(), null, null, null, null, Instant.now(clock).toString());
+        store.save(answer, body);
+        return new UploadResult.Created(answer);
+    }
+
     /** The kind of an existing answer, for RuleValidator. */
     public Optional<StoredAnswer.Kind> kindOf(String id) {
         return store.findMeta(id).map(StoredAnswer::kind);

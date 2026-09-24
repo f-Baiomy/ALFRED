@@ -1,5 +1,6 @@
 import { CallEndpointSource, CallLifecycleState, CallOverlapCandidate, CallRecord, CallResponse, HttpMessageData } from '../../core/models/call.model';
 import { CallInterception } from '../../core/models/interception.model';
+import { WsMessage } from '../../core/models/ws-message.model';
 import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { CallStatusFilter, isInProgress } from './call-utils';
@@ -27,6 +28,8 @@ export interface BulkExportRequestEvent {
   readonly comments: readonly Comment[];
   /** What an interception rule did to the call - see BulkExportCallEvent.interception. */
   readonly interception?: CallInterception;
+  /** See BulkExportCallEvent.wsMessages - rides on the request event for a split internal call, same as comments/interception. */
+  readonly wsMessages?: readonly WsMessage[];
 }
 
 /** The response-side counterpart to a BulkExportRequestEvent, correlated purely by sharing the same callId. */
@@ -79,6 +82,12 @@ export interface BulkExportCallEvent {
    * request event, the same way it carries its comments. Absent on a call nothing touched.
    */
   readonly interception?: CallInterception;
+  /**
+   * Every WebSocket message this call carried (status 101 only) - untruncated, same
+   * no-truncation guarantee as request/response bodies. Absent for anything that isn't a
+   * WebSocket call, or wasn't fetched before export (see CallRecord.wsMessages).
+   */
+  readonly wsMessages?: readonly WsMessage[];
 }
 
 export type BulkExportEvent = BulkExportRequestEvent | BulkExportResponseEvent | BulkExportCallEvent;
@@ -254,6 +263,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     state: call.state,
     comments,
     interception: call.interception ?? undefined,
+    wsMessages: call.wsMessages,
   });
 
   if (call.source !== 'internal') {
@@ -277,6 +287,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     state: call.state,
     comments,
     interception: call.interception ?? undefined,
+    wsMessages: call.wsMessages,
   };
 
   if (!resolved) return [requestEvent];

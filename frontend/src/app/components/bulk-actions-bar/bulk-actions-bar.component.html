@@ -13,6 +13,12 @@
       <button type="button" class="bulk-btn" [disabled]="duplicateLoading()" (click)="duplicateToCycles()">
         {{ duplicateLoading() ? 'Loading...' : 'Duplicate to cycles' }}
       </button>
+      <button type="button" class="bulk-btn" [disabled]="resendLoading()" (click)="resendSelected()">
+        {{ resendLoading() ? 'Resending ' + resendProgress() + '/' + resendTotal() + '…' : 'Resend selected' }}
+      </button>
+      @if (!resendLoading() && resendStoppedEarly()) {
+        <small class="muted">Resend stopped after {{ resendProgress() }}/{{ resendTotal() }} - one failed.</small>
+      }
       @if (removalState) {
         <button type="button" class="bulk-btn danger" (click)="removeSelected()">Remove selected</button>
       }

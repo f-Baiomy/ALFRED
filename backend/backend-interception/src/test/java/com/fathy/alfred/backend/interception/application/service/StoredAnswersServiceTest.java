@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.interception.application.service;
 
 import com.fathy.alfred.backend.interception.application.port.in.ManageStoredAnswersUseCase.CopyResult;
+import com.fathy.alfred.backend.interception.application.port.in.ManageStoredAnswersUseCase.UploadResult;
 import com.fathy.alfred.backend.interception.application.port.out.RecordedCallLookupPort;
 import com.fathy.alfred.backend.interception.application.port.out.RecordedCallLookupPort.RecordedResponse;
 import com.fathy.alfred.backend.interception.application.port.out.StoredAnswersStorePort;
@@ -206,6 +207,36 @@ class StoredAnswersServiceTest {
         assertThat(imported.headers()).containsOnlyKeys("Set-Cookie");
         assertThat(imported.secretsKept()).isTrue();
         assertThat(imported.secretNames()).containsExactly("set-cookie");
+    }
+
+    @Test
+    void anUploadIsStoredAsAFileAnswerWithOnlyItsContentType() {
+        UploadResult result = service.upload("stub".getBytes(StandardCharsets.UTF_8), "text/plain", 404);
+
+        assertThat(result).isInstanceOf(UploadResult.Created.class);
+        StoredAnswer answer = ((UploadResult.Created) result).answer();
+        assertThat(answer.kind()).isEqualTo(StoredAnswer.Kind.FILE);
+        assertThat(answer.status()).isEqualTo(404);
+        assertThat(answer.contentType()).isEqualTo("text/plain");
+        assertThat(answer.headers()).containsOnly(Map.entry("content-type", "text/plain"));
+        assertThat(answer.secretsKept()).isNull();
+        assertThat(StoredAnswer.isValidId(answer.id())).isTrue();
+    }
+
+    @Test
+    void anUploadWithNoContentTypeIsRefused() {
+        assertThat(service.upload("stub".getBytes(StandardCharsets.UTF_8), null, null))
+                .isEqualTo(new UploadResult.MissingContentType());
+        assertThat(service.upload("stub".getBytes(StandardCharsets.UTF_8), "  ", null))
+                .isEqualTo(new UploadResult.MissingContentType());
+        assertThat(store.meta).isEmpty();
+    }
+
+    @Test
+    void anUploadOverTheCapIsRefusedWithTheLimitAndTheSize() {
+        assertThat(service.upload("x".repeat(101).getBytes(StandardCharsets.UTF_8), "text/plain", null))
+                .isEqualTo(new UploadResult.TooLarge(100, 101));
+        assertThat(store.meta).isEmpty();
     }
 
     private StoredAnswer stored(String id, Instant createdAt) {

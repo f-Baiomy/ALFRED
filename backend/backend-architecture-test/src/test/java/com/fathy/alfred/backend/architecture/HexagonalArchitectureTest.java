@@ -208,9 +208,6 @@ class HexagonalArchitectureTest {
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
                         "..backend.interception..")
-                // Only until backend-resend has its first class (tasks.md T102): ArchUnit refuses
-                // a rule that matches nothing. Remove this line with that task.
-                .allowEmptyShould(true)
                 .check(classes);
     }
 }

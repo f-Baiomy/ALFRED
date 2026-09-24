@@ -194,13 +194,14 @@ public final class RuleValidator {
                     problems.add(action.type() + " is capped at " + MAX_DELAY_MS + " ms.");
                 }
             }
-            case SET_REQUEST_HEADER, SET_RESPONSE_HEADER -> {
+            case SET_REQUEST_HEADER, SET_RESPONSE_HEADER, SET_REQUEST_TRAILER, SET_RESPONSE_TRAILER -> {
                 requireName(action, problems);
                 if (action.value() == null) {
                     problems.add(action.type() + " needs a value.");
                 }
             }
-            case REMOVE_REQUEST_HEADER, REMOVE_RESPONSE_HEADER, REMOVE_QUERY_PARAM -> requireName(action, problems);
+            case REMOVE_REQUEST_HEADER, REMOVE_RESPONSE_HEADER, REMOVE_QUERY_PARAM,
+                 REMOVE_REQUEST_TRAILER, REMOVE_RESPONSE_TRAILER -> requireName(action, problems);
             case SET_QUERY_PARAM -> {
                 requireName(action, problems);
                 if (action.value() == null) {
@@ -298,6 +299,19 @@ public final class RuleValidator {
                 // Neither takes any parameters.
             }
             case REPLACE_IN_REQUEST_BODY, REPLACE_IN_RESPONSE_BODY -> validateReplacement(action, problems);
+            case REPLACE_IN_MESSAGE -> {
+                validateMessageDirection(action, problems);
+                validateReplacement(action, problems);
+            }
+            case DROP_MESSAGE -> validateMessageDirection(action, problems);
+            case DELAY_MESSAGE -> {
+                validateMessageDirection(action, problems);
+                if (action.durationMs() == null || action.durationMs() < 0) {
+                    problems.add("DELAY_MESSAGE needs a duration of 0 ms or more.");
+                } else if (action.durationMs() > MAX_DELAY_MS) {
+                    problems.add("DELAY_MESSAGE is capped at " + MAX_DELAY_MS + " ms.");
+                }
+            }
             case REWRITE_URL -> validateRewrite(action, problems, checks.selfTargets());
             case SET_METHOD -> {
                 if (action.method() == null || !action.method().strip().matches("[A-Za-z]+")) {
@@ -329,7 +343,7 @@ public final class RuleValidator {
                     problems.add("SET_RESPONSE_ENCODING needs one of " + String.join(", ", RESPONSE_ENCODINGS) + ".");
                 }
             }
-            case ANSWER_WITH_RECORDED_CALL, REPLACE_WITH_RECORDED_RESPONSE -> {
+            case ANSWER_WITH_RECORDED_CALL, REPLACE_WITH_RECORDED_RESPONSE, ANSWER_WITH_FILE -> {
                 validateAnswer(action, problems, checks);
                 if (action.status() != null && (action.status() < 100 || action.status() > 599)) {
                     problems.add(action.type() + " needs a status code between 100 and 599, or none to keep the recorded one.");
@@ -374,6 +388,16 @@ public final class RuleValidator {
      * Everything a find/replace needs, shared by every action that finds text. The pattern checks
      * are PatternSafety's; this only adds what is specific to replacing.
      */
+    private static final Set<String> MESSAGE_DIRECTIONS = Set.of("client", "server", "both");
+
+    /** REPLACE_IN_MESSAGE / DROP_MESSAGE / DELAY_MESSAGE all take the same client/server/both direction; null defaults to "both" at the engine, so it is optional here. */
+    private static void validateMessageDirection(RuleAction action, List<String> problems) {
+        String direction = action.messageDirection();
+        if (direction != null && !MESSAGE_DIRECTIONS.contains(direction)) {
+            problems.add(action.type() + "'s direction must be client, server or both.");
+        }
+    }
+
     private static void validateReplacement(RuleAction action, List<String> problems) {
         boolean regex = Boolean.TRUE.equals(action.regex());
         for (String problem : PatternSafety.problems(action.pattern(), regex)) {

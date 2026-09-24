@@ -47,8 +47,27 @@ public record CallRecord(
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
         CallTiming timing,
-        CallInterception interception
+        CallInterception interception,
+        /** The id of the original call this one is a resend of, or null - see backend-resend. */
+        @JsonProperty("resend_of") String resendOf,
+        /**
+         * {@code {method?:{from,to}, url?:{from,to}, headers?:[names], body?:true, session?:[{name,
+         * fromCallId}]}} - opaque to this slice on purpose (see CLAUDE.md: slices may not share
+         * code), so it is carried as untyped JSON rather than backend-resend's ResendEdits type.
+         * Never carries a secret's value, only header names.
+         */
+        @JsonProperty("resend_edits") Object resendEdits
 ) {
+    /**
+     * Pre-resend shape - the newest fields, added the same backward-compatible way as interception
+     * before them. Null means this call is not a resend of anything, the overwhelmingly common case.
+     */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId, String serviceName, CallTiming timing, CallInterception interception) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, timing, interception, null, null);
+    }
+
     /**
      * Pre-interception shape - the newest field, added the same backward-compatible way as timing
      * and serviceName before it. Null means no interception rule touched this call, which is the
@@ -57,7 +76,7 @@ public record CallRecord(
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
                        String sessionId, String operationId, String serviceName, CallTiming timing) {
-        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, timing, null);
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, timing, null, null, null);
     }
 
     /** Pre-timing shape - the newest field, added the same backward-compatible way as serviceName before it. Null means "not measured" (a call logged before the proxy reported phase timings), never zero. */

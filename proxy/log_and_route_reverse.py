@@ -28,6 +28,7 @@ calls get recorded; other projects' toggles are unaffected.
 """
 
 import asyncio
+import base64
 import json
 import os
 import queue
@@ -41,6 +42,7 @@ from mitmproxy import ctx, http
 
 import breakpoints
 import interception
+import ws_messages
 
 BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
 
@@ -74,13 +76,22 @@ for _triple in os.environ.get('REVERSE_PROXY_PORT_MAP', '').split(','):
     _name, _listen_port, _upstream_port = _triple.split(':', 2)
     PORT_MAP[int(_listen_port)] = (_name.strip(), int(_upstream_port))
 
+# Resolved once at import - see interception.take_resend_headers for why this is how a resend from
+# backend-resend is told apart from a client forging the same headers.
+BACKEND_ADDRESSES = interception.resolve_backend_addresses()
+
 _webhook_queue = queue.Queue()
 
 
 def _webhook_worker():
     while True:
         phase, call_id, data = _webhook_queue.get()
-        url = f'{WEBHOOK_URL}/prepare' if phase == 'prepare' else f'{WEBHOOK_URL}/{call_id}/complete'
+        if phase == 'prepare':
+            url = f'{WEBHOOK_URL}/prepare'
+        elif phase == 'ws-messages':
+            url = f'{WEBHOOK_URL}/{call_id}/ws-messages'
+        else:
+            url = f'{WEBHOOK_URL}/{call_id}/complete'
         timeout = PREPARE_TIMEOUT_SECONDS if phase == 'prepare' else WEBHOOK_TIMEOUT_SECONDS
         try:
             request = urllib.request.Request(
@@ -151,6 +162,10 @@ class RouteAndLog:
         name, upstream_port = PORT_MAP.get(listen_port, (UNKNOWN_NAME, None))
         flow.metadata['service_name'] = name
 
+        # Popped before interception and logging see the request at all, so neither a rule nor the
+        # call log ever observes these headers - see interception.take_resend_headers.
+        resend_of, resend_edits = interception.take_resend_headers(flow, BACKEND_ADDRESSES)
+
         # Interception is independent of the per-project LOGGING toggle: turning a project's
         # recording off means "don't write this down", not "stop applying the rules I configured".
         # It also runs before the call is logged, so what is recorded is what was actually
@@ -197,6 +212,12 @@ class RouteAndLog:
         applied = verdict.as_log()
         if applied:
             call_log['interception'] = applied
+        # Only present for a call sent through Alfred's own resend feature - see
+        # interception.take_resend_headers.
+        if resend_of:
+            call_log['resend_of'] = resend_of
+        if resend_edits is not None:
+            call_log['resend_edits'] = resend_edits
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
         await self._carry_out(flow, verdict, call_id, name)
@@ -360,6 +381,46 @@ class RouteAndLog:
                 'body': self._safe_body(flow.response),
             }
         self._write(call_id, data)
+
+    async def websocket_start(self, flow):
+        """See log_and_route.py's identical hook - the inbound counterpart, same reasoning."""
+        call_id = flow.metadata.get('call_id')
+        if not call_id:
+            return
+        service_name = flow.metadata.get('service_name')
+        rules = ENGINE.match_for_websocket(flow, service_name)
+        batcher = ws_messages.MessageBatcher(
+            call_id, lambda cid, payload: _webhook_queue.put_nowait(('ws-messages', cid, payload)))
+        flow.metadata['ws'] = {'rules': rules, 'batcher': batcher}
+        batcher.start()
+
+    async def websocket_message(self, flow):
+        ws = flow.metadata.get('ws')
+        if not ws:
+            return
+        message = flow.websocket.messages[-1]
+        direction = 'client' if message.from_client else 'server'
+        verdict = await ENGINE.apply_message(ws['rules'], message, message.from_client)
+        if verdict.delay_ms:
+            await asyncio.sleep(verdict.delay_ms / 1000)
+        if verdict.dropped:
+            message.drop()
+            ws['batcher'].add(direction, 'text' if message.is_text else 'binary', action='dropped')
+            return
+        if message.is_text:
+            ws['batcher'].add(
+                direction, 'text', content=message.text,
+                original_content=verdict.original if verdict.edited is not None else None,
+                action='edited' if verdict.edited is not None else None)
+        else:
+            ws['batcher'].add(direction, 'binary', content_base64=base64.b64encode(message.content).decode('ascii'))
+
+    async def websocket_end(self, flow):
+        ws = flow.metadata.get('ws')
+        if not ws:
+            return
+        close_code = getattr(flow.websocket, 'close_code', None) if flow.websocket else None
+        ws['batcher'].stop(closed=True, close_code=close_code)
 
     def _listen_port(self, flow):
         """Which of this process's listeners the flow came in on - client_conn.sockname is OUR

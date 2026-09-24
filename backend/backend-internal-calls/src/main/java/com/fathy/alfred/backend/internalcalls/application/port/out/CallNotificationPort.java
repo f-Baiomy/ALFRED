@@ -15,4 +15,7 @@ public interface CallNotificationPort {
 
     /** Fired after every logged call is deleted at once - no payload, callers just refetch GET /internal-calls. */
     void notifyCallsCleared();
+
+    /** Payload-free: a call's panel, if open, re-fetches GET /internal-calls/{id}/ws-messages. */
+    void notifyWsMessagesAppended(String callId);
 }

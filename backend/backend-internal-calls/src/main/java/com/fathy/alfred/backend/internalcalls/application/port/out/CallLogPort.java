@@ -6,9 +6,12 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
+import com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
 
+import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -84,4 +87,49 @@ public interface CallLogPort {
 
     /** Completed calls to this exact url only - see CallBaseline. */
     CallBaseline baselineFor(String url);
+
+    /**
+     * Appends one WebSocket connection's newly-batched messages to {@code callId}'s own list -
+     * capped per call at {@code alfred.internal-calls.ws-max-messages}. See backend-calls'
+     * CallLogPort.appendWsMessages for the full doc - this mirrors it.
+     */
+    void appendWsMessages(String callId, List<com.fathy.alfred.backend.internalcalls.domain.model.WsMessage> messages,
+                          boolean closed, Integer closeCode);
+
+    /** One call's WebSocket messages, oldest first, paginated. */
+    com.fathy.alfred.backend.internalcalls.domain.model.WsMessagesPage wsMessages(String callId, int offset, int limit);
+
+    /** The largest page {@link #recentRequestHeaders} will ever return. */
+    int MAX_RECENT_REQUEST_HEADERS = 200;
+
+    /**
+     * The newest calls to {@code host}, request headers only, newest first, capped at
+     * {@link #MAX_RECENT_REQUEST_HEADERS} - a scan of {@link #readAll()}, i.e. of whatever the
+     * inbound ring currently retains (see docs/architecture.md on why this slice has no SQLite
+     * adapter to push the query down into).
+     */
+    default List<RecentRequestHeaders> recentRequestHeaders(String host, int limit) {
+        int cap = Math.min(limit, MAX_RECENT_REQUEST_HEADERS);
+        List<RecentRequestHeaders> out = new ArrayList<>();
+        List<CallRecord> all = readAll();
+        for (int i = all.size() - 1; i >= 0 && out.size() < cap; i--) {
+            CallRecord call = all.get(i);
+            if (call.request() == null || !hostMatches(call.url(), host)) {
+                continue;
+            }
+            out.add(new RecentRequestHeaders(call.id(), call.request().headers()));
+        }
+        return out;
+    }
+
+    private static boolean hostMatches(String url, String host) {
+        if (url == null || host == null) {
+            return false;
+        }
+        try {
+            return host.equalsIgnoreCase(URI.create(url).getHost());
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
 }

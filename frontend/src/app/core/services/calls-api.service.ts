@@ -4,6 +4,7 @@ import { Observable, map } from 'rxjs';
 import { AppConfigService } from './app-config.service';
 import { CallOverlapQuery, CallsPageResult, CallsQuery } from '../state/call-list-view';
 import { CallBaseline, CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallSummaryDto } from '../models/call.model';
+import { WsMessagesPage } from '../models/ws-message.model';
 import { toCallRecord } from '../../shared/utils/call-utils';
 
 interface CallsPageDto {
@@ -70,6 +71,12 @@ export class CallsApiService {
   getDetail(callId: string, source: CallEndpointSource = 'external', part?: CallDetailPart): Observable<CallDetail> {
     const options = part ? { params: new HttpParams().set('part', part) } : {};
     return this.http.get<CallDetail>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/detail`, options);
+  }
+
+  /** A windowed list, fetched only once a call's WebSocket messages panel is actually opened - see WsMessagesComponent. `limit` is clamped 1..500 server-side. */
+  getWsMessages(source: CallEndpointSource, callId: string, offset: number, limit: number): Observable<WsMessagesPage> {
+    const params = new HttpParams().set('offset', offset).set('limit', limit);
+    return this.http.get<WsMessagesPage>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/ws-messages`, { params });
   }
 
   /**

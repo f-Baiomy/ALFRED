@@ -725,6 +725,32 @@ function interceptionPartHtml(call: CallRecord, phase: 'request' | 'response', i
   return { html: parts.join(''), blocks };
 }
 
+/** Every WebSocket message on this call, untruncated - each message's content is its own lazily-rendered block, same as a request/response body. */
+function wsMessagesPartHtml(call: CallRecord, idPrefix: string): { html: string; blocks: JsonBlockConfig[] } {
+  const messages = call.wsMessages;
+  if (!messages || messages.length === 0) return { html: '', blocks: [] };
+  const parts: string[] = ['<h3>🔌 WebSocket messages</h3>'];
+  const blocks: JsonBlockConfig[] = [];
+  for (const message of messages) {
+    const arrow = message.direction === 'client' ? '→' : '←';
+    const badge = message.action ? ` <code>${escapeHtml(message.action)}</code>` : '';
+    parts.push(`<p><b>${arrow} #${message.seq}</b> ${escapeHtml(new Date(message.tsMillis).toISOString())}${badge}</p>`);
+    if (message.type === 'text') {
+      const block = jsonBlockConfig(`${idPrefix}-ws-${message.seq}`, message.content, []);
+      blocks.push(block);
+      parts.push(jsonBlockHtml(block, 'Content', false));
+    } else {
+      parts.push(`<p>Binary message (${message.contentBase64?.length ?? 0} base64 characters)</p>`);
+    }
+    if (message.originalContent != null) {
+      const originalBlock = jsonBlockConfig(`${idPrefix}-ws-${message.seq}-original`, message.originalContent, []);
+      blocks.push(originalBlock);
+      parts.push(jsonBlockHtml(originalBlock, 'Original (before the rule edited it)', false));
+    }
+  }
+  return { html: parts.join(''), blocks };
+}
+
 function requestPartHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string, includeTimestampAndDuration: boolean): { html: string; blocks: JsonBlockConfig[] } {
   const reqHeaders = jsonBlockConfig(`${idPrefix}-req-headers`, JSON.stringify(call.request?.headers ?? {}), commentsForBlock(comments, 'request-headers'));
   const reqBody = jsonBlockConfig(`${idPrefix}-req-body`, call.request?.body, commentsForBlock(comments, 'request-body'));
@@ -772,8 +798,10 @@ function responsePartHtml(call: CallRecord, comments: readonly Comment[], idPref
   }
   const changed = interceptionPartHtml(call, 'response', idPrefix);
   parts.push(changed.html);
+  const ws = wsMessagesPartHtml(call, idPrefix);
+  parts.push(ws.html);
 
-  return { html: parts.join(''), blocks: [resHeaders, resBody, ...changed.blocks] };
+  return { html: parts.join(''), blocks: [resHeaders, resBody, ...changed.blocks, ...ws.blocks] };
 }
 
 function callSectionHtml(call: CallRecord, comments: readonly Comment[], idPrefix: string): { html: string; blocks: JsonBlockConfig[] } {

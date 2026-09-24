@@ -25,6 +25,56 @@ Alfred runs **two** mitmproxy services in `docker-compose.yml`, one per traffic 
 
 - **Per-folder CA identity**: `proxy/certs/` holds a CA generated fresh on first container start, unique to that project checkout. Only one Alfred folder's CA can be trusted under the "mitmproxy" friendly name per OS/JDK truststore at a time — running `start.py` from a different folder re-syncs trust to that folder's CA.
 
+- **Resending a logged call goes back out through the same proxies it originally went through,
+  reusing this CA rather than a second trust store.** `backend-resend`'s
+  `JdkHttpCallSender` (`implements CallSenderPort`) builds one `java.net.http.HttpClient` per
+  backend process, with an `SSLContext` trusting the PEM at `${alfred.resend.mitm-ca-file}`
+  (`/appdata/mitm-certs/mitmproxy-ca-cert.pem` — `docker-compose.yml` bind-mounts `proxy/certs`
+  read-only into the `backend` container specifically for this) and a timeout from
+  `${alfred.resend.timeout-ms}`. **Outbound** resends go through `ProxySelector.of(proxy:<port>)`,
+  where `<port>` is the internal port mapped to the original call's `service_name` in
+  `FORWARD_PROXY_PORT_MAP` (falling back to `FORWARD_PROXY_DEFAULT_PORT`, default 8080) — the same
+  per-project forward-proxy assignment described above, so a resent supplier call is attributed and
+  logged exactly like the original. **Inbound** resends bypass a proxy entirely and go straight to
+  `http://reverse-proxy:<listenPort><path>` with `Host: localhost:<listenPort>`, `listenPort`
+  resolved from `INTERNAL_CALL_SERVICES` by `serviceName` — a connection refused there (the
+  `inbound-logging` profile not running) becomes a reported `ReverseProxyNotRunning` rather than a
+  bare I/O exception. Either way the resent call re-enters Alfred on the ordinary webhook path, as
+  a brand-new logged call, not written by `backend-resend` directly.
+
+- **`X-Alfred-Resend-Of` / `X-Alfred-Resend-Edits` mark a resend on the wire, and both addons strip
+  them before a rule or the call log ever sees them.** `take_resend_headers(flow,
+  backend_addresses)` in `proxy/interception.py` pops both headers off every request
+  unconditionally, and only honours their values — `(resend_of, resend_edits)`, the latter a
+  JSON-serialized `ResendEdits` — when the request's peer address really is the backend's own
+  (`backend_addresses`, resolved once via `socket.gethostbyname_ex(BACKEND_HOST)`); anything else
+  gets the headers stripped and discarded, since a client could otherwise forge either header to
+  make an ordinary call masquerade as a resend. Both `log_and_route.py` and
+  `log_and_route_reverse.py` call this at the very top of their `request` hook, before
+  `ENGINE.apply_request` runs, and add the result onto the `prepare` webhook payload as
+  `resend_of`/`resend_edits`, so a resend's linkage back to its original call survives into the
+  logged `CallRecord` on both the outbound and inbound side.
+
+- **WebSocket messages get their own hooks, alongside the existing `request`/`response`/`error`
+  ones, in both addons.** `websocket_start` caches which rules (if any) have `MESSAGE`-phase
+  actions for that flow; `websocket_message` awaits `InterceptionEngine.apply_message` and applies
+  its verdict (an `asyncio.sleep` delay, `message.drop()`, or assigning edited `.text`/`.content`)
+  before handing the message to `proxy/ws_messages.py`'s per-connection `MessageBatcher`, which
+  posts batches to `{WEBHOOK_URL}/{call_id}/ws-messages` (flushed at 50 messages or 500ms,
+  whichever comes first); `websocket_end` does the final flush carrying `closeCode`. Both modules
+  are mounted read-only into the containers the same way `interception.py` already is.
+
+- **`proxy/regex_worker.py`** runs every `regex: true` interception action's pattern matching in a
+  dedicated, persistent `multiprocessing` worker process rather than in the addon's own event loop
+  — CPython's `re` holds the GIL for the duration of a match, so a pathological pattern would
+  otherwise freeze every connection this proxy is carrying, not just the one that triggered it. A
+  match that runs past `INTERCEPTION_REGEX_TIMEOUT_MS` (default 2000ms) kills and restarts the
+  worker and reports the match as timed out rather than hanging; literal (non-regex) find/replace
+  never touches this module at all, since it's linear and runs in-process. See
+  docs/interception.md's "Regex safety" section for the full mechanics, and
+  `backend-interception`'s `PatternSafety` for the save-time filter that keeps most dangerous
+  patterns from ever reaching here.
+
 - **A running JVM does not pick up truststore changes live** — restart the Java app after its JDK's cert import, unless you're injecting proxy properties into an already-running JVM specifically to avoid a restart, in which case make sure that JVM's JDK already trusted this CA *before* you started it.
 
 ## Host-side setup (Docker cannot touch the OS cert store)

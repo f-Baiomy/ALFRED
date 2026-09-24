@@ -34,13 +34,24 @@ public record CallSummary(
         @JsonProperty("service_name") String serviceName,
         CallTiming timing,
         /** Null unless an interception rule touched this call - rides on the SUMMARY so the badge shows on a collapsed card with no detail fetch, same reasoning as timing. */
-        CallInterception interception
+        CallInterception interception,
+        /** The id of the original call this one is a resend of, or null - see CallRecord.resendOf. */
+        @JsonProperty("resend_of") String resendOf,
+        /** Opaque JSON - see CallRecord.resendEdits for the shape. Rides on the SUMMARY for the same reason interception does: the resend chip shows on a collapsed card. */
+        @JsonProperty("resend_edits") Object resendEdits
 ) {
+    /** Pre-resend shape. */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId, String serviceName, CallTiming timing, CallInterception interception) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, timing, interception, null, null);
+    }
+
     /** Pre-interception shape. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
                         String sessionId, String operationId, String serviceName, CallTiming timing) {
-        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, timing, null);
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, timing, null, null, null);
     }
 
     /** Pre-timing shape - a call site built before phase timings existed gets null, which every reader treats as "not measured". */
@@ -75,7 +86,7 @@ public record CallSummary(
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception(), call.resendOf(), call.resendEdits());
     }
 
     /**

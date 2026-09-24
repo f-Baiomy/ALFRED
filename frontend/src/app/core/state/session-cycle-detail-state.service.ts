@@ -9,7 +9,6 @@ import {
   CallOverlapCandidate,
   CallRecord,
   CallSummaryDto,
-  CallsClearedEvent,
   CallsWsMessage,
   CapturedCall,
   InternalCallsWsMessage,
@@ -343,7 +342,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     }
   }
 
-  private subscribeToWs<T extends { call: CallSummaryDto; capturedByCycleIds: readonly string[] } | CallsClearedEvent>(
+  private subscribeToWs<T extends CallsWsMessage | InternalCallsWsMessage>(
     wsUrl: string,
     source: CallEndpointSource
   ): Subscription {
@@ -354,7 +353,12 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     );
   }
 
-  private handleWsMessage(message: { call: CallSummaryDto; capturedByCycleIds: readonly string[] } | CallsClearedEvent, source: CallEndpointSource): void {
+  private handleWsMessage(message: CallsWsMessage | InternalCallsWsMessage, source: CallEndpointSource): void {
+    if ('type' in message && message.type === 'ws-messages-appended') {
+      // Cycles don't get a live WsMessagesComponent refresh from this event today - a captured
+      // call's messages are viewed on manual open, not pushed - so there's nothing to do here.
+      return;
+    }
     if (!('call' in message)) {
       this.liveCalls.set([]);
       this.view.refresh();

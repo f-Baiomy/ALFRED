@@ -3,8 +3,11 @@ package com.fathy.alfred.backend.calls.application.service;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallBaselineUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsInRangeUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.FindRecentRequestHeadersUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.GetWsMessagesUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.ReceiveWsMessagesUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceivePreparedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.out.CallFilterPort;
@@ -18,6 +21,9 @@ import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
+import com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders;
+import com.fathy.alfred.backend.calls.domain.model.WsMessage;
+import com.fathy.alfred.backend.calls.domain.model.WsMessagesPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
@@ -33,7 +39,8 @@ import java.util.UUID;
 
 @Service
 public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase, ReceiveNewCallUseCase,
-        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase {
+        ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase, FindRecentRequestHeadersUseCase,
+        ReceiveWsMessagesUseCase, GetWsMessagesUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(CallsService.class);
 
@@ -134,7 +141,8 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
         String id = valueOrGenerated(partial.id());
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
-                partial.sessionId(), partial.operationId(), partial.serviceName());
+                partial.sessionId(), partial.operationId(), partial.serviceName(), null, null,
+                partial.resendOf(), partial.resendEdits());
         if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {
             return Optional.empty();
         }
@@ -181,5 +189,22 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
 
     private static String valueOrGenerated(String value) {
         return (value != null && !value.isBlank()) ? value : UUID.randomUUID().toString();
+    }
+
+    @Override
+    public List<RecentRequestHeaders> recentRequestHeaders(String host, int limit) {
+        return callLogPort.recentRequestHeaders(host, limit);
+    }
+
+    @Override
+    public void receiveWsMessages(String callId, List<WsMessage> messages, boolean closed, Integer closeCode) {
+        callLogPort.appendWsMessages(callId, messages, closed, closeCode);
+        notificationPort.notifyWsMessagesAppended(callId);
+    }
+
+    @Override
+    public WsMessagesPage getWsMessages(String callId, int offset, int limit) {
+        int cap = Math.max(1, Math.min(limit, 500));
+        return callLogPort.wsMessages(callId, Math.max(0, offset), cap);
     }
 }

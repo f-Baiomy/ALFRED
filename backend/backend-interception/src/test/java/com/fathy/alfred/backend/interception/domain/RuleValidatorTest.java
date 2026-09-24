@@ -156,6 +156,24 @@ class RuleValidatorTest {
     }
 
     @Test
+    void rejectsATrailerActionWithNoName() {
+        RuleAction action = new RuleAction(ActionType.SET_REQUEST_TRAILER, null, " ", "v", null, null, null, null, null, null, null, null, null);
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action))).anyMatch(p -> p.contains("needs a name"));
+    }
+
+    @Test
+    void rejectsASetTrailerActionWithNoValue() {
+        RuleAction action = new RuleAction(ActionType.SET_RESPONSE_TRAILER, null, "grpc-status", null, null, null, null, null, null, null, null, null, null);
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action))).anyMatch(p -> p.contains("needs a value"));
+    }
+
+    @Test
+    void acceptsARemoveTrailerActionWithJustAName() {
+        RuleAction action = new RuleAction(ActionType.REMOVE_RESPONSE_TRAILER, null, "grpc-status", null, null, null, null, null, null, null, null, null, null);
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action))).isEmpty();
+    }
+
+    @Test
     void rejectsAStatusOutsideTheHttpRange() {
         RuleAction action = new RuleAction(ActionType.SET_RESPONSE_STATUS, null, null, null, null, 42,
                 null, null, null, null, null, null, null);
@@ -703,6 +721,18 @@ class RuleValidatorTest {
     }
 
     @Test
+    void answerWithFileNeedsAFileAnswerAndAValidStatus() {
+        assertThat(answerProblems(Map.of("type", "ANSWER_WITH_FILE", "answerId", ANSWER), StoredAnswer.Kind.RECORDED))
+                .anyMatch(p -> p.contains("needs a file answer, not a recorded one"));
+        assertThat(answerProblems(Map.of("type", "ANSWER_WITH_FILE", "answerId", ANSWER), StoredAnswer.Kind.FILE))
+                .isEmpty();
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(),
+                        action(Map.of("type", "ANSWER_WITH_FILE", "answerId", ANSWER, "status", 999))),
+                SelfTargets.none(), id -> java.util.Optional.of(StoredAnswer.Kind.FILE)))
+                .anyMatch(p -> p.contains("status code between 100 and 599"));
+    }
+
+    @Test
     void answeringWithARecordedCallEndsTheRequestLikeAMock() {
         InterceptionRule both = rule(RuleMatch.empty(),
                 action(Map.of("type", "ANSWER_WITH_RECORDED_CALL", "answerId", ANSWER)),
@@ -796,5 +826,42 @@ class RuleValidatorTest {
     void settingTheRequestBodyNeedsABody() {
         assertThat(problemsOf(Map.of("type", "SET_REQUEST_BODY", "body", ""))).isEmpty();
         assertThat(problemsOf(Map.of("type", "SET_REQUEST_BODY"))).anyMatch(p -> p.contains("needs a body"));
+    }
+
+    @Test
+    void messageActionsAcceptClientServerOrBothAndRejectAnythingElse() {
+        assertThat(problemsOf(Map.of("type", "DROP_MESSAGE", "messageDirection", "client"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "DROP_MESSAGE", "messageDirection", "server"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "DROP_MESSAGE", "messageDirection", "both"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "DROP_MESSAGE"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "DROP_MESSAGE", "messageDirection", "sideways")))
+                .anyMatch(p -> p.contains("client, server or both"));
+    }
+
+    @Test
+    void delayMessageNeedsANonNegativeDurationCappedAtTheMax() {
+        assertThat(problemsOf(Map.of("type", "DELAY_MESSAGE", "durationMs", 1000))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "DELAY_MESSAGE", "durationMs", -1)))
+                .anyMatch(p -> p.contains("0 ms or more"));
+        assertThat(problemsOf(Map.of("type", "DELAY_MESSAGE", "durationMs", 999_999)))
+                .anyMatch(p -> p.contains("capped at"));
+    }
+
+    @Test
+    void replaceInMessageIsHeldToTheSamePatternSafetyChecksAsBodyReplace() {
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_MESSAGE", "pattern", "a", "replacement", "b"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "REPLACE_IN_MESSAGE", "pattern", "(a+)+", "replacement", "b", "regex", true)))
+                .anyMatch(p -> p.contains("repeats a group"));
+    }
+
+    @Test
+    void aMessageActionInsideAConditionIsRejected() {
+        InterceptionRule withMessageInIf = rule(RuleMatch.empty(),
+                new RuleAction(ActionType.IF_REQUEST, null, null, null, null, null, null, null, null, null, null,
+                        List.of(new ConditionBranch(ConditionBranch.Combine.ALL,
+                                List.of(new Condition(ConditionSubject.REQUEST_HEADER, "X-A", ConditionOperator.EXISTS, null, null)),
+                                List.of(action(Map.of("type", "DROP_MESSAGE"))))),
+                        null, true));
+        assertThat(RuleValidator.validate(withMessageInIf)).anyMatch(p -> p.contains("message-phase action"));
     }
 }

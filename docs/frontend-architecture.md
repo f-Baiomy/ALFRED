@@ -44,6 +44,51 @@ Angular, standalone components + signals, no NgModules/NgRx.
 
 **Interception (`pages/interception/`)** is a fifth top-level tab, not a Settings panel: Settings holds things you configure once, while this is an operational surface you toggle repeatedly while testing and which, when on, is changing real traffic. `InterceptionStateService` is root-provided and injected by the SHELL (`MainLayoutComponent`), not just the page, because the **paused count drives a badge in the tab bar** - a rule holding somebody's connection open has to be visible from Live Calls too, not only from the screen that can release it. Its two WebSocket events (`interception-rules-changed`, `interception-paused-changed`) are filtered apart rather than treated as one "something changed": a busy breakpoint pushes several paused events a second, and refetching the rule list on each would be constant work for a list that did not change. `PausedCallsComponent` keeps the app's **one** timer - a 1s ticker that re-renders a countdown from data already in hand and makes no requests, so the no-polling rule is intact. See docs/interception.md.
 
+**`phaseOf(type)`/`isTerminal(type)` on `InterceptionStateService` are computed from the
+`actionTypes` signal (`GET /interception/action-types`), not a hardcoded frontend list.** Every
+place that used to hardcode which `ActionType`s are terminal or which phase they belong to -
+`alwaysShortCircuits`/`conflictHint` in `rule-editor.component.ts`, the import preview's terminal
+flag, `interception-panel.component.ts`'s phase filter - calls these two methods instead, so a new
+action type declared once on the backend (`ActionType.Phase`, `ActionType.isTerminal()`) needs no
+matching frontend edit. `actionPhase`'s old hardcoded logic survives only as the fallback used
+before `actionTypes` has loaded once.
+
+**`AnswerPickerComponent` (`components/answer-picker/`)** is how `ANSWER_WITH_RECORDED_CALL`/
+`REPLACE_WITH_RECORDED_RESPONSE`/`ANSWER_WITH_FILE` get their `StoredAnswer`, rendered by
+`rule-action-card` for exactly those three action types. A direction toggle (Outbound/Inbound) plus
+a search box reuses `CallsApiService.getCalls(source, …)` rather than a bespoke picker endpoint -
+picking a call posts `copyAnswerFromCall`; on a 409 (`SecretsDecisionRequired`) it shows the
+keep/strip dialog listing `secretNames` and warns that kept secrets travel with exported rules,
+then retries with the caller's choice. Once an answer exists it shows status/size/source and a
+`secretsKept` badge. An "Upload file" mode swaps the call search for `<input type="file">` plus a
+`StatusPickerComponent`, posted through `uploadAnswer()` as `FormData`. See docs/interception.md's
+"Stored answers" section for the backend side of the keep/strip decision and the no-total-cap
+retention rule.
+
+**`ResendDialogComponent` (`components/resend-dialog/`)**, opened through a `ResendDialogService`
+following the existing `ExportDialogService` pattern, edits a hydrated call's method/URL/headers/
+body and posts it through `resend-api.service.ts`'s `resend(req)`. The "Resend with current
+session" checkbox asks the backend to substitute the newest cookie/authorization value for the
+call's host (`FindRecentRequestHeadersUseCase`, see docs/architecture.md) rather than sending the
+original's stale ones. The result view is a link to the new call plus which session values were
+substituted - **names and source call ids only, never the values themselves**, the same
+never-leak-a-secret rule every other interception surface follows. `call-actions` adds a "Resend…"
+entry and `bulk-actions-bar` a bulk "Resend selected" that sends one at a time in the selection's
+display order with a progress count, stopping on the first 409; a resent call's card gets a "↻
+resend of `<id>`" chip linking back to the original, edits summarised in its tooltip.
+
+**`WsMessagesComponent` (`components/ws-messages/`)** renders one call's WebSocket message list -
+a windowed list with a direction arrow, timestamp and type per message, an edited/dropped badge
+with the original content viewable, and "N earlier messages not recorded" when the backend's
+per-call cap (`call_ws_message`, see docs/architecture.md) has dropped any. `call-card` shows
+"WebSocket · N messages" for a status-101 call and embeds it only on expand, fetched via
+`getWsMessages(source, id, offset, limit)`; `calls-state.service.ts` re-fetches an open panel on
+the `ws-messages-appended` WebSocket event, following the same no-polling, fetch-on-demand shape as
+everything else in this file. Exports carry WebSocket messages the same never-truncate way as
+everything else: `bulk-json-builder.ts` adds `wsMessages` to a call's event and `import-parser.ts`
+reads it back as the exact inverse, `markdown-builder.ts`/`html-builder.ts` render every message
+untruncated.
+
 **Four top-level routes/tabs** (`app.routes.ts`, nav in `layout/main-layout/`): Live Calls (`''`), Session Cycles (`cycles`, `cycles/:id`), Profiles (`profiles`), Settings (`settings`). There's no separate "Internal Calls" tab — inbound (frontend→WildFly) traffic is a **source filter inside the existing Live Calls dashboard** instead: `CallSource = 'external' | 'internal' | 'both'` (`core/models/call.model.ts`), switched via a picker in `HeaderComponent` (dashboard-only). `CallsStateService.setCallSource()` swaps which backend endpoint pair (`/calls` vs `/internal-calls`, REST + WebSocket) feeds the same `CallCardComponent`/`CallListComponent` — no forked UI for the second traffic direction, just a different data source behind the shared components (see docs/architecture.md for `backend-internal-calls`).
 
 **Settings (`pages/settings/`)** has three partitions, tab-switched by a local signal — three genuinely different concerns sharing one page, not one feature:

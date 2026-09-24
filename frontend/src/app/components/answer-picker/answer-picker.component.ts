@@ -7,6 +7,7 @@ import { CallRecord } from '../../core/models/call.model';
 import { SecretsDecisionRequired, StoredAnswer } from '../../core/models/interception.model';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { InterceptionApiService } from '../../core/services/interception-api.service';
+import { StatusPickerComponent } from '../status-picker/status-picker.component';
 
 type Direction = 'outbound' | 'inbound';
 
@@ -33,6 +34,7 @@ const SEARCH_LIMIT = 20;
 @Component({
   selector: 'app-answer-picker',
   standalone: true,
+  imports: [StatusPickerComponent],
   templateUrl: './answer-picker.component.html',
 })
 export class AnswerPickerComponent implements OnInit {
@@ -41,8 +43,14 @@ export class AnswerPickerComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly answerId = input<string | null | undefined>(null);
+  /** ANSWER_WITH_FILE: the answer comes from an upload, so the picker shows a file input instead of a call search. */
+  readonly uploadMode = input<boolean>(false);
   /** Emits the new stored answer's id - the rule editor writes it onto the action. */
   readonly answerChange = output<string>();
+
+  readonly uploadFile = signal<File | null>(null);
+  readonly uploadContentType = signal('');
+  readonly uploadStatus = signal<number | null>(null);
 
   readonly direction = signal<Direction>('outbound');
   readonly search = signal('');
@@ -98,7 +106,7 @@ export class AnswerPickerComponent implements OnInit {
         this.total.set(page.total);
       });
     // An action that already has its answer shows the card, and needs no search until "Change…".
-    if (this.showPicker()) this.runSearch();
+    if (this.showPicker() && !this.uploadMode()) this.runSearch();
   }
 
   setDirection(direction: Direction): void {
@@ -132,7 +140,7 @@ export class AnswerPickerComponent implements OnInit {
 
   startChange(): void {
     this.changing.set(true);
-    this.runSearch();
+    if (!this.uploadMode()) this.runSearch();
   }
 
   cancelChange(): void {
@@ -170,6 +178,58 @@ export class AnswerPickerComponent implements OnInit {
           this.error.set('That call has no response to answer with - it is still in flight, failed, or has left the log.');
         } else {
           this.error.set('Could not copy that response. Try again.');
+        }
+      });
+  }
+
+  onFileSelected(event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0] ?? null;
+    this.uploadFile.set(file);
+    if (file && !this.uploadContentType()) {
+      this.uploadContentType.set(file.type);
+    }
+  }
+
+  onUploadContentType(event: Event): void {
+    this.uploadContentType.set((event.target as HTMLInputElement).value);
+  }
+
+  onUploadStatus(status: number): void {
+    this.uploadStatus.set(status);
+  }
+
+  upload(): void {
+    const file = this.uploadFile();
+    if (!file) return;
+    this.copying.set(true);
+    this.error.set(null);
+    this.api
+      .uploadAnswer(file, this.uploadContentType() || null, this.uploadStatus())
+      .pipe(
+        map((answer) => ({ answer, failure: null as HttpErrorResponse | null })),
+        catchError((failure: HttpErrorResponse) => of({ answer: null, failure })),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(({ answer, failure }) => {
+        this.copying.set(false);
+        if (answer) {
+          this.changing.set(false);
+          this.answer.set(answer);
+          this.uploadFile.set(null);
+          this.uploadContentType.set('');
+          this.uploadStatus.set(null);
+          this.answerChange.emit(answer.id);
+          return;
+        }
+        if (failure?.status === 413) {
+          const body = failure.error as { limitBytes?: number; sizeBytes?: number };
+          this.error.set(
+            `That file is ${formatBytes(body?.sizeBytes ?? 0)}; a stored answer can be at most ${formatBytes(body?.limitBytes ?? 0)}.`
+          );
+        } else if (failure?.status === 415) {
+          this.error.set('That file needs a content type before it can be stored.');
+        } else {
+          this.error.set('Could not upload that file. Try again.');
         }
       });
   }

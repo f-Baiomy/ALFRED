@@ -154,4 +154,20 @@ public class SqliteCallLogAdapter implements CallLogPort {
     public void deleteAll() {
         repository.deleteAll();
     }
+
+    @Override
+    public List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> recentRequestHeaders(String host, int limit) {
+        return repository.recentRequestHeaders(host, limit);
+    }
+
+    @Override
+    public void appendWsMessages(String callId, List<com.fathy.alfred.backend.calls.domain.model.WsMessage> messages,
+                                  boolean closed, Integer closeCode) {
+        repository.appendWsMessages(callId, messages, closed, closeCode);
+    }
+
+    @Override
+    public com.fathy.alfred.backend.calls.domain.model.WsMessagesPage wsMessages(String callId, int offset, int limit) {
+        return repository.wsMessages(callId, offset, limit);
+    }
 }

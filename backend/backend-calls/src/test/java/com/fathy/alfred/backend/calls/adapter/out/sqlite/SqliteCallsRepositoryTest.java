@@ -52,6 +52,7 @@ class SqliteCallsRepositoryTest {
         SqliteCallsRepository repository = new SqliteCallsRepository();
         setField(repository, "dbFile", dbFile.toString());
         setField(repository, "maxSizeBytes", maxSizeBytes);
+        setField(repository, "wsMaxMessages", 1000);
         repository.init();
         opened.add(repository);
         return repository;
@@ -237,6 +238,106 @@ class SqliteCallsRepositoryTest {
         assertThat(found.interception()).isNotNull();
         assertThat(found.interception().applied()).hasSize(1);
         assertThat(found.interception().applied().get(0).ruleName()).isEqualTo("Slow Sabre");
+    }
+
+    @Test
+    void resendOfAndResendEditsRoundTripThroughQueryFindByIdAndReadAll() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        Map<String, Object> edits = Map.of("method", Map.of("from", "GET", "to", "POST"));
+        CallRecord prepared = new CallRecord(id, "https://a.com/x", "https://a.com/x", "POST",
+                new RequestData(null, null), "t", null, null, null, CallLifecycleStatus.IN_PROGRESS,
+                null, null, null, null, null, "original-call-id", edits);
+
+        repo.save(prepared);
+        repo.complete(id, new ResponseData(200, null, "ok"), null, 5.0, null, null);
+
+        CallRecord viaFindById = repo.findById(id).orElseThrow();
+        assertThat(viaFindById.resendOf()).isEqualTo("original-call-id");
+        assertThat(viaFindById.resendEdits()).isEqualTo(edits);
+
+        CallSummary viaQuery = repo.query("", "", "newest", 0, 10, true).items().stream()
+                .filter(c -> c.id().equals(id)).findFirst().orElseThrow();
+        assertThat(viaQuery.resendOf()).isEqualTo("original-call-id");
+        assertThat(viaQuery.resendEdits()).isEqualTo(edits);
+
+        CallRecord viaReadAll = repo.readAll().stream().filter(c -> c.id().equals(id)).findFirst().orElseThrow();
+        assertThat(viaReadAll.resendOf()).isEqualTo("original-call-id");
+        assertThat(viaReadAll.resendEdits()).isEqualTo(edits);
+    }
+
+    @Test
+    void recentRequestHeadersReturnsTheNewestMatchesForThatHostOnly() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        repo.save(new CallRecord(UUID.randomUUID().toString(), "https://api.supplier.com/a", "https://api.supplier.com/a",
+                "GET", new RequestData(Map.of("Authorization", "Bearer old"), null), "t", 1.0,
+                new ResponseData(200, null, null), null));
+        Thread.sleep(2);
+        String newestId = UUID.randomUUID().toString();
+        repo.save(new CallRecord(newestId, "https://api.supplier.com/b", "https://api.supplier.com/b",
+                "GET", new RequestData(Map.of("Authorization", "Bearer new"), null), "t", 1.0,
+                new ResponseData(200, null, null), null));
+        // A different host that happens to share a suffix must never match.
+        repo.save(new CallRecord(UUID.randomUUID().toString(), "https://evil.api.supplier.com/c", "https://evil.api.supplier.com/c",
+                "GET", new RequestData(Map.of("Authorization", "Bearer evil"), null), "t", 1.0,
+                new ResponseData(200, null, null), null));
+
+        List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> found =
+                repo.recentRequestHeaders("api.supplier.com", 10);
+
+        assertThat(found).hasSize(2);
+        assertThat(found.get(0).callId()).isEqualTo(newestId);
+        assertThat(found.get(0).headers()).containsEntry("Authorization", "Bearer new");
+    }
+
+    @Test
+    void wsMessagesInsertAndPageInSeqOrder() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        repo.appendWsMessages(id, List.of(
+                wsMessage(1, "client", "hi"),
+                wsMessage(2, "server", "hello")), false, null);
+
+        var page = repo.wsMessages(id, 0, 10);
+        assertThat(page.messages()).extracting(com.fathy.alfred.backend.calls.domain.model.WsMessage::seq)
+                .containsExactly(1, 2);
+        assertThat(page.messages().get(0).content()).isEqualTo("hi");
+        assertThat(page.total()).isEqualTo(2);
+        assertThat(page.dropped()).isZero();
+    }
+
+    @Test
+    void theCapDeletesTheLowestSeqRowsAndIncrementsWsDropped() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        setField(repo, "wsMaxMessages", 3);
+        String id = UUID.randomUUID().toString();
+        repo.save(preparedCall(id, "https://a.com/x"));
+
+        repo.appendWsMessages(id, List.of(
+                wsMessage(1, "client", "a"), wsMessage(2, "client", "b"),
+                wsMessage(3, "client", "c"), wsMessage(4, "client", "d"),
+                wsMessage(5, "client", "e")), false, null);
+
+        var page = repo.wsMessages(id, 0, 10);
+        assertThat(page.messages()).extracting(com.fathy.alfred.backend.calls.domain.model.WsMessage::seq)
+                .containsExactly(3, 4, 5);
+        assertThat(page.total()).isEqualTo(3);
+        assertThat(page.dropped()).isEqualTo(2);
+    }
+
+    @Test
+    void appendingToAnUnknownCallIsANoOp() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+
+        repo.appendWsMessages("missing", List.of(wsMessage(1, "client", "x")), false, null);
+
+        assertThat(repo.wsMessages("missing", 0, 10).messages()).isEmpty();
+    }
+
+    private static com.fathy.alfred.backend.calls.domain.model.WsMessage wsMessage(int seq, String direction, String content) {
+        return new com.fathy.alfred.backend.calls.domain.model.WsMessage(seq, direction, 1000L * seq, "text", content, null, null, null);
     }
 
     @Test

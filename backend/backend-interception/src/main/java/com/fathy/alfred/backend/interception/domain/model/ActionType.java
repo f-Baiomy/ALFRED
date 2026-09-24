@@ -18,6 +18,9 @@ public enum ActionType {
     DELAY_REQUEST(Phase.REQUEST),
     SET_REQUEST_HEADER(Phase.REQUEST),
     REMOVE_REQUEST_HEADER(Phase.REQUEST),
+    /** Sets or removes a trailer on the outgoing request. A message without trailers is left unchanged. */
+    SET_REQUEST_TRAILER(Phase.REQUEST),
+    REMOVE_REQUEST_TRAILER(Phase.REQUEST),
     SET_QUERY_PARAM(Phase.REQUEST),
     REMOVE_QUERY_PARAM(Phase.REQUEST),
     SET_REQUEST_JSON_FIELD(Phase.REQUEST),
@@ -62,6 +65,12 @@ public enum ActionType {
      */
     ANSWER_WITH_RECORDED_CALL(Phase.REQUEST),
     /**
+     * Answers with a file uploaded through the editor - status, content type and body - and never
+     * contacts the host. The upload counterpart of {@link #ANSWER_WITH_RECORDED_CALL}, for stubbing
+     * a response no call has ever produced.
+     */
+    ANSWER_WITH_FILE(Phase.REQUEST),
+    /**
      * Kept for rules saved before {@link #SIMULATE_FAILURE} existed, and hidden from the editor's
      * picker - it is exactly {@code SIMULATE_FAILURE} with {@link FailureMode#CONNECTION_RESET}.
      * Still evaluated, because a stored rule must not stop working when the UI moves on.
@@ -97,6 +106,9 @@ public enum ActionType {
     SET_RESPONSE_STATUS(Phase.RESPONSE),
     SET_RESPONSE_HEADER(Phase.RESPONSE),
     REMOVE_RESPONSE_HEADER(Phase.RESPONSE),
+    /** The response-phase counterpart of {@link #SET_REQUEST_TRAILER}. */
+    SET_RESPONSE_TRAILER(Phase.RESPONSE),
+    REMOVE_RESPONSE_TRAILER(Phase.RESPONSE),
     SET_RESPONSE_JSON_FIELD(Phase.RESPONSE),
     /** The response-body counterpart of {@link #REPLACE_IN_REQUEST_BODY}. */
     REPLACE_IN_RESPONSE_BODY(Phase.RESPONSE),
@@ -127,7 +139,14 @@ public enum ActionType {
     REPLACE_WITH_RECORDED_RESPONSE(Phase.RESPONSE),
     PAUSE_RESPONSE(Phase.RESPONSE),
     /** The response-phase counterpart of {@link #IF_REQUEST}. */
-    IF_RESPONSE(Phase.RESPONSE);
+    IF_RESPONSE(Phase.RESPONSE),
+
+    /** The message-body counterpart of {@link #REPLACE_IN_REQUEST_BODY} - one text WebSocket message, edited in either direction. */
+    REPLACE_IN_MESSAGE(Phase.MESSAGE),
+    /** Drops a WebSocket message outright - every message, or only ones containing {@code contains}. */
+    DROP_MESSAGE(Phase.MESSAGE),
+    /** Delays a WebSocket message before it is relayed. */
+    DELAY_MESSAGE(Phase.MESSAGE);
 
     /**
      * REQUEST and RESPONSE are the two halves of an HTTP exchange. MESSAGE is a WebSocket message
@@ -153,13 +172,14 @@ public enum ActionType {
      */
     public boolean isTerminal() {
         return this == ABORT_REQUEST || this == MOCK_RESPONSE || this == SIMULATE_FAILURE
-                || this == ANSWER_WITH_RECORDED_CALL;
+                || this == ANSWER_WITH_RECORDED_CALL || this == ANSWER_WITH_FILE;
     }
 
     /** The kind of stored answer this action serves, or null for an action that uses none. */
     public StoredAnswer.Kind answerKind() {
         return switch (this) {
             case ANSWER_WITH_RECORDED_CALL, REPLACE_WITH_RECORDED_RESPONSE -> StoredAnswer.Kind.RECORDED;
+            case ANSWER_WITH_FILE -> StoredAnswer.Kind.FILE;
             default -> null;
         };
     }

@@ -16,5 +16,8 @@
     <button type="button" class="filter-option-item" title="Export as Markdown or HTML" [disabled]="exportLoading()" (click)="openExportReport()">
       {{ exportLoading() ? 'Loading...' : 'Export report...' }}
     </button>
+    <button type="button" class="filter-option-item" title="Resend this call through Alfred" [disabled]="resendLoading()" (click)="openResend()">
+      {{ resendLoading() ? 'Loading...' : 'Resend…' }}
+    </button>
   </app-action-menu>
 </div>

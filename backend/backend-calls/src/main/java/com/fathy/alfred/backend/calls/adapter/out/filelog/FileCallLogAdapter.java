@@ -93,6 +93,20 @@ public class FileCallLogAdapter implements CallLogPort {
      */
     private final Map<String, CallRecord> pendingById = new ConcurrentHashMap<>();
 
+    /** Same property SqliteCallsRepository enforces - see data-model.md §8. */
+    @Value("${alfred.calls.ws-max-messages:1000}")
+    private int wsMaxMessages;
+
+    /**
+     * WebSocket messages, kept in memory only (never written to RECENT_CALLS.log or a sibling
+     * file) - this adapter is the legacy/small-deployment fallback (CLAUDE.md: SQLite is the
+     * shipped default), and its call log itself is already a bounded ring rather than a database,
+     * so a restart losing in-flight WebSocket history is an accepted gap here the same way a
+     * mid-prepare restart already loses that call's request side (see the class doc above).
+     */
+    private final Map<String, List<com.fathy.alfred.backend.calls.domain.model.WsMessage>> wsMessagesByCallId = new ConcurrentHashMap<>();
+    private final Map<String, Integer> wsDroppedByCallId = new ConcurrentHashMap<>();
+
     /** Fail fast with a clear message if the directory isn't writable, rather than only discovering it on the first webhook call. */
     @PostConstruct
     void checkStorageIsWritable() {
@@ -173,14 +187,16 @@ public class FileCallLogAdapter implements CallLogPort {
         boolean hasError = error != null && !error.isBlank();
         CallLifecycleStatus state = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         CallRecord resolved = partial != null
-                // Uses the full 13-arg constructor (mirrors InternalCallsFileLogAdapter.complete's
-                // own handling of partial.serviceName()) so sessionId/operationId/serviceName all
-                // survive completion rather than being silently dropped by a shorter constructor.
+                // Uses the full canonical constructor (mirrors InternalCallsFileLogAdapter.complete's
+                // own handling of partial.serviceName()) so sessionId/operationId/serviceName/
+                // resendOf/resendEdits all survive completion rather than being silently dropped by
+                // a shorter constructor.
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
-                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName(), timing, interception)
+                        partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(),
+                        partial.serviceName(), timing, interception, partial.resendOf(), partial.resendEdits())
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
-                // silently dropping it. sessionId/operationId/serviceName unknown too in this
+                // silently dropping it. sessionId/operationId/serviceName/resend unknown too in this
                 // narrow, accepted-gap case.
                 : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null, timing, interception);
         save(resolved);
@@ -367,5 +383,33 @@ public class FileCallLogAdapter implements CallLogPort {
         } catch (IOException e) {
             return null;
         }
+    }
+
+    @Override
+    public synchronized void appendWsMessages(String callId, List<com.fathy.alfred.backend.calls.domain.model.WsMessage> messages,
+                                              boolean closed, Integer closeCode) {
+        if (messages.isEmpty()) {
+            return;
+        }
+        List<com.fathy.alfred.backend.calls.domain.model.WsMessage> existing =
+                wsMessagesByCallId.computeIfAbsent(callId, id -> new ArrayList<>());
+        existing.addAll(messages);
+        int overflow = existing.size() - wsMaxMessages;
+        if (overflow > 0) {
+            existing.subList(0, overflow).clear();
+            wsDroppedByCallId.merge(callId, overflow, Integer::sum);
+        }
+    }
+
+    @Override
+    public synchronized com.fathy.alfred.backend.calls.domain.model.WsMessagesPage wsMessages(String callId, int offset, int limit) {
+        List<com.fathy.alfred.backend.calls.domain.model.WsMessage> all =
+                wsMessagesByCallId.getOrDefault(callId, List.of());
+        List<com.fathy.alfred.backend.calls.domain.model.WsMessage> page = all.stream()
+                .skip(Math.max(0, offset))
+                .limit(Math.max(0, limit))
+                .toList();
+        return new com.fathy.alfred.backend.calls.domain.model.WsMessagesPage(
+                page, all.size(), wsDroppedByCallId.getOrDefault(callId, 0));
     }
 }
