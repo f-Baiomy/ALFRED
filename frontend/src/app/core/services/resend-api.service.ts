@@ -19,6 +19,14 @@ export interface ResendRequest {
   readonly cycleId?: string | null;
   readonly edits?: ResendEdits;
   readonly useCurrentSession?: boolean;
+  /** One call's place in a multi-call resend - recorded on the new call so its card can say "2 of 4 in batch". */
+  readonly batch?: ResendBatch | null;
+}
+
+export interface ResendBatch {
+  readonly id: string;
+  readonly index: number;
+  readonly total: number;
 }
 
 export interface SessionValueUsed {
@@ -46,6 +54,7 @@ export class ResendApiService {
       cycleId: request.cycleId ?? null,
       edits: request.edits ?? null,
       useCurrentSession: request.useCurrentSession ?? false,
+      batch: request.batch ?? null,
     });
   }
 }

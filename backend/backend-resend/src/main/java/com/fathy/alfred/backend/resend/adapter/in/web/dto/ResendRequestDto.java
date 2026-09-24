@@ -15,5 +15,6 @@ public record ResendRequestDto(
         String cycleId,
         @Valid
         ResendEditsDto edits,
-        boolean useCurrentSession) {
+        boolean useCurrentSession,
+        ResendBatchDto batch) {
 }

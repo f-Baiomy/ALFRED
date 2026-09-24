@@ -930,9 +930,13 @@ rather than reimplemented per action.
 
 ### Resend headers
 
-A resent call (see the API section below) carries `X-Alfred-Resend-Of` and, when it was sent with
-edits, `X-Alfred-Resend-Edits` (a JSON-serialized `ResendEdits`) on its way back out through
-whichever proxy the original call went through. `take_resend_headers(flow, backend_addresses)` in
+A resent call (see the API section below) always carries both `X-Alfred-Resend-Of` and
+`X-Alfred-Resend-Edits` - the latter a JSON summary built by `ResendService`, never containing a
+header's or session value's actual content: `origin: {direction, cycleId}` (always present;
+`cycleId` is JSON null for a live-logged original), then only when applicable `method: {from, to}`,
+`url: {from, to}`, `headers: [names]`, `body: true`, `session: [{name, fromCallId}]` and
+`batch: {id, index, total}` - on its way back out through whichever proxy the original call went
+through. `take_resend_headers(flow, backend_addresses)` in
 `interception.py` pops both headers off the request **unconditionally** - so neither a rule nor the
 call log ever sees them, and a rule that happened to match on either header can never fire - and
 returns `(resend_of, resend_edits)` only when the peer address of the connection carrying the

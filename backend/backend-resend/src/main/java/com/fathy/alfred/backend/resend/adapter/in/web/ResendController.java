@@ -1,9 +1,11 @@
 package com.fathy.alfred.backend.resend.adapter.in.web;
 
+import com.fathy.alfred.backend.resend.adapter.in.web.dto.ResendBatchDto;
 import com.fathy.alfred.backend.resend.adapter.in.web.dto.ResendEditsDto;
 import com.fathy.alfred.backend.resend.adapter.in.web.dto.ResendRequestDto;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase.ResendOutcome;
+import com.fathy.alfred.backend.resend.domain.model.ResendBatch;
 import com.fathy.alfred.backend.resend.domain.model.ResendEdits;
 import com.fathy.alfred.backend.resend.domain.model.ResendRequest;
 import jakarta.validation.Valid;
@@ -25,6 +27,8 @@ public class ResendController {
 
     private static final int MAX_HEADER_ENTRIES = 100;
     private static final int MAX_HEADER_VALUE_BYTES = 8 * 1024;
+    private static final int MAX_BATCH_ID_LENGTH = 64;
+    private static final int MAX_BATCH_TOTAL = 1000;
 
     private final ResendCallUseCase resendCallUseCase;
     private final long maxBodyBytes;
@@ -38,12 +42,13 @@ public class ResendController {
     @PostMapping("/resend")
     public ResponseEntity<Object> resend(@Valid @RequestBody ResendRequestDto body) {
         List<String> problems = limitProblems(body.edits());
+        problems.addAll(batchProblems(body.batch()));
         if (!problems.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid-request", "problems", problems));
         }
 
         ResendRequest request = new ResendRequest(body.direction(), body.callId(), blankToNull(body.cycleId()),
-                toDomain(body.edits()), body.useCurrentSession());
+                toDomain(body.edits()), body.useCurrentSession(), toDomain(body.batch()));
         ResendOutcome outcome = resendCallUseCase.resend(request);
         return switch (outcome) {
             case ResendOutcome.Success success -> ResponseEntity.ok(success.result());
@@ -75,6 +80,28 @@ public class ResendController {
             problems.add("edits.body must be " + maxBodyBytes + " bytes or fewer.");
         }
         return problems;
+    }
+
+    private static List<String> batchProblems(ResendBatchDto batch) {
+        List<String> problems = new ArrayList<>();
+        if (batch == null) {
+            return problems;
+        }
+        if (batch.id() == null || batch.id().isBlank()) {
+            problems.add("batch.id must not be blank.");
+        } else if (batch.id().length() > MAX_BATCH_ID_LENGTH) {
+            problems.add("batch.id must be " + MAX_BATCH_ID_LENGTH + " characters or fewer.");
+        }
+        if (batch.index() == null || batch.total() == null) {
+            problems.add("batch.index and batch.total are required.");
+        } else if (batch.index() < 1 || batch.index() > batch.total() || batch.total() > MAX_BATCH_TOTAL) {
+            problems.add("batch must satisfy 1 <= index <= total <= " + MAX_BATCH_TOTAL + ".");
+        }
+        return problems;
+    }
+
+    private static ResendBatch toDomain(ResendBatchDto dto) {
+        return dto == null ? null : new ResendBatch(dto.id(), dto.index(), dto.total());
     }
 
     private static ResendEdits toDomain(ResendEditsDto dto) {

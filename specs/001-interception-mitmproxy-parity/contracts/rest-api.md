@@ -59,7 +59,7 @@ These are internal Java APIs reached through the backend-app bridge; there is no
 
 | Method and path | Body | Response |
 |---|---|---|
-| `POST /resend` | `{direction:"outbound"\|"inbound", callId, cycleId?, edits?:{method?, url?, headers?:{name:value\|null}, body?}, useCurrentSession?:boolean}` | `200 {newCallId, status, durationMs, sessionValuesUsed:[{name, fromCallId}]}`, or `404` for an unknown call, or `409 {"error":"reverse-proxy-not-running"}` (inbound when the `inbound-logging` profile is off), or `502 {"error":"send-failed", message}` |
+| `POST /resend` | `{direction:"outbound"\|"inbound", callId, cycleId?, edits?:{method?, url?, headers?:{name:value\|null}, body?}, useCurrentSession?:boolean, batch?:{id, index, total}}` - `batch` (id non-blank, ≤ 64 chars; `1 ≤ index ≤ total ≤ 1000`, else `400 {"error":"invalid-request", problems}`) is echoed into the resent call's `resend_edits.batch` | `200 {newCallId, status, durationMs, sessionValuesUsed:[{name, fromCallId}]}`, or `404` for an unknown call, or `409 {"error":"reverse-proxy-not-running"}` (inbound when the `inbound-logging` profile is off), or `502 {"error":"send-failed", message}` |
 
 - **Limits, clamped server-side (constitution I)**:
   - `edits.body` is at most `alfred.interception.max-answer-bytes` (10 MB);

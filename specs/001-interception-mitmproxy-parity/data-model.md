@@ -152,7 +152,7 @@ are three changes:
 | Field | Where | Notes |
 |---|---|---|
 | `resend_of` | prepare payload, then `call_metadata.resend_of TEXT` (ALTER), inbound NDJSON `resendOf` | The id of the original call |
-| `resend_edits` | prepare payload, then `call_metadata.resend_edits TEXT` (JSON) | `{method?:{from,to}, url?:{from,to}, headers?:[names], body?:true, session?:[{name, fromCallId}]}`; secret values are never included |
+| `resend_edits` | prepare payload, then `call_metadata.resend_edits TEXT` (JSON) | `{origin:{direction, cycleId\|null}, method?:{from,to}, url?:{from,to}, headers?:[names], body?:true, session?:[{name, fromCallId}], batch?:{id, index, total}}` - `origin` always present; secret values are never included |
 
 Both fields are also exposed on `CallSummaryDto` (TypeScript `CallRecord.resendOf`,
 `resendEdits`), so a collapsed card can show "↻ resend of …".

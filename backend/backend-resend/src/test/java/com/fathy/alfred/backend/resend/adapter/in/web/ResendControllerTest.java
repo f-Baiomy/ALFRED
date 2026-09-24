@@ -4,7 +4,12 @@ import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase.ResendOutcome;
 import com.fathy.alfred.backend.resend.domain.model.ResendResult;
 import com.fathy.alfred.backend.resend.domain.model.SessionValueUse;
+import com.fathy.alfred.backend.resend.domain.model.ResendBatch;
+import com.fathy.alfred.backend.resend.domain.model.ResendRequest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -15,6 +20,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -113,5 +121,62 @@ class ResendControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("invalid-request"))
                 .andExpect(jsonPath("$.problems[0]").exists());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"id\":\"\",\"index\":1,\"total\":3}",
+            "{\"id\":\"   \",\"index\":1,\"total\":3}",
+            "{\"index\":1,\"total\":3}",
+            "{\"id\":\"b-1\",\"index\":0,\"total\":3}",
+            "{\"id\":\"b-1\",\"index\":4,\"total\":3}",
+            "{\"id\":\"b-1\",\"index\":1,\"total\":1001}",
+            "{\"id\":\"b-1\",\"total\":3}"
+    })
+    void anInvalidBatchReturns400WithProblems(String batch) throws Exception {
+        mockMvc.perform(post("/resend").contentType(MediaType.APPLICATION_JSON).content("""
+                {"direction":"outbound","callId":"call-1","batch":%s}
+                """.formatted(batch)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid-request"))
+                .andExpect(jsonPath("$.problems[0]").exists());
+        verify(resendCallUseCase, never()).resend(any());
+    }
+
+    @Test
+    void aBatchIdOver64CharactersReturns400() throws Exception {
+        mockMvc.perform(post("/resend").contentType(MediaType.APPLICATION_JSON).content("""
+                {"direction":"outbound","callId":"call-1","batch":{"id":"%s","index":1,"total":1}}
+                """.formatted("x".repeat(65))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid-request"));
+    }
+
+    @Test
+    void aValidBatchIsPassedToTheUseCase() throws Exception {
+        when(resendCallUseCase.resend(any())).thenReturn(new ResendOutcome.Success(
+                new ResendResult("new-id", 200, 1L, List.of())));
+
+        mockMvc.perform(post("/resend").contentType(MediaType.APPLICATION_JSON).content("""
+                {"direction":"outbound","callId":"call-1","batch":{"id":"%s","index":1000,"total":1000}}
+                """.formatted("b".repeat(64))))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<ResendRequest> captor = ArgumentCaptor.forClass(ResendRequest.class);
+        verify(resendCallUseCase).resend(captor.capture());
+        assertThat(captor.getValue().batch()).isEqualTo(new ResendBatch("b".repeat(64), 1000, 1000));
+    }
+
+    @Test
+    void withNoBatchTheRequestCarriesNone() throws Exception {
+        when(resendCallUseCase.resend(any())).thenReturn(new ResendOutcome.Success(
+                new ResendResult("new-id", 200, 1L, List.of())));
+
+        mockMvc.perform(post("/resend").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<ResendRequest> captor = ArgumentCaptor.forClass(ResendRequest.class);
+        verify(resendCallUseCase).resend(captor.capture());
+        assertThat(captor.getValue().batch()).isNull();
     }
 }

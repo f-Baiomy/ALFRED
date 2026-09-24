@@ -9,8 +9,16 @@ unknown fields.
 Added fields, present only for a resent call:
 
 ```json
-{ "resend_of": "<original call id>", "resend_edits": { "headers": ["x-test"], "body": true } }
+{ "resend_of": "<original call id>",
+  "resend_edits": { "origin": { "direction": "outbound", "cycleId": null },
+                    "headers": ["x-test"], "body": true,
+                    "batch": { "id": "b-1", "index": 2, "total": 5 } } }
 ```
+
+`resend_edits` keys: `origin: {direction, cycleId|null}` (always present, so the header is always
+sent), `method?: {from, to}`, `url?: {from, to}`, `headers?: [names]`, `body?: true`,
+`session?: [{name, fromCallId}]`, `batch?: {id, index, total}` (only when the resend was part of a
+batch).
 
 - The addon reads `X-Alfred-Resend-Of` and `X-Alfred-Resend-Edits` (JSON, ≤ 8 KB) from the
   request.

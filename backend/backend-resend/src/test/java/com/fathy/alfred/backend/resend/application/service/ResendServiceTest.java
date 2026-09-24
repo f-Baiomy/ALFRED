@@ -6,6 +6,9 @@ import com.fathy.alfred.backend.resend.application.port.out.CallSourcePort;
 import com.fathy.alfred.backend.resend.application.port.out.OutgoingCall;
 import com.fathy.alfred.backend.resend.application.port.out.SendOutcome;
 import com.fathy.alfred.backend.resend.application.port.out.SessionValueLookupPort;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fathy.alfred.backend.resend.domain.model.ResendBatch;
 import com.fathy.alfred.backend.resend.domain.model.ResendEdits;
 import com.fathy.alfred.backend.resend.domain.model.ResendRequest;
 import com.fathy.alfred.backend.resend.domain.model.ResendResult;
@@ -161,5 +164,56 @@ class ResendServiceTest {
         service.resend(new ResendRequest("outbound", "call-1", null, edits, false));
 
         assertThat(sender.lastCall.headers()).doesNotContainKey("Accept");
+    }
+
+    private static JsonNode resendEdits(CapturingSender sender) throws Exception {
+        String header = sender.lastCall.headers().get("X-Alfred-Resend-Edits");
+        assertThat(header).isNotNull();
+        return new ObjectMapper().readTree(header);
+    }
+
+    @Test
+    void theEditsHeaderIsSentEvenWithNoEditsAndCarriesTheLiveOriginWithANullCycleId() throws Exception {
+        CapturingSender sender = new CapturingSender();
+        ResendService service = new ResendService(calls(ORIGINAL), new FixedSessionValues(List.of()), sender);
+
+        service.resend(new ResendRequest("outbound", "call-1", null, null, false));
+
+        JsonNode summary = resendEdits(sender);
+        assertThat(summary.get("origin").get("direction").asText()).isEqualTo("outbound");
+        assertThat(summary.get("origin").has("cycleId")).isTrue();
+        assertThat(summary.get("origin").get("cycleId").isNull()).isTrue();
+        assertThat(summary.has("batch")).isFalse();
+        assertThat(summary.has("method")).isFalse();
+        assertThat(summary.has("headers")).isFalse();
+    }
+
+    @Test
+    void theOriginCarriesTheCycleIdAndDirectionOfACycleCapturedCall() throws Exception {
+        CapturingSender sender = new CapturingSender();
+        ResendService service = new ResendService(calls(ORIGINAL), new FixedSessionValues(List.of()), sender);
+
+        service.resend(new ResendRequest("inbound", "call-1", "cycle-7", null, false));
+
+        JsonNode origin = resendEdits(sender).get("origin");
+        assertThat(origin.get("direction").asText()).isEqualTo("inbound");
+        assertThat(origin.get("cycleId").asText()).isEqualTo("cycle-7");
+    }
+
+    @Test
+    void aBatchIsPassedThroughIntoTheSummaryAlongsideTheEdits() throws Exception {
+        CapturingSender sender = new CapturingSender();
+        ResendService service = new ResendService(calls(ORIGINAL), new FixedSessionValues(List.of()), sender);
+        ResendEdits edits = new ResendEdits("POST", null, null, null);
+
+        service.resend(new ResendRequest("outbound", "call-1", null, edits, false, new ResendBatch("b-1", 2, 5)));
+
+        JsonNode summary = resendEdits(sender);
+        assertThat(summary.get("batch").get("id").asText()).isEqualTo("b-1");
+        assertThat(summary.get("batch").get("index").asInt()).isEqualTo(2);
+        assertThat(summary.get("batch").get("total").asInt()).isEqualTo(5);
+        assertThat(summary.get("method").get("from").asText()).isEqualTo("GET");
+        assertThat(summary.get("method").get("to").asText()).isEqualTo("POST");
+        assertThat(summary.get("origin").get("direction").asText()).isEqualTo("outbound");
     }
 }

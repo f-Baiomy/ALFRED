@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.resend.application.port.out.CallSourcePort;
 import com.fathy.alfred.backend.resend.application.port.out.OutgoingCall;
 import com.fathy.alfred.backend.resend.application.port.out.SendOutcome;
 import com.fathy.alfred.backend.resend.application.port.out.SessionValueLookupPort;
+import com.fathy.alfred.backend.resend.domain.model.ResendBatch;
 import com.fathy.alfred.backend.resend.domain.model.ResendEdits;
 import com.fathy.alfred.backend.resend.domain.model.ResendRequest;
 import com.fathy.alfred.backend.resend.domain.model.ResendResult;
@@ -28,7 +29,17 @@ import java.util.UUID;
  * headers (see proxy/interception.py's take_resend_headers): {@code X-Alfred-Resend-Of} names the
  * original call, {@code X-Alfred-Resend-Edits} carries a JSON summary of what changed - names and
  * shapes only, never a header's or a session value's actual content, so a resent call's own log
- * entry never becomes a second copy of a secret.
+ * entry never becomes a second copy of a secret. The proxy copies that summary verbatim into the
+ * resent call's {@code resend_edits}, so its keys are a wire format the frontend reads:
+ * <ul>
+ *   <li>{@code origin: {direction, cycleId}} - always present ({@code cycleId} is JSON null for a
+ *       live-logged original), so both headers are always sent;</li>
+ *   <li>{@code method: {from, to}}, {@code url: {from, to}} - only when actually changed;</li>
+ *   <li>{@code body: true} - when the body was replaced;</li>
+ *   <li>{@code headers: [names]} - header names edited or removed;</li>
+ *   <li>{@code session: [{name, fromCallId}]} - session values substituted by useCurrentSession;</li>
+ *   <li>{@code batch: {id, index, total}} - only when the request was part of a batch.</li>
+ * </ul>
  *
  * <p>Session headers are the two names {@code useCurrentSession} looks at - defined locally
  * rather than reusing backend-interception's {@code SensitiveHeaders} (CLAUDE.md: slices may not
@@ -67,6 +78,10 @@ public class ResendService implements ResendCallUseCase {
         String body = original.body();
 
         Map<String, Object> editsSummary = new LinkedHashMap<>();
+        Map<String, Object> origin = new LinkedHashMap<>();
+        origin.put("direction", request.direction());
+        origin.put("cycleId", request.cycleId());
+        editsSummary.put("origin", origin);
         ResendEdits edits = request.edits();
         if (edits != null) {
             if (edits.method() != null && !edits.method().equals(method)) {
@@ -110,12 +125,19 @@ public class ResendService implements ResendCallUseCase {
             }
         }
 
+        ResendBatch batch = request.batch();
+        if (batch != null) {
+            Map<String, Object> batchSummary = new LinkedHashMap<>();
+            batchSummary.put("id", batch.id());
+            batchSummary.put("index", batch.index());
+            batchSummary.put("total", batch.total());
+            editsSummary.put("batch", batchSummary);
+        }
+
         String newCallId = UUID.randomUUID().toString();
         putHeaderIgnoreCase(headers, "X-Request-Id", newCallId);
         putHeaderIgnoreCase(headers, RESEND_OF_HEADER, original.id());
-        if (!editsSummary.isEmpty()) {
-            putHeaderIgnoreCase(headers, RESEND_EDITS_HEADER, writeJson(editsSummary));
-        }
+        putHeaderIgnoreCase(headers, RESEND_EDITS_HEADER, writeJson(editsSummary));
 
         OutgoingCall outgoing = new OutgoingCall(
                 request.direction(), method, url, headers, body, hostOf(url, original.host()), original.serviceName());
