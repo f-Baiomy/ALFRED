@@ -7,6 +7,7 @@ import { HelpPopoverComponent } from '../help-popover/help-popover.component';
 import { AnswerPickerComponent } from '../answer-picker/answer-picker.component';
 import { BodyEditorComponent } from '../body-editor/body-editor.component';
 import { HeaderEditorComponent } from '../header-editor/header-editor.component';
+import { ActionAdderComponent } from '../action-adder/action-adder.component';
 import { CopyFromCallComponent } from '../copy-from-call/copy-from-call.component';
 import { ReplacePreviewComponent } from '../replace-preview/replace-preview.component';
 import type { RuleEditorComponent } from '../rule-editor/rule-editor.component';
@@ -51,6 +52,7 @@ export interface ActionStep {
   selector: 'app-rule-action-card',
   standalone: true,
   imports: [
+    ActionAdderComponent,
     SelectPickerComponent,
     StatusPickerComponent,
     AnswerPickerComponent,

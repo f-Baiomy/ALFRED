@@ -196,11 +196,7 @@
             <p class="pipeline-empty">Nothing — the request is forwarded as it arrived.</p>
           }
         </div>
-        <div class="add-action-group">
-          @for (type of requestActionTypes(); track type) {
-            <button type="button" class="pill add" (click)="addAction(type)">+ {{ actionLabels[type] }}</button>
-          }
-        </div>
+        <app-action-adder [editor]="self" phase="request" [listPath]="topList" [types]="requestActionTypes()" />
       </div>
 
       <div class="pipeline-host" [class.blocked]="!reachesHost()">
@@ -238,11 +234,7 @@
             <p class="pipeline-empty">Nothing — the caller gets exactly what the host sent.</p>
           }
         </div>
-        <div class="add-action-group">
-          @for (type of responseActionTypes(); track type) {
-            <button type="button" class="pill add" (click)="addAction(type)">+ {{ actionLabels[type] }}</button>
-          }
-        </div>
+        <app-action-adder [editor]="self" phase="response" [listPath]="topList" [types]="responseActionTypes()" />
       </div>
     </div>
 

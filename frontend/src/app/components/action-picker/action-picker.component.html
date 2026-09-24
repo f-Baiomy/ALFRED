@@ -1,0 +1,72 @@
+<div class="action-picker" role="dialog" aria-label="Add an action">
+  <div class="ap-main">
+    <div class="ap-search">
+      <input
+        #search
+        type="text"
+        [value]="query()"
+        [placeholder]="'Search ' + phase() + ' actions: header, json, soap, slow, mock…'"
+        (input)="setQuery($any($event.target).value)"
+        (keydown)="onKey($event)"
+        aria-label="Search actions"
+      />
+      <button type="button" class="icon-btn" title="Close (Esc)" (click)="closed.emit()">×</button>
+    </div>
+
+    <div class="ap-status">
+      @if (current(); as item) {
+        @if (blocked(item.type); as why) {
+          <span class="ap-bad">{{ labels()[item.type] }}: {{ why }}</span>
+        } @else {
+          <span>Enter adds <b>{{ labels()[item.type] }}</b>{{ position() ? ' ' + position() : '' }}.</span>
+        }
+      }
+      <span class="ap-keys">↑↓ move · Enter add · Esc close · ⓘ what it does</span>
+    </div>
+
+    <div class="ap-goals">
+      @for (g of usefulGoals(); track g.id) {
+        <button type="button" class="pill" [class.on]="goal() === g.id" [attr.aria-pressed]="goal() === g.id" (click)="setGoal(g.id)"><app-svg-icon [name]="g.icon" [size]="12" />{{ g.label }}</button>
+      }
+    </div>
+
+    @if (recipes().length && !query() && goal() === 'all') {
+      <div class="ap-cat"><app-svg-icon name="wand" [size]="13" />Recipes · several settings in one click</div>
+      <div class="ap-chips">
+        @for (r of recipes(); track r.id) {
+          <button type="button" class="ap-recipe" [title]="r.description" (click)="chooseRecipe(r)">{{ r.label }}</button>
+        }
+      </div>
+    }
+
+    @for (group of groups(); track group.label) {
+      <div class="ap-cat"><app-svg-icon class="ap-cat-icon" [name]="group.icon" [size]="13" />{{ group.label }}</div>
+      <div class="ap-chips">
+        @for (entry of group.items; track entry.item.type) {
+          <span class="ap-item" [class.hl]="entry.index === highlight()" [class.off]="!!blocked(entry.item.type)">
+            <button
+              type="button"
+              class="ap-chip"
+              [attr.aria-disabled]="!!blocked(entry.item.type)"
+              [title]="blocked(entry.item.type) ?? entry.item.entry.hint"
+              (mouseenter)="highlight.set(entry.index)"
+              (focus)="highlight.set(entry.index)"
+              (click)="choose(entry.item.type)"
+            >
+              {{ labels()[entry.item.type] }}
+              @if (terminal(entry.item.type)) {
+                <span class="ap-tag">ends call</span>
+              }
+              @if (fits(entry.item.type)) {
+                <span class="ap-fit">fits this rule</span>
+              }
+            </button>
+            <app-help-popover [entries]="help(entry.item.type)" [label]="'What does ' + labels()[entry.item.type] + ' do?'" />
+          </span>
+        }
+      </div>
+    } @empty {
+      <p class="muted ap-none">No action matches "{{ query() }}".</p>
+    }
+  </div>
+</div>

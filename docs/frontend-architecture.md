@@ -128,6 +128,13 @@ live call's id, so the id alone cannot say which copy was picked. Load one in fu
   picked call (`matchFilled`) for Undo and a live `whyNotMatching` check that mirrors the proxy's
   `Match` (path tested with its query, `*.` hosts, header names case-insensitive). Pick from
   anywhere parks with `EditorSnapshot.purpose = 'match'`.
+- "Add action" is `ActionAdderComponent` (button + quick chips, one per lane and per branch) over
+  `ActionPickerComponent` (groups, goals, search, preview, recipes; ↑↓/Enter/Esc, `/` opens the
+  request lane). All filing lives in `shared/utils/action-catalog.ts` - a spec fails if an action
+  type has no group - and so does `blockedReason`, the top-level contradictions (second answer,
+  second pause, answer + pause) greyed with their reason before they are added. The open picker
+  and its insert position are the editor's `pickTarget`; "+ insert here" on a card opens its own
+  list's picker at that card. Recent chips are per browser (`alfred_recent_actions`).
 - Every rule-action body field uses `app-body-editor` (colours, find & replace, Format, big tab via
   `EditTabService`); the Interception page is lazy-loaded to keep this out of the initial bundle.
 

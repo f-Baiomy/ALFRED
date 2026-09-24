@@ -1,5 +1,5 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, DragDropRegistry } from '@angular/cdk/drag-drop';
-import { Component, DestroyRef, ElementRef, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, EventEmitter, HostListener, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import {
   ACTION_LABELS,
   ActionPhase,
@@ -46,6 +46,18 @@ import { HeaderRow } from '../../shared/utils/header-rows';
 import { AnswerPreselect } from '../answer-picker/answer-picker.component';
 import { CopyPreload } from '../copy-from-call/copy-from-call.component';
 import { MatchFillResult, MatchFromCallComponent } from '../match-from-call/match-from-call.component';
+import { ActionAdderComponent } from '../action-adder/action-adder.component';
+import { ActionPick } from '../action-picker/action-picker.component';
+import { COMMON, PickContext, blockedReason, recentActions, recipeActions, rememberAction } from '../../shared/utils/action-catalog';
+
+/** Where the open "Add action" picker's pick lands. */
+export interface PickTarget {
+  readonly key: string;
+  readonly phase: 'request' | 'response';
+  readonly listPath: readonly number[];
+  /** Index in that list, or null for its end. */
+  readonly index: number | null;
+}
 import { MatchForm, MatchSource, mergeTests, whyNotMatching } from '../../shared/utils/match-from-call';
 
 export const RULE_ANSWER_REQUESTER = 'rule-answer';
@@ -346,6 +358,7 @@ type MatchTestRow = MatchTest & { readonly kind: MatchTestKind };
     RuleActionCardComponent,
     HelpPopoverComponent,
     MatchFromCallComponent,
+    ActionAdderComponent,
     CdkDropList,
     CdkDrag,
   ],
@@ -601,6 +614,137 @@ export class RuleEditorComponent implements OnInit {
 
   addAction(type: ActionType): void {
     this.actions.update((actions) => [...actions, defaultsFor(type)]);
+  }
+
+  // ---- "Add action": the grouped picker, quick chips, insert-here (see action-catalog.ts) ----
+
+  /** Which list's picker is open, and where in that list the pick lands (null = at the end). */
+  readonly pickTarget = signal<PickTarget | null>(null);
+  /** Bumped when an action is remembered, so the recent chips recompute. */
+  private readonly recentVersion = signal(0);
+
+  pickKey(phase: 'request' | 'response', listPath: readonly number[]): string {
+    return listPath.length ? 'list:' + listPath.join(',') : 'top-' + phase;
+  }
+
+  openPicker(phase: 'request' | 'response', listPath: readonly number[], index: number | null): void {
+    this.pickTarget.set({ key: this.pickKey(phase, listPath), phase, listPath: [...listPath], index });
+  }
+
+  /** "+ insert here" above a card: the picker of the card's own list, landing at the card's place. */
+  openPickerBefore(step: { readonly action: RuleAction; readonly path: readonly number[] }): void {
+    const listPath = step.path.slice(0, -1);
+    const phase = listPath.length ? this.conditionalPhase(listPath.slice(0, -1)) : actionPhase(step.action.type);
+    if (phase === 'message') return;
+    this.openPicker(phase, listPath, step.path[step.path.length - 1]);
+  }
+
+  /** Message-lane cards get no "insert here": that lane keeps its three chips. */
+  canInsertBefore(step: { readonly action: RuleAction; readonly path: readonly number[] }): boolean {
+    return step.path.length > 1 || actionPhase(step.action.type) !== 'message';
+  }
+
+  /** The top-level list path, one instance, so the lane adders' input does not change every check. */
+  readonly topList: readonly number[] = [];
+
+  closePicker(): void {
+    this.pickTarget.set(null);
+  }
+
+  /** "as step 3 of the request lane" / "at the end of this branch". */
+  readonly pickPosition = computed(() => {
+    const target = this.pickTarget();
+    if (!target) return '';
+    if (target.listPath.length) {
+      return target.index === null ? 'at the end of this branch' : `as step ${target.index + 1} of this branch`;
+    }
+    if (target.index === null) return `at the end of the ${target.phase} lane`;
+    const lanePosition = this.actions().slice(0, target.index).filter((a) => actionPhase(a.type) === target.phase).length;
+    return `as step ${lanePosition + 1} of the ${target.phase} lane`;
+  });
+
+  /** What the picker greys out and suggests: top-level contradictions, and the rule's body kind. */
+  pickContext(listPath: readonly number[]): PickContext {
+    return { topLevel: listPath.length === 0, topLevelTypes: this.actions().map((a) => a.type), bodyKind: this.ruleBodyKind() };
+  }
+
+  blockedHere(type: ActionType, listPath: readonly number[]): string | null {
+    return blockedReason(type, this.pickContext(listPath));
+  }
+
+  /**
+   * JSON or XML, when the match says so: a Content-Type or SOAPAction test, or the call the match
+   * was filled from. Null when nothing does - then no action is tagged "fits this rule".
+   */
+  readonly ruleBodyKind = computed<'json' | 'xml' | null>(() => {
+    const headers: [string, string][] = [
+      ...this.matchTests()
+        .filter((t) => t.kind === 'headers')
+        .map((t): [string, string] => [t.name.trim().toLowerCase(), t.value ?? '']),
+      ...(this.matchFilled()?.source.tests ?? [])
+        .filter((t) => t.kind === 'headers')
+        .map((t): [string, string] => [t.name.toLowerCase(), t.value]),
+    ];
+    if (headers.some(([name]) => name === 'soapaction')) return 'xml';
+    const contentType = headers.find(([name]) => name === 'content-type')?.[1] ?? '';
+    if (/xml/i.test(contentType)) return 'xml';
+    if (/json/i.test(contentType)) return 'json';
+    return null;
+  });
+
+  /** The chips beside "Add action": recently used here first, topped up with the common ones - only types this list takes. */
+  quickTypes(phase: 'request' | 'response', allowed: readonly ActionType[]): readonly ActionType[] {
+    this.recentVersion();
+    const merged = [...recentActions(phase), ...COMMON[phase]].filter((t, i, all) => allowed.includes(t) && all.indexOf(t) === i);
+    return merged.slice(0, 4);
+  }
+
+  hasRecent(phase: 'request' | 'response'): boolean {
+    this.recentVersion();
+    return recentActions(phase).length > 0;
+  }
+
+  /** The chip label without its parenthesised explanation - "Mock response", not "Mock response (never...)". */
+  shortLabel(type: ActionType): string {
+    return this.actionLabels[type].replace(/\s*\(.*\)$/, '');
+  }
+
+  quickAdd(phase: 'request' | 'response', listPath: readonly number[], type: ActionType): void {
+    if (this.blockedHere(type, listPath)) return;
+    this.insertActions(listPath, null, [defaultsFor(type)]);
+    rememberAction(type, phase);
+    this.recentVersion.update((v) => v + 1);
+  }
+
+  onPicked(pick: ActionPick): void {
+    const target = this.pickTarget();
+    if (!target) return;
+    const context = this.pickContext(target.listPath);
+    const added = pick.kind === 'recipe' ? recipeActions(pick.recipe, defaultsFor, context) : [defaultsFor(pick.type)];
+    this.insertActions(target.listPath, target.index, added);
+    if (pick.kind === 'action') {
+      rememberAction(pick.type, target.phase);
+      this.recentVersion.update((v) => v + 1);
+    }
+    this.closePicker();
+  }
+
+  /** Inserts in order at `index` of the list at `listPath` - its end when null. */
+  private insertActions(listPath: readonly number[], index: number | null, added: readonly RuleAction[]): void {
+    this.actions.update((actions) => {
+      const start = index ?? listAt(actions, listPath).length;
+      return added.reduce((acc, action, i) => insertInList(acc, listPath, start + i, action), actions as RuleAction[]);
+    });
+  }
+
+  /** "/" anywhere in the editor but a text field opens the request lane's picker. */
+  @HostListener('document:keydown', ['$event'])
+  onSlash(event: KeyboardEvent): void {
+    if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+    const el = event.target as HTMLElement | null;
+    if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+    event.preventDefault();
+    this.openPicker('request', [], null);
   }
 
   isConditional(type: ActionType): boolean {
@@ -918,7 +1062,7 @@ export class RuleEditorComponent implements OnInit {
 
   describeCondition = describeCondition;
 
-  private conditionalPhase(path: readonly number[]): ActionPhase {
+  conditionalPhase(path: readonly number[]): ActionPhase {
     const action = actionAt(this.actions(), path);
     return action && actionPhase(action.type) === 'response' ? 'response' : 'request';
   }

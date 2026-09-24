@@ -1,0 +1,41 @@
+<div class="action-adder">
+  <div class="aa-row">
+    <button
+      type="button"
+      class="pill add aa-open"
+      [class.on]="open"
+      [attr.aria-expanded]="open"
+      (click)="open ? editor.closePicker() : editor.openPicker(phase, listPath, null)"
+      [title]="listPath.length ? 'Add an action to this branch' : 'Add an action (press / )'"
+    >
+      + Add action
+      @if (!listPath.length) {
+        <kbd>/</kbd>
+      }
+    </button>
+    <span class="aa-label">{{ editor.hasRecent(phase) ? 'recent' : 'common' }}:</span>
+    @for (type of quick; track type) {
+      <button
+        type="button"
+        class="pill add aa-quick"
+        [class.off]="!!editor.blockedHere(type, listPath)"
+        [title]="editor.blockedHere(type, listPath) ?? ''"
+        (click)="editor.quickAdd(phase, listPath, type)"
+      >
+        + {{ editor.shortLabel(type) }}
+      </button>
+    }
+  </div>
+  @if (open) {
+    <app-action-picker
+      [phase]="phase"
+      [types]="types"
+      [labels]="editor.actionLabels"
+      [context]="editor.pickContext(listPath)"
+      [position]="editor.pickPosition()"
+      [showRecipes]="!listPath.length"
+      (picked)="editor.onPicked($event)"
+      (closed)="editor.closePicker()"
+    />
+  }
+</div>

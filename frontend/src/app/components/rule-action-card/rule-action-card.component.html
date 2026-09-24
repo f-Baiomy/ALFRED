@@ -1,3 +1,6 @@
+@if (editor.canInsertBefore(step)) {
+  <button type="button" class="insert-line" title="Add an action here, before this one" (click)="editor.openPickerBefore(step)">+ insert here</button>
+}
 @if (editor.isConditional(step.action.type)) {
   <!-- A condition is a STEP, in the same list as the actions and moved the same way - not a
        property bolted onto each one. Branches are tried in order and the first match wins. -->
@@ -121,11 +124,12 @@
               <p class="cond-empty">Nothing happens when this matches yet.</p>
             }
           </div>
-          <div class="add-action-group">
-            @for (type of editor.nestableTypes(step.path); track type) {
-              <button type="button" class="pill add" (click)="editor.addBranchAction(step.path, bi, type)">+ {{ editor.actionLabels[type] }}</button>
-            }
-          </div>
+          <app-action-adder
+            [editor]="editor"
+            [phase]="$any(editor.conditionalPhase(step.path))"
+            [listPath]="step.path.concat([bi])"
+            [types]="editor.nestableTypes(step.path)"
+          />
         </div>
       </div>
     }
@@ -158,11 +162,12 @@
             <p class="cond-empty">Nothing — the call carries on untouched.</p>
           }
         </div>
-        <div class="add-action-group">
-          @for (type of editor.nestableTypes(step.path); track type) {
-            <button type="button" class="pill add" (click)="editor.addBranchAction(step.path, -1, type)">+ {{ editor.actionLabels[type] }}</button>
-          }
-        </div>
+        <app-action-adder
+          [editor]="editor"
+          [phase]="$any(editor.conditionalPhase(step.path))"
+          [listPath]="step.path.concat([-1])"
+          [types]="editor.nestableTypes(step.path)"
+        />
       </div>
     </div>
   </div>

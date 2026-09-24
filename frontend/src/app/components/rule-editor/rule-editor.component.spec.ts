@@ -213,6 +213,91 @@ describe('RuleEditorComponent', () => {
     sessionStorage.removeItem('alfred_call_picker');
   });
 
+  describe('the "Add action" picker', () => {
+    beforeEach(() => localStorage.removeItem('alfred_recent_actions'));
+    afterEach(() => localStorage.removeItem('alfred_recent_actions'));
+
+    it('adds at the end of a lane, and "insert here" lands before the card it was opened on', () => {
+      open(null);
+      component.actions.set([{ type: 'DELAY_REQUEST', durationMs: 5 }, { type: 'SET_RESPONSE_STATUS', status: 500 }, { type: 'SEND_TO_HOST' }]);
+
+      component.openPicker('request', [], null);
+      expect(component.pickPosition()).toBe('at the end of the request lane');
+      component.onPicked({ kind: 'action', type: 'SET_REQUEST_HEADER' });
+      expect(component.pickTarget()).toBeNull();
+      expect(component.actions().map((a) => a.type)).toEqual(['DELAY_REQUEST', 'SET_RESPONSE_STATUS', 'SEND_TO_HOST', 'SET_REQUEST_HEADER']);
+
+      // Before SEND_TO_HOST, the 2nd request-lane card (real index 2).
+      component.openPickerBefore({ action: component.actions()[2], path: [2] });
+      expect(component.pickPosition()).toBe('as step 2 of the request lane');
+      component.onPicked({ kind: 'action', type: 'SET_METHOD' });
+      expect(component.actions().map((a) => a.type)).toEqual(['DELAY_REQUEST', 'SET_RESPONSE_STATUS', 'SET_METHOD', 'SEND_TO_HOST', 'SET_REQUEST_HEADER']);
+    });
+
+    it('inserts into a branch at a position, and a recipe as several actions', () => {
+      open(null);
+      component.actions.set([
+        { type: 'IF_REQUEST', branches: [{ combine: 'ALL', conditions: [], actions: [{ type: 'DELAY_REQUEST', durationMs: 1 }] }], otherwise: [] },
+      ]);
+      component.openPickerBefore({ action: { type: 'DELAY_REQUEST' }, path: [0, 0, 0] });
+      expect(component.pickTarget()?.key).toBe('list:0,0');
+      expect(component.pickPosition()).toBe('as step 1 of this branch');
+      component.onPicked({ kind: 'action', type: 'MOCK_RESPONSE' });
+      expect(component.actions()[0].branches![0].actions.map((a) => a.type)).toEqual(['MOCK_RESPONSE', 'DELAY_REQUEST']);
+
+      component.openPicker('request', [0, -1], null);
+      component.onPicked({ kind: 'action', type: 'DELAY_REQUEST' });
+      expect(component.actions()[0].otherwise!.map((a) => a.type)).toEqual(['DELAY_REQUEST']);
+
+      component.openPicker('response', [], null);
+      component.onPicked({
+        kind: 'recipe',
+        recipe: { id: 'r', label: 'r', description: '', actions: [{ type: 'SET_RESPONSE_STATUS', status: 503 }, { type: 'SET_RESPONSE_HEADER', name: 'Retry-After', value: '30' }] },
+      });
+      expect(component.actions().slice(1)).toEqual([
+        { type: 'SET_RESPONSE_STATUS', status: 503 },
+        { type: 'SET_RESPONSE_HEADER', name: 'Retry-After', value: '30' },
+      ]);
+    });
+
+    it('offers common chips until something is added, then the recent ones; refuses a blocked chip', () => {
+      open(null);
+      component.actions.set([]);
+      const types = component.requestActionTypes();
+      expect(component.quickTypes('request', types)).toEqual(['DELAY_REQUEST', 'MOCK_RESPONSE']);
+      expect(component.hasRecent('request')).toBeFalse();
+
+      component.quickAdd('request', [], 'MOCK_RESPONSE');
+      expect(component.hasRecent('request')).toBeTrue();
+      component.quickAdd('request', [], 'DELAY_REQUEST');
+      expect(component.quickTypes('request', types)).toEqual(['DELAY_REQUEST', 'MOCK_RESPONSE']);
+      expect(component.blockedHere('MOCK_RESPONSE', [])).toContain('already answers');
+      component.quickAdd('request', [], 'MOCK_RESPONSE');
+      expect(component.actions().map((a) => a.type)).toEqual(['MOCK_RESPONSE', 'DELAY_REQUEST']);
+    });
+
+    it('suggests by the body the match describes', () => {
+      open(null);
+      expect(component.ruleBodyKind()).toBeNull();
+      component.matchTests.set([{ kind: 'headers', name: 'Content-Type', operator: 'CONTAINS', value: 'application/json' }]);
+      expect(component.ruleBodyKind()).toBe('json');
+      component.matchTests.set([{ kind: 'headers', name: 'SOAPAction', operator: 'EXISTS', value: null }]);
+      expect(component.ruleBodyKind()).toBe('xml');
+    });
+
+    it('opens the request picker on "/" - not while typing in a field', () => {
+      open(null);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: '/' }));
+      expect(component.pickTarget()?.key).toBe('top-request');
+      component.closePicker();
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }));
+      expect(component.pickTarget()).toBeNull();
+      input.remove();
+    });
+  });
+
   it("edits a mock's own headers through rows, dropping removed and empty ones", () => {
     open(null);
     component.actions.set([{ type: 'MOCK_RESPONSE', status: 200, headers: { A: '1' }, body: '' }]);

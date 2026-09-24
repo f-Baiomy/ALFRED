@@ -9006,3 +9006,206 @@ app-header-editor {
 .mf-bad {
   color: var(--red);
 }
+
+/* "Add action" (ActionAdderComponent + ActionPickerComponent): a button and a few quick chips per
+   action list, and the grouped picker - search, goals, groups, preview - when that list's is open. */
+.action-adder {
+  margin-top: 0.4rem;
+}
+
+.aa-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+
+  kbd {
+    margin-left: 0.3rem;
+    padding: 0 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.6rem;
+    opacity: 0.7;
+  }
+}
+
+.aa-open.on {
+  border-style: solid;
+  border-color: var(--purple);
+  color: var(--purple-light);
+}
+
+.aa-label {
+  font-size: 0.64rem;
+  color: var(--text-faint);
+  margin-left: 0.3rem;
+}
+
+.aa-quick.off,
+.ap-item.off .ap-chip {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.insert-line {
+  display: block;
+  width: 100%;
+  height: 0.9rem;
+  margin: 0.1rem 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 0.62rem;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s;
+
+  &:hover,
+  &:focus-visible {
+    opacity: 1;
+    color: var(--purple-light);
+  }
+}
+
+/* Faintly visible whenever the pointer is over the lane, so the gap between cards reads as a target. */
+.lane-drop-list:hover > app-rule-action-card > .insert-line,
+.cond-then-drop-list:hover > app-rule-action-card > .insert-line {
+  opacity: 0.45;
+}
+
+.action-picker {
+  margin-top: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--purple) 45%, transparent);
+  border-radius: 10px;
+  background: var(--card-inner, var(--bg-2));
+}
+
+.ap-search {
+  display: flex;
+  gap: 0.4rem;
+
+  input {
+    flex: 1;
+  }
+}
+
+.ap-goals,
+.ap-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.ap-goals {
+  margin-top: 0.5rem;
+}
+
+.ap-cat {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.6rem 0 0.25rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.ap-cat-icon {
+  width: 1rem;
+  text-align: center;
+}
+
+.ap-chip,
+.ap-recipe {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+/* One action: the chip that adds it, and its ⓘ - side by side, never nested buttons. */
+.ap-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+
+  &.hl .ap-chip {
+    border-color: var(--purple);
+    background: color-mix(in srgb, var(--purple) 18%, transparent);
+  }
+}
+
+.ap-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.2rem 0.8rem;
+  margin-top: 0.35rem;
+  font-size: 0.66rem;
+  color: var(--text-faint);
+
+  b {
+    color: var(--text);
+    font-weight: 600;
+  }
+}
+
+.ap-recipe {
+  border-style: dashed;
+
+  &:hover {
+    border-color: var(--purple);
+  }
+}
+
+.ap-tag,
+.ap-fit {
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  font-size: 0.56rem;
+}
+
+.ap-tag {
+  border: 1px solid var(--amber, #e0a33a);
+  color: var(--amber, #e0a33a);
+}
+
+.ap-fit {
+  border: 1px solid var(--green);
+  color: var(--green);
+}
+
+.ap-none {
+  margin-top: 0.6rem;
+}
+
+.ap-bad {
+  color: var(--red) !important;
+}
+
+/* Inline line icons (SvgIconComponent) - sized by input, coloured by the text around them. */
+.svg-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+.ap-goals .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ap-cat .svg-icon {
+  color: var(--purple-light);
+  opacity: 0.85;
+}
