@@ -1,16 +1,21 @@
 package com.fathy.alfred.backend.interceptionbridge;
 
+import com.fathy.alfred.backend.callrefbridge.CallRefResolver;
 import com.fathy.alfred.backend.interception.application.port.out.RecordedCallLookupPort.RecordedResponse;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -29,7 +34,15 @@ class RecordedCallLookupAdapterTest {
         inbound = mock(com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase.class);
         capturedOutbound = mock(GetCapturedCallDetailUseCase.class);
         capturedInbound = mock(GetCapturedInternalCallDetailUseCase.class);
-        adapter = new RecordedCallLookupAdapter(outbound, inbound, capturedOutbound, capturedInbound);
+        // The resolver also looks each call up in its slice's list (for method/url); a response
+        // lookup must not depend on that, so the lists here never find anything.
+        var outboundList = mock(com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase.class);
+        when(outboundList.getCalls(any())).thenReturn(new com.fathy.alfred.backend.calls.domain.model.CallsPage(List.of(), 0));
+        var inboundList = mock(com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase.class);
+        when(inboundList.getCalls(any())).thenReturn(new com.fathy.alfred.backend.internalcalls.domain.model.CallsPage(List.of(), 0));
+        adapter = new RecordedCallLookupAdapter(new CallRefResolver(outboundList, outbound, inboundList, inbound,
+                mock(ListCapturedCallsUseCase.class), capturedOutbound,
+                mock(ListCapturedInternalCallsUseCase.class), capturedInbound));
     }
 
     @Test

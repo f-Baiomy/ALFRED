@@ -28,13 +28,16 @@ type Direction = 'outbound' | 'inbound';
 interface PendingSecrets {
   readonly callId: string;
   readonly direction: Direction;
+  readonly cycleId: string | null;
   readonly secretNames: readonly string[];
 }
 
-/** A call to copy the moment the picker opens - "Use as answer in a new rule…" from a Live Calls card. */
+/** A call to copy the moment the picker opens - "Use as answer in a new rule…" on a card, or a call picked from anywhere. */
 export interface AnswerPreselect {
   readonly direction: Direction;
   readonly callId: string;
+  /** Set when the call was picked from a session cycle - its captured copy, which can outlive the live log. */
+  readonly cycleId?: string | null;
 }
 
 interface Preview {
@@ -116,6 +119,8 @@ export class AnswerPickerComponent implements OnInit {
   readonly preselect = input<AnswerPreselect | null>(null);
   /** Emits the new stored answer's id - the rule editor writes it onto the action. */
   readonly answerChange = output<string>();
+  /** "Pick from anywhere…" - the host parks its own state and starts CallPickerService; this component is about to be destroyed. */
+  readonly pickAnywhere = output<void>();
 
   readonly methodChips = METHOD_CHIPS;
   readonly statusChips = STATUS_CHIPS;
@@ -233,9 +238,10 @@ export class AnswerPickerComponent implements OnInit {
       .subscribe(({ fetch, page }) => this.onPage(fetch, page.calls, page.total));
 
     const preselect = this.preselect();
-    if (preselect && !this.answerId()) {
+    // Wins over an attached answer: a pick made on another tab is an explicit "answer with this instead".
+    if (preselect) {
       this.direction.set(preselect.direction);
-      this.copy(preselect.callId, preselect.direction, null);
+      this.copy(preselect.callId, preselect.direction, null, preselect.cycleId ?? null);
     }
     // An action that already has its answer shows the card, and needs no search until "Change…".
     if (this.showPicker() && !this.uploadMode()) this.runSearch();
@@ -369,7 +375,7 @@ export class AnswerPickerComponent implements OnInit {
   keepSecrets(keep: boolean): void {
     const pending = this.pending();
     if (!pending) return;
-    this.copy(pending.callId, pending.direction, keep);
+    this.copy(pending.callId, pending.direction, keep, pending.cycleId);
   }
 
   cancelSecrets(): void {
@@ -385,11 +391,11 @@ export class AnswerPickerComponent implements OnInit {
     this.changing.set(false);
   }
 
-  private copy(callId: string, direction: Direction, keepSecrets: boolean | null): void {
+  private copy(callId: string, direction: Direction, keepSecrets: boolean | null, cycleId: string | null = null): void {
     this.copying.set(true);
     this.error.set(null);
     this.api
-      .copyAnswerFromCall({ direction, callId, keepSecrets })
+      .copyAnswerFromCall({ direction, callId, cycleId, keepSecrets })
       .pipe(
         map((answer) => ({ answer, failure: null as HttpErrorResponse | null })),
         catchError((failure: HttpErrorResponse) => of({ answer: null, failure })),
@@ -407,7 +413,7 @@ export class AnswerPickerComponent implements OnInit {
         }
         if (failure?.status === 409) {
           const body = failure.error as SecretsDecisionRequired;
-          this.pending.set({ callId, direction, secretNames: body?.secretNames ?? [] });
+          this.pending.set({ callId, direction, cycleId, secretNames: body?.secretNames ?? [] });
         } else if (failure?.status === 413) {
           const body = failure.error as { limitBytes?: number; sizeBytes?: number };
           this.error.set(

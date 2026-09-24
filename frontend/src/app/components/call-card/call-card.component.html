@@ -147,6 +147,8 @@
   [class.in-progress]="inProgress()"
   [class.has-error]="hasError()"
   [class.has-warning]="hasWarning()"
+  [class.pick-target]="picker.active() && !pickedHere()"
+  [class.picked]="pickedHere()"
 >
   @if (isSandwich()) {
     @if (diagOpen()) {

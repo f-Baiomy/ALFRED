@@ -1,8 +1,12 @@
 @if (state(); as current) {
-  <div class="dialog-overlay" (click)="close()">
-    <div class="dialog resend-dialog" (click)="$event.stopPropagation()">
-      <div class="dialog-head">
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card wide resend-dialog" (click)="$event.stopPropagation()">
+      <div class="resend-head">
         <h2>Resend call</h2>
+        @if (current.cycleId) {
+          <small class="muted">from a session cycle</small>
+        }
+        <button type="button" class="pill" (click)="pickAnother()">Pick another call…</button>
         <button type="button" class="pill" (click)="close()">✕</button>
       </div>
 

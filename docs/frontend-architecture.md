@@ -76,6 +76,32 @@ carries a `CallRuleDraft` to the Interception page, which opens `RuleEditorCompo
 "Stored answers" section for the backend side of the keep/strip decision and the no-total-cap
 retention rule.
 
+**Pick a call from anywhere (`CallPickerService`, root).** Any feature can ask the user to pick
+one call (`mode: 'single'`) or several (`'multi'`) from ANY tab: `picker.start({requester, title,
+mode, returnUrl, returnLabel, resume?, refuse?, refuseOrigin?})`, then read the picks back with
+`hasResult(requester)` (reactive - use it in an `effect`) and `takeResult(requester)` (handed over
+once). The user moves freely between tabs; `PickBarComponent` (mounted once in `main-layout`) lists
+the picks with where each came from and has Cancel / Return. A pick is a `CallRef {source, callId,
+cycleId}` (`core/models/call-ref.model.ts`) - `cycleId` matters because a captured call keeps the
+live call's id, so the id alone cannot say which copy was picked. Load one in full with
+`CallRefDetailService.hydrate(ref, summary)`. Rules worth knowing before adding a requester:
+- **Pick buttons come free with `app-call-card`**: `PickCallButtonComponent` (`<app-pick-call
+  [call]>`) sits in `CallActionsComponent` and in each waterfall row, and renders nothing unless
+  something is picking. A new call list built from `app-call-card` needs nothing; one that is not
+  drops in `<app-pick-call>`.
+- **Which copy a card shows comes from `CALL_ORIGIN`** (`core/state/call-origin.token.ts`), provided
+  by the session-cycle detail page (cycle id + label). Absent means the live log. Resend reads it
+  too, so a resend from a cycle page targets the captured copy.
+- **The requester is usually destroyed while the user is away**, so it passes its own state as
+  `resume` (JSON-safe - the whole session lives in `sessionStorage` and survives a reload).
+  `cancel()` still hands `resume` back with no picks, so cancelling never costs unsaved work. The
+  rule editor parks its whole form this way (`EditorSnapshot`, reopened by `InterceptionComponent`
+  via `[snapshot]`/`[pickedAnswer]`) and closes itself, since its modal would cover the tab bar.
+- Current requesters: the answer picker ("Pick from anywhere…"), the resend dialog ("Pick another
+  call…"; mounted in `main-layout` so it opens on every page), and a cycle's "Add calls from
+  anywhere…" (multi, refuses the cycle's own calls via `refuseOrigin`, copies with
+  `copyCallsInto` on Return).
+
 **`ResendDialogComponent` (`components/resend-dialog/`)**, opened through a `ResendDialogService`
 following the existing `ExportDialogService` pattern, edits a hydrated call's method/URL/headers/
 body and posts it through `resend-api.service.ts`'s `resend(req)`. The "Resend with current

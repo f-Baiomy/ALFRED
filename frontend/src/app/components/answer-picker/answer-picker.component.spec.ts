@@ -68,7 +68,7 @@ describe('AnswerPickerComponent', () => {
 
     component.pick(component.results()[0]);
     const first = http.expectOne(`${BACKEND}/interception/answers/from-call`);
-    expect(first.request.body).toEqual({ direction: 'outbound', callId: 'c1', keepSecrets: null });
+    expect(first.request.body).toEqual({ direction: 'outbound', callId: 'c1', cycleId: null, keepSecrets: null });
     first.flush({ error: 'secrets-decision-required', secretNames: ['set-cookie', 'x-auth-token'] }, { status: 409, statusText: 'Conflict' });
 
     expect(component.pending()?.secretNames).toEqual(['set-cookie', 'x-auth-token']);
@@ -212,7 +212,7 @@ describe('AnswerPickerComponent', () => {
     fixture.detectChanges();
 
     const req = http.expectOne(`${BACKEND}/interception/answers/from-call`);
-    expect(req.request.body).toEqual({ direction: 'inbound', callId: 'in-7', keepSecrets: null });
+    expect(req.request.body).toEqual({ direction: 'inbound', callId: 'in-7', cycleId: null, keepSecrets: null });
     req.flush({ error: 'secrets-decision-required', secretNames: ['set-cookie'] }, { status: 409, statusText: 'Conflict' });
     expect(component.pending()?.callId).toBe('in-7');
     flushSearch('internal-calls', []);

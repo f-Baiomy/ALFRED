@@ -39,7 +39,19 @@ import {
   isTerminalAction,
 } from '../../core/models/interception.model';
 import { CallRuleDraft } from '../../core/services/rule-draft.service';
+import { CallPickerService } from '../../core/services/call-picker.service';
 import { AnswerPreselect } from '../answer-picker/answer-picker.component';
+
+export const RULE_ANSWER_REQUESTER = 'rule-answer';
+
+/** The rule editor's whole unsaved form, JSON-safe, parked while the user picks a call on another tab. */
+export interface EditorSnapshot {
+  /** The rule being edited, or null for a new one. */
+  readonly ruleId: string | null;
+  readonly draft: InterceptionRuleDraft;
+  /** The answer action the picked call is for. */
+  readonly answerPath: readonly number[];
+}
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-picker.component';
 import { RuleActionCardComponent } from '../rule-action-card/rule-action-card.component';
@@ -333,6 +345,12 @@ export class RuleEditorComponent implements OnInit {
   @Input() rule: InterceptionRule | null = null;
   /** A new rule started from a logged call - seeds its match and an answer from that call. Ignored when `rule` is set. */
   @Input() draft: CallRuleDraft | null = null;
+  /** An unsaved form parked while picking a call elsewhere (see pickAnswerFromAnywhere). Wins over `rule` and `draft`. */
+  @Input() snapshot: EditorSnapshot | null = null;
+  /** The call picked for the snapshot's answer action - copied as soon as that action's picker opens. */
+  @Input() pickedAnswer: AnswerPreselect | null = null;
+
+  private readonly picker = inject(CallPickerService);
   @Output() readonly closed = new EventEmitter<void>();
 
   readonly state = inject(InterceptionStateService);
@@ -456,6 +474,14 @@ export class RuleEditorComponent implements OnInit {
       );
     });
 
+    if (this.snapshot) {
+      this.loadFrom(this.snapshot.draft);
+      if (this.pickedAnswer) {
+        this.answerPreselect.set(this.pickedAnswer);
+        this.answerPreselectPath.set(this.snapshot.answerPath);
+      }
+      return;
+    }
     const rule = this.rule;
     if (!rule && this.draft) {
       this.seedFromCall(this.draft);
@@ -468,9 +494,14 @@ export class RuleEditorComponent implements OnInit {
       this.actions.set([{ type: 'DELAY_REQUEST', durationMs: 5000 }]);
       return;
     }
+    this.loadFrom(rule);
+  }
+
+  /** Fills the form from a saved rule, or from a parked unsaved form (they share the draft shape). */
+  private loadFrom(rule: InterceptionRuleDraft): void {
     this.name.set(rule.name);
     this.description.set(rule.description ?? '');
-    this.stopProcessing.set(rule.stopProcessing);
+    this.stopProcessing.set(rule.stopProcessing ?? false);
     this.source.set((rule.match.source as RuleSource) ?? 'both');
     // Either shape - a rule saved before the field was a list still has to load into the form
     // it is now edited with.
@@ -498,6 +529,8 @@ export class RuleEditorComponent implements OnInit {
    * started from a call card, and only for the one answer action seeded with it.
    */
   readonly answerPreselect = signal<AnswerPreselect | null>(null);
+  /** Which answer action the preselect belongs to. */
+  private readonly answerPreselectPath = signal<readonly number[] | null>(null);
 
   /** Matches exactly the kind of call it came from, answered by that call's own response. */
   private seedFromCall(draft: CallRuleDraft): void {
@@ -509,6 +542,7 @@ export class RuleEditorComponent implements OnInit {
     this.pathContains.set(draft.path);
     this.actions.set([defaultsFor('ANSWER_WITH_RECORDED_CALL')]);
     this.answerPreselect.set({ direction: draft.direction, callId: draft.callId });
+    this.answerPreselectPath.set([0]);
   }
 
   addMatchTest(): void {
@@ -1183,11 +1217,52 @@ export class RuleEditorComponent implements OnInit {
   }
 
   save(): void {
-    const draft: InterceptionRuleDraft = {
+    const draft = this.buildDraft();
+    const ruleId = this.rule?.id ?? this.snapshot?.ruleId ?? null;
+    const saved = ruleId ? this.state.updateRule(ruleId, draft) : this.state.createRule(draft);
+    saved.subscribe((result) => {
+      // Null means the backend rejected it - `problems` is already populated and the form stays
+      // open with every problem listed at once.
+      if (result) this.closed.emit();
+    });
+  }
+
+  /**
+   * Parks the whole unsaved form and lets the user pick the answer's call from any tab (see
+   * CallPickerService). Leaving /interception destroys this editor, so the form travels as the
+   * pick's `resume` and InterceptionComponent reopens it from there on Return or Cancel.
+   */
+  pickAnswerFromAnywhere(path: readonly number[]): void {
+    const snapshot: EditorSnapshot = {
+      ruleId: this.rule?.id ?? this.snapshot?.ruleId ?? null,
+      draft: this.buildDraft(),
+      answerPath: [...path],
+    };
+    this.picker.start({
+      requester: RULE_ANSWER_REQUESTER,
+      title: `Answer for rule "${this.name().trim() || 'new rule'}"`,
+      mode: 'single',
+      returnUrl: '/interception',
+      returnLabel: 'the rule editor',
+      resume: snapshot,
+    });
+    // The editor is a modal over the tab bar - it has to get out of the way for the user to go
+    // anywhere. Nothing is lost: the form is in the snapshot.
+    this.closed.emit();
+  }
+
+  /** The preselect for the answer action at `path` only - other answer actions search as usual. */
+  preselectFor(path: readonly number[]): AnswerPreselect | null {
+    const at = this.answerPreselectPath();
+    return at && at.length === path.length && at.every((v, i) => v === path[i]) ? this.answerPreselect() : null;
+  }
+
+  private buildDraft(): InterceptionRuleDraft {
+    return {
       name: this.name().trim(),
       description: this.description().trim() || null,
-      enabled: this.rule?.enabled ?? true,
-      priority: this.rule?.priority ?? 100,
+      enabled: this.rule?.enabled ?? this.snapshot?.draft.enabled ?? true,
+      priority: this.rule?.priority ?? this.snapshot?.draft.priority ?? 100,
       stopProcessing: this.stopProcessing(),
       match: {
         source: this.source(),
@@ -1200,13 +1275,6 @@ export class RuleEditorComponent implements OnInit {
       },
       actions: this.actions(),
     };
-
-    const saved = this.rule ? this.state.updateRule(this.rule.id, draft) : this.state.createRule(draft);
-    saved.subscribe((result) => {
-      // Null means the backend rejected it - `problems` is already populated and the form stays
-      // open with every problem listed at once.
-      if (result) this.closed.emit();
-    });
   }
 
   private matchTestLists(): Record<MatchTestKind, MatchTest[]> {

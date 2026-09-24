@@ -2,6 +2,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ResendApiService, ResendResult } from '../../core/services/resend-api.service';
 import { ResendDialogService } from '../../core/services/resend-dialog.service';
+import { Router } from '@angular/router';
+import { CallPickerService } from '../../core/services/call-picker.service';
+import { CallRefDetailService } from '../../core/services/call-ref-detail.service';
+import { PickedCall, refOf } from '../../core/models/call-ref.model';
+
+const RESEND_REQUESTER = 'resend';
 
 interface HeaderRow {
   name: string;
@@ -11,7 +17,7 @@ interface HeaderRow {
 }
 
 /**
- * One instance lives at the app root; ResendDialogService.state drives whether it's visible and
+ * One instance lives in the main layout, so it opens from any page; ResendDialogService.state drives whether it's visible and
  * for which call. Opening resets the form from that call's own method/url/headers/body - every
  * field stays freely editable, since the point of resending is usually to change exactly one of
  * them and see what happens.
@@ -24,6 +30,9 @@ interface HeaderRow {
 export class ResendDialogComponent {
   private readonly dialogService = inject(ResendDialogService);
   private readonly api = inject(ResendApiService);
+  private readonly picker = inject(CallPickerService);
+  private readonly refDetail = inject(CallRefDetailService);
+  private readonly router = inject(Router);
 
   readonly state = this.dialogService.state;
 
@@ -42,7 +51,39 @@ export class ResendDialogComponent {
     return result ? `/?requestId=${encodeURIComponent(result.newCallId)}` : null;
   });
 
+  /** Swaps which call is resent: closes the dialog, lets the user pick a call anywhere, reopens with it on Return. */
+  pickAnother(): void {
+    const current = this.state();
+    // The call being resent now, so Cancel can reopen it - as a ref plus summary, never its body.
+    const resume: PickedCall | null = current
+      ? { ref: refOf(current.call, current.cycleId), call: { ...current.call, request: undefined, response: undefined }, originLabel: '' }
+      : null;
+    this.picker.start({
+      requester: RESEND_REQUESTER,
+      title: 'Call to resend',
+      mode: 'single',
+      returnUrl: this.router.url,
+      returnLabel: 'the resend dialog',
+      resume,
+    });
+    this.close();
+  }
+
   constructor() {
+    // This dialog lives in the layout, so it is still here when Return is pressed.
+    effect(() => {
+      if (!this.picker.hasResult(RESEND_REQUESTER)) return;
+      untracked(() => {
+        const result = this.picker.takeResult(RESEND_REQUESTER);
+        const picked = result?.picked[0] ?? (result?.resume as PickedCall | null);
+        if (!picked) return;
+        this.refDetail.hydrate(picked.ref, picked.call).subscribe({
+          next: (call) => this.dialogService.open(call, picked.ref.cycleId),
+          error: () => this.error.set('Could not load the picked call.'),
+        });
+      });
+    });
+
     // Resets the form to the newly-opened call's own request - not an update, so re-opening the
     // same dialog for a different call never leaves a stale edit behind.
     effect(() => {

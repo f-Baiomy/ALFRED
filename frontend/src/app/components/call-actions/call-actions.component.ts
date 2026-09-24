@@ -12,6 +12,8 @@ import { RuleDraftService } from '../../core/services/rule-draft.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
+import { PickCallButtonComponent } from '../pick-call-button/pick-call-button.component';
+import { CALL_ORIGIN } from '../../core/state/call-origin.token';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { redactCall } from '../../shared/utils/redact';
@@ -34,7 +36,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 @Component({
   selector: 'app-call-actions',
   standalone: true,
-  imports: [ActionMenuComponent],
+  imports: [ActionMenuComponent, PickCallButtonComponent],
   templateUrl: './call-actions.component.html',
 })
 export class CallActionsComponent {
@@ -47,6 +49,7 @@ export class CallActionsComponent {
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
   private readonly ruleDraft = inject(RuleDraftService);
   private readonly router = inject(Router);
+  private readonly origin = inject(CALL_ORIGIN, { optional: true });
 
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
@@ -117,7 +120,8 @@ export class CallActionsComponent {
     this.resendLoading.set(true);
     this.hydrated(this.call()).subscribe((call) => {
       this.resendLoading.set(false);
-      this.resendDialog.open(call);
+      // A cycle's captured copy can outlive the live log, so the backend is told which copy to resend.
+      this.resendDialog.open(call, this.origin?.cycleId() ?? null);
     });
   }
 

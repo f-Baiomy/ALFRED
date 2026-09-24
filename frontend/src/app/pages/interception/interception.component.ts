@@ -1,4 +1,8 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { directionOf } from '../../core/models/call-ref.model';
+import { CallPickerService } from '../../core/services/call-picker.service';
+import { AnswerPreselect } from '../../components/answer-picker/answer-picker.component';
+import { EditorSnapshot, RULE_ANSWER_REQUESTER } from '../../components/rule-editor/rule-editor.component';
 import { InterceptionRule, isActionEnabled, isTerminalAction } from '../../core/models/interception.model';
 import { RuleMatch, describeAction, describeMatch } from '../../core/models/interception.model';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -39,8 +43,31 @@ export class InterceptionComponent {
 
   readonly importing = signal(false);
 
+  /** A form parked by the rule editor's "Pick from anywhere…", reopened on Return or Cancel. */
+  readonly snapshot = signal<EditorSnapshot | null>(null);
+  readonly pickedAnswer = signal<AnswerPreselect | null>(null);
+
+  private readonly picker = inject(CallPickerService);
+
   constructor() {
     if (this.draft()) this.editing.set('new');
+
+    // Rebuilt when the user comes back from another tab; still alive when they never left.
+    effect(() => {
+      if (!this.picker.hasResult(RULE_ANSWER_REQUESTER)) return;
+      untracked(() => {
+        const result = this.picker.takeResult(RULE_ANSWER_REQUESTER);
+        const snapshot = result?.resume as EditorSnapshot | null;
+        if (!snapshot) return;
+        const picked = result?.picked[0];
+        this.draft.set(null);
+        this.snapshot.set(snapshot);
+        this.pickedAnswer.set(picked ? { direction: directionOf(picked.ref), callId: picked.ref.callId, cycleId: picked.ref.cycleId } : null);
+        // Closed first so an editor still open from before the pick is rebuilt from the snapshot, not reused.
+        this.editing.set(null);
+        queueMicrotask(() => this.editing.set('new'));
+      });
+    });
   }
 
   describeMatch(match: RuleMatch): string {
@@ -71,6 +98,8 @@ export class InterceptionComponent {
   newRule(): void {
     this.state.clearProblems();
     this.draft.set(null);
+    this.snapshot.set(null);
+    this.pickedAnswer.set(null);
     this.editing.set('new');
   }
 
@@ -130,6 +159,8 @@ export class InterceptionComponent {
     this.state.clearProblems();
     // Used once - the next "New rule" starts blank.
     this.draft.set(null);
+    this.snapshot.set(null);
+    this.pickedAnswer.set(null);
     this.editing.set(null);
   }
 

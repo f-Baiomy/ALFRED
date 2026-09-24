@@ -10,6 +10,9 @@
       </button>
       <button type="button" class="action-btn" (click)="edit()">Edit</button>
       <button type="button" class="action-btn" (click)="openImportDialog()">Import calls</button>
+      <button type="button" class="action-btn" title="Pick calls from Live Calls or other cycles, then copy them all in" (click)="addFromAnywhere()">
+        Add calls from anywhere…
+      </button>
       <app-action-menu [label]="cycleExport.exportingCycleId() === c.id ? 'Exporting…' : 'Export cycle'">
         <button
           type="button"
@@ -39,6 +42,9 @@
 </div>
 
 @if (cycleExport.message(); as message) {
+  <div class="bulk-action-message">{{ message }}</div>
+}
+@if (addMessage(); as message) {
   <div class="bulk-action-message">{{ message }}</div>
 }
 

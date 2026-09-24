@@ -8,6 +8,7 @@ import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_REMOVAL_STATE } fr
 import { ExportApiService } from '../../core/services/export-api.service';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { ResendApiService } from '../../core/services/resend-api.service';
+import { CALL_ORIGIN } from '../../core/state/call-origin.token';
 import { CopyToCyclesDialogService } from '../../core/services/copy-to-cycles-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -47,6 +48,7 @@ export class BulkActionsBarComponent {
   private readonly commentsApi = inject(CommentsApiService);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly origin = inject(CALL_ORIGIN, { optional: true });
   readonly state = inject(BULK_SELECTION_STATE);
   /** Non-null only where something binds CALL_REMOVAL_STATE (a session-cycle detail view) - drives whether "Remove selected" renders at all, same optional-injection shape CallCardComponent uses for its own per-call "Remove". */
   readonly removalState = inject(CALL_REMOVAL_STATE, { optional: true });
@@ -127,7 +129,7 @@ export class BulkActionsBarComponent {
       .pipe(
         concatMap((call) =>
           this.resendApi
-            .resend({ direction: call.source === 'internal' ? 'inbound' : 'outbound', callId: call.id })
+            .resend({ direction: call.source === 'internal' ? 'inbound' : 'outbound', callId: call.id, cycleId: this.origin?.cycleId() ?? null })
             .pipe(
               map(() => ({ ok: true as const })),
               catchError((error: HttpErrorResponse) => of({ ok: false as const, error }))

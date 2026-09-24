@@ -8131,3 +8131,184 @@ h1.page-title {
     padding-left: 1.1rem;
   }
 }
+
+/* Pick a call from anywhere (CallPickerService) - the floating bar, the per-call Pick button, and
+   the outline every card gets while something is picking. The bar sits under dialogs (z 100) so a
+   dialog opened mid-pick still covers it, and above page content on every tab. */
+.pick-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  width: min(56rem, calc(100vw - 2rem));
+  z-index: 90;
+  background: var(--bg-2);
+  border: 1px solid var(--purple);
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.pick-bar-head,
+.pick-bar-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pick-bar-title {
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.pick-bar-hint {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+}
+
+.pick-bar-spacer {
+  flex: 1;
+}
+
+.pick-bar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  font-size: 0.68rem;
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.3rem 0.15rem 0.6rem;
+}
+
+.pick-bar-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 24rem;
+}
+
+.pick-bar-status,
+.pick-bar-origin {
+  color: var(--text-faint);
+}
+
+.pick-bar-remove {
+  background: transparent;
+  border: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.7rem;
+
+  &:hover {
+    color: var(--text);
+  }
+}
+
+.pick-call-btn {
+  font-size: 0.66rem;
+  font-weight: 600;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--purple);
+  background: color-mix(in srgb, var(--purple) 25%, transparent);
+  color: var(--purple-light);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+
+  &.picked {
+    background: transparent;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.call.pick-target {
+  outline: 1px dashed color-mix(in srgb, var(--purple) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.call.picked {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+}
+
+/* Resend dialog - built on .dialog-backdrop/.dialog-card like every other dialog. It had used
+   classes no stylesheet defined, so it rendered as bare, unstyled page flow. */
+.resend-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+
+  h2 {
+    margin: 0;
+    margin-right: auto;
+  }
+}
+
+.resend-form {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6rem 0.8rem;
+  align-items: center;
+
+  .span-all {
+    grid-column: 1 / -1;
+  }
+
+  input[type='text'],
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 0.35rem 0.5rem;
+    font-family: inherit;
+    font-size: 0.75rem;
+  }
+}
+
+.resend-headers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.resend-header-row {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  align-items: center;
+
+  code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.7rem;
+  }
+
+  &.removed code {
+    text-decoration: line-through;
+    color: var(--text-faint);
+  }
+}
+
+.resend-actions,
+.resend-result {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+}

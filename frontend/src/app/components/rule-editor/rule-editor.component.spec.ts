@@ -3,7 +3,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { AppConfigService } from '../../core/services/app-config.service';
 import { InterceptionRule, RuleAction } from '../../core/models/interception.model';
-import { RuleEditorComponent } from './rule-editor.component';
+import { CallPickerService } from '../../core/services/call-picker.service';
+import { EditorSnapshot, RULE_ANSWER_REQUESTER, RuleEditorComponent } from './rule-editor.component';
 
 const BACKEND = 'http://backend.test:5000';
 
@@ -85,8 +86,44 @@ describe('RuleEditorComponent', () => {
     expect(component.actions().map((a) => a.type)).toEqual(['ANSWER_WITH_RECORDED_CALL']);
 
     const copy = http.expectOne(`${BACKEND}/interception/answers/from-call`);
-    expect(copy.request.body).toEqual({ direction: 'inbound', callId: 'in-7', keepSecrets: null });
+    expect(copy.request.body).toEqual({ direction: 'inbound', callId: 'in-7', cycleId: null, keepSecrets: null });
     copy.flush({ error: 'secrets-decision-required', secretNames: ['set-cookie'] }, { status: 409, statusText: 'Conflict' });
+  });
+
+  it('parks the unsaved form for a pick elsewhere, and reopens it from the snapshot with the picked call', () => {
+    open(null);
+    component.name.set('Unsaved name');
+    component.host.set('api.supplier.com');
+    component.actions.set([{ type: 'DELAY_REQUEST', durationMs: 5000 }, { type: 'ANSWER_WITH_RECORDED_CALL' }]);
+
+    let closed = false;
+    component.closed.subscribe(() => (closed = true));
+    component.pickAnswerFromAnywhere([1]);
+    expect(closed).withContext('the modal must get out of the way of the tab bar').toBeTrue();
+    const picker = TestBed.inject(CallPickerService);
+    expect(picker.request()?.requester).toBe(RULE_ANSWER_REQUESTER);
+    const snapshot = picker.request()!.resume as EditorSnapshot;
+    expect(snapshot.ruleId).toBeNull();
+    expect(snapshot.answerPath).toEqual([1]);
+    expect(snapshot.draft.name).toBe('Unsaved name');
+    picker.start({ requester: 'x', title: '', mode: 'single', returnUrl: '/', returnLabel: '' });
+
+    // A fresh editor, as InterceptionComponent builds it on Return.
+    fixture.destroy();
+    fixture = TestBed.createComponent(RuleEditorComponent);
+    component = fixture.componentInstance;
+    component.snapshot = snapshot;
+    component.pickedAnswer = { direction: 'outbound', callId: 'c9', cycleId: 'cy1' };
+    open(null);
+
+    expect(component.name()).toBe('Unsaved name');
+    expect(component.host()).toBe('api.supplier.com');
+    expect(component.preselectFor([1])?.callId).toBe('c9');
+    expect(component.preselectFor([0])).toBeNull();
+    const copy = http.expectOne(`${BACKEND}/interception/answers/from-call`);
+    expect(copy.request.body).toEqual({ direction: 'outbound', callId: 'c9', cycleId: 'cy1', keepSecrets: null });
+    copy.flush({ error: 'secrets-decision-required', secretNames: [] }, { status: 409, statusText: 'Conflict' });
+    sessionStorage.removeItem('alfred_call_picker');
   });
 
   it('offers only configured projects, not the catch-all bucket', () => {

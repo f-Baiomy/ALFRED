@@ -1,8 +1,7 @@
 package com.fathy.alfred.backend.interceptionbridge;
 
+import com.fathy.alfred.backend.callrefbridge.CallRefResolver;
 import com.fathy.alfred.backend.interception.application.port.out.RecordedCallLookupPort;
-import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
-import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -16,40 +15,23 @@ import java.util.Optional;
  * cycle. Lives in backend-app for the same reason as CallFilterAdapter: interception must not
  * depend on any call slice, and this composition root is the only place allowed to know them all.
  *
- * <p>The two call slices have identically named use cases and records, so they are referred to by
- * their full names here rather than imported.
+ * <p>Finding the call is CallRefResolver's job (shared with resendbridge); this only projects the
+ * response half. It uses the tolerant {@link CallRefResolver#resolve}, since answering needs
+ * nothing from the call's summary.
  */
 @Component
 public class RecordedCallLookupAdapter implements RecordedCallLookupPort {
 
-    private final com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase outbound;
-    private final com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase inbound;
-    private final GetCapturedCallDetailUseCase capturedOutbound;
-    private final GetCapturedInternalCallDetailUseCase capturedInbound;
+    private final CallRefResolver resolver;
 
-    public RecordedCallLookupAdapter(com.fathy.alfred.backend.calls.application.port.in.GetCallDetailUseCase outbound,
-                                     com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase inbound,
-                                     GetCapturedCallDetailUseCase capturedOutbound,
-                                     GetCapturedInternalCallDetailUseCase capturedInbound) {
-        this.outbound = outbound;
-        this.inbound = inbound;
-        this.capturedOutbound = capturedOutbound;
-        this.capturedInbound = capturedInbound;
+    public RecordedCallLookupAdapter(CallRefResolver resolver) {
+        this.resolver = resolver;
     }
 
     @Override
     public Optional<RecordedResponse> find(String direction, String callId, String cycleId) {
-        if ("outbound".equals(direction)) {
-            return (cycleId == null ? outbound.getDetail(callId) : capturedOutbound.getDetail(cycleId, callId))
-                    .map(com.fathy.alfred.backend.calls.domain.model.CallDetail::response)
-                    .flatMap(r -> response(r.status(), r.headers(), r.body()));
-        }
-        if ("inbound".equals(direction)) {
-            return (cycleId == null ? inbound.getDetail(callId) : capturedInbound.getDetail(cycleId, callId))
-                    .map(com.fathy.alfred.backend.internalcalls.domain.model.CallDetail::response)
-                    .flatMap(r -> response(r.status(), r.headers(), r.body()));
-        }
-        return Optional.empty();
+        return resolver.resolve(direction, callId, cycleId)
+                .flatMap(call -> response(call.responseStatus(), call.responseHeaders(), call.responseBody()));
     }
 
     /** A call that never got a response (still in flight, or failed) has nothing to answer with. */

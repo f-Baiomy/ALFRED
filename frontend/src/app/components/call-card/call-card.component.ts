@@ -18,6 +18,8 @@ import { WsMessagesComponent } from '../ws-messages/ws-messages.component';
 import { OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
+import { CallPickerService } from '../../core/services/call-picker.service';
+import { CALL_ORIGIN } from '../../core/state/call-origin.token';
 
 type BlockGroup = 'REQ' | 'RES';
 
@@ -78,6 +80,11 @@ export class CallCardComponent {
   readonly removalState = inject(CALL_REMOVAL_STATE, { optional: true });
 
   readonly call = input.required<CallRecord>();
+
+  /** Outlines every card while something is picking (see CallPickerService), and marks the picked one. */
+  readonly picker = inject(CallPickerService);
+  private readonly origin = inject(CALL_ORIGIN, { optional: true });
+  readonly pickedHere = computed(() => this.picker.active() && this.picker.isPicked(this.call(), this.origin?.cycleId() ?? null));
 
   /**
    * What an interception rule did to this call, or null for the overwhelming majority that no

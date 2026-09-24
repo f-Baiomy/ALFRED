@@ -384,7 +384,8 @@ call still happens and is logged, but the caller sees the recorded answer instea
 **Finding the call to answer with.** The picker narrows to the rule's own host, path, methods and
 projects by default, takes `host:` / `path:` / `method:` / `status:` / `body:` tokens, and previews
 a response before copying it. A rule can also be started from the call itself: "Use as answer in a
-new rule…" in a Live Calls card's Export menu. `body:` is the one filter only the backend can
+new rule…" in a Live Calls card's Export menu, or picked from any tab - including a session
+cycle's captured copy, long after the live log evicted it - with "Pick from anywhere…". `body:` is the one filter only the backend can
 check (list rows carry no bodies), so it takes the server's single `search` string; the rest are
 applied in the browser to bigger pages. See docs/frontend-architecture.md.
 

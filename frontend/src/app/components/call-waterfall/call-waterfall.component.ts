@@ -17,6 +17,7 @@ import {
   spacerOrderFor,
 } from '../../shared/utils/spacer-gap-controller';
 import { CallCardComponent } from '../call-card/call-card.component';
+import { PickCallButtonComponent } from '../pick-call-button/pick-call-button.component';
 import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
 import { SpacerChipComponent } from '../spacer-chip/spacer-chip.component';
 
@@ -132,7 +133,7 @@ interface WaterfallGroup {
 @Component({
   selector: 'app-call-waterfall',
   standalone: true,
-  imports: [CallCardComponent, CallDiagnosticsComponent, SpacerChipComponent, CdkDropList, CdkDrag, CdkDragHandle, NgTemplateOutlet],
+  imports: [CallCardComponent, PickCallButtonComponent, CallDiagnosticsComponent, SpacerChipComponent, CdkDropList, CdkDrag, CdkDragHandle, NgTemplateOutlet],
   template: `
     <ng-template #waterfallSpacerComposer>
       <div class="spacer-row">
@@ -300,6 +301,8 @@ interface WaterfallGroup {
               }
             </span>
             </button>
+            <!-- A sibling, not inside the row button: a button may not contain another. -->
+            <app-pick-call [call]="row.call" />
             @if (row.diagnosticsNode) {
               <button
                 type="button"

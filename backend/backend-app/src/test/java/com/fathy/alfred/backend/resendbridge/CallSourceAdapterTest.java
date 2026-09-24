@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.resendbridge;
 
+import com.fathy.alfred.backend.callrefbridge.CallRefResolver;
 import com.fathy.alfred.backend.resend.domain.model.StoredCall;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedCallDetailUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
@@ -39,8 +40,8 @@ class CallSourceAdapterTest {
         capturedOutboundDetail = mock(GetCapturedCallDetailUseCase.class);
         capturedInboundList = mock(ListCapturedInternalCallsUseCase.class);
         capturedInboundDetail = mock(GetCapturedInternalCallDetailUseCase.class);
-        adapter = new CallSourceAdapter(outboundList, outboundDetail, inboundList, inboundDetail,
-                capturedOutboundList, capturedOutboundDetail, capturedInboundList, capturedInboundDetail);
+        adapter = new CallSourceAdapter(new CallRefResolver(outboundList, outboundDetail, inboundList, inboundDetail,
+                capturedOutboundList, capturedOutboundDetail, capturedInboundList, capturedInboundDetail));
     }
 
     @Test

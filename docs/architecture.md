@@ -39,7 +39,9 @@ backend-app               composition root, owns spring-boot-maven-plugin repack
                           the CallFilterAdapter bridging calls→settings, CommentCallIdMigration, the
                           interceptionbridge package (bridges backend-interception's RecordedCallLookupPort to
                           the calls/internal-calls/session-cycles detail use cases) and the resendbridge package
-                          (bridges backend-resend's CallSourcePort/SessionValueLookupPort the same way)
+                          (bridges backend-resend's CallSourcePort/SessionValueLookupPort the same way);
+                          both find the call through callrefbridge's one CallRefResolver and only
+                          project their half (response vs. request) of its ResolvedCall
 backend-architecture-test test-only, holds the ArchUnit suite (see docs/testing.md)
 ```
 
