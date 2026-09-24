@@ -6,6 +6,16 @@ Guidance for Claude Code working in this repo. See [AGENTS.md](AGENTS.md) for th
 
 Alfred logs HTTP/HTTPS traffic in **both directions** around a Java app, via two mitmproxy services. **proxy** (forward mode, port 443, always running) logs *outbound* calls from any proxy-aware client (e.g. a Java app with `http.proxyHost`/`https.proxyHost` set, including live-injected via `wildfly-proxy-toggle/`'s Attach-API tool). **reverse-proxy** (reverse mode, one listener + published port PER PROJECT, opt-in via `settings.properties`'s `reverse_proxy_enabled` — many deployments only need outbound logging) logs *inbound* calls into any number of NAMED projects it fronts, routed by which `listenPort` a request arrived on (`REVERSE_PROXY_PORT_MAP`/`INTERNAL_CALL_SERVICES` = `name:listenPort:upstreamPort` triples, from `settings.properties`'s `internal_call_services`); callers stay on `localhost` so browser session cookies keep working. Each project's logging toggles independently, live. Neither persists anything — both POST to **backend** (Spring Boot multi-module Maven reactor, port 5000), which owns all persistence: outbound calls, inbound calls, comments, session-cycles, profiles, call-filter settings, interception rules/stored answers, and resend requests (`backend-resend`, a leaf slice that resends a previously-logged call back out through the proxies). **frontend** (Angular/nginx) has four tabs: Live Calls (with an outbound/inbound/both source filter), Session Cycles, Profiles, Settings. It is served through **app-gateway** (nginx, `gateway/nginx.conf`, the only thing publishing host port 3000): the backend's API prefixes (`calls|internal-calls|call-overlaps|comments|session-cycles|profiles|interception|redactions|settings|database|health|resend`) and `/ws/` go to `backend:5000`, everything else to `frontend:80`, so the browser talks to one origin (`window.BACKEND_URL = window.location.origin`, no CORS) and one Cloudflare Tunnel URL covers the whole app. A new backend route prefix must be added to the gateway's regex or it will be served the SPA. Three SPA pages share a prefix with the backend (`/profiles`, `/interception`, `/settings`): a browser page load of exactly that path (`Accept: text/html`) is sent to the SPA by the gateway's `$spa_page` map, or a reload would show backend JSON/500. A new SPA page named after a backend prefix needs adding to that map.
 
+## Code search: CodeGraph first, grep last
+
+When `.codegraph/` exists at the repo root (a local, gitignored index - not every clone has one), **CodeGraph is the default way to find and understand code. Query it before any Grep/Glob/Read, and before delegating a search to a subagent.**
+
+- **One call, not a grep loop.** `codegraph_explore` (MCP; load it via ToolSearch if deferred) or `codegraph explore "<symbols or question>"` (shell) returns the symbols' current line-numbered source, the call paths between them (including callback/DI/template hops grep can't follow), and the blast radius. Name every symbol or file you care about in ONE query - e.g. `layoutSpacers` shows the three views and both export builders that depend on it.
+- **Before editing:** explore the symbol you are about to change and read its callers/tests from the result - the blast radius is the list of places to update or re-verify. Its source is safe to `Edit` from; no separate Read needed.
+- **Questions too:** "where is X", "what calls Y", "how does Z flow from proxy to UI" - ask CodeGraph in plain words first.
+- **Grep/Read only when CodeGraph can't answer:** non-code files (`.md`, `.properties`, `nginx.conf`, `.env`, SQL, JSON fixtures), exact literal strings (error messages, CSS class names in `styles.scss`, log text), or a file just written (the index lags writes by ~1 s). If CodeGraph misses a symbol you know exists, fall back to Grep - don't retry the same query.
+- No `.codegraph/` directory: skip CodeGraph entirely; indexing is the user's decision.
+
 ## Commands
 
 ```bash
@@ -27,8 +37,6 @@ cd frontend && npx ng test --watch=false --browsers=ChromeHeadless --include=src
 ```
 
 After `docker compose up -d --build backend`, the gateway may keep the old container IP (502s) until `docker compose restart app-gateway`.
-
-**Code search: use CodeGraph first when `.codegraph/` exists** (a local, gitignored index - not every clone has one). `codegraph_explore` (MCP) or `codegraph explore "<symbols or question>"` (shell) returns a symbol's current source plus its callers/blast radius in one call - e.g. `layoutSpacers` shows the three views and both export builders that depend on it. Fall back to Grep/Read for non-code files and literal text searches.
 
 ## Non-obvious rules
 
