@@ -562,8 +562,24 @@ public final class RuleValidator {
                 && !isValidPath(condition.name())) {
             problems.add("\"" + condition.name() + "\" is not a valid field path.");
         }
+        boolean json = condition.subject() == ConditionSubject.REQUEST_JSON_FIELD
+                || condition.subject() == ConditionSubject.RESPONSE_JSON_FIELD;
+        validateJsonExtras(condition, json, problems);
         if (condition.operator().needsValue() && (condition.value() == null || condition.value().isEmpty())) {
             problems.add(condition.subject() + " " + condition.operator() + " needs a value to compare with.");
+            return;
+        }
+        if (condition.operator() == ConditionOperator.TYPE_IS && !ConditionOperator.JSON_TYPES.contains(condition.value())) {
+            problems.add("\"" + condition.value() + "\" is not a JSON type - use one of text, number, boolean, null, object, list.");
+        }
+        if (condition.operator().name().startsWith("COUNT_")) {
+            try {
+                if (Integer.parseInt(condition.value().trim()) < 0) {
+                    problems.add("An item count cannot be negative.");
+                }
+            } catch (NumberFormatException e) {
+                problems.add("\"" + condition.value() + "\" is not a whole number of items.");
+            }
             return;
         }
         if (condition.operator().isRegex()) {
@@ -579,6 +595,53 @@ public final class RuleValidator {
             } catch (NumberFormatException e) {
                 problems.add("\"" + condition.value() + "\" is not a number, so " + condition.operator()
                         + " cannot compare against it.");
+            }
+        }
+    }
+
+    private static final int MAX_CONDITION_PATHS = 10;
+    private static final int MAX_CONDITION_VALUES = 50;
+
+    /** Multi-field, item-mode and list-value parts of a condition - JSON fields only, and consistent. */
+    private static void validateJsonExtras(Condition condition, boolean json, List<String> problems) {
+        ConditionOperator op = condition.operator();
+        if (op.jsonOnly() && !json) {
+            problems.add(op + " only works on a JSON field.");
+        }
+        if (!condition.paths().isEmpty()) {
+            if (!json) {
+                problems.add("Only a JSON field condition can test several fields.");
+            }
+            if (condition.paths().size() > MAX_CONDITION_PATHS) {
+                problems.add("A condition can test at most " + MAX_CONDITION_PATHS + " fields at once.");
+            }
+            for (String path : condition.paths()) {
+                if (path == null || path.isBlank() || !isValidPath(path)) {
+                    problems.add("\"" + path + "\" is not a valid field path.");
+                }
+            }
+        }
+        if (condition.pathsMode() != null && !List.of("ANY", "ALL").contains(condition.pathsMode())) {
+            problems.add("Several fields are combined with ANY or ALL.");
+        }
+        if (condition.items() != null) {
+            if (!json) {
+                problems.add("Only a JSON field condition can test the items of a list.");
+            } else if (!List.of("ANY", "ALL", "NONE").contains(condition.items())) {
+                problems.add("A list's items are tested as ANY, ALL or NONE.");
+            } else if (!"ANY".equals(condition.items()) && (op.negative() || op.wholeField() || op == ConditionOperator.EXISTS
+                    || op == ConditionOperator.NOT_EXISTS)) {
+                problems.add(op + " cannot be combined with " + condition.items() + " items - "
+                        + (op.negative() ? "use the positive comparison with NONE instead." : "it is about the field as a whole."));
+            }
+        }
+        if (op.takesValues()) {
+            if (condition.values().isEmpty()) {
+                problems.add(op + " needs at least one value.");
+            } else if (condition.values().size() > MAX_CONDITION_VALUES) {
+                problems.add(op + " takes at most " + MAX_CONDITION_VALUES + " values.");
+            } else if (condition.values().stream().anyMatch(v -> v == null || v.length() > 1000)) {
+                problems.add(op + " values are at most 1000 characters each.");
             }
         }
     }

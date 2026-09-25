@@ -721,6 +721,72 @@ export const OPERATOR_HELP: Readonly<Record<ConditionOperator, HelpEntry>> = {
     ],
     warning: 'Same as "is at least": a non-numeric value fails rather than erroring.',
   },
+  STARTS_WITH: {
+    title: 'starts with',
+    code: 'STARTS_WITH',
+    what: 'The value begins with this text. Case-insensitive unless you tick Aa.',
+    examples: [{ from: 'ADT in ADT-PROMO', to: 'true' }],
+  },
+  ENDS_WITH: {
+    title: 'ends with',
+    code: 'ENDS_WITH',
+    what: 'The value ends with this text. Case-insensitive unless you tick Aa.',
+    examples: [{ from: '.pdf in ticket.pdf', to: 'true' }],
+  },
+  IN: {
+    title: 'is one of',
+    code: 'IN',
+    what: 'Equals any of the values you list - one test instead of several ORed ones.',
+    examples: [
+      { from: 'type is one of ADT, CHD', to: 'true for ADT or CHD, false for INF' },
+      { from: 'with every item', to: 'every passenger is ADT or CHD' },
+    ],
+  },
+  TYPE_IS: {
+    title: 'type is',
+    code: 'TYPE_IS',
+    what: 'The JSON type of the field: text, number, boolean, null, object or list.',
+    examples: [
+      { from: '"price": "120"', to: 'text, not number - the bug this catches' },
+      { from: 'promoCodes: null', to: 'null' },
+    ],
+  },
+  IS_EMPTY: {
+    title: 'is empty',
+    code: 'IS_EMPTY',
+    what: 'The field is "", [], {} or null - or not there at all.',
+    examples: [
+      { from: '"offers": []', to: 'true - a search with no results' },
+      { from: 'a missing field', to: 'true' },
+    ],
+  },
+  COUNT_AT_LEAST: {
+    title: 'item count is at least',
+    code: 'COUNT_AT_LEAST',
+    what: "How many items the field has - a list's length, or how many values a [*] path finds - is at least N.",
+    examples: [{ from: 'passengers count at least 5', to: 'a group booking' }],
+  },
+  COUNT_AT_MOST: {
+    title: 'item count is at most',
+    code: 'COUNT_AT_MOST',
+    what: 'The number of items is at most N. A missing field counts as 0.',
+    examples: [{ from: 'offers count at most 0', to: 'no offers came back' }],
+  },
+  COUNT_EQUALS: {
+    title: 'item count is exactly',
+    code: 'COUNT_EQUALS',
+    what: 'The number of items is exactly N. A missing field counts as 0.',
+    examples: [{ from: 'segments count exactly 1', to: 'a direct flight' }],
+  },
+  CONTAINS_ALL: {
+    title: 'contains every value',
+    code: 'CONTAINS_ALL',
+    what: 'Every value you list is among the items, in any order. Other items may be there too.',
+    examples: [
+      { from: 'types [ADT, CHD, INF] contains every value ADT, INF', to: 'true' },
+      { from: 'types [ADT, ADT] contains every value ADT, CHD', to: 'false - no CHD' },
+    ],
+  },
 };
 
 /** The six ways Simulate a failure can break a call, for the help on that card. */

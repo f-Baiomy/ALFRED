@@ -8,6 +8,7 @@ import { AnswerPickerComponent } from '../answer-picker/answer-picker.component'
 import { BodyEditorComponent } from '../body-editor/body-editor.component';
 import { HeaderEditorComponent } from '../header-editor/header-editor.component';
 import { ActionAdderComponent } from '../action-adder/action-adder.component';
+import { JsonPathInputComponent } from '../json-path-input/json-path-input.component';
 import { CopyFromCallComponent } from '../copy-from-call/copy-from-call.component';
 import { ReplacePreviewComponent } from '../replace-preview/replace-preview.component';
 import type { RuleEditorComponent } from '../rule-editor/rule-editor.component';
@@ -53,6 +54,7 @@ export interface ActionStep {
   standalone: true,
   imports: [
     ActionAdderComponent,
+    JsonPathInputComponent,
     SelectPickerComponent,
     StatusPickerComponent,
     AnswerPickerComponent,

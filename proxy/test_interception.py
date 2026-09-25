@@ -1226,6 +1226,72 @@ class DisabledActionTest(unittest.TestCase):
         self.assertEqual(flow.request.headers['X-On'], 'yes')
 
 
+class JsonFieldConditionTest(unittest.TestCase):
+    """JSON field conditions beyond one value: several fields, a list's items ANY / ALL / NONE,
+    item counts, contains-every-value, is one of, starts / ends with, type is, is empty."""
+
+    BODY = ('{"currency":"EUR","passengers":[{"type":"ADT","age":40},{"type":"ADT","age":38},{"type":"CHD","age":6}],'
+            '"tags":["promo","web"],"note":"","extras":{},"price":{"total":120.5}}')
+
+    def holds(self, **condition):
+        base = {'subject': 'REQUEST_JSON_FIELD', 'items': 'ANY'}
+        base.update(condition)
+        return interception.Condition(base).holds(FakeFlow(FakeRequest(method='POST', text=self.BODY)))
+
+    def test_item_modes(self):
+        self.assertTrue(self.holds(name='passengers[*].type', operator='EQUALS', value='CHD'))
+        self.assertFalse(self.holds(name='passengers[*].type', operator='EQUALS', value='ADT', items='ALL'))
+        self.assertTrue(self.holds(name='passengers[*].age', operator='AT_LEAST', value='6', items='ALL'))
+        self.assertTrue(self.holds(name='passengers[*].type', operator='EQUALS', value='INF', items='NONE'))
+        self.assertFalse(self.holds(name='passengers[*].type', operator='EQUALS', value='CHD', items='NONE'))
+        # A list field's own items, without [*].
+        self.assertTrue(self.holds(name='tags', operator='STARTS_WITH', value='w'))
+        self.assertFalse(self.holds(name='tags', operator='STARTS_WITH', value='w', items='ALL'))
+
+    def test_absent_fields_and_item_modes(self):
+        self.assertFalse(self.holds(name='missing[*].x', operator='EQUALS', value='1', items='ALL'))
+        self.assertTrue(self.holds(name='missing[*].x', operator='EQUALS', value='1', items='NONE'))
+        self.assertTrue(self.holds(name='missing', operator='NOT_EQUALS', value='1'))
+
+    def test_counts_and_contains_every_value(self):
+        self.assertTrue(self.holds(name='passengers', operator='COUNT_EQUALS', value='3'))
+        self.assertTrue(self.holds(name='passengers[*].type', operator='COUNT_AT_LEAST', value='3'))
+        self.assertFalse(self.holds(name='tags', operator='COUNT_AT_MOST', value='1'))
+        self.assertTrue(self.holds(name='missing', operator='COUNT_EQUALS', value='0'))
+        self.assertTrue(self.holds(name='passengers[*].type', operator='CONTAINS_ALL', values=['CHD', 'ADT']))
+        self.assertFalse(self.holds(name='passengers[*].type', operator='CONTAINS_ALL', values=['CHD', 'INF']))
+        self.assertTrue(self.holds(name='passengers[*].type', operator='CONTAINS_ALL', values=['chd']), 'case-insensitive by default')
+
+    def test_is_one_of_type_and_empty(self):
+        self.assertTrue(self.holds(name='currency', operator='IN', values=['USD', 'EUR']))
+        self.assertTrue(self.holds(name='passengers[*].type', operator='IN', values=['ADT', 'CHD'], items='ALL'))
+        self.assertFalse(self.holds(name='passengers[*].type', operator='IN', values=['ADT'], items='ALL'))
+        self.assertTrue(self.holds(name='passengers', operator='TYPE_IS', value='list', items=None))
+        self.assertTrue(self.holds(name='passengers[*].age', operator='TYPE_IS', value='number', items='ALL'))
+        self.assertTrue(self.holds(name='price.total', operator='TYPE_IS', value='number'))
+        self.assertTrue(self.holds(name='note', operator='IS_EMPTY'))
+        self.assertTrue(self.holds(name='extras', operator='IS_EMPTY'))
+        self.assertTrue(self.holds(name='missing', operator='IS_EMPTY'))
+        self.assertFalse(self.holds(name='tags', operator='IS_EMPTY'))
+        self.assertTrue(self.holds(name='currency', operator='ENDS_WITH', value='ur'))
+
+    def test_several_fields_any_or_all(self):
+        self.assertTrue(self.holds(name='price.total', paths=['missing.total'], operator='AT_LEAST', value='100'))
+        self.assertFalse(self.holds(name='price.total', paths=['missing.total'], pathsMode='ALL', operator='AT_LEAST', value='100'))
+        self.assertTrue(self.holds(name='currency', paths=['passengers[*].type'], pathsMode='ALL', operator='IN', values=['EUR', 'ADT', 'CHD'], items='ALL'))
+
+    def test_the_old_reading_without_items_is_unchanged(self):
+        # No `items`: a list field is one value, its JSON text - as every rule saved before read it.
+        legacy = interception.Condition({'subject': 'REQUEST_JSON_FIELD', 'name': 'tags', 'operator': 'CONTAINS', 'value': 'promo'})
+        self.assertTrue(legacy.holds(FakeFlow(FakeRequest(method='POST', text=self.BODY))))
+        self.assertFalse(interception.Condition({'subject': 'URL', 'operator': 'COUNT_EQUALS', 'value': '1'}).valid)
+
+    def test_starts_with_and_one_of_on_any_text_subject(self):
+        flow = FakeFlow(FakeRequest(method='POST', headers={'X-Tier': 'gold-plus'}))
+        self.assertTrue(interception.Condition({'subject': 'REQUEST_HEADER', 'name': 'X-Tier', 'operator': 'STARTS_WITH', 'value': 'GOLD'}).holds(flow))
+        self.assertTrue(interception.Condition({'subject': 'METHOD', 'operator': 'IN', 'values': ['PUT', 'POST']}).holds(flow))
+
+
 class ConditionalActionTest(unittest.TestCase):
     """The if / else-if / else step itself: which branch runs, and what the log says about it."""
 

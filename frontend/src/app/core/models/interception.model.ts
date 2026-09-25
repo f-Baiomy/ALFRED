@@ -106,7 +106,21 @@ export type ConditionOperator =
   | 'MATCHES'
   | 'NOT_MATCHES'
   | 'AT_LEAST'
-  | 'AT_MOST';
+  | 'AT_MOST'
+  | 'STARTS_WITH'
+  | 'ENDS_WITH'
+  /** Equals any of `values`. */
+  | 'IN'
+  /** JSON fields only - text, number, boolean, null, object, list. */
+  | 'TYPE_IS'
+  /** JSON fields only - "", [], {}, null or missing. */
+  | 'IS_EMPTY'
+  /** JSON fields only - how many items the field resolves to. */
+  | 'COUNT_AT_LEAST'
+  | 'COUNT_AT_MOST'
+  | 'COUNT_EQUALS'
+  /** JSON fields only - every one of `values` is among the items. */
+  | 'CONTAINS_ALL';
 
 export interface Condition {
   readonly subject: ConditionSubject;
@@ -116,7 +130,38 @@ export interface Condition {
   /** Absent for EXISTS / NOT_EXISTS, which compare against nothing. */
   readonly value?: string | null;
   readonly caseSensitive?: boolean | null;
+  /** JSON field subjects: more fields tested the same way, beside `name`. */
+  readonly paths?: readonly string[] | null;
+  /** With `paths`: ANY (default) of the fields holding is enough, or ALL of them. */
+  readonly pathsMode?: 'ANY' | 'ALL' | null;
+  /** JSON field subjects: over a list, ANY item (default), ALL items or NONE. */
+  readonly items?: 'ANY' | 'ALL' | 'NONE' | null;
+  /** For IN and CONTAINS_ALL. */
+  readonly values?: readonly string[] | null;
 }
+
+export const JSON_TYPES = ['text', 'number', 'boolean', 'null', 'object', 'list'] as const;
+
+/** Operators that only mean something on a JSON field. */
+export const JSON_ONLY_OPERATORS: ReadonlySet<ConditionOperator> = new Set<ConditionOperator>([
+  'TYPE_IS',
+  'IS_EMPTY',
+  'COUNT_AT_LEAST',
+  'COUNT_AT_MOST',
+  'COUNT_EQUALS',
+  'CONTAINS_ALL',
+]);
+
+/** Operators about a field as a whole - its item count, its values as a set - where an item mode means nothing. */
+export const WHOLE_FIELD_OPERATORS: ReadonlySet<ConditionOperator> = new Set<ConditionOperator>([
+  'COUNT_AT_LEAST',
+  'COUNT_AT_MOST',
+  'COUNT_EQUALS',
+  'CONTAINS_ALL',
+]);
+
+/** Operators compared against a list of values rather than one. */
+export const LIST_VALUE_OPERATORS: ReadonlySet<ConditionOperator> = new Set<ConditionOperator>(['IN', 'CONTAINS_ALL']);
 
 /** One arm of a conditional. Branches are tried in order and the first match wins. */
 export interface ConditionBranch {
@@ -702,6 +747,15 @@ export const OPERATOR_LABELS: Readonly<Record<ConditionOperator, string>> = {
   NOT_MATCHES: 'does not match regex',
   AT_LEAST: 'is at least',
   AT_MOST: 'is at most',
+  STARTS_WITH: 'starts with',
+  ENDS_WITH: 'ends with',
+  IN: 'is one of',
+  TYPE_IS: 'type is',
+  IS_EMPTY: 'is empty',
+  COUNT_AT_LEAST: 'item count is at least',
+  COUNT_AT_MOST: 'item count is at most',
+  COUNT_EQUALS: 'item count is exactly',
+  CONTAINS_ALL: 'contains every value',
 };
 
 /** Subjects that need a header name, parameter name or field path to identify the value. */
@@ -725,6 +779,10 @@ export const RESPONSE_SUBJECTS: ReadonlySet<ConditionSubject> = new Set<Conditio
 export const OPERATORS_WITHOUT_VALUE: ReadonlySet<ConditionOperator> = new Set<ConditionOperator>([
   'EXISTS',
   'NOT_EXISTS',
+  'IS_EMPTY',
+  // Compared against `values`, not `value`.
+  'IN',
+  'CONTAINS_ALL',
 ]);
 
 export function isConditionalAction(type: ActionType): boolean {
@@ -734,8 +792,12 @@ export function isConditionalAction(type: ActionType): boolean {
 /** "request header x-api-key does not exist" - the plain-language form, used in the editor and the log. */
 export function describeCondition(condition: Condition): string {
   const subject = SUBJECT_LABELS[condition.subject] ?? condition.subject;
-  const head = condition.name ? `${subject} ${condition.name}` : subject;
+  const fields = [condition.name, ...(condition.paths ?? [])].filter((p): p is string => !!p);
+  const joined = fields.length > 1 ? `${condition.pathsMode === 'ALL' ? 'all of' : 'any of'} ${fields.join(', ')}` : fields[0] ?? '';
+  const items = condition.items === 'ALL' ? ' (every item)' : condition.items === 'NONE' ? ' (no item)' : '';
+  const head = `${joined ? `${subject} ${joined}` : subject}${items}`;
   const operator = OPERATOR_LABELS[condition.operator] ?? condition.operator;
+  if (LIST_VALUE_OPERATORS.has(condition.operator)) return `${head} ${operator} ${(condition.values ?? []).join(', ')}`.trim();
   if (OPERATORS_WITHOUT_VALUE.has(condition.operator)) return `${head} ${operator}`;
   return `${head} ${operator} ${condition.value ?? ''}`.trim();
 }

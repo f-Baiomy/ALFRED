@@ -1191,7 +1191,28 @@ SUBJECTS = {
 OPERATORS = {
     'EXISTS', 'NOT_EXISTS', 'EQUALS', 'NOT_EQUALS', 'CONTAINS', 'NOT_CONTAINS',
     'MATCHES', 'NOT_MATCHES', 'AT_LEAST', 'AT_MOST',
+    'STARTS_WITH', 'ENDS_WITH', 'IN',
+    # JSON fields only - see Condition._json_holds.
+    'TYPE_IS', 'IS_EMPTY', 'COUNT_AT_LEAST', 'COUNT_AT_MOST', 'COUNT_EQUALS', 'CONTAINS_ALL',
 }
+
+_JSON_SUBJECTS = {'REQUEST_JSON_FIELD', 'RESPONSE_JSON_FIELD'}
+_WHOLE_FIELD = {'COUNT_AT_LEAST', 'COUNT_AT_MOST', 'COUNT_EQUALS', 'CONTAINS_ALL'}
+
+
+def _json_type(value):
+    """The six names TYPE_IS takes - bool before int, because True is an int in Python."""
+    if value is None:
+        return 'null'
+    if isinstance(value, bool):
+        return 'boolean'
+    if isinstance(value, (int, float)):
+        return 'number'
+    if isinstance(value, str):
+        return 'text'
+    if isinstance(value, list):
+        return 'list'
+    return 'object'
 
 # Operators whose answer when the subject is ABSENT is True. An absent subject is never equal to,
 # does not contain and does not match anything - so the negative of each of those is satisfied.
@@ -1259,7 +1280,8 @@ class Condition:
     matches, for every condition it has - the same reason Match compiles pathRegex at load.
     """
 
-    __slots__ = ('subject', 'name', 'operator', 'value', 'case_sensitive', 'pattern', 'number')
+    __slots__ = ('subject', 'name', 'operator', 'value', 'case_sensitive', 'pattern', 'number',
+                 'paths', 'all_paths', 'items', 'list_values')
 
     def __init__(self, raw):
         raw = raw or {}
@@ -1269,6 +1291,15 @@ class Condition:
         value = raw.get('value')
         self.value = None if value is None else str(value)
         self.case_sensitive = raw.get('caseSensitive') is True
+        # A JSON field condition can test several fields (name first, then `paths`), ANY (default)
+        # or ALL of them, and a list's items ANY / ALL / NONE. `items` absent is the reading from
+        # before it existed: a list is compared as its JSON text, as one value.
+        extra = [str(p).strip() for p in (raw.get('paths') or []) if str(p).strip()]
+        self.paths = tuple(([str(self.name).strip()] if self.name else []) + extra)
+        self.all_paths = str(raw.get('pathsMode') or 'ANY').strip().upper() == 'ALL'
+        items = raw.get('items')
+        self.items = None if items is None else str(items).strip().upper()
+        self.list_values = tuple(str(v) for v in (raw.get('values') or []) if v is not None)
 
         self.pattern = None
         if self.operator in ('MATCHES', 'NOT_MATCHES') and self.value is not None:
@@ -1276,7 +1307,7 @@ class Condition:
             self.pattern = re.compile(self.value, flags)
 
         self.number = None
-        if self.operator in ('AT_LEAST', 'AT_MOST') and self.value is not None:
+        if self.operator in ('AT_LEAST', 'AT_MOST', 'COUNT_AT_LEAST', 'COUNT_AT_MOST', 'COUNT_EQUALS') and self.value is not None:
             try:
                 self.number = float(self.value)
             except ValueError:
@@ -1284,7 +1315,16 @@ class Condition:
 
     @property
     def valid(self):
-        return self.subject in SUBJECTS and self.operator in OPERATORS
+        if self.subject not in SUBJECTS or self.operator not in OPERATORS:
+            return False
+        json_only = self.operator in ('TYPE_IS', 'IS_EMPTY') or self.operator in _WHOLE_FIELD
+        return self.subject in _JSON_SUBJECTS or not json_only
+
+    def _json_mode(self):
+        """Whether the richer JSON evaluation applies - anything the old one-text-per-value one cannot say."""
+        return self.subject in _JSON_SUBJECTS and (
+            self.items is not None or len(self.paths) > 1 or self.operator in ('TYPE_IS', 'IS_EMPTY') or self.operator in _WHOLE_FIELD
+        )
 
     def values(self, flow):
         """Everything this subject resolves to - empty means absent."""
@@ -1323,7 +1363,57 @@ class Condition:
             # runs because a typo was ignored is worse than one that never runs.
             return False
 
+        if self._json_mode():
+            return self._json_holds(flow)
         return self.holds_values(self.values(flow))
+
+    def _json_holds(self, flow):
+        """Every field in `paths`, each tested on its own, combined ANY (default) or ALL."""
+        message = flow.request if self.subject == 'REQUEST_JSON_FIELD' else getattr(flow, 'response', None)
+        text = _body(message)
+        results = [self._field_holds(get_json_field(text, path)) for path in self.paths]
+        if not results:
+            return False
+        return all(results) if self.all_paths else any(results)
+
+    def _field_holds(self, found):
+        """One field. A single list value is its items; a [*] path already resolved to them."""
+        op = self.operator
+        items = found[0] if len(found) == 1 and isinstance(found[0], list) else found
+        if op == 'IS_EMPTY':
+            return not found or all(v in ('', None) or (isinstance(v, (list, dict)) and not v) for v in found)
+        if op.startswith('COUNT_'):
+            if self.number is None:
+                return False
+            n = len(items)
+            return n >= self.number if op == 'COUNT_AT_LEAST' else n <= self.number if op == 'COUNT_AT_MOST' else n == self.number
+        if op == 'CONTAINS_ALL':
+            have = {self._fold(_as_text(v)) for v in items}
+            return bool(self.list_values) and all(self._fold(v) in have for v in self.list_values)
+        if op == 'EXISTS':
+            return bool(found)
+        if op == 'NOT_EXISTS':
+            return not found
+        if op == 'TYPE_IS':
+            checks = [_json_type(v) == self.value for v in (items if self.items else found)]
+        else:
+            checks = [self._one_holds(_as_text(v)) for v in items if v is not None]
+        mode = self.items or 'ANY'
+        if not checks:
+            if mode == 'NONE':
+                return True
+            return mode == 'ANY' and op in TRUE_WHEN_ABSENT
+        if op.startswith('NOT_'):
+            # Validation allows a negative operator only with ANY: "no item equals".
+            return not any(checks)
+        if mode == 'ALL':
+            return all(checks)
+        if mode == 'NONE':
+            return not any(checks)
+        return any(checks)
+
+    def _fold(self, text):
+        return text if self.case_sensitive else (text or '').lower()
 
     def holds_values(self, values):
         """The operator applied to already-resolved values - shared with a match's body tests."""
@@ -1348,6 +1438,8 @@ class Condition:
         """Whether ONE resolved value satisfies the positive form of this operator."""
         if self.operator in ('MATCHES', 'NOT_MATCHES'):
             return self.pattern is not None and self.pattern.search(value) is not None
+        if self.operator == 'IN':
+            return self._fold(value) in {self._fold(v) for v in self.list_values}
         if self.operator in ('AT_LEAST', 'AT_MOST'):
             if self.number is None:
                 return False
@@ -1364,6 +1456,10 @@ class Condition:
             left, right = left.lower(), right.lower()
         if self.operator in ('EQUALS', 'NOT_EQUALS'):
             return left == right
+        if self.operator == 'STARTS_WITH':
+            return left.startswith(right)
+        if self.operator == 'ENDS_WITH':
+            return left.endswith(right)
         return right in left  # CONTAINS / NOT_CONTAINS
 
     def describe(self):

@@ -29,6 +29,8 @@ import {
   isBodyRow,
 } from '../../shared/utils/match-from-call';
 import { BodyEditorComponent } from '../body-editor/body-editor.component';
+import { JsonPathInputComponent } from '../json-path-input/json-path-input.component';
+import { asText, jsonPathIndex, parseJson, valuesAt } from '../../shared/utils/json-paths';
 import { CallFinderComponent, FoundCall } from '../call-finder/call-finder.component';
 import { CopyPreload } from '../copy-from-call/copy-from-call.component';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
@@ -51,7 +53,7 @@ export interface MatchFillResult {
 @Component({
   selector: 'app-match-from-call',
   standalone: true,
-  imports: [CallFinderComponent, SelectPickerComponent, BodyEditorComponent],
+  imports: [CallFinderComponent, SelectPickerComponent, BodyEditorComponent, JsonPathInputComponent],
   templateUrl: './match-from-call.component.html',
 })
 export class MatchFromCallComponent implements OnInit {
@@ -108,6 +110,36 @@ export class MatchFromCallComponent implements OnInit {
     const i = this.pathVariantList().findIndex((v) => v.form === c.pathForm && v.value === c.pathValue);
     return i < 0 ? '' : String(i);
   });
+  /** The picked call's body, parsed - what the JSON rows' path boxes suggest from. */
+  private readonly bodyDoc = computed(() => parseJson(this.source()?.body));
+  readonly jsonPaths = computed(() => {
+    const doc = this.bodyDoc();
+    return doc === undefined || doc === null || typeof doc !== 'object' ? null : jsonPathIndex(doc);
+  });
+
+  /** The call's first value at a path - a picked path starts with it, so the row is ready to use. */
+  sampleValue(path: string): string | null {
+    const doc = this.bodyDoc();
+    if (doc === undefined || !path.trim()) return null;
+    const found = valuesAt(doc, path.trim());
+    return found.length ? asText(found[0]) : null;
+  }
+
+  valueHints(path: string): readonly string[] {
+    const doc = this.bodyDoc();
+    if (doc === undefined || !path.trim()) return [];
+    const found = valuesAt(doc, path.trim());
+    const items = found.length === 1 && Array.isArray(found[0]) ? (found[0] as unknown[]) : found;
+    return [...new Set(items.filter((v) => v === null || typeof v !== 'object').map(asText))].slice(0, 20);
+  }
+
+  /** "+ JSON field": a checked, empty JSON field row at the end - its path box suggests the rest. */
+  addJsonTest(): void {
+    this.choices.update((c) =>
+      c ? { ...c, tests: [...c.tests, { kind: 'json', name: '', operator: 'EQUALS', value: '', secret: false, on: true, ignoreFormatting: true }] } : c
+    );
+  }
+
   readonly checkedTests = computed(() => this.choices()?.tests.filter((t) => t.on).length ?? 0);
 
   ngOnInit(): void {

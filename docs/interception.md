@@ -289,6 +289,36 @@ A rule that can take three paths is only useful if the log says which one it too
 secret-masking applies as everywhere else - a condition on `authorization` records
 `(value not logged)`, never the value, because this text is echoed verbatim into every export.
 
+### JSON field conditions: several fields, list items, and the rule's own call
+
+A `REQUEST_JSON_FIELD` / `RESPONSE_JSON_FIELD` condition can say more than "this one value":
+
+| part | meaning |
+|---|---|
+| `paths` + `pathsMode` | more fields beside `name`, tested the same way - ANY (default) of them holding, or ALL |
+| `items` | over a list (a `[*]` path, or a field that *is* a list): ANY item (default), ALL items, NONE |
+| `IN`, `STARTS_WITH`, `ENDS_WITH` | is one of `values` / prefix / suffix - on any text subject, not only JSON |
+| `TYPE_IS` | text, number, boolean, null, object, list (`_json_type`, bool before int) |
+| `IS_EMPTY` | `""`, `[]`, `{}`, null, or missing |
+| `COUNT_AT_LEAST` / `_AT_MOST` / `_EQUALS` | how many items the field resolves to; missing counts 0 |
+| `CONTAINS_ALL` | every one of `values` is among the items, in any order |
+
+`RuleValidator` keeps these consistent: the JSON-only operators and `paths`/`items` only on a JSON
+subject, a negative operator or a whole-field one (counts, contains-all) never with ALL/NONE items
+(say "no item equals", not "every item does not equal"), a count a whole non-negative number,
+`TYPE_IS` one of the six types, `IN`/`CONTAINS_ALL` 1-50 values. In the proxy, `Condition._json_holds`
+runs whenever a condition uses any of this (`_json_mode`); a condition **without** `items` keeps the
+reading every rule saved before had - a list field is one value, its JSON text - so nothing already
+saved changes meaning. The editor writes `items: ANY` on every JSON condition it saves.
+
+The editor makes these easy from the rule's **sample call** - the call it was made from ("⚡+ Rule"),
+or the one its match was filled from, hydrated once: every JSON path box in the pipeline (conditions,
+Set / Remove JSON field) suggests paths from that call's request body in the request lane and its
+response body in the response lane (`shared/utils/json-paths.ts`: type, count and sample values per
+path, `[*]` before `[0]`), value boxes suggest the field's values, edits show "was … in the call",
+and "Browse request / response body…" ticks fields into one condition of tests (list → item count,
+object → exists, else equals its value) and a Set JSON field per field to change.
+
 ### Failures that are not a status code
 
 `SIMULATE_FAILURE` carries a `FailureMode`. One action with a choice rather than six actions,

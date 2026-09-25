@@ -79,14 +79,27 @@
         Tests from the request → "Only when…" ({{ checkedTests() }} checked)
         <button type="button" class="link-btn" (click)="setAllTests(true)">check all</button>
         <button type="button" class="link-btn" (click)="setAllTests(false)">check none</button>
+        @if (jsonPaths()) {
+          <button type="button" class="link-btn" (click)="addJsonTest()" title="Any field of the body - type to get suggestions">+ JSON field</button>
+        }
       </div>
       <div class="mfc-table">
-        @for (t of c.tests; track t.kind + ':' + t.name; let i = $index) {
+        @for (t of c.tests; track $index; let i = $index) {
           <div class="mfc-row mfc-test">
             <input type="checkbox" [checked]="t.on" (change)="patchTest(i, { on: $any($event.target).checked })" [attr.aria-label]="kindLabels[t.kind] + ' ' + t.name" />
             <span>{{ kindLabels[t.kind] }}</span>
             <span class="mfc-edit">
-              <code class="mfc-name">{{ t.name }}</code>
+              @if (t.kind === 'json') {
+                <app-json-path-input
+                  class="mfc-json-path"
+                  [value]="t.name"
+                  [index]="jsonPaths()"
+                  placeholder="passengers[*].type"
+                  (valueChange)="editTest(i, { name: $event, value: sampleValue($event) ?? t.value })"
+                />
+              } @else {
+                <code class="mfc-name">{{ t.name }}</code>
+              }
               @if (t.secret) {
                 <span class="cfc-secret" title="A credential - checked with a value, the value is saved in the rule in plain text (Export and Duplicate include it). Switch to 'exists' to test only that it is there.">secret</span>
               }
@@ -102,7 +115,19 @@
                 >ignore formatting</button>
               }
               @if (needsValue(t) && !isBodyTest(t)) {
-                <input type="text" [value]="t.value" (input)="editTest(i, { value: $any($event.target).value })" />
+                <input
+                  type="text"
+                  [value]="t.value"
+                  [attr.list]="t.kind === 'json' ? 'mfc-json-values-' + i : null"
+                  (input)="editTest(i, { value: $any($event.target).value })"
+                />
+                @if (t.kind === 'json') {
+                  <datalist [id]="'mfc-json-values-' + i">
+                    @for (hint of valueHints(t.name); track hint) {
+                      <option [value]="hint"></option>
+                    }
+                  </datalist>
+                }
               }
             </span>
             <span class="muted">{{ isSoapAction(t) ? 'tells SOAP operations apart' : isBodyTest(t) ? 'trim it to the part that matters' : '' }}</span>

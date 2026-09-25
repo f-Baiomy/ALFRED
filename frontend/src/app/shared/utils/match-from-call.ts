@@ -9,6 +9,7 @@ import {
   bodyTestOperatorLabel,
 } from '../../core/models/interception.model';
 import { detectAndFormatBody } from './body-format';
+import { jsonPathIndex, parseJson, valuesAt } from './json-paths';
 
 /**
  * "Fill from a call…" for a rule's Match section: turn a logged call into match fields (direction,
@@ -98,7 +99,7 @@ export function matchSourceOf(call: CallRecord, direction: 'outbound' | 'inbound
   if (body.trim()) {
     // The whole body, pretty-printed, as one "body contains" row - trimmed down by the user.
     tests.push({ kind: 'body', name: '', value: detectAndFormatBody(body).body, secret: false });
-    for (const [name, value] of topLevelFields(body)) tests.push({ kind: 'json', name, value, secret: false });
+    for (const [name, value] of jsonLeaves(body)) tests.push({ kind: 'json', name, value, secret: false });
   }
 
   return {
@@ -113,16 +114,22 @@ export function matchSourceOf(call: CallRecord, direction: 'outbound' | 'inbound
   };
 }
 
-/** A JSON object body's top-level fields as [name, text] - strings as they are, the rest as JSON. */
-function topLevelFields(body: string): [string, string][] {
-  try {
-    const doc = JSON.parse(body) as unknown;
-    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return [];
-    return Object.entries(doc as Record<string, unknown>).map(([name, value]) => [name, asText(value)]);
-  } catch {
-    return [];
-  }
+/**
+ * A JSON body's fields as [path, value] rows for "Fill from a call": every scalar leaf, lists
+ * through `[*]` (`searchCriteria[*].origin`, not the list as one JSON blob), shallow first, capped
+ * so a large response does not become a hundred rows. The first value stands for a [*] path.
+ */
+function jsonLeaves(body: string): [string, string][] {
+  const doc = parseJson(body);
+  if (doc === undefined || doc === null || typeof doc !== 'object') return [];
+  return jsonPathIndex(doc)
+    .filter((e) => !/\[\d+\]/.test(e.path) && e.type !== 'object' && e.type !== 'list')
+    .sort((a, b) => a.depth - b.depth)
+    .slice(0, MAX_JSON_ROWS)
+    .map((e) => [e.path, e.samples[0] ?? asText(valuesAt(doc, e.path)[0])]);
 }
+
+const MAX_JSON_ROWS = 40;
 
 function asText(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value);

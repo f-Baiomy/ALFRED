@@ -141,13 +141,20 @@
         <div class="cond-row" [class.body-test-row]="row.kind === 'body'">
           <span class="cond-and">{{ i === 0 ? 'if' : 'and' }}</span>
           <app-select-picker [options]="matchTestKindOptions" [value]="row.kind" (valueChange)="onMatchTestKind(i, $event)" />
-          @if (row.kind !== 'body' && row.kind !== 'size') {
+          @if (row.kind === 'json') {
+            <app-json-path-input
+              class="cond-name"
+              [value]="row.name"
+              [index]="requestPaths()"
+              placeholder="itinerary.price"
+              (valueChange)="patchMatchTest(i, { name: $event })"
+            />
+          } @else if (row.kind !== 'body' && row.kind !== 'size') {
             <input
               type="text"
               class="cond-name"
               [value]="row.name"
-              [placeholder]="row.kind === 'headers' ? 'x-test-scenario' : row.kind === 'query' ? 'mode' : row.kind === 'json' ? 'itinerary.price' : 'SESSIONID'"
-              [title]="row.kind === 'json' ? 'Dotted path - passengers[0].type, segments[*].cabin' : ''"
+              [placeholder]="row.kind === 'headers' ? 'x-test-scenario' : row.kind === 'query' ? 'mode' : 'SESSIONID'"
               (input)="patchMatchTest(i, { name: $any($event.target).value })"
             />
           }
@@ -168,10 +175,18 @@
                 type="text"
                 class="cond-value"
                 [value]="row.value ?? ''"
+                [attr.list]="row.kind === 'json' ? 'match-json-values-' + i : null"
                 [placeholder]="row.operator === 'AT_LEAST' || row.operator === 'AT_MOST' ? '100' : 'value'"
                 (input)="patchMatchTest(i, { value: $any($event.target).value })"
               />
             }
+          }
+          @if (row.kind === 'json') {
+            <datalist [id]="'match-json-values-' + i">
+              @for (hint of matchJsonValueHints(row.name); track hint) {
+                <option [value]="hint"></option>
+              }
+            </datalist>
           }
           @if (matchTestFormats(row)) {
             <button
@@ -227,7 +242,16 @@
         <div class="pipeline-lane-head">
           <span class="pipeline-step">1</span>
           Request — before it leaves Alfred
+        
+          @if (requestPaths()) {
+            <button type="button" class="pill lane-browse" [class.on]="browseOpen() === 'request'" (click)="browseOpen.set(browseOpen() === 'request' ? null : 'request')" title="The request body of the call this rule was made from - tick fields to test or change them">
+              Browse request body…
+            </button>
+          }
         </div>
+        @if (browseOpen() === 'request') {
+          <app-json-browse [doc]="requestDoc()" title="The call's request body" (picked)="onBrowsePicked('request', $event)" (closed)="browseOpen.set(null)" />
+        }
         <div
           class="lane-drop-list"
           cdkDropList
@@ -267,7 +291,16 @@
         <div class="pipeline-lane-head">
           <span class="pipeline-step">2</span>
           Response — after the host answers
+        
+          @if (responsePaths()) {
+            <button type="button" class="pill lane-browse" [class.on]="browseOpen() === 'response'" (click)="browseOpen.set(browseOpen() === 'response' ? null : 'response')" title="The response body of the call this rule was made from - tick fields to test or change them">
+              Browse response body…
+            </button>
+          }
         </div>
+        @if (browseOpen() === 'response') {
+          <app-json-browse [doc]="responseDoc()" title="The call's response body" (picked)="onBrowsePicked('response', $event)" (closed)="browseOpen.set(null)" />
+        }
         <div
           class="lane-drop-list"
           cdkDropList

@@ -9318,3 +9318,227 @@ app-header-editor {
     box-shadow: 0 0 0 0 transparent;
   }
 }
+
+/* Smart JSON path box (JsonPathInputComponent), a condition's extra fields and value chips, and
+   "Browse request / response body…" (JsonBrowseComponent). */
+.json-path-input {
+  position: relative;
+  display: inline-flex;
+  flex: 1 1 12rem;
+  min-width: 10rem;
+
+  .jpi-box {
+    width: 100%;
+    font-family: var(--mono, ui-monospace, monospace);
+  }
+}
+
+.jpi-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  width: max-content;
+  max-width: 34rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card, #1b1b24);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.jpi-item {
+  display: grid;
+  grid-template-columns: minmax(10rem, auto) auto minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.25rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  cursor: pointer;
+
+  code {
+    font-size: 0.7rem;
+  }
+
+  &.on {
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
+  }
+}
+
+.jpi-type {
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--text-faint);
+  font-size: 0.6rem;
+  white-space: nowrap;
+}
+
+.jpi-samples {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+
+.cond-extra-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: 1 1 10rem;
+}
+
+.cond-more {
+  padding: 0.1rem 0.45rem;
+  font-size: 0.66rem;
+}
+
+.cond-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1 1 12rem;
+  min-height: 2rem;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.cond-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0 0.1rem 0 0.4rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--purple) 20%, transparent);
+  font-size: 0.68rem;
+  font-family: var(--mono, ui-monospace, monospace);
+
+  button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+
+.cond-chip-input {
+  flex: 1;
+  min-width: 5rem;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.json-current {
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.pipeline-lane-head .lane-browse {
+  margin-left: auto;
+  font-size: 0.66rem;
+}
+
+.json-browse {
+  margin: 0.4rem 0 0.6rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--purple) 45%, transparent);
+  border-radius: 10px;
+  background: var(--card-inner, var(--bg-2));
+}
+
+.jb-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+  font-size: 0.74rem;
+}
+
+.jb-spacer {
+  flex: 1;
+}
+
+.jb-tree {
+  max-height: 20rem;
+  overflow-y: auto;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+}
+
+.jb-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 1.6rem;
+  border-radius: 5px;
+
+  &.on {
+    background: color-mix(in srgb, var(--purple) 12%, transparent);
+  }
+}
+
+.jb-fold {
+  width: 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.7rem;
+}
+
+.jb-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.jb-key {
+  color: var(--tok-key, var(--purple-light));
+}
+
+.jb-value {
+  overflow: hidden;
+  max-width: 28rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+
+.jb-text {
+  color: var(--tok-string, var(--green));
+}
+
+.jb-number {
+  color: var(--tok-number, var(--amber, #e0a33a));
+}
+
+.jb-boolean,
+.jb-null {
+  color: var(--tok-bool, var(--purple-light));
+}
+
+.jb-as {
+  display: inline-flex;
+  gap: 0.2rem;
+  margin-left: 0.5rem;
+
+  .pill {
+    padding: 0 0.4rem;
+    font-size: 0.62rem;
+  }
+}
+
+.mfc-json-path {
+  flex: 1 1 14rem;
+  min-width: 10rem;
+}

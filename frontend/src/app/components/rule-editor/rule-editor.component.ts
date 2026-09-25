@@ -1,5 +1,5 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, DragDropRegistry } from '@angular/cdk/drag-drop';
-import { Component, DestroyRef, ElementRef, EventEmitter, HostListener, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, EventEmitter, HostListener, Input, OnInit, Output, computed, effect, inject, signal, untracked } from '@angular/core';
 import {
   ACTION_LABELS,
   ActionPhase,
@@ -9,6 +9,10 @@ import {
   ConditionOperator,
   ConditionSubject,
   OPERATORS_WITHOUT_VALUE,
+  JSON_ONLY_OPERATORS,
+  JSON_TYPES,
+  LIST_VALUE_OPERATORS,
+  WHOLE_FIELD_OPERATORS,
   OPERATOR_LABELS,
   RESPONSE_SUBJECTS,
   SUBJECTS_NEEDING_NAME,
@@ -51,6 +55,12 @@ import { HeaderRow } from '../../shared/utils/header-rows';
 import { AnswerPreselect } from '../answer-picker/answer-picker.component';
 import { CopyPreload } from '../copy-from-call/copy-from-call.component';
 import { sourceCallOf } from '../../core/services/rule-dialog.service';
+import { CallRefDetailService } from '../../core/services/call-ref-detail.service';
+import { CallRecord } from '../../core/models/call.model';
+import { CallRef } from '../../core/models/call-ref.model';
+import { PathEntry, asText, describeCurrent, jsonPathIndex, parseJson, valuesAt } from '../../shared/utils/json-paths';
+import { BrowsePick, JsonBrowseComponent } from '../json-browse/json-browse.component';
+import { JsonPathInputComponent } from '../json-path-input/json-path-input.component';
 import { MatchFillResult, MatchFromCallComponent } from '../match-from-call/match-from-call.component';
 import { ActionAdderComponent } from '../action-adder/action-adder.component';
 import { BodyEditorComponent } from '../body-editor/body-editor.component';
@@ -377,6 +387,8 @@ const BODY_ROW_DEFAULT_OPERATOR: Readonly<Record<'body' | 'json' | 'size', Condi
     HelpPopoverComponent,
     MatchFromCallComponent,
     ActionAdderComponent,
+    JsonBrowseComponent,
+    JsonPathInputComponent,
     BodyEditorComponent,
     CdkDropList,
     CdkDrag,
@@ -1073,20 +1085,246 @@ export class RuleEditorComponent implements OnInit {
 
   onSubjectChange(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
     const subject = value as ConditionSubject;
+    const json = subject === 'REQUEST_JSON_FIELD' || subject === 'RESPONSE_JSON_FIELD';
+    const current = this.conditionAt(path, branchIndex, conditionIndex);
     // A subject that identifies nothing by name keeps no stale name: a leftover header name on a
-    // METHOD condition would be saved, ignored, and look like it was doing something.
+    // METHOD condition would be saved, ignored, and look like it was doing something. JSON-only
+    // parts (other fields, the item mode, a JSON-only operator) go the same way off a JSON field.
     this.patchCondition(path, branchIndex, conditionIndex, {
       subject,
       name: SUBJECTS_NEEDING_NAME.has(subject) ? undefined : null,
+      items: json ? current?.items ?? 'ANY' : null,
+      ...(json ? {} : { paths: null, pathsMode: null }),
+      ...(!json && current && JSON_ONLY_OPERATORS.has(current.operator) ? { operator: 'EQUALS' as ConditionOperator, value: '' } : {}),
     });
   }
 
   onOperatorChange(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
     const operator = value as ConditionOperator;
+    const condition = this.conditionsOf(actionAt(this.actions(), path)!, branchIndex)[conditionIndex];
     this.patchCondition(path, branchIndex, conditionIndex, {
       operator,
-      value: OPERATORS_WITHOUT_VALUE.has(operator) ? null : undefined,
+      value: OPERATORS_WITHOUT_VALUE.has(operator) ? null : operator === 'TYPE_IS' ? (JSON_TYPES.includes(condition?.value as never) ? condition?.value : 'text') : undefined,
+      values: LIST_VALUE_OPERATORS.has(operator) ? condition?.values ?? [] : null,
+      // An item mode means nothing for a whole-field test; the backend refuses the pair.
+      ...(WHOLE_FIELD_OPERATORS.has(operator) || operator.startsWith('NOT_') || operator === 'EXISTS' || operator === 'NOT_EXISTS'
+        ? { items: this.isJsonCondition(condition) ? 'ANY' : null }
+        : {}),
     });
+  }
+
+  // ---- JSON field conditions: several fields, item modes, list values (see Condition in the model) ----
+
+  isJsonCondition(condition: Condition | undefined): boolean {
+    return !!condition && (condition.subject === 'REQUEST_JSON_FIELD' || condition.subject === 'RESPONSE_JSON_FIELD');
+  }
+
+  /** The operators this condition may use - JSON-only ones only on a JSON field, and none an item mode would contradict. */
+  conditionOperatorOptions(condition: Condition): readonly SelectOption[] {
+    const json = this.isJsonCondition(condition);
+    const moded = json && (condition.items === 'ALL' || condition.items === 'NONE');
+    return OPERATOR_OPTIONS.filter((o) => {
+      const op = o.value as ConditionOperator;
+      if (!json && JSON_ONLY_OPERATORS.has(op)) return false;
+      if (moded && (op.startsWith('NOT_') || WHOLE_FIELD_OPERATORS.has(op) || op === 'EXISTS' || op === 'NOT_EXISTS')) return false;
+      return true;
+    });
+  }
+
+  readonly itemOptions: readonly SelectOption[] = [
+    { value: 'ANY', label: 'any item' },
+    { value: 'ALL', label: 'every item' },
+    { value: 'NONE', label: 'no item' },
+  ];
+
+  readonly pathsModeOptions: readonly SelectOption[] = [
+    { value: 'ANY', label: 'any of' },
+    { value: 'ALL', label: 'all of' },
+  ];
+
+  readonly typeOptions: readonly SelectOption[] = JSON_TYPES.map((t) => ({ value: t, label: t }));
+
+  /** An item mode only reads as something when an operator compares items one by one. */
+  showsItemMode(condition: Condition): boolean {
+    return this.isJsonCondition(condition) && !WHOLE_FIELD_OPERATORS.has(condition.operator) && condition.operator !== 'IS_EMPTY';
+  }
+
+  onItemsChange(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
+    this.patchCondition(path, branchIndex, conditionIndex, { items: value as 'ANY' | 'ALL' | 'NONE' });
+  }
+
+  onPathsMode(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
+    this.patchCondition(path, branchIndex, conditionIndex, { pathsMode: value as 'ANY' | 'ALL' });
+  }
+
+  setConditionName(path: readonly number[], branchIndex: number, conditionIndex: number, name: string): void {
+    this.patchCondition(path, branchIndex, conditionIndex, { name });
+  }
+
+  addConditionPath(path: readonly number[], branchIndex: number, conditionIndex: number): void {
+    const c = this.conditionAt(path, branchIndex, conditionIndex);
+    this.patchCondition(path, branchIndex, conditionIndex, { paths: [...(c?.paths ?? []), ''], pathsMode: c?.pathsMode ?? 'ANY' });
+  }
+
+  setConditionPath(path: readonly number[], branchIndex: number, conditionIndex: number, index: number, value: string): void {
+    const c = this.conditionAt(path, branchIndex, conditionIndex);
+    this.patchCondition(path, branchIndex, conditionIndex, { paths: (c?.paths ?? []).map((p, i) => (i === index ? value : p)) });
+  }
+
+  removeConditionPath(path: readonly number[], branchIndex: number, conditionIndex: number, index: number): void {
+    const c = this.conditionAt(path, branchIndex, conditionIndex);
+    const paths = (c?.paths ?? []).filter((_, i) => i !== index);
+    this.patchCondition(path, branchIndex, conditionIndex, { paths, pathsMode: paths.length ? c?.pathsMode ?? 'ANY' : null });
+  }
+
+  /** A chip for IN / CONTAINS_ALL: Enter or comma adds what is typed, empty Backspace takes the last one off. */
+  onValueChipKey(path: readonly number[], branchIndex: number, conditionIndex: number, event: KeyboardEvent): void {
+    const box = event.target as HTMLInputElement;
+    const c = this.conditionAt(path, branchIndex, conditionIndex);
+    const values = c?.values ?? [];
+    if ((event.key === 'Enter' || event.key === ',') && box.value.trim()) {
+      event.preventDefault();
+      const added = box.value.split(',').map((v) => v.trim()).filter((v) => v && !values.includes(v));
+      this.patchCondition(path, branchIndex, conditionIndex, { values: [...values, ...added] });
+      box.value = '';
+    } else if (event.key === 'Backspace' && !box.value && values.length) {
+      this.patchCondition(path, branchIndex, conditionIndex, { values: values.slice(0, -1) });
+    }
+  }
+
+  removeValueChip(path: readonly number[], branchIndex: number, conditionIndex: number, index: number): void {
+    const c = this.conditionAt(path, branchIndex, conditionIndex);
+    this.patchCondition(path, branchIndex, conditionIndex, { values: (c?.values ?? []).filter((_, i) => i !== index) });
+  }
+
+  private conditionAt(path: readonly number[], branchIndex: number, conditionIndex: number): Condition | undefined {
+    const action = actionAt(this.actions(), path);
+    return action ? this.conditionsOf(action, branchIndex)[conditionIndex] : undefined;
+  }
+
+  // ---- the rule's sample call: what every smart JSON path box suggests from ----
+
+  private readonly refDetail = inject(CallRefDetailService);
+  /** The call the rule was made from, or the one its match was filled from - hydrated, both bodies. */
+  readonly sampleCall = signal<CallRecord | null>(null);
+  private sampleKey = '';
+
+  private readonly loadSample = effect(() => {
+    const source = this.sourceCall();
+    const filled = this.matchFilled();
+    const from = this.fromCall;
+    const ref: CallRef | null = from
+      ? from.ref
+      : source
+        ? { source: source.direction === 'inbound' ? 'internal' : 'external', callId: source.callId, cycleId: source.cycleId ?? null }
+        : null;
+    const summary = from?.call ?? ({ id: source?.callId ?? '', url: '', original_url: '', method: '' } as unknown as CallRecord);
+    if (!ref) {
+      if (filled && !this.sampleCall()) this.sampleFromMatchSource(filled.source);
+      return;
+    }
+    const key = `${ref.source}:${ref.cycleId}:${ref.callId}`;
+    if (key === this.sampleKey) return;
+    this.sampleKey = key;
+    untracked(() =>
+      this.refDetail.hydrate(ref, summary).subscribe({
+        next: (call) => this.sampleCall.set(call),
+        error: () => this.sampleCall.set(null),
+      })
+    );
+  });
+
+  /** A match filled from a call knows its request body only - enough for the request lane. */
+  private sampleFromMatchSource(source: MatchSource): void {
+    untracked(() => this.sampleCall.set({ id: '', url: '', method: source.method, request: { body: source.body } } as unknown as CallRecord));
+  }
+
+  readonly requestDoc = computed(() => parseJson(this.sampleCall()?.request?.body));
+  readonly responseDoc = computed(() => parseJson(this.sampleCall()?.response?.body));
+  readonly requestPaths = computed(() => (this.requestDoc() === undefined ? null : jsonPathIndex(this.requestDoc())));
+  readonly responsePaths = computed(() => (this.responseDoc() === undefined ? null : jsonPathIndex(this.responseDoc())));
+
+  /** Suggestions for a condition's field box - the body its subject reads. */
+  conditionPaths(condition: Condition): readonly PathEntry[] | null {
+    return condition.subject === 'RESPONSE_JSON_FIELD' ? this.responsePaths() : condition.subject === 'REQUEST_JSON_FIELD' ? this.requestPaths() : null;
+  }
+
+  /** The sample call's values at a Match JSON field test's path - offered for its value box. */
+  matchJsonValueHints(path: string): readonly string[] {
+    const doc = this.requestDoc();
+    if (doc === undefined || !path.trim()) return [];
+    const values = valuesAt(doc, path.trim());
+    const items = values.length === 1 && Array.isArray(values[0]) ? (values[0] as unknown[]) : values;
+    return [...new Set(items.filter((v) => v === null || typeof v !== 'object').map(asText))].slice(0, 20);
+  }
+
+  /** Suggestions for a Set / Remove JSON field action's path box. */
+  actionPaths(type: ActionType): readonly PathEntry[] | null {
+    return actionPhase(type) === 'response' ? this.responsePaths() : this.requestPaths();
+  }
+
+  /** The values the sample call has at a condition's field - offered for its value box. */
+  conditionValueHints(condition: Condition): readonly string[] {
+    const doc = condition.subject === 'RESPONSE_JSON_FIELD' ? this.responseDoc() : this.requestDoc();
+    if (doc === undefined || !condition.name) return [];
+    const values = valuesAt(doc, condition.name);
+    const items = values.length === 1 && Array.isArray(values[0]) ? (values[0] as unknown[]) : values;
+    return [...new Set(items.filter((v) => v === null || typeof v !== 'object').map(asText))].slice(0, 20);
+  }
+
+  /** "was "EUR" in the call" beside a Set / Remove JSON field action. */
+  currentValueHint(action: RuleAction): string | null {
+    const doc = actionPhase(action.type) === 'response' ? this.responseDoc() : this.requestDoc();
+    if (doc === undefined || !action.path?.trim()) return null;
+    return describeCurrent(valuesAt(doc, action.path.trim()));
+  }
+
+  setActionPath(path: readonly number[], value: string): void {
+    this.patchAt(path, { path: value });
+  }
+
+  // ---- "Browse request / response body…" ----
+
+  readonly browseOpen = signal<'request' | 'response' | null>(null);
+
+  /**
+   * Ticked fields become, in that lane: one condition testing every "test it" field (all must
+   * hold, each against its value in the call), and a Set JSON field per "change it" field,
+   * starting from its current value.
+   */
+  onBrowsePicked(phase: 'request' | 'response', picks: readonly BrowsePick[]): void {
+    const tests = picks.filter((p) => p.as === 'test');
+    const changes = picks.filter((p) => p.as === 'change');
+    const subject: ConditionSubject = phase === 'request' ? 'REQUEST_JSON_FIELD' : 'RESPONSE_JSON_FIELD';
+    const added: RuleAction[] = [];
+    if (tests.length) {
+      added.push({
+        type: phase === 'request' ? 'IF_REQUEST' : 'IF_RESPONSE',
+        branches: [
+          {
+            combine: 'ALL',
+            conditions: tests.map((p): Condition => {
+              if (p.type === 'list') return { subject, name: p.path, operator: 'COUNT_EQUALS', value: String((JSON.parse(p.value) as unknown[]).length), items: 'ANY' };
+              if (p.type === 'object') return { subject, name: p.path, operator: 'EXISTS', items: 'ANY' };
+              return { subject, name: p.path, operator: 'EQUALS', value: p.value, items: 'ANY' };
+            }),
+            actions: [],
+          },
+        ],
+        otherwise: [],
+      });
+    }
+    for (const p of changes) {
+      let value: unknown = p.value;
+      try {
+        value = p.type === 'text' ? p.value : JSON.parse(p.value);
+      } catch {
+        value = p.value;
+      }
+      added.push({ type: phase === 'request' ? 'SET_REQUEST_JSON_FIELD' : 'SET_RESPONSE_JSON_FIELD', path: p.path, value });
+    }
+    this.actions.update((actions) => [...actions, ...added]);
+    this.browseOpen.set(null);
   }
 
   onConditionText(

@@ -60,7 +60,35 @@
               [summary]="editor.describeCondition(condition)"
               label="What does this condition check?"
             />
-            @if (editor.needsConditionName(condition)) {
+            @if (editor.isJsonCondition(condition)) {
+              <!-- A JSON field: the smart path box (suggests from the rule's call), more fields if
+                   wanted, and how a list's items are read. -->
+              @if ((condition.paths ?? []).length) {
+                <app-select-picker [options]="editor.pathsModeOptions" [value]="condition.pathsMode ?? 'ANY'" (valueChange)="editor.onPathsMode(step.path, bi, ci, $event)" />
+              }
+              <app-json-path-input
+                class="cond-name"
+                [value]="condition.name ?? ''"
+                [index]="editor.conditionPaths(condition)"
+                [placeholder]="editor.conditionNamePlaceholder(condition)"
+                (valueChange)="editor.setConditionName(step.path, bi, ci, $event)"
+              />
+              @for (extra of condition.paths ?? []; track $index; let pi = $index) {
+                <span class="cond-extra-path">
+                  <app-json-path-input
+                    [value]="extra"
+                    [index]="editor.conditionPaths(condition)"
+                    placeholder="another.field"
+                    (valueChange)="editor.setConditionPath(step.path, bi, ci, pi, $event)"
+                  />
+                  <button type="button" class="icon-btn" title="Remove this field" (click)="editor.removeConditionPath(step.path, bi, ci, pi)">×</button>
+                </span>
+              }
+              <button type="button" class="pill add cond-more" title="Test another field the same way - any of them, or all" (click)="editor.addConditionPath(step.path, bi, ci)">+ field</button>
+              @if (editor.showsItemMode(condition)) {
+                <app-select-picker [options]="editor.itemOptions" [value]="condition.items ?? 'ANY'" (valueChange)="editor.onItemsChange(step.path, bi, ci, $event)" />
+              }
+            } @else if (editor.needsConditionName(condition)) {
               <input
                 type="text"
                 class="cond-name"
@@ -70,18 +98,43 @@
               />
             }
             <app-select-picker
-              [options]="editor.operatorOptions"
+              [options]="editor.conditionOperatorOptions(condition)"
               [value]="condition.operator"
               (valueChange)="editor.onOperatorChange(step.path, bi, ci, $event)"
             />
-            @if (editor.needsConditionValue(condition)) {
+            @if (condition.operator === 'IN' || condition.operator === 'CONTAINS_ALL') {
+              <span class="cond-chips">
+                @for (v of condition.values ?? []; track $index; let vi = $index) {
+                  <span class="cond-chip">{{ v }}<button type="button" (click)="editor.removeValueChip(step.path, bi, ci, vi)" aria-label="Remove">×</button></span>
+                }
+                <input
+                  type="text"
+                  class="cond-chip-input"
+                  [attr.list]="'cond-values-' + step.path.join('-') + '-' + bi + '-' + ci"
+                  placeholder="value, Enter"
+                  (keydown)="editor.onValueChipKey(step.path, bi, ci, $event)"
+                />
+              </span>
+            } @else if (condition.operator === 'TYPE_IS') {
+              <app-select-picker [options]="editor.typeOptions" [value]="condition.value ?? 'text'" (valueChange)="editor.patchCondition(step.path, bi, ci, { value: $event })" />
+            } @else if (editor.needsConditionValue(condition)) {
               <input
                 type="text"
                 class="cond-value"
                 [value]="condition.value ?? ''"
-                placeholder="value"
+                [attr.list]="'cond-values-' + step.path.join('-') + '-' + bi + '-' + ci"
+                [placeholder]="condition.operator.startsWith('COUNT_') ? 'items' : 'value'"
                 (input)="editor.onConditionText(step.path, bi, ci, 'value', $event)"
               />
+            }
+            @if (editor.isJsonCondition(condition)) {
+              <datalist [id]="'cond-values-' + step.path.join('-') + '-' + bi + '-' + ci">
+                @for (hint of editor.conditionValueHints(condition); track hint) {
+                  <option [value]="hint"></option>
+                }
+              </datalist>
+            }
+            @if (editor.needsConditionValue(condition) && condition.operator !== 'TYPE_IS' && !condition.operator.startsWith('COUNT_')) {
               <label class="cond-case" title="Compare the value exactly as typed">
                 <input type="checkbox" [checked]="condition.caseSensitive === true" (change)="editor.onCaseSensitive(step.path, bi, ci, $event)" />
                 Aa
@@ -273,12 +326,20 @@
         @if (editor.isJsonField(step.action.type)) {
           <label class="inline-field grow">
             <span>Field path</span>
-            <input type="text" [value]="step.action.path" (input)="editor.onText(step.path, 'path', $event)" placeholder="itinerary.seatsRemaining" />
+            <app-json-path-input
+              [value]="step.action.path ?? ''"
+              [index]="editor.actionPaths(step.action.type)"
+              placeholder="itinerary.seatsRemaining"
+              (valueChange)="editor.setActionPath(step.path, $event)"
+            />
           </label>
           <label class="inline-field">
             <span>Set to</span>
             <input type="text" [value]="editor.valueText(step.action)" (input)="editor.onValue(step.path, $event, true)" placeholder="0" />
           </label>
+          @if (editor.currentValueHint(step.action); as hint) {
+            <small class="muted span-all json-current">{{ hint }} in the call</small>
+          }
           <small class="muted span-all">
             Dotted path. <code>segments[0].cabin</code> and <code>segments[*].cabin</code> both work.
             A value is read as JSON where it can be, so <code>5</code> is a number and <code>EUR</code> is text.
@@ -288,8 +349,16 @@
         @if (editor.isJsonPathOnly(step.action.type)) {
           <label class="inline-field grow">
             <span>Field path</span>
-            <input type="text" [value]="step.action.path" (input)="editor.onText(step.path, 'path', $event)" placeholder="segments[*].cabin" />
+            <app-json-path-input
+              [value]="step.action.path ?? ''"
+              [index]="editor.actionPaths(step.action.type)"
+              placeholder="segments[*].cabin"
+              (valueChange)="editor.setActionPath(step.path, $event)"
+            />
           </label>
+          @if (editor.currentValueHint(step.action); as hint) {
+            <small class="muted span-all json-current">{{ hint }} in the call</small>
+          }
           <small class="muted span-all">
             The key is removed, not set to null. <code>segments[*].cabin</code> removes it from every segment;
             <code>items[1]</code> removes the second element.

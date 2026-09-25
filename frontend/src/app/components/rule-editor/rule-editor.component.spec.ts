@@ -293,11 +293,49 @@ describe('RuleEditorComponent', () => {
       sourceCall: { direction: 'inbound', callId: 'in-1', cycleId: 'cy1', label: 'GET localhost/x', serviceName: 'odeysys' },
     } as never);
     expect(component.sourceCall()?.callId).toBe('in-1');
+    // Its call is the sample the JSON path boxes suggest from.
+    fixture.detectChanges();
+    http.expectOne(`${BACKEND}/session-cycles/cy1/internal-calls/in-1/detail`).flush({
+      request: { body: '{"passengers":[{"type":"ADT"},{"type":"CHD"}]}' },
+      response: { status: 200, body: '{"offers":[{"price":10}]}' },
+    });
+    expect(component.requestPaths()?.map((e) => e.path)).toContain('passengers[*].type');
+    expect(component.responsePaths()?.map((e) => e.path)).toContain('offers[*].price');
     component.save();
     const saved = http.expectOne((r) => r.url.startsWith(`${BACKEND}/interception/rules`) && r.method !== 'GET');
     expect(saved.request.body.sourceCall).toEqual({ direction: 'inbound', callId: 'in-1', cycleId: 'cy1', label: 'GET localhost/x', serviceName: 'odeysys' });
     saved.flush({});
     http.match(`${BACKEND}/interception/rules`).forEach((r) => r.flush([]));
+  });
+
+  it('turns browsed fields into one condition of tests and a Set JSON field per change', () => {
+    open(null);
+    component.actions.set([]);
+    component.onBrowsePicked('response', [
+      { path: 'status', value: 'OK', as: 'test', type: 'text' },
+      { path: 'offers', value: '[1,2]', as: 'test', type: 'list' },
+      { path: 'offers[*].price', value: '10', as: 'change', type: 'number' },
+    ]);
+    const [cond, set] = component.actions();
+    expect(cond.type).toBe('IF_RESPONSE');
+    expect(cond.branches![0].conditions).toEqual([
+      { subject: 'RESPONSE_JSON_FIELD', name: 'status', operator: 'EQUALS', value: 'OK', items: 'ANY' },
+      { subject: 'RESPONSE_JSON_FIELD', name: 'offers', operator: 'COUNT_EQUALS', value: '2', items: 'ANY' },
+    ]);
+    expect(set).toEqual({ type: 'SET_RESPONSE_JSON_FIELD', path: 'offers[*].price', value: 10 });
+    expect(component.browseOpen()).toBeNull();
+  });
+
+  it('offers JSON-only operators on JSON fields only, and none an item mode contradicts', () => {
+    open(null);
+    const ops = (c: object) => component.conditionOperatorOptions(c as never).map((o) => o.value);
+    expect(ops({ subject: 'REQUEST_HEADER', operator: 'EQUALS' })).not.toContain('COUNT_EQUALS');
+    expect(ops({ subject: 'REQUEST_HEADER', operator: 'EQUALS' })).toContain('STARTS_WITH');
+    expect(ops({ subject: 'REQUEST_JSON_FIELD', operator: 'EQUALS', items: 'ANY' })).toContain('CONTAINS_ALL');
+    const every = ops({ subject: 'REQUEST_JSON_FIELD', operator: 'EQUALS', items: 'ALL' });
+    expect(every).toContain('IN');
+    expect(every).not.toContain('NOT_EQUALS');
+    expect(every).not.toContain('COUNT_AT_LEAST');
   });
 
   it('parks the form for a match pick elsewhere, and reopens the fill panel', () => {

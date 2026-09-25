@@ -340,6 +340,51 @@ class RuleValidatorTest {
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(), action))).isEmpty();
     }
 
+    private static List<String> conditionProblems(ActionType type, Condition condition) {
+        return RuleValidator.validate(rule(RuleMatch.empty(),
+                conditional(type, List.of(branch(condition, setHeader("X-A"))), null)));
+    }
+
+    private static Condition json(ConditionOperator operator, String value, List<String> paths, String pathsMode, String items, List<String> values) {
+        return new Condition(ConditionSubject.REQUEST_JSON_FIELD, "passengers[*].type", operator, value, null, paths, pathsMode, items, values);
+    }
+
+    @Test
+    void jsonFieldConditionsTakeSeveralFieldsItemModesAndListValues() {
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.EQUALS, "ADT", List.of("infants[*].type"), "ALL", "ALL", null))).isEmpty();
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.IN, null, null, null, "NONE", List.of("INF", "CHD")))).isEmpty();
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.CONTAINS_ALL, null, null, null, "ANY", List.of("ADT", "CHD")))).isEmpty();
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.COUNT_AT_LEAST, "2", null, null, "ANY", null))).isEmpty();
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.TYPE_IS, "list", null, null, null, null))).isEmpty();
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.STARTS_WITH, "AD", null, null, "ALL", null))).isEmpty();
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.IS_EMPTY, null, null, null, null, null))).isEmpty();
+    }
+
+    @Test
+    void jsonFieldConditionExtrasAreChecked() {
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.IN, null, null, null, null, List.of())))
+                .anyMatch(p -> p.contains("IN needs at least one value"));
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.TYPE_IS, "string", null, null, null, null)))
+                .anyMatch(p -> p.contains("not a JSON type"));
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.COUNT_EQUALS, "two", null, null, null, null)))
+                .anyMatch(p -> p.contains("whole number"));
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.NOT_EQUALS, "ADT", null, null, "ALL", null)))
+                .anyMatch(p -> p.contains("use the positive comparison with NONE"));
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.COUNT_AT_MOST, "3", null, null, "ALL", null)))
+                .anyMatch(p -> p.contains("about the field as a whole"));
+        assertThat(conditionProblems(ActionType.IF_REQUEST, json(ConditionOperator.EQUALS, "x", List.of("bad["), "SOME", "MAYBE", null)))
+                .anyMatch(p -> p.contains("not a valid field path"))
+                .anyMatch(p -> p.contains("ANY or ALL"))
+                .anyMatch(p -> p.contains("ANY, ALL or NONE"));
+        Condition onHeader = new Condition(ConditionSubject.REQUEST_HEADER, "X-A", ConditionOperator.COUNT_AT_LEAST, "1", null, List.of("y"), null, "ALL", null);
+        assertThat(conditionProblems(ActionType.IF_REQUEST, onHeader))
+                .anyMatch(p -> p.contains("only works on a JSON field"))
+                .anyMatch(p -> p.contains("test several fields"))
+                .anyMatch(p -> p.contains("items of a list"));
+        // Starts/ends with and is-one-of are plain text tests - fine on any subject.
+        assertThat(conditionProblems(ActionType.IF_REQUEST, new Condition(ConditionSubject.URL, null, ConditionOperator.IN, null, null, null, null, null, List.of("a", "b")))).isEmpty();
+    }
+
     @Test
     void rejectsAConditionalWithNoBranches() {
         assertThat(RuleValidator.validate(rule(RuleMatch.empty(),

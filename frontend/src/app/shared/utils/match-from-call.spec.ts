@@ -164,10 +164,12 @@ describe('match-from-call', () => {
       expect(body.operator).toBe('CONTAINS');
       expect(body.on).toBeFalse();
       expect(body.value).toContain('\n  "origin": "LHR"');
+      // Every leaf, lists through [*] - not a list as one JSON blob.
       expect(choices.tests.filter((t) => t.kind === 'json').map((t) => `${t.name}=${t.value}`)).toEqual([
         'origin=LHR',
         'city=New York',
-        'passengers=[{"type":"CHD","count":1}]',
+        'passengers[*].type=CHD',
+        'passengers[*].count=1',
       ]);
       const fill = buildMatchFill(src, { ...choices, tests: choices.tests.map((t) => (t.kind === 'body' ? { ...t, on: true } : t)) });
       expect(fill.tests).toEqual([{ kind: 'body', name: '', operator: 'CONTAINS', value: body.value, ignoreFormatting: true }]);
