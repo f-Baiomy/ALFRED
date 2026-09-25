@@ -1,5 +1,16 @@
 <div class="call-actions">
   <app-pick-call [call]="call()" />
+  <!-- Resent often enough, and from far more places, to earn a button of its own rather than a
+       menu item nobody opens: every card gets one through CallActionsComponent, so a new list built
+       from `app-call-card` needs nothing extra (same deal as PickCallButtonComponent). Still listed
+       under Export too, for anyone already reaching for it there. -->
+  <button
+    type="button"
+    class="action-btn"
+    title="Resend this call through Alfred - edit it first, or send it exactly as it was logged"
+    [disabled]="resendLoading()"
+    (click)="openResend()"
+  >{{ resendLoading() ? 'Loading…' : 'Resend…' }}</button>
   <button
     type="button"
     class="action-btn pin-btn"
