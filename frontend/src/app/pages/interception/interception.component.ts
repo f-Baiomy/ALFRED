@@ -1,3 +1,4 @@
+import { RuleDialogService } from '../../core/services/rule-dialog.service';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { directionOf } from '../../core/models/call-ref.model';
 import { CallPickerService } from '../../core/services/call-picker.service';
@@ -5,7 +6,7 @@ import { AnswerPreselect } from '../../components/answer-picker/answer-picker.co
 import { CopyPreload } from '../../components/copy-from-call/copy-from-call.component';
 import { EditorSnapshot, RULE_ANSWER_REQUESTER } from '../../components/rule-editor/rule-editor.component';
 import { InterceptionRule, isActionEnabled, isTerminalAction } from '../../core/models/interception.model';
-import { RuleMatch, describeAction, describeMatch } from '../../core/models/interception.model';
+import { RuleMatch, SourceCallRef, describeAction, describeMatch } from '../../core/models/interception.model';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { DesktopNotificationsService } from '../../core/services/desktop-notifications.service';
 import { CallRuleDraft, RuleDraftService } from '../../core/services/rule-draft.service';
@@ -73,6 +74,17 @@ export class InterceptionComponent {
       });
     });
   }
+
+  /**
+   * "Made from…" in this tab's editor: the popup rule dialog takes the unsaved form over (it lives
+   * in main-layout, so it survives leaving this page), and this editor closes.
+   */
+  goToCall(event: { source: SourceCallRef; snapshot: EditorSnapshot }, rule: InterceptionRule | null): void {
+    this.ruleDialog.goToCall(event.source, event.snapshot, rule);
+    this.closeEditor();
+  }
+
+  private readonly ruleDialog = inject(RuleDialogService);
 
   describeMatch(match: RuleMatch): string {
     return describeMatch(match, this.state.sensitiveNames());

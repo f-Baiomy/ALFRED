@@ -81,6 +81,9 @@ public final class RuleValidator {
                 answerKinds == null ? id -> Optional.empty() : answerKinds);
         List<String> problems = new ArrayList<>();
 
+        if (rule.sourceCall() != null) {
+            problems.addAll(rule.sourceCall().problems());
+        }
         if (rule.name() == null || rule.name().isBlank()) {
             problems.add("A rule needs a name.");
         } else if (rule.name().length() > 120) {

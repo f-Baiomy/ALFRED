@@ -9239,3 +9239,82 @@ app-header-editor {
   border-color: var(--purple);
   color: var(--purple-light);
 }
+
+/* "⚡+ Rule" on a call card, the rule's "Made from…" link back, and the bar that stands in for a
+   parked rule while its call is looked at (RuleDialogComponent). */
+.rule-from-call-btn {
+  white-space: nowrap;
+}
+
+.rule-source-call {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: calc(100% - 2.5rem);
+  margin: 0 1.25rem 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--purple) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--purple) 12%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  text-align: left;
+  cursor: pointer;
+
+  b {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    border-color: var(--purple);
+  }
+}
+
+.rsc-kicker {
+  color: var(--purple-light);
+  white-space: nowrap;
+}
+
+.rsc-go {
+  margin-left: auto;
+  color: var(--purple-light);
+  white-space: nowrap;
+}
+
+.rule-return-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 1.2rem;
+  z-index: 1200;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: calc(100vw - 2rem);
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--amber, #e0a33a);
+  border-radius: 10px;
+  background: var(--card, #1b1b24);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  font-size: 0.76rem;
+}
+
+.call-focus-flash {
+  display: block;
+  border-radius: 10px;
+  animation: call-focus-flash 2.4s ease-out;
+}
+
+@keyframes call-focus-flash {
+  0%,
+  30% {
+    box-shadow: 0 0 0 2px var(--purple), 0 0 18px color-mix(in srgb, var(--purple) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}

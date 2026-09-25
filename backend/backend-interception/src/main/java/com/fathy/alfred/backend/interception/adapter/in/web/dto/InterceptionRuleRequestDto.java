@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.interception.adapter.in.web.dto;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleAction;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
+import com.fathy.alfred.backend.interception.domain.model.SourceCallRef;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -27,7 +28,8 @@ public record InterceptionRuleRequestDto(
         Integer priority,
         Boolean stopProcessing,
         RuleMatch match,
-        List<RuleAction> actions) {
+        List<RuleAction> actions,
+        SourceCallRef sourceCall) {
 
     public InterceptionRule toDomain() {
         return new InterceptionRule(
@@ -42,6 +44,7 @@ public record InterceptionRuleRequestDto(
                 stopProcessing != null && stopProcessing,
                 match,
                 actions,
+                sourceCall,
                 null,
                 null);
     }

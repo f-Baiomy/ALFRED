@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleAction;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
+import com.fathy.alfred.backend.interception.domain.model.SourceCallRef;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.annotation.PostConstruct;
@@ -88,6 +89,12 @@ public class SqliteInterceptionRulesRepository {
                     created_at TEXT,
                     updated_at TEXT
                 )""");
+        // Added after the table existed - one ALTER for a database created before it.
+        boolean hasSourceCall = jdbcTemplate.queryForList("PRAGMA table_info(interception_rules)").stream()
+                .anyMatch(column -> "source_call_json".equals(column.get("name")));
+        if (!hasSourceCall) {
+            jdbcTemplate.execute("ALTER TABLE interception_rules ADD COLUMN source_call_json TEXT");
+        }
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS interception_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_interception_priority ON interception_rules(priority)");
         // Stored answers: metadata and body in separate tables, so a listing never reads a body.
@@ -142,6 +149,7 @@ public class SqliteInterceptionRulesRepository {
                         rs.getInt("stop_processing") == 1,
                         readMatch(rs.getString("match_json")),
                         readActions(rs.getString("actions_json")),
+                        readSourceCall(rs.getString("source_call_json")),
                         rs.getString("created_at"),
                         rs.getString("updated_at")));
     }
@@ -160,10 +168,11 @@ public class SqliteInterceptionRulesRepository {
             for (InterceptionRule rule : rules) {
                 jdbcTemplate.update("""
                                 INSERT INTO interception_rules
-                                (id, name, description, enabled, priority, stop_processing, match_json, actions_json, created_at, updated_at)
-                                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                                (id, name, description, enabled, priority, stop_processing, match_json, actions_json, source_call_json, created_at, updated_at)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                         rule.id(), rule.name(), rule.description(), rule.enabled() ? 1 : 0, rule.priority(),
                         rule.stopProcessing() ? 1 : 0, write(rule.match()), write(rule.actions()),
+                        rule.sourceCall() == null ? null : write(rule.sourceCall()),
                         rule.createdAt(), rule.updatedAt());
             }
         });
@@ -196,6 +205,19 @@ public class SqliteInterceptionRulesRepository {
         } catch (JsonProcessingException e) {
             log.warn("Unreadable match on a stored rule, treating it as match-nothing: {}", e.getMessage());
             return RuleMatch.empty();
+        }
+    }
+
+    private SourceCallRef readSourceCall(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return mapper.readValue(json, SourceCallRef.class);
+        } catch (JsonProcessingException e) {
+            // Only a link back to a call - losing it must never cost the rule.
+            log.warn("Unreadable source call on a stored rule, dropping the link: {}", e.getMessage());
+            return null;
         }
     }
 

@@ -343,8 +343,22 @@ export interface InterceptionRule {
   readonly stopProcessing: boolean;
   readonly match: RuleMatch;
   readonly actions: readonly RuleAction[];
+  /** The logged call this rule was made from ("⚡+ Rule" on a call card) - a link back, never matched on. */
+  readonly sourceCall?: SourceCallRef | null;
   readonly createdAt?: string | null;
   readonly updatedAt?: string | null;
+}
+
+/** Backend SourceCallRef - which call a rule was made from, and how it read at the time. */
+export interface SourceCallRef {
+  readonly direction: 'outbound' | 'inbound';
+  readonly callId: string;
+  /** The session cycle the copy came from; null for Live Calls. */
+  readonly cycleId?: string | null;
+  /** "POST httpbin.org/anything · 200" - shown even when the call has left the log. */
+  readonly label?: string | null;
+  /** An inbound call's project. */
+  readonly serviceName?: string | null;
 }
 
 /**
@@ -377,6 +391,7 @@ export interface InterceptionRuleDraft {
   readonly stopProcessing?: boolean;
   readonly match: RuleMatch;
   readonly actions: readonly RuleAction[];
+  readonly sourceCall?: SourceCallRef | null;
 }
 
 export interface PausedHttp {

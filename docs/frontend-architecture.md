@@ -102,6 +102,18 @@ live call's id, so the id alone cannot say which copy was picked. Load one in fu
   anywhere…" (multi, refuses the cycle's own calls via `refuseOrigin`, copies with
   `copyCallsInto` on Return), and the multi-call resend editor's "Add calls from anywhere…".
 
+**A rule from a call, and back to the call.**
+- "⚡+ Rule" on every call card opens `RuleDialogComponent` (main-layout, like the resend dialogs):
+  the same `RuleEditorComponent`, `@defer`red so it stays out of the start-up bundle, with
+  `[fromCall]` - named after the call, `sourceCall` set, and "Fill the match from a call" already at
+  "choose and adjust" for it. Saved rules keep `sourceCall` and show it as "Made from…".
+- "Made from…" emits `goToCall {source, snapshot}`; whichever page hosts the editor hands it to
+  `RuleDialogService.goToCall`, which parks the form (a Return bar stands in) and asks
+  `CallFocusService` to go there: Live Calls or the cycle with `?requestId=<id>` - the list's own
+  call-id filter, so a call pages away still shows - its source selected, its card scrolled to and
+  flashed. Both list pages read `?requestId=` on load, so any such link works (a resend's "open
+  original" too).
+
 **Finding a call, and copying one into a rule.**
 - `CallFinderComponent` (`components/call-finder/`) is the one call search: `host:`/`path:`/
   `method:`/`status:`/`body:` tokens, chips, "Matches this rule", preview of the request or

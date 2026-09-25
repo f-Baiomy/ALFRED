@@ -32,6 +32,8 @@ public record InterceptionRule(
         boolean stopProcessing,
         RuleMatch match,
         List<RuleAction> actions,
+        /** The logged call this rule was made from ("⚡+ Rule" on a call card) - a link back, never used to match. */
+        SourceCallRef sourceCall,
         String createdAt,
         String updatedAt) {
 
@@ -40,24 +42,30 @@ public record InterceptionRule(
         actions = actions == null ? List.of() : List.copyOf(actions);
     }
 
+    /** The shape before a rule could remember the call it was made from. */
+    public InterceptionRule(String id, String name, String description, boolean enabled, int priority, boolean stopProcessing,
+                            RuleMatch match, List<RuleAction> actions, String createdAt, String updatedAt) {
+        this(id, name, description, enabled, priority, stopProcessing, match, actions, null, createdAt, updatedAt);
+    }
+
     public InterceptionRule withId(String newId) {
         return new InterceptionRule(newId, name, description, enabled, priority, stopProcessing,
-                match, actions, createdAt, updatedAt);
+                match, actions, sourceCall, createdAt, updatedAt);
     }
 
     public InterceptionRule withEnabled(boolean value) {
         return new InterceptionRule(id, name, description, value, priority, stopProcessing,
-                match, actions, createdAt, updatedAt);
+                match, actions, sourceCall, createdAt, updatedAt);
     }
 
     public InterceptionRule withPriority(int value) {
         return new InterceptionRule(id, name, description, enabled, value, stopProcessing,
-                match, actions, createdAt, updatedAt);
+                match, actions, sourceCall, createdAt, updatedAt);
     }
 
     public InterceptionRule withTimestamps(String created, String updated) {
         return new InterceptionRule(id, name, description, enabled, priority, stopProcessing,
-                match, actions, created, updated);
+                match, actions, sourceCall, created, updated);
     }
 
     /** Whether this rule can hold a caller's connection open waiting for a human. */

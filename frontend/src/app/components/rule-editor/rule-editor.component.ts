@@ -24,6 +24,7 @@ import {
   FailureMode,
   InterceptionRule,
   InterceptionRuleDraft,
+  SourceCallRef,
   MATCH_TEST_KINDS,
   MATCH_TEST_OPERATOR_LABELS,
   MatchTest,
@@ -49,6 +50,7 @@ import { CopyResult, CopyTarget, copyTargetOf } from '../../shared/utils/copy-fr
 import { HeaderRow } from '../../shared/utils/header-rows';
 import { AnswerPreselect } from '../answer-picker/answer-picker.component';
 import { CopyPreload } from '../copy-from-call/copy-from-call.component';
+import { sourceCallOf } from '../../core/services/rule-dialog.service';
 import { MatchFillResult, MatchFromCallComponent } from '../match-from-call/match-from-call.component';
 import { ActionAdderComponent } from '../action-adder/action-adder.component';
 import { BodyEditorComponent } from '../body-editor/body-editor.component';
@@ -395,6 +397,19 @@ export class RuleEditorComponent implements OnInit {
 
   private readonly picker = inject(CallPickerService);
   @Output() readonly closed = new EventEmitter<void>();
+  /**
+   * "Made from…" clicked: the call to go to, and the whole unsaved form to come back to. The host
+   * decides how (RuleDialogService.goToCall parks it and navigates) - the editor stays page-agnostic.
+   */
+  @Output() readonly goToCall = new EventEmitter<{ source: SourceCallRef; snapshot: EditorSnapshot }>();
+  /**
+   * A new rule made from this call ("⚡+ Rule" on its card): named after it, linked to it, and
+   * opened at "Fill the match from a call" step 2 with it loaded. Ignored when rule or snapshot is set.
+   */
+  @Input() fromCall: CopyPreload | null = null;
+
+  /** The call this rule was made from - saved with it, shown as "Made from…", never matched on. */
+  readonly sourceCall = signal<SourceCallRef | null>(null);
 
   readonly state = inject(InterceptionStateService);
   private readonly projectsApi = inject(InternalLoggingApiService);
@@ -446,7 +461,8 @@ export class RuleEditorComponent implements OnInit {
   /** Mutable working copy - the domain type is readonly, and this is the one place a rule is edited. */
   readonly actions = signal<RuleAction[]>([]);
 
-  readonly isNew = computed(() => this.rule === null);
+  // A parked edit comes back as a snapshot with its rule id - still an edit, not a new rule.
+  readonly isNew = computed(() => this.rule === null && !this.snapshot?.ruleId);
 
   // `selectable === false` is ABORT_REQUEST: still evaluated for rules that use it, but reached
   // through SIMULATE_FAILURE now rather than offered as a second way to do the same thing.
@@ -539,6 +555,10 @@ export class RuleEditorComponent implements OnInit {
       return;
     }
     const rule = this.rule;
+    if (!rule && this.fromCall) {
+      this.seedFromCallRecord(this.fromCall);
+      return;
+    }
     if (!rule && this.draft) {
       this.seedFromCall(this.draft);
       return;
@@ -553,8 +573,39 @@ export class RuleEditorComponent implements OnInit {
     this.loadFrom(rule);
   }
 
+  /**
+   * "⚡+ Rule" on a call card: the same new rule as "New rule", named after the call and linked to
+   * it, with "Fill the match from a call" already at "choose and adjust" for this call - so the
+   * match is filled the way it would be from the Interception tab, with every field still a choice.
+   */
+  private seedFromCallRecord(from: CopyPreload): void {
+    const source = sourceCallOf(from.call, from.ref);
+    this.sourceCall.set(source);
+    let path = '';
+    try {
+      path = new URL(from.call.original_url || from.call.url).pathname;
+    } catch {
+      path = from.call.url;
+    }
+    this.name.set(`Rule for ${(from.call.method || '').toUpperCase()} ${path}`.slice(0, 120).trim());
+    this.actions.set([{ type: 'DELAY_REQUEST', durationMs: 5000 }]);
+    this.matchFillPreload.set(from);
+    this.matchFillOpen.set(true);
+  }
+
+  /** "Made from…": hand the call and the unsaved form to the host, which parks it and goes there. */
+  openSourceCall(): void {
+    const source = this.sourceCall();
+    if (!source) return;
+    this.goToCall.emit({
+      source,
+      snapshot: { ruleId: this.rule?.id ?? this.snapshot?.ruleId ?? null, draft: this.buildDraft(), answerPath: [] },
+    });
+  }
+
   /** Fills the form from a saved rule, or from a parked unsaved form (they share the draft shape). */
   private loadFrom(rule: InterceptionRuleDraft): void {
+    this.sourceCall.set(rule.sourceCall ?? null);
     this.name.set(rule.name);
     this.description.set(rule.description ?? '');
     this.stopProcessing.set(rule.stopProcessing ?? false);
@@ -1660,6 +1711,7 @@ export class RuleEditorComponent implements OnInit {
         ...this.matchTestLists(),
       },
       actions: this.actions(),
+      sourceCall: this.sourceCall(),
     };
   }
 

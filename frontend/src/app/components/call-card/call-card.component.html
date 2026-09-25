@@ -183,6 +183,7 @@
             [title]="interceptTooltip()"
           >{{ interceptedByHand() ? '✎ edited' : '⚡ intercepted' }}</span>
         }
+        <button type="button" class="action-btn rule-from-call-btn" title="Make an interception rule from this call - opens here, match filled from it" (click)="ruleFromCall($event)">⚡+ Rule</button>
         <app-call-actions [call]="call()" />
         @if (removalState) {
           <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>
@@ -316,6 +317,7 @@
           <span class="span-bar-fill" [style.margin-left]="spanOffsetPercent()" [style.width]="spanWidthPercent()"></span>
         </span>
       }
+      <button type="button" class="action-btn rule-from-call-btn" title="Make an interception rule from this call - opens here, match filled from it" (click)="ruleFromCall($event)">⚡+ Rule</button>
       <app-call-actions [call]="call()" />
       @if (removalState) {
         <button type="button" class="action-btn" title="Remove from cycle" (click)="remove()">Remove</button>

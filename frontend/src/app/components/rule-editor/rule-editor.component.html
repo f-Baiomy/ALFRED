@@ -6,6 +6,16 @@
     <button type="button" class="icon-btn" aria-label="Close" (click)="cancel()">×</button>
   </div>
 
+  @if (sourceCall(); as source) {
+    <button type="button" class="rule-source-call" (click)="openSourceCall()" title="Go to this call - the unsaved rule is kept, and Return brings it back">
+      <span class="rsc-kicker">↗ Made from</span>
+      <span class="badge">{{ source.direction }}</span>
+      <b>{{ source.label || source.callId }}</b>
+      <span class="muted">· {{ source.cycleId ? 'a session cycle' : 'Live Calls' }}</span>
+      <span class="rsc-go">Go to the call</span>
+    </button>
+  }
+
   <div class="dialog-body">
     @if (state.problems().length > 0) {
       <div class="rule-problems">

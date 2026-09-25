@@ -57,6 +57,25 @@ Two properties that are load-bearing:
 Only **enabled** rules are published: forty stored rules of which two are on cost two match
 attempts per call, not forty.
 
+### Saving the rule list
+
+Every change (create, edit, delete, toggle, reorder, import) is read-modify-write over the **whole**
+list: `findAll`, change it, `saveAll`, which replaces the table wholesale. Two things keep that from
+losing rules, and both are load-bearing:
+
+- **`InterceptionRulesService`'s mutators are `synchronized`.** Two overlapping ones would each save
+  their own copy of the list - the later erasing what the earlier added - or collide on an id part
+  way through the insert. `createsRunningAtOnceKeepEveryRule` pins it with 16 concurrent creates.
+- **`SqliteInterceptionRulesRepository.saveAll` is one transaction.** Outside one, the `DELETE`
+  committed and an insert that then failed (a duplicate id, a serialisation error, the disk) left
+  only the rules inserted before it - every other rule gone, nothing logged beyond that request's
+  500. `aSaveThatFailsPartWayLeavesEveryRuleThatWasThere` pins it.
+
+A rule can also carry **`sourceCall`** (`SourceCallRef {direction, callId, cycleId, label,
+serviceName}`) - the call it was made from with "⚡+ Rule" on a call card. It is only a link the
+editor shows ("Made from…") and follows back; it is stored in `source_call_json` (added by an
+`ALTER` on older databases), published with the rule, and ignored by the proxy.
+
 ## Matchers
 
 Every field is optional; an absent field matches anything, so an empty match applies to **all**

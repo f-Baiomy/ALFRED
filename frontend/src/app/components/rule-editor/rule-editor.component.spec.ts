@@ -253,6 +253,53 @@ describe('RuleEditorComponent', () => {
     ]);
   });
 
+  it('starts a rule from a call record: named and linked to it, fill panel open at "choose and adjust"', () => {
+    const call = {
+      id: 'c9',
+      source: 'external',
+      method: 'POST',
+      url: 'https://httpbin.org/anything/soap?x=1',
+      original_url: 'https://httpbin.org/anything/soap?x=1',
+      response: { status: 200 },
+    } as never;
+    component.fromCall = { ref: { source: 'external', callId: 'c9', cycleId: null }, call };
+    open(null);
+    http.match(`${BACKEND}/calls/c9/detail`).forEach((r) => r.flush({ request: {}, response: { status: 200 } }));
+
+    expect(component.name()).toBe('Rule for POST /anything/soap');
+    expect(component.sourceCall()).toEqual({ direction: 'outbound', callId: 'c9', cycleId: null, label: 'POST httpbin.org/anything/soap · 200', serviceName: null });
+    expect(component.matchFillOpen()).toBeTrue();
+    expect(component.matchFillPreload()?.ref.callId).toBe('c9');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rule-source-call')?.textContent).toContain('POST httpbin.org/anything/soap · 200');
+
+    let went: { source: unknown; snapshot: EditorSnapshot } | null = null;
+    component.goToCall.subscribe((e) => (went = e));
+    component.name.set('Edited name');
+    (fixture.nativeElement.querySelector('.rule-source-call') as HTMLElement).click();
+    expect(went!.snapshot.draft.name).toBe('Edited name');
+    expect(went!.snapshot.draft.sourceCall?.callId).toBe('c9');
+  });
+
+  it('keeps a saved rule\'s source call through an edit and a park', () => {
+    open({
+      id: 'r1',
+      name: 'Linked',
+      enabled: true,
+      priority: 1,
+      stopProcessing: false,
+      match: {},
+      actions: [{ type: 'DELAY_REQUEST', durationMs: 1 }],
+      sourceCall: { direction: 'inbound', callId: 'in-1', cycleId: 'cy1', label: 'GET localhost/x', serviceName: 'odeysys' },
+    } as never);
+    expect(component.sourceCall()?.callId).toBe('in-1');
+    component.save();
+    const saved = http.expectOne((r) => r.url.startsWith(`${BACKEND}/interception/rules`) && r.method !== 'GET');
+    expect(saved.request.body.sourceCall).toEqual({ direction: 'inbound', callId: 'in-1', cycleId: 'cy1', label: 'GET localhost/x', serviceName: 'odeysys' });
+    saved.flush({});
+    http.match(`${BACKEND}/interception/rules`).forEach((r) => r.flush([]));
+  });
+
   it('parks the form for a match pick elsewhere, and reopens the fill panel', () => {
     open(null);
     component.pickMatchFromAnywhere();

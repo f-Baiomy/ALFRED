@@ -1,3 +1,6 @@
+import { RuleDialogService } from '../../core/services/rule-dialog.service';
+import { CallFocusService } from '../../core/services/call-focus.service';
+import { refOf } from '../../core/models/call-ref.model';
 import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, output, signal } from '@angular/core';
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { NgTemplateOutlet } from '@angular/common';
@@ -355,7 +358,30 @@ export class CallCardComponent {
    * visible rather than a zero-width sliver. */
   readonly spanWidthPercent = computed(() => `${Math.max((this.depth()?.spanWidth ?? 0) * 100, 0.8).toFixed(2)}%`);
 
+  private readonly ruleDialog = inject(RuleDialogService);
+  private readonly callFocus = inject(CallFocusService);
+
+  /** "⚡+ Rule": the rule editor popup, on this page, filled from this call. */
+  ruleFromCall(event: Event): void {
+    event.stopPropagation();
+    this.ruleDialog.openFromCall(this.call(), refOf(this.call(), this.origin?.cycleId() ?? null));
+  }
+
   constructor() {
+    // "Made from…" on a rule brought the user here for this call: scroll to it and flash once.
+    effect(() => {
+      if (this.callFocus.highlight() !== this.call().id) return;
+      const host = this.hostRef.nativeElement as HTMLElement;
+      const id = this.call().id;
+      // After render, so the card is in the DOM at its final place; the signal write waits with it.
+      setTimeout(() => {
+        this.callFocus.highlighted(id);
+        host.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        host.classList.add('call-focus-flash');
+        setTimeout(() => host.classList.remove('call-focus-flash'), 2400);
+      });
+    });
+
     // A bulk "Expand all" asks every card on the page to open its header blocks, including cards
     // far below the fold. Fetching for those immediately would fire a burst of requests for content
     // nobody is looking at, so an off-screen card parks the request and runs it once it scrolls

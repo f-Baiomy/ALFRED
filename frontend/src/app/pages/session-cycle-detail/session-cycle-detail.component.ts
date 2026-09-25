@@ -1,3 +1,6 @@
+import { ActivatedRoute } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { CallFocusService } from '../../core/services/call-focus.service';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { forkJoin, switchMap } from 'rxjs';
@@ -80,6 +83,16 @@ export class SessionCycleDetailComponent {
   readonly addMessage = signal<string | null>(null);
 
   constructor() {
+    // `/cycles/<id>?requestId=<callId>` shows that one captured call - see CallFocusService.
+    const focus = inject(CallFocusService);
+    const requestId = toSignal(inject(ActivatedRoute).queryParamMap, { initialValue: null });
+    effect(() => {
+      const id = this.state.cycleId();
+      const wanted = requestId()?.get('requestId') ?? null;
+      if (!id) return;
+      untracked(() => focus.applyTo(this.state, id, wanted));
+    });
+
     // Return from "Add calls from anywhere…" lands here - rebuilt, or kept when the user never left.
     effect(() => {
       const id = this.state.cycleId();
