@@ -5,7 +5,6 @@ import {
   editsOf,
   findReplaceAll,
   isEdited,
-  moveDraft,
   removeHeaderFromAll,
   resetDraft,
   setCurrentSessionOnAll,
@@ -123,10 +122,8 @@ describe('resend-draft', () => {
       expect(skipped).toBe(1);
     });
 
-    it('switches current session on all, and reorders', () => {
+    it('switches current session on all', () => {
       expect(setCurrentSessionOnAll(two(), true).every((d) => d.useCurrentSession)).toBeTrue();
-      const drafts = two();
-      expect(moveDraft(drafts, 1, 0).map((d) => d.ref.callId)).toEqual(['c2', 'c1']);
     });
   });
 });

@@ -23,6 +23,8 @@ export interface ResendDraft {
   /** The hydrated logged call - what "unchanged" means. */
   readonly original: CallRecord;
   readonly include: boolean;
+  /** The group this call belongs to, or null when it is loose. See resend-group.ts. */
+  readonly groupId: string | null;
   readonly method: string;
   readonly url: string;
   readonly headers: readonly DraftHeader[];
@@ -38,6 +40,7 @@ export function draftFrom(call: CallRecord, cycleId: string | null): ResendDraft
     ref: refOf(call, cycleId),
     original: call,
     include: true,
+    groupId: null,
     method: call.method,
     url: call.url,
     headers: Object.entries(call.request?.headers ?? {}).map(([name, value]) => ({ name, value, removed: false })),
@@ -204,14 +207,6 @@ export function setHostOnAll(drafts: readonly ResendDraft[], host: string): { dr
 
 export function setCurrentSessionOnAll(drafts: readonly ResendDraft[], on: boolean): ResendDraft[] {
   return onIncluded(drafts, (d) => ({ ...d, useCurrentSession: on }));
-}
-
-export function moveDraft(drafts: readonly ResendDraft[], from: number, to: number): ResendDraft[] {
-  const out = [...drafts];
-  if (from < 0 || from >= out.length || to < 0 || to >= out.length) return out;
-  const [moved] = out.splice(from, 1);
-  out.splice(to, 0, moved);
-  return out;
 }
 
 function flagsWithGlobal(matcher: RegExp): string {

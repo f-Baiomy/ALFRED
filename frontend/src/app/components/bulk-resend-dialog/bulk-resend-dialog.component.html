@@ -1,3 +1,45 @@
+<!-- A row's contents, shared by every kind of row. The HOST element is not shared, because what
+     wraps it decides what it is a drag item inside: a loose call and a group member are items of
+     the same shape but live in different drop lists. -->
+<ng-template #rowBody let-d let-index="index" let-movable="movable">
+  @if (movable) {
+    <span class="drag-handle" cdkDragHandle aria-hidden="true">☰</span>
+  }
+  <input type="checkbox" [checked]="d.include" [attr.aria-label]="'Include call ' + index" (click)="$event.stopPropagation()" (change)="toggleInclude(d, $event)" />
+  <span class="br-index">{{ index }}</span>
+  <span class="badge">{{ d.method }}</span>
+  <!-- Path only: the row is narrow and the host is usually the same for the whole
+       batch; the full URL is in the tooltip and in the editor. -->
+  <span class="br-url" [title]="d.url">{{ pathOf(d.url) }}</span>
+  @if (isEdited(d)) {
+    <span class="br-badge edited" [title]="describeEdits(d).join(' · ')">edited</span>
+  }
+  @if (resultOf(d); as r) {
+    <span class="br-badge" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.error ?? ''">{{ r.ok ? r.status : 'failed' }}</span>
+  }
+  <span class="br-move">
+    <button type="button" class="icon-btn" aria-label="Move up" [disabled]="!movable || service.running()" (click)="moveBy(d, -1, $event)">▲</button>
+    <button type="button" class="icon-btn" aria-label="Move down" [disabled]="!movable || service.running()" (click)="moveBy(d, 1, $event)">▼</button>
+    <button type="button" class="icon-btn" aria-label="Remove from this resend" [disabled]="service.running()" (click)="remove(d, $event)">✕</button>
+  </span>
+</ng-template>
+
+<!-- A call in the list, loose or grouped. `movable` is false only where its own arrows make no
+     sense - nowhere, now that a grouped call can be dragged out of its group. -->
+<ng-template #callRow let-d let-index="index" let-movable="movable">
+  <div
+    class="br-row"
+    cdkDrag
+    [cdkDragData]="{ kind: 'call', draft: d }"
+    [class.on]="mode() === 'call' && selected()?.key === d.key"
+    [class.off]="!d.include"
+    [class.grouped]="!movable"
+    (click)="select(d)"
+  >
+    <ng-container *ngTemplateOutlet="rowBody; context: { $implicit: d, index: index, movable: movable }" />
+  </div>
+</ng-template>
+
 @if (service.visible()) {
   <div class="dialog-backdrop" (click)="close()">
     <div class="dialog-card bulk-resend-dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Resend calls">
@@ -17,35 +59,97 @@
 
       <div class="br-body">
         <div class="br-list">
-          <small class="muted">Send order · drag or use the arrows · untick to skip</small>
-          <div cdkDropList [cdkDropListData]="drafts()" [cdkDropListDisabled]="service.running()" (cdkDropListDropped)="drop($event)">
-            @for (d of drafts(); track d.key; let i = $index) {
-              <div
-                class="br-row"
-                cdkDrag
-                [class.on]="mode() === 'call' && selected()?.key === d.key"
-                [class.off]="!d.include"
-                (click)="select(d)"
-              >
-                <span class="drag-handle" cdkDragHandle aria-hidden="true">☰</span>
-                <input type="checkbox" [checked]="d.include" [attr.aria-label]="'Include call ' + (i + 1)" (click)="$event.stopPropagation()" (change)="toggleInclude(d, $event)" />
-                <span class="br-index">{{ i + 1 }}</span>
-                <span class="badge">{{ d.method }}</span>
-                <!-- Path only: the row is narrow and the host is usually the same for the whole
-                     batch; the full URL is in the tooltip and in the editor. -->
-                <span class="br-url" [title]="d.url">{{ pathOf(d.url) }}</span>
-                @if (isEdited(d)) {
-                  <span class="br-badge edited" [title]="describeEdits(d).join(' · ')">edited</span>
+          <div class="br-list-head">
+            <small class="muted">Send order · drag or use the arrows · untick to skip</small>
+            <button
+              type="button"
+              class="pill"
+              [disabled]="service.running() || groupableCount() < 2"
+              [title]="groupableCount() < 2 ? 'Tick at least two loose calls to group' : 'Group the ticked loose calls into one named group'"
+              (click)="groupIncluded()"
+            >Group ticked</button>
+          </div>
+          <!-- Two nested drop lists, which is what makes dragging a call in and out of a group
+               unambiguous. The outer list's items are RUNS - a whole group, or one loose call - and
+               the header area is outside its group's inner list, so dropping on a header MOVES the
+               group. A group's members are the items of its own inner list, so dropping a call
+               among them JOINS it, and dragging a member out to the outer list LEAVES it. One flat
+               list could not tell "onto the group" from "past the group". -->
+          <!-- listRuns, not runs: an unticked call must stay on screen so it can be ticked again. -->
+          <div
+            cdkDropList
+            [id]="outerListId"
+            [cdkDropListData]="listRuns()"
+            [cdkDropListConnectedTo]="groupListIds()"
+            [cdkDropListDisabled]="service.running()"
+            (cdkDropListDropped)="dropOuter($event)"
+          >
+            @for (run of listRuns(); track run.trackKey; let r = $index) {
+              @if (run.group; as g) {
+                <div
+                  class="br-group"
+                  cdkDrag
+                  [cdkDragData]="{ kind: 'group', groupId: g.id }"
+                  [class.on]="service.activeGroupId() === g.id"
+                  (click)="selectGroup(g.id)"
+                >
+                  <!-- Two lines on purpose: the list column is 19rem, and one line cannot hold a
+                       name, a mode and a tally without one of them collapsing. -->
+                  <div class="br-group-head">
+                    <div class="br-group-line">
+                      <span class="drag-handle" cdkDragHandle aria-hidden="true">☰</span>
+                      <input
+                        class="br-group-name"
+                        [value]="g.name"
+                        [attr.aria-label]="'Name of this group'"
+                        [title]="g.name"
+                        (click)="$event.stopPropagation()"
+                        (change)="renameGroup(g.id, $event)"
+                        (keydown.enter)="commitName($event)"
+                      />
+                      <select
+                        class="br-group-mode"
+                        [class.parallel]="g.mode === 'parallel'"
+                        [value]="g.mode"
+                        [attr.aria-label]="'How ' + g.name + ' sends'"
+                        [title]="modeHelp(g.mode)"
+                        [disabled]="service.running()"
+                        (click)="$event.stopPropagation()"
+                        (change)="setGroupMode(g.id, $event)"
+                      >
+                        <option value="sequential">sequential</option>
+                        <option value="parallel">parallel</option>
+                      </select>
+                    </div>
+                    <div class="br-group-line br-group-meta">
+                      <small class="muted">{{ run.drafts.length }} call{{ run.drafts.length === 1 ? '' : 's' }} · {{ runProgress(run) }}</small>
+                      <span class="br-move">
+                        <button type="button" class="icon-btn" aria-label="Add ticked loose calls to this group" [disabled]="service.running() || groupableCount() === 0" (click)="addIncludedTo(g.id, $event)">+</button>
+                        <button type="button" class="icon-btn" aria-label="Move group up" [disabled]="r === 0 || service.running()" (click)="moveRunBy(r, -1, $event)">▲</button>
+                        <button type="button" class="icon-btn" aria-label="Move group down" [disabled]="r === listRuns().length - 1 || service.running()" (click)="moveRunBy(r, 1, $event)">▼</button>
+                        <button type="button" class="icon-btn" aria-label="Ungroup - send these separately" [disabled]="service.running()" (click)="ungroupFrom(g.id, $event)">✕</button>
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    class="br-group-list"
+                    cdkDropList
+                    [id]="groupListId(g.id)"
+                    [cdkDropListData]="run.drafts"
+                    [cdkDropListConnectedTo]="[outerListId]"
+                    [cdkDropListDisabled]="service.running()"
+                    (cdkDropListDropped)="dropInside($event, g.id)"
+                  >
+                    @for (d of run.drafts; track d.key) {
+                      <ng-container *ngTemplateOutlet="callRow; context: { $implicit: d, index: positionOf(d), movable: true }" />
+                    }
+                  </div>
+                </div>
+              } @else {
+                @for (d of run.drafts; track d.key) {
+                  <ng-container *ngTemplateOutlet="callRow; context: { $implicit: d, index: positionOf(d), movable: true }" />
                 }
-                @if (resultOf(d); as r) {
-                  <span class="br-badge" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.error ?? ''">{{ r.ok ? r.status : 'failed' }}</span>
-                }
-                <span class="br-move">
-                  <button type="button" class="icon-btn" aria-label="Move up" [disabled]="i === 0 || service.running()" (click)="move(i, -1, $event)">▲</button>
-                  <button type="button" class="icon-btn" aria-label="Move down" [disabled]="i === drafts().length - 1 || service.running()" (click)="move(i, 1, $event)">▼</button>
-                  <button type="button" class="icon-btn" aria-label="Remove from this resend" [disabled]="service.running()" (click)="remove(d, $event)">✕</button>
-                </span>
-              </div>
+              }
             }
           </div>
         </div>
@@ -81,7 +185,22 @@
               }
             }
           } @else {
-            <small class="muted">Applies to the {{ included().length }} ticked call{{ included().length === 1 ? '' : 's' }}. Each stays editable on its own afterwards.</small>
+            <!-- One source of truth for what the tools below touch, so the counts can never
+                 disagree with what a tool actually changes. -->
+            @if (groupChoices().length > 0) {
+              <div class="br-scope">
+                <small class="muted">Applies to</small>
+                <select class="br-scope-select" [value]="scopeValue()" aria-label="What these tools apply to" (change)="setScope($event)">
+                  <option value="all">all {{ included().length }} ticked call{{ included().length === 1 ? '' : 's' }}</option>
+                  @for (choice of groupChoices(); track choice.id) {
+                    <option [value]="choice.id">{{ choice.name }} ({{ choice.count }})</option>
+                  }
+                </select>
+                <small class="muted">Each stays editable on its own afterwards.</small>
+              </div>
+            } @else {
+              <small class="muted">Applies to the {{ included().length }} ticked call{{ included().length === 1 ? '' : 's' }}. Each stays editable on its own afterwards.</small>
+            }
 
             <fieldset class="br-tool">
               <legend>Set or remove a header</legend>
@@ -109,7 +228,7 @@
                 @if (findError(); as err) {
                   <small class="br-error">{{ err }}</small>
                 } @else if (matchCount() !== null) {
-                  <small class="muted">{{ matchCount() }} match{{ matchCount() === 1 ? '' : 'es' }} in {{ included().length }} calls</small>
+                  <small class="muted">{{ matchCount() }} match{{ matchCount() === 1 ? '' : 'es' }} in {{ scopeIncluded().length }} call{{ scopeIncluded().length === 1 ? '' : 's' }}</small>
                 }
               </div>
             </fieldset>
@@ -136,14 +255,27 @@
 
       <div class="br-foot">
         <label><input type="checkbox" [checked]="stopOnFailure()" (change)="checked(stopOnFailure.set, $event)" /> Stop at first failure</label>
-        <label>Delay between sends <input type="number" min="0" max="60000" step="50" class="br-short" [value]="delayMs()" (input)="onDelay($event)" /> ms</label>
+        <label [title]="hasParallel() ? 'In a parallel group this staggers the launches instead of separating them.' : 'Waited between sends, not before the first.'">
+          {{ hasParallel() ? 'Stagger parallel launches' : 'Delay between sends' }}
+          <input type="number" min="0" max="60000" step="50" class="br-short" [value]="delayMs()" (input)="onDelay($event)" /> ms
+        </label>
         <span class="br-spacer"></span>
         @if (service.running()) {
-          <small class="muted">Sending {{ service.progress() + 1 }}/{{ service.total() }}…</small>
+          <!-- Names the run, and admits several in flight rather than implying one position. -->
+          <small class="muted">
+            {{ runningLabel() }}
+            @if (service.stoppedEarly() && service.inFlight() > 0) {
+              · {{ service.inFlight() }} still in flight
+            }
+          </small>
           <button type="button" class="pill" (click)="service.stop()">Stop</button>
         } @else if (service.total()) {
           <small class="muted">
-            {{ service.stoppedEarly() ? 'Stopped after ' + service.progress() + '/' + service.total() + ' - one failed.' : 'Sent ' + service.progress() + '/' + service.total() + '.' }}
+            @if (service.stoppedEarly()) {
+              Stopped after {{ service.progress() }}/{{ service.total() }} - one failed{{ service.inFlight() > 0 ? ', ' + service.inFlight() + ' still in flight' : '' }}.
+            } @else {
+              Sent {{ service.progress() }}/{{ service.total() }}.
+            }
           </small>
         }
         <button type="button" class="pill" (click)="close()">Close</button>

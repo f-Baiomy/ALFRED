@@ -8633,10 +8633,146 @@ app-header-editor {
   min-width: 0;
 }
 
+.br-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* A group: a header over the calls it holds, drawn as one bordered block so it reads as a single
+   thing that can be picked up and moved, rather than as rows that happen to be near each other. */
+.br-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--purple) 7%, transparent);
+
+  &.on {
+    border-color: var(--purple);
+  }
+
+  .br-row {
+    background: transparent;
+  }
+}
+
+/* The header is TWO lines, deliberately. The list column is 19rem, and one line cannot hold a
+   drag grip, a name, a mode and a tally without the name - the only field that can shrink without
+   losing meaning - collapsing to an empty box. */
+.br-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.15rem 0.2rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.br-group-line {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  /* Never wrap: a wrapped header line is what overlaps the rows below it. */
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.br-group-meta {
+  justify-content: space-between;
+
+  .muted {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* The name keeps a real width and only gives up what it must: flex-shrink with a floor, so it
+   shows the group's text instead of collapsing to a sliver. */
+.br-group-name {
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card-inner);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+
+  &:focus {
+    border-color: var(--purple);
+    outline: none;
+  }
+}
+
+.br-group-mode {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card-inner);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.68rem;
+
+  /* Parallel is the mode that changes how hard a supplier is hit, so it is called out on the one
+     control that sets it rather than repeated in a badge beside it. */
+  &.parallel {
+    color: var(--amber, #e0a33a);
+    border-color: color-mix(in srgb, var(--amber, #e0a33a) 55%, transparent);
+  }
+}
+
+/* A group's members are their own drop list, so a call can be dragged in among them or out to
+   the list above. CDK's own drop-list styling would add a gap and a placeholder box that look
+   wrong here, where the members are already visibly nested. */
+.br-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-left: 0.5rem;
+  border-left: 1px dashed color-mix(in srgb, var(--purple) 30%, transparent);
+}
+
+/* A call inside a group: indented under its header, and the only place a row may be marked. */
+.br-row.grouped {
+  padding-left: 0.5rem;
+}
+
+/* "Applies to [all ticked calls | a group]" - the scope the Edit-all tools act on. */
+.br-scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.br-scope-select {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-inner);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.72rem;
+}
+
 .br-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  /* One line, always. The URL is the only thing allowed to give up room; everything else is
+     pinned below, so a long path can never push the buttons onto a second line and stack the
+     row's parts on top of each other. */
+  flex-wrap: nowrap;
+  min-width: 0;
   padding: 0.35rem 0.4rem;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -8652,11 +8788,21 @@ app-header-editor {
   &.off {
     opacity: 0.45;
   }
+
+  /* Pinned, so the checkbox, the method badge and the status badge keep their size however long
+     the URL is. Without this they are the first things a flex row squeezes. */
+  .badge,
+  input[type='checkbox'],
+  .br-index,
+  .br-badge {
+    flex: 0 0 auto;
+  }
 }
 
 .br-index {
   color: var(--text-faint);
   width: 1rem;
+  flex: 0 0 1rem;
   text-align: right;
 }
 
@@ -8695,6 +8841,9 @@ app-header-editor {
 .br-move {
   display: flex;
   gap: 0.1rem;
+  /* Pinned, so the arrows and the remove button cannot be squeezed off the end of a row. */
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .br-right {
