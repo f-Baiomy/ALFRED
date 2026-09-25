@@ -16,6 +16,7 @@ import os
 import tempfile
 import time
 import unittest
+import unittest.mock
 import threading
 import urllib.error
 
@@ -3056,6 +3057,122 @@ class AnswerWithFileTest(unittest.TestCase):
         verdict = run(self.engine({'type': 'ANSWER_WITH_FILE', 'answerId': ANSWER}).apply_request(FakeFlow()))
         self.assertIsNone(verdict.terminal)
         self.assertEqual(verdict.applied[0].detail, f'skipped - stored answer {ANSWER} not found')
+
+
+class CountingRequest(FakeRequest):
+    """A request that counts how often its body is decoded - get_text() decompresses and
+    charset-decodes on every call in real mitmproxy, all on the event loop every connection shares."""
+
+    def __init__(self, *args, **kwargs):
+        FakeRequest.__init__(self, *args, **kwargs)
+        self.decodes = 0
+
+    def get_text(self, strict=True):
+        self.decodes += 1
+        return self.text
+
+
+class CountingResponse(FakeMessage):
+    def __init__(self, *args, **kwargs):
+        FakeMessage.__init__(self, *args, **kwargs)
+        self.decodes = 0
+
+    def get_text(self, strict=True):
+        self.decodes += 1
+        return self.text
+
+
+class RuleCostTest(unittest.TestCase):
+    """What a rule costs a call: the body is decoded and parsed once however many rules read it, a
+    match stops at its first failing test, and the response phase does not match the call again."""
+
+    @property
+    def BODY(self):
+        # A new string each time: the memo rightly treats one content object as one body, so
+        # tests sharing a single string would be reading each other's decode.
+        return json.dumps({'supplier': 'Galileo', 'offers': [{'id': i, 'cabin': 'Y'} for i in range(50)]}, indent=2)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, rules):
+        return interception.InterceptionEngine('outbound', write_rules(self.tmp.name, rules))
+
+    def body_rule(self, rule_id, *tests, **match):
+        return rule(id=rule_id, name=rule_id, match={'methods': ['POST'], 'body': list(tests), **match},
+                    actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-' + rule_id, 'value': '1'}])
+
+    def test_one_decode_and_one_parse_serve_every_rule(self):
+        rules = [self.body_rule(f'r{i}', {'kind': 'JSON_FIELD', 'path': 'supplier', 'operator': 'EQUALS', 'value': f'S{i}'})
+                 for i in range(10)]
+        rules.append(self.body_rule('hit', {'kind': 'JSON_FIELD', 'path': 'offers[*].cabin', 'operator': 'EQUALS', 'value': 'Y'},
+                                    {'kind': 'BODY', 'operator': 'CONTAINS', 'value': '"cabin":"Y"'}))
+        engine = self.engine(rules)
+        engine.enabled()  # reads the rules file now, so the count below is the body alone
+        request = CountingRequest(method='POST', text=self.BODY)
+        flow = FakeFlow(request)
+        loads = []
+        real = json.loads
+        with unittest.mock.patch.object(interception.json, 'loads', side_effect=lambda s, *a, **k: loads.append(1) or real(s, *a, **k)):
+            verdict = run(engine.apply_request(flow))
+        self.assertEqual([a.rule_id for a in verdict.applied], ['hit'])
+        self.assertEqual(request.decodes, 1)
+        self.assertEqual(len(loads), 1)
+
+    def test_a_match_stops_at_its_first_failing_test(self):
+        engine = self.engine([
+            # Fails on the method: the body is never read.
+            self.body_rule('wrong-method', {'kind': 'JSON_FIELD', 'path': 'supplier', 'operator': 'EQUALS', 'value': 'Galileo'},
+                           methods=['GET']),
+            # Written body-first, size-last; the size runs first, fails, and the body is never read.
+            self.body_rule('too-big', {'kind': 'BODY', 'operator': 'CONTAINS', 'value': 'Galileo'},
+                           {'kind': 'SIZE', 'operator': 'AT_MOST', 'value': '10'}),
+        ])
+        request = CountingRequest(method='POST', text=self.BODY)
+        self.assertFalse(run(engine.apply_request(FakeFlow(request))).touched)
+        self.assertEqual(request.decodes, 0)
+
+    def test_an_edited_body_is_read_afresh(self):
+        engine = self.engine([
+            rule(id='edit', name='edit', priority=1, match={'methods': ['POST']},
+                 actions=[{'type': 'SET_REQUEST_JSON_FIELD', 'path': 'supplier', 'value': 'Sabre'}]),
+            rule(id='then', name='then', priority=2, match={'methods': ['POST']},
+                 actions=[{'type': 'IF_REQUEST', 'branches': [{'conditions': [
+                     {'subject': 'REQUEST_JSON_FIELD', 'name': 'supplier', 'operator': 'EQUALS', 'value': 'Sabre'}],
+                     'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Saw', 'value': 'Sabre'}]}]}]),
+        ])
+        flow = FakeFlow(FakeRequest(method='POST', text=self.BODY))
+        run(engine.apply_request(flow))
+        self.assertEqual(flow.request.headers.get('X-Saw'), 'Sabre')
+
+    def test_the_response_phase_keeps_the_request_phases_match(self):
+        engine = self.engine([rule(match={'methods': ['POST'], 'body': [
+            {'kind': 'JSON_FIELD', 'path': 'supplier', 'operator': 'EQUALS', 'value': 'Galileo'}]},
+            actions=[{'type': 'SET_RESPONSE_STATUS', 'status': 503}])])
+        request = CountingRequest(method='POST', text=self.BODY)
+        flow = FakeFlow(request)
+        run(engine.apply_request(flow))
+        self.assertEqual(request.decodes, 1)
+        flow.response = FakeMessage(text='{}', status=200)
+        run(engine.apply_response(flow))
+        self.assertEqual(flow.response.status_code, 503)
+        # Matched once, when the request arrived - the response did not read the request again.
+        self.assertEqual(request.decodes, 1)
+
+    def test_a_branch_decides_on_its_cheap_conditions_before_reading_a_body(self):
+        engine = self.engine([rule(match={}, actions=[{'type': 'IF_RESPONSE', 'branches': [{'combine': 'ALL', 'conditions': [
+            {'subject': 'RESPONSE_JSON_FIELD', 'name': 'error.code', 'operator': 'EQUALS', 'value': 'X1'},
+            {'subject': 'RESPONSE_STATUS', 'operator': 'EQUALS', 'value': '500'}],
+            'actions': [{'type': 'SET_RESPONSE_STATUS', 'status': 502}]}]}])])
+        flow = FakeFlow(FakeRequest())
+        run(engine.apply_request(flow))
+        flow.response = CountingResponse(text='{"error":{"code":"X1"}}', status=200)
+        verdict = run(engine.apply_response(flow))
+        self.assertEqual(flow.response.status_code, 200)
+        self.assertEqual(verdict.applied[0].detail, 'no branch matched')
+        # One decode: the before/after snapshot. The status failed first, so no condition read it.
+        self.assertEqual(flow.response.decodes, 1)
 
 
 if __name__ == '__main__':

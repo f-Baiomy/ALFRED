@@ -155,6 +155,29 @@ squashed against squashed), because squashing a plain phrase would also squash i
 a phrase inside a JSON string. A positive operator holds if either reading does, a negative one
 only if both do, so a test and its negation can never both hold.
 
+### What a rule costs a call
+
+Every check runs on the event loop that carries every connection, so a rule is written to stop as
+early and read as little as it can:
+
+- **A match stops at its first failing test**, cheapest first: direction, project, method, host,
+  path, path regex, headers/query/cookies, then the body tests - sorted size, JSON field, whole
+  body whatever order they were written in (`_BODY_TEST_COST`). A call that fails on the host never
+  has its body decoded.
+- **A branch runs its cheap conditions first** (`Branch.by_cost`: status, headers, URL, method
+  before JSON fields, before whole bodies), so `all()` stops at the first that fails and `any()` at
+  the first that holds. `describe()` keeps the written order for the log.
+- **One decode, one parse, one squash per body per phase** (`_memo_for`), however many tests,
+  conditions and rules read it. It used to be one `get_text()` and one `json.loads` per test:
+  twenty rules with a body test on one host parsed a 1 MB body forty times a call (121 ms per
+  phase in a benchmark, now 7 ms). The memo is checked against the message's content object, so an
+  action that edits the body is seen at once, and it is dropped when the phase ends (`_forget`).
+- **The response phase keeps the request phase's match** (`MATCHED_KEY` in `flow.metadata`)
+  instead of matching the call again - which re-read the request body for every body test - unless
+  the rules were republished in between.
+- **Squashing is lazy and in C**: the squashed reading is only computed when the raw reading did
+  not already decide, and `_squash_json` is one regex pass rather than a Python loop per character.
+
 The frontend offers these as Body / JSON field / Body size rows in "Only when…" (a body value is
 the colored `app-body-editor`), "Fill from a call…" offers the picked call's whole body,
 pretty-printed, as an unchecked "contains" row plus each top-level JSON field, and

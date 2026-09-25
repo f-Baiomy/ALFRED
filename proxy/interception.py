@@ -215,11 +215,7 @@ def _snapshot(message, include_target=False):
     because a rule that rewrites a query parameter changes the url and nothing else, so a
     snapshot without it would show two identical copies.
     """
-    try:
-        body = message.get_text(strict=False)
-    except Exception:
-        body = None
-    snapshot = {'headers': dict(message.headers), 'body': body}
+    snapshot = {'headers': dict(message.headers), 'body': _body(message)}
     trailers = getattr(message, 'trailers', None)
     if trailers is not None:
         snapshot['trailers'] = dict(trailers)
@@ -277,7 +273,12 @@ class Match:
             if test is not None
         )
         # Request-body tests: read the body, so after everything else - and parsed here, once.
-        self.body_tests = tuple(_BodyTest(one) for one in (raw.get('body') or []) if isinstance(one, dict))
+        # Every one must hold, so they run cheapest first: the size needs no parse at all, a JSON
+        # field one parse shared by every test and rule (see _memo_for), and a whole-body test may
+        # squash the entire text.
+        self.body_tests = tuple(sorted(
+            (_BodyTest(one) for one in (raw.get('body') or []) if isinstance(one, dict)),
+            key=lambda test: _BODY_TEST_COST.get(test.kind, 3)))
 
     def matches(self, source, service_name, method, host, path, request=None):
         # Ordered cheapest first: a rule that doesn't apply to this direction costs one string
@@ -309,11 +310,10 @@ class Match:
                     value = request.query.get(test.name)
                 if not test.holds(value):
                     return False
-        if self.body_tests:
-            text = _body(request)
-            for test in self.body_tests:
-                if not test.holds(request, text):
-                    return False
+        for test in self.body_tests:
+            # The first test that fails ends the match; the rest are never evaluated.
+            if not test.holds(request):
+                return False
         return True
 
 
@@ -371,26 +371,18 @@ class _MatchTest:
 MAX_BODY_TEST_CHARS = 1_000_000  # mirrors RuleValidator.MAX_BODY_TEST_CHARS
 
 
+# The pieces of JSON text to KEEP: a whole string (an unterminated one runs to the end), or a run
+# of anything that is neither whitespace nor a quote. Joined, they are the text without the
+# whitespace outside its strings. One regex pass in C instead of a Python loop over every
+# character - on a 1 MB body the loop held the event loop, and so every connection the proxy
+# carries, for tens of milliseconds per test.
+_JSON_KEPT = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*(?:"|\\?\Z)|[^\s"]+', re.S)
+
+
 def _squash_json(text):
     """JSON text with every whitespace character OUTSIDE a string removed - so a pretty-printed
     document, or a fragment of one ("currency": "EUR"), compares equal to its minified form."""
-    out = []
-    in_string = escaped = False
-    for ch in text:
-        if in_string:
-            out.append(ch)
-            if escaped:
-                escaped = False
-            elif ch == '\\':
-                escaped = True
-            elif ch == '"':
-                in_string = False
-        elif ch == '"':
-            in_string = True
-            out.append(ch)
-        elif not ch.isspace():
-            out.append(ch)
-    return ''.join(out)
+    return ''.join(_JSON_KEPT.findall(text))
 
 
 _BETWEEN_TAGS = re.compile(r'>\s+<')
@@ -401,14 +393,23 @@ def _squash_xml(text):
     return _BETWEEN_TAGS.sub('><', text.strip())
 
 
+_FIRST_CHAR = re.compile(r'\s*(\S)')
+
+
 def _body_kind(text):
-    """'json' / 'xml' / None, by the first character that is not whitespace."""
-    head = text.lstrip()[:1]
+    """'json' / 'xml' / None, by the first character that is not whitespace (found without
+    copying the whole body, as lstrip() would)."""
+    found = _FIRST_CHAR.match(text)
+    head = found.group(1) if found else ''
     if head in ('{', '['):
         return 'json'
     if head == '<':
         return 'xml'
     return None
+
+
+# Order in which a match's body tests run - see Match.body_tests.
+_BODY_TEST_COST = {'SIZE': 0, 'JSON_FIELD': 1, 'BODY': 2}
 
 
 class _BodyTest:
@@ -460,37 +461,40 @@ class _BodyTest:
         Both, because squashing a plain value would also squash it: `New York` is a phrase inside
         a JSON string, and "contains New York" must still hold. A positive operator holds when
         either reading does; a negative one only when both do - so a test and its negation can
-        never both hold."""
-        results = [self.by_form[None].holds_values(raw_values)]
-        if form is not None:
-            results.append(self.by_form[form].holds_values(squashed_values))
-        return all(results) if self.negative else any(results)
+        never both hold.
 
-    def holds(self, request, text):
+        `squashed_values` is a function, called only when the raw reading did not already decide:
+        a positive test the raw text satisfies never squashes anything."""
+        raw = self.by_form[None].holds_values(raw_values)
+        if form is None or raw != self.negative:
+            return raw
+        return self.by_form[form].holds_values(squashed_values())
+
+    def holds(self, request):
         if not self.valid:
             return False
         if self.kind == 'SIZE':
             try:
                 size = len(request.content or b'')
             except Exception:
-                size = len((text or '').encode('utf-8'))
+                size = len((_body(request) or '').encode('utf-8'))
             return self.by_form[None].holds_values([str(size)])
+        text = _body(request)
         if self.kind == 'JSON_FIELD':
-            found = get_json_field(text, self.path)
+            found = _json_field(request, self.path)
             raw_values = [_as_text(v) for v in found]
             if not self.squash:
                 return self.by_form[None].holds_values(raw_values)
             # Only an object or array has formatting; a string field is compared as it is.
-            squashed = [v if isinstance(f, str) else _squash_json(v) for f, v in zip(found, raw_values)]
-            return self._either(raw_values, 'json', squashed)
+            return self._either(raw_values, 'json', lambda: [
+                v if isinstance(f, str) else _squash_json(v) for f, v in zip(found, raw_values)])
         if not text:
             # An empty body is no body - EXISTS fails and "does not contain" holds.
             return self.by_form[None].holds_values([])
         form = _body_kind(text) if self.squash else None
         if form is None:
             return self.by_form[None].holds_values([text])
-        squashed = _squash_json(text) if form == 'json' else _squash_xml(text)
-        return self._either([text], form, [squashed])
+        return self._either([text], form, lambda: [_squashed_body(request, form)])
 
 
 def _request_cookies(request):
@@ -1340,9 +1344,9 @@ class Condition:
         if self.subject == 'RESPONSE_BODY':
             return _one(_body(response))
         if self.subject == 'REQUEST_JSON_FIELD':
-            return [_as_text(v) for v in get_json_field(_body(request), self.name)]
+            return [_as_text(v) for v in _json_field(request, self.name)]
         if self.subject == 'RESPONSE_JSON_FIELD':
-            return [_as_text(v) for v in get_json_field(_body(response), self.name)]
+            return [_as_text(v) for v in _json_field(response, self.name)]
         if self.subject == 'QUERY_PARAM':
             try:
                 return _one(request.query.get(self.name))
@@ -1370,10 +1374,10 @@ class Condition:
     def _json_holds(self, flow):
         """Every field in `paths`, each tested on its own, combined ANY (default) or ALL."""
         message = flow.request if self.subject == 'REQUEST_JSON_FIELD' else getattr(flow, 'response', None)
-        text = _body(message)
-        results = [self._field_holds(get_json_field(text, path)) for path in self.paths]
-        if not results:
+        if not self.paths:
             return False
+        # A generator, so ALL stops at the first field that fails and ANY at the first that holds.
+        results = (self._field_holds(_json_field(message, path)) for path in self.paths)
         return all(results) if self.all_paths else any(results)
 
     def _field_holds(self, found):
@@ -1479,24 +1483,114 @@ def _one(value):
     return [] if value is None else [value]
 
 
+# ---------------------------------------------------------------------------------------------
+# One decode, one parse, one squash per body - however many tests, conditions and rules read it.
+#
+# get_text() decompresses and charset-decodes the body on every call, and each JSON test used to
+# json.loads it again: twenty rules with a body test on one host parsed a 1 MB body forty times per
+# call (both phases), all on the event loop every connection shares. The memo is keyed by the
+# message and checked against its content OBJECT, so an action that edits the body (which assigns
+# new bytes) is seen at once - never a stale parse.
+# ---------------------------------------------------------------------------------------------
+
+_MEMO_SIZE = 8
+_memo = collections.OrderedDict()
+_UNPARSED = object()
+_NOT_JSON = object()
+
+
+def _memo_for(message):
+    raw = getattr(message, 'raw_content', None)
+    # mitmproxy keeps a body in raw_content (a new bytes object on every edit). The test fakes
+    # keep a plain `text` attribute instead - read from __dict__, never through mitmproxy's
+    # `text` property, which would decode the very body this memo exists to decode once.
+    token = raw if raw is not None else getattr(message, '__dict__', {}).get('text')
+    try:
+        headers = message.headers
+        form = (headers.get('content-encoding'), headers.get('content-type'))
+    except Exception:
+        form = (None, None)
+    key = id(message)
+    entry = _memo.get(key)
+    if entry is not None and entry[0] is token and entry[1] == form:
+        _memo.move_to_end(key)
+        return entry[2]
+    try:
+        text = message.get_text(strict=False)
+    except Exception:
+        text = None
+    data = {'text': text, 'doc': _UNPARSED}
+    # The content object is held, so while this entry lives no other message can be mistaken for
+    # this one: a reused id() comes with a different content object.
+    _memo[key] = (token, form, data)
+    _memo.move_to_end(key)
+    while len(_memo) > _MEMO_SIZE:
+        _memo.popitem(last=False)
+    return data
+
+
 def _body(message):
     if message is None:
         return None
-    try:
-        return message.get_text(strict=False)
-    except Exception:
-        return None
+    return _memo_for(message)['text']
+
+
+def _forget(*messages):
+    """Drops what the memo holds for these messages - called when a phase ends. The memo exists
+    to share one decode and one parse among the rules of ONE phase; kept longer, eight large
+    parsed documents would sit in the proxy's memory for no reader."""
+    for message in messages:
+        if message is not None:
+            _memo.pop(id(message), None)
+
+
+def _json_field(message, path):
+    """get_json_field on a message's body, parsed once however many paths are read from it."""
+    if message is None:
+        return []
+    data = _memo_for(message)
+    if data['doc'] is _UNPARSED:
+        text = data['text']
+        try:
+            data['doc'] = json.loads(text) if text else _NOT_JSON
+        except ValueError:
+            data['doc'] = _NOT_JSON
+    doc = data['doc']
+    if doc is _NOT_JSON:
+        return []
+    return _collect(doc, _parse_path(path))
+
+
+def _squashed_body(message, form):
+    data = _memo_for(message)
+    key = 'squashed_' + form
+    if key not in data:
+        text = data['text'] or ''
+        data[key] = _squash_json(text) if form == 'json' else _squash_xml(text)
+    return data[key]
+
+
+# Order in which a branch's conditions run - see Branch.by_cost. Everything else reads a header,
+# the URL, the method or the status: no body at all.
+_CONDITION_COST = {
+    'REQUEST_JSON_FIELD': 1, 'RESPONSE_JSON_FIELD': 1,
+    'REQUEST_BODY': 2, 'RESPONSE_BODY': 2,
+}
 
 
 class Branch:
     """One arm of a conditional: conditions, and the actions to run when they hold."""
 
-    __slots__ = ('combine_any', 'conditions', 'actions')
+    __slots__ = ('combine_any', 'conditions', 'by_cost', 'actions')
 
     def __init__(self, raw, limits=None):
         raw = raw or {}
         self.combine_any = (raw.get('combine') or 'ALL').strip().upper() == 'ANY'
         self.conditions = [Condition(c) for c in (raw.get('conditions') or []) if isinstance(c, dict)]
+        # Evaluated cheapest first (describe() keeps the written order): all() stops at the first
+        # condition that fails and any() at the first that holds, so a status or header test
+        # decides before a body is ever read.
+        self.by_cost = sorted(self.conditions, key=lambda c: _CONDITION_COST.get(c.subject, 0))
         self.actions = _prepare_actions(raw.get('actions'), limits)
 
     def holds(self, flow):
@@ -1505,8 +1599,8 @@ class Branch:
             # backend rejects one; a hand-edited file should not get a free "always".
             return False
         if self.combine_any:
-            return any(c.holds(flow) for c in self.conditions)
-        return all(c.holds(flow) for c in self.conditions)
+            return any(c.holds(flow) for c in self.by_cost)
+        return all(c.holds(flow) for c in self.by_cost)
 
     def describe(self):
         joiner = ' or ' if self.combine_any else ' and '
@@ -1946,6 +2040,10 @@ def _set_item(node, index, value):
     return True
 
 
+# flow.metadata key: (ruleset, rules) the request phase matched - see _matched_for_response.
+MATCHED_KEY = 'interception_matched'
+
+
 class InterceptionEngine:
     """Stateless apart from the rules cache - one instance per addon process."""
 
@@ -1978,7 +2076,27 @@ class InterceptionEngine:
                 print(f"[interception] rule {rule.name!r} failed to match, skipping: {e}")
         return out
 
+    def _matched_for_response(self, flow, service_name, ruleset):
+        """The rules the request phase matched, when it ran against this same ruleset.
+
+        A match is a statement about the CALL, decided once when the request arrived. Re-running
+        it for the response re-read and re-parsed the request body for every body test of every
+        rule - a second full evaluation per call - and could even disagree with the first, when a
+        request action had edited what a later rule's match looked at. A ruleset republished in
+        between is matched afresh: the old decision was made against rules that no longer exist.
+        """
+        remembered = getattr(flow, 'metadata', {}).get(MATCHED_KEY)
+        if remembered is not None and remembered[0] is ruleset:
+            return remembered[1]
+        return self._matching(flow, service_name, ruleset)
+
     async def apply_request(self, flow, service_name=None):
+        try:
+            return await self._apply_request_phase(flow, service_name)
+        finally:
+            _forget(flow.request, getattr(flow, 'response', None))
+
+    async def _apply_request_phase(self, flow, service_name=None):
         """Applies every matching rule's request-phase actions, mutating the flow in place.
         Returns a Verdict describing what the addon still has to do.
 
@@ -1990,6 +2108,8 @@ class InterceptionEngine:
         verdict.sensitive = ruleset.sensitive
         verdict.self_targets = ruleset.self_targets
         matching = self._matching(flow, service_name, ruleset)
+        if isinstance(getattr(flow, 'metadata', None), dict):
+            flow.metadata[MATCHED_KEY] = (ruleset, tuple(matching))
         if matching:
             # Once, up front, for the whole phase - see Verdict.observe_request. A call no rule
             # matches never reaches this line and so never pays for a snapshot.
@@ -2318,12 +2438,18 @@ class InterceptionEngine:
                 return
 
     async def apply_response(self, flow, service_name=None):
+        try:
+            return await self._apply_response_phase(flow, service_name)
+        finally:
+            _forget(flow.request, getattr(flow, 'response', None))
+
+    async def _apply_response_phase(self, flow, service_name=None):
         verdict = Verdict()
         if flow.response is None:
             return verdict
         ruleset = self._cache.current()
         verdict.sensitive = ruleset.sensitive
-        matching = self._matching(flow, service_name, ruleset)
+        matching = self._matched_for_response(flow, service_name, ruleset)
         if matching:
             verdict.observe_response(flow)
         for rule in matching:
