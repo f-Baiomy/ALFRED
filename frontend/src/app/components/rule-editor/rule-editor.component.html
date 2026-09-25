@@ -128,31 +128,69 @@
         <app-help-popover [entries]="[matchTestHelp]" label="How do match tests work?" />
       </span>
       @for (row of matchTests(); track $index; let i = $index) {
-        <div class="cond-row">
+        <div class="cond-row" [class.body-test-row]="row.kind === 'body'">
           <span class="cond-and">{{ i === 0 ? 'if' : 'and' }}</span>
-          <app-select-picker [options]="matchTestKindOptions" [value]="row.kind" (valueChange)="patchMatchTest(i, { kind: $any($event) })" />
-          <input
-            type="text"
-            class="cond-name"
-            [value]="row.name"
-            [placeholder]="row.kind === 'headers' ? 'x-test-scenario' : row.kind === 'query' ? 'mode' : 'SESSIONID'"
-            (input)="patchMatchTest(i, { name: $any($event.target).value })"
-          />
-          <app-select-picker [options]="matchTestOperatorOptions" [value]="row.operator" (valueChange)="onMatchTestOperator(i, $event)" />
-          @if (matchTestNeedsValue(row)) {
+          <app-select-picker [options]="matchTestKindOptions" [value]="row.kind" (valueChange)="onMatchTestKind(i, $event)" />
+          @if (row.kind !== 'body' && row.kind !== 'size') {
             <input
               type="text"
-              class="cond-value"
-              [value]="row.value ?? ''"
-              placeholder="value"
-              (input)="patchMatchTest(i, { value: $any($event.target).value })"
+              class="cond-name"
+              [value]="row.name"
+              [placeholder]="row.kind === 'headers' ? 'x-test-scenario' : row.kind === 'query' ? 'mode' : row.kind === 'json' ? 'itinerary.price' : 'SESSIONID'"
+              [title]="row.kind === 'json' ? 'Dotted path - passengers[0].type, segments[*].cabin' : ''"
+              (input)="patchMatchTest(i, { name: $any($event.target).value })"
             />
+          }
+          <app-select-picker [options]="matchTestOperatorsFor(row.kind)" [value]="row.operator" (valueChange)="onMatchTestOperator(i, $event)" />
+          @if (matchTestNeedsValue(row) && row.kind !== 'body') {
+            @if (row.kind === 'size') {
+              <input
+                type="number"
+                min="0"
+                class="cond-value cond-number"
+                [value]="row.value ?? ''"
+                placeholder="20000"
+                (input)="patchMatchTest(i, { value: $any($event.target).value })"
+              />
+              <small class="muted">bytes</small>
+            } @else {
+              <input
+                type="text"
+                class="cond-value"
+                [value]="row.value ?? ''"
+                [placeholder]="row.operator === 'AT_LEAST' || row.operator === 'AT_MOST' ? '100' : 'value'"
+                (input)="patchMatchTest(i, { value: $any($event.target).value })"
+              />
+            }
+          }
+          @if (matchTestFormats(row)) {
+            <button
+              type="button"
+              class="pill cond-fmt"
+              [class.on]="row.ignoreFormatting !== false"
+              [attr.aria-pressed]="row.ignoreFormatting !== false"
+              title="Compare JSON by content and XML without the whitespace between tags - a pretty-printed value still matches a minified call"
+              (click)="patchMatchTest(i, { ignoreFormatting: row.ignoreFormatting === false })"
+            >ignore formatting</button>
+          }
+          @if (matchTestNeedsValue(row) && row.kind !== 'size' && row.operator !== 'AT_LEAST' && row.operator !== 'AT_MOST') {
             <label class="cond-case" title="Compare the value exactly as typed">
               <input type="checkbox" [checked]="row.caseSensitive !== false" (change)="patchMatchTest(i, { caseSensitive: $any($event.target).checked })" />
               Aa
             </label>
           }
           <button type="button" class="icon-btn danger" title="Remove this test" (click)="removeMatchTest(i)">×</button>
+          @if (row.kind === 'body' && matchTestNeedsValue(row)) {
+            <div class="body-test-value">
+              <app-body-editor
+                [value]="row.value ?? ''"
+                label="Body test value"
+                openInTabLabel="Open in a big tab"
+                (valueChange)="patchMatchTest(i, { value: $event })"
+                (openInTab)="openMatchTestInTab(i)"
+              />
+            </div>
+          }
         </div>
       }
       <button type="button" class="pill add cond-add" (click)="addMatchTest()">+ Add test</button>

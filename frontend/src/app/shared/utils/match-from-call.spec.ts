@@ -153,6 +153,48 @@ describe('match-from-call', () => {
     expect(whyNotMatching({ ...form, pathContains: '', pathRegex: '(?P<v>v\\d+)' }, source)).toEqual([]);
   });
 
+  describe('body tests', () => {
+    const json = { ...call, request: { ...call.request, body: '{"origin":"LHR","city":"New York","passengers":[{"type":"CHD","count":1}]}' } } as CallRecord;
+    const src = matchSourceOf(json, 'outbound', null);
+    const check = (t: MatchForm['tests'][number]) => whyNotMatching({ ...emptyForm, tests: [t] }, src);
+
+    it('offers the whole pretty-printed body as an unchecked "contains", and each top-level JSON field', () => {
+      const choices = defaultMatchChoices(src);
+      const body = choices.tests.find((t) => t.kind === 'body')!;
+      expect(body.operator).toBe('CONTAINS');
+      expect(body.on).toBeFalse();
+      expect(body.value).toContain('\n  "origin": "LHR"');
+      expect(choices.tests.filter((t) => t.kind === 'json').map((t) => `${t.name}=${t.value}`)).toEqual([
+        'origin=LHR',
+        'city=New York',
+        'passengers=[{"type":"CHD","count":1}]',
+      ]);
+      const fill = buildMatchFill(src, { ...choices, tests: choices.tests.map((t) => (t.kind === 'body' ? { ...t, on: true } : t)) });
+      expect(fill.tests).toEqual([{ kind: 'body', name: '', operator: 'CONTAINS', value: body.value, ignoreFormatting: true }]);
+    });
+
+    it('matches a pretty-printed value against the minified call, unless formatting counts', () => {
+      expect(check({ kind: 'body', name: '', operator: 'EQUALS', value: '{\n  "origin": "LHR",\n  "city": "New York",\n  "passengers": [ { "type": "CHD", "count": 1 } ]\n}' })).toEqual([]);
+      expect(check({ kind: 'body', name: '', operator: 'CONTAINS', value: '"city": "New York"', ignoreFormatting: false })).toEqual(['body contains the value does not hold']);
+      expect(check({ kind: 'body', name: '', operator: 'CONTAINS', value: 'New York' })).toEqual([]);
+      expect(check({ kind: 'body', name: '', operator: 'NOT_CONTAINS', value: '"origin": "LHR"' })).toEqual(['body does not contain the value does not hold']);
+      expect(check({ kind: 'body', name: '', operator: 'EXISTS' })).toEqual([]);
+    });
+
+    it('reads JSON fields and the size like the proxy', () => {
+      expect(check({ kind: 'json', name: 'passengers[*].type', operator: 'EQUALS', value: 'CHD' })).toEqual([]);
+      expect(check({ kind: 'json', name: 'passengers[0].count', operator: 'AT_LEAST', value: '2' })).toEqual(['JSON field passengers[0].count is at least the value does not hold']);
+      expect(check({ kind: 'json', name: 'passengers[0]', operator: 'EQUALS', value: '{ "type": "CHD", "count": 1 }' })).toEqual([]);
+      expect(check({ kind: 'size', name: '', operator: 'AT_MOST', value: '10' })[0]).toContain('it is 74 bytes');
+      expect(check({ kind: 'size', name: '', operator: 'AT_LEAST', value: '10' })).toEqual([]);
+    });
+
+    it('squashes XML between its tags', () => {
+      const xml = matchSourceOf({ ...call, request: { body: '<Env><Body><Currency>EUR</Currency></Body></Env>' } } as CallRecord, 'outbound', null);
+      expect(whyNotMatching({ ...emptyForm, tests: [{ kind: 'body', name: '', operator: 'CONTAINS', value: '<Body>\n  <Currency>EUR</Currency>\n</Body>' }] }, xml)).toEqual([]);
+    });
+  });
+
   it('checks tests the way the proxy does', () => {
     const tests = (t: MatchForm['tests'][number]) => whyNotMatching({ ...emptyForm, tests: [t] }, source);
     expect(tests({ kind: 'headers', name: 'soapaction', operator: 'EQUALS', value: '"FlightSearchRQ"' })).toEqual([]);

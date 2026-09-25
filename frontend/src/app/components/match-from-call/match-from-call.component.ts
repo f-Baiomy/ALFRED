@@ -2,7 +2,15 @@ import { Component, DestroyRef, OnInit, computed, inject, input, output, signal 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CallRecord } from '../../core/models/call.model';
 import { CallRef } from '../../core/models/call-ref.model';
-import { MATCH_TEST_KINDS, MATCH_TEST_OPERATOR_LABELS, MatchTestOperator, matchTestNeedsValue } from '../../core/models/interception.model';
+import {
+  BODY_TEST_OPERATORS,
+  MATCH_TEST_KINDS,
+  MATCH_TEST_OPERATOR_LABELS,
+  MatchTestOperator,
+  bodyTestFormats,
+  bodyTestNeedsValue,
+  bodyTestOperatorLabel,
+} from '../../core/models/interception.model';
 import { CallRefDetailService } from '../../core/services/call-ref-detail.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import {
@@ -16,7 +24,11 @@ import {
   hostVariants,
   matchSourceOf,
   pathVariants,
+  BODY_ROW_KINDS,
+  MatchRowKind,
+  isBodyRow,
 } from '../../shared/utils/match-from-call';
+import { BodyEditorComponent } from '../body-editor/body-editor.component';
 import { CallFinderComponent, FoundCall } from '../call-finder/call-finder.component';
 import { CopyPreload } from '../copy-from-call/copy-from-call.component';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
@@ -39,7 +51,7 @@ export interface MatchFillResult {
 @Component({
   selector: 'app-match-from-call',
   standalone: true,
-  imports: [CallFinderComponent, SelectPickerComponent],
+  imports: [CallFinderComponent, SelectPickerComponent, BodyEditorComponent],
   templateUrl: './match-from-call.component.html',
 })
 export class MatchFromCallComponent implements OnInit {
@@ -61,11 +73,29 @@ export class MatchFromCallComponent implements OnInit {
   readonly source = signal<MatchSource | null>(null);
   readonly choices = signal<MatchChoices | null>(null);
 
-  readonly kindLabels = MATCH_TEST_KINDS;
-  readonly operatorOptions: readonly SelectOption[] = (Object.keys(MATCH_TEST_OPERATOR_LABELS) as MatchTestOperator[]).map((o) => ({
+  readonly kindLabels: Readonly<Record<MatchRowKind, string>> = { ...MATCH_TEST_KINDS, body: 'body', json: 'JSON field', size: 'body size' };
+  private readonly headerOperators: readonly SelectOption[] = (Object.keys(MATCH_TEST_OPERATOR_LABELS) as MatchTestOperator[]).map((o) => ({
     value: o,
     label: MATCH_TEST_OPERATOR_LABELS[o],
   }));
+  private readonly bodyOperators = Object.fromEntries(
+    (['body', 'json', 'size'] as const).map((kind) => [
+      kind,
+      BODY_TEST_OPERATORS[BODY_ROW_KINDS[kind]].map((o) => ({ value: o, label: bodyTestOperatorLabel(BODY_ROW_KINDS[kind], o) })),
+    ])
+  ) as unknown as Record<'body' | 'json' | 'size', readonly SelectOption[]>;
+
+  operatorOptions(test: TestChoice): readonly SelectOption[] {
+    return isBodyRow(test.kind) ? this.bodyOperators[test.kind] : this.headerOperators;
+  }
+
+  isBodyTest(test: TestChoice): boolean {
+    return test.kind === 'body';
+  }
+
+  formats(test: TestChoice): boolean {
+    return isBodyRow(test.kind) && bodyTestFormats(BODY_ROW_KINDS[test.kind], test.operator);
+  }
   readonly hostOptions = computed<readonly SelectOption[]>(() =>
     hostVariants(this.source()?.host ?? '').map((v) => ({ value: v.value, label: `${v.label} · ${v.value}` }))
   );
@@ -149,7 +179,7 @@ export class MatchFromCallComponent implements OnInit {
 
 
   needsValue(test: TestChoice): boolean {
-    return matchTestNeedsValue(test.operator);
+    return bodyTestNeedsValue(test.operator);
   }
 
   isSoapAction(test: TestChoice): boolean {

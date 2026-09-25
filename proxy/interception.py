@@ -242,7 +242,7 @@ class Match:
     so a rule with an empty match applies to all traffic (which is why the UI states the match
     back to the user in plain language before saving)."""
 
-    __slots__ = ('source', 'service_names', 'methods', 'host', 'path_contains', 'path_regex', 'tests')
+    __slots__ = ('source', 'service_names', 'methods', 'host', 'path_contains', 'path_regex', 'tests', 'body_tests')
 
     def __init__(self, raw):
         raw = raw or {}
@@ -276,6 +276,8 @@ class Match:
             for test in (_MatchTest.parse(where, one) for one in (raw.get(where) or []))
             if test is not None
         )
+        # Request-body tests: read the body, so after everything else - and parsed here, once.
+        self.body_tests = tuple(_BodyTest(one) for one in (raw.get('body') or []) if isinstance(one, dict))
 
     def matches(self, source, service_name, method, host, path, request=None):
         # Ordered cheapest first: a rule that doesn't apply to this direction costs one string
@@ -306,6 +308,11 @@ class Match:
                 else:
                     value = request.query.get(test.name)
                 if not test.holds(value):
+                    return False
+        if self.body_tests:
+            text = _body(request)
+            for test in self.body_tests:
+                if not test.holds(request, text):
                     return False
         return True
 
@@ -359,6 +366,131 @@ class _MatchTest:
         if self.operator == 'EQUALS':
             return actual == self.value
         return self.value in actual
+
+
+MAX_BODY_TEST_CHARS = 1_000_000  # mirrors RuleValidator.MAX_BODY_TEST_CHARS
+
+
+def _squash_json(text):
+    """JSON text with every whitespace character OUTSIDE a string removed - so a pretty-printed
+    document, or a fragment of one ("currency": "EUR"), compares equal to its minified form."""
+    out = []
+    in_string = escaped = False
+    for ch in text:
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+            out.append(ch)
+        elif not ch.isspace():
+            out.append(ch)
+    return ''.join(out)
+
+
+_BETWEEN_TAGS = re.compile(r'>\s+<')
+
+
+def _squash_xml(text):
+    """XML with the whitespace between tags removed and the ends trimmed - indentation only."""
+    return _BETWEEN_TAGS.sub('><', text.strip())
+
+
+def _body_kind(text):
+    """'json' / 'xml' / None, by the first character that is not whitespace."""
+    head = text.lstrip()[:1]
+    if head in ('{', '['):
+        return 'json'
+    if head == '<':
+        return 'xml'
+    return None
+
+
+class _BodyTest:
+    """One request-body test of a rule's match: the whole text (BODY), a JSON field, or the size.
+
+    The comparison is Condition's - the evaluator IF_REQUEST uses on REQUEST_BODY and
+    REQUEST_JSON_FIELD - so "contains" means one thing everywhere. With ignoreFormatting (the
+    default) both the value and the call's body are squashed the same way first - JSON outside its
+    strings, XML between its tags - so a pretty-printed value matches a minified call. A test the
+    engine cannot use never holds: a rule that matched because its test was ignored would apply to
+    far more traffic than was written.
+    """
+
+    __slots__ = ('kind', 'path', 'valid', 'squash', 'negative', 'by_form')
+
+    def __init__(self, raw):
+        self.kind = str(raw.get('kind') or '').strip().upper()
+        self.path = str(raw.get('path') or '').strip() or None
+        operator = str(raw.get('operator') or '').strip().upper()
+        value = raw.get('value')
+        value = None if value is None else str(value)
+        self.valid = (
+            self.kind in ('BODY', 'JSON_FIELD', 'SIZE')
+            and operator in OPERATORS
+            and (self.kind != 'JSON_FIELD' or self.path is not None)
+            and (value is None or len(value) <= MAX_BODY_TEST_CHARS)
+        )
+        textual = operator not in ('MATCHES', 'NOT_MATCHES', 'AT_LEAST', 'AT_MOST', 'EXISTS', 'NOT_EXISTS')
+        self.squash = self.kind != 'SIZE' and textual and value is not None and raw.get('ignoreFormatting') is not False
+        self.negative = operator.startswith('NOT_')
+        case = raw.get('caseSensitive') is not False
+        subject = 'REQUEST_JSON_FIELD' if self.kind == 'JSON_FIELD' else 'REQUEST_BODY'
+
+        def condition(v):
+            return Condition({'subject': subject, 'name': self.path, 'operator': operator, 'value': v, 'caseSensitive': case})
+
+        # Prepared once per form, so nothing is squashed or compiled per call.
+        try:
+            self.by_form = {None: condition(value)}
+            if self.squash:
+                self.by_form['json'] = condition(_squash_json(value))
+                self.by_form['xml'] = condition(_squash_xml(value))
+        except re.error:
+            self.valid = False
+            self.by_form = {}
+
+    def _either(self, raw_values, form, squashed_values):
+        """The raw value against the raw text, and the squashed value against the squashed text.
+        Both, because squashing a plain value would also squash it: `New York` is a phrase inside
+        a JSON string, and "contains New York" must still hold. A positive operator holds when
+        either reading does; a negative one only when both do - so a test and its negation can
+        never both hold."""
+        results = [self.by_form[None].holds_values(raw_values)]
+        if form is not None:
+            results.append(self.by_form[form].holds_values(squashed_values))
+        return all(results) if self.negative else any(results)
+
+    def holds(self, request, text):
+        if not self.valid:
+            return False
+        if self.kind == 'SIZE':
+            try:
+                size = len(request.content or b'')
+            except Exception:
+                size = len((text or '').encode('utf-8'))
+            return self.by_form[None].holds_values([str(size)])
+        if self.kind == 'JSON_FIELD':
+            found = get_json_field(text, self.path)
+            raw_values = [_as_text(v) for v in found]
+            if not self.squash:
+                return self.by_form[None].holds_values(raw_values)
+            # Only an object or array has formatting; a string field is compared as it is.
+            squashed = [v if isinstance(f, str) else _squash_json(v) for f, v in zip(found, raw_values)]
+            return self._either(raw_values, 'json', squashed)
+        if not text:
+            # An empty body is no body - EXISTS fails and "does not contain" holds.
+            return self.by_form[None].holds_values([])
+        form = _body_kind(text) if self.squash else None
+        if form is None:
+            return self.by_form[None].holds_values([text])
+        squashed = _squash_json(text) if form == 'json' else _squash_xml(text)
+        return self._either([text], form, [squashed])
 
 
 def _request_cookies(request):
@@ -1191,7 +1323,11 @@ class Condition:
             # runs because a typo was ignored is worse than one that never runs.
             return False
 
-        values = [v for v in self.values(flow) if v is not None]
+        return self.holds_values(self.values(flow))
+
+    def holds_values(self, values):
+        """The operator applied to already-resolved values - shared with a match's body tests."""
+        values = [v for v in values if v is not None]
 
         if self.operator == 'EXISTS':
             return bool(values)

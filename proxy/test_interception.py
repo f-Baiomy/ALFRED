@@ -2591,6 +2591,76 @@ class MatchTestsTest(unittest.TestCase):
         self.assertEqual(verdict.applied, [])
 
 
+class MatchBodyTestsTest(unittest.TestCase):
+    """Request-body tests in a rule's match: the body text, a JSON field, the size. A failed one
+    means the rule did not match - and, by default, formatting is not what decides it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def matched(self, test, text):
+        engine = interception.InterceptionEngine('outbound', write_rules(self.tmp.name, [
+            rule(match={'body': [test]}, actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Hit', 'value': '1'}])]))
+        req = FakeRequest(method='POST', text=text)
+        run(engine.apply_request(FakeFlow(req)))
+        return req.headers.get('X-Hit') == '1'
+
+    PRETTY_JSON = '{\n  "origin": "LHR",\n  "city": "New York",\n  "passengers": [\n    { "type": "CHD", "count": 1 }\n  ]\n}'
+    MINIFIED_JSON = '{"origin":"LHR","city":"New York","passengers":[{"type":"CHD","count":1}]}'
+    PRETTY_XML = '<Env>\n  <Body>\n    <Currency>EUR</Currency>\n  </Body>\n</Env>'
+    MINIFIED_XML = '<Env><Body><Currency>EUR</Currency></Body></Env>'
+
+    def test_a_pretty_printed_value_matches_a_minified_call(self):
+        self.assertTrue(self.matched({'kind': 'BODY', 'operator': 'EQUALS', 'value': self.PRETTY_JSON}, self.MINIFIED_JSON))
+        fragment = {'kind': 'BODY', 'operator': 'CONTAINS', 'value': '"passengers": [\n  { "type": "CHD"'}
+        self.assertTrue(self.matched(fragment, self.MINIFIED_JSON))
+        xml = {'kind': 'BODY', 'operator': 'CONTAINS', 'value': '<Body>\n  <Currency>EUR</Currency>\n</Body>'}
+        self.assertTrue(self.matched(xml, self.MINIFIED_XML))
+        self.assertTrue(self.matched({'kind': 'BODY', 'operator': 'EQUALS', 'value': self.MINIFIED_XML}, self.PRETTY_XML))
+
+    def test_exact_text_when_formatting_is_not_ignored(self):
+        exact = {'kind': 'BODY', 'operator': 'EQUALS', 'value': self.PRETTY_JSON, 'ignoreFormatting': False}
+        self.assertFalse(self.matched(exact, self.MINIFIED_JSON))
+        self.assertTrue(self.matched(exact, self.PRETTY_JSON))
+
+    def test_spaces_inside_a_string_still_count(self):
+        self.assertTrue(self.matched({'kind': 'BODY', 'operator': 'CONTAINS', 'value': 'New York'}, self.PRETTY_JSON))
+        self.assertFalse(self.matched({'kind': 'BODY', 'operator': 'CONTAINS', 'value': 'NewYork'}, self.MINIFIED_JSON))
+        self.assertFalse(self.matched({'kind': 'BODY', 'operator': 'NOT_CONTAINS', 'value': 'New York'}, self.MINIFIED_JSON))
+        # A negation holds only when neither reading contains it - never together with its positive.
+        self.assertFalse(self.matched({'kind': 'BODY', 'operator': 'NOT_CONTAINS', 'value': '"origin": "LHR"'}, self.MINIFIED_JSON))
+        self.assertTrue(self.matched({'kind': 'BODY', 'operator': 'NOT_CONTAINS', 'value': '"origin": "JFK"'}, self.MINIFIED_JSON))
+
+    def test_case_regex_and_presence(self):
+        self.assertFalse(self.matched({'kind': 'BODY', 'operator': 'CONTAINS', 'value': 'eur'}, self.MINIFIED_XML))
+        self.assertTrue(self.matched({'kind': 'BODY', 'operator': 'CONTAINS', 'value': 'eur', 'caseSensitive': False}, self.MINIFIED_XML))
+        self.assertTrue(self.matched({'kind': 'BODY', 'operator': 'MATCHES', 'value': '<Currency>[A-Z]{3}</'}, self.MINIFIED_XML))
+        self.assertTrue(self.matched({'kind': 'BODY', 'operator': 'EXISTS'}, 'x'))
+        self.assertFalse(self.matched({'kind': 'BODY', 'operator': 'EXISTS'}, ''))
+        self.assertTrue(self.matched({'kind': 'BODY', 'operator': 'NOT_EXISTS'}, ''))
+
+    def test_json_field(self):
+        self.assertTrue(self.matched({'kind': 'JSON_FIELD', 'path': 'passengers[*].type', 'operator': 'EQUALS', 'value': 'CHD'}, self.MINIFIED_JSON))
+        self.assertTrue(self.matched({'kind': 'JSON_FIELD', 'path': 'passengers[0].count', 'operator': 'AT_LEAST', 'value': '1'}, self.MINIFIED_JSON))
+        self.assertFalse(self.matched({'kind': 'JSON_FIELD', 'path': 'passengers[0].count', 'operator': 'AT_MOST', 'value': '0'}, self.MINIFIED_JSON))
+        self.assertTrue(self.matched({'kind': 'JSON_FIELD', 'path': 'city', 'operator': 'EQUALS', 'value': 'New York'}, self.MINIFIED_JSON))
+        self.assertTrue(self.matched({'kind': 'JSON_FIELD', 'path': 'passengers[0]', 'operator': 'EQUALS', 'value': '{ "type": "CHD", "count": 1 }'}, self.MINIFIED_JSON))
+        self.assertFalse(self.matched({'kind': 'JSON_FIELD', 'path': 'missing', 'operator': 'EXISTS'}, self.MINIFIED_JSON))
+        self.assertTrue(self.matched({'kind': 'JSON_FIELD', 'path': 'missing', 'operator': 'NOT_EXISTS'}, 'not json'))
+
+    def test_body_size(self):
+        self.assertTrue(self.matched({'kind': 'SIZE', 'operator': 'AT_MOST', 'value': '100'}, self.MINIFIED_XML))
+        self.assertFalse(self.matched({'kind': 'SIZE', 'operator': 'AT_LEAST', 'value': '100'}, self.MINIFIED_XML))
+        self.assertTrue(self.matched({'kind': 'SIZE', 'operator': 'AT_LEAST', 'value': '0'}, ''))
+
+    def test_a_test_the_engine_cannot_use_never_holds(self):
+        # Never silently dropped: the rule would then apply to every call.
+        self.assertFalse(self.matched({'kind': 'JSON_FIELD', 'operator': 'EXISTS'}, self.MINIFIED_JSON))
+        self.assertFalse(self.matched({'kind': 'WHATEVER', 'operator': 'EXISTS'}, 'x'))
+        self.assertFalse(self.matched({'kind': 'BODY', 'operator': 'MATCHES', 'value': '(['}, 'x'))
+
+
 class StoredAnswerTest(unittest.TestCase):
     """Answering with a recorded call: the response the backend published beside the rules."""
 

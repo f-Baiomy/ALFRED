@@ -166,6 +166,7 @@ describe('RuleEditorComponent', () => {
         { kind: 'headers' as const, name: 'SOAPAction', value: '"Confirm"', secret: false },
         { kind: 'query' as const, name: 'mode', value: 'x', secret: false },
       ],
+      body: '',
     };
     component.applyMatchFill({
       fill: { source: 'outbound', host: 'api.sabre.com', pathContains: '/v2/order', pathRegex: '', methods: ['POST'], tests: [{ kind: 'headers', name: 'SOAPAction', operator: 'EQUALS', value: '"Confirm"' }] },
@@ -194,6 +195,62 @@ describe('RuleEditorComponent', () => {
     expect(component.source()).toBe('both');
     expect(component.matchTests().map((t) => t.name)).toEqual(['soapaction', 'mode']);
     expect(component.matchFilled()).toBeNull();
+  });
+
+  it('edits body, JSON field and size tests in "Only when…" and saves them as the match body list', () => {
+    open(null);
+    component.addMatchTest();
+    component.onMatchTestKind(0, 'body');
+    expect(component.matchTests()[0]).toEqual(jasmine.objectContaining({ kind: 'body', operator: 'CONTAINS', name: '', ignoreFormatting: true }));
+    expect(component.matchTestOperatorsFor('body').map((o) => o.label)).toContain('has a body');
+    component.patchMatchTest(0, { value: '{\n  "currency": "EUR"\n}' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.body-test-value app-body-editor')).withContext('a body value is the colored editor').not.toBeNull();
+
+    component.addMatchTest();
+    component.onMatchTestKind(1, 'json');
+    component.patchMatchTest(1, { name: 'passengers[*].type', value: 'CHD' });
+    component.addMatchTest();
+    component.onMatchTestKind(2, 'size');
+    expect(component.matchTests()[2].operator).toBe('AT_MOST');
+    component.patchMatchTest(2, { value: '20000' });
+    component.addMatchTest();
+    component.patchMatchTest(3, { name: 'X-Tenant' });
+
+    component.name.set('Body rule');
+    component.save();
+    const saved = http.expectOne((r) => r.url.startsWith(`${BACKEND}/interception/rules`) && r.method !== 'GET');
+    expect(saved.request.body.match.headers).toEqual([{ name: 'X-Tenant', operator: 'EXISTS', value: null }]);
+    expect(saved.request.body.match.body).toEqual([
+      { kind: 'BODY', operator: 'CONTAINS', value: '{\n  "currency": "EUR"\n}', ignoreFormatting: true },
+      { kind: 'JSON_FIELD', path: 'passengers[*].type', operator: 'EQUALS', value: 'CHD', ignoreFormatting: true },
+      { kind: 'SIZE', operator: 'AT_MOST', value: '20000' },
+    ]);
+    saved.flush({});
+    http.match(`${BACKEND}/interception/rules`).forEach((r) => r.flush([]));
+  });
+
+  it('loads body tests back into the rows they were edited in', () => {
+    open({
+      id: 'r1',
+      name: 'Loaded',
+      enabled: true,
+      priority: 1,
+      stopProcessing: false,
+      match: {
+        headers: [{ name: 'SOAPAction', operator: 'EXISTS' }],
+        body: [
+          { kind: 'BODY', operator: 'NOT_EXISTS' },
+          { kind: 'JSON_FIELD', path: 'price', operator: 'AT_LEAST', value: '100' },
+        ],
+      },
+      actions: [{ type: 'DELAY_REQUEST', durationMs: 1 }],
+    } as never);
+    expect(component.matchTests().map((r) => `${r.kind}:${r.name}:${r.operator}`)).toEqual([
+      'headers:SOAPAction:EXISTS',
+      'body::NOT_EXISTS',
+      'json:price:AT_LEAST',
+    ]);
   });
 
   it('parks the form for a match pick elsewhere, and reopens the fill panel', () => {

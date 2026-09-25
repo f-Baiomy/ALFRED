@@ -29,7 +29,11 @@ import {
   MatchTest,
   MatchTestKind,
   MatchTestOperator,
-  matchTestNeedsValue,
+  BODY_TEST_OPERATORS,
+  BodyTest,
+  bodyTestFormats,
+  bodyTestNeedsValue,
+  bodyTestOperatorLabel,
   usesStoredAnswer,
   usesUploadedAnswer as usesUploadedAnswerType,
   RuleAction,
@@ -47,6 +51,7 @@ import { AnswerPreselect } from '../answer-picker/answer-picker.component';
 import { CopyPreload } from '../copy-from-call/copy-from-call.component';
 import { MatchFillResult, MatchFromCallComponent } from '../match-from-call/match-from-call.component';
 import { ActionAdderComponent } from '../action-adder/action-adder.component';
+import { BodyEditorComponent } from '../body-editor/body-editor.component';
 import { ActionPick } from '../action-picker/action-picker.component';
 import { COMMON, PickContext, blockedReason, recentActions, recipeActions, rememberAction } from '../../shared/utils/action-catalog';
 
@@ -58,7 +63,16 @@ export interface PickTarget {
   /** Index in that list, or null for its end. */
   readonly index: number | null;
 }
-import { MatchForm, MatchSource, mergeTests, whyNotMatching } from '../../shared/utils/match-from-call';
+import {
+  BODY_ROW_KINDS,
+  MatchForm,
+  MatchFormTest,
+  MatchRowKind,
+  MatchSource,
+  isBodyRow,
+  mergeTests,
+  whyNotMatching,
+} from '../../shared/utils/match-from-call';
 
 export const RULE_ANSWER_REQUESTER = 'rule-answer';
 
@@ -340,8 +354,10 @@ function defaultCondition(phase: ActionPhase): Condition {
  * (RuleValidator), and mirroring those checks client-side would create two rule-languages that
  * drift. The form only prevents the shapes it would be absurd to submit - an action with no type.
  */
-/** A match test while it is being edited: which list it belongs to, plus the test itself. */
-type MatchTestRow = MatchTest & { readonly kind: MatchTestKind };
+/** A match test while it is being edited: which list it belongs to (header/query/cookie, or a body test), plus the test. */
+type MatchTestRow = MatchFormTest;
+
+const BODY_ROW_DEFAULT_OPERATOR: Readonly<Record<'body' | 'json' | 'size', ConditionOperator>> = { body: 'CONTAINS', json: 'EQUALS', size: 'AT_MOST' };
 
 @Component({
   selector: 'app-rule-editor',
@@ -359,6 +375,7 @@ type MatchTestRow = MatchTest & { readonly kind: MatchTestKind };
     HelpPopoverComponent,
     MatchFromCallComponent,
     ActionAdderComponent,
+    BodyEditorComponent,
     CdkDropList,
     CdkDrag,
   ],
@@ -412,10 +429,15 @@ export class RuleEditorComponent implements OnInit {
   readonly pathRegex = signal('');
   /** The "Only when…" rows - one list in the form, split back into headers/query/cookies on save. */
   readonly matchTests = signal<MatchTestRow[]>([]);
-  readonly matchTestKindOptions: readonly SelectOption[] = (Object.keys(MATCH_TEST_KINDS) as MatchTestKind[]).map((kind) => ({
-    value: kind,
-    label: MATCH_TEST_KINDS[kind].replace(/^./, (c) => c.toUpperCase()),
-  }));
+  readonly matchTestKindOptions: readonly SelectOption[] = [
+    ...(Object.keys(MATCH_TEST_KINDS) as MatchTestKind[]).map((kind) => ({
+      value: kind,
+      label: MATCH_TEST_KINDS[kind].replace(/^./, (c) => c.toUpperCase()),
+    })),
+    { value: 'body', label: 'Body' },
+    { value: 'json', label: 'JSON field' },
+    { value: 'size', label: 'Body size' },
+  ];
   readonly matchTestOperatorOptions: readonly SelectOption[] = (
     Object.keys(MATCH_TEST_OPERATOR_LABELS) as MatchTestOperator[]
   ).map((operator) => ({ value: operator, label: MATCH_TEST_OPERATOR_LABELS[operator] }));
@@ -550,11 +572,21 @@ export class RuleEditorComponent implements OnInit {
     this.host.set(rule.match.host ?? '');
     this.pathContains.set(rule.match.pathContains ?? '');
     this.pathRegex.set(rule.match.pathRegex ?? '');
-    this.matchTests.set(
-      (Object.keys(MATCH_TEST_KINDS) as MatchTestKind[]).flatMap((kind) =>
-        (rule.match[kind] ?? []).map((test) => ({ kind, ...test }))
-      )
-    );
+    this.matchTests.set([
+      ...(Object.keys(MATCH_TEST_KINDS) as MatchTestKind[]).flatMap((kind) =>
+        (rule.match[kind] ?? []).map((test): MatchTestRow => ({ kind, ...test }))
+      ),
+      ...(rule.match.body ?? []).map(
+        (test): MatchTestRow => ({
+          kind: test.kind === 'JSON_FIELD' ? 'json' : test.kind === 'SIZE' ? 'size' : 'body',
+          name: test.path ?? '',
+          operator: test.operator,
+          value: test.value ?? null,
+          caseSensitive: test.caseSensitive ?? null,
+          ignoreFormatting: test.ignoreFormatting ?? null,
+        })
+      ),
+    ]);
     this.actions.set(rule.actions.map((a) => ({ ...a })));
   }
 
@@ -592,13 +624,59 @@ export class RuleEditorComponent implements OnInit {
   }
 
   onMatchTestOperator(index: number, value: string): void {
-    const operator = value as MatchTestOperator;
+    const operator = value as ConditionOperator;
     // A value left behind on EXISTS would be saved, shown nowhere, and confuse the next reader of the JSON.
-    this.patchMatchTest(index, matchTestNeedsValue(operator) ? { operator } : { operator, value: null, caseSensitive: null });
+    this.patchMatchTest(index, bodyTestNeedsValue(operator) ? { operator } : { operator, value: null, caseSensitive: null });
+  }
+
+  /** Switching kind keeps what still makes sense and resets the operator to one the new kind takes. */
+  onMatchTestKind(index: number, value: string): void {
+    const kind = value as MatchRowKind;
+    const row = this.matchTests()[index];
+    if (!row) return;
+    const allowed = this.matchTestOperatorsFor(kind);
+    // Into or out of the body kinds: that kind's own default, not whatever the header row had.
+    const sameFamily = isBodyRow(kind) === isBodyRow(row.kind);
+    const operator = sameFamily && allowed.some((o) => o.value === row.operator)
+      ? row.operator
+      : isBodyRow(kind)
+        ? BODY_ROW_DEFAULT_OPERATOR[kind]
+        : 'EXISTS';
+    this.patchMatchTest(index, {
+      kind,
+      operator,
+      ...(bodyTestNeedsValue(operator) ? {} : { value: null }),
+      ...(kind === 'body' || kind === 'size' ? { name: '' } : {}),
+      ...(kind === 'body' || kind === 'json' ? { ignoreFormatting: row.ignoreFormatting ?? true } : { ignoreFormatting: null }),
+    });
   }
 
   matchTestNeedsValue(row: MatchTestRow): boolean {
-    return matchTestNeedsValue(row.operator);
+    return bodyTestNeedsValue(row.operator);
+  }
+
+  isBodyRow = isBodyRow;
+
+  /** Operators per row kind - a header has exists/equals/contains/regex, a body its full set. */
+  matchTestOperatorsFor(kind: MatchRowKind): readonly SelectOption[] {
+    if (!isBodyRow(kind)) return this.matchTestOperatorOptions;
+    const bodyKind = BODY_ROW_KINDS[kind];
+    return BODY_TEST_OPERATORS[bodyKind].map((operator) => ({ value: operator, label: bodyTestOperatorLabel(bodyKind, operator) }));
+  }
+
+  /** Whether "ignore formatting" means anything for this row - body / JSON field text comparisons. */
+  matchTestFormats(row: MatchTestRow): boolean {
+    return isBodyRow(row.kind) && bodyTestFormats(BODY_ROW_KINDS[row.kind], row.operator);
+  }
+
+  /** A body test's value in the full-page editor; its edits come straight back into the row. */
+  openMatchTestInTab(index: number): void {
+    const row = this.matchTests()[index];
+    if (!row) return;
+    const key = `rule-${this.rule?.id ?? 'new'}-match-${index}-body`;
+    this.editTabStops.get(key)?.();
+    this.editTabStops.set(key, this.editTab.listen(key, { value: (value) => this.patchMatchTest(index, { value }) }));
+    this.editTab.open(key, { kind: 'body', title: `Body test · ${this.name().trim() || 'new rule'}`, value: row.value ?? '' });
   }
 
   toggleMethod(method: string): void {
@@ -1585,10 +1663,21 @@ export class RuleEditorComponent implements OnInit {
     };
   }
 
-  private matchTestLists(): Record<MatchTestKind, MatchTest[]> {
-    const lists: Record<MatchTestKind, MatchTest[]> = { headers: [], query: [], cookies: [] };
-    for (const { kind, ...test } of this.matchTests()) {
-      lists[kind].push({ ...test, name: test.name.trim() });
+  private matchTestLists(): Record<MatchTestKind, MatchTest[]> & { body: BodyTest[] } {
+    const lists: Record<MatchTestKind, MatchTest[]> & { body: BodyTest[] } = { headers: [], query: [], cookies: [], body: [] };
+    for (const { kind, ignoreFormatting, ...test } of this.matchTests()) {
+      if (isBodyRow(kind)) {
+        lists.body.push({
+          kind: BODY_ROW_KINDS[kind],
+          ...(kind === 'json' ? { path: test.name.trim() } : {}),
+          operator: test.operator,
+          value: bodyTestNeedsValue(test.operator) ? (test.value ?? '') : null,
+          ...(test.caseSensitive != null ? { caseSensitive: test.caseSensitive } : {}),
+          ...(ignoreFormatting != null ? { ignoreFormatting } : {}),
+        });
+      } else {
+        lists[kind].push({ ...test, operator: test.operator as MatchTestOperator, name: test.name.trim() });
+      }
     }
     return lists;
   }

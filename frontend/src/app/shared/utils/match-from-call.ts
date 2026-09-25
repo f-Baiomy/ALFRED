@@ -1,5 +1,14 @@
 import { CallRecord } from '../../core/models/call.model';
-import { MatchTestKind, MatchTestOperator, RuleSource, matchTestNeedsValue } from '../../core/models/interception.model';
+import {
+  BodyTestKind,
+  ConditionOperator,
+  MatchTestKind,
+  RuleSource,
+  bodyTestFormats,
+  bodyTestNeedsValue,
+  bodyTestOperatorLabel,
+} from '../../core/models/interception.model';
+import { detectAndFormatBody } from './body-format';
 
 /**
  * "Fill from a call…" for a rule's Match section: turn a logged call into match fields (direction,
@@ -8,8 +17,23 @@ import { MatchTestKind, MatchTestOperator, RuleSource, matchTestNeedsValue } fro
  * that call, and if not, which field stopped it.
  *
  * Pure. The semantics mirror proxy/interception.py's Match: host exact or a leading `*.`, path
- * tests against the path WITH its query string, header names case-insensitive, cookie names exact.
+ * tests against the path WITH its query string, header names case-insensitive, cookie names exact,
+ * and body tests through the same squash-then-compare as _BodyTest.
  */
+
+/** A row of the "Only when…" list: a header / query / cookie test, or a body, JSON field or size test. */
+export type MatchRowKind = MatchTestKind | 'body' | 'json' | 'size';
+
+export const BODY_ROW_KINDS: Readonly<Record<'body' | 'json' | 'size', BodyTestKind>> = { body: 'BODY', json: 'JSON_FIELD', size: 'SIZE' };
+
+export function isBodyRow(kind: MatchRowKind): kind is 'body' | 'json' | 'size' {
+  return kind === 'body' || kind === 'json' || kind === 'size';
+}
+
+/** Whether a row needs a name - a header, parameter, cookie or JSON path; a body or size does not. */
+export function rowNeedsName(kind: MatchRowKind): boolean {
+  return kind !== 'body' && kind !== 'size';
+}
 
 /** Computed per call or per connection - a test on them would match one call, never the next. */
 const NOT_TESTABLE = new Set(['content-length', 'host', 'transfer-encoding', 'connection', 'keep-alive', 'upgrade', 'te', 'trailer', 'cookie']);
@@ -19,7 +43,7 @@ const DEFAULT_SECRETS = new Set(['authorization', 'proxy-authorization', 'cookie
 
 /** One header, query parameter or cookie of the picked call, offered as a match test. */
 export interface TestCandidate {
-  readonly kind: MatchTestKind;
+  readonly kind: MatchRowKind;
   readonly name: string;
   readonly value: string;
   /** A credential (every cookie counts as one) - tagged, since checking it puts its value in the rule in plain text. */
@@ -36,6 +60,8 @@ export interface MatchSource {
   /** Path with the query - what the proxy tests pathContains / pathRegex against. */
   readonly pathWithQuery: string;
   readonly tests: readonly TestCandidate[];
+  /** The raw request body - what the live check reads body tests against. */
+  readonly body: string;
 }
 
 export function matchSourceOf(call: CallRecord, direction: 'outbound' | 'inbound', sensitiveNames: ReadonlySet<string> | null): MatchSource {
@@ -68,6 +94,12 @@ export function matchSourceOf(call: CallRecord, direction: 'outbound' | 'inbound
   }
   for (const [name, value] of params) tests.push({ kind: 'query', name, value, secret: false });
   for (const [name, value] of cookiesOf(headers)) tests.push({ kind: 'cookies', name, value, secret: true });
+  const body = call.request?.body ?? '';
+  if (body.trim()) {
+    // The whole body, pretty-printed, as one "body contains" row - trimmed down by the user.
+    tests.push({ kind: 'body', name: '', value: detectAndFormatBody(body).body, secret: false });
+    for (const [name, value] of topLevelFields(body)) tests.push({ kind: 'json', name, value, secret: false });
+  }
 
   return {
     direction,
@@ -77,7 +109,23 @@ export function matchSourceOf(call: CallRecord, direction: 'outbound' | 'inbound
     path,
     pathWithQuery: path + query,
     tests,
+    body,
   };
+}
+
+/** A JSON object body's top-level fields as [name, text] - strings as they are, the rest as JSON. */
+function topLevelFields(body: string): [string, string][] {
+  try {
+    const doc = JSON.parse(body) as unknown;
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return [];
+    return Object.entries(doc as Record<string, unknown>).map(([name, value]) => [name, asText(value)]);
+  } catch {
+    return [];
+  }
+}
+
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
 /** name -> value, first occurrence winning, split the way the proxy's _request_cookies splits. */
@@ -153,12 +201,14 @@ function escapeRegex(text: string): string {
 }
 
 export interface TestChoice {
-  readonly kind: MatchTestKind;
+  readonly kind: MatchRowKind;
   readonly name: string;
-  readonly operator: MatchTestOperator;
+  readonly operator: ConditionOperator;
   readonly value: string;
   readonly secret: boolean;
   readonly on: boolean;
+  /** Body and JSON field rows - compare without JSON/XML formatting. */
+  readonly ignoreFormatting: boolean;
 }
 
 export interface MatchChoices {
@@ -192,19 +242,22 @@ export function defaultMatchChoices(source: MatchSource): MatchChoices {
     tests: source.tests.map((t) => ({
       kind: t.kind,
       name: t.name,
-      operator: 'EQUALS',
+      // The body row is the whole document - "contains" is what a trimmed-down copy of it means.
+      operator: t.kind === 'body' ? 'CONTAINS' : 'EQUALS',
       value: t.value,
       secret: t.secret,
       on: false,
+      ignoreFormatting: true,
     })),
   };
 }
 
 export interface FilledTest {
-  readonly kind: MatchTestKind;
+  readonly kind: MatchRowKind;
   readonly name: string;
-  readonly operator: MatchTestOperator;
+  readonly operator: ConditionOperator;
   readonly value: string | null;
+  readonly ignoreFormatting?: boolean;
 }
 
 /** What "Fill match" writes into the form: only the checked fields are present. */
@@ -232,19 +285,20 @@ export function buildMatchFill(source: MatchSource, choices: MatchChoices): Matc
       : {}),
     ...(choices.method && source.method ? { methods: [source.method] } : {}),
     tests: choices.tests
-      .filter((t) => t.on && t.name.trim())
+      .filter((t) => t.on && (!rowNeedsName(t.kind) || t.name.trim()))
       .map((t) => ({
         kind: t.kind,
         name: t.name.trim(),
         operator: t.operator,
-        value: matchTestNeedsValue(t.operator) ? t.value : null,
+        value: bodyTestNeedsValue(t.operator) ? t.value : null,
+        ...(isBodyRow(t.kind) ? { ignoreFormatting: t.ignoreFormatting } : {}),
       })),
   };
 }
 
 /** Same kind + name replaces the existing test in place (header names case-insensitively); the rest are appended. */
-export function mergeTests<T extends { readonly kind: MatchTestKind; readonly name: string }>(existing: readonly T[], added: readonly T[]): T[] {
-  const key = (t: { kind: MatchTestKind; name: string }) => t.kind + ':' + (t.kind === 'headers' ? t.name.trim().toLowerCase() : t.name.trim());
+export function mergeTests<T extends { readonly kind: MatchRowKind; readonly name: string }>(existing: readonly T[], added: readonly T[]): T[] {
+  const key = (t: { kind: MatchRowKind; name: string }) => t.kind + ':' + (t.kind === 'headers' ? t.name.trim().toLowerCase() : t.name.trim());
   const byKey = new Map(added.map((t) => [key(t), t]));
   const out = existing.map((t) => {
     const replacement = byKey.get(key(t));
@@ -263,7 +317,16 @@ export interface MatchForm {
   readonly pathContains: string;
   readonly pathRegex: string;
   readonly methods: readonly string[];
-  readonly tests: readonly { readonly kind: MatchTestKind; readonly name: string; readonly operator: MatchTestOperator; readonly value?: string | null; readonly caseSensitive?: boolean | null }[];
+  readonly tests: readonly MatchFormTest[];
+}
+
+export interface MatchFormTest {
+  readonly kind: MatchRowKind;
+  readonly name: string;
+  readonly operator: ConditionOperator;
+  readonly value?: string | null;
+  readonly caseSensitive?: boolean | null;
+  readonly ignoreFormatting?: boolean | null;
 }
 
 /**
@@ -290,8 +353,8 @@ export function whyNotMatching(form: MatchForm, source: MatchSource): string[] {
   }
   for (const test of form.tests) {
     const name = test.name.trim();
-    if (!name) continue;
-    const failed = testFails(test, name, source);
+    if (rowNeedsName(test.kind) && !name) continue;
+    const failed = isBodyRow(test.kind) ? bodyTestFails(test, name, source) : testFails(test, name, source);
     if (failed) reasons.push(failed);
   }
   return reasons;
@@ -303,7 +366,136 @@ function hostMatches(pattern: string, host: string): boolean {
   return host === pattern;
 }
 
-function testFails(test: MatchForm['tests'][number], name: string, source: MatchSource): string | null {
+/**
+ * A body test the way the proxy's _BodyTest runs it: with ignoreFormatting, the raw value against
+ * the raw body OR the squashed value against the squashed body (both, for a negation) - JSON
+ * squashed outside its strings, XML between its tags.
+ */
+function bodyTestFails(test: MatchFormTest, name: string, source: MatchSource): string | null {
+  const kind = test.kind as 'body' | 'json' | 'size';
+  const op = test.operator;
+  const value = test.value ?? '';
+  const label = kind === 'json' ? `JSON field ${name}` : kind === 'size' ? 'body size' : 'body';
+  const said = `${label} ${bodyTestOperatorLabel(BODY_ROW_KINDS[kind], op)}`;
+  const text = source.body;
+  if ((op === 'MATCHES' || op === 'NOT_MATCHES') && compile(value, '') === null) return `${label}: regex could not be checked here`;
+  const cond = (values: readonly string[], v: string) => conditionHolds(op, values, v, test.caseSensitive !== false);
+
+  if (kind === 'size') {
+    const size = new TextEncoder().encode(text).length;
+    return cond([String(size)], value) ? null : `${said} ${value} bytes does not hold - it is ${size} bytes`;
+  }
+  const squash = test.ignoreFormatting !== false && bodyTestFormats(BODY_ROW_KINDS[kind], op) && test.value != null;
+  let raw: string[];
+  let squashed: string[] | null = null;
+  let form: 'json' | 'xml' | null = null;
+  if (kind === 'json') {
+    const found = jsonField(text, name);
+    raw = found.map(asText);
+    form = 'json';
+    squashed = found.map((f, i) => (typeof f === 'string' ? raw[i] : squashJson(raw[i])));
+  } else {
+    raw = text ? [text] : [];
+    form = text ? bodyForm(text) : null;
+    if (form) squashed = [form === 'json' ? squashJson(text) : squashXml(text)];
+  }
+  let ok: boolean;
+  if (!squash || !form || !squashed) {
+    ok = cond(raw, value);
+  } else {
+    const results = [cond(raw, value), cond(squashed, form === 'json' ? squashJson(value) : squashXml(value))];
+    ok = op.startsWith('NOT_') ? results.every(Boolean) : results.some(Boolean);
+  }
+  return ok ? null : `${said}${bodyTestNeedsValue(op) ? ' the value' : ''} does not hold`;
+}
+
+/** proxy Condition.holds_values: presence, the "absent" negatives, then any / none over the values. */
+function conditionHolds(op: ConditionOperator, values: readonly string[], value: string, caseSensitive: boolean): boolean {
+  if (op === 'EXISTS') return values.length > 0;
+  if (op === 'NOT_EXISTS') return values.length === 0;
+  if (!values.length) return op === 'NOT_EQUALS' || op === 'NOT_CONTAINS' || op === 'NOT_MATCHES';
+  const one = (actual: string): boolean => {
+    if (op === 'MATCHES' || op === 'NOT_MATCHES') return compile(value, caseSensitive ? '' : 'i')?.test(actual) ?? false;
+    if (op === 'AT_LEAST' || op === 'AT_MOST') {
+      const n = Number(actual);
+      const limit = Number(value);
+      if (actual.trim() === '' || Number.isNaN(n) || value.trim() === '' || Number.isNaN(limit)) return false;
+      return op === 'AT_LEAST' ? n >= limit : n <= limit;
+    }
+    const a = caseSensitive ? actual : actual.toLowerCase();
+    const v = caseSensitive ? value : value.toLowerCase();
+    return op === 'EQUALS' || op === 'NOT_EQUALS' ? a === v : a.includes(v);
+  };
+  const any = values.some(one);
+  return op.startsWith('NOT_') ? !any : any;
+}
+
+/** JSON text without the whitespace outside its strings - proxy _squash_json. */
+export function squashJson(text: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+      out += ch;
+    } else if (!/\s/.test(ch)) {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/** XML without the whitespace between tags - proxy _squash_xml. */
+export function squashXml(text: string): string {
+  return text.trim().replace(/>\s+</g, '><');
+}
+
+function bodyForm(text: string): 'json' | 'xml' | null {
+  const head = text.trimStart()[0];
+  return head === '{' || head === '[' ? 'json' : head === '<' ? 'xml' : null;
+}
+
+/** Every value at a dotted path (`a.b[0].c`, `a[*].c`) - proxy get_json_field. */
+function jsonField(text: string, path: string): unknown[] {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const segments: (string | number)[] = [];
+  for (const part of path.split('.')) {
+    if (!part) continue;
+    const bracket = part.indexOf('[');
+    const name = bracket < 0 ? part : part.slice(0, bracket);
+    if (name) segments.push(name);
+    for (const m of (bracket < 0 ? '' : part.slice(bracket)).matchAll(/\[([^\]]*)\]/g)) {
+      const index = m[1].trim();
+      if (index === '*') segments.push('*');
+      else if (/^-?\d+$/.test(index)) segments.push(Number(index));
+    }
+  }
+  const collect = (node: unknown, rest: (string | number)[]): unknown[] => {
+    if (!rest.length) return [node];
+    const [head, ...tail] = rest;
+    if (head === '*') return Array.isArray(node) ? node.flatMap((item) => collect(item, tail)) : [];
+    if (typeof head === 'number') {
+      if (!Array.isArray(node) || head >= node.length || head < -node.length) return [];
+      return collect(node[head < 0 ? node.length + head : head], tail);
+    }
+    if (!node || typeof node !== 'object' || Array.isArray(node) || !(head in (node as object))) return [];
+    return collect((node as Record<string, unknown>)[head], tail);
+  };
+  return collect(doc, segments);
+}
+
+function testFails(test: MatchFormTest, name: string, source: MatchSource): string | null {
   const found = source.tests.find((t) => t.kind === test.kind && (test.kind === 'headers' ? t.name.toLowerCase() === name.toLowerCase() : t.name === name));
   const actual = found ? found.value : null;
   const label = `${test.kind === 'headers' ? 'header' : test.kind === 'query' ? 'query' : 'cookie'} ${name}`;

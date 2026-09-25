@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.interception.domain;
 
+import com.fathy.alfred.backend.interception.domain.model.BodyTest;
 import com.fathy.alfred.backend.interception.domain.model.ActionType;
 import com.fathy.alfred.backend.interception.domain.model.Condition;
 import com.fathy.alfred.backend.interception.domain.model.ConditionBranch;
@@ -690,7 +691,49 @@ class RuleValidatorTest {
     @Test
     void aMatchWithoutTestsKeepsItsStoredShape() throws Exception {
         String json = JSON.writeValueAsString(RuleMatch.empty());
-        assertThat(json).doesNotContain("headers").doesNotContain("query").doesNotContain("cookies");
+        assertThat(json).doesNotContain("headers").doesNotContain("query").doesNotContain("cookies").doesNotContain("body");
+    }
+
+    private static List<String> bodyProblems(Map<String, Object> test) {
+        return matchProblems(Map.of("body", List.of(test)));
+    }
+
+    @Test
+    void bodyTestsTakeOnlyTheOperatorsTheirKindHas() {
+        assertThat(bodyProblems(Map.of("kind", "BODY", "operator", "CONTAINS", "value", "<Currency>EUR</Currency>"))).isEmpty();
+        assertThat(bodyProblems(Map.of("kind", "BODY", "operator", "NOT_EXISTS"))).isEmpty();
+        assertThat(bodyProblems(Map.of("kind", "BODY", "operator", "AT_LEAST", "value", "3")))
+                .anyMatch(p -> p.contains("The body test cannot use AT_LEAST"));
+        assertThat(bodyProblems(Map.of("kind", "SIZE", "operator", "AT_MOST", "value", "20000"))).isEmpty();
+        assertThat(bodyProblems(Map.of("kind", "SIZE", "operator", "CONTAINS", "value", "x")))
+                .anyMatch(p -> p.contains("body size test cannot use CONTAINS"));
+        assertThat(bodyProblems(Map.of("kind", "JSON_FIELD", "path", "itinerary.price", "operator", "AT_LEAST", "value", "100"))).isEmpty();
+        assertThat(bodyProblems(Map.of("operator", "EXISTS"))).anyMatch(p -> p.contains("needs a kind"));
+    }
+
+    @Test
+    void bodyTestsNeedAPathAValueANumberAndASafePattern() {
+        assertThat(bodyProblems(Map.of("kind", "JSON_FIELD", "operator", "EXISTS"))).anyMatch(p -> p.contains("needs a path"));
+        assertThat(bodyProblems(Map.of("kind", "BODY", "operator", "EQUALS"))).anyMatch(p -> p.contains("needs a value"));
+        assertThat(bodyProblems(Map.of("kind", "JSON_FIELD", "path", "price", "operator", "AT_MOST", "value", "cheap")))
+                .anyMatch(p -> p.contains("needs a number"));
+        assertThat(bodyProblems(Map.of("kind", "SIZE", "operator", "AT_LEAST", "value", "-1")))
+                .anyMatch(p -> p.contains("0 bytes or more"));
+        assertThat(bodyProblems(Map.of("kind", "BODY", "operator", "MATCHES", "value", "(a+)+")))
+                .anyMatch(p -> p.contains("repeats a group"));
+        assertThat(bodyProblems(Map.of("kind", "BODY", "operator", "CONTAINS", "value", "x".repeat(RuleValidator.MAX_BODY_TEST_CHARS + 1))))
+                .anyMatch(p -> p.contains("capped at"));
+        List<Map<String, Object>> many = java.util.Collections.nCopies(RuleValidator.MAX_BODY_TESTS + 1, Map.of("kind", "BODY", "operator", "EXISTS"));
+        assertThat(matchProblems(Map.of("body", many))).anyMatch(p -> p.contains("at most " + RuleValidator.MAX_BODY_TESTS));
+    }
+
+    @Test
+    void bodyTestsSurviveTheRoundTripIntoTheSnapshotShape() throws Exception {
+        RuleMatch match = JSON.convertValue(
+                Map.of("body", List.of(Map.of("kind", "BODY", "operator", "CONTAINS", "value", "EUR", "ignoreFormatting", true))),
+                RuleMatch.class);
+        assertThat(match.body()).containsExactly(new BodyTest(BodyTest.Kind.BODY, null, BodyTest.Operator.CONTAINS, "EUR", null, true));
+        assertThat(JSON.writeValueAsString(match)).contains("\"body\":[{\"kind\":\"BODY\",\"operator\":\"CONTAINS\",\"value\":\"EUR\",\"ignoreFormatting\":true}]");
     }
 
     private static final String ANSWER = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";

@@ -9209,3 +9209,33 @@ app-header-editor {
   color: var(--purple-light);
   opacity: 0.85;
 }
+
+/* Body tests in a rule's "Only when…" (and in Fill from a call…): the value is a whole colored
+   body editor, on its own line under the row's pickers. */
+.cond-row.body-test-row {
+  flex-wrap: wrap;
+}
+
+.body-test-value,
+.mfc-body {
+  flex: 1 0 100%;
+  min-width: 0;
+
+  .body-editor {
+    max-height: 18rem;
+  }
+}
+
+.mfc-body {
+  padding: 0 0 0.4rem 1.7rem;
+}
+
+.cond-number {
+  max-width: 8rem;
+}
+
+.cond-fmt.on,
+.mfc-fmt.on {
+  border-color: var(--purple);
+  color: var(--purple-light);
+}

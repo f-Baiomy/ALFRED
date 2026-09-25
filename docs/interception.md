@@ -105,9 +105,44 @@ tested header/cookie name is in the sensitive list - fetched from `GET
 /interception/sensitive-headers` (a `sensitiveHeaders` signal in `interception-state.service.ts`),
 never a second copy of `SensitiveHeaders.NAMES` in the frontend.
 
-**Still deliberately not implemented:** body matchers (they invite an expression grammar) and
-response-status matching (it cannot work in the request phase, where the decision to intercept has
-to be made). See [Adding a matcher](#adding-a-matcher).
+### Request-body matchers
+
+`RuleMatch.body` is a list of `BodyTest(kind, path, operator, value, caseSensitive,
+ignoreFormatting)`, all of which must hold, like the header tests - still a flat list, not a
+grammar:
+
+| kind | operators | value |
+|---|---|---|
+| `BODY` - the request body text | `CONTAINS`, `NOT_CONTAINS`, `EQUALS`, `NOT_EQUALS`, `MATCHES`, `NOT_MATCHES`, `EXISTS` ("has a body"), `NOT_EXISTS` ("is empty") | text, up to `MAX_BODY_TEST_CHARS` (1,000,000) - a whole pasted body fits |
+| `JSON_FIELD` - one field by dotted `path` (`passengers[*].type`) | all ten condition operators, `AT_LEAST`/`AT_MOST` numeric | as for a condition on `REQUEST_JSON_FIELD` |
+| `SIZE` - the body's byte length | `AT_LEAST`, `AT_MOST` | a number of bytes |
+
+`RuleValidator` refuses an operator a kind does not take, a JSON test without a path, a
+non-numeric `AT_LEAST`/`AT_MOST`, a negative size, more than `MAX_BODY_TESTS` (10), and a
+`MATCHES` pattern that fails `PatternSafety` (it runs on a whole body, in the event loop).
+
+In the proxy, `_BodyTest` runs **last** in `Match.matches` - after every cheaper matcher, so most
+calls never have their body read - and compares through `Condition.holds_values`, the evaluator
+IF_REQUEST uses on `REQUEST_BODY`/`REQUEST_JSON_FIELD`, so "contains" means the same thing in a
+match and a condition. A test the engine cannot use (unknown kind, JSON test without a path, a
+regex that does not compile) **never holds** rather than being dropped: dropped, the rule would
+apply to every call.
+
+**`ignoreFormatting`** (default on; text operators only): the value and the body are both
+squashed - JSON by removing the whitespace *outside* its strings (`_squash_json`, so fragments like
+`"currency": "EUR"` work too), XML by removing the whitespace between tags (`_squash_xml`) - so a
+pretty-printed value matches a minified call. Both readings are tried (raw value against raw body,
+squashed against squashed), because squashing a plain phrase would also squash it: `New York` is
+a phrase inside a JSON string. A positive operator holds if either reading does, a negative one
+only if both do, so a test and its negation can never both hold.
+
+The frontend offers these as Body / JSON field / Body size rows in "Only when…" (a body value is
+the colored `app-body-editor`), "Fill from a call…" offers the picked call's whole body,
+pretty-printed, as an unchecked "contains" row plus each top-level JSON field, and
+`whyNotMatching` mirrors the squash-then-compare for the live "still matches that call" check.
+
+**Still deliberately not implemented:** response-status matching (it cannot work in the request
+phase, where the decision to intercept has to be made). See [Adding a matcher](#adding-a-matcher).
 
 ## Actions
 

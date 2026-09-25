@@ -90,13 +90,28 @@
               @if (t.secret) {
                 <span class="cfc-secret" title="A credential - checked with a value, the value is saved in the rule in plain text (Export and Duplicate include it). Switch to 'exists' to test only that it is there.">secret</span>
               }
-              <app-select-picker [options]="operatorOptions" [value]="t.operator" (valueChange)="editTest(i, { operator: $any($event) })" />
-              @if (needsValue(t)) {
+              <app-select-picker [options]="operatorOptions(t)" [value]="t.operator" (valueChange)="editTest(i, { operator: $any($event) })" />
+              @if (formats(t)) {
+                <button
+                  type="button"
+                  class="pill mfc-fmt"
+                  [class.on]="t.ignoreFormatting"
+                  [attr.aria-pressed]="t.ignoreFormatting"
+                  title="Compare JSON by content and XML without the whitespace between tags - a pretty-printed value still matches a minified call"
+                  (click)="editTest(i, { ignoreFormatting: !t.ignoreFormatting })"
+                >ignore formatting</button>
+              }
+              @if (needsValue(t) && !isBodyTest(t)) {
                 <input type="text" [value]="t.value" (input)="editTest(i, { value: $any($event.target).value })" />
               }
             </span>
-            <span class="muted">{{ isSoapAction(t) ? 'tells SOAP operations apart' : '' }}</span>
+            <span class="muted">{{ isSoapAction(t) ? 'tells SOAP operations apart' : isBodyTest(t) ? 'trim it to the part that matters' : '' }}</span>
           </div>
+          @if (isBodyTest(t) && needsValue(t)) {
+            <div class="mfc-body">
+              <app-body-editor [value]="t.value" label="Body test value" (valueChange)="editTest(i, { value: $event })" />
+            </div>
+          }
         } @empty {
           <small class="muted">This call has no headers, query parameters or cookies to test.</small>
         }

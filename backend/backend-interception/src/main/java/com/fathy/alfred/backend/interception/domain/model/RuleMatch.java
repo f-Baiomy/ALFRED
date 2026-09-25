@@ -11,9 +11,9 @@ import java.util.List;
  * many recent calls it would have hit before the rule is saved.
  *
  * <p>Deliberately a small, fixed set rather than a predicate language. Header, query and cookie
- * tests ({@link MatchTest}) are a flat list that must all hold - no expression grammar. Body and
- * response-status matchers are still left out: the first invites a grammar, and a response-status
- * matcher cannot work at all in the request phase, where the decision to intercept has to be made.
+ * tests ({@link MatchTest}) and request-body tests ({@link BodyTest}) are flat lists that must all
+ * hold - no expression grammar. A response-status matcher is left out: it cannot work at all in the
+ * request phase, where the decision to intercept has to be made.
  * See docs/interception.md.
  *
  * <p>{@code source} and {@code serviceName} are the two Alfred-specific matchers and the reason
@@ -55,13 +55,17 @@ public record RuleMatch(
         List<MatchTest> query,
         /** Request cookie tests. */
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
-        List<MatchTest> cookies) {
+        List<MatchTest> cookies,
+        /** Request body tests - the whole text, a JSON field, or the size. */
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<BodyTest> body) {
 
     public RuleMatch {
         methods = methods == null ? List.of() : List.copyOf(methods);
         headers = headers == null ? List.of() : List.copyOf(headers);
         query = query == null ? List.of() : List.copyOf(query);
         cookies = cookies == null ? List.of() : List.copyOf(cookies);
+        body = body == null ? List.of() : List.copyOf(body);
         serviceNames = serviceNames == null ? List.of() : List.copyOf(serviceNames);
         if (serviceNames.isEmpty() && serviceName != null && !serviceName.isBlank()) {
             serviceNames = List.of(serviceName);
@@ -69,10 +73,17 @@ public record RuleMatch(
         serviceName = null;
     }
 
+    /** The shape before body tests existed. */
+    public RuleMatch(String source, String serviceName, List<String> serviceNames, List<String> methods,
+                     String host, String pathContains, String pathRegex,
+                     List<MatchTest> headers, List<MatchTest> query, List<MatchTest> cookies) {
+        this(source, serviceName, serviceNames, methods, host, pathContains, pathRegex, headers, query, cookies, null);
+    }
+
     /** The shape before header, query and cookie tests existed - no tests. */
     public RuleMatch(String source, String serviceName, List<String> serviceNames, List<String> methods,
                      String host, String pathContains, String pathRegex) {
-        this(source, serviceName, serviceNames, methods, host, pathContains, pathRegex, null, null, null);
+        this(source, serviceName, serviceNames, methods, host, pathContains, pathRegex, null, null, null, null);
     }
 
     public static RuleMatch empty() {

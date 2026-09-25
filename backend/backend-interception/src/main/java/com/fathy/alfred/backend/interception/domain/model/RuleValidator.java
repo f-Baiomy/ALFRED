@@ -29,6 +29,10 @@ public final class RuleValidator {
     /** Mirrors proxy/interception.py's MAX_PAUSE_SECONDS. */
     public static final int MAX_PAUSE_SECONDS = 300;
     public static final int MAX_ACTIONS_PER_RULE = 20;
+    /** Body tests read the whole request body; a handful covers every real case. */
+    public static final int MAX_BODY_TESTS = 10;
+    /** A body test's value - a pasted full body included. Mirrors proxy/interception.py's MAX_BODY_TEST_CHARS. */
+    public static final int MAX_BODY_TEST_CHARS = 1_000_000;
 
     private RuleValidator() {
     }
@@ -159,6 +163,57 @@ public final class RuleValidator {
         validateMatchTests(match.headers(), "header", problems);
         validateMatchTests(match.query(), "query parameter", problems);
         validateMatchTests(match.cookies(), "cookie", problems);
+        validateBodyTests(match.body(), problems);
+    }
+
+    private static void validateBodyTests(List<BodyTest> tests, List<String> problems) {
+        if (tests.size() > MAX_BODY_TESTS) {
+            problems.add("A rule may have at most " + MAX_BODY_TESTS + " body tests.");
+        }
+        for (BodyTest test : tests) {
+            if (test == null || test.kind() == null) {
+                problems.add("Every body test needs a kind: body, JSON field or body size.");
+                continue;
+            }
+            String what = switch (test.kind()) {
+                case BODY -> "The body test";
+                case JSON_FIELD -> "The JSON field test" + (test.path() == null || test.path().isBlank() ? "" : " on " + test.path());
+                case SIZE -> "The body size test";
+            };
+            if (test.operator() == null || !test.allowedOperators().contains(test.operator())) {
+                problems.add(what + " cannot use " + (test.operator() == null ? "no operator" : test.operator()) + ".");
+                continue;
+            }
+            if (test.kind() == BodyTest.Kind.JSON_FIELD && (test.path() == null || test.path().isBlank())) {
+                problems.add("Every JSON field test needs a path, like itinerary.price.");
+            }
+            if (!test.needsValue()) {
+                continue;
+            }
+            if (test.value() == null) {
+                problems.add(what + " needs a value to compare with.");
+                continue;
+            }
+            if (test.value().length() > MAX_BODY_TEST_CHARS) {
+                problems.add(what + " value is capped at " + MAX_BODY_TEST_CHARS + " characters.");
+            }
+            if (test.numeric()) {
+                try {
+                    double number = Double.parseDouble(test.value().trim());
+                    if (test.kind() == BodyTest.Kind.SIZE && number < 0) {
+                        problems.add("The body size test needs a size of 0 bytes or more.");
+                    }
+                } catch (NumberFormatException e) {
+                    problems.add(what + " needs a number for at least / at most.");
+                }
+            }
+            if (test.regex()) {
+                // Run on a whole body, in the proxy's event loop - held to the find/replace checks.
+                for (String problem : PatternSafety.problems(test.value(), true)) {
+                    problems.add(what + ": " + problem);
+                }
+            }
+        }
     }
 
     private static void validateMatchTests(List<MatchTest> tests, String kind, List<String> problems) {

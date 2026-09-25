@@ -141,6 +141,68 @@ export interface RuleMatch {
   readonly query?: readonly MatchTest[];
   /** Request cookie tests. */
   readonly cookies?: readonly MatchTest[];
+  /** Request body tests - the text, one JSON field, or the size. */
+  readonly body?: readonly BodyTest[];
+}
+
+export type BodyTestKind = 'BODY' | 'JSON_FIELD' | 'SIZE';
+
+/**
+ * One test on the request body in a rule's match (backend BodyTest). Compared by the proxy's
+ * Condition evaluator; with ignoreFormatting (default on) JSON and XML are compared without their
+ * indentation, so a pretty-printed value matches a minified call.
+ */
+export interface BodyTest {
+  readonly kind: BodyTestKind;
+  /** JSON_FIELD only - dotted path, `passengers[*].type`. */
+  readonly path?: string | null;
+  readonly operator: ConditionOperator;
+  readonly value?: string | null;
+  /** Defaults to true. */
+  readonly caseSensitive?: boolean | null;
+  /** Defaults to true. */
+  readonly ignoreFormatting?: boolean | null;
+}
+
+/** Which operators each body-test kind takes - mirrors BodyTest.allowedOperators in the backend. */
+export const BODY_TEST_OPERATORS: Readonly<Record<BodyTestKind, readonly ConditionOperator[]>> = {
+  BODY: ['CONTAINS', 'NOT_CONTAINS', 'EQUALS', 'NOT_EQUALS', 'MATCHES', 'NOT_MATCHES', 'EXISTS', 'NOT_EXISTS'],
+  JSON_FIELD: ['EQUALS', 'NOT_EQUALS', 'CONTAINS', 'NOT_CONTAINS', 'MATCHES', 'NOT_MATCHES', 'EXISTS', 'NOT_EXISTS', 'AT_LEAST', 'AT_MOST'],
+  SIZE: ['AT_LEAST', 'AT_MOST'],
+};
+
+export const BODY_TEST_KIND_LABELS: Readonly<Record<BodyTestKind, string>> = {
+  BODY: 'body',
+  JSON_FIELD: 'JSON field',
+  SIZE: 'body size',
+};
+
+/** The operator as a body test reads it - a body "has a body" / "is empty" rather than exists. */
+export function bodyTestOperatorLabel(kind: BodyTestKind, operator: ConditionOperator): string {
+  if (kind === 'BODY' && operator === 'EXISTS') return 'has a body';
+  if (kind === 'BODY' && operator === 'NOT_EXISTS') return 'is empty';
+  return OPERATOR_LABELS[operator] ?? operator;
+}
+
+export function bodyTestNeedsValue(operator: ConditionOperator): boolean {
+  return operator !== 'EXISTS' && operator !== 'NOT_EXISTS';
+}
+
+/** Whether "ignore formatting" means anything for this test - text comparisons only. */
+export function bodyTestFormats(kind: BodyTestKind, operator: ConditionOperator): boolean {
+  return kind !== 'SIZE' && ['EQUALS', 'NOT_EQUALS', 'CONTAINS', 'NOT_CONTAINS'].includes(operator);
+}
+
+/** "body contains (312 chars)", "JSON field price at least 100", "body size at most 20000 bytes". */
+export function describeBodyTest(test: BodyTest): string {
+  const head = test.kind === 'JSON_FIELD' ? `JSON field ${test.path ?? ''}` : BODY_TEST_KIND_LABELS[test.kind];
+  const operator = bodyTestOperatorLabel(test.kind, test.operator);
+  if (!bodyTestNeedsValue(test.operator)) return `${head} ${operator}`;
+  const value = test.value ?? '';
+  if (test.kind === 'SIZE') return `${head} ${operator} ${value} bytes`;
+  // A body value can be a whole pasted document - its length says enough in a one-line summary.
+  const shown = value.length > 40 || value.includes('\n') ? `(${value.length} chars)` : `"${value}"`;
+  return `${head} ${operator} ${shown}`;
 }
 
 export type MatchTestOperator = 'EXISTS' | 'NOT_EXISTS' | 'EQUALS' | 'CONTAINS' | 'MATCHES';
@@ -681,6 +743,7 @@ export function describeMatch(match: RuleMatch, sensitive: ReadonlySet<string> |
   const tests = (Object.keys(MATCH_TEST_KINDS) as MatchTestKind[]).flatMap((kind) =>
     (match[kind] ?? []).map((test) => describeMatchTest(kind, test, sensitive))
   );
+  tests.push(...(match.body ?? []).map(describeBodyTest));
   if (tests.length) parts.push(`only when ${tests.join(' and ')}`);
   return parts.join(' · ');
 }
