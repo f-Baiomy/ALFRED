@@ -94,6 +94,41 @@ class InterceptionRulesServiceTest {
                 new SelfTargets(Set.of("backend"), Set.of("localhost:5000")), answers);
     }
 
+    @Test
+    void createsRunningAtOnceKeepEveryRule() throws Exception {
+        // A store slow enough that two unserialised read-modify-writes would overlap - the second
+        // saving its copy of the list, which lacks the first one's rule.
+        InMemoryStore slow = new InMemoryStore() {
+            @Override
+            public List<InterceptionRule> findAll() {
+                List<InterceptionRule> copy = super.findAll();
+                try {
+                    Thread.sleep(5);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return copy;
+            }
+        };
+        InterceptionRulesService concurrent = new InterceptionRulesService(slow, publisher, notifications,
+                new BreakpointService(notifications), SelfTargets.none(),
+                new StoredAnswersService(answerStore, (direction, callId, cycleId) -> java.util.Optional.empty(), slow, 10_485_760));
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < 16; i++) {
+                int n = i;
+                futures.add(pool.submit(() -> concurrent.create(delayRule("r" + n, n))));
+            }
+            for (java.util.concurrent.Future<?> future : futures) {
+                future.get();
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(slow.findAll()).hasSize(16);
+    }
+
     private static InterceptionRule delayRule(String name, int priority) {
         return new InterceptionRule(null, name, null, true, priority, false, RuleMatch.empty(),
                 List.of(new RuleAction(ActionType.DELAY_REQUEST, 1000, null, null, null, null, null, null, null, null, null, null, null)),

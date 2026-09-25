@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -49,6 +51,7 @@ public class SqliteInterceptionRulesRepository {
 
     private HikariDataSource dataSource;
     private JdbcTemplate jdbcTemplate;
+    private TransactionTemplate transaction;
 
     @PostConstruct
     void init() {
@@ -70,6 +73,7 @@ public class SqliteInterceptionRulesRepository {
         config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;");
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
+        this.transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
 
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS interception_rules (
@@ -146,16 +150,23 @@ public class SqliteInterceptionRulesRepository {
         // Replace wholesale rather than diffing: the list is small, the service always has the
         // complete intended state in hand, and a diff would need its own ordering bookkeeping to
         // keep `rowid` tie-breaking meaningful after a reorder.
-        jdbcTemplate.execute("DELETE FROM interception_rules");
-        for (InterceptionRule rule : rules) {
-            jdbcTemplate.update("""
-                            INSERT INTO interception_rules
-                            (id, name, description, enabled, priority, stop_processing, match_json, actions_json, created_at, updated_at)
-                            VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                    rule.id(), rule.name(), rule.description(), rule.enabled() ? 1 : 0, rule.priority(),
-                    rule.stopProcessing() ? 1 : 0, write(rule.match()), write(rule.actions()),
-                    rule.createdAt(), rule.updatedAt());
-        }
+        //
+        // ONE transaction: the delete and every insert commit together or not at all. Outside one,
+        // an insert that failed part-way (a duplicate id from two overlapping saves, a serialisation
+        // error, the disk) left the table holding only the rules inserted before it - every other
+        // rule silently gone, with nothing logged beyond that request's own 500.
+        transaction.executeWithoutResult(status -> {
+            jdbcTemplate.execute("DELETE FROM interception_rules");
+            for (InterceptionRule rule : rules) {
+                jdbcTemplate.update("""
+                                INSERT INTO interception_rules
+                                (id, name, description, enabled, priority, stop_processing, match_json, actions_json, created_at, updated_at)
+                                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                        rule.id(), rule.name(), rule.description(), rule.enabled() ? 1 : 0, rule.priority(),
+                        rule.stopProcessing() ? 1 : 0, write(rule.match()), write(rule.actions()),
+                        rule.createdAt(), rule.updatedAt());
+            }
+        });
     }
 
     public boolean isEnabled() {

@@ -79,8 +79,14 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
         return store.findAll().stream().filter(r -> r.id().equals(id)).findFirst();
     }
 
+    /*
+     * Every change below is read-modify-write over the WHOLE list (findAll, change, saveAll), so
+     * they are serialised: two overlapping ones would otherwise each save their own copy, and the
+     * later would erase what the earlier added - or collide on an id part-way through the insert.
+     * Rule edits are rare and quick; one at a time costs nothing a person could notice.
+     */
     @Override
-    public InterceptionRule create(InterceptionRule rule) {
+    public synchronized InterceptionRule create(InterceptionRule rule) {
         validate(rule);
         String now = Instant.now().toString();
         InterceptionRule saved = rule
@@ -94,7 +100,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     }
 
     @Override
-    public Optional<InterceptionRule> update(String id, InterceptionRule rule) {
+    public synchronized Optional<InterceptionRule> update(String id, InterceptionRule rule) {
         validate(rule);
         List<InterceptionRule> rules = new ArrayList<>(store.findAll());
         for (int i = 0; i < rules.size(); i++) {
@@ -113,7 +119,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     }
 
     @Override
-    public boolean delete(String id) {
+    public synchronized boolean delete(String id) {
         List<InterceptionRule> rules = new ArrayList<>(store.findAll());
         if (!rules.removeIf(r -> r.id().equals(id))) {
             return false;
@@ -126,7 +132,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     }
 
     @Override
-    public Optional<InterceptionRule> setEnabled(String id, boolean enabled) {
+    public synchronized Optional<InterceptionRule> setEnabled(String id, boolean enabled) {
         List<InterceptionRule> rules = new ArrayList<>(store.findAll());
         for (int i = 0; i < rules.size(); i++) {
             if (!rules.get(i).id().equals(id)) {
@@ -146,7 +152,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     }
 
     @Override
-    public List<InterceptionRule> reorder(List<String> idsInOrder) {
+    public synchronized List<InterceptionRule> reorder(List<String> idsInOrder) {
         Map<String, InterceptionRule> byId = new LinkedHashMap<>();
         for (InterceptionRule rule : store.findAll()) {
             byId.put(rule.id(), rule);
@@ -183,7 +189,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
      * able to do.
      */
     @Override
-    public RuleImportResult importRules(List<InterceptionRule> incoming, boolean enable) {
+    public synchronized RuleImportResult importRules(List<InterceptionRule> incoming, boolean enable) {
         List<InterceptionRule> rules = new ArrayList<>(store.findAll());
         int nextPriority = rules.stream().mapToInt(InterceptionRule::priority).max().orElse(0) + 10;
 
@@ -220,7 +226,7 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     }
 
     @Override
-    public void setMasterSwitch(boolean on) {
+    public synchronized void setMasterSwitch(boolean on) {
         store.setEnabled(on);
         publish(on, store.findAll());
         notifications.rulesChanged();
