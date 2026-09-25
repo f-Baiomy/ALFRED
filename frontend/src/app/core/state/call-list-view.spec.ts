@@ -1,8 +1,8 @@
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { of } from 'rxjs';
 import { CallRecord } from '../models/call.model';
-import { CallListView, CallsQuery, createCallListView } from './call-list-view';
+import { CallListView, CallsQuery, REFRESH_WINDOW_MS, createCallListView } from './call-list-view';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -104,6 +104,25 @@ describe('createCallListView', () => {
     expect(queries[1].search).toBe('hello');
     expect(queries[1].offset).toBe(0);
   });
+
+  it('folds a burst of refresh() calls into one fetch now and one at the end of the window', fakeAsync(() => {
+    const pageOne = [makeCall({ timestamp: 'a' })];
+    const { view, queries } = makeView([pageOne]);
+    expect(queries.length).toBe(1);
+
+    // Twenty calls arriving together are forty WebSocket pushes, each asking for a refresh.
+    for (let i = 0; i < 40; i++) view.refresh();
+    expect(queries.length).toBe(2); // the first refresh, at once
+
+    tick(REFRESH_WINDOW_MS);
+    expect(queries.length).toBe(3); // the rest of the burst, once - nothing left unshown
+
+    tick(REFRESH_WINDOW_MS * 2);
+    expect(queries.length).toBe(3);
+    view.refresh();
+    expect(queries.length).toBe(4); // a quiet list refreshes at once again
+    tick(REFRESH_WINDOW_MS);
+  }));
 
   it('refresh() re-fetches from offset 0 for at least the currently-loaded count', () => {
     const pageOne = [makeCall({ timestamp: 'a' }), makeCall({ timestamp: 'b' })];

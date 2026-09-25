@@ -1,7 +1,7 @@
 import { DestroyRef, Signal, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { Observable, Subject, of } from 'rxjs';
-import { catchError, switchMap } from 'rxjs/operators';
+import { Observable, Subject, asyncScheduler, of } from 'rxjs';
+import { catchError, debounceTime, distinctUntilChanged, switchMap, tap, throttleTime } from 'rxjs/operators';
 import { CallOverlapCandidate, CallRecord, SortMode } from '../models/call.model';
 import { CallListRow, CallStatusFilter, callKey, isInProgress, matchesStatusFilter, sortCalls, splitCallsForDisplay, supplierOf } from '../../shared/utils/call-utils';
 import {
@@ -77,6 +77,11 @@ export interface CallStats {
   readonly failed: number;
   readonly inProgress: number;
 }
+
+/** How long a burst of refresh() calls is folded into one trailing fetch - see refreshes$. */
+export const REFRESH_WINDOW_MS = 400;
+/** How long the overlap range must hold still before its candidates are fetched. */
+export const OVERLAP_SETTLE_MS = 150;
 
 /** Lives in call-utils.ts now (so its containment-check helpers can share it without a call-utils.ts <-> call-list-view.ts import cycle) - re-exported here since every existing consumer of this module imports it from here. */
 export type { CallStatusFilter };
@@ -357,6 +362,19 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   if (options.fetchOnCreate ?? true) fetch(0, pageSize(), true);
 
   /**
+   * refresh() is what every WebSocket push calls, and one call is two pushes (prepare, complete) -
+   * a burst of traffic (a resent flight search fanning out to every supplier, a load test) used to
+   * mean one full re-fetch of the whole loaded window per push: 20 calls arriving together cost
+   * 129 requests (list, other-direction list, overlaps) and a re-render of the list for each. The
+   * first refresh still fetches at once; the rest of the burst folds into one more fetch at the end
+   * of the window, so nothing is ever left unshown.
+   */
+  const refreshes$ = new Subject<void>();
+  refreshes$
+    .pipe(throttleTime(REFRESH_WINDOW_MS, asyncScheduler, { leading: true, trailing: true }), takeUntilDestroyed(destroyRef))
+    .subscribe(() => fetch(0, Math.max(pageSize(), loadedCalls().length), true));
+
+  /**
    * A live-pushed call that doesn't match the currently-active supplier/id filters must not show
    * up ahead of the (correctly filtered) loaded window just because it hasn't been confirmed by a
    * fetch yet - confirmed live: with an id filter active and real traffic streaming in, every new
@@ -459,8 +477,13 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
 
   toObservable(overlapRange)
     .pipe(
+      // The range is a new object on every change of the list, often with the same bounds, and it
+      // moves twice per refresh (the live push, then the fetched page) - one request per settled
+      // range, not two or three per call arriving.
+      distinctUntilChanged((a, b) => a?.from === b?.from && a?.to === b?.to),
+      tap(() => overlapCandidates.set(undefined)),
+      debounceTime(OVERLAP_SETTLE_MS),
       switchMap((range) => {
-        overlapCandidates.set(undefined);
         if (!range) return of([] as readonly CallOverlapCandidate[]);
         return options.fetchOverlaps({
           from: range.from,
@@ -623,7 +646,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       fetch(loadedCalls().length, pageSize(), false);
     },
     refresh() {
-      fetch(0, Math.max(pageSize(), loadedCalls().length), true);
+      refreshes$.next();
     },
     resetSource() {
       loadedCalls.set([]);

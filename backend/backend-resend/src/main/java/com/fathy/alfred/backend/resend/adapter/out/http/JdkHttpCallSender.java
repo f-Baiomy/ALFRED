@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Sends a resend back through Alfred's own proxies - outbound through the forward proxy (so
@@ -50,6 +51,13 @@ public class JdkHttpCallSender implements CallSenderPort {
             Set.of("content-length", "connection", "transfer-encoding", "upgrade", "expect");
 
     private final HttpClient inboundClient;
+    /**
+     * One client per forward-proxy port, built on first use and kept. A JDK HttpClient owns a
+     * selector thread and a connection pool; building a fresh one for every resend (as this used
+     * to) left one of each behind per call until the GC got to it, and never reused a connection
+     * to the proxy - a batch of resends paid a new TCP handshake and a new thread each time.
+     */
+    private final Map<Integer, HttpClient> outboundClients = new ConcurrentHashMap<>();
     private final SSLContext sslContext;
     private final Duration timeout;
     private final String forwardProxyHost;
@@ -128,19 +136,23 @@ public class JdkHttpCallSender implements CallSenderPort {
 
     private SendOutcome sendOutbound(OutgoingCall call) throws IOException, InterruptedException {
         int port = forwardProxyPorts.getOrDefault(call.serviceName(), forwardProxyDefaultPort);
-        HttpClient.Builder clientBuilder = HttpClient.newBuilder()
-                .connectTimeout(timeout)
-                .proxy(ProxySelector.of(new InetSocketAddress(forwardProxyHost, port)));
-        if (sslContext != null) {
-            clientBuilder.sslContext(sslContext);
-        }
-        HttpClient client = clientBuilder.build();
+        HttpClient client = outboundClients.computeIfAbsent(port, this::outboundClient);
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(call.url())).timeout(timeout);
         applyHeaders(builder, call.headers());
         applyMethodAndBody(builder, call);
 
         return doSend(client, builder.build());
+    }
+
+    private HttpClient outboundClient(int port) {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(timeout)
+                .proxy(ProxySelector.of(new InetSocketAddress(forwardProxyHost, port)));
+        if (sslContext != null) {
+            builder.sslContext(sslContext);
+        }
+        return builder.build();
     }
 
     private static SendOutcome doSend(HttpClient client, HttpRequest request) throws IOException, InterruptedException {
