@@ -34,7 +34,7 @@ interface Row {
     <div class="json-browse">
       <div class="jb-head">
         <b>{{ title() }}</b>
-        <span class="muted">tick fields - each becomes a test or an edit, with its value from the call</span>
+        <span class="muted">{{ allowChange() ? 'tick fields - each becomes a test or an edit, with its value from the call' : 'tick fields - each becomes a test, with its value from the call' }}</span>
         <span class="jb-spacer"></span>
         <button type="button" class="pill" (click)="closed.emit()">Close</button>
         <button type="button" class="pill on" [disabled]="!ticked().size" (click)="add()">Add {{ ticked().size || '' }}</button>
@@ -54,7 +54,7 @@ interface Row {
               <span class="jb-key">{{ row.key }}</span>
               <span class="jb-value" [class]="'jb-' + row.entry.type">{{ row.shown }}</span>
             </label>
-            @if (ticked().has(row.entry.path)) {
+            @if (allowChange() && ticked().has(row.entry.path)) {
               <span class="jb-as">
                 <button type="button" class="pill" [class.on]="modeOf(row.entry.path) === 'test'" (click)="setMode(row.entry.path, 'test')">test it</button>
                 <button type="button" class="pill" [class.on]="modeOf(row.entry.path) === 'change'" (click)="setMode(row.entry.path, 'change')">change it</button>
@@ -71,6 +71,8 @@ interface Row {
 export class JsonBrowseComponent {
   readonly doc = input<unknown>(undefined);
   readonly title = input('Browse the body');
+  /** False in a rule's match: its tests only test, so there is no "change it". */
+  readonly allowChange = input(true);
   readonly picked = output<readonly BrowsePick[]>();
   readonly closed = output<void>();
 

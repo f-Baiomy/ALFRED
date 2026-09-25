@@ -9561,3 +9561,43 @@ app-header-editor {
   flex: 1 1 14rem;
   min-width: 10rem;
 }
+
+/* "Browse … body…" without a call yet: the finder first, then the tree. */
+.cond-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sample-line {
+  margin: -0.2rem 0 0.6rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+
+  b {
+    color: var(--text);
+    font-weight: 600;
+  }
+}
+
+.sample-picker {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--card-inner);
+}
+
+.sample-picker-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.78rem;
+
+  .muted {
+    font-size: 0.7rem;
+  }
+}

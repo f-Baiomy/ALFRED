@@ -342,6 +342,13 @@ path, `[*]` before `[0]`), value boxes suggest the field's values, edits show "w
 and "Browse request / response body…" ticks fields into one condition of tests (list → item count,
 object → exists, else equals its value) and a Set JSON field per field to change.
 
+The browse buttons are always there - in both lanes and beside "+ Add test" in the match. A rule
+with no call to read (edited later, copied, written by hand, or whose call has left the log) opens
+the call finder first, narrowed to calls the rule matches; the picked call becomes the sample for
+this editing session only (shown as "Suggestions from … · change call") and is never saved with
+the rule. The match's browse is tests-only: each ticked field becomes a JSON field test, "equals"
+its value, or "exists" for a list or object - a match test has no item modes.
+
 ### Failures that are not a status code
 
 `SIMULATE_FAILURE` carries a `FailureMode`. One action with a choice rather than six actions,

@@ -60,6 +60,8 @@ import { CallRecord } from '../../core/models/call.model';
 import { CallRef } from '../../core/models/call-ref.model';
 import { PathEntry, asText, describeCurrent, jsonPathIndex, parseJson, valuesAt } from '../../shared/utils/json-paths';
 import { BrowsePick, JsonBrowseComponent } from '../json-browse/json-browse.component';
+import { CallFinderComponent, FoundCall } from '../call-finder/call-finder.component';
+import { NgTemplateOutlet } from '@angular/common';
 import { JsonPathInputComponent } from '../json-path-input/json-path-input.component';
 import { MatchFillResult, MatchFromCallComponent } from '../match-from-call/match-from-call.component';
 import { ActionAdderComponent } from '../action-adder/action-adder.component';
@@ -368,6 +370,7 @@ function defaultCondition(phase: ActionPhase): Condition {
  */
 /** A match test while it is being edited: which list it belongs to (header/query/cookie, or a body test), plus the test. */
 type MatchTestRow = MatchFormTest;
+type BrowseTarget = 'request' | 'response' | 'match';
 
 const BODY_ROW_DEFAULT_OPERATOR: Readonly<Record<'body' | 'json' | 'size', ConditionOperator>> = { body: 'CONTAINS', json: 'EQUALS', size: 'AT_MOST' };
 
@@ -389,6 +392,8 @@ const BODY_ROW_DEFAULT_OPERATOR: Readonly<Record<'body' | 'json' | 'size', Condi
     ActionAdderComponent,
     JsonBrowseComponent,
     JsonPathInputComponent,
+    CallFinderComponent,
+    NgTemplateOutlet,
     BodyEditorComponent,
     CdkDropList,
     CdkDrag,
@@ -1285,7 +1290,104 @@ export class RuleEditorComponent implements OnInit {
 
   // ---- "Browse request / response body…" ----
 
-  readonly browseOpen = signal<'request' | 'response' | null>(null);
+  /** Which browse panel is open: a pipeline lane's, or the match's ("Only when…"). */
+  readonly browseOpen = signal<BrowseTarget | null>(null);
+  /** A browse waiting for a call to read, because the rule has none yet - the finder is showing. */
+  readonly samplePicking = signal<BrowseTarget | null>(null);
+  readonly sampleLoading = signal(false);
+  readonly sampleError = signal<string | null>(null);
+
+  /** "POST /api/FlightSearch/Search · 01:14:30" - the call every suggestion and browse reads. */
+  readonly sampleLabel = computed(() => {
+    const call = this.sampleCall();
+    if (!call) return null;
+    let path = call.url || call.original_url || '';
+    try {
+      path = new URL(path).pathname;
+    } catch {
+      // not a full URL - shown as it is
+    }
+    const at = call.timestamp ? new Date(call.timestamp) : null;
+    const time = at && !isNaN(at.getTime()) ? at.toLocaleTimeString() : '';
+    return [`${call.method ?? ''} ${path}`.trim() || 'the call the match was filled from', time].filter(Boolean).join(' · ');
+  });
+
+  private browseDoc(target: BrowseTarget): unknown {
+    return target === 'response' ? this.responseDoc() : this.requestDoc();
+  }
+
+  /**
+   * Opens a browse panel - straight away when the rule has a call to read, or after picking one:
+   * a rule edited later, copied or written by hand has none. The picked call is a helper for
+   * this editing session only; it is not saved with the rule.
+   */
+  openBrowse(target: BrowseTarget): void {
+    this.sampleError.set(null);
+    if (this.browseOpen() === target || this.samplePicking() === target) {
+      this.browseOpen.set(null);
+      this.samplePicking.set(null);
+      return;
+    }
+    if (this.browseDoc(target) !== undefined) {
+      this.samplePicking.set(null);
+      this.browseOpen.set(target);
+    } else {
+      this.browseOpen.set(null);
+      this.samplePicking.set(target);
+    }
+  }
+
+  /** "change call": pick another call to read, for the panel that is open (or the request). */
+  changeSample(): void {
+    this.sampleError.set(null);
+    this.samplePicking.set(this.browseOpen() ?? this.samplePicking() ?? 'request');
+    this.browseOpen.set(null);
+  }
+
+  onSampleChosen(found: FoundCall): void {
+    const target = this.samplePicking() ?? 'request';
+    const ref: CallRef = { source: found.direction === 'inbound' ? 'internal' : 'external', callId: found.call.id, cycleId: null };
+    this.sampleLoading.set(true);
+    this.sampleError.set(null);
+    this.refDetail.hydrate(ref, found.call).subscribe({
+      next: (call) => {
+        this.sampleLoading.set(false);
+        this.sampleCall.set(call);
+        this.samplePicking.set(null);
+        if (this.browseDoc(target) === undefined) {
+          this.sampleError.set(`That call's ${target === 'response' ? 'response' : 'request'} body is not JSON - pick another call.`);
+          this.samplePicking.set(target);
+          return;
+        }
+        this.browseOpen.set(target);
+      },
+      error: () => {
+        this.sampleLoading.set(false);
+        this.sampleError.set('Could not load that call - it may have left the log.');
+      },
+    });
+  }
+
+  /**
+   * The match's browse: each ticked field becomes a checked JSON field test - "equals" its value
+   * in the call, or "exists" for a list or object (the match's tests have no item modes; those
+   * are the pipeline's conditions). A field already tested is left as it is.
+   */
+  onMatchBrowsePicked(picks: readonly BrowsePick[]): void {
+    this.matchTests.update((rows) => {
+      const have = new Set(rows.filter((r) => r.kind === 'json').map((r) => r.name.trim()));
+      const added = picks
+        .filter((p) => !have.has(p.path))
+        .map(
+          (p): MatchTestRow =>
+            p.type === 'list' || p.type === 'object'
+              ? { kind: 'json', name: p.path, operator: 'EXISTS', value: null, caseSensitive: null, ignoreFormatting: null }
+              : { kind: 'json', name: p.path, operator: 'EQUALS', value: p.value, caseSensitive: false, ignoreFormatting: true }
+        );
+      return [...rows, ...added];
+    });
+    this.browseOpen.set(null);
+  }
 
   /**
    * Ticked fields become, in that lane: one condition testing every "test it" field (all must

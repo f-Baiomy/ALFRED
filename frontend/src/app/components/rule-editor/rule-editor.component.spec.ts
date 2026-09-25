@@ -326,6 +326,51 @@ describe('RuleEditorComponent', () => {
     expect(component.browseOpen()).toBeNull();
   });
 
+  it('browses a rule with no call by picking one first, and ticks become match tests', () => {
+    open(null);
+    expect(component.sampleLabel()).toBeNull();
+    component.openBrowse('match');
+    // No call to read yet: the finder shows first, the tree waits.
+    expect(component.samplePicking()).toBe('match');
+    expect(component.browseOpen()).toBeNull();
+
+    component.onSampleChosen({ direction: 'outbound', call: { id: 'c1', url: 'https://ndc.test/api/FlightSearch/Search', method: 'POST' } as never });
+    http.expectOne((r) => r.url.includes('/calls/c1/detail')).flush({
+      id: 'c1',
+      url: 'https://ndc.test/api/FlightSearch/Search',
+      method: 'POST',
+      request: { body: '{"supplier":"Galileo","passengers":[{"type":"ADT"}]}' },
+      response: { status: 200, body: '{}' },
+    });
+    expect(component.browseOpen()).toBe('match');
+    expect(component.sampleLabel()).toContain('POST /api/FlightSearch/Search');
+    // The same call now feeds every smart path box.
+    expect(component.requestPaths()?.map((e) => e.path)).toContain('passengers[*].type');
+
+    component.matchTests.set([{ kind: 'json', name: 'supplier', operator: 'EQUALS', value: 'Galileo' }]);
+    component.onMatchBrowsePicked([
+      { path: 'supplier', value: 'Galileo', as: 'test', type: 'text' },
+      { path: 'passengers[*].type', value: 'ADT', as: 'test', type: 'text' },
+      { path: 'passengers', value: '[{"type":"ADT"}]', as: 'test', type: 'list' },
+    ]);
+    expect(component.matchTests()).toEqual([
+      { kind: 'json', name: 'supplier', operator: 'EQUALS', value: 'Galileo' },
+      { kind: 'json', name: 'passengers[*].type', operator: 'EQUALS', value: 'ADT', caseSensitive: false, ignoreFormatting: true },
+      { kind: 'json', name: 'passengers', operator: 'EXISTS', value: null, caseSensitive: null, ignoreFormatting: null },
+    ]);
+    expect(component.browseOpen()).toBeNull();
+  });
+
+  it('opens a lane browse at once when the rule already has a call to read', () => {
+    open(null);
+    component.sampleCall.set({ id: 'x', url: '', method: 'POST', request: { body: '{"a":1}' }, response: { body: 'not json' } } as never);
+    component.openBrowse('request');
+    expect(component.browseOpen()).toBe('request');
+    // Its response is not JSON, so the response lane asks for a call instead.
+    component.openBrowse('response');
+    expect(component.samplePicking()).toBe('response');
+  });
+
   it('offers JSON-only operators on JSON fields only, and none an item mode contradicts', () => {
     open(null);
     const ops = (c: object) => component.conditionOperatorOptions(c as never).map((o) => o.value);

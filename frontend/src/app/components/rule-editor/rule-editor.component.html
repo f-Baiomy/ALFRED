@@ -218,10 +218,65 @@
           }
         </div>
       }
-      <button type="button" class="pill add cond-add" (click)="addMatchTest()">+ Add test</button>
+      <div class="cond-add-row">
+        <button type="button" class="pill add cond-add" (click)="addMatchTest()">+ Add test</button>
+        <button type="button" class="pill lane-browse" [class.on]="browseOpen() === 'match' || samplePicking() === 'match'" (click)="openBrowse('match')" title="Tick fields of a call's request body - each becomes a JSON field test">
+          Browse request body…
+        </button>
+      </div>
+      <ng-container *ngTemplateOutlet="browsePanel; context: { $implicit: 'match' }" />
     </div>
 
     <h3 class="section-title">Pipeline — what happens to a matching call</h3>
+    @if (sampleLabel(); as label) {
+      <p class="sample-line">
+        Suggestions from <b>{{ label }}</b>
+        <button type="button" class="link-btn" (click)="changeSample()" title="Read another call's bodies - for suggestions and browsing; not saved with the rule">change call</button>
+      </p>
+    }
+
+    <!-- One panel for every "Browse … body…" button: the field tree when there is a call to read,
+         otherwise the call finder first (a rule being edited, copied or written by hand has none). -->
+    <ng-template #browsePanel let-target>
+      @if (samplePicking() === target) {
+        <div class="sample-picker">
+          <div class="sample-picker-head">
+            <b>Pick a call to browse</b>
+            <span class="muted">calls matching this rule - only a helper for this editing, not saved with the rule</span>
+            <span class="jb-spacer"></span>
+            <button type="button" class="pill" (click)="samplePicking.set(null)">Close</button>
+          </div>
+          @if (sampleError(); as message) {
+            <p class="rule-warning">{{ message }}</p>
+          }
+          <app-call-finder
+            [part]="target === 'response' ? 'response' : 'request'"
+            pickLabel="Browse this call"
+            [busy]="sampleLoading()"
+            [needsResponse]="target === 'response'"
+            [allowPickAnywhere]="false"
+            [ruleHost]="currentMatch().host"
+            [rulePath]="currentMatch().pathContains"
+            [ruleMethods]="currentMatch().methods"
+            [ruleSource]="currentMatch().source"
+            [ruleServiceNames]="currentMatch().serviceNames"
+            (chosen)="onSampleChosen($event)"
+          />
+        </div>
+      }
+      @if (browseOpen() === target) {
+        @if (target === 'match') {
+          <app-json-browse [doc]="requestDoc()" [allowChange]="false" title="The call's request body" (picked)="onMatchBrowsePicked($event)" (closed)="browseOpen.set(null)" />
+        } @else {
+          <app-json-browse
+            [doc]="target === 'response' ? responseDoc() : requestDoc()"
+            [title]="target === 'response' ? 'The response body of the call' : 'The request body of the call'"
+            (picked)="onBrowsePicked(target, $event)"
+            (closed)="browseOpen.set(null)"
+          />
+        }
+      }
+    </ng-template>
 
     @if (conflictHint(); as hint) {
       <div class="rule-warning">{{ hint }}</div>
@@ -243,15 +298,11 @@
           <span class="pipeline-step">1</span>
           Request — before it leaves Alfred
         
-          @if (requestPaths()) {
-            <button type="button" class="pill lane-browse" [class.on]="browseOpen() === 'request'" (click)="browseOpen.set(browseOpen() === 'request' ? null : 'request')" title="The request body of the call this rule was made from - tick fields to test or change them">
-              Browse request body…
-            </button>
-          }
+          <button type="button" class="pill lane-browse" [class.on]="browseOpen() === 'request' || samplePicking() === 'request'" (click)="openBrowse('request')" title="Tick fields of a call's request body to test or change them">
+            Browse request body…
+          </button>
         </div>
-        @if (browseOpen() === 'request') {
-          <app-json-browse [doc]="requestDoc()" title="The call's request body" (picked)="onBrowsePicked('request', $event)" (closed)="browseOpen.set(null)" />
-        }
+        <ng-container *ngTemplateOutlet="browsePanel; context: { $implicit: 'request' }" />
         <div
           class="lane-drop-list"
           cdkDropList
@@ -292,15 +343,11 @@
           <span class="pipeline-step">2</span>
           Response — after the host answers
         
-          @if (responsePaths()) {
-            <button type="button" class="pill lane-browse" [class.on]="browseOpen() === 'response'" (click)="browseOpen.set(browseOpen() === 'response' ? null : 'response')" title="The response body of the call this rule was made from - tick fields to test or change them">
-              Browse response body…
-            </button>
-          }
+          <button type="button" class="pill lane-browse" [class.on]="browseOpen() === 'response' || samplePicking() === 'response'" (click)="openBrowse('response')" title="Tick fields of a call's response body to test or change them">
+            Browse response body…
+          </button>
         </div>
-        @if (browseOpen() === 'response') {
-          <app-json-browse [doc]="responseDoc()" title="The call's response body" (picked)="onBrowsePicked('response', $event)" (closed)="browseOpen.set(null)" />
-        }
+        <ng-container *ngTemplateOutlet="browsePanel; context: { $implicit: 'response' }" />
         <div
           class="lane-drop-list"
           cdkDropList
