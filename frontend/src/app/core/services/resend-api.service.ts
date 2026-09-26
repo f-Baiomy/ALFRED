@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { AppConfigService } from './app-config.service';
+import { GlobalVariablesService } from './global-variables.service';
 
 export type ResendDirection = 'outbound' | 'inbound';
 
@@ -46,8 +47,10 @@ export interface ResendResult {
 export class ResendApiService {
   private readonly http = inject(HttpClient);
   private readonly config = inject(AppConfigService);
+  private readonly variables = inject(GlobalVariablesService);
 
   resend(request: ResendRequest): Observable<ResendResult> {
+    const variables = this.variables.state();
     return this.http.post<ResendResult>(`${this.config.backendUrl}/resend`, {
       direction: request.direction,
       callId: request.callId,
@@ -55,6 +58,8 @@ export class ResendApiService {
       edits: request.edits ?? null,
       useCurrentSession: request.useCurrentSession ?? false,
       batch: request.batch ?? null,
+      variables: variables.variables,
+      fallbacks: variables.fallbacks,
     });
   }
 }

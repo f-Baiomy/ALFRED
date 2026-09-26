@@ -16,7 +16,9 @@ backend-session-cycles    depends on backend-calls AND backend-internal-calls (i
                           NewCallObserverPort, so a recording cycle captures both traffic directions)
 backend-profiles          leaf slice, no deps either direction
 backend-settings          call-filter whitelist/blacklist/mode config (CallFilterSettings) - which supplier
-                          calls get logged in the first place, NOT the internal-calls logging toggle above
+                          calls get logged in the first place, NOT the internal-calls logging toggle above;
+                          also owns the app-wide global-variable store/API, published to the shared proxy
+                          volume for interception rules and passed with resend requests for resolution
 backend-interception      traffic interception/fault-injection rules + the paused-call (breakpoint) registry +
                           stored answers (recorded-call / uploaded-file, for ANSWER_WITH_RECORDED_CALL /
                           ANSWER_WITH_FILE / REPLACE_WITH_RECORDED_RESPONSE). Leaf slice. Does NOT evaluate

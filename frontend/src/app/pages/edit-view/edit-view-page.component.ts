@@ -2,6 +2,7 @@ import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { BodyEditorComponent } from '../../components/body-editor/body-editor.component';
 import { HeaderEditorComponent } from '../../components/header-editor/header-editor.component';
+import { GlobalVariablesComponent } from '../../components/global-variables/global-variables.component';
 import { EditTabSeed, EditTabService } from '../../core/services/edit-tab.service';
 import { HeaderRow, parseHeaderRows, serializeHeaderRows } from '../../shared/utils/header-rows';
 
@@ -19,7 +20,7 @@ import { HeaderRow, parseHeaderRows, serializeHeaderRows } from '../../shared/ut
 @Component({
   selector: 'app-edit-view-page',
   standalone: true,
-  imports: [BodyEditorComponent, HeaderEditorComponent],
+  imports: [BodyEditorComponent, HeaderEditorComponent, GlobalVariablesComponent],
   templateUrl: './edit-view-page.component.html',
 })
 export class EditViewPageComponent {

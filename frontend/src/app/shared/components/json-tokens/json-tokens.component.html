@@ -1,6 +1,10 @@
-@for (t of tokens(); track $index) {
+@for (t of renderTokens(); track $index) {
   @if (t.highlighted) {
-    <mark class="hl" [class.active]="t.matchIndex === activeMatchIndex()">{{ t.text }}</mark>
+    @if (t.variableToken) {
+      <span class="variable-hover-wrap" (mouseenter)="hoverToken(t.text)" (mouseleave)="leaveToken()"><mark class="hl variable-token" [class.active]="t.matchIndex === activeMatchIndex()">{{ t.text }}</mark>@if (hoveredVariable() === t.text.slice(2, -2)) { <span class="variable-hover-card" (mouseenter)="$event.stopPropagation()"><label>Value for <code>{{ t.text }}</code></label><textarea [value]="valueOf(t.text.slice(2, -2))" (change)="saveValue(t.text.slice(2, -2), $event)" (click)="$event.stopPropagation()"></textarea><small>Save on blur</small></span> }</span>
+    } @else { <mark class="hl" [class.active]="t.matchIndex === activeMatchIndex()">{{ t.text }}</mark> }
+  } @else if (t.variableToken) {
+    <span class="variable-hover-wrap" (mouseenter)="hoverToken(t.text)" (mouseleave)="leaveToken()"><mark class="variable-token">{{ t.text }}</mark>@if (hoveredVariable() === t.text.slice(2, -2)) { <span class="variable-hover-card" (mouseenter)="$event.stopPropagation()"><label>Value for <code>{{ t.text }}</code></label><textarea [value]="valueOf(t.text.slice(2, -2))" (change)="saveValue(t.text.slice(2, -2), $event)" (click)="$event.stopPropagation()"></textarea><small>Save on blur</small></span> }</span>
   } @else if (t.cls) {
     <span [class]="t.cls">{{ t.text }}</span>
   } @else {

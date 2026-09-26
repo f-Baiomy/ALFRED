@@ -44,6 +44,8 @@ import regex_worker
 # see docker-compose.yml. Absent is the normal state for a deployment that has never created a
 # rule, and must stay indistinguishable from "no rules".
 RULES_FILE = os.environ.get('INTERCEPTION_RULES_FILE', '/home/mitmproxy/interception-rules.json')
+VARIABLES_FILE = os.environ.get('INTERCEPTION_VARIABLES_FILE', '/home/mitmproxy/interception/variables.json')
+VARIABLE_TOKEN = re.compile(r'\{\{([A-Za-z0-9_.-]+)\}\}')
 
 # A delay is the one action that can hold a connection open for an unbounded time by accident -
 # a typo of 600000 instead of 6000 is ten minutes of a held socket. Rules are validated
@@ -1114,14 +1116,36 @@ def refresh_dates(response, recorded_at):
         response.timestamp_start = started
 
 
+def _resolve_variable_tokens(value, variables, fallbacks, seen=frozenset(), depth=0):
+    """Resolve variable references in an authored rule snapshot before compiling its rules."""
+    if isinstance(value, dict):
+        return {key: _resolve_variable_tokens(item, variables, fallbacks, seen, depth) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve_variable_tokens(item, variables, fallbacks, seen, depth) for item in value]
+    if not isinstance(value, str) or depth >= 20:
+        return value
+
+    def replace(match):
+        name = match.group(1)
+        if name in seen:
+            return match.group(0)
+        replacement = variables.get(name, fallbacks.get(name))
+        if not isinstance(replacement, str):
+            return match.group(0)
+        return _resolve_variable_tokens(replacement, variables, fallbacks, seen | {name}, depth + 1)
+
+    return VARIABLE_TOKEN.sub(replace, value)
+
+
 class _RulesCache:
     """Re-reads RULES_FILE only when its mtime changes - identical idiom to
     log_and_route_reverse.py's _ToggleState. A missing file is the normal state for a deployment
     with no rules and must cost nothing and log nothing."""
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, variables_path=None):
         self._path = path or RULES_FILE
-        self._mtime = None
+        self._variables_path = variables_path or VARIABLES_FILE
+        self._mtimes = None
         self._ruleset = EMPTY_RULESET
 
     def current(self):
@@ -1130,12 +1154,17 @@ class _RulesCache:
         except OSError:
             # No file at all: the feature has never been used here. Reset so that deleting the
             # file really does disable everything, rather than leaving the last load resident.
-            if self._mtime is not None:
-                self._mtime = None
+            if self._mtimes is not None:
+                self._mtimes = None
                 self._ruleset = EMPTY_RULESET
             return self._ruleset
-        if mtime != self._mtime:
-            self._mtime = mtime
+        try:
+            variables_mtime = os.path.getmtime(self._variables_path)
+        except OSError:
+            variables_mtime = None
+        mtimes = (mtime, variables_mtime)
+        if mtimes != self._mtimes:
+            self._mtimes = mtimes
             self._ruleset = self._load()
         return self._ruleset
 
@@ -1152,6 +1181,19 @@ class _RulesCache:
 
         if not isinstance(raw, dict):
             return RuleSet(error='rules file is not an object')
+
+        try:
+            with open(self._variables_path, 'r', encoding='utf-8') as f:
+                variable_state = json.load(f)
+        except (OSError, ValueError):
+            variable_state = {}
+        variables = variable_state.get('variables', {}) if isinstance(variable_state, dict) else {}
+        fallbacks = variable_state.get('fallbacks', {}) if isinstance(variable_state, dict) else {}
+        if not isinstance(variables, dict):
+            variables = {}
+        if not isinstance(fallbacks, dict):
+            fallbacks = {}
+        raw['rules'] = _resolve_variable_tokens(raw.get('rules') or [], variables, fallbacks)
 
         enabled = raw.get('enabled', False) is True
         limits = raw.get('limits') if isinstance(raw.get('limits'), dict) else {}

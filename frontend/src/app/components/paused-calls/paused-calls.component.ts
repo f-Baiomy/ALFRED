@@ -18,6 +18,7 @@ import { BodyEditorComponent } from '../body-editor/body-editor.component';
 import { HeaderEditorComponent } from '../header-editor/header-editor.component';
 import { BodyKind, detectBodyKind, formatBody, normalizeBody } from '../../shared/utils/body-format';
 import { HeaderRow } from '../../shared/utils/header-rows';
+import { GlobalVariablesService } from '../../core/services/global-variables.service';
 
 /** One editable header row. `removed` keeps the row on screen, struck through, rather than vanishing. */
 export interface EditableHeader {
@@ -65,6 +66,7 @@ const OUTCOMES: Record<string, string> = {
   templateUrl: './paused-calls.component.html',
 })
 export class PausedCallsComponent {
+  private readonly variables = inject(GlobalVariablesService);
   readonly state = inject(InterceptionStateService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -575,7 +577,16 @@ export class PausedCallsComponent {
           ...follow,
         }
       : { action: 'release', ...follow };
-    this.send(call, decision);
+    const resolvedDecision: PauseDecision = edited
+      ? {
+          ...decision,
+          headers: decision.headers == null ? decision.headers : Object.fromEntries(
+            Object.entries(decision.headers).map(([name, value]) => [this.variables.resolve(name), value == null ? null : this.variables.resolve(value)])
+          ),
+          body: decision.body == null ? decision.body : this.variables.resolve(decision.body),
+        }
+      : decision;
+    this.send(call, resolvedDecision);
   }
 
   abort(): void {
@@ -642,7 +653,7 @@ export class PausedCallsComponent {
         mode,
         durationMs: mode === 'HANG_THEN_DROP' ? this.failureDurationMs() : null,
         status: mode === 'GATEWAY_ERROR' ? this.failureStatus() : null,
-        body: mode === 'TRUNCATED_BODY' ? this.failureBody() : null,
+        body: mode === 'TRUNCATED_BODY' ? this.variables.resolve(this.failureBody()) : null,
       },
     });
   }

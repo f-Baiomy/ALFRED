@@ -117,14 +117,33 @@
         #bodyArea
         [value]="text()"
         (input)="onBodyInput($event)"
+        (select)="checkSelection($event)"
+        (mouseup)="checkSelection($event)"
+        (keyup)="checkSelection($event)"
         (scroll)="syncGutter()"
       ></textarea>
+      @if (selectedText() && !readOnly()) {
+        <button type="button" class="create-variable-selection" (click)="beginVariableFromSelection()">+ Create variable</button>
+      }
     </div>
   </div>
 } @else {
   <!-- The very same component the call cards render a body with, told which tokenizer to use.
        Read-only on purpose: this is for finding the thing you are about to change. -->
   <app-json-flat-view [lines]="inspectLines()" [variant]="inspectVariant()" [activeMatchIndex]="activeMatch()" />
+}
+
+@if (createFromSelection()) {
+  <div class="create-variable-backdrop" (click)="createFromSelection.set(false)">
+    <form class="create-variable-dialog" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveVariableFromSelection()">
+      <h3>Create variable from selection</h3>
+      <p>The selected text will be replaced by the token.</p>
+      <label>Selected value<textarea [value]="variableValue()" (input)="variableValue.set($any($event.target).value)"></textarea></label>
+      <label>Variable name<input [value]="variableName()" (input)="variableName.set($any($event.target).value)" placeholder="accountId" /></label>
+      <p class="token-preview">Token preview: <code>{{ '{{' + (variableName() || 'name') + '}}' }}</code></p>
+      <footer><button type="button" (click)="createFromSelection.set(false)">Cancel</button><button type="submit" [disabled]="!variableName().match('^[A-Za-z][A-Za-z0-9_.-]*$')">Create &amp; replace</button></footer>
+    </form>
+  </div>
 }
 
 <p class="body-foot">

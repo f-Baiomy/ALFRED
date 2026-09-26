@@ -59,7 +59,7 @@ These are internal Java APIs reached through the backend-app bridge; there is no
 
 | Method and path | Body | Response |
 |---|---|---|
-| `POST /resend` | `{direction:"outbound"\|"inbound", callId, cycleId?, edits?:{method?, url?, headers?:{name:value\|null}, body?}, useCurrentSession?:boolean, batch?:{id, index, total}}` - `batch` (id non-blank, ≤ 64 chars; `1 ≤ index ≤ total ≤ 1000`, else `400 {"error":"invalid-request", problems}`) is echoed into the resent call's `resend_edits.batch` | `200 {newCallId, status, durationMs, sessionValuesUsed:[{name, fromCallId}]}`, or `404` for an unknown call, or `409 {"error":"reverse-proxy-not-running"}` (inbound when the `inbound-logging` profile is off), or `502 {"error":"send-failed", message}` |
+| `POST /resend` | `{direction:"outbound"\|"inbound", callId, cycleId?, edits?:{method?, url?, headers?:{name:value\|null}, body?}, useCurrentSession?:boolean, batch?:{id, index, total}, variables?:{name:value}, fallbacks?:{name:text}}` - variable tokens in the original or edited method, URL, headers and body are resolved before sending; absent variables/fallbacks are treated as empty maps. `batch` (id non-blank, ≤ 64 chars; `1 ≤ index ≤ total ≤ 1000`, else `400 {"error":"invalid-request", problems}`) is echoed into the resent call's `resend_edits.batch` | `200 {newCallId, status, durationMs, sessionValuesUsed:[{name, fromCallId}]}`, or `404` for an unknown call, or `409 {"error":"reverse-proxy-not-running"}` (inbound when the `inbound-logging` profile is off), or `502 {"error":"send-failed", message}` |
 
 - **Limits, clamped server-side (constitution I)**:
   - `edits.body` is at most `alfred.interception.max-answer-bytes` (10 MB);
@@ -71,3 +71,15 @@ These are internal Java APIs reached through the backend-app bridge; there is no
 - Bulk resend is the frontend calling this endpoint once per call, in order.
 - `sessionValuesUsed` never carries a value, only the header or cookie name and the call it
   came from.
+
+## Global variables
+
+| Method and path | Body | Response |
+|---|---|---|
+| `GET /settings/variables` | — | `{variables:{name:value}, fallbacks:{deletedName:text}}` |
+| `PUT /settings/variables` | Same state object; variable values and fallback text are strings and may be multiline. | Saved state object |
+
+The backend persists this global state in SQLite and atomically publishes it to the shared proxy
+volume. The proxy reloads the variable snapshot when its modification time changes and resolves
+tokens in interception rules without making a backend request per call. Missing variables leave
+their `{{name}}` tokens intact; a deleted variable's configured fallback is applied at execution.

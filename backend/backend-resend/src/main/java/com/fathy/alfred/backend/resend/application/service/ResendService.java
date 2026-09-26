@@ -110,6 +110,11 @@ public class ResendService implements ResendCallUseCase {
             }
         }
 
+        method = resolveVariables(method, request);
+        url = resolveVariables(url, request);
+        body = resolveVariables(body, request);
+        headers.replaceAll((name, value) -> resolveVariables(value, request));
+
         List<SessionValueUse> sessionUses = new ArrayList<>();
         if (request.useCurrentSession()) {
             List<SessionValue> newest = sessionValues.newest(
@@ -152,6 +157,28 @@ public class ResendService implements ResendCallUseCase {
             case SendOutcome.ReverseProxyNotRunning ignored -> new ResendOutcome.ReverseProxyNotRunning();
             case SendOutcome.Failed failed -> new ResendOutcome.SendFailed(failed.message());
         };
+    }
+
+    private static String resolveVariables(String text, ResendRequest request) {
+        if (text == null || text.isEmpty()) return text;
+        String value = text;
+        for (int pass = 0; pass < 20; pass++) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{([A-Za-z0-9_.-]+)\\}\\}").matcher(value);
+            StringBuffer out = new StringBuffer();
+            boolean changed = false;
+            while (matcher.find()) {
+                String name = matcher.group(1);
+                String replacement = request.variables().getOrDefault(name, request.fallbacks().get(name));
+                if (replacement == null) replacement = matcher.group();
+                else changed = true;
+                matcher.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(replacement));
+            }
+            matcher.appendTail(out);
+            String next = out.toString();
+            if (!changed || next.equals(value)) return next;
+            value = next;
+        }
+        return value;
     }
 
     private static String hostOf(String url, String fallback) {

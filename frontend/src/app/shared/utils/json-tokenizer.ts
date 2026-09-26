@@ -13,6 +13,25 @@ export interface JsonToken {
 export interface HighlightToken extends JsonToken {
   readonly highlighted: boolean;
   readonly matchIndex?: number;
+  readonly variableToken?: boolean;
+}
+
+/** Tags {{variable}} spans in any rendered text-token stream so flat, tree, and editor views agree. */
+export function markVariableTokens(tokens: readonly HighlightToken[]): HighlightToken[] {
+  const result: HighlightToken[] = [];
+  for (const token of tokens) {
+    const pattern = /\{\{[A-Za-z][A-Za-z0-9_.-]*\}\}/g;
+    let offset = 0;
+    for (const match of token.text.matchAll(pattern)) {
+      const at = match.index ?? 0;
+      if (at > offset) result.push({ ...token, text: token.text.slice(offset, at), variableToken: false });
+      result.push({ ...token, text: match[0], variableToken: true });
+      offset = at + match[0].length;
+    }
+    if (offset < token.text.length) result.push({ ...token, text: token.text.slice(offset), variableToken: false });
+    if (!token.text) result.push(token);
+  }
+  return result;
 }
 
 const TOKEN_REGEX =

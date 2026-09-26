@@ -51,6 +51,7 @@ services:
       # byte the behaviour this container had before the feature existed. See
       # proxy/interception.py and backend-interception's FileRulesPublisherAdapter.
       - INTERCEPTION_RULES_FILE=/home/mitmproxy/interception/rules.json
+      - INTERCEPTION_VARIABLES_FILE=/home/mitmproxy/interception/variables.json
       # Where a PAUSED call goes to wait for a human. Derived from WEBHOOK_URL when unset; stated
       # here because the breakpoint path is the one thing in this feature that does talk to
       # backend on the request path (see proxy/breakpoints.py for why that is acceptable there
@@ -164,6 +165,7 @@ services:
       # itself to a direction with its own `source` matcher rather than by living in a different
       # file (see proxy/interception.py's Match).
       - INTERCEPTION_RULES_FILE=/home/mitmproxy/interception/rules.json
+      - INTERCEPTION_VARIABLES_FILE=/home/mitmproxy/interception/variables.json
       - INTERCEPTION_API_URL=http://backend:5000
       # Regex find/replace runs in a separate worker process (proxy/regex_worker.py), because
       # CPython's re holds the GIL for the whole match - a thread could not stop a runaway pattern
@@ -296,6 +298,7 @@ services:
       # disagreeing about what is running.
       - INTERCEPTION_DB_FILE=/appdata/interception.db
       - INTERCEPTION_RULES_FILE=/appdata/interception/rules.json
+      - INTERCEPTION_VARIABLES_FILE=/appdata/interception/variables.json
       # Per stored answer (uploaded file or copied recorded response). There is deliberately no
       # total cap: an answer is deleted with the last rule that uses it (see docs/interception.md).
       - INTERCEPTION_MAX_ANSWER_BYTES=10485760

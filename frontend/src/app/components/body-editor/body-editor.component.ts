@@ -1,7 +1,8 @@
-import { Component, ElementRef, OnChanges, SimpleChanges, computed, input, output, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, OnChanges, SimpleChanges, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import { GlobalVariablesService } from '../../core/services/global-variables.service';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
-import { tokenizeJsonText } from '../../shared/utils/json-tokenizer';
+import { markVariableTokens, tokenizeJsonText } from '../../shared/utils/json-tokenizer';
 import { tokenizeXmlText } from '../../shared/utils/xml-tokenizer';
 import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
 import {
@@ -51,6 +52,16 @@ export type BodyMode = 'edit' | 'inspect';
   standalone: true,
   imports: [JsonFlatViewComponent, JsonTokensComponent],
   templateUrl: './body-editor.component.html',
+  styles: [`
+    .body-input-stack{position:relative}.create-variable-selection{position:absolute;right:10px;bottom:10px;z-index:3;border:1px solid #7659a7;border-radius:6px;background:#302442;color:#e7d8ff;padding:7px 10px;cursor:pointer;box-shadow:0 3px 10px #0005}
+    .create-variable-backdrop{position:fixed;inset:0;z-index:80;background:#08070a99;display:grid;place-items:center;padding:16px;box-sizing:border-box}
+    .create-variable-dialog{width:min(500px,95vw);background:#211f29;border:1px solid #574a70;border-radius:12px;padding:22px 25px;color:#eee;box-shadow:0 16px 50px #0008;display:grid;gap:13px}
+    .create-variable-dialog h3{margin:0;font-size:18px}.create-variable-dialog p{margin:0;color:#aaa6b7;font-size:13px}
+    .create-variable-dialog label{display:grid;gap:7px;color:#b7b2c2;font-size:13px}
+    .create-variable-dialog input,.create-variable-dialog textarea{width:100%;box-sizing:border-box;background:#121219;color:#fff;border:1px solid #514b5d;border-radius:7px;padding:10px;font:inherit}
+    .create-variable-dialog textarea{min-height:65px;resize:vertical}.create-variable-dialog .token-preview code{background:#3b2b56;color:#e2cdff;padding:3px 6px;border-radius:4px}
+    .create-variable-dialog footer{display:flex;justify-content:flex-end;gap:8px}.create-variable-dialog footer button{border:1px solid #47434f;border-radius:6px;padding:8px 12px;background:#292731;color:#eee;cursor:pointer}.create-variable-dialog footer button:last-child{background:#6744a5;border-color:#6744a5}.create-variable-dialog footer button:disabled{opacity:.5;cursor:default}
+  `],
 })
 export class BodyEditorComponent implements OnChanges {
   readonly value = input.required<string>();
@@ -63,6 +74,11 @@ export class BodyEditorComponent implements OnChanges {
 
   readonly valueChange = output<string>();
   readonly openInTab = output<void>();
+  readonly selectedText = signal('');
+  readonly createFromSelection = signal(false);
+  readonly variableName = signal('');
+  readonly variableValue = signal('');
+  private readonly selectionRange = signal<{ start: number; end: number } | null>(null);
 
   private readonly bodyArea = viewChild<ElementRef<HTMLTextAreaElement>>('bodyArea');
   private readonly gutter = viewChild<ElementRef<HTMLElement>>('gutter');
@@ -74,6 +90,7 @@ export class BodyEditorComponent implements OnChanges {
    * first frame (and every test) would see an empty editor.
    */
   private readonly local = signal<string | null>(null);
+  private readonly variables = inject(GlobalVariablesService, { optional: true });
 
   readonly text = computed(() => this.local() ?? this.value());
 
@@ -152,7 +169,7 @@ export class BodyEditorComponent implements OnChanges {
   private readonly tokenizedLines = computed<readonly LineTokens[]>(() => {
     const text = this.text();
     const tokens = this.bodyKind() === 'xml' ? tokenizeXmlText(text) : tokenizeJsonText(text);
-    const marked = markRanges(tokens, this.matches());
+    const marked = markVariableTokens(markRanges(tokens, this.matches()));
     return splitTokensIntoLines(marked).map((tokensOnLine, index) => ({ index, tokens: tokensOnLine }));
   });
 
@@ -200,6 +217,36 @@ export class BodyEditorComponent implements OnChanges {
 
   onBodyInput(event: Event): void {
     this.commit((event.target as HTMLTextAreaElement).value);
+    this.checkSelection(event);
+  }
+
+  checkSelection(event: Event): void {
+    const area = event.target as HTMLTextAreaElement;
+    const start = area.selectionStart;
+    const end = area.selectionEnd;
+    if (start === end) { this.selectedText.set(''); return; }
+    this.selectionRange.set({ start, end });
+    this.selectedText.set(area.value.slice(start, end));
+  }
+
+  beginVariableFromSelection(): void {
+    const value = this.selectedText();
+    if (!value) return;
+    this.variableValue.set(value);
+    this.variableName.set('');
+    this.createFromSelection.set(true);
+  }
+
+  saveVariableFromSelection(): void {
+    const name = this.variableName().trim();
+    const range = this.selectionRange();
+    if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(name) || !range) return;
+    if (!this.variables) return;
+    this.variables.upsert(name, this.variableValue());
+    const current = this.text();
+    this.commit(current.slice(0, range.start) + `{{${name}}}` + current.slice(range.end));
+    this.createFromSelection.set(false);
+    this.selectedText.set('');
   }
 
   format(): void {
