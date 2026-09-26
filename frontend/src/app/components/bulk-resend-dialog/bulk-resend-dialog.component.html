@@ -59,7 +59,6 @@
                   [attr.data-group-id]="g.id"
                   cdkDrag
                   [cdkDragData]="{ kind: 'group', groupId: g.id }"
-                  (cdkDragMoved)="rememberDragPointer($event)"
                   [class.on]="service.activeGroupId() === g.id"
                   (click)="selectGroup(g.id)"
                 >
@@ -115,7 +114,6 @@
                         class="br-row"
                         cdkDrag
                         [cdkDragData]="{ kind: 'call', draft: d }"
-                        (cdkDragMoved)="rememberDragPointer($event)"
                         [class.on]="mode() === 'call' && selected()?.key === d.key"
                         [class.off]="!d.include"
                         (click)="select(d)"
@@ -146,7 +144,6 @@
                     class="br-row"
                     cdkDrag
                     [cdkDragData]="{ kind: 'call', draft: d }"
-                    (cdkDragMoved)="rememberDragPointer($event)"
                     [class.on]="mode() === 'call' && selected()?.key === d.key"
                     [class.off]="!d.include"
                     (click)="select(d)"

@@ -1,5 +1,5 @@
-import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDragMove, CdkDropList } from '@angular/cdk/drag-drop';
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
+import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { forkJoin, map, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -83,6 +83,7 @@ export class BulkResendDialogComponent {
   private readonly refDetail = inject(CallRefDetailService);
   private readonly callsApi = inject(CallsApiService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly mode = signal<'call' | 'all'>('call');
   readonly selectedKey = signal<string | null>(null);
@@ -206,6 +207,19 @@ export class BulkResendDialogComponent {
   );
 
   constructor() {
+    // CDK evaluates enterPredicate during its document mousemove handler, before cdkDragMoved is
+    // emitted. Capture the pointer first so the outer-list predicate never sees the previous move.
+    const capturePointer = (event: MouseEvent | TouchEvent): void => {
+      const point = 'touches' in event ? event.touches[0] ?? event.changedTouches[0] : event;
+      if (point) this.dragPointer = { x: point.clientX, y: point.clientY };
+    };
+    document.addEventListener('mousemove', capturePointer, true);
+    document.addEventListener('touchmove', capturePointer, { capture: true, passive: true });
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('mousemove', capturePointer, true);
+      document.removeEventListener('touchmove', capturePointer, true);
+    });
+
     // Return from "Add calls from anywhere…" - the dialog stayed mounted, so react here.
     effect(() => {
       if (!this.picker.hasResult(PICK_REQUESTER)) return;
@@ -286,20 +300,59 @@ export class BulkResendDialogComponent {
     if (this.service.running()) return;
     const payload = event.item.data as DragPayload | undefined;
     if (!payload) return;
+    if (payload.kind === 'call' && this.dropGroupedCallIntoHitGroup(event.dropPoint, payload.draft)) return;
+
+    // A grouped call is never an outer-list item. CDK can report the outer list as both previous
+    // and current container for nested drags, so group membership determines whether this is an
+    // extraction; container equality alone is not enough.
+    if (payload.kind === 'call' && payload.draft.groupId !== null) {
+      this.applyGroups(extractToRun(this.drafts(), payload.draft, this.runIndexAtDrop(event.dropPoint, event.currentIndex)));
+      this.notice.set('Moved out of the group.');
+      return;
+    }
 
     if (event.previousContainer === event.container) {
       this.service.drafts.set(swapRuns(this.drafts(), event.previousIndex, event.currentIndex));
       return;
     }
     if (payload.kind !== 'call') return;
-    this.applyGroups(extractToRun(this.drafts(), payload.draft, this.runIndexAtDrop(event)));
+    this.applyGroups(extractToRun(this.drafts(), payload.draft, this.runIndexAtDrop(event.dropPoint, event.currentIndex)));
     this.notice.set('Moved out of the group.');
   }
 
-  private runIndexAtDrop(event: CdkDragDrop<SendRun[]>): number {
-    const point = event.dropPoint;
-    if (!point) return Math.min(event.currentIndex, this.listRuns().length);
-    const target = document.elementFromPoint(point.x - window.scrollX, point.y - window.scrollY);
+  /**
+   * A nested CDK list can occasionally report the containing outer list for a drop over a member.
+   * The pointer's actual drop target is authoritative: keep the call in the group it landed in,
+   * even if CDK's container bookkeeping says it left.
+   */
+  private dropGroupedCallIntoHitGroup(point: { x: number; y: number } | undefined, draft: ResendDraft): boolean {
+    if (draft.groupId === null) return false;
+    const target = this.elementAtDrop(point);
+    const groupId = target?.closest('.br-group-list')?.closest<HTMLElement>('[data-group-id]')?.dataset['groupId'];
+    if (!groupId) return false;
+
+    const members = draftsInGroup(this.drafts(), groupId);
+    const row = target?.closest<HTMLElement>('.br-row');
+    const position = row ? Number(row.querySelector('.br-index')?.textContent?.trim()) - 1 : -1;
+    const targetKey = position >= 0 ? this.drafts()[position]?.key : undefined;
+    const targetIndex = members.findIndex((member) => member.key === targetKey);
+    const sourceIndex = draftsInGroup(this.drafts(), draft.groupId).findIndex((member) => member.key === draft.key);
+    const insertionIndex = targetIndex >= 0 ? targetIndex : members.length;
+
+    if (groupId === draft.groupId) {
+      if (targetIndex >= 0 && sourceIndex >= 0) {
+        this.service.drafts.set(swapMembers(this.drafts(), groupId, sourceIndex, targetIndex));
+      }
+    } else {
+      this.applyGroups(addMemberAt(this.drafts(), groupId, draft, insertionIndex));
+      this.selectGroup(groupId);
+    }
+    return true;
+  }
+
+  private runIndexAtDrop(point: { x: number; y: number } | undefined, fallbackIndex: number): number {
+    if (!point) return Math.min(fallbackIndex, this.listRuns().length);
+    const target = this.elementAtDrop(point);
     const row = target?.closest<HTMLElement>('.br-row');
     if (row) {
       const position = Number(row.querySelector('.br-index')?.textContent?.trim()) - 1;
@@ -312,7 +365,19 @@ export class BulkResendDialogComponent {
       const index = this.listRuns().findIndex((run) => run.group?.id === group.dataset['groupId']);
       if (index >= 0) return index;
     }
-    return Math.min(event.currentIndex, this.listRuns().length);
+    return Math.min(fallbackIndex, this.listRuns().length);
+  }
+
+  private elementAtDrop(point: { x: number; y: number } | undefined): Element | null {
+    return point ? document.elementFromPoint(point.x - window.scrollX, point.y - window.scrollY) : null;
+  }
+
+  private memberIndexAtDrop(target: Element | null, groupId: string, fallbackIndex = 0): number {
+    const row = target?.closest<HTMLElement>('.br-row');
+    const position = row ? Number(row.querySelector('.br-index')?.textContent?.trim()) - 1 : -1;
+    const key = position >= 0 ? this.drafts()[position]?.key : undefined;
+    const index = draftsInGroup(this.drafts(), groupId).findIndex((draft) => draft.key === key);
+    return index >= 0 ? index : Math.min(fallbackIndex, draftsInGroup(this.drafts(), groupId).length);
   }
 
   /**
@@ -324,12 +389,27 @@ export class BulkResendDialogComponent {
     if (this.service.running()) return;
     const payload = event.item.data as DragPayload | undefined;
     if (!payload || payload.kind !== 'call') return;
+    const target = this.elementAtDrop(event.dropPoint);
+    const actualGroupId = target?.closest('.br-group-list')?.closest<HTMLElement>('[data-group-id]')?.dataset['groupId'] ?? null;
 
-    if (event.previousContainer === event.container) {
+    if (payload.draft.groupId !== null && event.dropPoint && actualGroupId === null) {
+      this.applyGroups(extractToRun(this.drafts(), payload.draft, this.runIndexAtDrop(event.dropPoint, event.currentIndex)));
+      this.notice.set('Moved out of the group.');
+      return;
+    }
+
+    const destinationGroupId = actualGroupId ?? groupId;
+    if (destinationGroupId !== groupId) {
+      this.applyGroups(addMemberAt(this.drafts(), destinationGroupId, payload.draft, this.memberIndexAtDrop(target, destinationGroupId, event.currentIndex)));
+      this.selectGroup(destinationGroupId);
+      return;
+    }
+
+    if (event.previousContainer === event.container && payload.draft.groupId === groupId) {
       this.applyGroups(swapMembers(this.drafts(), groupId, event.previousIndex, event.currentIndex));
       return;
     }
-    this.applyGroups(addMemberAt(this.drafts(), groupId, payload.draft, event.currentIndex));
+    this.applyGroups(addMemberAt(this.drafts(), groupId, payload.draft, this.memberIndexAtDrop(target, groupId, event.currentIndex)));
     const name = this.groups()[groupId]?.name;
     if (name) {
       this.selectGroup(groupId);
@@ -343,13 +423,6 @@ export class BulkResendDialogComponent {
    * event so the outer enter predicate can yield while the pointer is over any group member.
    */
   private dragPointer: { x: number; y: number } | null = null;
-
-  rememberDragPointer(event: CdkDragMove<unknown>): void {
-    this.dragPointer = {
-      x: event.pointerPosition.x - window.scrollX,
-      y: event.pointerPosition.y - window.scrollY,
-    };
-  }
 
   readonly canEnterOuter = (drag: CdkDrag<DragPayload>): boolean => {
     const payload = drag.data;

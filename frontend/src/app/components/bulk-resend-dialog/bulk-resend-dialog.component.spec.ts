@@ -413,7 +413,7 @@ describe('BulkResendDialogComponent', () => {
      * (isFakeMousedownFromScreenReader), and a hand-built MouseEvent defaults both to 0. Without
      * them the drag silently never starts and the test looks like a product bug.
      */
-    const dragTo = (handle: HTMLElement, target: HTMLElement) => {
+    const dragTo = (handle: HTMLElement, target: HTMLElement, steps = 4) => {
       const from = centre(handle);
       const to = centre(target);
       const move = (x: number, y: number) =>
@@ -432,8 +432,8 @@ describe('BulkResendDialogComponent', () => {
         })
       );
       // A few intermediate moves, so the sort strategy sees the pointer cross the target.
-      for (let step = 1; step <= 4; step++) {
-        move(from.x + ((to.x - from.x) * step) / 4, from.y + ((to.y - from.y) * step) / 4);
+      for (let step = 1; step <= steps; step++) {
+        move(from.x + ((to.x - from.x) * step) / steps, from.y + ((to.y - from.y) * step) / steps);
       }
       document.dispatchEvent(
         new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: to.x, clientY: to.y, button: 0, detail: 1 })
@@ -492,12 +492,14 @@ describe('BulkResendDialogComponent', () => {
       component.groupIncluded();
       fixture.detectChanges();
       const groupId = Object.keys(service.groups())[0];
-      // Runs: [group: a b] [loose: c]. Drop b onto c, outside the group's member list.
-      dragTo(gripOf(rowFor(2)), rowFor(3));
+      // The group header belongs to the outer list but sits outside the member list. Dragging onto
+      // it is an unambiguous real drop out of the group, even when the rows reflow during dragging.
+      const groupHeader = fixture.nativeElement.querySelector('.br-group-head') as HTMLElement;
+      dragTo(gripOf(rowFor(2)), groupHeader);
       tick();
       fixture.detectChanges();
       expect(service.drafts().find((d) => d.ref.callId === 'b')!.groupId).toBeNull();
-      expect(ids()).toEqual(['a', 'b', 'c']);
+      expect(ids()).toEqual(['b', 'a', 'c']);
       // The group is left with one call, so it is gone rather than a header over nothing.
       expect(service.groups()[groupId]).toBeUndefined();
       flush();
@@ -508,7 +510,9 @@ describe('BulkResendDialogComponent', () => {
       component.groupIncluded();
       fixture.detectChanges();
       expect(ids()).toEqual(['a', 'b', 'c']);
-      dragTo(gripOf(rowFor(1)), rowFor(2));
+      // One move starts the CDK drag; the next already targets the other member. Container
+      // selection must use that event's pointer, not wait for a later cdkDragMoved notification.
+      dragTo(gripOf(rowFor(1)), rowFor(2), 2);
       tick();
       fixture.detectChanges();
       expect(ids()).toEqual(['b', 'a', 'c']);
