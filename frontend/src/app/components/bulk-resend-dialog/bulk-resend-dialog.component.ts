@@ -1,5 +1,4 @@
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
-import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { forkJoin, map, of } from 'rxjs';
@@ -75,7 +74,7 @@ type DragPayload =
 @Component({
   selector: 'app-bulk-resend-dialog',
   standalone: true,
-  imports: [CdkDropList, CdkDrag, CdkDragHandle, NgTemplateOutlet, ResendCallEditorComponent, ResendPanelComponent],
+  imports: [CdkDropList, CdkDrag, CdkDragHandle, ResendCallEditorComponent, ResendPanelComponent],
   templateUrl: './bulk-resend-dialog.component.html',
 })
 export class BulkResendDialogComponent {

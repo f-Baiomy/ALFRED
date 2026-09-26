@@ -1,45 +1,3 @@
-<!-- A row's contents, shared by every kind of row. The HOST element is not shared, because what
-     wraps it decides what it is a drag item inside: a loose call and a group member are items of
-     the same shape but live in different drop lists. -->
-<ng-template #rowBody let-d let-index="index" let-movable="movable">
-  @if (movable) {
-    <span class="drag-handle" cdkDragHandle aria-hidden="true">☰</span>
-  }
-  <input type="checkbox" [checked]="d.include" [attr.aria-label]="'Include call ' + index" (click)="$event.stopPropagation()" (change)="toggleInclude(d, $event)" />
-  <span class="br-index">{{ index }}</span>
-  <span class="badge">{{ d.method }}</span>
-  <!-- Path only: the row is narrow and the host is usually the same for the whole
-       batch; the full URL is in the tooltip and in the editor. -->
-  <span class="br-url" [title]="d.url">{{ pathOf(d.url) }}</span>
-  @if (isEdited(d)) {
-    <span class="br-badge edited" [title]="describeEdits(d).join(' · ')">edited</span>
-  }
-  @if (resultOf(d); as r) {
-    <span class="br-badge" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.error ?? ''">{{ r.ok ? r.status : 'failed' }}</span>
-  }
-  <span class="br-move">
-    <button type="button" class="icon-btn" aria-label="Move up" [disabled]="!movable || service.running()" (click)="moveBy(d, -1, $event)">▲</button>
-    <button type="button" class="icon-btn" aria-label="Move down" [disabled]="!movable || service.running()" (click)="moveBy(d, 1, $event)">▼</button>
-    <button type="button" class="icon-btn" aria-label="Remove from this resend" [disabled]="service.running()" (click)="remove(d, $event)">✕</button>
-  </span>
-</ng-template>
-
-<!-- A call in the list, loose or grouped. `movable` is false only where its own arrows make no
-     sense - nowhere, now that a grouped call can be dragged out of its group. -->
-<ng-template #callRow let-d let-index="index" let-movable="movable">
-  <div
-    class="br-row"
-    cdkDrag
-    [cdkDragData]="{ kind: 'call', draft: d }"
-    [class.on]="mode() === 'call' && selected()?.key === d.key"
-    [class.off]="!d.include"
-    [class.grouped]="!movable"
-    (click)="select(d)"
-  >
-    <ng-container *ngTemplateOutlet="rowBody; context: { $implicit: d, index: index, movable: movable }" />
-  </div>
-</ng-template>
-
 @if (service.visible()) {
   <div class="dialog-backdrop" (click)="close()">
     <div class="dialog-card bulk-resend-dialog" (click)="$event.stopPropagation()" role="dialog" aria-label="Resend calls">
@@ -59,6 +17,15 @@
 
       <div class="br-body">
         <div class="br-list">
+          <!-- The row markup is written out TWICE on purpose - once loose, once inside a group -
+               and must NOT be shared through an <ng-template>. cdkDragHandle finds its cdkDrag
+               through CDK_DRAG_PARENT, which Angular resolves from where a view is DECLARED, not
+               where it is inserted: inside a template declared at the top of this file there is no
+               cdkDrag above it, so every grip registers with nothing and does nothing. CDK then
+               quietly falls back to dragging from anywhere on the row, so the list still drags and
+               the dead grips look fine - which is why it went unnoticed until the real-mouse-event
+               tests in the spec (which drive CDK's own pointer handling) were run against both
+               versions. Keep the two copies inline. -->
           <div class="br-list-head">
             <small class="muted">Send order · drag or use the arrows · untick to skip</small>
             <button
@@ -141,13 +108,63 @@
                     (cdkDropListDropped)="dropInside($event, g.id)"
                   >
                     @for (d of run.drafts; track d.key) {
-                      <ng-container *ngTemplateOutlet="callRow; context: { $implicit: d, index: positionOf(d), movable: true }" />
+                      <div
+                        class="br-row"
+                        cdkDrag
+                        [cdkDragData]="{ kind: 'call', draft: d }"
+                        [class.on]="mode() === 'call' && selected()?.key === d.key"
+                        [class.off]="!d.include"
+                        (click)="select(d)"
+                      >
+                        <span class="drag-handle" cdkDragHandle aria-hidden="true">☰</span>
+                        <input type="checkbox" [checked]="d.include" [attr.aria-label]="'Include call ' + positionOf(d)" (click)="$event.stopPropagation()" (change)="toggleInclude(d, $event)" />
+                        <span class="br-index">{{ positionOf(d) }}</span>
+                        <span class="badge">{{ d.method }}</span>
+                        <span class="br-url" [title]="d.url">{{ pathOf(d.url) }}</span>
+                        @if (isEdited(d)) {
+                          <span class="br-badge edited" [title]="describeEdits(d).join(' · ')">edited</span>
+                        }
+                        @if (resultOf(d); as r) {
+                          <span class="br-badge" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.error ?? ''">{{ r.ok ? r.status : 'failed' }}</span>
+                        }
+                        <span class="br-move">
+                          <button type="button" class="icon-btn" aria-label="Move up" [disabled]="service.running()" (click)="moveBy(d, -1, $event)">▲</button>
+                          <button type="button" class="icon-btn" aria-label="Move down" [disabled]="service.running()" (click)="moveBy(d, 1, $event)">▼</button>
+                          <button type="button" class="icon-btn" aria-label="Remove from this resend" [disabled]="service.running()" (click)="remove(d, $event)">✕</button>
+                        </span>
+                      </div>
                     }
                   </div>
                 </div>
               } @else {
                 @for (d of run.drafts; track d.key) {
-                  <ng-container *ngTemplateOutlet="callRow; context: { $implicit: d, index: positionOf(d), movable: true }" />
+                  <div
+                    class="br-row"
+                    cdkDrag
+                    [cdkDragData]="{ kind: 'call', draft: d }"
+                    [class.on]="mode() === 'call' && selected()?.key === d.key"
+                    [class.off]="!d.include"
+                    (click)="select(d)"
+                  >
+                    <span class="drag-handle" cdkDragHandle aria-hidden="true">☰</span>
+                    <input type="checkbox" [checked]="d.include" [attr.aria-label]="'Include call ' + positionOf(d)" (click)="$event.stopPropagation()" (change)="toggleInclude(d, $event)" />
+                    <span class="br-index">{{ positionOf(d) }}</span>
+                    <span class="badge">{{ d.method }}</span>
+                    <!-- Path only: the row is narrow and the host is usually the same for the whole
+                         batch; the full URL is in the tooltip and in the editor. -->
+                    <span class="br-url" [title]="d.url">{{ pathOf(d.url) }}</span>
+                    @if (isEdited(d)) {
+                      <span class="br-badge edited" [title]="describeEdits(d).join(' · ')">edited</span>
+                    }
+                    @if (resultOf(d); as r) {
+                      <span class="br-badge" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.error ?? ''">{{ r.ok ? r.status : 'failed' }}</span>
+                    }
+                    <span class="br-move">
+                      <button type="button" class="icon-btn" aria-label="Move up" [disabled]="service.running()" (click)="moveBy(d, -1, $event)">▲</button>
+                      <button type="button" class="icon-btn" aria-label="Move down" [disabled]="service.running()" (click)="moveBy(d, 1, $event)">▼</button>
+                      <button type="button" class="icon-btn" aria-label="Remove from this resend" [disabled]="service.running()" (click)="remove(d, $event)">✕</button>
+                    </span>
+                  </div>
                 }
               }
             }
