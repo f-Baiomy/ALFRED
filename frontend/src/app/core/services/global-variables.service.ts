@@ -85,7 +85,7 @@ export class GlobalVariablesService {
   }
 
   upsert(name: string, value: string): void {
-    if (!VARIABLE_NAME.test(name)) throw new Error('Invalid variable name');
+    if (!VARIABLE_NAME.test(name) || name.startsWith('this.')) throw new Error('Invalid variable name');
     const state = this.state();
     const fallbacks = { ...state.fallbacks };
     delete fallbacks[name];
@@ -93,7 +93,7 @@ export class GlobalVariablesService {
   }
 
   remove(name: string, replacement: string | null): void {
-    if (!VARIABLE_NAME.test(name)) throw new Error('Invalid variable name');
+    if (!VARIABLE_NAME.test(name) || name.startsWith('this.')) throw new Error('Invalid variable name');
     const variables = { ...this.state().variables };
     delete variables[name];
     const fallbacks = { ...this.state().fallbacks };
@@ -106,6 +106,7 @@ export class GlobalVariablesService {
   resolve(text: string): string {
     const state = this.state();
     const visit = (input: string, seen: ReadonlySet<string>, depth: number): string => input.replace(VARIABLE_TOKEN, (token, name: string) => {
+      if (name.startsWith('this.')) return token;
       if (depth >= 20) return token;
       if (seen.has(name)) return token;
       const value = Object.prototype.hasOwnProperty.call(state.variables, name) ? state.variables[name]

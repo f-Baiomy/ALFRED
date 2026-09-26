@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.interception.domain.model;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -57,6 +58,7 @@ public final class RuleValidator {
     private static final Set<String> SAME_SITE = Set.of("Strict", "Lax", "None");
 
     private static final Pattern COOKIE_NAME = Pattern.compile("[!#$%&'*+\\-.^_`|~0-9A-Za-z]+");
+    private static final Pattern LOCAL_REFERENCE = Pattern.compile("\\{\\{this\\.([A-Za-z][A-Za-z0-9_]*)\\}\\}");
 
     public static List<String> validate(InterceptionRule rule) {
         return validate(rule, SelfTargets.none());
@@ -124,6 +126,9 @@ public final class RuleValidator {
             }
             validateAction(action, problems, checks);
         }
+        Set<String> requestLocals = new HashSet<>();
+        validateLocalOrder(rule.actions(), ActionType.Phase.REQUEST, requestLocals, problems);
+        validateLocalOrder(rule.actions(), ActionType.Phase.RESPONSE, requestLocals, problems);
 
         if (terminals > 1) {
             problems.add("A rule can only end a request once - keep one of mocking it, failing it, "
@@ -139,6 +144,38 @@ public final class RuleValidator {
             problems.add("A rule that aborts or mocks a request never reaches a pause - remove one of them.");
         }
         return problems;
+    }
+
+    private static void validateLocalOrder(List<RuleAction> actions, ActionType.Phase phase,
+                                           Set<String> available, List<String> problems) {
+        for (RuleAction action : actions) {
+            if (action.type() == null || action.type().phase() != phase || !action.isEnabled()) continue;
+            if (action.type().isConditional()) {
+                if (action.branches() != null) {
+                    for (ConditionBranch branch : action.branches()) {
+                        validateLocalOrder(branch.actions(), phase, new HashSet<>(available), problems);
+                    }
+                }
+                if (action.otherwise() != null) {
+                    validateLocalOrder(action.otherwise(), phase, new HashSet<>(available), problems);
+                }
+                continue;
+            }
+            String parameters = String.valueOf(action.value()) + ' ' + action.path() + ' '
+                    + action.body() + ' ' + action.pattern() + ' ' + action.replacement() + ' '
+                    + action.headers() + ' ' + (action.type() == ActionType.CAPTURE_REQUEST_VARIABLE
+                    || action.type() == ActionType.CAPTURE_RESPONSE_VARIABLE ? "" : action.name());
+            var references = LOCAL_REFERENCE.matcher(parameters);
+            while (references.find()) {
+                if (!available.contains(references.group(1))) {
+                    problems.add("{{this." + references.group(1) + "}} must be captured earlier in this rule and phase.");
+                }
+            }
+            if (action.type() == ActionType.CAPTURE_REQUEST_VARIABLE
+                    || action.type() == ActionType.CAPTURE_RESPONSE_VARIABLE) {
+                available.add(action.name());
+            }
+        }
     }
 
     private static void validateMatch(RuleMatch match, List<String> problems) {
@@ -270,6 +307,22 @@ public final class RuleValidator {
                 if (action.path() == null || action.path().isBlank()) {
                     problems.add(action.type() + " needs a field path, e.g. itinerary.seatsRemaining.");
                 } else if (!isValidPath(action.path())) {
+                    problems.add("\"" + action.path() + "\" is not a valid field path.");
+                }
+            }
+            case CAPTURE_REQUEST_VARIABLE, CAPTURE_RESPONSE_VARIABLE -> {
+                if (action.name() == null || !action.name().matches("[A-Za-z][A-Za-z0-9_]*")) {
+                    problems.add("Captured variable needs a name with letters, digits or underscores, starting with a letter.");
+                }
+                if (action.captureSource() == null || !List.of("JSON_FIELD", "HEADER", "COOKIE").contains(action.captureSource())) {
+                    problems.add("Captured variable needs a JSON field, header or cookie source.");
+                }
+                if (action.missingBehavior() != null && !List.of("SKIP", "FALLBACK").contains(action.missingBehavior())) {
+                    problems.add("Captured variable missing behavior must be SKIP or FALLBACK.");
+                }
+                if (action.path() == null || action.path().isBlank()) {
+                    problems.add("Captured variable needs a source field path or name.");
+                } else if ("JSON_FIELD".equals(action.captureSource()) && !isValidPath(action.path())) {
                     problems.add("\"" + action.path() + "\" is not a valid field path.");
                 }
             }

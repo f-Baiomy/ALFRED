@@ -351,6 +351,32 @@
           </small>
         }
 
+        @if (editor.isCapture(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Variable name</span>
+            <input type="text" [value]="step.action.name ?? ''" (input)="editor.onText(step.path, 'name', $event)" placeholder="supplier" />
+          </label>
+          <div class="inline-field">
+            <span>Read from</span>
+            <app-select-picker [options]="editor.captureSourceOptions" [value]="step.action.captureSource ?? 'JSON_FIELD'" (valueChange)="editor.patchAt(step.path, { captureSource: $any($event) })" />
+          </div>
+          <label class="inline-field grow">
+            <span>{{ step.action.captureSource === 'JSON_FIELD' ? 'Field path' : 'Name' }}</span>
+            <input type="text" [value]="step.action.path ?? ''" (input)="editor.onText(step.path, 'path', $event)" placeholder="supplier.code" />
+          </label>
+          <div class="inline-field">
+            <span>If missing</span>
+            <app-select-picker [options]="editor.captureMissingOptions" [value]="step.action.missingBehavior ?? 'SKIP'" (valueChange)="editor.patchAt(step.path, { missingBehavior: $any($event) })" />
+          </div>
+          @if (step.action.missingBehavior === 'FALLBACK') {
+            <label class="inline-field grow">
+              <span>Fallback (JSON or text)</span>
+              <input type="text" [value]="editor.valueText(step.action)" (input)="editor.onValue(step.path, $event, true)" placeholder="null" />
+            </label>
+          }
+          <small class="muted span-all">Use later as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code>. Each call and rule has its own value.</small>
+        }
+
         @if (editor.isJsonPathOnly(step.action.type)) {
           <label class="inline-field grow">
             <span>Field path</span>

@@ -24,6 +24,7 @@ public enum ActionType {
     SET_QUERY_PARAM(Phase.REQUEST),
     REMOVE_QUERY_PARAM(Phase.REQUEST),
     SET_REQUEST_JSON_FIELD(Phase.REQUEST),
+    CAPTURE_REQUEST_VARIABLE(Phase.REQUEST),
     /**
      * Find and replace in the request body, any content type - the one edit that reaches a token in
      * a SOAP or plain-text body, where no JSON path can. Literal text unless {@code regex} is set.
@@ -110,6 +111,7 @@ public enum ActionType {
     SET_RESPONSE_TRAILER(Phase.RESPONSE),
     REMOVE_RESPONSE_TRAILER(Phase.RESPONSE),
     SET_RESPONSE_JSON_FIELD(Phase.RESPONSE),
+    CAPTURE_RESPONSE_VARIABLE(Phase.RESPONSE),
     /** The response-body counterpart of {@link #REPLACE_IN_REQUEST_BODY}. */
     REPLACE_IN_RESPONSE_BODY(Phase.RESPONSE),
     /** The response-body counterpart of {@link #REMOVE_REQUEST_JSON_FIELD}. */

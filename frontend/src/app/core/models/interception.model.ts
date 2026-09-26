@@ -22,6 +22,7 @@ export type ActionType =
   | 'SET_QUERY_PARAM'
   | 'REMOVE_QUERY_PARAM'
   | 'SET_REQUEST_JSON_FIELD'
+  | 'CAPTURE_REQUEST_VARIABLE'
   | 'REPLACE_IN_REQUEST_BODY'
   | 'REWRITE_URL'
   | 'SET_METHOD'
@@ -48,6 +49,7 @@ export type ActionType =
   | 'SET_RESPONSE_TRAILER'
   | 'REMOVE_RESPONSE_TRAILER'
   | 'SET_RESPONSE_JSON_FIELD'
+  | 'CAPTURE_RESPONSE_VARIABLE'
   | 'SET_RESPONSE_BODY'
   | 'REPLACE_IN_RESPONSE_BODY'
   | 'REMOVE_RESPONSE_JSON_FIELD'
@@ -306,6 +308,8 @@ export interface RuleAction {
   readonly path?: string | null;
   /** SET_*_JSON_FIELD: create missing path containers and keep indexed array objects aligned. */
   readonly createIfMissing?: boolean | null;
+  readonly captureSource?: 'JSON_FIELD' | 'HEADER' | 'COOKIE' | null;
+  readonly missingBehavior?: 'SKIP' | 'FALLBACK' | null;
   readonly status?: number | null;
   readonly headers?: Readonly<Record<string, string>> | null;
   readonly body?: string | null;
@@ -684,6 +688,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   SET_QUERY_PARAM: 'Set query parameter',
   REMOVE_QUERY_PARAM: 'Remove query parameter',
   SET_REQUEST_JSON_FIELD: 'Set JSON field in request body',
+  CAPTURE_REQUEST_VARIABLE: 'Capture request variable',
   REPLACE_IN_REQUEST_BODY: 'Find & replace in request body',
   REWRITE_URL: 'Rewrite URL',
   SET_METHOD: 'Set method',
@@ -710,6 +715,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   SET_RESPONSE_TRAILER: 'Set response trailer',
   REMOVE_RESPONSE_TRAILER: 'Remove response trailer',
   SET_RESPONSE_JSON_FIELD: 'Set JSON field in response body',
+  CAPTURE_RESPONSE_VARIABLE: 'Capture response variable',
   SET_RESPONSE_BODY: 'Replace the response body',
   REPLACE_IN_RESPONSE_BODY: 'Find & replace in response body',
   REMOVE_RESPONSE_JSON_FIELD: 'Remove response JSON field',
@@ -849,6 +855,9 @@ export function describeAction(action: RuleAction): string {
     case 'SET_REQUEST_JSON_FIELD':
     case 'SET_RESPONSE_JSON_FIELD':
       return `Set ${action.path} = ${JSON.stringify(action.value)}${action.createIfMissing ? ' (add if missing)' : ''}`;
+    case 'CAPTURE_REQUEST_VARIABLE':
+    case 'CAPTURE_RESPONSE_VARIABLE':
+      return `Capture ${action.captureSource?.toLowerCase() ?? 'field'} ${action.path ?? ''} as {{this.${action.name ?? ''}}}`;
     case 'SET_RESPONSE_STATUS':
       return `${label} ${action.status}`;
     case 'MOCK_RESPONSE':

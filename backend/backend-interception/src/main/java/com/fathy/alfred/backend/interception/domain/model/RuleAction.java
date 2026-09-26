@@ -93,7 +93,11 @@ public record RuleAction(
         /** DROP_MESSAGE: drop only messages containing this literal text. */
         String contains,
         /** SET_*_JSON_FIELD: build missing path containers and align indexed array objects. */
-        Boolean createIfMissing) {
+        Boolean createIfMissing,
+        /** CAPTURE_*_VARIABLE: JSON_FIELD, HEADER or COOKIE. */
+        String captureSource,
+        /** CAPTURE_*_VARIABLE: SKIP or FALLBACK (whose value may be JSON null). */
+        String missingBehavior) {
 
     public RuleAction {
         headers = headers == null ? null : Map.copyOf(headers);
@@ -112,7 +116,7 @@ public record RuleAction(
                       List<RuleAction> otherwise, Boolean enabled) {
         this(type, durationMs, name, value, path, status, headers, body, timeoutSeconds, onTimeout, failure,
                 branches, otherwise, enabled, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /**

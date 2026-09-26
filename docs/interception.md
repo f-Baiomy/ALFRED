@@ -1316,6 +1316,22 @@ Both fixed; the whole resend feature was unreachable in a real deploy until this
     internet host rather than local supplier latency — a controlled local-supplier run would give
     tighter numbers, but the ON-vs-OFF parity is the claim being checked, and it held.
 
+## Rule-local captured variables
+
+`CAPTURE_REQUEST_VARIABLE` and `CAPTURE_RESPONSE_VARIABLE` read a JSON field (the same dotted
+path grammar used by Set JSON field), header, or cookie into a name used later as
+`{{this.name}}`. Request captures can be used by later request actions and by response actions
+on the same call. Response captures can be used only by later response actions. Each rule has
+its own values for each flow; changing the published ruleset between phases discards the old
+captures. A JSON wildcard returns an array even when it matches one item. JSON `null` is a found
+value and keeps its type when the entire action value is `{{this.name}}`.
+
+If the source is absent, the capture can use a JSON or text fallback, including `null`. Without
+one, actions that reference the unavailable variable are skipped and the call record says why.
+The call record states the source and variable name but never records the captured value. The
+backend rejects references before their capture or in an earlier phase, and `this.` is reserved
+from global variable names.
+
 ## Safety
 
 - **Off by default.** A feature that can change live traffic is never on because nobody said

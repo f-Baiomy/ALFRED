@@ -109,6 +109,7 @@ export class GlobalVariablesComponent {
   private readonly highlightValueVersion = signal(0);
   private autocompleteRange: { start: number; end: number } | null = null;
   readonly hoveredControl = signal<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  readonly hoveredName = signal('');
   private hoverCloseTimer?: ReturnType<typeof setTimeout>;
   constructor() {
     this.variables.load();
@@ -172,8 +173,8 @@ export class GlobalVariablesComponent {
     const target = event.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
     if (target.closest('.input-variable-hover, .variables-drawer, .variable-modal-backdrop')) return;
-    if (!this.namesIn(target.value).length) return;
-    if (!this.pointerOnToken(event.clientX, event.clientY)) {
+    const name = this.tokenAtPointer(event.clientX, event.clientY);
+    if (!name || name.startsWith('this.') || !(name in this.variables.state().variables)) {
       if (this.hoveredControl() === target) this.clearHoveredControl();
       return;
     }
@@ -181,15 +182,16 @@ export class GlobalVariablesComponent {
     const rect = target.getBoundingClientRect();
     this.selectionLeft.set(Math.max(8, Math.min(window.innerWidth - 290, rect.left)));
     this.selectionTop.set(Math.min(window.innerHeight - 150, rect.bottom + 8));
+    this.hoveredName.set(name);
     this.hoveredControl.set(target);
   }
-  private tokenRectsCache?: { control: Element; value: string; version: number; rects: DOMRect[] };
+  private tokenRectsCache?: { control: Element; value: string; version: number; rects: Array<{ rect: DOMRect; name: string }> };
   /**
    * Where the highlighted tokens are on screen, measured only when something that moves them
    * changed - the value, or a scroll/resize (which bumps highlightLayoutVersion). A mousemove
    * handler that measured on every event would force a layout per pointer move.
    */
-  private tokenRects(): DOMRect[] {
+  private tokenRects(): Array<{ rect: DOMRect; name: string }> {
     const control = this.highlightedControl();
     if (!control) return [];
     const version = this.highlightLayoutVersion() + this.highlightValueVersion();
@@ -198,13 +200,13 @@ export class GlobalVariablesComponent {
       return cached.rects;
     }
     const rects = Array.from(document.querySelectorAll('.variable-input-highlight .variable-highlight-token')).map(
-      (token) => token.getBoundingClientRect()
+      (token) => ({ rect: token.getBoundingClientRect(), name: tokenNames(token.textContent ?? '')[0] ?? '' })
     );
     this.tokenRectsCache = { control, value: control.value, version, rects };
     return rects;
   }
-  private pointerOnToken(x: number, y: number): boolean {
-    return this.tokenRects().some((rect) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+  private tokenAtPointer(x: number, y: number): string {
+    return this.tokenRects().find(({ rect }) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)?.name ?? '';
   }
   @HostListener('document:mouseout', ['$event']) onMouseOut(event: MouseEvent): void {
     const related = event.relatedTarget;
@@ -249,15 +251,15 @@ export class GlobalVariablesComponent {
     this.selectionLeft.set(Math.max(8, Math.min(window.innerWidth - 165, left)));
     this.selectionTop.set(Math.max(42, top));
   }
-  hoveredNames(): string[] { return this.namesIn(this.hoveredControl()?.value ?? ''); }
+  hoveredNames(): string[] { return this.hoveredName() ? [this.hoveredName()] : []; }
   private namesIn(value: string): string[] { return tokenNames(value); }
   hoverLeft(): number { return this.selectionLeft(); }
   hoverTop(): number { return this.selectionTop(); }
   cancelHoverClose(): void { clearTimeout(this.hoverCloseTimer); }
-  clearHoveredControl(): void { this.hoverCloseTimer = setTimeout(() => this.hoveredControl.set(null), 220); }
+  clearHoveredControl(): void { this.hoverCloseTimer = setTimeout(() => { this.hoveredControl.set(null); this.hoveredName.set(''); }, 220); }
   saveHoveredValue(name: string, event: Event): void { this.variables.upsert(name, this.inputValue(event)); }
   beginSelectionCreate(): void { this.selectionValue.set(this.selectionText()); this.selectionName.set(''); this.closeAutocomplete(); this.selectionEditing.set(true); }
-  validSelectionName(): boolean { return VARIABLE_NAME.test(this.selectionName().trim()); }
+  validSelectionName(): boolean { return VARIABLE_NAME.test(this.selectionName().trim()) && !this.selectionName().trim().startsWith('this.'); }
   saveSelectionCreate(): void {
     const control = this.selectedControl;
     const range = this.selectedRange;
@@ -282,7 +284,7 @@ export class GlobalVariablesComponent {
     this.selectedRange = null;
     this.selectedDomRange = null;
   }
-  validName(): boolean { return VARIABLE_NAME.test(this.editName().trim()); }
+  validName(): boolean { return VARIABLE_NAME.test(this.editName().trim()) && !this.editName().trim().startsWith('this.'); }
   createOrUpdate(): void { if (!this.validName()) return; this.variables.upsert(this.editName().trim(), this.editValue()); this.editing.set(false); }
   deleteVariable(name: string): void { this.deleting.set(name); this.deleteMode.set('keep'); this.customReplacement.set(''); }
   confirmDelete(): void {
@@ -294,6 +296,12 @@ export class GlobalVariablesComponent {
   inputValue(event: Event): string { return (event.target as HTMLTextAreaElement | HTMLInputElement).value; }
   autocompleteMatches(): Array<{ name: string; value: string }> {
     const query = this.autocompleteQuery().toLowerCase();
+    if (query.startsWith('this.')) {
+      const control = this.autocompleteControl();
+      const names = control?.closest('app-rule-action-card')?.getAttribute('data-rule-locals')?.split(',').filter(Boolean) ?? [];
+      return names.filter((name) => `this.${name}`.toLowerCase().includes(query))
+        .map((name) => ({ name: `this.${name}`, value: 'Rule variable' }));
+    }
     return this.variables.entries().filter((entry) => entry.name.toLowerCase().includes(query));
   }
   private updateAutocomplete(target: EventTarget | null): void {

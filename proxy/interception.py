@@ -31,6 +31,7 @@ import collections
 import datetime
 import email.utils
 import json
+from http.cookies import SimpleCookie
 import os
 import re
 import socket
@@ -61,6 +62,7 @@ MAX_PATTERN_LENGTH = 500
 MAX_PAUSE_SECONDS = int(os.environ.get('INTERCEPTION_MAX_PAUSE_SECONDS', '300'))
 
 REQUEST_ACTIONS = {
+    'CAPTURE_REQUEST_VARIABLE',
     'DELAY_REQUEST', 'SET_REQUEST_HEADER', 'REMOVE_REQUEST_HEADER',
     'SET_REQUEST_TRAILER', 'REMOVE_REQUEST_TRAILER',
     'SET_QUERY_PARAM', 'REMOVE_QUERY_PARAM', 'SET_REQUEST_JSON_FIELD',
@@ -72,6 +74,7 @@ REQUEST_ACTIONS = {
     'SIMULATE_FAILURE', 'IF_REQUEST',
 }
 RESPONSE_ACTIONS = {
+    'CAPTURE_RESPONSE_VARIABLE',
     'DELAY_RESPONSE', 'SET_RESPONSE_STATUS', 'SET_RESPONSE_HEADER',
     'REMOVE_RESPONSE_HEADER', 'SET_RESPONSE_TRAILER', 'REMOVE_RESPONSE_TRAILER',
     'SET_RESPONSE_JSON_FIELD', 'SET_RESPONSE_BODY',
@@ -923,7 +926,7 @@ def _edit_form_field(request, rule, action, kind, verdict):
         return
     # The body itself is in the before/after snapshot, so masking here only hides what a secret
     # field name says it should - the same rule as a query parameter.
-    verdict.record(rule, kind, verdict.named(name, value))
+    verdict.record(rule, kind, verdict.named(name) if action.get('__local_value_used') else verdict.named(name, value))
 
 
 def _positive_int(value):
@@ -1129,12 +1132,56 @@ def _resolve_variable_tokens(value, variables, fallbacks, seen=frozenset(), dept
         name = match.group(1)
         if name in seen:
             return match.group(0)
+        if name.startswith('this.'):
+            return match.group(0)
         replacement = variables.get(name, fallbacks.get(name))
         if not isinstance(replacement, str):
             return match.group(0)
         return _resolve_variable_tokens(replacement, variables, fallbacks, seen | {name}, depth + 1)
 
     return VARIABLE_TOKEN.sub(replace, value)
+
+
+class _MissingLocal(Exception):
+    def __init__(self, name):
+        self.name = name
+
+
+def _render_local(value, values):
+    """Render only rule-local tokens, preserving JSON types for a whole-token value."""
+    if isinstance(value, dict):
+        return {key: _render_local(item, values) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_render_local(item, values) for item in value]
+    if not isinstance(value, str):
+        return value
+    whole = VARIABLE_TOKEN.fullmatch(value)
+    if whole and whole.group(1).startswith('this.'):
+        name = whole.group(1)[5:]
+        if name not in values:
+            raise _MissingLocal(name)
+        return values[name]
+
+    def replace(match):
+        token = match.group(1)
+        if not token.startswith('this.'):
+            return match.group(0)
+        name = token[5:]
+        if name not in values:
+            raise _MissingLocal(name)
+        result = values[name]
+        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+
+    return VARIABLE_TOKEN.sub(replace, value)
+
+
+def _render_local_action(action, values):
+    rendered = {key: _render_local(value, values) if not key.startswith('__') and key not in ('type', 'branches', 'otherwise')
+                else value for key, value in action.items()}
+    rendered['__local_value_used'] = '{{this.' in str(action.get('value', ''))
+    if rendered.get('pattern') != action.get('pattern') or rendered.get('replacement') != action.get('replacement'):
+        rendered['__pattern'] = _Pattern(rendered)
+    return rendered
 
 
 class _RulesCache:
@@ -1601,6 +1648,50 @@ def _json_field(message, path):
     if doc is _NOT_JSON:
         return []
     return _collect(doc, _parse_path(path))
+
+
+def _capture_value(flow, action, phase):
+    message = flow.request if phase == 'request' else flow.response
+    source = action.get('captureSource')
+    path = action.get('path') or ''
+    if source == 'JSON_FIELD':
+        values = _json_field(message, path)
+        if not values:
+            return False, None
+        return True, values if '[*]' in path else values[0]
+    if source == 'HEADER':
+        value = message.headers.get(path)
+        return (value is not None), value
+    if source == 'COOKIE':
+        if phase == 'request':
+            cookies = _request_cookies(message)
+            return path in cookies, cookies.get(path)
+        for header in message.headers.get_all('set-cookie'):
+            cookie = SimpleCookie()
+            try:
+                cookie.load(header)
+            except Exception:
+                continue
+            if path in cookie:
+                return True, cookie[path].value
+    return False, None
+
+
+def _capture_rule_variable(flow, rule, action, kind, verdict, values, phase):
+    found, value = _capture_value(flow, action, phase)
+    fallback = not found and action.get('missingBehavior') == 'FALLBACK'
+    if fallback:
+        value = action.get('value')
+        found = True
+    name = action['name']
+    if found:
+        values[name] = value
+        detail = (f'this.{name} used fallback (source missing)' if fallback else
+                  f"this.{name} captured from {action['captureSource']} {action['path']}")
+        verdict.record(rule, kind, detail)
+    else:
+        values.pop(name, None)
+        verdict.skip(rule, kind, f"{action['captureSource']} {action['path']} missing; this.{name} unavailable")
 
 
 def _squashed_body(message, form):
@@ -2184,6 +2275,8 @@ class InterceptionEngine:
         action that does not need the event loop costs nothing extra."""
         verdict = Verdict()
         ruleset = self._cache.current()
+        flow.metadata['_interception_locals'] = {}
+        flow.metadata['_interception_local_ruleset'] = ruleset
         verdict.sensitive = ruleset.sensitive
         verdict.self_targets = ruleset.self_targets
         matching = self._matching(flow, service_name, ruleset)
@@ -2219,6 +2312,17 @@ class InterceptionEngine:
         if kind == 'IF_REQUEST':
             await self._run_conditional(flow, rule, action, kind, verdict, REQUEST_ACTIONS,
                                   self._apply_request_action)
+            return
+
+        values = flow.metadata.setdefault('_interception_locals', {}).setdefault(rule.id, {})
+        try:
+            action = _render_local_action(action, values)
+        except _MissingLocal as missing:
+            verdict.skip(rule, kind, f'rule variable this.{missing.name} was not captured')
+            return
+
+        if kind == 'CAPTURE_REQUEST_VARIABLE':
+            _capture_rule_variable(flow, rule, action, kind, verdict, values, 'request')
             return
 
         if kind == 'DELAY_REQUEST':
@@ -2274,7 +2378,7 @@ class InterceptionEngine:
                 request.query[name] = value
                 # A query parameter can carry a key as easily as a header can (api_key=...), so
                 # the same secret-name list decides whether its value may appear here.
-                verdict.record(rule, kind, verdict.named(name, value))
+                verdict.record(rule, kind, verdict.named(name) if action.get('__local_value_used') else verdict.named(name, value))
             return
 
         if kind == 'REMOVE_QUERY_PARAM':
@@ -2527,6 +2631,8 @@ class InterceptionEngine:
         if flow.response is None:
             return verdict
         ruleset = self._cache.current()
+        if flow.metadata.get('_interception_local_ruleset') is not ruleset:
+            flow.metadata['_interception_locals'] = {}
         verdict.sensitive = ruleset.sensitive
         matching = self._matched_for_response(flow, service_name, ruleset)
         if matching:
@@ -2551,6 +2657,17 @@ class InterceptionEngine:
         if kind == 'IF_RESPONSE':
             await self._run_conditional(flow, rule, action, kind, verdict, RESPONSE_ACTIONS,
                                   self._apply_response_action)
+            return
+
+        values = flow.metadata.setdefault('_interception_locals', {}).setdefault(rule.id, {})
+        try:
+            action = _render_local_action(action, values)
+        except _MissingLocal as missing:
+            verdict.skip(rule, kind, f'rule variable this.{missing.name} was not captured')
+            return
+
+        if kind == 'CAPTURE_RESPONSE_VARIABLE':
+            _capture_rule_variable(flow, rule, action, kind, verdict, values, 'response')
             return
 
         if kind == 'DELAY_RESPONSE':

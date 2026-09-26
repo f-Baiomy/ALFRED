@@ -23,6 +23,7 @@ export interface ActionGroup {
 export const GROUPS: Readonly<Record<'request' | 'response', readonly ActionGroup[]>> = {
   request: [
     { id: 'timing', label: 'Timing', icon: 'clock' },
+    { id: 'variables', label: 'Variables', icon: 'braces' },
     { id: 'headers', label: 'Headers & trailers', icon: 'list' },
     { id: 'url', label: 'URL & method', icon: 'link' },
     { id: 'body', label: 'Body', icon: 'braces' },
@@ -33,6 +34,7 @@ export const GROUPS: Readonly<Record<'request' | 'response', readonly ActionGrou
   ],
   response: [
     { id: 'timing', label: 'Timing', icon: 'clock' },
+    { id: 'variables', label: 'Variables', icon: 'braces' },
     { id: 'status', label: 'Status & headers', icon: 'list' },
     { id: 'body', label: 'Body', icon: 'braces' },
     { id: 'cookies', label: 'Cookies', icon: 'cookie' },
@@ -70,6 +72,7 @@ export const CATALOG: Readonly<Partial<Record<ActionType, CatalogEntry>>> = {
   SET_QUERY_PARAM: { group: 'url', goals: ['change'], hint: 'Add or overwrite one query parameter.' },
   REMOVE_QUERY_PARAM: { group: 'url', goals: ['change'], hint: 'Strip one query parameter.' },
   SET_REQUEST_JSON_FIELD: { group: 'body', goals: ['change'], hint: 'Change one value in a JSON body, by path.', fits: 'json' },
+  CAPTURE_REQUEST_VARIABLE: { group: 'variables', goals: ['change'], hint: 'Read a request field, header or cookie for later actions.' },
   REMOVE_REQUEST_JSON_FIELD: { group: 'body', goals: ['change'], hint: 'Delete one value from a JSON body.', fits: 'json' },
   REPLACE_IN_REQUEST_BODY: {
     group: 'body',
@@ -108,6 +111,7 @@ export const CATALOG: Readonly<Partial<Record<ActionType, CatalogEntry>>> = {
   REMOVE_RESPONSE_TRAILER: { group: 'status', goals: ['change'], hint: 'Strip one trailer.' },
   SET_RESPONSE_ENCODING: { group: 'status', goals: ['change'], hint: 'Re-encode the body.' },
   SET_RESPONSE_JSON_FIELD: { group: 'body', goals: ['change'], hint: 'Change one value in a JSON body, by path.', fits: 'json' },
+  CAPTURE_RESPONSE_VARIABLE: { group: 'variables', goals: ['change'], hint: 'Read a response field, header or cookie for later actions.' },
   REMOVE_RESPONSE_JSON_FIELD: { group: 'body', goals: ['change'], hint: 'Delete one value from a JSON body.', fits: 'json' },
   REPLACE_IN_RESPONSE_BODY: {
     group: 'body',

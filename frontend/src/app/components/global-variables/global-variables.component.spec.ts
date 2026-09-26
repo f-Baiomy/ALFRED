@@ -69,6 +69,17 @@ describe('GlobalVariablesComponent input highlighting', () => {
     expect(component.selectionText()).toBe('');
     expect(component.selectionCanReplace()).toBeFalse();
   });
+
+  it('suggests only captures available on the current rule action', () => {
+    const card = document.createElement('app-rule-action-card');
+    card.setAttribute('data-rule-locals', 'supplier,code');
+    card.append(input);
+    document.body.append(card);
+    component.autocompleteControl.set(input);
+    component.autocompleteQuery.set('this.s');
+    expect(component.autocompleteMatches()).toEqual([{ name: 'this.supplier', value: 'Rule variable' }]);
+    card.remove();
+  });
 });
 
 describe('GlobalVariablesComponent rendered input highlight', () => {

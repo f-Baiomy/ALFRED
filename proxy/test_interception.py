@@ -305,6 +305,94 @@ def rule(**kwargs):
     return base
 
 
+class RuleLocalVariableTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def engine(self, rules):
+        return interception.InterceptionEngine('outbound', write_rules(self.tmp.name, rules))
+
+    def test_capture_request_json_and_use_in_later_request_and_response_actions(self):
+        engine = self.engine([rule(actions=[
+            {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'supplier', 'captureSource': 'JSON_FIELD', 'path': 'supplier'},
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-Supplier', 'value': '{{this.supplier}}'},
+            {'type': 'SET_RESPONSE_HEADER', 'name': 'X-Supplier', 'value': '{{this.supplier}}'},
+        ])])
+        flow = FakeFlow(FakeRequest(text='{"supplier":"ACME"}'))
+        run(engine.apply_request(flow))
+        self.assertEqual(flow.request.headers['X-Supplier'], 'ACME')
+        flow.response = CodecMessage(status=200, text='{}')
+        run(engine.apply_response(flow))
+        self.assertEqual(flow.response.headers['X-Supplier'], 'ACME')
+
+    def test_missing_source_skips_dependent_action_but_not_unrelated_action(self):
+        engine = self.engine([rule(actions=[
+            {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'x', 'captureSource': 'JSON_FIELD', 'path': 'missing'},
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-Missing', 'value': '{{this.x}}'},
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-Other', 'value': 'yes'},
+        ])])
+        flow = FakeFlow(FakeRequest(text='{}'))
+        verdict = run(engine.apply_request(flow))
+        self.assertNotIn('X-Missing', flow.request.headers)
+        self.assertEqual(flow.request.headers['X-Other'], 'yes')
+        self.assertIn('not captured', str(verdict.as_log()))
+
+    def test_null_is_found_and_fallback_can_be_null(self):
+        engine = self.engine([rule(actions=[
+            {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'x', 'captureSource': 'JSON_FIELD', 'path': 'x'},
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'copy', 'value': '{{this.x}}', 'createIfMissing': True},
+        ])])
+        flow = FakeFlow(FakeRequest(text='{"x":null}'))
+        run(engine.apply_request(flow))
+        self.assertIsNone(json.loads(flow.request.text)['copy'])
+
+        fallback_engine = self.engine([rule(actions=[
+            {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'x', 'captureSource': 'JSON_FIELD',
+             'path': 'missing', 'missingBehavior': 'FALLBACK', 'value': None},
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'copy', 'value': '{{this.x}}', 'createIfMissing': True},
+        ])])
+        missing_flow = FakeFlow(FakeRequest(text='{}'))
+        run(fallback_engine.apply_request(missing_flow))
+        self.assertIsNone(json.loads(missing_flow.request.text)['copy'])
+
+    def test_response_capture_and_wildcard_json_preserve_types(self):
+        engine = self.engine([rule(actions=[
+            {'type': 'CAPTURE_RESPONSE_VARIABLE', 'name': 'codes', 'captureSource': 'JSON_FIELD', 'path': 'items[*].code'},
+            {'type': 'SET_RESPONSE_JSON_FIELD', 'path': 'codes', 'value': '{{this.codes}}', 'createIfMissing': True},
+            {'type': 'CAPTURE_RESPONSE_VARIABLE', 'name': 'session', 'captureSource': 'COOKIE', 'path': 'sid'},
+            {'type': 'SET_RESPONSE_HEADER', 'name': 'X-Session', 'value': '{{this.session}}'},
+        ])])
+        flow = FakeFlow(response=CodecMessage(status=200, text='{"items":[{"code":1},{"code":2}]}',
+                                              headers={'Set-Cookie': 'sid=abc; Path=/'}))
+        run(engine.apply_request(flow))
+        run(engine.apply_response(flow))
+        self.assertEqual(json.loads(flow.response.text)['codes'], [1, 2])
+        self.assertEqual(flow.response.headers['X-Session'], 'abc')
+
+    def test_variables_are_isolated_by_rule_and_call(self):
+        engine = self.engine([
+            rule(id='one', actions=[{'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'x', 'captureSource': 'HEADER', 'path': 'X-Source'}]),
+            rule(id='two', actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Leak', 'value': '{{this.x}}'}]),
+        ])
+        flow = FakeFlow(FakeRequest(headers={'X-Source': 'secret'}))
+        run(engine.apply_request(flow))
+        self.assertNotIn('X-Leak', flow.request.headers)
+        next_flow = FakeFlow()
+        run(engine.apply_request(next_flow))
+        self.assertNotIn('X-Leak', next_flow.request.headers)
+
+    def test_capture_and_query_action_details_do_not_log_captured_value(self):
+        engine = self.engine([rule(actions=[
+            {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'token', 'captureSource': 'HEADER', 'path': 'X-Secret'},
+            {'type': 'SET_QUERY_PARAM', 'name': 'code', 'value': '{{this.token}}'},
+        ])])
+        flow = FakeFlow(FakeRequest(headers={'X-Secret': 'private-value'}))
+        verdict = run(engine.apply_request(flow))
+        self.assertEqual(flow.request.query['code'], 'private-value')
+        self.assertNotIn('private-value', ' '.join(str(applied.detail) for applied in verdict.applied))
+
+
 class MatchingTest(unittest.TestCase):
 
     def setUp(self):
@@ -1527,6 +1615,8 @@ class EveryActionIsCoveredTest(unittest.TestCase):
     # Actions that deliberately record no before/after, with the reason. Anything NOT listed here
     # must produce both ends.
     NO_CHANGE = {
+        'CAPTURE_REQUEST_VARIABLE': 'captures a value without changing traffic',
+        'CAPTURE_RESPONSE_VARIABLE': 'captures a value without changing traffic',
         'DELAY_REQUEST': 'changes when, not what',
         'DELAY_RESPONSE': 'changes when, not what',
         'SEND_TO_HOST': 'forwarding already happens; it only refuses a later short-circuit',
@@ -1537,6 +1627,8 @@ class EveryActionIsCoveredTest(unittest.TestCase):
 
     # One action of each type that really does change something, against the fixture below.
     SAMPLES = {
+        'CAPTURE_REQUEST_VARIABLE': {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'saved', 'captureSource': 'JSON_FIELD', 'path': 'a'},
+        'CAPTURE_RESPONSE_VARIABLE': {'type': 'CAPTURE_RESPONSE_VARIABLE', 'name': 'saved', 'captureSource': 'JSON_FIELD', 'path': 'a'},
         'SET_REQUEST_HEADER': {'type': 'SET_REQUEST_HEADER', 'name': 'X-A', 'value': '1'},
         'REMOVE_REQUEST_HEADER': {'type': 'REMOVE_REQUEST_HEADER', 'name': 'X-Gone'},
         'SET_REQUEST_TRAILER': {'type': 'SET_REQUEST_TRAILER', 'name': 'X-Trailer-A', 'value': '1'},

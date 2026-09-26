@@ -36,6 +36,16 @@ export interface HelpEntry {
 const SAMPLE_BODY = `{"supplier":"TravelportNdc","searchCriteria":[{"origin":"CAI","destination":"DXB"}],"passengers":[{"count":1}],"promoCodes":null}`;
 
 export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
+  CAPTURE_REQUEST_VARIABLE: {
+    title: 'Capture request variable', code: 'CAPTURE_REQUEST_VARIABLE',
+    what: 'Read a JSON field, header or cookie from this request and make it available to later actions in this rule as {{this.name}}.',
+    warning: 'A missing source skips actions that use the variable unless you set a fallback. The value lasts for this call only.',
+  },
+  CAPTURE_RESPONSE_VARIABLE: {
+    title: 'Capture response variable', code: 'CAPTURE_RESPONSE_VARIABLE',
+    what: 'Read a JSON field, header or Set-Cookie from the response and make it available to later response actions in this rule as {{this.name}}.',
+    warning: 'This value is available after the response arrives. It cannot be used in request actions.',
+  },
   DELAY_REQUEST: {
     title: 'Delay request',
     code: 'DELAY_REQUEST',

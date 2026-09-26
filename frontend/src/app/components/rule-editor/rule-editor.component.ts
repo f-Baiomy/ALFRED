@@ -1735,6 +1735,42 @@ export class RuleEditorComponent implements OnInit {
     return type === 'SET_REQUEST_JSON_FIELD' || type === 'SET_RESPONSE_JSON_FIELD';
   }
 
+  isCapture(type: ActionType): boolean {
+    return type === 'CAPTURE_REQUEST_VARIABLE' || type === 'CAPTURE_RESPONSE_VARIABLE';
+  }
+
+  availableLocalNames(path: readonly number[]): string[] {
+    const current = actionAt(this.actions(), path);
+    if (!current) return [];
+    const phase = actionPhase(current.type);
+    const names = new Set<string>();
+    const add = (action: RuleAction) => {
+      if (action.enabled === false || !action.name) return;
+      if (action.type === 'CAPTURE_REQUEST_VARIABLE' || (phase === 'response' && action.type === 'CAPTURE_RESPONSE_VARIABLE')) {
+        names.add(action.name);
+      }
+    };
+    this.actions().forEach((action, index) => {
+      if (action.type === 'CAPTURE_REQUEST_VARIABLE' && (phase === 'response' || index < path[0])) add(action);
+      if (phase === 'response' && index < path[0] && action.type === 'CAPTURE_RESPONSE_VARIABLE') add(action);
+    });
+    if (path.length > 1) {
+      const siblings = listAt(this.actions(), path.slice(0, -1));
+      siblings.slice(0, path[path.length - 1]).forEach(add);
+    }
+    return [...names].sort();
+  }
+
+  readonly captureSourceOptions: readonly SelectOption[] = [
+    { value: 'JSON_FIELD', label: 'JSON field' },
+    { value: 'HEADER', label: 'Header' },
+    { value: 'COOKIE', label: 'Cookie' },
+  ];
+  readonly captureMissingOptions: readonly SelectOption[] = [
+    { value: 'SKIP', label: 'Skip dependent actions' },
+    { value: 'FALLBACK', label: 'Use fallback value' },
+  ];
+
   isStatus(type: ActionType): boolean {
     return type === 'SET_RESPONSE_STATUS';
   }
@@ -2109,6 +2145,9 @@ function defaultsFor(type: ActionType): RuleAction {
     case 'SET_REQUEST_JSON_FIELD':
     case 'SET_RESPONSE_JSON_FIELD':
       return { type, path: '', value: null };
+    case 'CAPTURE_REQUEST_VARIABLE':
+    case 'CAPTURE_RESPONSE_VARIABLE':
+      return { type, name: '', path: '', captureSource: 'JSON_FIELD', missingBehavior: 'SKIP' };
     case 'SET_RESPONSE_STATUS':
       return { type, status: 500 };
     case 'SET_RESPONSE_BODY':

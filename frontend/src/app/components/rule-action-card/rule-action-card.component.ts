@@ -1,5 +1,5 @@
 import { CdkDrag, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
-import { Component, Input, forwardRef } from '@angular/core';
+import { Component, HostBinding, Input, forwardRef } from '@angular/core';
 import { RuleAction, isActionEnabled } from '../../core/models/interception.model';
 import { SelectPickerComponent } from '../select-picker/select-picker.component';
 import { StatusPickerComponent } from '../status-picker/status-picker.component';
@@ -75,6 +75,11 @@ export class RuleActionCardComponent {
 
   /** The form this card belongs to. Typed as an import type only, so there is no runtime import cycle. */
   @Input({ required: true }) editor!: RuleEditorComponent;
+
+  @HostBinding('attr.data-rule-locals')
+  get availableLocals(): string {
+    return this.editor && this.step ? this.editor.availableLocalNames(this.step.path).join(',') : '';
+  }
 
   /** Dimmed when this action is off, or when any condition above it is. */
   get off(): boolean {

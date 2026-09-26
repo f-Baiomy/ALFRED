@@ -620,6 +620,23 @@ class RuleValidatorTest {
         }
     }
 
+    @Test
+    void ruleLocalVariablesMustBeCapturedBeforeUseAndCannotReadResponseInRequestPhase() {
+        RuleAction requestCapture = action(Map.of("type", "CAPTURE_REQUEST_VARIABLE", "name", "supplier",
+                "captureSource", "JSON_FIELD", "path", "supplier"));
+        RuleAction responseCapture = action(Map.of("type", "CAPTURE_RESPONSE_VARIABLE", "name", "result",
+                "captureSource", "HEADER", "path", "X-Result"));
+        RuleAction useSupplier = action(Map.of("type", "SET_REQUEST_HEADER", "name", "X-Supplier",
+                "value", "{{this.supplier}}"));
+        RuleAction useResponseEarly = action(Map.of("type", "SET_REQUEST_HEADER", "name", "X-Result",
+                "value", "{{this.result}}"));
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), requestCapture, useSupplier))).isEmpty();
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), useSupplier, requestCapture)))
+                .anyMatch(problem -> problem.contains("must be captured earlier"));
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), responseCapture, useResponseEarly)))
+                .anyMatch(problem -> problem.contains("this.result") && problem.contains("must be captured earlier"));
+    }
+
     // ---- actions added for mitmproxy parity -------------------------------------------------
     // Built from the JSON shape the editor sends, rather than a 29-argument constructor: that is
     // how these actions actually arrive, and it keeps each test about the one field it is testing.
