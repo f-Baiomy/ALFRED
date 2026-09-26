@@ -483,22 +483,7 @@ describe('BulkResendDialogComponent', () => {
       flush();
     }));
 
-    // KNOWN GAP, and the reason these two are xit rather than passing.
-    //
-    // A group's members live in a drop list NESTED inside the outer one, so when the pointer is
-    // over a member both lists contain it - and CDK resolves the drop to the OUTER list. Verified by
-    // logging what CDK actually reports: dragging a member onto another member comes back as
-    // `dropOuter` with previousContainer !== container, so it is treated as "this member is leaving
-    // the group" rather than "these two members are swapping". Dragging within a group therefore
-    // does not reorder the group, and dragging out lands at the index the OUTER list reported,
-    // which is not always where the pointer looked to be.
-    //
-    // Fixing this means choosing between: one flat list where every call is a drag item (indices
-    // become exact draft indices, no nesting to confuse CDK, but a group can then only be moved
-    // with its arrows, not dragged as a block), or keeping the nesting and having the outer list
-    // refuse a drop whose pointer is still inside the group it came from. Not decided yet.
-
-    xit('really does take a member out of its group when it is dragged out onto the list', fakeAsync(() => {
+    it('really does take a member out of its group when it is dragged out onto the list', fakeAsync(() => {
       threeCalls();
       component.toggleInclude(
         service.drafts()[2],
@@ -507,18 +492,18 @@ describe('BulkResendDialogComponent', () => {
       component.groupIncluded();
       fixture.detectChanges();
       const groupId = Object.keys(service.groups())[0];
-      // Runs: [group: a b] [loose: c]. Drag b (row 2, inside the group) out onto the top.
-      dragTo(gripOf(rowFor(2)), rowFor(1));
+      // Runs: [group: a b] [loose: c]. Drop b onto c, outside the group's member list.
+      dragTo(gripOf(rowFor(2)), rowFor(3));
       tick();
       fixture.detectChanges();
       expect(service.drafts().find((d) => d.ref.callId === 'b')!.groupId).toBeNull();
-      expect(ids()).toEqual(['b', 'a', 'c']);
+      expect(ids()).toEqual(['a', 'b', 'c']);
       // The group is left with one call, so it is gone rather than a header over nothing.
       expect(service.groups()[groupId]).toBeUndefined();
       flush();
     }));
 
-    xit('really does swap two members inside a group', fakeAsync(() => {
+    it('really does swap two members inside a group', fakeAsync(() => {
       threeCalls();
       component.groupIncluded();
       fixture.detectChanges();

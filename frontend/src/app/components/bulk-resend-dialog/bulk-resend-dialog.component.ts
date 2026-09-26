@@ -1,4 +1,4 @@
-import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDragMove, CdkDropList } from '@angular/cdk/drag-drop';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { forkJoin, map, of } from 'rxjs';
@@ -292,8 +292,27 @@ export class BulkResendDialogComponent {
       return;
     }
     if (payload.kind !== 'call') return;
-    this.applyGroups(extractToRun(this.drafts(), payload.draft, event.currentIndex));
+    this.applyGroups(extractToRun(this.drafts(), payload.draft, this.runIndexAtDrop(event)));
     this.notice.set('Moved out of the group.');
+  }
+
+  private runIndexAtDrop(event: CdkDragDrop<SendRun[]>): number {
+    const point = event.dropPoint;
+    if (!point) return Math.min(event.currentIndex, this.listRuns().length);
+    const target = document.elementFromPoint(point.x - window.scrollX, point.y - window.scrollY);
+    const row = target?.closest<HTMLElement>('.br-row');
+    if (row) {
+      const position = Number(row.querySelector('.br-index')?.textContent?.trim()) - 1;
+      const key = this.drafts()[position]?.key;
+      const index = this.listRuns().findIndex((run) => run.drafts.some((draft) => draft.key === key));
+      if (index >= 0) return index;
+    }
+    const group = target?.closest<HTMLElement>('[data-group-id]');
+    if (group?.dataset['groupId']) {
+      const index = this.listRuns().findIndex((run) => run.group?.id === group.dataset['groupId']);
+      if (index >= 0) return index;
+    }
+    return Math.min(event.currentIndex, this.listRuns().length);
   }
 
   /**
@@ -318,6 +337,27 @@ export class BulkResendDialogComponent {
     }
   }
 
+  /**
+   * CDK picks the first connected drop list under the pointer. Since the outer list contains every
+   * group list, it otherwise wins over the group's own list. Remember the pointer from CDK's move
+   * event so the outer enter predicate can yield while the pointer is over any group member.
+   */
+  private dragPointer: { x: number; y: number } | null = null;
+
+  rememberDragPointer(event: CdkDragMove<unknown>): void {
+    this.dragPointer = {
+      x: event.pointerPosition.x - window.scrollX,
+      y: event.pointerPosition.y - window.scrollY,
+    };
+  }
+
+  readonly canEnterOuter = (drag: CdkDrag<DragPayload>): boolean => {
+    const payload = drag.data;
+    if (payload?.kind !== 'call' || payload.draft.groupId === null || !this.dragPointer) return true;
+    const element = document.elementFromPoint(this.dragPointer.x, this.dragPointer.y);
+    return !element?.closest('.br-group-list');
+  };
+
   /** The outer drop list's DOM id, referenced by every group's list so a member can be dragged out. */
   readonly outerListId = OUTER_LIST;
 
@@ -328,6 +368,12 @@ export class BulkResendDialogComponent {
   /** The outer list accepts a drop from every group's list - that is how a member gets out. */
   groupListIds(): string[] {
     return Object.keys(this.groups()).map((id: string) => this.groupListId(id));
+  }
+
+  groupListConnections(groupId: string): string[] {
+    return [this.outerListId, ...Object.keys(this.groups())
+      .filter((id) => id !== groupId)
+      .map((id) => this.groupListId(id))];
   }
 
   // ---- groups ----

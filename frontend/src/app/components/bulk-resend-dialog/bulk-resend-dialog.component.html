@@ -48,6 +48,7 @@
             [id]="outerListId"
             [cdkDropListData]="listRuns()"
             [cdkDropListConnectedTo]="groupListIds()"
+            [cdkDropListEnterPredicate]="canEnterOuter"
             [cdkDropListDisabled]="service.running()"
             (cdkDropListDropped)="dropOuter($event)"
           >
@@ -55,8 +56,10 @@
               @if (run.group; as g) {
                 <div
                   class="br-group"
+                  [attr.data-group-id]="g.id"
                   cdkDrag
                   [cdkDragData]="{ kind: 'group', groupId: g.id }"
+                  (cdkDragMoved)="rememberDragPointer($event)"
                   [class.on]="service.activeGroupId() === g.id"
                   (click)="selectGroup(g.id)"
                 >
@@ -103,7 +106,7 @@
                     cdkDropList
                     [id]="groupListId(g.id)"
                     [cdkDropListData]="run.drafts"
-                    [cdkDropListConnectedTo]="[outerListId]"
+                    [cdkDropListConnectedTo]="groupListConnections(g.id)"
                     [cdkDropListDisabled]="service.running()"
                     (cdkDropListDropped)="dropInside($event, g.id)"
                   >
@@ -112,6 +115,7 @@
                         class="br-row"
                         cdkDrag
                         [cdkDragData]="{ kind: 'call', draft: d }"
+                        (cdkDragMoved)="rememberDragPointer($event)"
                         [class.on]="mode() === 'call' && selected()?.key === d.key"
                         [class.off]="!d.include"
                         (click)="select(d)"
@@ -142,6 +146,7 @@
                     class="br-row"
                     cdkDrag
                     [cdkDragData]="{ kind: 'call', draft: d }"
+                    (cdkDragMoved)="rememberDragPointer($event)"
                     [class.on]="mode() === 'call' && selected()?.key === d.key"
                     [class.off]="!d.include"
                     (click)="select(d)"
