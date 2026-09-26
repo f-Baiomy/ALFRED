@@ -36,6 +36,11 @@ export class RuleDialogService {
     this.request.set({ fromCall: { ref, call } });
   }
 
+  openRule(rule: InterceptionRule): void {
+    this.parked.set(false);
+    this.request.set({ rule });
+  }
+
   /**
    * "Made from…" in any rule editor - this popup's or the Interception tab's: keep the form here,
    * go to the call, and wait for Return.

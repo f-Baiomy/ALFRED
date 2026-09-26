@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { CallCardComponent } from './call-card.component';
 import { CallRecord } from '../../core/models/call.model';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
+import { RuleDialogService } from '../../core/services/rule-dialog.service';
 import { CallsStateService } from '../../core/state/calls-state.service';
 import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
 
@@ -81,6 +82,58 @@ describe('CallCardComponent', () => {
     ((fixture.nativeElement as HTMLElement).querySelectorAll('.block-chip')[index] as HTMLButtonElement).click();
     fixture.detectChanges();
   }
+
+  it('opens the interception log from its badge and opens the saved rule in the popup', () => {
+    const fixture = createCard(makeCall({ interception: {
+      applied: [{ ruleId: 'rule-1', ruleName: 'Override', action: 'SET_REQUEST_HEADER', detail: 'X-Test' }],
+    } }));
+    const host = fixture.nativeElement as HTMLElement;
+    const badge = host.querySelector('.intercept-badge') as HTMLButtonElement;
+    expect(host.querySelector('.intercept-log')).toBeNull();
+    badge.click();
+    fixture.detectChanges();
+    expect(badge.getAttribute('aria-expanded')).toBe('true');
+    expect(host.querySelector('.intercept-log')?.textContent).toContain('Override');
+    expect(host.querySelector('.intercept-log')?.textContent).toContain('X-Test');
+
+    (host.querySelector('.intercept-log button') as HTMLButtonElement).click();
+    const request = httpMock.expectOne((r) => r.url.endsWith('/interception/rules'));
+    const rule = { id: 'rule-1', name: 'Override', match: {}, actions: [] };
+    request.flush([rule]);
+    expect(TestBed.inject(RuleDialogService).request()?.rule?.id).toBe('rule-1');
+  });
+
+  it('keeps historical interception logs readable when their rule was deleted', () => {
+    const fixture = createCard(makeCall({ interception: {
+      applied: [{ ruleId: 'deleted', ruleName: 'Old rule', action: 'DELAY_RESPONSE' }],
+    } }));
+    const host = fixture.nativeElement as HTMLElement;
+    (host.querySelector('.intercept-badge') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    (host.querySelector('.intercept-log button') as HTMLButtonElement).click();
+    httpMock.expectOne((r) => r.url.endsWith('/interception/rules')).flush([]);
+    fixture.detectChanges();
+    expect(host.querySelector('.intercept-log')?.textContent).toContain('Old rule');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('no longer exists');
+  });
+
+  it('groups consecutive actions under one edit button and keeps their order', () => {
+    const fixture = createCard(makeCall({ interception: { applied: [
+      { ruleId: 'same', ruleName: 'Booking rule', action: 'DELAY_REQUEST', detail: '5000 ms' },
+      { ruleId: 'same', ruleName: 'Booking rule', action: 'SET_REQUEST_JSON_FIELD', detail: 'test[1].added' },
+      { ruleId: 'other', ruleName: 'Other rule', action: 'SET_RESPONSE_HEADER', detail: 'X-Test' },
+    ] } }));
+    const host = fixture.nativeElement as HTMLElement;
+    (host.querySelector('.intercept-badge') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const groups = host.querySelectorAll('.intercept-log-group');
+    expect(groups.length).toBe(2);
+    expect(groups[0].querySelectorAll('.intercept-log-step').length).toBe(2);
+    expect(groups[0].querySelectorAll('button').length).toBe(1);
+    expect(groups[0].textContent).toContain('Waited');
+    expect(groups[0].textContent).toContain('Set JSON field');
+    expect(groups[1].textContent).toContain('Other rule');
+  });
 
   it('lists all four blocks collapsed, fetching none of them', () => {
     const fixture = createCard();

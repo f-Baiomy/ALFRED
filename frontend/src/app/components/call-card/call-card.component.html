@@ -1,3 +1,36 @@
+<ng-template #interceptionLog>
+  @if (interceptionLogOpen() && interception(); as intercepted) {
+    <section class="intercept-log" aria-label="Interception log">
+      <div class="intercept-log-title">What the rule did <span>{{ intercepted.applied.length }} actions applied to this call</span></div>
+      @for (group of interceptionLogGroups(); track $index) {
+        <div class="intercept-log-group">
+          <div class="intercept-log-group-head">
+            <strong>{{ group.ruleName }}</strong>
+            @if (group.ruleId) {
+              <button type="button" class="pill" [disabled]="openingRuleId() !== null" (click)="editAppliedRule(group.ruleId, $event)">
+                {{ openingRuleId() === group.ruleId ? 'Opening…' : 'Edit rule ↗' }}
+              </button>
+            }
+          </div>
+          <div class="intercept-log-steps">
+            @for (action of group.actions; track action.number) {
+              <div class="intercept-log-step">
+                <span class="intercept-log-number">{{ action.number < 10 ? '0' : '' }}{{ action.number }}</span>
+                <span class="intercept-log-action">{{ action.label }}</span>
+                @if (action.entry.detail) { <span class="intercept-log-detail">{{ action.entry.detail }}</span> }
+                <span class="intercept-log-phase">{{ action.phase }}</span>
+              </div>
+            }
+          </div>
+        </div>
+      } @empty {
+        <div class="intercept-log-detail">No action details were recorded for this call.</div>
+      }
+      @if (ruleOpenError()) { <div class="intercept-log-error" role="alert">{{ ruleOpenError() }}</div> }
+    </section>
+  }
+</ng-template>
+
 <ng-template #urlsBlock>
   <div class="call-urls">
     @if (foldedUrl(); as folded) {
@@ -177,11 +210,13 @@
         <!-- On the COLLAPSED card, because the point is that you should not have to open a call to
              learn that what you are reading is not what your client actually sent. -->
         @if (interception(); as intercepted) {
-          <span
+          <button type="button"
             class="badge intercept-badge"
             [class.hand]="interceptedByHand()"
-            [title]="interceptTooltip()"
-          >{{ interceptedByHand() ? '✎ edited' : '⚡ intercepted' }}</span>
+            [attr.aria-expanded]="interceptionLogOpen()"
+            title="Show interception log"
+            (click)="toggleInterceptionLog($event)"
+          >{{ interceptedByHand() ? '✎ edited' : '⚡ intercepted' }} · {{ intercepted.applied.length }}</button>
         }
         <button type="button" class="action-btn rule-from-call-btn" title="Make an interception rule from this call - opens here, match filled from it" (click)="ruleFromCall($event)">⚡+ Rule</button>
         <app-call-actions [call]="call()" />
@@ -207,6 +242,8 @@
 
       <ng-container [ngTemplateOutlet]="urlsBlock" />
       <ng-container [ngTemplateOutlet]="idsBlock" />
+
+      <ng-container [ngTemplateOutlet]="interceptionLog" />
 
       @if (call().resendOf) {
         <app-resend-panel [call]="call()" />
@@ -294,11 +331,13 @@
       <!-- On the COLLAPSED card, because the point is that you should not have to open a call to
            learn that what you are reading is not what your client actually sent. -->
       @if (interception(); as intercepted) {
-        <span
+        <button type="button"
           class="badge intercept-badge"
           [class.hand]="interceptedByHand()"
-          [title]="interceptTooltip()"
-        >{{ interceptedByHand() ? '✎ edited' : '⚡ intercepted' }}</span>
+          [attr.aria-expanded]="interceptionLogOpen()"
+          title="Show interception log"
+          (click)="toggleInterceptionLog($event)"
+        >{{ interceptedByHand() ? '✎ edited' : '⚡ intercepted' }} · {{ intercepted.applied.length }}</button>
       }
       @if (depthLabel(); as label) {
         @if (linksToParent()) {
@@ -327,6 +366,8 @@
 
     <ng-container [ngTemplateOutlet]="urlsBlock" />
     <ng-container [ngTemplateOutlet]="idsBlock" />
+
+    <ng-container [ngTemplateOutlet]="interceptionLog" />
 
     @if (call().error) {
       <div class="error-banner">&#9888; {{ call().error }}</div>

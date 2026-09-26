@@ -6594,7 +6594,12 @@ h1.page-title {
   background: color-mix(in srgb, var(--amber) 16%, transparent);
   color: var(--amber);
   border: 1px solid color-mix(in srgb, var(--amber) 38%, transparent);
-  cursor: help;
+  cursor: pointer;
+  font: inherit;
+
+  &:hover, &[aria-expanded='true'] {
+    background: color-mix(in srgb, var(--amber) 26%, transparent);
+  }
 
   /* A human edited it, not just a rule - a stronger claim, and a stronger colour. */
   &.hand {
@@ -9757,6 +9762,30 @@ app-header-editor {
   padding: 0 2px;
   text-decoration: none;
 }
+
+.intercept-log {
+  margin: 0.6rem 0;
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--amber) 5%, var(--card));
+  color: var(--text);
+  overflow: hidden;
+}
+
+.intercept-log-title { padding: 0.75rem 0.9rem; font-size: 0.8rem; font-weight: 700; border-bottom: 1px solid var(--border); }
+.intercept-log-title span { margin-left: 0.5rem; color: var(--text-dim); font-size: 0.7rem; font-weight: 400; }
+.intercept-log-group { padding: 0.8rem 0.9rem; }
+.intercept-log-group + .intercept-log-group { border-top: 1px solid var(--border); }
+.intercept-log-group-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; font-size: 0.77rem; }
+.intercept-log-group-head strong { overflow-wrap: anywhere; }
+.intercept-log-group-head .pill { flex: none; }
+.intercept-log-steps { margin: 0.55rem 0 0 0.2rem; padding-left: 0.7rem; border-left: 2px solid color-mix(in srgb, var(--amber) 45%, transparent); }
+.intercept-log-step { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; padding: 0.22rem 0; font-size: 0.73rem; }
+.intercept-log-number { color: var(--amber); font-family: ui-monospace, Consolas, monospace; }
+.intercept-log-action { color: var(--text); font-weight: 600; }
+.intercept-log-detail { color: var(--text-dim); overflow-wrap: anywhere; }
+.intercept-log-phase { margin-left: auto; color: var(--text-dim); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.intercept-log-error { color: var(--red); font-size: 0.75rem; padding: 0.5rem 0.9rem; }
 
 /* The painted body layer must occupy exactly the same width as the textarea text. */
 .body-highlight .variable-token {
