@@ -525,6 +525,29 @@ class RequestActionsTest(unittest.TestCase):
         run(engine.apply_request(flow))
         self.assertEqual(json.loads(flow.request.text), {'passengerCount': 5, 'currency': 'EUR'})
 
+    def test_json_body_field_adds_missing_key_only_when_enabled(self):
+        actions = [
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'debug', 'value': True},
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'trace', 'value': 1, 'createIfMissing': True},
+        ]
+        flow = FakeFlow(FakeRequest(text='{"existing":1}'))
+        run(self.engine(actions).apply_request(flow))
+        self.assertEqual(json.loads(flow.request.text), {'existing': 1, 'trace': 1})
+
+    def test_json_body_field_actions_build_indexed_array_with_null_siblings(self):
+        actions = [
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'test[0].added',
+             'value': 'val', 'createIfMissing': True},
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'test[1].key',
+             'value': 'keyval', 'createIfMissing': True},
+        ]
+        flow = FakeFlow(FakeRequest(text='{}'))
+        run(self.engine(actions).apply_request(flow))
+        self.assertEqual(json.loads(flow.request.text), {'test': [
+            {'added': 'val', 'key': None},
+            {'added': None, 'key': 'keyval'},
+        ]})
+
     def test_abort_is_terminal(self):
         engine = self.engine([
             {'type': 'ABORT_REQUEST'},
@@ -672,6 +695,14 @@ class ResponseActionsTest(unittest.TestCase):
         ]).apply_response(flow))
         self.assertEqual(json.loads(flow.response.text),
                          {'status': 'FAILED', 'itinerary': {'seatsRemaining': 0}})
+
+    def test_json_field_adds_missing_key_when_enabled(self):
+        flow = self.flow(text='{"status":"CONFIRMED"}')
+        run(self.engine([{
+            'type': 'SET_RESPONSE_JSON_FIELD', 'path': 'note', 'value': 'added',
+            'createIfMissing': True,
+        }]).apply_response(flow))
+        self.assertEqual(json.loads(flow.response.text), {'status': 'CONFIRMED', 'note': 'added'})
 
     def test_set_response_body_replaces_a_non_json_payload(self):
         flow = self.flow(text='<soap:Envelope><ok/></soap:Envelope>')
@@ -1652,6 +1683,35 @@ class JsonPathTest(unittest.TestCase):
 
     def test_absent_path_changes_nothing(self):
         self.assertIsNone(interception.set_json_field(json.dumps({'a': 1}), 'b.c', 2))
+
+    def test_opt_in_adds_missing_final_field_and_parent_objects(self):
+        text = '{"a": {"existing": 1}}'
+        self.assertIsNone(interception.set_json_field(text, 'a.added', 2))
+        self.assertEqual(json.loads(interception.set_json_field(text, 'a.added', 2, True)),
+                         {'a': {'existing': 1, 'added': 2}})
+        self.assertEqual(json.loads(interception.set_json_field(text, 'missing.added', 2, True)),
+                         {'a': {'existing': 1}, 'missing': {'added': 2}})
+
+    def test_opt_in_adds_missing_keys_across_existing_array_items(self):
+        text = json.dumps({'items': [{'code': 'old'}, {}]})
+        out = interception.set_json_field(text, 'items[*].code', 'new', True)
+        self.assertEqual(json.loads(out), {'items': [{'code': 'new'}, {'code': 'new'}]})
+
+    def test_opt_in_builds_indexed_array_and_aligns_sibling_fields(self):
+        first = interception.set_json_field('{}', 'test[0].added', 'val', True)
+        second = interception.set_json_field(first, 'test[1].key', 'keyval', True)
+        self.assertEqual(json.loads(second), {'test': [
+            {'added': 'val', 'key': None},
+            {'added': None, 'key': 'keyval'},
+        ]})
+
+    def test_opt_in_builds_one_item_for_wildcard_on_missing_array(self):
+        out = interception.set_json_field('{}', 'test[*].added', 'val', True)
+        self.assertEqual(json.loads(out), {'test': [{'added': 'val'}]})
+
+    def test_opt_in_does_not_replace_a_non_object_parent_or_expand_huge_index(self):
+        self.assertIsNone(interception.set_json_field('{"test":"existing"}', 'test[0].added', 'val', True))
+        self.assertIsNone(interception.set_json_field('{}', 'test[1000000].added', 'val', True))
 
     def test_unchanged_body_is_returned_as_none_not_reserialised(self):
         # The engine relies on this to leave a large untouched payload byte-identical.

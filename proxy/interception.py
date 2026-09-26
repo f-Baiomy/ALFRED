@@ -1945,8 +1945,12 @@ def _clamp_delay(value):
     return min(ms, MAX_DELAY_MS)
 
 
-def set_json_field(text, path, value):
+def set_json_field(text, path, value, create_if_missing=False):
     """Sets `path` inside a JSON document, returning the new text, or None if nothing changed.
+
+    With create_if_missing, missing path containers are built from the next segment. An empty
+    wildcard array starts with one item; explicit indexes grow arrays and keep object fields
+    aligned with null in siblings. Existing scalar parents are never replaced.
 
     Returning None rather than the original text is deliberate: an unchanged body must be left
     byte-identical rather than re-serialised, so a 5.9MB payload that no rule actually matched is
@@ -1964,7 +1968,7 @@ def set_json_field(text, path, value):
         doc = json.loads(text)
     except ValueError:
         return None
-    if not _assign(doc, _parse_path(path), value):
+    if not _assign(doc, _parse_path(path), value, create_if_missing):
         return None
     return json.dumps(doc)
 
@@ -2043,10 +2047,10 @@ def _parse_path(path):
     return segments
 
 
-def _assign(node, segments, value):
+def _assign(node, segments, value, create_if_missing=False):
     """Walks to the parent of the target and sets it. Returns whether anything was actually set,
-    so a path that doesn't exist in this particular body is reported as "no change" rather than
-    silently creating a field the supplier never sends."""
+    so a path that doesn't exist in this particular body is reported as "no change" unless
+    create_if_missing explicitly allows building the missing path."""
     if not segments:
         return False
     head, rest = segments[0], segments[1:]
@@ -2054,27 +2058,60 @@ def _assign(node, segments, value):
     if head == '*':
         if not isinstance(node, list):
             return False
+        if not node and create_if_missing:
+            node.append(_new_path_container(rest[0]) if rest else None)
         # Every element, not the first one that succeeds: `any()` over a generator short-circuits,
         # which made `segments[*].cabin` silently rewrite only segment 0 and leave the rest alone.
         # Collect first, then reduce.
-        results = [_assign(item, rest, value) if rest else _set_item(node, i, value)
+        results = [_assign(item, rest, value, create_if_missing) if rest else _set_item(node, i, value)
                    for i, item in enumerate(list(node))]
-        return any(results)
+        changed = any(results)
+        if changed and create_if_missing:
+            _align_object_keys(node)
+        return changed
 
     if isinstance(head, int):
-        if not isinstance(node, list) or head >= len(node) or head < -len(node):
+        if not isinstance(node, list) or head < -len(node):
             return False
+        if head >= len(node):
+            # Only explicit indexes tell us how many items to create. Cap growth so a typo such
+            # as [99999999] cannot allocate an unbounded array on the proxy's event loop.
+            if not create_if_missing or head >= 1000:
+                return False
+            node.extend(_new_path_container(rest[0]) if rest else None
+                        for _ in range(head + 1 - len(node)))
         if not rest:
             node[head] = value
             return True
-        return _assign(node[head], rest, value)
+        changed = _assign(node[head], rest, value, create_if_missing)
+        if changed and create_if_missing:
+            _align_object_keys(node)
+        return changed
 
-    if not isinstance(node, dict) or head not in node:
+    if not isinstance(node, dict):
         return False
+    if head not in node:
+        if not create_if_missing:
+            return False
+        if rest:
+            node[head] = _new_path_container(rest[0])
     if not rest:
         node[head] = value
         return True
-    return _assign(node[head], rest, value)
+    return _assign(node[head], rest, value, create_if_missing)
+
+
+def _new_path_container(next_segment):
+    return [] if next_segment == '*' or isinstance(next_segment, int) else {}
+
+
+def _align_object_keys(items):
+    """Give sibling objects a common shape after an indexed field edit, preserving existing values."""
+    keys = dict.fromkeys(key for item in items if isinstance(item, dict) for key in item)
+    for item in items:
+        if isinstance(item, dict):
+            for key in keys:
+                item.setdefault(key, None)
 
 
 def _set_item(node, index, value):
@@ -2252,7 +2289,7 @@ class InterceptionEngine:
         if kind == 'SET_REQUEST_JSON_FIELD':
             # .text, never .content: mitmproxy decodes content-encoding for us here, and a
             # gzipped body read as bytes would be corrupted by a naive rewrite.
-            updated = set_json_field(request.text, action.get('path'), action.get('value'))
+            updated = set_json_field(request.text, action.get('path'), action.get('value'), action.get('createIfMissing') is True)
             if updated is not None:
                 request.text = updated
                 verdict.record(rule, kind, str(action.get('path')))
@@ -2565,7 +2602,7 @@ class InterceptionEngine:
             return
 
         if kind == 'SET_RESPONSE_JSON_FIELD':
-            updated = set_json_field(response.text, action.get('path'), action.get('value'))
+            updated = set_json_field(response.text, action.get('path'), action.get('value'), action.get('createIfMissing') is True)
             if updated is not None:
                 response.text = updated
                 verdict.record(rule, kind, str(action.get('path')))

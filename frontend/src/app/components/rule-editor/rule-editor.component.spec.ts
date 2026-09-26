@@ -67,6 +67,26 @@ describe('RuleEditorComponent', () => {
 
   const first = (): RuleAction => component.actions()[0];
 
+  it('saves the JSON field creation toggle only when selected', () => {
+    open(null);
+    component.actions.set([{ type: 'SET_REQUEST_JSON_FIELD', path: 'debug', value: true }]);
+    component.name.set('Add debug field');
+    fixture.detectChanges();
+
+    const toggleLabel = [...fixture.nativeElement.querySelectorAll('label')]
+      .find((label: HTMLLabelElement) => label.textContent?.includes('Add field if it does not exist')) as HTMLLabelElement;
+    const toggle = toggleLabel.querySelector('input') as HTMLInputElement;
+    expect(toggle.checked).toBeFalse();
+    toggle.click();
+    expect(first().createIfMissing).toBeTrue();
+
+    component.save();
+    const saved = http.expectOne((r) => r.url.startsWith(`${BACKEND}/interception/rules`) && r.method !== 'GET');
+    expect(saved.request.body.actions[0].createIfMissing).toBeTrue();
+    saved.flush({ id: 'rule-1' });
+    http.match(`${BACKEND}/interception/rules`).forEach((request) => request.flush([]));
+  });
+
   it('starts a rule from a call: its match, and an answer copied from that call at once', () => {
     component.draft = {
       direction: 'inbound',

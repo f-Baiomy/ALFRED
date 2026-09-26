@@ -304,6 +304,8 @@ export interface RuleAction {
   readonly name?: string | null;
   readonly value?: unknown;
   readonly path?: string | null;
+  /** SET_*_JSON_FIELD: create missing path containers and keep indexed array objects aligned. */
+  readonly createIfMissing?: boolean | null;
   readonly status?: number | null;
   readonly headers?: Readonly<Record<string, string>> | null;
   readonly body?: string | null;
@@ -846,7 +848,7 @@ export function describeAction(action: RuleAction): string {
       return `${label} ${action.name}`;
     case 'SET_REQUEST_JSON_FIELD':
     case 'SET_RESPONSE_JSON_FIELD':
-      return `Set ${action.path} = ${JSON.stringify(action.value)}`;
+      return `Set ${action.path} = ${JSON.stringify(action.value)}${action.createIfMissing ? ' (add if missing)' : ''}`;
     case 'SET_RESPONSE_STATUS':
       return `${label} ${action.status}`;
     case 'MOCK_RESPONSE':

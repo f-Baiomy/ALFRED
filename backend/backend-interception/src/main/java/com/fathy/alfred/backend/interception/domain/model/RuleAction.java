@@ -91,7 +91,9 @@ public record RuleAction(
         /** The MESSAGE actions: client, server or both. */
         String messageDirection,
         /** DROP_MESSAGE: drop only messages containing this literal text. */
-        String contains) {
+        String contains,
+        /** SET_*_JSON_FIELD: build missing path containers and align indexed array objects. */
+        Boolean createIfMissing) {
 
     public RuleAction {
         headers = headers == null ? null : Map.copyOf(headers);
@@ -110,7 +112,7 @@ public record RuleAction(
                       List<RuleAction> otherwise, Boolean enabled) {
         this(type, durationMs, name, value, path, status, headers, body, timeoutSeconds, onTimeout, failure,
                 branches, otherwise, enabled, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 
     /**

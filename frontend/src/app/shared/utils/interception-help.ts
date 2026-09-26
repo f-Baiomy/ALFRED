@@ -244,7 +244,7 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
       { from: 'missing.field = 1', to: 'nothing happens — see the warning' },
     ],
     warning:
-      'It only writes where the path ALREADY exists. That is deliberate: inventing a field the supplier never sends would be testing a payload nobody will ever receive. It also re-serialises the body, so the JSON comes out reformatted.',
+      'By default it only writes where the path already exists. Turn on “Add field if it does not exist” to build missing objects and array items from the path. An empty [*] array gets one item; indexed objects share keys, with null for missing values. Changed JSON is re-serialised.',
   },
   ABORT_REQUEST: {
     title: 'Abort request',
@@ -364,7 +364,7 @@ export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
       { from: 'currency = "USD"', to: 'one field changes, everything else is kept' },
       { from: 'offers[*].price = 0', to: 'every offer becomes free' },
     ],
-    warning: 'Writes only where the path exists, and reformats the body — same as the request-side version.',
+    warning: 'By default it writes only where the path exists. The “Add field if it does not exist” toggle builds missing objects and array items from the path. An empty [*] array gets one item; indexed objects share keys, with null for missing values. Changed JSON is re-serialised.',
   },
   SET_RESPONSE_BODY: {
     title: 'Replace the response body',

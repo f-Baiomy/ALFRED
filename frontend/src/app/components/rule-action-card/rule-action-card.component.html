@@ -337,11 +337,16 @@
             <span>Set to</span>
             <input type="text" [value]="editor.valueText(step.action)" (input)="editor.onValue(step.path, $event, true)" placeholder="0" />
           </label>
+          <label class="inline-field span-all">
+            <input type="checkbox" [checked]="step.action.createIfMissing === true" (change)="editor.onToggle(step.path, 'createIfMissing', $event)" />
+            <span>Add field if it does not exist</span>
+          </label>
           @if (editor.currentValueHint(step.action); as hint) {
             <small class="muted span-all json-current">{{ hint }} in the call</small>
           }
           <small class="muted span-all">
             Dotted path. <code>segments[0].cabin</code> and <code>segments[*].cabin</code> both work.
+            With Add enabled, missing objects and array items are created from the path. An empty <code>[*]</code> array starts with one item; indexed objects share fields, using <code>null</code> for missing values.
             A value is read as JSON where it can be, so <code>5</code> is a number and <code>EUR</code> is text.
           </small>
         }

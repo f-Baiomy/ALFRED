@@ -210,6 +210,12 @@ way, because whether a call reaches the host decides whether the response half r
 | `PAUSE_REQUEST` | `PAUSE_RESPONSE` | |
 | `IF_REQUEST` | `IF_RESPONSE` | |
 
+Set JSON field updates an existing path by default. Its **Add field if it does not exist** option
+builds missing objects and array items from the path. For an absent `test` array, `test[*].added`
+creates one item. Explicit indexes grow an array through that index; object items gain a common
+set of keys, with `null` where an item has no value. Existing scalar parents are preserved, so a
+path through one is skipped. The same option applies to request and response bodies.
+
 `ABORT_REQUEST` still runs for rules that already use it, but the editor no longer offers it - it
 is exactly `SIMULATE_FAILURE` with `CONNECTION_RESET`. `ActionType.isSelectable()` is what hides
 it, so the rule keeps working and only the picker moved on.

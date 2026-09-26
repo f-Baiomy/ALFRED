@@ -1575,7 +1575,7 @@ export class RuleEditorComponent implements OnInit {
   }
 
   /** A checkbox straight onto a boolean field of the action. */
-  onToggle(path: readonly number[], field: 'regex' | 'caseSensitive' | 'keepHostHeader' | 'refreshDates', event: Event): void {
+  onToggle(path: readonly number[], field: 'regex' | 'caseSensitive' | 'keepHostHeader' | 'refreshDates' | 'createIfMissing', event: Event): void {
     this.patchAt(path, { [field]: (event.target as HTMLInputElement).checked });
   }
 
