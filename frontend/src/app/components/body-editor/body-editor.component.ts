@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnChanges, SimpleChanges, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, HostListener, OnChanges, SimpleChanges, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { markVariableTokens, tokenizeJsonText } from '../../shared/utils/json-tokenizer';
@@ -224,6 +224,35 @@ export class BodyEditorComponent implements OnChanges {
     if (minified !== null) this.commit(minified);
   }
 
+  /**
+   * Apply a completed insertion, the way typing would - through `commit`, so the edit is emitted
+   * exactly once and the value the parent holds is the value on screen.
+   *
+   * The caret is restored afterwards. It has to be: `commit` emits `valueChange`, the parent
+   * patches its row and feeds the text back through `[value]`, and a property binding that sees
+   * the same string it last wrote leaves the DOM alone - which lets the browser reset the caret
+   * to wherever it likes. Restoring it here is the only point where the intended position is
+   * still known.
+   */
+  applyVariableInsertion(value: string, caret: number): void {
+    this.commit(value);
+    const area = this.bodyArea()?.nativeElement;
+    if (area) area.setSelectionRange(caret, caret);
+  }
+
+  /**
+   * Let the variable overlay drop a token in at the caret.
+   *
+   * This is why the overlay does not just write the textarea: the editor owns it through [value],
+   * so a direct write races the binding that feeds the edit straight back, and the caret ends up
+   * wherever the browser chooses rather than at the token that was just inserted.
+   */
+  @HostListener('variableinsert', ['$event'])
+  onVariableInsert(event: CustomEvent<VariableInsertion>): void {
+    event.stopPropagation();
+    this.applyVariableInsertion(event.detail.value, event.detail.caret);
+  }
+
   /** With Regex off, what was typed is put back literally - `$1` stays `$1`. */
   private replacementText(): string {
     return this.regex() ? this.replacement() : literalReplacement(this.replacement());
@@ -332,4 +361,10 @@ export class BodyEditorComponent implements OnChanges {
       highlight.scrollLeft = area.scrollLeft;
     }
   }
+}
+
+/** Where a variable is to be dropped in, as the overlay knows it. */
+export interface VariableInsertion {
+  readonly value: string;
+  readonly caret: number;
 }

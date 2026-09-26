@@ -58,6 +58,14 @@ describe('BodyEditorComponent', () => {
     expect(fixture.nativeElement.querySelector('.body-highlight span.k')).not.toBeNull();
   });
 
+  it('keeps variable token paint the same width as the JSON textarea text', () => {
+    setup('{"a":"heyjuada{{code}}"}');
+    const token = fixture.nativeElement.querySelector('.body-highlight .variable-token') as HTMLElement;
+    expect(token).not.toBeNull();
+    expect(getComputedStyle(token).paddingLeft).toBe('0px');
+    expect(getComputedStyle(token).paddingRight).toBe('0px');
+  });
+
   it('colours XML through the XML tokenizer', () => {
     const editor = setup(SOAP);
     const tokens = editor.editorLines().flatMap((l) => l.tokens);

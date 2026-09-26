@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { GlobalVariablesComponent } from './global-variables.component';
 import { GlobalVariablesService } from '../../core/services/global-variables.service';
+import { BodyEditorComponent } from '../body-editor/body-editor.component';
 
 describe('GlobalVariablesComponent input highlighting', () => {
   let component: GlobalVariablesComponent;
@@ -209,5 +210,87 @@ describe('GlobalVariablesComponent the value card only opens over the variable',
     hover(field.left + 10, field.top + field.height / 2);
     fixture.detectChanges();
     expect(fixture.componentInstance.hoveredControl()).toBeNull();
+  });
+});
+
+describe('GlobalVariablesComponent inserting a variable into a body editor', () => {
+  let overlay: ComponentFixture<GlobalVariablesComponent>;
+  let editor: ComponentFixture<BodyEditorComponent>;
+  let area: HTMLTextAreaElement;
+
+  /** Type into the body editor the way a user would, so the overlay sees the same input event. */
+  const type = (value: string, caret: number) => {
+    area.focus();
+    area.value = value;
+    area.setSelectionRange(caret, caret);
+    area.dispatchEvent(new Event('input', { bubbles: true }));
+    editor.detectChanges();
+    overlay.detectChanges();
+  };
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [GlobalVariablesComponent, BodyEditorComponent],
+      providers: [
+        {
+          provide: GlobalVariablesService,
+          useValue: {
+            load: jasmine.createSpy('load'),
+            entries: () => [{ name: 'code', value: '394' }],
+            state: () => ({ variables: { code: '394' }, fallbacks: {} }),
+          },
+        },
+      ],
+    });
+    overlay = TestBed.createComponent(GlobalVariablesComponent);
+    overlay.detectChanges();
+    editor = TestBed.createComponent(BodyEditorComponent);
+    editor.componentRef.setInput('value', '{"a":"heyjuada"}');
+    // The rule editor feeds every edit straight back through [value] - patchMatchTest updates
+    // the row, and the row feeds the binding. Without this round-trip the bug cannot show: the
+    // thing that moves the caret is the binding writing the value the DOM already holds.
+    editor.componentInstance.valueChange.subscribe((text) => editor.componentRef.setInput('value', text));
+    editor.detectChanges();
+    area = editor.nativeElement.querySelector('textarea');
+  });
+
+  afterEach(() => {
+    overlay.destroy();
+    editor.destroy();
+  });
+
+  it('leaves the caret just past the inserted token, not on the closing quote', () => {
+    // The reported bug: after picking a variable the caret sat ON the closing quote, so the
+    // next thing typed went outside the string and the JSON broke.
+    type('{"a":"heyjuada{{"}', 16);
+    const option = overlay.nativeElement.querySelector('[role="option"]') as HTMLButtonElement;
+    expect(option).not.toBeNull();
+    option.click();
+    editor.detectChanges();
+
+    expect(area.value).toBe('{"a":"heyjuada{{code}}"}');
+    // 22 is just past "}}". 21 is the closing quote - where the caret used to land.
+    expect(area.selectionStart).toBe(22);
+    expect(area.selectionEnd).toBe(22);
+  });
+
+  it('emits the edit exactly once per change, so the parent stores the text that is on screen', () => {
+    const seen: string[] = [];
+    editor.componentInstance.valueChange.subscribe((text) => seen.push(text));
+    type('{"a":"heyjuada{{"}', 16);
+    // Typing the "{{" is one edit; accepting the suggestion is another. Each is emitted once -
+    // the insert must not re-emit the text the editor already holds.
+    expect(seen).toEqual(['{"a":"heyjuada{{"}']);
+    (overlay.nativeElement.querySelector('[role="option"]') as HTMLButtonElement).click();
+    expect(seen).toEqual(['{"a":"heyjuada{{"}', '{"a":"heyjuada{{code}}"}']);
+  });
+
+  it('reuses closing braces already typed in the JSON editor', () => {
+    type('{"a":"heyjuada{{}}"}', 16);
+    (overlay.nativeElement.querySelector('[role="option"]') as HTMLButtonElement).click();
+    editor.detectChanges();
+
+    expect(area.value).toBe('{"a":"heyjuada{{code}}"}');
+    expect(area.selectionStart).toBe(22);
   });
 });

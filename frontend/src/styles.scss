@@ -9758,6 +9758,11 @@ app-header-editor {
   text-decoration: none;
 }
 
+/* The painted body layer must occupy exactly the same width as the textarea text. */
+.body-highlight .variable-token {
+  padding-inline: 0;
+}
+
 /* Global variables share the current Alfred theme and remain legible over any page. */
 .variables-launch {
   position: fixed; right: 14px; top: 50%; z-index: 1310;

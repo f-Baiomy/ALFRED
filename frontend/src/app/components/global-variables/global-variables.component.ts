@@ -322,7 +322,21 @@ export class GlobalVariablesComponent {
     const range = this.autocompleteRange;
     if (!control || !range) return this.closeAutocomplete();
     const current = control.selectionStart == null ? null : suggestionRange(control.value, control.selectionStart);
-    const insertion = insertToken(control.value, current ?? range, name);
+    const at = current ?? range;
+    const insertion = insertToken(control.value, at, name);
+    // A body editor owns its textarea through [value], so it applies the insertion itself - see
+    // BodyEditorComponent.onVariableInsert. Writing control.value directly races the binding that
+    // feeds the edit straight back, and the caret then lands wherever the browser puts it rather
+    // than at the token that was just inserted.
+    if (control.closest('app-body-editor')) {
+      control.dispatchEvent(new CustomEvent('variableinsert', {
+        bubbles: true,
+        detail: insertion,
+      }));
+      control.focus();
+      this.closeAutocomplete();
+      return;
+    }
     control.value = insertion.value;
     control.setSelectionRange(insertion.caret, insertion.caret);
     control.dispatchEvent(new Event('input', { bubbles: true }));
