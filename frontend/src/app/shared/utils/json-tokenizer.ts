@@ -5,6 +5,8 @@
  * anywhere in this pipeline, so there is nothing for an XSS payload embedded
  * in a supplier's response body to attach to.
  */
+import { VARIABLE_TOKEN } from './variable-tokens';
+
 export interface JsonToken {
   readonly text: string;
   readonly cls: 'k' | 's' | 'n' | 'b' | 'z' | '';
@@ -20,9 +22,8 @@ export interface HighlightToken extends JsonToken {
 export function markVariableTokens(tokens: readonly HighlightToken[]): HighlightToken[] {
   const result: HighlightToken[] = [];
   for (const token of tokens) {
-    const pattern = /\{\{[A-Za-z][A-Za-z0-9_.-]*\}\}/g;
     let offset = 0;
-    for (const match of token.text.matchAll(pattern)) {
+    for (const match of token.text.matchAll(VARIABLE_TOKEN)) {
       const at = match.index ?? 0;
       if (at > offset) result.push({ ...token, text: token.text.slice(offset, at), variableToken: false });
       result.push({ ...token, text: match[0], variableToken: true });

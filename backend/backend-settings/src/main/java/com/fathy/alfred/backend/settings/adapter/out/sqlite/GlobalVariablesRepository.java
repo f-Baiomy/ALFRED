@@ -9,6 +9,7 @@ import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.fathy.alfred.backend.settings.application.port.out.GlobalVariablesStorePort;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -20,6 +21,7 @@ import java.util.Map;
 
 /** SQLite persistence and proxy snapshot publication for app-wide variables. */
 @Component
+@ConditionalOnProperty(prefix = "alfred.storage.filter-settings", name = "type", havingValue = "sqlite", matchIfMissing = true)
 public class GlobalVariablesRepository implements GlobalVariablesStorePort {
     private final ObjectMapper mapper = new ObjectMapper();
     @Value("${FILTER_SETTINGS_DB_FILE:/appdata/settings.db}") private String dbFile;

@@ -8,7 +8,7 @@ describe('GlobalVariablesComponent input highlighting', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [{ provide: GlobalVariablesService, useValue: { load: jasmine.createSpy('load') } }],
+      providers: [{ provide: GlobalVariablesService, useValue: { load: jasmine.createSpy('load'), upsert: jasmine.createSpy('upsert') } }],
     });
     component = TestBed.runInInjectionContext(() => new GlobalVariablesComponent());
     input = document.createElement('input');
@@ -19,11 +19,11 @@ describe('GlobalVariablesComponent input highlighting', () => {
 
   afterEach(() => input.remove());
 
-  it('shows inline token highlighting with a caret, and leaves native text visible for selection', () => {
+  it('decorates tokens without hiding native input text or selection', () => {
     input.focus();
     component.onFocusIn({ target: input } as unknown as FocusEvent);
     expect(component.highlightedControl()).toBe(input);
-    expect(input.classList.contains('variable-input-text-hidden')).toBeTrue();
+    expect(input.classList.contains('variable-input-text-hidden')).toBeFalse();
     expect(component.highlightedParts().map((part) => part.text).join('')).toBe('prefix {{var}} suffix');
 
     input.value = 'changed {{var}} while focused';
@@ -40,12 +40,38 @@ describe('GlobalVariablesComponent input highlighting', () => {
     input.setSelectionRange(21, 21);
     component.onKeyUp({ target: input } as unknown as KeyboardEvent);
     expect(component.highlightedControl()).toBe(input);
-    expect(input.classList.contains('variable-input-text-hidden')).toBeTrue();
+    expect(input.classList.contains('variable-input-text-hidden')).toBeFalse();
+  });
+
+  it('keeps the writable selection when the floating button receives keyboard focus', () => {
+    input.setSelectionRange(0, 6);
+    component.onSelect({ target: input } as unknown as Event);
+    expect(component.selectionCanReplace()).toBeTrue();
+    component.beginSelectionCreate();
+    const button = document.createElement('button');
+    button.className = 'selection-variable-button';
+    component.onKeyUp({ target: button } as unknown as KeyboardEvent);
+    expect(component.selectionCanReplace()).toBeTrue();
+    component.selectionName.set('saved');
+    component.saveSelectionCreate();
+    expect(input.value).toBe('{{saved}} {{var}} suffix');
+  });
+
+  it('clears the floating action when creation is cancelled', () => {
+    input.setSelectionRange(0, 6);
+    component.onSelect({ target: input } as unknown as Event);
+    component.beginSelectionCreate();
+    component.cancelSelectionCreate();
+    const button = document.createElement('button');
+    button.className = 'variable-modal-backdrop';
+    component.onKeyUp({ target: button } as unknown as KeyboardEvent);
+    expect(component.selectionText()).toBe('');
+    expect(component.selectionCanReplace()).toBeFalse();
   });
 });
 
 describe('GlobalVariablesComponent rendered input highlight', () => {
-  it('keeps ordinary text visible and the token at its native text width', () => {
+  it('keeps the native glyphs visible and paints only a token background', () => {
     TestBed.configureTestingModule({
       imports: [GlobalVariablesComponent],
       providers: [{ provide: GlobalVariablesService, useValue: { load: jasmine.createSpy('load') } }],
@@ -65,8 +91,9 @@ describe('GlobalVariablesComponent rendered input highlight', () => {
 
       const mirror = fixture.nativeElement.querySelector('.variable-input-highlight') as HTMLElement;
       const token = mirror.querySelector('.variable-highlight-token') as HTMLElement;
-      expect(getComputedStyle(mirror).color).toBe(originalColor);
-      expect(getComputedStyle(input).webkitTextFillColor).toBe('rgba(0, 0, 0, 0)');
+      expect(getComputedStyle(input).color).toBe(originalColor);
+      expect(input.classList.contains('variable-input-text-hidden')).toBeFalse();
+      expect(getComputedStyle(token).color).toBe('rgba(0, 0, 0, 0)');
       expect(mirror.textContent?.trim()).toBe(input.value);
 
       const reference = document.createElement('span');

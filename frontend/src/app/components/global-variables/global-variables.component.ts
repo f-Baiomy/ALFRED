@@ -1,6 +1,7 @@
-import { Component, HostListener, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { GlobalVariablesService } from '../../core/services/global-variables.service';
+import { insertToken, suggestionRange, tokenNames, tokenParts, VARIABLE_NAME } from '../../shared/utils/variable-tokens';
 
 @Component({
   selector: 'app-global-variables',
@@ -13,12 +14,11 @@ import { GlobalVariablesService } from '../../core/services/global-variables.ser
       <aside class="variables-drawer" aria-label="Global variables">
         <header><div><h2>Global variables</h2><p>Use <code>{{ '{{name}}' }}</code> in request fields.</p></div><button type="button" class="variables-close" (click)="open.set(false)">×</button></header>
         <div class="variables-content">
-          @if (variables.error()) { <p class="variables-error">{{ variables.error() }}</p> }
+          @if (variables.error()) { <p class="variables-error" role="alert">{{ variables.error() }} <button type="button" (click)="variables.retry()">Retry</button></p> }
           @for (entry of variables.entries(); track entry.name) {
             <section class="variable-row">
               <div class="variable-row-title"><code>{{ '{{' + entry.name + '}}' }}</code><button type="button" class="variable-delete" (click)="deleteVariable(entry.name)">Delete</button></div>
-              <textarea [value]="entry.value" (change)="variables.upsert(entry.name, inputValue($event))" aria-label="Variable value"></textarea>
-              <button type="button" class="variable-insert" (click)="editName.set(entry.name); editValue.set(entry.value); editing.set(true)">Edit value</button>
+              <textarea [value]="entry.value" (change)="variables.upsert(entry.name, inputValue($event))" [attr.aria-label]="'Value for ' + entry.name" spellcheck="false"></textarea>
             </section>
           } @empty { <p class="variables-empty">No variables yet. Add one to reuse a value across Alfred.</p> }
           <button type="button" class="variable-add" (click)="editName.set(''); editValue.set(''); editing.set(true)">+ Add variable</button>
@@ -55,21 +55,21 @@ import { GlobalVariablesService } from '../../core/services/global-variables.ser
         }
       </aside>
     }
-    @if (selectionText()) {
+    @if (selectionText() && !selectionEditing()) {
       <button class="selection-variable-button" type="button" [style.left.px]="selectionLeft()" [style.top.px]="selectionTop()" (click)="beginSelectionCreate()">+ {{ selectionCanReplace() ? 'Create variable' : 'Save as variable' }}</button>
     }
     @if (selectionEditing()) {
-      <div class="variable-modal-backdrop" (click)="selectionEditing.set(false)"><form class="variable-modal create-from-selection" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveSelectionCreate()">
+      <div class="variable-modal-backdrop" (click)="cancelSelectionCreate()"><form class="variable-modal create-from-selection" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveSelectionCreate()">
         <h2>Create variable from selection</h2><p>{{ selectionCanReplace() ? 'The selected text will be replaced by the token.' : 'This text is read-only. It will stay unchanged; the variable will be ready to use anywhere.' }}</p>
         <label class="selection-value-label">Selected value<textarea [value]="selectionValue()" (input)="selectionValue.set(inputValue($event))"></textarea></label>
         <label class="selection-name-label">Variable name<input [value]="selectionName()" (input)="selectionName.set(inputValue($event))" placeholder="accountId" /></label>
         <p>Token preview: <code>{{ '{{' + (selectionName() || 'name') + '}}' }}</code></p>
-        <footer><button type="button" (click)="selectionEditing.set(false)">Cancel</button><button type="submit" class="danger" [disabled]="!validSelectionName()">{{ selectionCanReplace() ? 'Create & replace' : 'Create variable' }}</button></footer>
+        <footer><button type="button" (click)="cancelSelectionCreate()">Cancel</button><button type="submit" class="danger" [disabled]="!validSelectionName()">{{ selectionCanReplace() ? 'Create & replace' : 'Create variable' }}</button></footer>
       </form></div>
     }
     @if (deleting()) {
       <div class="variable-modal-backdrop"><section class="variable-modal" role="dialog" aria-modal="true" aria-labelledby="delete-variable-title">
-        <h2 id="delete-variable-title">Delete {{ '{{' + deleting() + '}}' }}?</h2><p>Choose what tokens should resolve to after deletion.</p>
+        <h2 id="delete-variable-title">Delete {{ '{{' + deleting() + '}}' }}?</h2><p>References stay visible in editors. Choose the value used when they run.</p>
         <label><input type="radio" name="delete-mode" [checked]="deleteMode() === 'keep'" (change)="deleteMode.set('keep')" /> Keep <code>{{ '{{' + deleting() + '}}' }}</code></label>
         <label><input type="radio" name="delete-mode" [checked]="deleteMode() === 'null'" (change)="deleteMode.set('null')" /> Replace with <code>null</code></label>
         <label><input type="radio" name="delete-mode" [checked]="deleteMode() === 'custom'" (change)="deleteMode.set('custom')" /> Replace with custom text</label>
@@ -81,6 +81,7 @@ import { GlobalVariablesService } from '../../core/services/global-variables.ser
 })
 export class GlobalVariablesComponent {
   readonly variables = inject(GlobalVariablesService);
+  private readonly destroyRef = inject(DestroyRef);
   readonly open = signal(false);
   readonly editing = signal(false);
   readonly editName = signal('');
@@ -109,13 +110,21 @@ export class GlobalVariablesComponent {
   private autocompleteRange: { start: number; end: number } | null = null;
   readonly hoveredControl = signal<HTMLInputElement | HTMLTextAreaElement | null>(null);
   private hoverCloseTimer?: ReturnType<typeof setTimeout>;
-  constructor() { this.variables.load(); }
+  constructor() {
+    this.variables.load();
+    const onScroll = () => this.highlightLayoutVersion.update((value) => value + 1);
+    document.addEventListener('scroll', onScroll, true);
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('scroll', onScroll, true);
+      clearTimeout(this.hoverCloseTimer);
+    });
+  }
   @HostListener('document:select', ['$event']) onSelect(event: Event): void {
     this.captureSelection(event.target);
     this.updateHighlight(event.target);
   }
   @HostListener('document:mouseup', ['$event']) onMouseUp(event: MouseEvent): void {
-    if (event.target instanceof Element && event.target.closest('.selection-variable-button')) return;
+    if (event.target instanceof Element && event.target.closest('.selection-variable-button, .variable-modal-backdrop, .variables-drawer, .variable-suggestions, .input-variable-hover')) return;
     this.captureSelection(event.target);
     this.updateHighlight(event.target);
   }
@@ -158,8 +167,11 @@ export class GlobalVariablesComponent {
     if (event.target === this.hoveredControl()) this.clearHoveredControl();
   }
   private captureSelection(target: EventTarget | null): void {
+    // Clicking the floating action transfers focus away from the field. Keep the captured
+    // control and range until the dialog confirms or cancels, including keyboard activation.
+    if (this.selectionEditing() || (target instanceof Element && target.closest('.selection-variable-button, .variable-modal-backdrop, .variables-drawer, .variable-suggestions, .input-variable-hover'))) return;
     const element = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ? target : document.activeElement;
-    if ((element instanceof HTMLTextAreaElement || (element instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'email', 'password'].includes(element.type))) && !element.closest('app-body-editor')) {
+    if ((element instanceof HTMLTextAreaElement || (element instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'email', 'password'].includes(element.type))) && !element.readOnly && !element.disabled) {
       const start = element.selectionStart;
       const end = element.selectionEnd;
       if (start != null && end != null && start !== end) {
@@ -193,14 +205,14 @@ export class GlobalVariablesComponent {
     this.selectionTop.set(Math.max(42, top));
   }
   hoveredNames(): string[] { return this.namesIn(this.hoveredControl()?.value ?? ''); }
-  private namesIn(value: string): string[] { return [...new Set([...value.matchAll(/\{\{([A-Za-z][A-Za-z0-9_.-]*)\}\}/g)].map((m) => m[1]))]; }
+  private namesIn(value: string): string[] { return tokenNames(value); }
   hoverLeft(): number { return this.selectionLeft(); }
   hoverTop(): number { return this.selectionTop(); }
   cancelHoverClose(): void { clearTimeout(this.hoverCloseTimer); }
   clearHoveredControl(): void { this.hoverCloseTimer = setTimeout(() => this.hoveredControl.set(null), 220); }
   saveHoveredValue(name: string, event: Event): void { this.variables.upsert(name, this.inputValue(event)); }
   beginSelectionCreate(): void { this.selectionValue.set(this.selectionText()); this.selectionName.set(''); this.closeAutocomplete(); this.selectionEditing.set(true); }
-  validSelectionName(): boolean { return /^[A-Za-z][A-Za-z0-9_.-]*$/.test(this.selectionName().trim()); }
+  validSelectionName(): boolean { return VARIABLE_NAME.test(this.selectionName().trim()); }
   saveSelectionCreate(): void {
     const control = this.selectedControl;
     const range = this.selectedRange;
@@ -215,13 +227,17 @@ export class GlobalVariablesComponent {
       this.selectedDomRange.insertNode(document.createTextNode(`{{${name}}}`));
       this.selectedDomRange.commonAncestorContainer.parentElement?.dispatchEvent(new Event('input', { bubbles: true }));
     }
+    this.cancelSelectionCreate();
+  }
+  cancelSelectionCreate(): void {
     this.selectionEditing.set(false);
     this.selectionText.set('');
+    this.selectionCanReplace.set(false);
     this.selectedControl = null;
     this.selectedRange = null;
     this.selectedDomRange = null;
   }
-  validName(): boolean { return /^[A-Za-z][A-Za-z0-9_.-]*$/.test(this.editName().trim()); }
+  validName(): boolean { return VARIABLE_NAME.test(this.editName().trim()); }
   createOrUpdate(): void { if (!this.validName()) return; this.variables.upsert(this.editName().trim(), this.editValue()); this.editing.set(false); }
   deleteVariable(name: string): void { this.deleting.set(name); this.deleteMode.set('keep'); this.customReplacement.set(''); }
   confirmDelete(): void {
@@ -240,12 +256,11 @@ export class GlobalVariablesComponent {
     if (target.closest('.variable-modal-backdrop')) return;
     const caret = target.selectionStart;
     if (caret == null) return this.closeAutocomplete();
-    const prefix = target.value.slice(0, caret);
-    const match = /\{\{([A-Za-z0-9_.-]*)$/.exec(prefix);
+    const match = suggestionRange(target.value, caret);
     if (!match) return this.closeAutocomplete();
     this.autocompleteControl.set(target);
-    this.autocompleteQuery.set(match[1]);
-    this.autocompleteRange = { start: caret - match[0].length, end: caret };
+    this.autocompleteQuery.set(match.query);
+    this.autocompleteRange = { start: match.start, end: match.end };
     this.autocompleteIndex.set(0);
     const rect = target.getBoundingClientRect();
     const popupHeight = Math.min(220, this.autocompleteMatches().length * 38 + 12);
@@ -261,30 +276,20 @@ export class GlobalVariablesComponent {
     const control = this.autocompleteControl();
     const range = this.autocompleteRange;
     if (!control || !range) return this.closeAutocomplete();
-    const token = `{{${name}}}`;
-    const currentValue = control.value;
-    const currentRange = control.selectionStart == null ? range : {
-      start: control.selectionStart - (control.value.slice(0, control.selectionStart).match(/\{\{([A-Za-z0-9_.-]*)$/)?.[0].length ?? 0),
-      end: control.selectionStart,
-    };
-    const start = Math.max(0, Math.min(currentValue.length, currentRange.start));
-    const end = Math.max(start, Math.min(currentValue.length, currentRange.end));
-    const alreadyClosed = currentValue.slice(end).startsWith('}}');
-    const replaceEnd = end + (alreadyClosed ? 2 : 0);
-    control.value = currentValue.slice(0, start) + token + currentValue.slice(replaceEnd);
-    control.setSelectionRange(start + token.length, start + token.length);
+    const current = control.selectionStart == null ? null : suggestionRange(control.value, control.selectionStart);
+    const insertion = insertToken(control.value, current ?? range, name);
+    control.value = insertion.value;
+    control.setSelectionRange(insertion.caret, insertion.caret);
     control.dispatchEvent(new Event('input', { bubbles: true }));
     control.focus();
     this.closeAutocomplete();
   }
   private updateHighlight(target: EventTarget | null): void {
     if (!(target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'email', 'password'].includes(target.type)))) return;
-    // The DOM value is intentionally kept in the native input. Refresh the mirror even when the
-    // control is unchanged, otherwise Angular keeps rendering the old token/text split as you type.
+    // The native field always paints its own text and selection. The overlay only paints a
+    // translucent token background, so differences in font rasterization cannot double the text.
     this.highlightValueVersion.update((version) => version + 1);
-    // Native selection must remain visible and selectable. Use the mirror only when the caret is
-    // collapsed; this keeps the real input text out of the way while preserving drag/keyboard
-    // selection for create-variable-from-selection.
+    // Selection takes precedence over the token decoration.
     if (target.selectionStart != null && target.selectionEnd != null && target.selectionStart !== target.selectionEnd) {
       return this.setHighlightControl(null);
     }
@@ -293,25 +298,11 @@ export class GlobalVariablesComponent {
     this.setHighlightControl(this.namesIn(target.value).length ? target : null);
   }
   private setHighlightControl(control: HTMLInputElement | HTMLTextAreaElement | null): void {
-    const previous = this.highlightedControl();
-    if (previous !== control) previous?.classList.remove('variable-input-text-hidden');
-    if (control && previous !== control) control.classList.add('variable-input-text-hidden');
     this.highlightedControl.set(control);
   }
   highlightedParts(): Array<{ text: string; token: boolean }> {
     this.highlightValueVersion();
-    const value = this.highlightedControl()?.value ?? '';
-    const parts: Array<{ text: string; token: boolean }> = [];
-    const pattern = /\{\{[A-Za-z][A-Za-z0-9_.-]*\}\}/g;
-    let offset = 0;
-    for (const match of value.matchAll(pattern)) {
-      const start = match.index ?? 0;
-      if (start > offset) parts.push({ text: value.slice(offset, start), token: false });
-      parts.push({ text: match[0], token: true });
-      offset = start + match[0].length;
-    }
-    if (offset < value.length) parts.push({ text: value.slice(offset), token: false });
-    return parts;
+    return tokenParts(this.highlightedControl()?.value ?? '');
   }
   highlightStyle(): string {
     this.highlightLayoutVersion();

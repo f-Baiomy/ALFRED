@@ -48,7 +48,7 @@ public class ResendController {
         }
 
         ResendRequest request = new ResendRequest(body.direction(), body.callId(), blankToNull(body.cycleId()),
-                toDomain(body.edits()), body.useCurrentSession(), toDomain(body.batch()), body.variables(), body.fallbacks());
+                toDomain(body.edits()), body.useCurrentSession(), toDomain(body.batch()));
         ResendOutcome outcome = resendCallUseCase.resend(request);
         return switch (outcome) {
             case ResendOutcome.Success success -> ResponseEntity.ok(success.result());

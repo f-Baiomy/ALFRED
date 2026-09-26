@@ -4,16 +4,13 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
-import java.util.Map;
 
-/** POST /resend's body - see contracts/rest-api.md. */
+/** POST /resend's body - see contracts/rest-api.md. Variable values come from the backend store. */
 public record ResendRequestDto(
         @NotBlank @Pattern(regexp = "outbound|inbound", message = "direction must be outbound or inbound") String direction,
         @NotBlank @Size(max = 200) String callId,
         @Size(max = 200) String cycleId,
         @Valid ResendEditsDto edits,
         boolean useCurrentSession,
-        ResendBatchDto batch,
-        Map<String, String> variables,
-        Map<String, String> fallbacks) {
+        ResendBatchDto batch) {
 }

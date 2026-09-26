@@ -24,6 +24,21 @@ import breakpoints
 import interception
 
 
+class GlobalVariableResolutionTest(unittest.TestCase):
+    def test_mixed_text_nested_values_and_deletion_replacements(self):
+        value = {'path': '/api/{{base}}/items', 'body': ['{{missing}}', '{{gone}}']}
+        variables = {'base': '{{root}}', 'root': 'v1'}
+        fallbacks = {'gone': 'custom text'}
+        self.assertEqual(
+            {'path': '/api/v1/items', 'body': ['{{missing}}', 'custom text']},
+            interception._resolve_variable_tokens(value, variables, fallbacks),
+        )
+
+    def test_cycles_and_invalid_names_remain_visible(self):
+        variables = {'a': '{{b}}', 'b': '{{a}}'}
+        self.assertEqual('{{a}} {{1bad}}', interception._resolve_variable_tokens('{{a}} {{1bad}}', variables, {}))
+
+
 def run(coro):
     """The engine's phases are async (a regex find/replace awaits a worker process); these tests
     drive them one call at a time, so each gets its own short-lived loop."""

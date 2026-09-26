@@ -45,7 +45,7 @@ import regex_worker
 # rule, and must stay indistinguishable from "no rules".
 RULES_FILE = os.environ.get('INTERCEPTION_RULES_FILE', '/home/mitmproxy/interception-rules.json')
 VARIABLES_FILE = os.environ.get('INTERCEPTION_VARIABLES_FILE', '/home/mitmproxy/interception/variables.json')
-VARIABLE_TOKEN = re.compile(r'\{\{([A-Za-z0-9_.-]+)\}\}')
+VARIABLE_TOKEN = re.compile(r'\{\{([A-Za-z][A-Za-z0-9_.-]*)\}\}')
 
 # A delay is the one action that can hold a connection open for an unbounded time by accident -
 # a typo of 600000 instead of 6000 is ten minutes of a held socket. Rules are validated

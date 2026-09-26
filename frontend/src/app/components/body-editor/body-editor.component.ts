@@ -1,5 +1,4 @@
 import { Component, ElementRef, OnChanges, SimpleChanges, computed, inject, input, output, signal, viewChild } from '@angular/core';
-import { GlobalVariablesService } from '../../core/services/global-variables.service';
 import { JsonFlatViewComponent, LineTokens } from '../json-flat-view/json-flat-view.component';
 import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
 import { markVariableTokens, tokenizeJsonText } from '../../shared/utils/json-tokenizer';
@@ -74,11 +73,6 @@ export class BodyEditorComponent implements OnChanges {
 
   readonly valueChange = output<string>();
   readonly openInTab = output<void>();
-  readonly selectedText = signal('');
-  readonly createFromSelection = signal(false);
-  readonly variableName = signal('');
-  readonly variableValue = signal('');
-  private readonly selectionRange = signal<{ start: number; end: number } | null>(null);
 
   private readonly bodyArea = viewChild<ElementRef<HTMLTextAreaElement>>('bodyArea');
   private readonly gutter = viewChild<ElementRef<HTMLElement>>('gutter');
@@ -90,7 +84,6 @@ export class BodyEditorComponent implements OnChanges {
    * first frame (and every test) would see an empty editor.
    */
   private readonly local = signal<string | null>(null);
-  private readonly variables = inject(GlobalVariablesService, { optional: true });
 
   readonly text = computed(() => this.local() ?? this.value());
 
@@ -217,36 +210,6 @@ export class BodyEditorComponent implements OnChanges {
 
   onBodyInput(event: Event): void {
     this.commit((event.target as HTMLTextAreaElement).value);
-    this.checkSelection(event);
-  }
-
-  checkSelection(event: Event): void {
-    const area = event.target as HTMLTextAreaElement;
-    const start = area.selectionStart;
-    const end = area.selectionEnd;
-    if (start === end) { this.selectedText.set(''); return; }
-    this.selectionRange.set({ start, end });
-    this.selectedText.set(area.value.slice(start, end));
-  }
-
-  beginVariableFromSelection(): void {
-    const value = this.selectedText();
-    if (!value) return;
-    this.variableValue.set(value);
-    this.variableName.set('');
-    this.createFromSelection.set(true);
-  }
-
-  saveVariableFromSelection(): void {
-    const name = this.variableName().trim();
-    const range = this.selectionRange();
-    if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(name) || !range) return;
-    if (!this.variables) return;
-    this.variables.upsert(name, this.variableValue());
-    const current = this.text();
-    this.commit(current.slice(0, range.start) + `{{${name}}}` + current.slice(range.end));
-    this.createFromSelection.set(false);
-    this.selectedText.set('');
   }
 
   format(): void {

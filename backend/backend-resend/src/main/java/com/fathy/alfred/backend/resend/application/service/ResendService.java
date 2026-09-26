@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase;
 import com.fathy.alfred.backend.resend.application.port.out.CallSenderPort;
 import com.fathy.alfred.backend.resend.application.port.out.CallSourcePort;
+import com.fathy.alfred.backend.resend.application.port.out.GlobalVariableLookupPort;
 import com.fathy.alfred.backend.resend.application.port.out.OutgoingCall;
 import com.fathy.alfred.backend.resend.application.port.out.SendOutcome;
 import com.fathy.alfred.backend.resend.application.port.out.SessionValueLookupPort;
@@ -48,6 +49,7 @@ import java.util.UUID;
 @Service
 public class ResendService implements ResendCallUseCase {
 
+    private static final java.util.regex.Pattern VARIABLE_TOKEN = java.util.regex.Pattern.compile("\\{\\{([A-Za-z][A-Za-z0-9_.-]*)\\}\\}");
     private static final String RESEND_OF_HEADER = "X-Alfred-Resend-Of";
     private static final String RESEND_EDITS_HEADER = "X-Alfred-Resend-Edits";
     private static final Set<String> SESSION_HEADER_NAMES = Set.of("cookie", "authorization");
@@ -55,12 +57,20 @@ public class ResendService implements ResendCallUseCase {
     private final CallSourcePort calls;
     private final SessionValueLookupPort sessionValues;
     private final CallSenderPort sender;
+    private final GlobalVariableLookupPort variableLookup;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public ResendService(CallSourcePort calls, SessionValueLookupPort sessionValues, CallSenderPort sender) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public ResendService(CallSourcePort calls, SessionValueLookupPort sessionValues, CallSenderPort sender,
+                         GlobalVariableLookupPort variableLookup) {
         this.calls = calls;
         this.sessionValues = sessionValues;
         this.sender = sender;
+        this.variableLookup = variableLookup;
+    }
+
+    public ResendService(CallSourcePort calls, SessionValueLookupPort sessionValues, CallSenderPort sender) {
+        this(calls, sessionValues, sender, () -> new GlobalVariableLookupPort.VariableState(Map.of(), Map.of()));
     }
 
     @Override
@@ -110,10 +120,10 @@ public class ResendService implements ResendCallUseCase {
             }
         }
 
-        method = resolveVariables(method, request);
-        url = resolveVariables(url, request);
-        body = resolveVariables(body, request);
-        headers.replaceAll((name, value) -> resolveVariables(value, request));
+        var variableState = variableLookup.current();
+        method = resolveVariables(method, variableState);
+        url = resolveVariables(url, variableState);
+        body = resolveVariables(body, variableState);
 
         List<SessionValueUse> sessionUses = new ArrayList<>();
         if (request.useCurrentSession()) {
@@ -130,6 +140,11 @@ public class ResendService implements ResendCallUseCase {
             }
         }
 
+        Map<String, String> resolvedHeaders = new LinkedHashMap<>();
+        headers.forEach((name, value) ->
+                resolvedHeaders.put(resolveVariables(name, variableState), resolveVariables(value, variableState)));
+        headers.clear();
+        headers.putAll(resolvedHeaders);
         ResendBatch batch = request.batch();
         if (batch != null) {
             Map<String, Object> batchSummary = new LinkedHashMap<>();
@@ -159,16 +174,16 @@ public class ResendService implements ResendCallUseCase {
         };
     }
 
-    private static String resolveVariables(String text, ResendRequest request) {
+    private static String resolveVariables(String text, GlobalVariableLookupPort.VariableState state) {
         if (text == null || text.isEmpty()) return text;
         String value = text;
         for (int pass = 0; pass < 20; pass++) {
-            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{([A-Za-z0-9_.-]+)\\}\\}").matcher(value);
+            java.util.regex.Matcher matcher = VARIABLE_TOKEN.matcher(value);
             StringBuffer out = new StringBuffer();
             boolean changed = false;
             while (matcher.find()) {
                 String name = matcher.group(1);
-                String replacement = request.variables().getOrDefault(name, request.fallbacks().get(name));
+                String replacement = state.variables().getOrDefault(name, state.fallbacks().get(name));
                 if (replacement == null) replacement = matcher.group();
                 else changed = true;
                 matcher.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(replacement));
