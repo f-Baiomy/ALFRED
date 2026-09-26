@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { GlobalVariablesComponent } from './global-variables.component';
 import { GlobalVariablesService } from '../../core/services/global-variables.service';
 
@@ -115,5 +115,99 @@ describe('GlobalVariablesComponent rendered input highlight', () => {
       input.remove();
       fixture.destroy();
     }
+  });
+});
+
+describe('GlobalVariablesComponent the value card only opens over the variable', () => {
+  let fixture: ComponentFixture<GlobalVariablesComponent>;
+  let input: HTMLInputElement;
+
+  /** Move the pointer to a point, the way a browser would, so the component's own listener runs. */
+  const hover = (x: number, y: number) =>
+    input.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y }));
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [GlobalVariablesComponent],
+      providers: [
+        {
+          provide: GlobalVariablesService,
+          useValue: {
+            load: jasmine.createSpy('load'),
+            upsert: jasmine.createSpy('upsert'),
+            // The card's own template reads the stored value, so a test that really renders it needs this.
+            state: () => ({ variables: { code: '394' } }),
+          },
+        },
+      ],
+    });
+    fixture = TestBed.createComponent(GlobalVariablesComponent);
+    fixture.detectChanges();
+    input = document.createElement('input');
+    input.type = 'text';
+    input.value = 'asdasa {{code}} asddwqweq';
+    input.style.cssText = 'width:600px;font:16px Arial;padding:8px';
+    document.body.append(input);
+    input.focus();
+    input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    input.remove();
+    fixture.destroy();
+  });
+
+  it('opens when the pointer is over the variable itself', () => {
+    const token = fixture.nativeElement.querySelector('.variable-highlight-token') as HTMLElement;
+    const rect = token.getBoundingClientRect();
+    hover(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    expect(fixture.componentInstance.hoveredControl()).toBe(input);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.input-variable-hover')).not.toBeNull();
+  });
+
+  it('stays shut over the empty part of the field, past the end of the text', () => {
+    // The reported bug: the pointer sat to the right of the text, in blank field, and the card
+    // opened anyway - because the old test was "does the field's VALUE contain a token", which is
+    // true wherever the pointer is.
+    const field = input.getBoundingClientRect();
+    hover(field.right - 20, field.top + field.height / 2);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.hoveredControl()).toBeNull();
+    expect(fixture.nativeElement.querySelector('.input-variable-hover')).toBeNull();
+  });
+
+  it('stays shut over the plain text beside the variable', () => {
+    const token = fixture.nativeElement.querySelector('.variable-highlight-token') as HTMLElement;
+    const field = input.getBoundingClientRect();
+    // Well left of the token, still inside the field.
+    hover(token.getBoundingClientRect().left - 30, field.top + field.height / 2);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.hoveredControl()).toBeNull();
+  });
+
+  it('closes when the pointer slides off the variable but stays in the field', fakeAsync(() => {
+    // mousemove matters here: moving within one input fires no new mouseover, so a
+    // mouseover-only test would leave the card open after the pointer left the token.
+    const token = fixture.nativeElement.querySelector('.variable-highlight-token') as HTMLElement;
+    const on = token.getBoundingClientRect();
+    hover(on.left + on.width / 2, on.top + on.height / 2);
+    expect(fixture.componentInstance.hoveredControl()).toBe(input);
+    hover(on.left - 40, on.top + on.height / 2);
+    // Closing is a deliberate 220ms timer, so it is not immediate.
+    expect(fixture.componentInstance.hoveredControl()).toBe(input);
+    tick(221);
+    expect(fixture.componentInstance.hoveredControl()).toBeNull();
+  }));
+
+  it('does not open for a field with no variable in it', () => {
+    input.value = 'nothing to see';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+    const field = input.getBoundingClientRect();
+    hover(field.left + 10, field.top + field.height / 2);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.hoveredControl()).toBeNull();
   });
 });

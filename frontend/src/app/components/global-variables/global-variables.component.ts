@@ -149,17 +149,62 @@ export class GlobalVariablesComponent {
     }
   }
   @HostListener('document:mouseover', ['$event']) onMouseOver(event: MouseEvent): void {
+    this.updateHighlight(event.target);
+    this.syncHoverCard(event);
+  }
+  /**
+   * The pointer has to be MEASURED against the token, not merely inside the field.
+   *
+   * The token overlay is `pointer-events:none` (see highlightStyle), so `{{var}}` is never the
+   * event target and the DOM cannot tell us the pointer is on it. The only honest test is
+   * geometry. Without it the card opened anywhere in a field whose value happened to contain a
+   * token - including the empty space past the end of the text, which is where the pointer
+   * usually is.
+   *
+   * This runs on mousemove as well as mouseover because moving WITHIN a single input fires
+   * neither: there is no new mouseover until the pointer leaves and re-enters, so a
+   * mouseover-only test would let the card stay open after the pointer slid off the token.
+   */
+  @HostListener('document:mousemove', ['$event']) onMouseMove(event: MouseEvent): void {
+    this.syncHoverCard(event);
+  }
+  private syncHoverCard(event: MouseEvent): void {
     const target = event.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
     if (target.closest('.input-variable-hover, .variables-drawer, .variable-modal-backdrop')) return;
-    this.updateHighlight(target);
-    const names = this.namesIn(target.value);
-    if (!names.length) return;
+    if (!this.namesIn(target.value).length) return;
+    if (!this.pointerOnToken(event.clientX, event.clientY)) {
+      if (this.hoveredControl() === target) this.clearHoveredControl();
+      return;
+    }
     clearTimeout(this.hoverCloseTimer);
     const rect = target.getBoundingClientRect();
     this.selectionLeft.set(Math.max(8, Math.min(window.innerWidth - 290, rect.left)));
     this.selectionTop.set(Math.min(window.innerHeight - 150, rect.bottom + 8));
     this.hoveredControl.set(target);
+  }
+  private tokenRectsCache?: { control: Element; value: string; version: number; rects: DOMRect[] };
+  /**
+   * Where the highlighted tokens are on screen, measured only when something that moves them
+   * changed - the value, or a scroll/resize (which bumps highlightLayoutVersion). A mousemove
+   * handler that measured on every event would force a layout per pointer move.
+   */
+  private tokenRects(): DOMRect[] {
+    const control = this.highlightedControl();
+    if (!control) return [];
+    const version = this.highlightLayoutVersion() + this.highlightValueVersion();
+    const cached = this.tokenRectsCache;
+    if (cached && cached.control === control && cached.value === control.value && cached.version === version) {
+      return cached.rects;
+    }
+    const rects = Array.from(document.querySelectorAll('.variable-input-highlight .variable-highlight-token')).map(
+      (token) => token.getBoundingClientRect()
+    );
+    this.tokenRectsCache = { control, value: control.value, version, rects };
+    return rects;
+  }
+  private pointerOnToken(x: number, y: number): boolean {
+    return this.tokenRects().some((rect) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
   }
   @HostListener('document:mouseout', ['$event']) onMouseOut(event: MouseEvent): void {
     const related = event.relatedTarget;
