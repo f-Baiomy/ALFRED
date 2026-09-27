@@ -106,8 +106,8 @@ below ends with the test that proves it.
   - **Serialisation:** records to and from `definition_json`, etc. with the Spring `ObjectMapper`.
   - **List queries select headers only, never bodies** (constitution II). The cycles list must not read `definition_json`: store `step_count`, `live_count` and `last_run_json` in extra columns when saving, and add those columns to T008.
   - **Test:** `BRT/adapter/out/sqlite/SqliteReliveStoreAdaptersTest.java` against a temp file DB (`@TempDir`) with ~30 KB bodies: round-trip; list without bodies; version pruning keeps the newest 10; run pruning keeps the newest 50 and the size cap; live calls are never pruned by run pruning.
-- [ ] T011 Create the inbound use cases in `BR/application/port/in/`: `ManageReliveCyclesUseCase` (list, get, create, update with `ifMatch` + optional `reason`, duplicate, delete, `createTransient`), `ValidateCycleUseCase`, `ManageCycleVersionsUseCase` (list, restore).
-- [ ] T012 Implement `BR/application/service/ReliveCyclesService.java`, which implements T011's use cases.
+- [X] T011 Create the inbound use cases in `BR/application/port/in/`: `ManageReliveCyclesUseCase` (list, get, create, update with `ifMatch` + optional `reason`, duplicate, delete, `createTransient`), `ValidateCycleUseCase`, `ManageCycleVersionsUseCase` (list, restore).
+- [X] T012 Implement `BR/application/service/ReliveCyclesService.java`, which implements T011's use cases.
   - **Validation on save** (data-model "Validation on save"): unique step keys; every `parentKey` resolves to an inbound step; variable names match `[A-Za-z_][A-Za-z0-9_]*` and are unique; clamps from `ReliveLimits`; every `callRule` and cycle rule passes `RuleValidationPort`. Errors raise the existing validation exception shape (see how `backend-scenarios` returns 400).
   - **Optimistic update:** `update` compares `ifMatch` with the stored `updatedAt`, throws `StaleCycleException`, which maps to 409.
   - **Versioned update:** with a `reason` present, save the previous definition as a version first, then `pruneVersions`.
