@@ -191,7 +191,7 @@ below ends with the test that proves it.
     - **Keys:** `key` = `crypto.randomUUID()`; `source` = `{callId, cycleId, direction}`.
     - **Defaults:** `callRule` = `defaultCallRule(...)` (T020); `unattributed:'BLOCK'`; label `METHOD path`.
   - **Test:** `relive-freeze.spec.ts` with fixtures built the way call-tree tests build them. Cover: one inbound call with 3 children gives 4 steps with the right `parentKey`; each child's default rule is REPLAY + FAIL.
-- [ ] T023 [US1] Create the list page `FE/pages/relive/relive-list.component.{ts,html}`. It copies mock.html `listView()` and `lastRunPill()`.
+- [X] T023 [US1] Create the list page `FE/pages/relive/relive-list.component.{ts,html}`. It copies mock.html `listView()` and `lastRunPill()`.
   - **Table columns:** name, description, steps, LIVE count, last run pill, updated.
   - **Actions:** open / duplicate / delete (delete uses the existing `ConfirmDialogService`).
   - **"＋ New cycle":** opens the add-calls flow (T026) and then creates the cycle.

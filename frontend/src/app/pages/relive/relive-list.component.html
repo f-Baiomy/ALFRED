@@ -1,0 +1,44 @@
+<div class="rl-page">
+  <div class="rl-row">
+    <div>
+      <h1>Relive Cycles</h1>
+      <p class="sub">Replay recorded workflows step by step - choose what runs for real and what ALFRED plays back.</p>
+    </div>
+    <span class="rl-spacer"></span>
+    <button class="rl-btn rl-primary" (click)="newCycle()">＋ New cycle</button>
+  </div>
+
+  @if (state.cycles().length) {
+    <div class="rl-cycles">
+      @for (cycle of state.cycles(); track cycle.id) {
+        <div class="rl-card rl-cyc" [routerLink]="['/relive', cycle.id]">
+          <div class="rl-row">
+            <h2>{{ cycle.name }}</h2>
+            <span class="rl-spacer"></span>
+            <span class="rl-pill" [class]="'rl-' + lastRunPillClass(cycle)">{{ lastRunLabel(cycle) }}</span>
+          </div>
+          @if (cycle.description) {
+            <div class="rl-dim" style="margin: 4px 0 8px">{{ cycle.description }}</div>
+          }
+          <div class="rl-row" style="flex-wrap: wrap; gap: 6px">
+            <span class="rl-pill rl-p-wait">{{ cycle.stepCount }} steps</span>
+            @if (cycle.liveCount) {
+              <span class="rl-pill rl-p-live">⚠ {{ cycle.liveCount }} LIVE external</span>
+            }
+            @if (cycle.updatedAt) {
+              <span class="rl-pill rl-p-wait">updated {{ cycle.updatedAt | date: 'short' }}</span>
+            }
+          </div>
+          <div class="rl-row" style="margin-top: 10px; justify-content: flex-end; gap: 6px">
+            <button class="rl-btn rl-sm" (click)="duplicate(cycle, $event)">Duplicate</button>
+            <button class="rl-btn rl-sm rl-danger" (click)="delete(cycle, $event)">Delete</button>
+          </div>
+        </div>
+      }
+    </div>
+  } @else {
+    <div class="rl-empty">No Relive cycles yet. Pick some recorded calls and add them to a new cycle to get started.</div>
+  }
+</div>
+
+<app-confirm-dialog />

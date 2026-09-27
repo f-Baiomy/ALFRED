@@ -478,6 +478,87 @@
   }
 }
 
+// Generic layout primitives for Relive's own pages (list, cycle editor, run view). Not part of
+// the mock.html port above - the rest of ALFRED builds each page's layout from bespoke,
+// page-scoped classes rather than a shared utility set, and Relive has enough of its own new
+// pages to warrant one small self-contained set, namespaced the same way as everything above.
+.rl-page {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 18px 24px 60px;
+}
+.rl-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rl-spacer {
+  flex: 1;
+}
+.rl-dim {
+  color: var(--text-dim);
+}
+.rl-faint {
+  color: var(--text-faint);
+}
+.rl-card {
+  background: var(--card-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.rl-cycles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.rl-cyc {
+  padding: 14px 16px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+}
+.rl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text);
+
+  &:hover {
+    filter: brightness(1.15);
+  }
+  &.rl-primary {
+    background: var(--purple);
+    border-color: var(--purple);
+    color: #fff;
+  }
+  &.rl-danger {
+    border-color: rgba(248, 113, 113, 0.5);
+    color: var(--red);
+  }
+  &.rl-sm {
+    padding: 3px 9px;
+    border-radius: 7px;
+    font-size: 12px;
+  }
+  &[disabled] {
+    opacity: 0.45;
+    cursor: default;
+  }
+}
+.rl-empty {
+  margin-top: 24px;
+  color: var(--text-dim);
+}
+
 // Nav "new" badge on the Relive tab (main-layout.component.html).
 .nav-new {
   font-size: 10px;
