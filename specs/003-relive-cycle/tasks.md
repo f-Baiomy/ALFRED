@@ -215,7 +215,7 @@ below ends with the test that proves it.
   - **"📌 Pick from anywhere…":** uses the existing `CallPickerService` (`FE/core/services/call-picker.service.ts`) exactly as other features do. Find usages with `codegraph explore "CallPickerService pick"`, and match mock `openPicker()` / `donePicking()`.
   - **Freezing:** chosen calls are frozen with `freezeCalls` after fetching each call's detail through the existing calls API, and appended to the draft.
   - **Hint:** "Calls are copied into the cycle - the recording itself is never modified."
-- [ ] T027 [US1] Step drawer: Configure tab (basic) in `FE/components/relive-step-drawer/relive-step-drawer.component.{ts,html}`. It copies mock.html `drawer()` and the non-run part of `drawerBody()`.
+- [X] T027 [US1] Step drawer: Configure tab (basic) in `FE/components/relive-step-drawer/relive-step-drawer.component.{ts,html}`. It copies mock.html `drawer()` and the non-run part of `drawerBody()`.
   - **Tabs:** Configure / Request / Response / Extract & assert. Extract & assert is wired in US5; keep it empty here.
   - **Configure:** label, "Optional" checkbox, the recorded status and duration, and "open original ↗" (navigates to the source call with the existing `CallFocusService.revealIn`).
   - **Request tab:** shows the recorded request read-only for now; T037 makes it editable.

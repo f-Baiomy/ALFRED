@@ -60,16 +60,23 @@
 
     @switch (tab()) {
       @case ('steps') {
-        <div class="rl-row" style="margin-bottom: 8px">
-          <button class="rl-btn rl-sm" (click)="openAddCalls()">＋ Add calls</button>
+        <div class="rl-layout" [class.rl-nodrawer]="!selectedStep()">
+          <div>
+            <div class="rl-row" style="margin-bottom: 8px">
+              <button class="rl-btn rl-sm" (click)="openAddCalls()">＋ Add calls</button>
+            </div>
+            <app-relive-step-tree
+              [steps]="draft.steps"
+              [settings]="draft.settings"
+              [selectedKey]="state.selectedStepKey()"
+              (stepsChange)="setSteps($event)"
+              (select)="selectStep($event)"
+            />
+          </div>
+          @if (selectedStep(); as step) {
+            <app-relive-step-drawer [step]="step" (stepChange)="updateStep($event)" (closed)="selectStep(step.key)" />
+          }
         </div>
-        <app-relive-step-tree
-          [steps]="draft.steps"
-          [settings]="draft.settings"
-          [selectedKey]="state.selectedStepKey()"
-          (stepsChange)="setSteps($event)"
-          (select)="selectStep($event)"
-        />
       }
       @case ('variables') {
         <div class="rl-faint">Variables panel coming with US5.</div>

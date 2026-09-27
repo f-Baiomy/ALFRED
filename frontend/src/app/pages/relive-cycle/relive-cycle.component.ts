@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
+import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/relive-step-drawer.component';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -22,7 +23,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 @Component({
   selector: 'app-relive-cycle',
   standalone: true,
-  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent],
+  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent, ReliveStepDrawerComponent],
   providers: [ReliveCycleEditorState],
   templateUrl: './relive-cycle.component.html',
 })
@@ -41,6 +42,10 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   readonly externalCount = computed(() => {
     const draft = this.state.draft();
     return draft ? externalReach(draft).size : 0;
+  });
+  readonly selectedStep = computed(() => {
+    const key = this.state.selectedStepKey();
+    return key ? (this.state.draft()?.steps.find((s) => s.key === key) ?? null) : null;
   });
 
   constructor() {
@@ -72,6 +77,10 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   appendSteps(steps: readonly Step[]): void {
     this.state.update((draft) => ({ ...draft, steps: [...draft.steps, ...steps] }));
+  }
+
+  updateStep(step: Step): void {
+    this.state.update((draft) => ({ ...draft, steps: draft.steps.map((s) => (s.key === step.key ? step : s)) }));
   }
 
   setTab(tab: ReliveTab): void {

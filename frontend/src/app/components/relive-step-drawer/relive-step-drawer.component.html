@@ -1,0 +1,57 @@
+<div class="rl-drawer">
+  <div class="rl-row" style="padding: 12px 14px; border-bottom: 1px solid var(--border)">
+    <span class="rl-dir" [class.rl-in]="!step().parentKey" [class.rl-out]="!!step().parentKey">{{ step().parentKey ? '↗' : '↙' }}</span>
+    <b>{{ step().label }}</b>
+    <span class="rl-spacer"></span>
+    @if (step().parentKey) {
+      <span class="rl-pill" [class]="mode() === 'REPLAY' ? 'rl-p-replay' : 'rl-p-live'">{{ mode() }}</span>
+    }
+    <button class="icon-btn" (click)="close()">✕</button>
+  </div>
+
+  <div class="rl-tabs" style="margin: 10px 14px 0">
+    <button [class.rl-on]="tab() === 'configure'" (click)="setTab('configure')">Configure</button>
+    <button [class.rl-on]="tab() === 'request'" (click)="setTab('request')">Request</button>
+    <button [class.rl-on]="tab() === 'response'" (click)="setTab('response')">Response</button>
+    <button [class.rl-on]="tab() === 'extract'" (click)="setTab('extract')">Extract & assert</button>
+  </div>
+
+  <div style="padding: 0 14px 14px">
+    @switch (tab()) {
+      @case ('configure') {
+        <div class="rl-sect">
+          <h3>Step</h3>
+          <div class="rl-kv">
+            <span class="rl-dim">Label</span>
+            <input [value]="step().label" (input)="setLabel($any($event.target).value)" />
+            <span class="rl-dim">Optional</span>
+            <label class="rl-row">
+              <input type="checkbox" [checked]="step().optional" (change)="setOptional($any($event.target).checked)" />
+              a failure here doesn't fail the run
+            </label>
+            <span class="rl-dim">Recorded</span>
+            <span class="rl-dim">
+              {{ step().recording.status }} · {{ step().recording.durationMs }} ms ·
+              <a class="rl-link" (click)="openOriginal()">open original ↗</a>
+            </span>
+          </div>
+        </div>
+      }
+      @case ('request') {
+        <div class="rl-sect">
+          <h3>Recorded request (reference)</h3>
+          <pre>{{ step().recording.requestBody || '(empty)' }}</pre>
+        </div>
+      }
+      @case ('response') {
+        <div class="rl-sect">
+          <h3>Recorded response · {{ step().recording.status }}</h3>
+          <pre>{{ step().recording.responseBody || '(empty)' }}</pre>
+        </div>
+      }
+      @case ('extract') {
+        <div class="rl-faint">Coming with US5.</div>
+      }
+    }
+  </div>
+</div>
