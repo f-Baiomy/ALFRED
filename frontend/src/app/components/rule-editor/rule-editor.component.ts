@@ -1575,7 +1575,29 @@ export class RuleEditorComponent implements OnInit {
   }
 
   needsConditionValue(condition: Condition): boolean {
-    return !OPERATORS_WITHOUT_VALUE.has(condition.operator);
+    // RECORDED_CALL (Relive, FR-014d) compares against a frozen recording, not a literal value -
+    // see isRecordedCallCondition/recordedCallStepKey below for its own field.
+    return condition.subject !== 'RECORDED_CALL' && !OPERATORS_WITHOUT_VALUE.has(condition.operator);
+  }
+
+  isRecordedCallCondition(condition: Condition): boolean {
+    return condition.subject === 'RECORDED_CALL';
+  }
+
+  recordedCallStepKey(condition: Condition): string {
+    return condition.recordedStepKey ?? '';
+  }
+
+  setRecordedCallStepKey(path: readonly number[], branchIndex: number, conditionIndex: number, recordedStepKey: string): void {
+    this.patchCondition(path, branchIndex, conditionIndex, { recordedStepKey: recordedStepKey || null });
+  }
+
+  recordedCallCompareHeaders(condition: Condition): boolean {
+    return condition.headers === true;
+  }
+
+  setRecordedCallCompareHeaders(path: readonly number[], branchIndex: number, conditionIndex: number, compare: boolean): void {
+    this.patchCondition(path, branchIndex, conditionIndex, { headers: compare || null });
   }
 
   conditionNamePlaceholder(condition: Condition): string {

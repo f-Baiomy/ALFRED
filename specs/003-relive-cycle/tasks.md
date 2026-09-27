@@ -236,7 +236,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
 
 ### Proxy (Python)
 
-- [ ] T029 [US2] Create `proxy/relive.py`. It is a new module; do NOT grow `interception.py`.
+- [X] T029 [US2] Create `proxy/relive.py`. It is a new module; do NOT grow `interception.py`.
   - **`ReliveRuns` loader:** reads every `proxy/interception/relive/<runId>.json` (shape: `contracts/proxy-snapshot.md`, with each child carrying `callRule` per the D17 note) plus `relive/inflight.json`. It checks the directory mtime at most once per second and costs nothing when the directory is missing or empty (pattern: `_RulesCache` in `interception.py`; explore it).
   - **`attribute(flow, source, service_name, backend_addresses)`** returns `(run, step_entry | None, attribution)` in this order:
     - `HEADER`: `X-Alfred-Relive: <runId>/<stepKey>`, trusted only when the peer is in `backend_addresses`, the same rule as `take_resend_headers`. Always strip it.
@@ -249,13 +249,13 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
     answers every attributed call, and every unattributed call matching one of the run's REPLAY children, with
     `502 {"error":"Blocked by ALFRED Relive - run stopping","runId":…}`. No call rule or policy of the run runs.
   - **Test:** `proxy/test_relive.py`: STOPPING blocks a REPLAY child, a LIVE child and an unexpected call; each attribution route; the header comes from a non-backend peer (not trusted, stripped); ordinals with more calls than recorded (the extra call is unexpected); no directory means `attribute` returns quickly and does no file reads after the first stat.
-- [ ] T030 [US2] Run tiers through the existing engine (research D4, FR-028a).
+- [X] T030 [US2] Run tiers through the existing engine (research D4, FR-028a).
   - **Engine change:** in `proxy/interception.py`, add an optional `extra_rulesets` parameter to `InterceptionEngine._apply_request_phase` / `_apply_response_phase` / `_matched_for_response` (explore them first). The engine then evaluates, in order: the call rule (tier STEP, a `RuleSet` built from the snapshot's `callRule` via the existing `Rule` / `_prepare_actions`), then cycle rules (tier CYCLE), then the global rules filtered by the snapshot's `globalRules` (NONE / ALL / SELECTED ids). `stopProcessing` and priority keep their meaning within each tier.
   - **No run:** with no `extra_rulesets`, behaviour must be byte-for-byte today's.
   - **Response phase:** later rules' response actions still run on a mocked answer (FR-028a).
   - **`relive.py`:** exposes `rulesets_for(run, step_entry)`, which caches the built RuleSets per snapshot mtime.
   - **Tests:** `proxy/test_relive.py` covers tier order, `stopProcessing` inside a tier, and a GLOBAL response rule rewriting a mocked body. The whole of `proxy/test_interception.py` must pass unchanged.
-- [ ] T031 [US2] New ALFRED condition `MATCHES_RECORDED_CALL` (research D15/D17, FR-014d).
+- [X] T031 [US2] New ALFRED condition `MATCHES_RECORDED_CALL` (research D15/D17, FR-014d).
   - **Proxy:** in `proxy/interception.py`, `Condition.__init__` / its evaluate method (explore `Condition`) accepts `subject: 'RECORDED_CALL'`, `operator: 'MATCHES'`, `answerId` and `ignore: [paths]`. It compares the request **as it is at that point in the pipeline** (method, path, query, and the canonical JSON body - reuse `_squash_json` - or the text body) with the recorded request loaded from the answer store, removing `ignore` paths and the cycle noise paths first. Headers are compared only when `headers: true`.
     - **Answer store:** for global rules it is `proxy/interception/answers/`; for a Relive run it is the run's `relive/answers/<runId>/` (the `_AnswerCache` that `relive.py` points there, T033). The engine passes the store to `Condition` with the ruleset.
     - **Safety:** a missing or unreadable answer, or one that is not a request, makes the condition **false** ("differs"), never true. A test covers it.
@@ -263,7 +263,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Backend:** add the condition to `RuleValidator` (`backend/backend-interception/.../domain/model/RuleValidator.java`): `answerId` must be a UUID and `ignore` ≤ 50 paths.
   - **Frontend:** add a UI row to the Condition editor in `FE/components/rule-editor/` (explore `IF_REQUEST` there): "request matches a recorded call (ignoring noise)" with a call picker for the recorded call. It works in global rules too.
   - **Tests:** `test_interception.py` (equal, edited, noise-only difference); a `RuleValidatorTest` case; a rule-editor spec case.
-- [ ] T032 [US2] Hook the addons.
+- [X] T032 [US2] Hook the addons.
   - **Outbound:** in `proxy/log_and_route.py` `request()` (line ~155), right after `take_resend_headers`, call `relive.attribute(...)`.
     - **Attributed:** pass the run's rulesets to the engine, and set `flow.metadata['relive'] = {runId, stepKey, attribution, choice}`.
     - **Unattributed but the request would match a REPLAY child of an active run:** apply that step's `unattributed` choice (BLOCK answers `502 {"error":"Blocked by ALFRED Relive - unattributed"}`, REPLAY_ANYWAY applies the call rule, SEND_REAL does nothing).
@@ -276,12 +276,12 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Inbound:** `proxy/log_and_route_reverse.py` gets the same change for inbound steps (HEADER attribution; Guided: the project's guided run).
   - **Logging:** add the `relive` dict and `reachedUpstream: bool` to the logged-call payload next to `resend_of` (explore how `resend_of` is sent).
   - **Test:** the addon-level tests in `test_relive.py` use the same fake-flow helpers `test_interception.py` uses.
-- [ ] T033 [US2] REPLAY answers and the request-differs flow.
+- [X] T033 [US2] REPLAY answers and the request-differs flow.
   - **Mocks:** a REPLAY child's `callRule` already contains `MOCK_RESPONSE` with inline status, headers and body. Confirm that the existing `MOCK_RESPONSE` action code serves it. If a body is over the action's inline limit (check `RuleValidator` limits), the backend stores it as an answer file under `proxy/interception/relive/answers/<runId>/<answerId>.{meta.json,body}` (same format as `proxy/interception/answers/`; see `_AnswerCache`) and the action references it. Extend `_AnswerCache` usage so `relive.py` can point one at `relive/answers/<runId>`.
   - **FR-018:** a REPLAY child whose answer is missing must FAIL (502) and never forward. Add that guard in `relive.py`.
   - **ASK:** `PAUSE_REQUEST` goes through the existing `breakpoints.py`, with the paused registration carrying `relive: {runId, stepKey, at:'CHANGED'}` (look at how the pause spec's metadata reaches `breakpoints.snapshot`). When time runs out, the default action is the failure mock, never forwarding.
   - **Test:** in `test_relive.py`.
-- [ ] T034 [US2] Unexpected outbound calls (FR-014f), in `proxy/relive.py`.
+- [X] T034 [US2] Unexpected outbound calls (FR-014f), in `proxy/relive.py`.
   - **BLOCK** (default): answer `502` `{"error":"Blocked by ALFRED Relive","runId":…}` without contacting upstream.
   - **SEND_REAL:** forward.
   - **RULES:** evaluate the snapshot's `unexpectedCalls.rules` with the engine (first match wins, then `fallback`).

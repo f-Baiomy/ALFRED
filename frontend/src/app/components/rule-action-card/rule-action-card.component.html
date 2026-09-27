@@ -117,6 +117,21 @@
               </span>
             } @else if (condition.operator === 'TYPE_IS') {
               <app-select-picker [options]="editor.typeOptions" [value]="condition.value ?? 'text'" (valueChange)="editor.patchCondition(step.path, bi, ci, { value: $event })" />
+            } @else if (editor.isRecordedCallCondition(condition)) {
+              <!-- RECORDED_CALL (Relive, FR-014d): compares against a frozen recording, named by
+                   step key - not a literal value. -->
+              <input
+                type="text"
+                class="cond-value"
+                [value]="editor.recordedCallStepKey(condition)"
+                placeholder="recorded step key"
+                title="The cycle step whose recorded request this compares the live request against"
+                (input)="editor.setRecordedCallStepKey(step.path, bi, ci, $any($event.target).value)"
+              />
+              <label class="cond-case" title="Also compare headers, not just method/path/query/body">
+                <input type="checkbox" [checked]="editor.recordedCallCompareHeaders(condition)" (change)="editor.setRecordedCallCompareHeaders(step.path, bi, ci, $any($event.target).checked)" />
+                headers too
+              </label>
             } @else if (editor.needsConditionValue(condition)) {
               <input
                 type="text"
