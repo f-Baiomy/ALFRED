@@ -1,0 +1,495 @@
+// Relive Cycle (specs/003-relive-cycle) - ported from mock.html's <style> block, class names
+// prefixed `rl-` to avoid clashing with anything already in this file. Colours reuse the
+// existing design tokens (--border, --border-strong, --purple, --cyan, --green, --amber, --red,
+// --text, --text-dim, --text-faint, --card, --card-inner, --popover-solid) rather than
+// hard-coding new ones; see styles.scss's `:root` block for what each token means.
+
+.rl-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.rl-p-live {
+  color: #fb923c;
+  border-color: rgba(251, 146, 60, 0.6);
+  background: rgba(251, 146, 60, 0.14);
+}
+.rl-p-replay {
+  color: var(--cyan);
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.1);
+}
+.rl-p-cycle {
+  color: var(--purple-light);
+  border-color: var(--border-strong);
+  background: rgba(139, 92, 246, 0.15);
+}
+.rl-p-global {
+  color: #93c5fd;
+  border-color: rgba(147, 197, 253, 0.45);
+  background: rgba(147, 197, 253, 0.1);
+}
+.rl-p-mod {
+  color: var(--amber);
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.1);
+}
+.rl-p-diff {
+  color: var(--amber);
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.12);
+}
+.rl-p-fail {
+  color: var(--red);
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.12);
+}
+.rl-p-ok {
+  color: var(--green);
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(52, 211, 153, 0.1);
+}
+.rl-p-wait {
+  color: var(--text-dim);
+  border-color: var(--border);
+  background: rgba(148, 163, 194, 0.1);
+}
+.rl-p-pause {
+  color: #f0abfc;
+  border-color: rgba(232, 121, 249, 0.5);
+  background: rgba(232, 121, 249, 0.12);
+}
+.rl-p-new {
+  color: #86efac;
+  border-color: rgba(134, 239, 172, 0.5);
+  background: rgba(134, 239, 172, 0.1);
+}
+.rl-p-secret {
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+
+.rl-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 8px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.015);
+  margin-bottom: 3px;
+  position: relative;
+
+  &:hover {
+    background: rgba(139, 92, 246, 0.07);
+  }
+  &.rl-child {
+    margin-left: 26px;
+  }
+}
+
+// State circle in the run timeline (pending/waiting/running/ok/diff/fail/skip/cancel/notcalled).
+.rl-st {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex: none;
+  border: 1.5px solid;
+
+  &.rl-pending {
+    color: var(--text-faint);
+    border-color: var(--text-faint);
+  }
+  &.rl-waiting {
+    color: var(--text-dim);
+    border-color: var(--text-dim);
+    border-style: dashed;
+  }
+  &.rl-running {
+    color: var(--purple-light);
+    border-color: var(--purple);
+    animation: rl-pulse 1.1s infinite;
+  }
+  &.rl-ok {
+    color: #052e1f;
+    background: var(--green);
+    border-color: var(--green);
+  }
+  &.rl-diff {
+    color: #3b2a00;
+    background: var(--amber);
+    border-color: var(--amber);
+  }
+  &.rl-fail {
+    color: #3b0a0a;
+    background: var(--red);
+    border-color: var(--red);
+  }
+  &.rl-skip,
+  &.rl-cancel,
+  &.rl-notcalled {
+    color: var(--text-faint);
+    border-color: var(--text-faint);
+    border-style: dotted;
+  }
+  &.rl-paused {
+    color: #3b0a3b;
+    background: #e879f9;
+    border-color: #e879f9;
+  }
+}
+@keyframes rl-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.6);
+  }
+  60% {
+    box-shadow: 0 0 0 6px rgba(139, 92, 246, 0);
+  }
+}
+
+.rl-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  gap: 2px;
+
+  button {
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    font-weight: 600;
+
+    &.rl-on {
+      background: rgba(139, 92, 246, 0.28);
+      color: #fff;
+    }
+  }
+  &.rl-mode button.rl-on.rl-live {
+    background: rgba(251, 146, 60, 0.28);
+    color: #fed7aa;
+  }
+  &.rl-mode button.rl-on.rl-replay {
+    background: rgba(34, 211, 238, 0.2);
+    color: #a5f3fc;
+  }
+}
+
+.rl-choice {
+  display: flex;
+  gap: 4px;
+
+  button {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+
+    &.rl-on {
+      background: rgba(139, 92, 246, 0.28);
+      border-color: var(--border-strong);
+      color: #fff;
+    }
+  }
+}
+
+.rl-rulecard {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.015);
+
+  &.rl-muted {
+    opacity: 0.45;
+  }
+}
+
+.rl-ext-banner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  color: #fed7aa;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+}
+
+.rl-pausebox {
+  border: 1px solid rgba(232, 121, 249, 0.55);
+  background: rgba(232, 121, 249, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+
+  h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: #f5d0fe;
+  }
+}
+
+.rl-haltbox {
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+
+  h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: #fecaca;
+  }
+  &.rl-diff {
+    border-color: rgba(251, 191, 36, 0.55);
+    background: rgba(251, 191, 36, 0.08);
+
+    h3 {
+      color: #fde68a;
+    }
+  }
+}
+
+.rl-re-col {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-height: 90px;
+
+  h4 {
+    margin: 0 0 6px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+}
+
+.rl-re-act {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin-bottom: 5px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.rl-cmp {
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: rgba(0, 0, 0, 0.18);
+
+  .rl-strip {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin: 8px 0;
+
+    button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px 8px;
+      text-align: left;
+      font-size: 11.5px;
+      color: var(--text);
+      min-width: 88px;
+
+      small {
+        display: block;
+        color: var(--text-faint);
+        font-size: 10.5px;
+      }
+      &.rl-on {
+        border-color: var(--border-strong);
+        background: rgba(139, 92, 246, 0.2);
+      }
+    }
+  }
+  .rl-bar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 5px 8px;
+    margin: 8px 0;
+    font-size: 11.5px;
+  }
+  .rl-dl {
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    padding: 1px 8px;
+    white-space: pre;
+
+    &.rl-del {
+      background: rgba(248, 113, 113, 0.16);
+
+      &::before {
+        content: '\2013 ';
+        color: #f87171;
+      }
+    }
+    &.rl-add {
+      background: rgba(74, 222, 128, 0.14);
+
+      &::before {
+        content: '+ ';
+        color: #4ade80;
+      }
+    }
+    &.rl-same::before {
+      content: '  ';
+    }
+  }
+  .rl-dbox {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px 0;
+    max-height: 220px;
+    overflow: auto;
+  }
+}
+
+.rl-extnote {
+  border: 1px solid rgba(251, 146, 60, 0.7);
+  background: #2a1a10;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  font-size: 12.5px;
+
+  b {
+    color: #fed7aa;
+  }
+}
+
+.rl-kv {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.rl-sect {
+  margin-bottom: 14px;
+
+  h3 {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 6px;
+  }
+}
+
+.rl-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  flex: 1;
+
+  i {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, var(--purple), var(--cyan));
+    transition: width 0.4s;
+  }
+}
+
+.rl-filters {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+
+  button {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+
+    &.rl-on {
+      background: rgba(139, 92, 246, 0.25);
+      color: #fff;
+      border-color: var(--border-strong);
+    }
+  }
+}
+
+.rl-drow {
+  display: grid;
+  grid-template-columns: 118px 1fr 1fr auto;
+  gap: 8px;
+  align-items: start;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.12);
+  font-size: 12px;
+
+  .rl-old {
+    color: #fca5a5;
+    background: rgba(248, 113, 113, 0.08);
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-family: Consolas, monospace;
+    word-break: break-all;
+  }
+  .rl-new {
+    color: #86efac;
+    background: rgba(52, 211, 153, 0.08);
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-family: Consolas, monospace;
+    word-break: break-all;
+  }
+  &.rl-noise {
+    opacity: 0.5;
+  }
+}
+
+// Nav "new" badge on the Relive tab (main-layout.component.html).
+.nav-new {
+  font-size: 10px;
+  background: var(--purple);
+  color: #fff;
+  border-radius: 6px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+
+.relive-placeholder {
+  padding: 24px;
+  color: var(--text-dim);
+}

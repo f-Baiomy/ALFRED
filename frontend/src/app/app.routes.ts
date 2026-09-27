@@ -19,6 +19,8 @@ export const routes: Routes = [
       { path: 'profiles', component: ProfilesListComponent },
       // Lazy: the rule editor and its action panels are the heaviest page and most visits never open it.
       { path: 'interception', loadComponent: () => import('./pages/interception/interception.component').then((m) => m.InterceptionComponent) },
+      { path: 'relive', loadComponent: () => import('./pages/relive/relive-list.component').then((m) => m.ReliveListComponent) },
+      { path: 'relive/:id', loadComponent: () => import('./pages/relive-cycle/relive-cycle.component').then((m) => m.ReliveCycleComponent) },
       { path: 'settings', component: SettingsComponent },
     ],
   },
