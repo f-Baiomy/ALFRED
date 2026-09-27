@@ -120,4 +120,19 @@ describe('ReliveStepDrawerComponent', () => {
     fixture.componentInstance.requestOpenCallRule();
     expect(openSpy).toHaveBeenCalledWith('c-supA');
   });
+
+  it('shows the attribution choice for a REPLAY child, defaulting to Block', () => {
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain("If ALFRED can't tell the call is yours");
+    expect(text).toContain('Block (default)');
+    expect(text).toContain('Replay anyway');
+    expect(text).toContain('Send to real system');
+  });
+
+  it('setUnattributed emits the updated step with the new choice', () => {
+    let emitted: Step | null = null;
+    fixture.componentInstance.stepChange.subscribe((s: Step) => (emitted = s));
+    fixture.componentInstance.setUnattributed('SEND_REAL');
+    expect(emitted!.unattributed).toBe('SEND_REAL');
+  });
 });
