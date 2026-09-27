@@ -1,8 +1,10 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ReliveApiService } from '../../core/services/relive-api.service';
 import { externalReach } from '../../shared/utils/relive-external-reach';
+import { Step } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
 
@@ -17,7 +19,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 @Component({
   selector: 'app-relive-cycle',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, ReliveStepTreeComponent],
   providers: [ReliveCycleEditorState],
   templateUrl: './relive-cycle.component.html',
 })
@@ -43,6 +45,14 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   setTab(tab: ReliveTab): void {
     this.tab.set(tab);
+  }
+
+  setSteps(steps: readonly Step[]): void {
+    this.state.update((draft) => ({ ...draft, steps: [...steps] }));
+  }
+
+  selectStep(key: string): void {
+    this.state.selectedStepKey.set(this.state.selectedStepKey() === key ? null : key);
   }
 
   setName(name: string): void {

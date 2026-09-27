@@ -1,0 +1,70 @@
+<div class="rl-row" style="margin-bottom: 8px">
+  <input class="rl-search" placeholder="Search steps…" [value]="search()" (input)="onSearch($any($event.target).value)" />
+  <span class="rl-spacer"></span>
+  <span class="rl-faint" style="font-size: 11.5px">Drag ⋮⋮ to reorder · click a step to configure it</span>
+</div>
+
+@if (!steps().length) {
+  <div class="rl-faint" style="padding: 30px; text-align: center">No steps yet. Add calls from a recording.</div>
+} @else {
+  <div cdkDropList (cdkDropListDropped)="onBlockDropped($event)">
+    @for (block of blocks(); track block.parent.key) {
+      <div cdkDrag [cdkDragData]="block">
+        <div
+          class="rl-step"
+          [class.rl-child]="false"
+          [style.opacity]="block.parent.enabled ? 1 : 0.5"
+          (click)="onSelect(block.parent.key)"
+        >
+          <span class="rl-grip" title="Drag to reorder">⋮⋮</span>
+          @if (block.children.length) {
+            <button class="icon-btn" (click)="toggleFold(block.parent.key, $event)">{{ isFolded(block.parent.key) ? '▸' : '▾' }}</button>
+          }
+          <span class="rl-dir rl-in" title="Inbound">↙</span>
+          <span class="rl-lbl">
+            <span class="rl-t">{{ block.parent.label }}</span>
+            <span class="rl-u rl-mono">{{ block.parent.serviceName }}</span>
+          </span>
+          @if (block.parent.optional) {
+            <span class="rl-pill rl-p-wait">optional</span>
+          }
+          @if (hasCheckpoint(block.parent)) {
+            <span class="rl-pill rl-p-pause" title="Has a checkpoint">⏸</span>
+          }
+          @if (block.children.length) {
+            <span class="rl-pill rl-p-wait" title="Outbound calls it makes">{{ block.children.length }} ↗</span>
+          }
+          <button class="icon-btn" title="{{ block.parent.enabled ? 'Disable' : 'Enable' }}" (click)="toggleEnabled(block.parent, $event)">
+            {{ block.parent.enabled ? '◉' : '○' }}
+          </button>
+          <button class="icon-btn" title="Duplicate" (click)="duplicate(block.parent, $event)">⧉</button>
+          <button class="icon-btn" title="Remove" (click)="remove(block.parent, $event)">✕</button>
+        </div>
+
+        @if (!isFolded(block.parent.key)) {
+          @for (child of block.children; track child.key) {
+            <div class="rl-step rl-child" [style.opacity]="child.enabled ? 1 : 0.5" (click)="onSelect(child.key)">
+              <span class="rl-dir rl-out" title="Outbound">↗</span>
+              <span class="rl-lbl">
+                <span class="rl-t">{{ child.label }}</span>
+                <span class="rl-u rl-mono">{{ child.serviceName }}</span>
+              </span>
+              @if (hasCheckpoint(child)) {
+                <span class="rl-pill rl-p-pause" title="Has a checkpoint">⏸</span>
+              }
+              @if (isRuleModified(child)) {
+                <span class="rl-pill rl-p-mod" title="Its call rule has changes beyond the mode">rule edited</span>
+              }
+              <span class="rl-seg rl-mode" (click)="$event.stopPropagation()">
+                <button [class.rl-on]="modeOf(child) === 'REPLAY'" [class.rl-replay]="modeOf(child) === 'REPLAY'" (click)="setMode(child, 'REPLAY', $event)">REPLAY</button>
+                <button [class.rl-on]="modeOf(child) === 'LIVE'" [class.rl-live]="modeOf(child) === 'LIVE'" (click)="setMode(child, 'LIVE', $event)">LIVE ⚠</button>
+                <button [class.rl-on]="modeOf(child) === 'LIVE_MOCKED'" [class.rl-live]="modeOf(child) === 'LIVE_MOCKED'" (click)="setMode(child, 'LIVE_MOCKED', $event)">LIVE · mocked reply ⚠</button>
+              </span>
+              <button class="icon-btn" title="Remove" (click)="remove(child, $event)">✕</button>
+            </div>
+          }
+        }
+      </div>
+    }
+  </div>
+}

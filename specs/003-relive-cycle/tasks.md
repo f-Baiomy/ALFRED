@@ -202,7 +202,7 @@ below ends with the test that proves it.
   - **Page:** copies mock.html `cycleView()`: header with editable name and description, the badge row (`N steps · M outbound children`, `⚠ N can reach an external system`, `GLOBAL rules: …`, `N CYCLE rule`, `N variables`, `inbound: …`), the tabs Steps / Variables / Rules / Run / History, and the Save / ⟳ Rebuild / Duplicate / ▶ Run buttons.
   - **Editor state:** holds `draft: signal<ReliveCycle>`, `saved` (last loaded), `dirty = computed(...)`, `selectedStepKey`, `save()` (PUT with If-Match; 409 shows a "changed elsewhere - reload?" dialog), `discardGuard` (FR-008: warn on leaving with unsaved changes, via a `canDeactivate` guard on the route in `app.routes.ts`).
   - **Test:** `relive-cycle-editor.state.spec.ts`: dirty tracking; a 409 shows the reload prompt.
-- [ ] T025 [US1] Create `FE/components/relive-step-tree/relive-step-tree.component.{ts,html}`. It copies mock.html `stepsPanel()`, `stepRow()`, `childRow()`, `bindDnD()`, `moveBefore()`.
+- [X] T025 [US1] Create `FE/components/relive-step-tree/relive-step-tree.component.{ts,html}`. It copies mock.html `stepsPanel()`, `stepRow()`, `childRow()`, `bindDnD()`, `moveBefore()`.
   - **Inbound rows:** ordered, with ⋮⋮ drag handle, number, enabled toggle, method badge, label + path, `N ↗` children count, mode pill, duplicate, delete.
   - **Child rows:** indented, with the 3-button mode segment REPLAY / LIVE ⚠ / LIVE · mocked reply ⚠ (the buttons call `applyMode`, T020), and badges ⏸ checkpoint, `custom match`, `rule edited`, `? attribution`.
   - **Reordering:** drag reorders a whole inbound block, children included, using `@angular/cdk/drag-drop` (already a dependency - `rule-editor` imports `CdkDropList`).

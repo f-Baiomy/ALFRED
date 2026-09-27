@@ -60,7 +60,13 @@
 
     @switch (tab()) {
       @case ('steps') {
-        <div class="rl-faint">Step tree coming next (T025).</div>
+        <app-relive-step-tree
+          [steps]="draft.steps"
+          [settings]="draft.settings"
+          [selectedKey]="state.selectedStepKey()"
+          (stepsChange)="setSteps($event)"
+          (select)="selectStep($event)"
+        />
       }
       @case ('variables') {
         <div class="rl-faint">Variables panel coming with US5.</div>

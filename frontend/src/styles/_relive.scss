@@ -612,6 +612,51 @@
   }
 }
 
+.rl-search {
+  width: 200px;
+  padding: 5px 9px;
+}
+.rl-grip {
+  cursor: grab;
+  color: var(--text-faint);
+  flex: none;
+}
+.rl-dir {
+  font-size: 12px;
+  width: 14px;
+  text-align: center;
+  flex: none;
+
+  &.rl-in {
+    color: var(--green);
+  }
+  &.rl-out {
+    color: var(--cyan);
+  }
+}
+.rl-lbl {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.rl-t {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-u {
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+}
+.rl-mono {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+}
+
 // Nav "new" badge on the Relive tab (main-layout.component.html).
 .nav-new {
   font-size: 10px;
