@@ -7,11 +7,14 @@
 -->
 <div class="cw-shell" [class.expanded]="!win.collapsed()" (keydown.escape)="closePillPanel()">
   <div class="cw-pill-wrap">
-    <!-- Grouped by what each button acts on: cycles (pick one, + a new one) on the left; this
+    <!-- Grouped by what each button acts on: cycles (+ a new one, then pick one) on the left; this
          recording (add a spacer, pause/resume) in the middle; the window itself (keep on top,
          open in Alfred, expand/minimize) after the divider. + and "add spacer" used to sit side by
          side with look-alike icons and got mixed up. -->
     <div class="cw-pill">
+      <button type="button" class="cw-ib" [class.active]="pillPanel() === 'new'" (click)="togglePillPanel('new')" aria-label="New cycle" title="New cycle">
+        <app-cw-icon name="plus" />
+      </button>
       @if (!win.collapsed()) {
         <button type="button" class="cw-ib" (click)="state.selectRelative(-1)" [disabled]="state.cycles().length < 2" aria-label="Previous cycle" title="Previous cycle">
           <app-cw-icon name="chevron-left" />
@@ -25,8 +28,8 @@
         [attr.aria-expanded]="pillPanel() === 'list'"
         title="Switch cycle"
       >
-        <span class="cw-dot" [class.rec]="recording()"></span>
         <span class="cw-ellipsis">{{ cycle()?.name ?? 'No cycles yet' }}</span>
+        <span class="cw-dot" [class.rec]="recording()" [attr.title]="recording() ? 'Recording' : 'Paused'"></span>
         @if (!win.collapsed() && cycle()) {
           <span class="cw-faint cw-pill-pos">{{ state.selectedIndex() + 1 }}/{{ state.cycles().length }}</span>
         }
@@ -37,9 +40,6 @@
           <app-cw-icon name="chevron-right" />
         </button>
       }
-      <button type="button" class="cw-ib" [class.active]="pillPanel() === 'new'" (click)="togglePillPanel('new')" aria-label="New cycle" title="New cycle">
-        <app-cw-icon name="plus" />
-      </button>
 
       <span class="cw-spacer"></span>
 

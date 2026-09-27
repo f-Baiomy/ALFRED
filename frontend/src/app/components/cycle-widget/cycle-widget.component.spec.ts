@@ -258,10 +258,13 @@ describe('CycleWidgetComponent', () => {
     it('groups the header: cycles on the left, this recording in the middle, the window at the end', () => {
       collapse();
       const labels = [...fixture.nativeElement.querySelectorAll('.cw-pill > button')].map((b: Element) => b.getAttribute('aria-label') ?? 'cycle');
-      expect(labels).toEqual(['cycle', 'New cycle', 'Add spacer', 'Pause recording', 'Stop keeping on top', 'Expand']);
-      // New cycle and Add spacer are no longer neighbours - the flexible gap sits between them.
-      const newCycle = el('.cw-pill button[aria-label="New cycle"]')!;
-      expect(newCycle.nextElementSibling!.classList).toContain('cw-spacer');
+      expect(labels).toEqual(['New cycle', 'cycle', 'Add spacer', 'Pause recording', 'Stop keeping on top', 'Expand']);
+      // + leads, left of the cycle picker; Add spacer is on the far side of the flexible gap.
+      expect(el('.cw-pill')!.firstElementChild!.getAttribute('aria-label')).toBe('New cycle');
+      expect(el('.cw-pill .cw-pill-name')!.nextElementSibling!.classList).toContain('cw-spacer');
+      // The recording dot follows the cycle name.
+      const nameParts = Array.from(el('.cw-pill-name')!.children).map((c) => c.className.split(' ')[0]);
+      expect(nameParts.indexOf('cw-dot')).toBeGreaterThan(nameParts.indexOf('cw-ellipsis'));
       expect(el('.cw-pill .cw-pill-divider')).not.toBeNull();
     });
 
