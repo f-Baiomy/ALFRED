@@ -15,6 +15,10 @@ backend-export            depends on backend-calls (extracts ExportMetadata)
 backend-session-cycles    depends on backend-calls AND backend-internal-calls (implements both modules'
                           NewCallObserverPort, so a recording cycle captures both traffic directions)
 backend-profiles          leaf slice, no deps either direction
+backend-scenarios         saved multi-call resend scenarios + their run history (newest 50 per scenario), SQLite
+                          (SCENARIOS_DB_FILE). Leaf slice, fully isolated. Definitions and run results are
+                          opaque JSON owned by the frontend (specs/002-power-features/contracts.md section 3);
+                          the backend only enforces size limits and retention. Broadcasts on /ws/scenarios
 backend-settings          call-filter whitelist/blacklist/mode config (CallFilterSettings) - which supplier
                           calls get logged in the first place, NOT the internal-calls logging toggle above;
                           also owns the app-wide global-variable store/API, published to the shared proxy

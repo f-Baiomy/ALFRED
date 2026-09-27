@@ -1394,6 +1394,40 @@ Captured `{{this.name}}` values live for the whole call. A variables change betw
 request and response phases - including the call's own GLOBAL capture - reloads the RuleSet
 but keeps them; only a `rules.json` change discards them.
 
+## Dynamic tokens
+
+`{{$uuid}}`, `{{$now}}` (UTC ISO with millis), `{{$now:epoch}}`, `{{$now:epochMs}}`,
+`{{$now:yyyy-MM-dd HH:mm:ss.SSS}}`, offsets such as `{{$now+2d}}` / `{{$now-90m:HH:mm}}`,
+`{{$randomInt:min:max}}` (inclusive) and `{{$base64:name}}` (a global variable, or `this.x`).
+They are resolved per use - never at rule-load time, or a `{{$uuid}}` would repeat on every call -
+by three resolvers: the proxy (`resolve_dynamic_tokens`), resend (`DynamicTokens.java`) and the
+frontend preview (`dynamic-tokens.ts`). All three run
+`specs/002-power-features/dynamic-token-vectors.json`; change the grammar there first. Anything
+the grammar does not recognise stays literal. The contract is
+`specs/002-power-features/contracts.md` section 4.
+
+## Variable-driven rules
+
+`match.variables` tests a global variable the way header tests test a header (EXISTS,
+NOT_EXISTS, EQUALS, CONTAINS, MATCHES), so flipping one variable in the drawer - say
+`chaosMode = supplier-down` - switches every rule that tests it, live, with no rule edit. The
+proxy reads the call's own GLOBAL captures first, then the published variables, then fallbacks.
+`everyNth` (2..1000) applies a rule to every Nth call that otherwise matches. The counter is per
+rule, per proxy process (forward and reverse count separately), restarts when `rules.json`
+changes, and is decided once per call so the response phase never counts a call twice.
+
+## Environments and secret variables
+
+Global variables live in named environments (Staging, UAT, ...). Only the ACTIVE one is
+published to `variables.json` (with an `environment` key), so the proxies and resend never see
+the others. A GLOBAL capture is absorbed back into the environment named in the file. Each
+variable has a source (`MANUAL`, `CAPTURE` with the capturing rule, `IMPORT`).
+
+A variable marked secret is masked in the drawer and hover cards, logged by name only when an
+interception action used it, and replaced with `***REDACTED***` by value in every export
+(`redact.ts`, kept current by `SecretValuesService` from app start). The logged call itself still
+carries what was really sent - masking is about what leaves Alfred, not what it records.
+
 ## Safety
 
 - **Off by default.** A feature that can change live traffic is never on because nobody said

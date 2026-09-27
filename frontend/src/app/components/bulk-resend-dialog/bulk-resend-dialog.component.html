@@ -440,7 +440,7 @@
               Sent {{ service.progress() }}/{{ service.total() }}.
             }
           </small>
-          <a class="pill" [href]="liveCallsHref()">Open results in Live Calls</a>
+          <button type="button" class="pill" (click)="openResultsInLiveCalls()">Open results in Live Calls</button>
         }
         <button type="button" class="pill" (click)="close()">Close</button>
         <button type="button" class="pill on" [disabled]="service.running() || included().length === 0" (click)="send()">

@@ -4,7 +4,7 @@ Guidance for Claude Code working in this repo. See [AGENTS.md](AGENTS.md) for th
 
 ## What this is
 
-Alfred logs HTTP/HTTPS traffic in **both directions** around a Java app, via two mitmproxy services. **proxy** (forward mode, port 443, always running) logs *outbound* calls from any proxy-aware client (e.g. a Java app with `http.proxyHost`/`https.proxyHost` set, including live-injected via `wildfly-proxy-toggle/`'s Attach-API tool). **reverse-proxy** (reverse mode, one listener + published port PER PROJECT, opt-in via `settings.properties`'s `reverse_proxy_enabled` — many deployments only need outbound logging) logs *inbound* calls into any number of NAMED projects it fronts, routed by which `listenPort` a request arrived on (`REVERSE_PROXY_PORT_MAP`/`INTERNAL_CALL_SERVICES` = `name:listenPort:upstreamPort` triples, from `settings.properties`'s `internal_call_services`); callers stay on `localhost` so browser session cookies keep working. Each project's logging toggles independently, live. Neither persists anything — both POST to **backend** (Spring Boot multi-module Maven reactor, port 5000), which owns all persistence: outbound calls, inbound calls, comments, session-cycles, profiles, call-filter settings, interception rules/stored answers, and resend requests (`backend-resend`, a leaf slice that resends a previously-logged call back out through the proxies). **frontend** (Angular/nginx) has four tabs: Live Calls (with an outbound/inbound/both source filter), Session Cycles, Profiles, Settings. It is served through **app-gateway** (nginx, `gateway/nginx.conf`, the only thing publishing host port 3000): the backend's API prefixes (`calls|internal-calls|call-overlaps|comments|session-cycles|profiles|interception|redactions|settings|database|health|resend`) and `/ws/` go to `backend:5000`, everything else to `frontend:80`, so the browser talks to one origin (`window.BACKEND_URL = window.location.origin`, no CORS) and one Cloudflare Tunnel URL covers the whole app. A new backend route prefix must be added to the gateway's regex or it will be served the SPA. Three SPA pages share a prefix with the backend (`/profiles`, `/interception`, `/settings`): a browser page load of exactly that path (`Accept: text/html`) is sent to the SPA by the gateway's `$spa_page` map, or a reload would show backend JSON/500. A new SPA page named after a backend prefix needs adding to that map.
+Alfred logs HTTP/HTTPS traffic in **both directions** around a Java app, via two mitmproxy services. **proxy** (forward mode, port 443, always running) logs *outbound* calls from any proxy-aware client (e.g. a Java app with `http.proxyHost`/`https.proxyHost` set, including live-injected via `wildfly-proxy-toggle/`'s Attach-API tool). **reverse-proxy** (reverse mode, one listener + published port PER PROJECT, opt-in via `settings.properties`'s `reverse_proxy_enabled` — many deployments only need outbound logging) logs *inbound* calls into any number of NAMED projects it fronts, routed by which `listenPort` a request arrived on (`REVERSE_PROXY_PORT_MAP`/`INTERNAL_CALL_SERVICES` = `name:listenPort:upstreamPort` triples, from `settings.properties`'s `internal_call_services`); callers stay on `localhost` so browser session cookies keep working. Each project's logging toggles independently, live. Neither persists anything — both POST to **backend** (Spring Boot multi-module Maven reactor, port 5000), which owns all persistence: outbound calls, inbound calls, comments, session-cycles, profiles, call-filter settings, interception rules/stored answers, global variables (per environment), resend requests (`backend-resend`, a leaf slice that resends a previously-logged call back out through the proxies), and saved resend scenarios with their run history (`backend-scenarios`, a leaf slice). **frontend** (Angular/nginx) has four tabs: Live Calls (with an outbound/inbound/both source filter), Session Cycles, Profiles, Settings. It is served through **app-gateway** (nginx, `gateway/nginx.conf`, the only thing publishing host port 3000): the backend's API prefixes (`calls|internal-calls|call-overlaps|comments|session-cycles|profiles|interception|redactions|settings|database|health|resend|scenarios`) and `/ws/` go to `backend:5000`, everything else to `frontend:80`, so the browser talks to one origin (`window.BACKEND_URL = window.location.origin`, no CORS) and one Cloudflare Tunnel URL covers the whole app. A new backend route prefix must be added to the gateway's regex or it will be served the SPA. Three SPA pages share a prefix with the backend (`/profiles`, `/interception`, `/settings`): a browser page load of exactly that path (`Accept: text/html`) is sent to the SPA by the gateway's `$spa_page` map, or a reload would show backend JSON/500. A new SPA page named after a backend prefix needs adding to that map.
 
 ## Code search: CodeGraph first, grep last
 
@@ -15,6 +15,22 @@ When `.codegraph/` exists at the repo root (a local, gitignored index - not ever
 - **Questions too:** "where is X", "what calls Y", "how does Z flow from proxy to UI" - ask CodeGraph in plain words first.
 - **Grep/Read only when CodeGraph can't answer:** non-code files (`.md`, `.properties`, `nginx.conf`, `.env`, SQL, JSON fixtures), exact literal strings (error messages, CSS class names in `styles.scss`, log text), or a file just written (the index lags writes by ~1 s). If CodeGraph misses a symbol you know exists, fall back to Grep - don't retry the same query.
 - No `.codegraph/` directory: skip CodeGraph entirely; indexing is the user's decision.
+
+## Subagents: token budget
+
+The owner's plan hits its usage limit quickly, and subagents are the biggest multiplier: each one
+re-reads this file, the docs and large files (`styles.scss` ~10k lines, `proxy/interception.py`
+~3k), and the test suites, all on its own. A seven-agent fan-out once ran out the limit mid-task
+and left the tree half-built.
+
+- **Default: no subagents - do the work in the main session.** At most ONE at a time, only for a
+  large, self-contained, fully-specified chunk. Never a parallel fan-out unless the owner asks.
+- Before delegating more than one agent's worth of work, state the rough cost and ask.
+- Delegated prompts name exact files and line ranges, and forbid whole-file reads of the large
+  files above (use `codegraph explore`/Grep). Agents run targeted tests only
+  (`ng test --include=...`, `mvn -pl <module>`); the main session runs the full suites once.
+- To finish stopped work, prefer doing it directly over respawning; a resumed agent replays its
+  whole transcript.
 
 ## Commands
 
@@ -30,7 +46,8 @@ Single tests / environment quirks:
 
 ```bash
 # Backend needs JDK 21 (text blocks). If `mvn -version` shows an older JAVA_HOME, run Maven in Docker (Git Bash):
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd)/backend:/app" -v alfred-m2:/root/.m2 -w //app maven:3.9-eclipse-temurin-21 \
+# Mount the REPO ROOT, not just backend/: tests read shared fixtures from specs/ (dynamic-token vectors).
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd):/repo" -v alfred-m2:/root/.m2 -w //repo/backend maven:3.9-eclipse-temurin-21 \
   mvn -B -pl backend-session-cycles -am test -Dtest=SessionCyclesServiceTest -Dsurefire.failIfNoSpecifiedTests=false
 # Frontend, one spec, headless:
 cd frontend && npx ng test --watch=false --browsers=ChromeHeadless --include=src/app/shared/utils/spacer-gap-controller.spec.ts

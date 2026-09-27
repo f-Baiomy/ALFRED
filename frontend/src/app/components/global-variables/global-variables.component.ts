@@ -20,7 +20,7 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
       @if (!open() && badgeCount() > 0) { <span class="variables-launch-badge">{{ badgeCount() }}</span> }
     </button>
     @if (open()) {
-      <div class="dialog-backdrop variables-backdrop" (click)="open.set(false)"></div>
+      <div class="dialog-backdrop variables-backdrop variables-own-backdrop" (click)="open.set(false)"></div>
       <aside class="variables-drawer" aria-label="Global variables">
         <header><div><h2>Global variables</h2><p>Use <code>{{ '{{name}}' }}</code> in request fields.</p></div><button type="button" class="variables-close" (click)="open.set(false)">×</button></header>
         <div class="variables-content">
@@ -129,7 +129,7 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
       <button class="selection-variable-button" type="button" [style.left.px]="selectionLeft()" [style.top.px]="selectionTop()" (click)="beginSelectionCreate()">+ {{ selectionCanReplace() ? 'Create variable' : 'Save as variable' }}</button>
     }
     @if (selectionEditing()) {
-      <div class="dialog-backdrop" (click)="cancelSelectionCreate()"><form class="dialog-card variable-modal create-from-selection" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveSelectionCreate()">
+      <div class="dialog-backdrop variables-own-backdrop" (click)="cancelSelectionCreate()"><form class="dialog-card variable-modal create-from-selection" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveSelectionCreate()">
         <h2>Create variable from selection</h2><p>{{ selectionCanReplace() ? 'The selected text will be replaced by the token.' : 'This text is read-only. It will stay unchanged; the variable will be ready to use anywhere.' }}</p>
         <label class="selection-value-label">Selected value<textarea [value]="selectionValue()" (input)="selectionValue.set(inputValue($event))"></textarea></label>
         <label class="selection-name-label">Variable name<input [value]="selectionName()" (input)="selectionName.set(inputValue($event))" placeholder="accountId" /></label>
@@ -138,7 +138,7 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
       </form></div>
     }
     @if (deleting()) {
-      <div class="dialog-backdrop"><section class="dialog-card variable-modal" role="dialog" aria-modal="true" aria-labelledby="delete-variable-title">
+      <div class="dialog-backdrop variables-own-backdrop"><section class="dialog-card variable-modal" role="dialog" aria-modal="true" aria-labelledby="delete-variable-title">
         <h2 id="delete-variable-title">Delete {{ '{{' + deleting() + '}}' }}?</h2><p>References stay visible in editors. Choose the value used when they run.</p>
         <label><input type="radio" name="delete-mode" [checked]="deleteMode() === 'keep'" (change)="deleteMode.set('keep')" /> Keep <code>{{ '{{' + deleting() + '}}' }}</code></label>
         <label><input type="radio" name="delete-mode" [checked]="deleteMode() === 'null'" (change)="deleteMode.set('null')" /> Replace with <code>null</code></label>
@@ -148,14 +148,14 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
       </section></div>
     }
     @if (deletingEnvironment()) {
-      <div class="dialog-backdrop"><section class="dialog-card variable-modal" role="dialog" aria-modal="true">
+      <div class="dialog-backdrop variables-own-backdrop"><section class="dialog-card variable-modal" role="dialog" aria-modal="true">
         <h2>Delete environment "{{ deletingEnvironment() }}"?</h2>
         <p class="dialog-warning-note">Its variables and fallbacks are removed. This cannot be undone.</p>
         <footer><button type="button" class="dialog-btn secondary" (click)="deletingEnvironment.set('')">Cancel</button><button type="button" class="dialog-btn danger" (click)="doDeleteEnv()">Delete environment</button></footer>
       </section></div>
     }
     @if (creatingEnvironment()) {
-      <div class="dialog-backdrop" (click)="cancelCreateEnv()"><section class="dialog-card variables-env-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <div class="dialog-backdrop variables-own-backdrop" (click)="cancelCreateEnv()"><section class="dialog-card variables-env-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
         <h2>New environment</h2>
         <label>Name<input [value]="newEnvName()" (input)="newEnvName.set(inputValue($event))" placeholder="Staging" autocomplete="off" /></label>
         <label>Copy variables from
@@ -168,7 +168,7 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
       </section></div>
     }
     @if (importing()) {
-      <div class="dialog-backdrop" (click)="cancelImport()"><section class="dialog-card variables-import-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <div class="dialog-backdrop variables-own-backdrop" (click)="cancelImport()"><section class="dialog-card variables-import-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
         <h2>Import variables</h2>
         <p>An Alfred variables export, or a Postman environment file (.json).</p>
         <input type="file" accept="application/json" (change)="onImportFile($event)" />
@@ -313,7 +313,7 @@ export class GlobalVariablesComponent {
     this.updateHighlight(event.target);
   }
   @HostListener('document:mouseup', ['$event']) onMouseUp(event: MouseEvent): void {
-    if (event.target instanceof Element && event.target.closest('.selection-variable-button, .dialog-backdrop, .variables-drawer, .variable-suggestions, .input-variable-hover')) return;
+    if (event.target instanceof Element && event.target.closest('.selection-variable-button, .variables-own-backdrop, .variables-drawer, .variable-suggestions, .input-variable-hover')) return;
     this.captureSelection(event.target);
     this.updateHighlight(event.target);
   }
@@ -361,7 +361,7 @@ export class GlobalVariablesComponent {
   private syncHoverCard(event: MouseEvent): void {
     const target = event.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
-    if (target.closest('.input-variable-hover, .variables-drawer, .dialog-backdrop')) return;
+    if (target.closest('.input-variable-hover, .variables-drawer, .variables-own-backdrop')) return;
     const name = this.tokenAtPointer(event.clientX, event.clientY);
     if (!name || name.startsWith('this.') || !(name in this.variables.state().variables)) {
       if (this.hoveredControl() === target) this.clearHoveredControl();
@@ -405,7 +405,7 @@ export class GlobalVariablesComponent {
   private captureSelection(target: EventTarget | null): void {
     // Clicking the floating action transfers focus away from the field. Keep the captured
     // control and range until the dialog confirms or cancels, including keyboard activation.
-    if (this.selectionEditing() || (target instanceof Element && target.closest('.selection-variable-button, .dialog-backdrop, .variables-drawer, .variable-suggestions, .input-variable-hover'))) return;
+    if (this.selectionEditing() || (target instanceof Element && target.closest('.selection-variable-button, .variables-own-backdrop, .variables-drawer, .variable-suggestions, .input-variable-hover'))) return;
     const element = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ? target : document.activeElement;
     if ((element instanceof HTMLTextAreaElement || (element instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'email', 'password'].includes(element.type))) && !element.readOnly && !element.disabled) {
       const start = element.selectionStart;
@@ -427,7 +427,7 @@ export class GlobalVariablesComponent {
     if (!text.trim() || !selection?.rangeCount) { this.selectionText.set(''); return; }
     const range = selection.getRangeAt(0);
     const parent = range.commonAncestorContainer instanceof Element ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
-    if (parent?.closest('.variables-drawer, .dialog-backdrop, .variable-suggestions')) { this.selectionText.set(''); return; }
+    if (parent?.closest('.variables-drawer, .variables-own-backdrop, .variable-suggestions')) { this.selectionText.set(''); return; }
     this.selectedControl = null;
     this.selectedRange = null;
     this.selectedDomRange = parent?.closest('[contenteditable="true"], [contenteditable=""]') ? range.cloneRange() : null;
@@ -680,7 +680,7 @@ export class GlobalVariablesComponent {
   }
   private updateAutocomplete(target: EventTarget | null): void {
     if (!(target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'email', 'password'].includes(target.type)))) return;
-    if (target.closest('.dialog-backdrop')) return;
+    if (target.closest('.variables-own-backdrop')) return;
     const caret = target.selectionStart;
     if (caret == null) return this.closeAutocomplete();
     const match = suggestionRange(target.value, caret);
@@ -737,7 +737,7 @@ export class GlobalVariablesComponent {
       return this.setHighlightControl(null);
     }
     if (target.closest('app-body-editor')) return this.setHighlightControl(null);
-    if (target.closest('.dialog-backdrop, .input-variable-hover')) return this.setHighlightControl(null);
+    if (target.closest('.variables-own-backdrop, .input-variable-hover')) return this.setHighlightControl(null);
     this.setHighlightControl(this.namesIn(target.value).length ? target : null);
   }
   private setHighlightControl(control: HTMLInputElement | HTMLTextAreaElement | null): void {

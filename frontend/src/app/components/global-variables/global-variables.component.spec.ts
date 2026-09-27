@@ -73,6 +73,21 @@ describe('GlobalVariablesComponent input highlighting', () => {
     expect(component.selectionCanReplace()).toBeFalse();
   });
 
+  it('still offers suggestions inside an Alfred dialog such as the bulk resend editor', () => {
+    // Regression: the drawer ignores its OWN modals, and once matched every .dialog-backdrop -
+    // which silently disabled {{ autocomplete in the resend dialogs, where it matters most.
+    (component.variables as unknown as { entries: () => Array<{ name: string; value: string }> }).entries = () => [];
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog-backdrop';
+    dialog.append(input);
+    document.body.append(dialog);
+    input.value = '{{';
+    input.setSelectionRange(2, 2);
+    component.onInput({ target: input } as unknown as Event);
+    expect(component.autocompleteControl()).toBe(input);
+    dialog.remove();
+  });
+
   it('suggests only captures available on the current rule action, from data-local-variables on the input itself (contract C3)', () => {
     input.setAttribute('data-local-variables', JSON.stringify([
       { name: 'supplier', available: true },

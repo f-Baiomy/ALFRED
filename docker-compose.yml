@@ -301,6 +301,8 @@ services:
       # plus once at startup, so a lost or stale file can never leave the UI and the traffic
       # disagreeing about what is running.
       - INTERCEPTION_DB_FILE=/appdata/interception.db
+      # Saved resend scenarios and their runs (backend-scenarios). Same volume as every other store.
+      - SCENARIOS_DB_FILE=/appdata/scenarios.db
       - INTERCEPTION_RULES_FILE=/appdata/interception/rules.json
       - INTERCEPTION_VARIABLES_FILE=/appdata/interception/variables.json
       # Per stored answer (uploaded file or copied recorded response). There is deliberately no

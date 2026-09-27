@@ -1,6 +1,7 @@
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
+import { CallsStateService } from '../../core/state/calls-state.service';
 import { KeyValuePipe } from '@angular/common';
-import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, Injector, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { forkJoin, map, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -90,6 +91,7 @@ export class BulkResendDialogComponent {
   private readonly refDetail = inject(CallRefDetailService);
   private readonly callsApi = inject(CallsApiService);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly mode = signal<'call' | 'all'>('call');
@@ -803,8 +805,14 @@ export class BulkResendDialogComponent {
     return { ok: pct(ok), failed: pct(failed), inFlight: pct(inFlight), waiting: pct(waiting) };
   }
 
-  liveCallsHref(): string {
-    return '/';
+  /** Closes the editor and shows just the resent calls in Live Calls - an in-app navigation, not
+   * a page load, so nothing else on the page is lost. */
+  openResultsInLiveCalls(): void {
+    // Looked up on use: the Live Calls state fetches the call list when created, which the
+    // dialog must not trigger just by existing.
+    this.injector.get(CallsStateService).setResendFilter('resent');
+    this.close();
+    void this.router.navigateByUrl('/');
   }
 
   // ---- send / pick / close ----
