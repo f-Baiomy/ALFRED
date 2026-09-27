@@ -290,14 +290,14 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
 
 ### Backend
 
-- [ ] T035 [US2] Create `BR/application/service/RunSnapshotBuilder.java`. It turns a run's `definition` into the snapshot JSON of `contracts/proxy-snapshot.md`:
+- [X] T035 [US2] Create `BR/application/service/RunSnapshotBuilder.java`. It turns a run's `definition` into the snapshot JSON of `contracts/proxy-snapshot.md`:
   - `version`, `runId`, `cycleId`, `driver`, `globalRules`, `projects`, `variables` (secret values included, because the proxy needs them to render; `secrets` lists their names), `steps[]` with `children[]`, `cycleRules`, `unexpectedCalls`;
   - per child: `stepKey`, `ordinal` (position among siblings with the same method + host + path), `match` (from `callRule.match`, else endpoint + order), `callRule`, `unattributed`, `recordedRequest`.
   - **Answers:** writes answer files under `relive/answers/<runId>/` through `RunSnapshotPublisherPort`:
     - for oversized mock bodies (T033);
     - **the recorded request of every child whose call rule has a `MATCHES_RECORDED_CALL` condition** (FR-014d; contracts/proxy-snapshot.md "Recorded request file"): `meta.json` = `{kind:"RECORDED_REQUEST", method, path, query, headers}`, `.body` = the recorded request body, byte for byte. Replace the condition's `recordedStepKey` with the new `answerId`. Without this file every REPLAY child's request counts as "differs".
   - **Test:** `BRT/application/service/RunSnapshotBuilderTest.java`: the snapshot for the mock's Book-flow cycle - ordinals are correct; secret names listed; ALL / SELECTED global rules passed through; every REPLAY child's condition has an `answerId` whose request file holds the recorded body unchanged; no `recordedStepKey` is left in the snapshot.
-- [ ] T036 [US2] Create `BR/adapter/out/snapshot/FileRunSnapshotPublisher.java`, implementing `RunSnapshotPublisherPort`.
+- [X] T036 [US2] Create `BR/adapter/out/snapshot/FileRunSnapshotPublisher.java`, implementing `RunSnapshotPublisherPort`.
   - **Directory:** `${ALFRED_INTERCEPTION_DIR:/proxy-interception}/relive/`. Find the real env var/property that `FileRulesPublisherAdapter` in backend-interception uses and reuse it.
   - **Writes:** atomic (temp file + `Files.move(ATOMIC_MOVE)`), exactly like `FileRulesPublisherAdapter`.
   - **Removal:** `unpublish` deletes the run file and its answers directory.

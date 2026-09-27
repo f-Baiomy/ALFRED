@@ -654,6 +654,12 @@ public final class RuleValidator {
         }
     }
 
+    /** Relive's own condition (FR-014d): compares the request against a frozen recording, not a
+     *  literal {@code value} - so it skips the generic value/regex/numeric checks below. */
+    private static final Pattern UUID_PATTERN = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    private static final int MAX_RECORDED_CALL_IGNORE_PATHS = 50;
+
     private static void validateCondition(Condition condition, boolean responsePhase, List<String> problems) {
         if (condition.subject() == null) {
             problems.add("A condition needs something to look at.");
@@ -661,6 +667,10 @@ public final class RuleValidator {
         }
         if (condition.operator() == null) {
             problems.add("A condition on " + condition.subject() + " needs a comparison.");
+            return;
+        }
+        if (condition.isRecordedCall()) {
+            validateRecordedCallCondition(condition, problems);
             return;
         }
         if (condition.subject().isResponse() && !responsePhase) {
@@ -710,6 +720,23 @@ public final class RuleValidator {
                 problems.add("\"" + condition.value() + "\" is not a number, so " + condition.operator()
                         + " cannot compare against it.");
             }
+        }
+    }
+
+    private static void validateRecordedCallCondition(Condition condition, List<String> problems) {
+        if (condition.operator() != ConditionOperator.MATCHES) {
+            problems.add("A recorded-call condition compares with MATCHES.");
+        }
+        boolean hasRecordedStepKey = condition.recordedStepKey() != null && !condition.recordedStepKey().isBlank();
+        boolean hasAnswerId = condition.answerId() != null && !condition.answerId().isBlank();
+        if (hasRecordedStepKey == hasAnswerId) {
+            problems.add("A recorded-call condition needs exactly one of recordedStepKey or answerId.");
+        }
+        if (hasAnswerId && !UUID_PATTERN.matcher(condition.answerId()).matches()) {
+            problems.add("\"" + condition.answerId() + "\" is not a valid stored-answer id.");
+        }
+        if (condition.ignore().size() > MAX_RECORDED_CALL_IGNORE_PATHS) {
+            problems.add("A recorded-call condition can ignore at most " + MAX_RECORDED_CALL_IGNORE_PATHS + " paths.");
         }
     }
 

@@ -1017,4 +1017,35 @@ class RuleValidatorTest {
                         null, true));
         assertThat(RuleValidator.validate(withMessageInIf)).anyMatch(p -> p.contains("message-phase action"));
     }
+
+    private static Condition recordedCall(String recordedStepKey, String answerId, List<String> ignore) {
+        return new Condition(ConditionSubject.RECORDED_CALL, null, ConditionOperator.MATCHES, null, null,
+                null, null, null, null, recordedStepKey, answerId, ignore, null);
+    }
+
+    @Test
+    void recordedCallConditionWithRecordedStepKeyIsAccepted() {
+        assertThat(conditionProblems(ActionType.IF_REQUEST, recordedCall("s-search", null, null))).isEmpty();
+    }
+
+    @Test
+    void recordedCallConditionRejectsBothOrNeitherOfRecordedStepKeyAndAnswerId() {
+        assertThat(conditionProblems(ActionType.IF_REQUEST, recordedCall(null, null, null)))
+                .anyMatch(p -> p.contains("exactly one of recordedStepKey or answerId"));
+        assertThat(conditionProblems(ActionType.IF_REQUEST, recordedCall("s-search", "8f0c1234-0000-4000-8000-000000000000", null)))
+                .anyMatch(p -> p.contains("exactly one of recordedStepKey or answerId"));
+    }
+
+    @Test
+    void recordedCallConditionRejectsANonUuidAnswerId() {
+        assertThat(conditionProblems(ActionType.IF_REQUEST, recordedCall(null, "not-a-uuid", null)))
+                .anyMatch(p -> p.contains("is not a valid stored-answer id"));
+    }
+
+    @Test
+    void recordedCallConditionRejectsMoreThanFiftyIgnorePaths() {
+        List<String> tooMany = java.util.stream.IntStream.range(0, 51).mapToObj(i -> "body.field" + i).toList();
+        assertThat(conditionProblems(ActionType.IF_REQUEST, recordedCall("s-search", null, tooMany)))
+                .anyMatch(p -> p.contains("at most 50 paths"));
+    }
 }

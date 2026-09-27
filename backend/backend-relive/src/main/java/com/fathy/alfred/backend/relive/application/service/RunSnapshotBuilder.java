@@ -1,0 +1,277 @@
+package com.fathy.alfred.backend.relive.application.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fathy.alfred.backend.relive.application.port.out.RunSnapshotPublisherPort;
+import com.fathy.alfred.backend.relive.domain.model.CycleRule;
+import com.fathy.alfred.backend.relive.domain.model.FrozenCall;
+import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
+import com.fathy.alfred.backend.relive.domain.model.Run;
+import com.fathy.alfred.backend.relive.domain.model.RunStatus;
+import com.fathy.alfred.backend.relive.domain.model.Step;
+import org.springframework.stereotype.Component;
+
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * Turns a run's {@code definition} into the proxy snapshot JSON of
+ * {@code contracts/proxy-snapshot.md} (research D17). This is the entire backend→proxy channel
+ * for a run - the addons never call back into the backend on the request path.
+ *
+ * <p><b>The recorded-request answer file (FR-014d, C3 fix).</b> A cycle's own definition names the
+ * recording a {@code MATCHES_RECORDED_CALL} condition compares against by {@code recordedStepKey}
+ * (a step in the same cycle) - never by an {@code answerId}, because a cycle has no run yet and so
+ * nothing to number. This builder is the one place that gap closes: for every such condition it
+ * writes the named step's recorded request as a stored answer under
+ * {@code relive/answers/<runId>/<answerId>.{meta.json,body}} and replaces {@code recordedStepKey}
+ * with the new {@code answerId} in the snapshot (never in the stored cycle definition itself). A
+ * snapshot that still had {@code recordedStepKey} would make every REPLAY child's request count as
+ * "differs" from the proxy's point of view, since it has no cycle to resolve a step key against.
+ *
+ * <p>Oversized mock bodies (T033's other answer-file case) are not yet moved out of line by this
+ * builder - every {@code MOCK_RESPONSE}/{@code REPLACE_RESPONSE} body is still written inline in
+ * the snapshot. No size limit for one exists elsewhere in the codebase to mirror yet; revisit once
+ * real mock bodies are seen to need it.
+ */
+@Component
+public class RunSnapshotBuilder {
+
+    private static final int SNAPSHOT_VERSION = 1;
+
+    private final RunSnapshotPublisherPort publisher;
+    private final ObjectMapper objectMapper;
+
+    public RunSnapshotBuilder(RunSnapshotPublisherPort publisher, ObjectMapper objectMapper) {
+        this.publisher = publisher;
+        this.objectMapper = objectMapper;
+    }
+
+    public ObjectNode build(Run run) {
+        ReliveCycle definition = run.definition();
+        ObjectNode snapshot = objectMapper.createObjectNode();
+        snapshot.put("version", SNAPSHOT_VERSION);
+        snapshot.put("state", run.status() == RunStatus.RUNNING ? "RUNNING" : "STOPPING");
+        snapshot.put("runId", run.id());
+        snapshot.put("cycleId", run.cycleId());
+        snapshot.put("driver", run.driver());
+
+        ObjectNode globalRules = snapshot.putObject("globalRules");
+        globalRules.put("mode", definition.globalRules().mode());
+        ArrayNode selectedIds = globalRules.putArray("selectedIds");
+        definition.globalRules().selectedIds().forEach(selectedIds::add);
+
+        Set<String> projects = new LinkedHashSet<>();
+        Map<String, String> variables = new LinkedHashMap<>();
+        List<String> secrets = new ArrayList<>();
+        definition.variables().forEach(v -> {
+            variables.put(v.name(), v.value());
+            if (v.secret()) {
+                secrets.add(v.name());
+            }
+        });
+        ObjectNode variablesNode = snapshot.putObject("variables");
+        variables.forEach(variablesNode::put);
+        ArrayNode secretsNode = snapshot.putArray("secrets");
+        secrets.forEach(secretsNode::add);
+
+        List<Step> tops = definition.steps().stream().filter(s -> s.parentKey() == null).toList();
+        ArrayNode stepsNode = snapshot.putArray("steps");
+        Map<String, Map<String, Integer>> ordinalCounters = new LinkedHashMap<>();
+        for (Step top : tops) {
+            if (top.serviceName() != null) {
+                projects.add(top.serviceName());
+            }
+            ObjectNode stepNode = stepsNode.addObject();
+            stepNode.put("stepKey", top.key());
+            stepNode.put("direction", top.direction());
+            stepNode.put("serviceName", top.serviceName());
+            ArrayNode childrenNode = stepNode.putArray("children");
+            Map<String, Integer> counters = ordinalCounters.computeIfAbsent(top.key(), k -> new LinkedHashMap<>());
+            for (Step child : definition.steps()) {
+                if (!top.key().equals(child.parentKey())) {
+                    continue;
+                }
+                if (child.serviceName() != null) {
+                    projects.add(child.serviceName());
+                }
+                childrenNode.add(buildChild(run.id(), child, counters));
+            }
+        }
+        ArrayNode projectsNode = snapshot.putArray("projects");
+        projects.forEach(projectsNode::add);
+
+        ArrayNode cycleRulesNode = snapshot.putArray("cycleRules");
+        for (CycleRule rule : definition.cycleRules()) {
+            cycleRulesNode.add(rule.rule());
+        }
+
+        ObjectNode unexpectedNode = snapshot.putObject("unexpectedCalls");
+        unexpectedNode.put("policy", definition.unexpectedCalls().policy());
+        ArrayNode unexpectedRulesNode = unexpectedNode.putArray("rules");
+        definition.unexpectedCalls().rules().forEach(r -> unexpectedRulesNode.add(r.rule()));
+        unexpectedNode.put("fallback", definition.unexpectedCalls().fallback());
+
+        return snapshot;
+    }
+
+    private ObjectNode buildChild(String runId, Step child, Map<String, Integer> counters) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("stepKey", child.key());
+
+        String matchKey = matchKeyOf(child.recording());
+        int ordinal = counters.merge(matchKey, 1, Integer::sum);
+        node.put("ordinal", ordinal);
+
+        JsonNode ruleDoc = child.callRule() == null ? null : child.callRule().rule();
+        JsonNode match = ruleDoc == null ? null : ruleDoc.get("match");
+        node.set("match", hasCustomMatch(match) ? match : defaultMatch(child.recording()));
+
+        JsonNode resolvedRule = resolveRecordedCallConditions(runId, ruleDoc, child, counters);
+        node.set("callRule", resolvedRule);
+        node.put("unattributed", child.unattributed());
+
+        ObjectNode recordedRequest = node.putObject("recordedRequest");
+        FrozenCall recording = child.recording();
+        recordedRequest.put("method", recording.method());
+        URI uri = safeUri(recording.url());
+        recordedRequest.put("path", uri == null ? recording.url() : uri.getPath());
+        recordedRequest.put("query", uri == null || uri.getQuery() == null ? "" : uri.getQuery());
+
+        return node;
+    }
+
+    private static boolean hasCustomMatch(JsonNode match) {
+        if (match == null || match.isNull() || !match.isObject()) {
+            return false;
+        }
+        return match.has("host") || match.has("pathRegex") || match.has("pathContains")
+                || (match.has("methods") && match.get("methods").size() > 0);
+    }
+
+    private ObjectNode defaultMatch(FrozenCall recording) {
+        ObjectNode match = objectMapper.createObjectNode();
+        match.put("source", "outbound");
+        ArrayNode methods = match.putArray("methods");
+        methods.add(recording.method());
+        URI uri = safeUri(recording.url());
+        if (uri != null && uri.getHost() != null) {
+            match.put("host", uri.getHost());
+        }
+        String path = uri == null ? recording.url() : uri.getPath();
+        match.put("pathRegex", "^" + java.util.regex.Pattern.quote(path == null ? "" : path) + "$");
+        return match;
+    }
+
+    private static String matchKeyOf(FrozenCall recording) {
+        URI uri = safeUri(recording.url());
+        String host = uri == null ? "" : String.valueOf(uri.getHost());
+        String path = uri == null ? recording.url() : uri.getPath();
+        return recording.method() + " " + host + path;
+    }
+
+    private static URI safeUri(String url) {
+        try {
+            return URI.create(url);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Deep-copies {@code ruleDoc}, replacing every {@code recordedStepKey} on a RECORDED_CALL
+     * condition with a freshly written {@code answerId} pointing at that step's recorded request
+     * (C3). Walks every {@code IF_REQUEST}/{@code IF_RESPONSE} action's {@code branches[].conditions}
+     * recursively (conditions never nest inside conditions any deeper than one branch's own list).
+     */
+    private JsonNode resolveRecordedCallConditions(String runId, JsonNode ruleDoc, Step owner, Map<String, Integer> counters) {
+        if (ruleDoc == null || ruleDoc.isNull()) {
+            return ruleDoc;
+        }
+        JsonNode copy = ruleDoc.deepCopy();
+        JsonNode actions = copy.get("actions");
+        if (actions != null && actions.isArray()) {
+            resolveActions((ArrayNode) actions, runId, owner);
+        }
+        return copy;
+    }
+
+    private void resolveActions(ArrayNode actions, String runId, Step owner) {
+        for (JsonNode actionNode : actions) {
+            if (!(actionNode instanceof ObjectNode action)) {
+                continue;
+            }
+            for (String branchesField : new String[] {"branches"}) {
+                JsonNode branches = action.get(branchesField);
+                if (branches != null && branches.isArray()) {
+                    for (JsonNode branch : branches) {
+                        JsonNode conditions = branch.get("conditions");
+                        if (conditions != null && conditions.isArray()) {
+                            resolveConditions((ArrayNode) conditions, runId, owner);
+                        }
+                        JsonNode nestedActions = branch.get("actions");
+                        if (nestedActions != null && nestedActions.isArray()) {
+                            resolveActions((ArrayNode) nestedActions, runId, owner);
+                        }
+                    }
+                }
+            }
+            JsonNode otherwise = action.get("otherwise");
+            if (otherwise != null && otherwise.isArray()) {
+                resolveActions((ArrayNode) otherwise, runId, owner);
+            }
+        }
+    }
+
+    private void resolveConditions(ArrayNode conditions, String runId, Step owner) {
+        for (JsonNode conditionNode : conditions) {
+            if (!(conditionNode instanceof ObjectNode condition)) {
+                continue;
+            }
+            if (!"RECORDED_CALL".equals(textOrNull(condition, "subject"))) {
+                continue;
+            }
+            String recordedStepKey = textOrNull(condition, "recordedStepKey");
+            if (recordedStepKey == null) {
+                continue; // already an answerId (e.g. a re-published run) - nothing to do
+            }
+            String answerId = writeRecordedRequestAnswer(runId, recordedStepKey, owner);
+            condition.remove("recordedStepKey");
+            condition.put("answerId", answerId);
+        }
+    }
+
+    private String writeRecordedRequestAnswer(String runId, String recordedStepKey, Step owner) {
+        // The condition's own step owns its recording in every case this builder ever sees today
+        // (a call rule's request-differs condition always compares against its own step's
+        // recording) - recordedStepKey is still carried explicitly in the definition so a future
+        // condition could name a DIFFERENT step's recording without a format change here.
+        FrozenCall recording = owner.recording();
+        String answerId = UUID.randomUUID().toString();
+        ObjectNode meta = objectMapper.createObjectNode();
+        meta.put("kind", "RECORDED_REQUEST");
+        meta.put("method", recording.method());
+        URI uri = safeUri(recording.url());
+        meta.put("path", uri == null ? recording.url() : uri.getPath());
+        meta.put("query", uri == null || uri.getQuery() == null ? "" : uri.getQuery());
+        ObjectNode headers = meta.putObject("headers");
+        recording.requestHeaders().forEach(headers::put);
+        byte[] body = recording.requestBody() == null ? new byte[0] : recording.requestBody().getBytes(StandardCharsets.UTF_8);
+        publisher.writeAnswer(runId, answerId, meta, body);
+        return answerId;
+    }
+
+    private static String textOrNull(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? null : value.asText();
+    }
+}

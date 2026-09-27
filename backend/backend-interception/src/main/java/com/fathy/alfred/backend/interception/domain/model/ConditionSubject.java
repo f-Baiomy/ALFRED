@@ -25,7 +25,13 @@ public enum ConditionSubject {
     RESPONSE_STATUS(false, true),
     RESPONSE_HEADER(true, true),
     RESPONSE_BODY(false, true),
-    RESPONSE_JSON_FIELD(true, true);
+    RESPONSE_JSON_FIELD(true, true),
+    /**
+     * Relive only (FR-014d, research D17): true when the request at this point in the pipeline
+     * equals a frozen recording, ignoring noise paths - see {@link Condition#recordedStepKey()} /
+     * {@link Condition#answerId()} / {@link Condition#ignore()} / {@link Condition#headers()}.
+     */
+    RECORDED_CALL(false, false);
 
     private final boolean needsName;
     private final boolean response;

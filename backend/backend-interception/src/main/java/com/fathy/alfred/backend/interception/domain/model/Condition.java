@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.interception.domain.model;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
@@ -44,16 +45,41 @@ public record Condition(
         String items,
         /** For IN and CONTAINS_ALL. */
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
-        List<String> values) {
+        List<String> values,
+        /**
+         * RECORDED_CALL only (Relive, FR-014d). In a cycle's own definition this names the step
+         * whose {@code recording} to compare against; {@code RunSnapshotBuilder} replaces it with
+         * {@link #answerId()} (a stored answer file) when it publishes the run's proxy snapshot -
+         * a rule document never carries both at once.
+         */
+        String recordedStepKey,
+        String answerId,
+        /** RECORDED_CALL only: JSON paths / header names to ignore (cycle noise plus this step's own noise). */
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<String> ignore,
+        /** RECORDED_CALL only: also compare headers, not just method/path/query/body. Defaults to false. */
+        Boolean headers) {
 
     public Condition {
         paths = paths == null ? List.of() : List.copyOf(paths);
         values = values == null ? List.of() : List.copyOf(values);
+        ignore = ignore == null ? List.of() : List.copyOf(ignore);
     }
 
     /** The shape before multi-field, item-mode and list-value tests. */
     public Condition(ConditionSubject subject, String name, ConditionOperator operator, String value, Boolean caseSensitive) {
-        this(subject, name, operator, value, caseSensitive, null, null, null, null);
+        this(subject, name, operator, value, caseSensitive, null, null, null, null, null, null, null, null);
+    }
+
+    /** The shape before RECORDED_CALL existed. */
+    public Condition(ConditionSubject subject, String name, ConditionOperator operator, String value, Boolean caseSensitive,
+                      List<String> paths, String pathsMode, String items, List<String> values) {
+        this(subject, name, operator, value, caseSensitive, paths, pathsMode, items, values, null, null, null, null);
+    }
+
+    @JsonIgnore
+    public boolean isRecordedCall() {
+        return subject == ConditionSubject.RECORDED_CALL;
     }
 
     public boolean isCaseSensitive() {
