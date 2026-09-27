@@ -1,6 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { Observable } from 'rxjs';
 import { ReliveApiService, ReliveWriteRequest } from '../../core/services/relive-api.service';
-import { ReliveCycle } from '../../shared/utils/relive-types';
+import { defaultCallRule } from '../../shared/utils/relive-call-rule';
+import { ReliveCycle, Step } from '../../shared/utils/relive-types';
 
 /** Strips the server-assigned fields so a draft can be sent back as a write request. */
 function toWritable(cycle: ReliveCycle): ReliveWriteRequest {
@@ -82,5 +84,50 @@ export class ReliveCycleEditorState {
 
   discardConflict(): void {
     this.conflict.set(null);
+  }
+
+  /** Rebuilds one step's call rule from its recording and the cycle's current settings, undoing
+   *  every edit made to it (actions, mock data, pauses, conditions, the match) - FR-006/FR-010b.
+   *  Everything else about the step (label, optional, extract/assertions) is untouched. */
+  resetStep(key: string): void {
+    this.update((draft) => ({
+      ...draft,
+      steps: draft.steps.map((s) =>
+        s.key === key ? { ...s, callRule: defaultCallRule(s, draft.settings), unattributed: 'BLOCK' } : s,
+      ),
+    }));
+  }
+
+  /** "Reset to recording" - every step's call rule back to its default, every step re-enabled
+   *  (FR-007). */
+  resetCycle(): void {
+    this.update((draft) => ({
+      ...draft,
+      steps: draft.steps.map((s) => ({ ...s, callRule: defaultCallRule(s, draft.settings), unattributed: 'BLOCK', enabled: true })),
+    }));
+  }
+
+  /** Duplicates one step (and its children, if it's an inbound one) with fresh keys, right after
+   *  the original block (FR-007). */
+  duplicateStep(key: string): void {
+    this.update((draft) => {
+      const original = draft.steps.find((s) => s.key === key);
+      if (!original) return draft;
+      const newKey = crypto.randomUUID();
+      const copy: Step = { ...original, key: newKey, label: original.label + ' (2)' };
+      const childCopies = draft.steps.filter((s) => s.parentKey === key).map((c) => ({ ...c, key: crypto.randomUUID(), parentKey: newKey }));
+      const insertAt = draft.steps.findIndex((s) => s.key === key) + 1 + draft.steps.filter((s) => s.parentKey === key).length;
+      const steps = [...draft.steps];
+      steps.splice(insertAt, 0, copy, ...childCopies);
+      return { ...draft, steps };
+    });
+  }
+
+  /** Duplicates the whole saved cycle via the API (FR-007) - a fresh cycle with its own id,
+   *  independent of this one's unsaved draft. */
+  duplicateCycle(): Observable<ReliveCycle> | null {
+    const saved = this.saved();
+    if (!saved) return null;
+    return this.api.duplicate(saved.id);
   }
 }

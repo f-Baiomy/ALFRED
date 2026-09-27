@@ -5,7 +5,6 @@ import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/r
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
-import { ReliveApiService } from '../../core/services/relive-api.service';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { externalReach } from '../../shared/utils/relive-external-reach';
 import { Step } from '../../shared/utils/relive-types';
@@ -29,7 +28,6 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 })
 export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly route = inject(ActivatedRoute);
-  private readonly api = inject(ReliveApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly picker = inject(CallPickerService);
   readonly state = inject(ReliveCycleEditorState);
@@ -83,6 +81,25 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.state.update((draft) => ({ ...draft, steps: draft.steps.map((s) => (s.key === step.key ? step : s)) }));
   }
 
+  async resetCycle(): Promise<void> {
+    const confirmed = await this.confirmDialog.confirm('Reset every step to its recording? Every call rule edit is removed. This can\'t be undone.', 'Reset');
+    if (confirmed) this.state.resetCycle();
+  }
+
+  async resetStep(key: string): Promise<void> {
+    const step = this.state.draft()?.steps.find((s) => s.key === key);
+    const defaultDescription = step?.parentKey ? 'REPLAY' : 'LIVE (sent to the app)';
+    const confirmed = await this.confirmDialog.confirm(
+      `Reset ${step?.label ?? 'this step'}'s call rule? Everything you changed - actions, edited mock data, pauses, conditions, the match - is removed and rebuilt from the recording with the cycle default: ${defaultDescription}. This can't be undone.`,
+      'Reset call rule',
+    );
+    if (confirmed) this.state.resetStep(key);
+  }
+
+  duplicateStep(key: string): void {
+    this.state.duplicateStep(key);
+  }
+
   setTab(tab: ReliveTab): void {
     this.tab.set(tab);
   }
@@ -108,9 +125,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   }
 
   duplicate(): void {
-    const id = this.state.saved()?.id;
-    if (!id) return;
-    this.api.duplicate(id).subscribe();
+    this.state.duplicateCycle()?.subscribe();
   }
 
   async canDeactivate(): Promise<boolean> {

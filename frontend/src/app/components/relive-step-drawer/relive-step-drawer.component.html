@@ -35,6 +35,10 @@
               <a class="rl-link" (click)="openOriginal()">open original ↗</a>
             </span>
           </div>
+          <div class="rl-row" style="margin-top: 8px">
+            <button class="rl-btn rl-sm" (click)="requestDuplicate()">Duplicate</button>
+            <button class="rl-btn rl-sm" (click)="requestReset()">Reset call rule</button>
+          </div>
         </div>
       }
       @case ('request') {

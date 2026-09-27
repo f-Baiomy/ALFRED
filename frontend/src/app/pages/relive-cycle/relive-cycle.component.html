@@ -64,6 +64,8 @@
           <div>
             <div class="rl-row" style="margin-bottom: 8px">
               <button class="rl-btn rl-sm" (click)="openAddCalls()">＋ Add calls</button>
+              <span class="rl-spacer"></span>
+              <button class="rl-btn rl-sm" (click)="resetCycle()">Reset to recording</button>
             </div>
             <app-relive-step-tree
               [steps]="draft.steps"
@@ -74,7 +76,13 @@
             />
           </div>
           @if (selectedStep(); as step) {
-            <app-relive-step-drawer [step]="step" (stepChange)="updateStep($event)" (closed)="selectStep(step.key)" />
+            <app-relive-step-drawer
+              [step]="step"
+              (stepChange)="updateStep($event)"
+              (closed)="selectStep(step.key)"
+              (resetRequested)="resetStep($event)"
+              (duplicateRequested)="duplicateStep($event)"
+            />
           }
         </div>
       }

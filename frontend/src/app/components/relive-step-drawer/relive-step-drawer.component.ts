@@ -21,6 +21,10 @@ export class ReliveStepDrawerComponent {
   readonly step = input.required<Step>();
   readonly stepChange = output<Step>();
   readonly closed = output<void>();
+  /** "Reset call rule" (FR-010b) - the parent shows the confirmation popup before calling
+   *  `ReliveCycleEditorState.resetStep`; this only asks for it. */
+  readonly resetRequested = output<string>();
+  readonly duplicateRequested = output<string>();
 
   readonly tab = signal<DrawerTab>('configure');
 
@@ -44,6 +48,14 @@ export class ReliveStepDrawerComponent {
     // Live Calls, which a Step's `source` allows) - go() handles both origins.
     const focus: CallFocus = { callId: step.source.callId, cycleId: step.source.cycleId, direction: step.source.direction, serviceName: step.serviceName ?? null };
     this.callFocus.go(focus);
+  }
+
+  requestReset(): void {
+    this.resetRequested.emit(this.step().key);
+  }
+
+  requestDuplicate(): void {
+    this.duplicateRequested.emit(this.step().key);
   }
 
   close(): void {

@@ -220,7 +220,7 @@ below ends with the test that proves it.
   - **Configure:** label, "Optional" checkbox, the recorded status and duration, and "open original ↗" (navigates to the source call with the existing `CallFocusService.revealIn`).
   - **Request tab:** shows the recorded request read-only for now; T037 makes it editable.
   - **Response tab:** shows the recording.
-- [ ] T028 [US1] Reset and duplicate (FR-006, FR-007, FR-010b).
+- [X] T028 [US1] Reset and duplicate (FR-006, FR-007, FR-010b).
   - **In the editor state:** `resetStep(key)` (confirm dialog text from mock `confirmReset()`; rebuilds `callRule` with `defaultCallRule`, restores `recording` edits, clears the custom match), `resetCycle()` ("Reset to recording" button, mock `resetCycle()`), `duplicateStep(key)` (new keys for the step and its children), and `duplicateCycle()` via the API.
   - **Test:** in `relive-cycle-editor.state.spec.ts`.
 
