@@ -1,0 +1,1314 @@
+// cycle widget - the floating session-cycle widget (CycleWidgetComponent), rendered into a
+// Picture-in-Picture or popup window by CycleWidgetWindowService. That window gets a clone of this
+// whole stylesheet, so everything here uses the theme tokens and follows whichever theme is active.
+// Every class is prefixed cw- to stay clear of the page's own styles.
+
+body.cw-window {
+  min-height: 0;
+  height: 100vh;
+  overflow: hidden auto;
+  font-size: 13px;
+}
+
+app-cycle-widget {
+  display: block;
+  color: var(--text);
+}
+
+.cw-shell {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+// Expanded, the header stays put while the waterfall scrolls under it.
+.cw-shell.expanded .cw-pill-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  border-bottom: 1px solid var(--border);
+}
+
+.cw-icon {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  flex: none;
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  &.cw-icon-xs {
+    width: 11px;
+    height: 11px;
+    vertical-align: -1px;
+  }
+}
+
+.cw-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.cw-dim {
+  color: var(--text-dim);
+}
+
+.cw-faint {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.cw-warn {
+  color: var(--amber);
+  font-size: 11px;
+}
+
+.cw-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cw-shell button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+}
+
+.cw-ib {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim) !important;
+  flex: none;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--purple) 14%, transparent) !important;
+    color: var(--text) !important;
+  }
+
+  &.active {
+    background: color-mix(in srgb, var(--purple) 22%, transparent) !important;
+    color: var(--purple-light) !important;
+  }
+
+  &.cw-ib-sm {
+    width: 22px;
+    height: 22px;
+
+    .cw-icon {
+      width: 13px;
+      height: 13px;
+    }
+  }
+}
+
+.cw-link {
+  font-size: 11px !important;
+  color: var(--purple-light) !important;
+  padding: 2px 6px !important;
+  border-radius: 5px;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 12%, transparent) !important;
+  }
+}
+
+.cw-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+
+  &.rec {
+    background: var(--red);
+    animation: cw-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes cw-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 55%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+.cw-body {
+  padding: 11px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cw-notice {
+  font-size: 12px;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent);
+  border-radius: 8px;
+  padding: 6px 9px;
+
+  &.error {
+    color: var(--red);
+    background: color-mix(in srgb, var(--red) 10%, transparent);
+    border-color: color-mix(in srgb, var(--red) 30%, transparent);
+  }
+}
+
+.cw-popover {
+  background: var(--popover-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 4px;
+  animation: cw-fade-up 0.25s ease;
+}
+
+@keyframes cw-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.cw-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.cw-list-item {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px !important;
+  border-radius: 7px;
+  text-align: left;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 10%, transparent) !important;
+  }
+
+  &.selected {
+    background: color-mix(in srgb, var(--purple) 16%, transparent) !important;
+  }
+}
+
+.cw-list-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cw-check {
+  color: var(--purple-light);
+}
+
+// ---- new cycle ----
+
+.cw-new-form {
+  animation: cw-fade-up 0.25s ease;
+}
+
+.cw-new-row {
+  display: flex;
+  gap: 6px;
+}
+
+.cw-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  background: var(--card-inner);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  color: var(--text);
+  padding: 0 10px;
+  font: inherit;
+
+  &:focus {
+    outline: none;
+    border-color: var(--purple);
+  }
+}
+
+.cw-primary {
+  height: 34px;
+  padding: 0 12px !important;
+  border-radius: 9px;
+  background: var(--purple) !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  white-space: nowrap;
+}
+
+.cw-error {
+  font-size: 12px;
+  color: var(--red);
+  margin-top: 4px;
+}
+
+.cw-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
+}
+
+// ---- status + pause/resume ----
+
+.cw-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cw-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 194, 0.15);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+
+  &.rec {
+    background: color-mix(in srgb, var(--red) 15%, transparent);
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 35%, transparent);
+  }
+}
+
+.cw-toggle {
+  height: 32px;
+  padding: 0 14px !important;
+  border-radius: 9px;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600 !important;
+  background: var(--card) !important;
+  border: 1px solid var(--border-strong) !important;
+  transition: background 0.2s, transform 0.1s;
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &.resume {
+    background: var(--purple) !important;
+    border-color: var(--purple) !important;
+    color: #fff !important;
+  }
+}
+
+.cw-rec-icon {
+  color: var(--red);
+}
+
+// ---- sources ----
+
+.cw-sources-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cw-chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.cw-chip {
+  --chip: var(--cyan);
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px !important;
+  border-radius: 999px;
+  font-size: 11.5px !important;
+  white-space: nowrap;
+  flex: none;
+  background: color-mix(in srgb, var(--chip) 12%, transparent) !important;
+  color: var(--chip) !important;
+  border: 1px solid color-mix(in srgb, var(--chip) 40%, transparent) !important;
+  transition: all 0.2s;
+
+  .cw-icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  &.inbound {
+    --chip: var(--green);
+  }
+
+  &.off {
+    background: transparent !important;
+    color: var(--text-faint) !important;
+    border-style: dashed !important;
+    border-color: var(--border) !important;
+
+    .cw-chip-label {
+      text-decoration: line-through;
+    }
+  }
+}
+
+.cw-muted-icon {
+  color: var(--amber);
+}
+
+.cw-sources-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px !important;
+  border-radius: 7px;
+  font-size: 11.5px !important;
+  color: var(--purple-light) !important;
+  border: 1px solid var(--border) !important;
+  flex: none;
+  white-space: nowrap;
+
+  .cw-icon {
+    width: 13px;
+    height: 13px;
+  }
+
+  &:hover,
+  &.active {
+    background: color-mix(in srgb, var(--purple) 12%, transparent) !important;
+  }
+}
+
+.cw-sources {
+  padding: 6px;
+}
+
+.cw-sources-head,
+.cw-source-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+}
+
+.cw-sources-head {
+  font-size: 11px;
+  color: var(--text-faint);
+  padding-bottom: 6px;
+}
+
+.cw-source-row {
+  border-radius: 6px;
+  font-size: 12.5px;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 7%, transparent);
+  }
+}
+
+.cw-col-view {
+  width: 78px;
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+  align-items: center;
+  flex: none;
+}
+
+.cw-col-log {
+  width: 66px;
+  display: flex;
+  justify-content: center;
+  flex: none;
+}
+
+.cw-only {
+  font-size: 10.5px !important;
+  color: var(--text-dim) !important;
+  padding: 0 6px !important;
+  height: 20px;
+  border-radius: 5px;
+  border: 1px solid var(--border) !important;
+
+  &:hover {
+    color: var(--text) !important;
+    border-color: var(--border-strong) !important;
+  }
+}
+
+.cw-switch {
+  width: 28px;
+  height: 16px;
+  border-radius: 999px !important;
+  position: relative;
+  background: rgba(148, 163, 194, 0.3) !important;
+  transition: background 0.2s;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    transition: left 0.2s;
+  }
+
+  &.on {
+    background: var(--green) !important;
+
+    &::after {
+      left: 14px;
+    }
+  }
+}
+
+.cw-sources-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding: 6px 4px 0;
+}
+
+.cw-dir {
+  color: var(--cyan);
+
+  &.inbound {
+    color: var(--green);
+  }
+}
+
+// ---- waterfall ----
+
+.cw-wf {
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 4px 4px;
+}
+
+.cw-wf-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+
+  button {
+    font: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+}
+
+.cw-wf-row {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  border-radius: 5px;
+  padding-right: 6px;
+  transition: background 0.8s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 9%, transparent);
+  }
+
+  &.cw-flash {
+    background: color-mix(in srgb, var(--purple) 30%, transparent);
+    transition: none;
+  }
+}
+
+.cw-wf-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+.cw-wf-rail {
+  width: 10px;
+  align-self: stretch;
+  flex: none;
+  border-left: 2px solid color-mix(in srgb, var(--depth-color) 35%, transparent);
+
+  &:first-child {
+    margin-left: 4px;
+  }
+
+  &.own {
+    width: 4px;
+    border-left-color: var(--depth-color);
+  }
+}
+
+.cw-wf-fold,
+.cw-wf-fold-gap {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.cw-wf-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+
+  .cw-icon {
+    width: 13px;
+    height: 13px;
+  }
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 14%, transparent);
+    color: var(--text);
+  }
+}
+
+.cw-wf-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-width: 0;
+
+  .cw-dir {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.cw-method {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  flex: none;
+  min-width: 32px;
+  text-align: center;
+}
+
+.cw-wf-path {
+  font-size: 11.5px;
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+
+  &.root {
+    color: var(--text);
+  }
+
+  .cw-faint {
+    font-size: inherit;
+  }
+}
+
+.cw-wf-count {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--depth-color);
+  border: 1px solid color-mix(in srgb, var(--depth-color) 40%, transparent);
+  background: color-mix(in srgb, var(--depth-color) 12%, transparent);
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-left: 4px;
+}
+
+.cw-wf-track {
+  flex: 1;
+  position: relative;
+  height: 8px;
+  margin: 0 8px;
+  min-width: 34px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--purple) 6%, transparent);
+}
+
+.cw-wf-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: var(--depth-color);
+  opacity: 0.85;
+
+  &.error {
+    background: var(--red);
+  }
+
+  &.pending {
+    background: repeating-linear-gradient(135deg, var(--depth-color) 0 4px, transparent 4px 8px);
+  }
+}
+
+.cw-wf-status {
+  flex: none;
+  width: 30px;
+  text-align: right;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: none !important;
+  border: none !important;
+  color: var(--text-faint);
+}
+
+.cw-wf-dur {
+  flex: none;
+  width: 46px;
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.cw-wf-empty {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 16px 10px;
+  text-align: center;
+}
+
+// ---- toast ----
+
+.cw-toast {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 68px;
+  z-index: 5;
+  background: var(--popover-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 8px 10px 11px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(-14px) scale(0.97);
+  transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.3s ease;
+  pointer-events: none;
+
+  &.on {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+
+  &:hover .cw-toast-bar {
+    animation-play-state: paused;
+  }
+}
+
+.cw-toast-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.cw-toast-bolt {
+  color: var(--purple-light);
+  width: 14px;
+  height: 14px;
+}
+
+.cw-toast-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cw-toast-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cw-toast-more {
+  font-size: 11px;
+  color: var(--purple-light);
+  margin-top: 5px;
+}
+
+.cw-toast-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--purple);
+  transform-origin: left;
+  animation: cw-toast-countdown 3.5s linear forwards;
+}
+
+@keyframes cw-toast-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+// ---- collapsed pill ----
+
+.cw-pill-wrap {
+  background: var(--nav-bg);
+}
+
+.cw-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 8px 0 6px;
+}
+
+.cw-pill-name {
+  // Only as wide as the name, so + sits right next to it (the header's cycles group).
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px !important;
+  border-radius: 8px;
+  font-weight: 600 !important;
+  text-align: left;
+  transition: background 0.15s;
+
+  &:hover:not(:disabled),
+  &[aria-expanded='true'] {
+    background: color-mix(in srgb, var(--purple) 12%, transparent) !important;
+  }
+}
+
+.cw-pill-chevron {
+  width: 12px;
+  height: 12px;
+  color: var(--text-faint);
+  transition: transform 0.2s;
+
+  &.open {
+    transform: rotate(180deg);
+  }
+}
+
+// Minimized status line under the controls: a quiet summary that crossfades into the newest call.
+// Opacity only - nothing above it moves.
+.cw-pill-status {
+  position: relative;
+  height: 30px;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.cw-pill-idle {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 12px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.2s ease;
+
+  &.hidden {
+    opacity: 0;
+  }
+}
+
+.cw-pill-note {
+  position: absolute !important;
+  inset: 0;
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px !important;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--purple) 16%, transparent) !important;
+  text-align: left;
+  animation: cw-fade-in 0.2s linear both;
+
+  .cw-toast-path {
+    font-size: 11.5px;
+  }
+
+  &:hover .cw-toast-bar {
+    animation-play-state: paused;
+  }
+}
+
+.cw-pill-more {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--purple-light);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-pill-note {
+    animation: none;
+  }
+}
+
+// Resume in the pill: a real round button, not a bare dot that reads as a status light.
+.cw-rec-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, transparent) !important;
+  background: color-mix(in srgb, var(--red) 12%, transparent) !important;
+  transition: background 0.15s;
+
+  span {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+  }
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--red) 22%, transparent) !important;
+  }
+}
+
+.cw-pill-panel {
+  padding: 0 10px 10px;
+
+  .cw-list {
+    max-height: 210px;
+  }
+}
+
+// ---- launcher: a tab on the right edge of the Alfred tab ----
+
+// The same shape as the global variables tab (.variables-launch in styles.scss), stacked just above
+// it, so the two edge tabs read as one strip.
+.cw-launch {
+  position: fixed;
+  right: 0.875rem;
+  top: calc(50% - 2.9rem);
+  transform: translateY(-100%);
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.75rem 0.55rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px 0 0 10px;
+  background: var(--popover-solid);
+  color: var(--purple-light);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  writing-mode: vertical-rl;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--card);
+  }
+
+  &.open {
+    border-color: var(--purple);
+  }
+
+  .cw-icon {
+    width: 14px;
+    height: 14px;
+    transform: rotate(90deg);
+  }
+
+  // Like the variables tab: nothing to click while a dialog covers the page.
+  body:has(.dialog-backdrop) & {
+    display: none;
+  }
+}
+
+// The widget's cycle is recording.
+.cw-launch-rec {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: cw-pulse 1.6s ease-in-out infinite;
+}
+
+// Opens to the LEFT of the tab - it sits on the right edge of the screen.
+.cw-launch-notice {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 8px);
+  width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--popover-solid);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  white-space: normal;
+  writing-mode: horizontal-tb;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  animation: cw-fade-up 0.25s ease;
+  z-index: 20;
+}
+
+.cw-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+
+  input {
+    accent-color: var(--purple);
+    margin: 0;
+  }
+}
+
+// Collapsed, the window is sized to the pill and its panel - the cycle list scrolls on its own, so
+// the page itself never needs a scrollbar.
+body.cw-window:has(.cw-shell:not(.expanded)) {
+  overflow: hidden;
+}
+
+.cw-pill-pos {
+  flex: none;
+}
+
+// Expanding: Chrome resizes the window in one step. The body stays invisible for that first frame, so the
+// half-resized layout is never seen, then fades in whole - opacity only, nothing moves. Minimizing is instant.
+.cw-shell.expanded .cw-body {
+  animation: cw-fade-in 0.12s linear 16ms both;
+}
+
+@keyframes cw-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-shell.expanded .cw-body {
+    animation: none;
+  }
+}
+
+.cw-pill-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 10px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent);
+
+  span {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+// The launcher asking for the click Chrome needs to pin the widget again - see repinRequested.
+.cw-launch.repin {
+  background: var(--purple);
+  border-color: var(--purple);
+  color: #fff;
+  animation: cw-launch-attention 1.4s ease-in-out 3;
+}
+
+@keyframes cw-launch-attention {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 60%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-launch.repin,
+  .cw-launch-rec {
+    animation: none;
+  }
+}
+
+// ---- sort selectors ----
+
+.cw-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+
+  button {
+    font-size: 10.5px !important;
+    padding: 2px 7px !important;
+    border-radius: 5px;
+    color: var(--text-dim) !important;
+    white-space: nowrap;
+
+    &.sel {
+      background: color-mix(in srgb, var(--purple) 25%, transparent) !important;
+      color: var(--text) !important;
+    }
+  }
+}
+
+.cw-list-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 5px 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+// ---- waterfall: spacers, gaps, selection ----
+
+.cw-wf-row {
+  cursor: pointer;
+
+  &.selected {
+    background: color-mix(in srgb, var(--purple) 18%, transparent);
+  }
+}
+
+// The hover-to-add gap above each root group; between groups it also draws the divider line.
+.cw-wf-gap {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 8px;
+  position: relative;
+
+  &.divider::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    top: 50%;
+    border-top: 1px solid var(--border);
+  }
+
+  span {
+    position: relative;
+    z-index: 1;
+    font-size: 10px;
+    line-height: 14px;
+    padding: 0 7px;
+    border-radius: 999px;
+    color: var(--purple-light);
+    background: var(--popover-solid);
+    border: 1px solid var(--border-strong);
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+
+  &:hover span,
+  &:focus-visible span {
+    opacity: 1;
+  }
+}
+
+.cw-wf-spacer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 6px;
+  font-size: 11px;
+  color: var(--amber);
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    border-top: 1px dashed color-mix(in srgb, var(--amber) 50%, transparent);
+  }
+
+  &.detached {
+    opacity: 0.55;
+  }
+}
+
+.cw-wf-spacer-label {
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--amber) !important;
+  font-weight: 600 !important;
+  padding: 0 4px !important;
+  border-radius: 4px;
+
+  &:hover {
+    background: color-mix(in srgb, var(--amber) 12%, transparent) !important;
+  }
+}
+
+.cw-wf-spacer-x {
+  display: inline-flex !important;
+  color: var(--text-faint) !important;
+  opacity: 0;
+  transition: opacity 0.12s;
+
+  .cw-icon {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+.cw-wf-spacer:hover .cw-wf-spacer-x,
+.cw-wf-spacer-x:focus-visible {
+  opacity: 1;
+}
+
+.cw-input.cw-wf-spacer-input {
+  flex: 0 1 60%;
+  height: 24px;
+  font-size: 11.5px;
+}
+
+.cw-wf-composer {
+  display: flex;
+  gap: 6px;
+  margin: 4px 6px;
+
+  .cw-input {
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .cw-primary {
+    height: 28px;
+  }
+}
+
+.cw-wf-detail {
+  margin: 2px 6px 6px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--card-inner);
+  border: 1px solid var(--border-strong);
+  animation: cw-fade-in 0.12s linear both;
+}
+
+.cw-wf-detail-url {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+  margin-bottom: 3px;
+}
+
+.cw-wf-detail-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cw-primary.cw-wf-show {
+  flex: 1;
+  height: 28px;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px !important;
+}
+
+// Between "this recording" and the window controls in the header.
+.cw-pill-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  flex: none;
+  background: var(--border-strong);
+}

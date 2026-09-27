@@ -1,0 +1,349 @@
+<!--
+  One header in both states - see the grouping note on .cw-pill below. Expanded adds prev/next and
+  open-in-Alfred. Chrome draws its own bar
+  (site name, close) above this and no page can style or hide it - so there's no second title bar here.
+  The list and the new-cycle form open under the header in both states; collapsed, the window grows
+  to fit them only while they're open.
+-->
+<div class="cw-shell" [class.expanded]="!win.collapsed()" (keydown.escape)="closePillPanel()">
+  <div class="cw-pill-wrap">
+    <!-- Grouped by what each button acts on: cycles (pick one, + a new one) on the left; this
+         recording (add a spacer, pause/resume) in the middle; the window itself (keep on top,
+         open in Alfred, expand/minimize) after the divider. + and "add spacer" used to sit side by
+         side with look-alike icons and got mixed up. -->
+    <div class="cw-pill">
+      @if (!win.collapsed()) {
+        <button type="button" class="cw-ib" (click)="state.selectRelative(-1)" [disabled]="state.cycles().length < 2" aria-label="Previous cycle" title="Previous cycle">
+          <app-cw-icon name="chevron-left" />
+        </button>
+      }
+      <button
+        type="button"
+        class="cw-pill-name"
+        (click)="togglePillPanel('list')"
+        [disabled]="state.cycles().length === 0"
+        [attr.aria-expanded]="pillPanel() === 'list'"
+        title="Switch cycle"
+      >
+        <span class="cw-dot" [class.rec]="recording()"></span>
+        <span class="cw-ellipsis">{{ cycle()?.name ?? 'No cycles yet' }}</span>
+        @if (!win.collapsed() && cycle()) {
+          <span class="cw-faint cw-pill-pos">{{ state.selectedIndex() + 1 }}/{{ state.cycles().length }}</span>
+        }
+        <app-cw-icon name="chevron-down" class="cw-pill-chevron" [class.open]="pillPanel() === 'list'" />
+      </button>
+      @if (!win.collapsed()) {
+        <button type="button" class="cw-ib" (click)="state.selectRelative(1)" [disabled]="state.cycles().length < 2" aria-label="Next cycle" title="Next cycle">
+          <app-cw-icon name="chevron-right" />
+        </button>
+      }
+      <button type="button" class="cw-ib" [class.active]="pillPanel() === 'new'" (click)="togglePillPanel('new')" aria-label="New cycle" title="New cycle">
+        <app-cw-icon name="plus" />
+      </button>
+
+      <span class="cw-spacer"></span>
+
+      @if (cycle()) {
+        <button
+          type="button"
+          class="cw-ib"
+          [class.active]="pillPanel() === 'spacer'"
+          (click)="togglePillPanel('spacer')"
+          aria-label="Add spacer"
+          title="Add a spacer: mark a step in this recording"
+        >
+          <app-cw-icon name="flag" />
+        </button>
+        @if (win.collapsed()) {
+          @if (recording()) {
+            <button type="button" class="cw-ib" (click)="toggleRecording()" [disabled]="busy()" aria-label="Pause recording" title="Pause recording">
+              <app-cw-icon name="pause" />
+            </button>
+          } @else {
+            <button type="button" class="cw-rec-btn" (click)="toggleRecording()" [disabled]="busy()" aria-label="Resume recording" title="Resume recording">
+              <span></span>
+            </button>
+          }
+        }
+        <span class="cw-pill-divider" aria-hidden="true"></span>
+      }
+
+      @if (win.pipSupported) {
+        <button
+          type="button"
+          class="cw-ib"
+          [class.active]="win.mode() === 'pip'"
+          (click)="togglePinned()"
+          [attr.aria-label]="win.mode() === 'pip' ? 'Stop keeping on top' : 'Keep on top'"
+          [title]="win.mode() === 'pip' ? 'Kept on top of other apps. Click for a normal window.' : 'Keep on top of other apps'"
+        >
+          <app-cw-icon name="pin" />
+        </button>
+      }
+      @if (win.collapsed()) {
+        <button type="button" class="cw-ib" (click)="expand()" aria-label="Expand" title="Expand">
+          <app-cw-icon name="expand" />
+        </button>
+      } @else {
+        <button type="button" class="cw-ib" (click)="showInAlfred()" [disabled]="!cycle()" aria-label="Open in Alfred" title="Open this cycle in Alfred">
+          <app-cw-icon name="external" />
+        </button>
+        <button type="button" class="cw-ib" (click)="collapse()" aria-label="Minimize" title="Minimize">
+          <app-cw-icon name="minus" />
+        </button>
+      }
+    </div>
+
+    <!-- Minimized, a second line under the controls: a quiet summary, which briefly becomes the
+         new-call notification. It's always there because a PiP window can only be resized from a
+         click - an arriving call can't make room for itself - and so the controls never move. -->
+    @if (win.collapsed()) {
+      <div class="cw-pill-status">
+        <div class="cw-pill-idle" [class.hidden]="toastVisible()">{{ idleSummary() }}</div>
+        @if (toastVisible() && toast(); as t) {
+          <button
+            type="button"
+            class="cw-pill-note"
+            (click)="openFromNotification()"
+            (mouseenter)="pauseToast()"
+            (mouseleave)="resumeToast()"
+            title="Open the widget to see it"
+          >
+            <app-cw-icon name="bolt" class="cw-toast-bolt" />
+            <span class="cw-method" [class]="t.methodClass">{{ t.method }}</span>
+            <span class="cw-toast-path">{{ t.label }}</span>
+            <span class="cw-wf-status" [class]="t.statusClass">{{ t.status }}</span>
+            @if (t.more > 0) {
+              <span class="cw-pill-more">+{{ t.more }}</span>
+            }
+            @for (s of [t.seq]; track s) {
+              <span class="cw-toast-bar"></span>
+            }
+          </button>
+        }
+      </div>
+    }
+
+    @if (win.collapsed() && win.notice(); as notice) {
+      <div class="cw-pill-notice" role="status">
+        <span>{{ notice }}</span>
+        <button type="button" class="cw-link" (click)="win.notice.set(null)">Dismiss</button>
+      </div>
+    }
+
+    @if (pillPanel() === 'list') {
+      <div class="cw-pill-panel">
+        <div class="cw-popover cw-list">
+          <div class="cw-list-sort">
+            <span class="cw-faint">Sort</span>
+            <span class="cw-seg" role="group" aria-label="Sort cycles">
+              @for (option of cycleSorts; track option.value) {
+                <button type="button" [class.sel]="state.cycleSort() === option.value" (click)="state.setCycleSort(option.value)">{{ option.label }}</button>
+              }
+            </span>
+          </div>
+          @for (c of state.cycles(); track c.id) {
+            <button type="button" class="cw-list-item" [class.selected]="c.id === cycle()?.id" (click)="pick(c.id)">
+              <span class="cw-dot" [class.rec]="c.status === 'RECORDING'"></span>
+              <span class="cw-list-name">{{ c.name }}</span>
+              @if (c.id === cycle()?.id) {
+                <app-cw-icon name="check" class="cw-check" />
+              }
+            </button>
+          }
+        </div>
+      </div>
+    } @else if (pillPanel() === 'spacer') {
+      <form class="cw-pill-panel cw-new-form" (submit)="$event.preventDefault(); addSpacerFromPill(pillSpacer.value)">
+        <div class="cw-new-row">
+          <input #pillSpacer type="text" class="cw-input" placeholder="Step 2: payment" (input)="newError.set(null)" aria-label="Spacer label" />
+          <button type="submit" class="cw-primary">Add</button>
+        </div>
+        @if (newError(); as err) {
+          <div class="cw-error">{{ err }}</div>
+        }
+        <div class="cw-hint">Goes after the latest call. Calls captured later land below it.</div>
+      </form>
+    } @else if (pillPanel() === 'new') {
+      <form class="cw-pill-panel cw-new-form" (submit)="$event.preventDefault(); createCycle()">
+        <div class="cw-new-row">
+          <input
+            #pillName
+            type="text"
+            class="cw-input"
+            placeholder="Checkout retry flow"
+            [value]="newName()"
+            (input)="onNameInput($any($event.target).value)"
+            aria-label="Cycle name"
+          />
+          <button type="submit" class="cw-primary" [disabled]="busy()">Create</button>
+        </div>
+        @if (newError(); as err) {
+          <div class="cw-error">{{ err }}</div>
+        }
+        <div class="cw-hint">Starts recording and pauses other cycles.</div>
+      </form>
+    }
+  </div>
+
+  @if (!win.collapsed()) {
+    <div class="cw-toast" [class.on]="toastVisible()" role="status" (mouseenter)="pauseToast()" (mouseleave)="resumeToast()">
+      @if (toast(); as t) {
+        <div class="cw-toast-head">
+          <app-cw-icon name="bolt" class="cw-toast-bolt" />
+          <span class="cw-dim">New call captured</span>
+          <span class="cw-faint cw-ellipsis">{{ t.where }}</span>
+          <span class="cw-spacer"></span>
+          <button type="button" class="cw-ib cw-ib-sm" (click)="dismissToast()" aria-label="Dismiss"><app-cw-icon name="x" /></button>
+        </div>
+        <div class="cw-toast-body">
+          <span class="cw-method" [class]="t.methodClass">{{ t.method }}</span>
+          <span class="cw-toast-path">{{ t.label }}</span>
+          <span class="cw-wf-status" [class]="t.statusClass">{{ t.status }}</span>
+        </div>
+        @if (t.more > 0) {
+          <div class="cw-toast-more">+{{ t.more }} more</div>
+        }
+        @for (s of [t.seq]; track s) {
+          <span class="cw-toast-bar"></span>
+        }
+      }
+    </div>
+
+    <div class="cw-body">
+      @if (win.notice(); as notice) {
+        <div class="cw-notice">{{ notice }}</div>
+      }
+      @if (state.error(); as err) {
+        <div class="cw-notice error">
+          {{ err }}
+          <button type="button" class="cw-link" (click)="state.error.set(null)">Dismiss</button>
+        </div>
+      }
+
+      @if (cycle()) {
+        <div class="cw-status-row">
+          <span class="cw-status" [class.rec]="recording()">
+            @if (recording()) {
+              <span class="cw-dot rec"></span> Recording
+            } @else {
+              <app-cw-icon name="pause" class="cw-icon-xs" /> Paused
+            }
+          </span>
+          <span class="cw-dim">{{ countLabel() }}</span>
+          <span class="cw-spacer"></span>
+          <button type="button" class="cw-toggle" [class.resume]="!recording()" [disabled]="busy()" (click)="toggleRecording()">
+            <app-cw-icon [name]="recording() ? 'pause' : 'record'" />
+            {{ recording() ? 'Pause' : 'Resume' }}
+          </button>
+        </div>
+
+        <div class="cw-sources-row">
+          <div class="cw-chips">
+            @for (s of state.sources(); track s.key) {
+              <button
+                type="button"
+                class="cw-chip"
+                [class.inbound]="s.direction === 'inbound'"
+                [class.off]="!state.isSourceVisible(s.key)"
+                (click)="state.toggleSourceVisible(s.key)"
+                [title]="(state.isSourceVisible(s.key) ? 'Hide ' : 'Show ') + s.label + (s.loggingEnabled === false ? ' (inbound logging off)' : '')"
+              >
+                <app-cw-icon [name]="s.loggingEnabled === false ? 'mic-off' : s.direction" [class.cw-muted-icon]="s.loggingEnabled === false" />
+                <span class="cw-chip-label">{{ s.label }}</span>
+              </button>
+            }
+          </div>
+          <button type="button" class="cw-sources-btn" [class.active]="sourcesOpen()" (click)="toggleSourcesPanel()" [attr.aria-expanded]="sourcesOpen()">
+            <app-cw-icon name="sliders" /> {{ sourcesSummary() }}
+          </button>
+        </div>
+
+        @if (sourcesOpen()) {
+          <div class="cw-popover cw-sources">
+            <div class="cw-sources-head">
+              <span class="cw-spacer">Source</span>
+              <span class="cw-col-view">Show here</span>
+              <span class="cw-col-log">Log inbound</span>
+            </div>
+            @for (s of state.sources(); track s.key) {
+              <div class="cw-source-row">
+                <app-cw-icon class="cw-dir" [class.inbound]="s.direction === 'inbound'" [name]="s.direction" />
+                <span class="cw-spacer cw-ellipsis">
+                  {{ s.label }}
+                  @if (s.loggingEnabled === false) {
+                    <span class="cw-warn">· not logging</span>
+                  }
+                </span>
+                <span class="cw-col-view">
+                  <button
+                    type="button"
+                    class="cw-ib cw-ib-sm"
+                    [class.active]="state.isSourceVisible(s.key)"
+                    (click)="state.toggleSourceVisible(s.key)"
+                    [attr.aria-label]="(state.isSourceVisible(s.key) ? 'Hide ' : 'Show ') + s.label"
+                  >
+                    <app-cw-icon [name]="state.isSourceVisible(s.key) ? 'eye' : 'eye-off'" />
+                  </button>
+                  <button type="button" class="cw-only" (click)="state.showOnly(s.key)" [title]="'Show only ' + s.label">Only</button>
+                </span>
+                <span class="cw-col-log">
+                  @if (s.loggingEnabled === null) {
+                    <span class="cw-faint" title="Outbound calls are always logged by the forward proxy">always</span>
+                  } @else {
+                    <button
+                      type="button"
+                      class="cw-switch"
+                      role="switch"
+                      [class.on]="s.loggingEnabled"
+                      [attr.aria-checked]="s.loggingEnabled"
+                      [attr.aria-label]="'Inbound logging for ' + s.label"
+                      (click)="toggleLogging(s)"
+                    ></button>
+                  }
+                </span>
+              </div>
+            }
+            <div class="cw-sources-foot">
+              <button type="button" class="cw-link" (click)="state.showAll()">Show all</button>
+              <label class="cw-check-label" title="CORS preflights - hidden unless this is on">
+                <input type="checkbox" [checked]="state.showOptionsCalls()" (change)="state.setShowOptionsCalls($any($event.target).checked)" />
+                Show OPTIONS
+              </label>
+              @if (osNotifySupported) {
+                <label class="cw-check-label" title="Also show each captured call as a Windows notification while you're working elsewhere">
+                  <input type="checkbox" [checked]="osNotify()" (click)="$event.preventDefault(); toggleOsNotify()" />
+                  Notify me in Windows
+                </label>
+              }
+              <span class="cw-spacer"></span>
+              @if (state.sources().length > 1) {
+                <span class="cw-faint">Logging switches apply to every cycle and user</span>
+              }
+            </div>
+          </div>
+        }
+
+        <div class="cw-wf">
+          <app-mini-waterfall
+            [nodes]="state.tree()"
+            [depths]="state.depths()"
+            [spacers]="state.spacers()"
+            [descending]="state.callOrder() === 'newest'"
+            [latestAnchor]="state.latestAnchor()"
+            [cycleId]="cycle()?.id ?? null"
+            [flashId]="flashId()"
+            [emptyText]="emptyText()"
+            [emptyAction]="emptyAction()"
+            (emptyActionClick)="onEmptyAction()"
+            (orderChange)="state.setCallOrder($event)"
+            (addSpacer)="addSpacer($event)"
+            (renameSpacer)="state.renameSpacer($event.spacer.id, $event.label)"
+            (deleteSpacer)="state.deleteSpacer($event.id)"
+            (showInCycle)="showCallInCycle($event)"
+          />
+        </div>
+      }
+    </div>
+  }
+</div>

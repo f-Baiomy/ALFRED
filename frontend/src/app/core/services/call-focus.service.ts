@@ -13,6 +13,14 @@ export interface CallFocus {
   readonly serviceName: string | null;
 }
 
+/** What a list page needs from its state to POINT AT a call among all the others (see revealIn). */
+export interface RevealableList {
+  selectedSources(): ReadonlySet<SourceKey>;
+  toggleSource(key: SourceKey): void;
+  showOptionsCalls(): boolean;
+  toggleShowOptionsCalls(): void;
+}
+
 /** What a list page needs from its state to show one call: its source selected, and filtered to it. */
 export interface FocusableList {
   selectedSources(): ReadonlySet<SourceKey>;
@@ -36,6 +44,10 @@ export class CallFocusService {
   /** The card to scroll to and flash - cleared by that card once it has. */
   readonly highlight = signal<string | null>(null);
 
+  /** The call a cycle page should point at, with every other call still listed - cleared once it has (see revealed). */
+  readonly reveal = signal<string | null>(null);
+  private pendingReveal: (CallFocus & { readonly preflight: boolean }) | null = null;
+
   go(focus: CallFocus): void {
     this.pending.set(focus);
     this.highlight.set(focus.callId);
@@ -53,6 +65,40 @@ export class CallFocusService {
     this.pending.set(null);
     const key: SourceKey = focus.direction === 'inbound' && focus.serviceName ? focus.serviceName : EXTERNAL_SOURCE_KEY;
     if (!list.selectedSources().has(key)) list.toggleSource(key);
+  }
+
+  /**
+   * "Show in cycle" from the floating cycle widget: the call's cycle page with EVERY call listed (not
+   * filtered to this one, unlike go), scrolled to this call and pointing at it. `?reveal=` in the URL
+   * makes the page the one to handle it; the page removes it again once it has, so a reload doesn't
+   * point a second time.
+   */
+  revealIn(focus: CallFocus & { readonly preflight: boolean }): void {
+    if (!focus.cycleId) return;
+    this.pendingReveal = focus;
+    this.reveal.set(focus.callId);
+    void this.router.navigate(['/cycles', focus.cycleId], { queryParams: { reveal: focus.callId } });
+  }
+
+  /**
+   * On a cycle page with `?reveal=`: makes sure the call CAN be shown - its source selected, OPTIONS
+   * shown if it is a preflight - without filtering anything else away. A bare link (no pending
+   * reveal, e.g. pasted) still points; it just can't know the source to switch on.
+   */
+  applyReveal(list: RevealableList, cycleId: string, callId: string): void {
+    const focus = this.pendingReveal;
+    if (focus && focus.cycleId === cycleId && focus.callId === callId) {
+      this.pendingReveal = null;
+      const key: SourceKey = focus.direction === 'inbound' && focus.serviceName ? focus.serviceName : EXTERNAL_SOURCE_KEY;
+      if (!list.selectedSources().has(key)) list.toggleSource(key);
+      if (focus.preflight && !list.showOptionsCalls()) list.toggleShowOptionsCalls();
+    }
+    this.reveal.set(callId);
+  }
+
+  /** The page has pointed at the call. */
+  revealed(callId: string): void {
+    if (this.reveal() === callId) this.reveal.set(null);
   }
 
   /** The card has scrolled to itself - flash only once. */

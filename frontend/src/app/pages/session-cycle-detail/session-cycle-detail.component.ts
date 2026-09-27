@@ -1,7 +1,7 @@
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { CallFocusService } from '../../core/services/call-focus.service';
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { forkJoin, switchMap } from 'rxjs';
 import { CallPickerService } from '../../core/services/call-picker.service';
@@ -38,6 +38,7 @@ import { SessionCyclesStateService } from '../../core/state/session-cycles-state
 import { ScenarioCycleChainPanelComponent } from '../../components/scenario-cycle-chain-panel/scenario-cycle-chain-panel.component';
 import { ScenarioCycleSourceService } from '../../core/services/scenario-cycle-source.service';
 import { CallRecord } from '../../core/models/call.model';
+import { findCallRow, pointAtCall } from '../../shared/utils/call-reveal';
 
 /**
  * One open session-cycle: its own poll+live-merge+selection+search/sort/group/stats state
@@ -100,6 +101,40 @@ export class SessionCycleDetailComponent {
       const wanted = requestId()?.get('requestId') ?? null;
       if (!id) return;
       untracked(() => focus.applyTo(this.state, id, wanted));
+    });
+
+    // `/cycles/<id>?reveal=<callId>` - the cycle widget's "Show in cycle": every call listed, this one
+    // pointed at. See CallFocusService.revealIn.
+    const router = inject(Router);
+    const host = inject(ElementRef<HTMLElement>);
+    const injector = inject(Injector);
+    effect(() => {
+      const id = this.state.cycleId();
+      const wanted = requestId()?.get('reveal') ?? null;
+      if (!id || !wanted) return;
+      untracked(() => focus.applyReveal(this.state, id, wanted));
+    });
+    // Waits for the call to be loaded (the list arrives after navigation), unfolds whatever parents
+    // it's folded under in the nested/waterfall views, then points at it once it's in the DOM.
+    effect(() => {
+      const target = focus.reveal();
+      if (!target || !this.state.calls().some((c) => c.id === target)) return;
+      untracked(() => {
+        const depths = this.state.callDepths();
+        const ancestors: string[] = [];
+        for (let parent = depths.get(target)?.parentId ?? null; parent; parent = depths.get(parent)?.parentId ?? null) ancestors.push(parent);
+        if (ancestors.some((a) => this.state.foldedIds().has(a))) this.state.setFolded(ancestors, false);
+        afterNextRender(
+          () => {
+            const row = findCallRow(host.nativeElement as HTMLElement, target);
+            if (!row) return;
+            focus.revealed(target);
+            pointAtCall(row);
+            void router.navigate([], { queryParams: { reveal: null }, queryParamsHandling: 'merge', replaceUrl: true });
+          },
+          { injector }
+        );
+      });
     });
 
     // Return from "Add calls from anywhere…" lands here - rebuilt, or kept when the user never left.

@@ -9493,6 +9493,85 @@ app-header-editor {
   }
 }
 
+/* "Show in cycle" from the cycle widget (see shared/utils/call-reveal.ts): every call stays listed and
+   this one is pointed at - a "This call" tag above it that nudges down a few times, and an outline
+   that pulses, then stays quietly until the next click or key press. */
+.call-reveal {
+  position: relative;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px var(--purple);
+  animation: call-reveal-pulse 1.2s ease-out 3;
+}
+
+.call-reveal-tag {
+  position: absolute;
+  z-index: 3;
+  left: 16px;
+  top: -13px;
+  padding: 1px 10px 1px 8px;
+  border-radius: 999px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: call-reveal-arrive 0.35s ease-out both, call-reveal-nudge 0.6s ease-in-out 0.35s 4;
+
+  &::before {
+    content: 'BC';
+    font-size: 8px;
+    margin-right: 5px;
+    vertical-align: 1px;
+  }
+}
+
+// A nested card's host is inline by default - the outline needs a box.
+app-call-card.call-reveal {
+  display: block;
+}
+
+@keyframes call-reveal-pulse {
+  0% {
+    box-shadow: 0 0 0 2px var(--purple), 0 0 0 0 color-mix(in srgb, var(--purple) 70%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 2px var(--purple), 0 0 0 10px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 2px var(--purple), 0 0 0 0 transparent;
+  }
+}
+
+@keyframes call-reveal-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes call-reveal-nudge {
+  0%,
+  100% {
+    transform: none;
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-reveal,
+  .call-reveal-tag {
+    animation: none;
+  }
+}
+
 /* Smart JSON path box (JsonPathInputComponent), a condition's extra fields and value chips, and
    "Browse request / response body…" (JsonBrowseComponent). */
 .json-path-input {
@@ -10089,3 +10168,4 @@ app-header-editor {
 @import "styles/scenarios";
 @import "styles/rules-power";
 @import "styles/call-list-power";
+@import "styles/cycle-widget";

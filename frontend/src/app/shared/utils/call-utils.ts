@@ -47,6 +47,11 @@ export function toCallRecord(dto: CallSummaryDto, source?: CallEndpointSource): 
 /** Reserved key for a call that has no service_name - every external call, plus an internal one logged before this field existed (see CallRecord.service_name's doc). Must match backend's LoggingToggleService.UNKNOWN_NAME/proxy's UNKNOWN_NAME for the "unknown" case, but 'external' itself is a frontend-only concept - the backend has no such name. */
 export const EXTERNAL_SOURCE_KEY = 'external';
 
+/** A CORS preflight - what "Show OPTIONS" (off by default) hides, failed or not. */
+export function isPreflight(call: CallRecord): boolean {
+  return call.method === 'OPTIONS';
+}
+
 /** Which Sources-bar entry a call belongs to - its own service_name if it has one (an internal call, including its "unknown" bucket), else the reserved 'external' key. See SourceKey's doc. */
 export function sourceKeyOf(call: CallRecord): string {
   return call.service_name ?? EXTERNAL_SOURCE_KEY;

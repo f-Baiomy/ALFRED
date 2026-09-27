@@ -3,7 +3,7 @@ import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Observable, Subject, asyncScheduler, of } from 'rxjs';
 import { catchError, debounceTime, distinctUntilChanged, switchMap, tap, throttleTime } from 'rxjs/operators';
 import { CallOverlapCandidate, CallRecord, SortMode } from '../models/call.model';
-import { CallListRow, CallStatusFilter, callKey, isInProgress, matchesStatusFilter, sortCalls, splitCallsForDisplay, supplierOf } from '../../shared/utils/call-utils';
+import { CallListRow, CallStatusFilter, callKey, isInProgress, matchesStatusFilter, sortCalls, splitCallsForDisplay, supplierOf, isPreflight } from '../../shared/utils/call-utils';
 import {
   CallDepthInfo,
   CallTreeNode,
@@ -49,7 +49,7 @@ function saveViewMode(value: CallViewMode): void {
  * reloads since it's a personal display choice, not page-specific data. */
 const SHOW_OPTIONS_CALLS_KEY = 'alfred_show_options_calls';
 
-function loadShowOptionsCalls(): boolean {
+export function loadShowOptionsCalls(): boolean {
   try {
     return localStorage.getItem(SHOW_OPTIONS_CALLS_KEY) === 'true';
   } catch {
@@ -57,7 +57,7 @@ function loadShowOptionsCalls(): boolean {
   }
 }
 
-function saveShowOptionsCalls(value: boolean): void {
+export function saveShowOptionsCalls(value: boolean): void {
   try {
     localStorage.setItem(SHOW_OPTIONS_CALLS_KEY, String(value));
   } catch {
@@ -460,7 +460,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
    * display preference, so stats()/supplierOptions() are scoped off this too, not matchingCalls -
    * the "N calls" pill should match what's actually visible. */
   const optionsFiltered = computed(() => {
-    return showOptionsCalls() ? matchingCalls() : matchingCalls().filter((c) => c.method !== 'OPTIONS');
+    return showOptionsCalls() ? matchingCalls() : matchingCalls().filter((c) => !isPreflight(c));
   });
 
   const withoutPinned = computed(() => {
