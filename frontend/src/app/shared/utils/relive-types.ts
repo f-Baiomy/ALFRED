@@ -31,6 +31,11 @@ export interface NoiseRule {
   readonly count: boolean;
 }
 
+export interface GlobalRulesSelection {
+  readonly mode: GlobalRulesMode;
+  readonly selectedIds: readonly string[];
+}
+
 export interface UnexpectedCallsPolicy {
   readonly policy: UnexpectedCallsPolicyKind;
   readonly rules: readonly CycleRule[];
@@ -109,7 +114,7 @@ export interface ReliveCycle {
   readonly steps: readonly Step[];
   readonly variables: readonly CycleVariable[];
   readonly cycleRules: readonly CycleRule[];
-  readonly globalRules: { readonly mode: GlobalRulesMode; readonly selectedIds: readonly string[] };
+  readonly globalRules: GlobalRulesSelection;
   readonly settings: ReliveSettings;
   readonly noise: readonly NoiseRule[];
   readonly unexpectedCalls: UnexpectedCallsPolicy;
@@ -117,6 +122,19 @@ export interface ReliveCycle {
   readonly updatedAt?: string | null;
   readonly transient: boolean;
   readonly lastRun?: RunSummary | null;
+}
+
+/** The cycles list row - headers only, matching backend `ReliveCycleSummary` (no `steps`/`variables`/`cycleRules` bodies). */
+export interface ReliveCycleSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string | null;
+  readonly stepCount: number;
+  readonly liveCount: number;
+  readonly lastRun?: RunSummary | null;
+  readonly createdAt?: string | null;
+  readonly updatedAt?: string | null;
+  readonly isTransient: boolean;
 }
 
 export interface CycleVersion {

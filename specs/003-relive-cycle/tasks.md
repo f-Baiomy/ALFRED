@@ -133,15 +133,15 @@ below ends with the test that proves it.
 
 ### Frontend: API, socket, the call-rule helper, the external-reach check
 
-- [ ] T017 [P] Create `FE/core/services/relive-api.service.ts`, in the style of `FE/core/services/scenario-api.service.ts` (HttpClient + `AppConfigService.backendUrl`).
+- [X] T017 [P] Create `FE/core/services/relive-api.service.ts`, in the style of `FE/core/services/scenario-api.service.ts` (HttpClient + `AppConfigService.backendUrl`).
   - **Endpoints:** one method per endpoint in `contracts/rest-api.md`: cycles, versions, validate, runs, attempts, variables, stop, finish, hold, resume, definition, save-edits, compare, live-calls, use-as-recording.
   - **Update:** `update(id, cycle, ifMatch, reason?)` sets the `If-Match` header.
   - **Test:** `relive-api.service.spec.ts` with `HttpTestingController` covers the URL and headers for update, resume and live-calls.
-- [ ] T018 [P] Create `FE/core/services/relive-socket.service.ts`.
+- [X] T018 [P] Create `FE/core/services/relive-socket.service.ts`.
   - **Connection:** a bidirectional WebSocket to `${backendUrl.replace(/^http/,'ws')}/ws/relive`. It reconnects like `FE/core/state/reconnecting-socket.ts`, but keeps a `WebSocket` so it can `send()`.
   - **Exposes:** `events$` (a `Subject` of the three event types), `holdLease(runId)` and `releaseLease(runId)`. Every lease still held is re-sent `{type:'lease',runId}` on every (re)connect.
   - **Test:** `relive-socket.service.spec.ts` with a fake WebSocket: leases are re-sent after reconnect.
-- [ ] T019 [P] Create `FE/core/state/relive-cycles-state.service.ts` (root): `cycles` signal and `load()` via the API, reloaded when `relive-changed` arrives (no timers).
+- [X] T019 [P] Create `FE/core/state/relive-cycles-state.service.ts` (root): `cycles` signal and `load()` via the API, reloaded when `relive-changed` arrives (no timers).
 - [ ] T020 Create `FE/shared/utils/relive-call-rule.ts`: the pure core of FR-010a (research D17). Behaviour must equal mock.html `ACT`, `mkAct`, `applyFields`, `deriveFields`, `ensureAct`, `removeAct`, but work on real `InterceptionRuleDraft` action objects (`type`, `enabled`, fields).
   - **Action types:**
     - `MOCK_RESPONSE` (status, headers, body from `step.recording`)

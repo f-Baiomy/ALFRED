@@ -1,0 +1,72 @@
+import { Injectable, inject } from '@angular/core';
+import { Subject, Subscription, timer } from 'rxjs';
+import { repeat, retry } from 'rxjs/operators';
+import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
+import { AppConfigService } from './app-config.service';
+
+const RECONNECT_DELAY_MS = 3000;
+
+export type ReliveSocketEvent =
+  | { readonly type: 'relive-changed' }
+  | { readonly type: 'run-changed'; readonly cycleId: string; readonly runId: string }
+  | {
+      readonly type: 'run-call';
+      readonly runId: string;
+      readonly stepKey: string;
+      readonly callId: string;
+      readonly direction: 'outbound' | 'inbound';
+      readonly attribution: string;
+      readonly state: string;
+    };
+
+/**
+ * `/ws/relive` (contracts/rest-api.md). Reconnects like `reconnecting-socket.ts` (see that file's
+ * doc for why `retry` alone silently deafens a channel on a clean server close), but keeps the
+ * underlying `WebSocketSubject` so it can `send()` lease messages - `reconnecting-socket.ts`
+ * deliberately narrows its return type to a plain `Observable` and can't.
+ */
+@Injectable({ providedIn: 'root' })
+export class ReliveSocketService {
+  private readonly config = inject(AppConfigService);
+  readonly events$ = new Subject<ReliveSocketEvent>();
+
+  private socket: WebSocketSubject<ReliveSocketEvent | { type: 'lease'; runId: string }> | null = null;
+  private subscription: Subscription | null = null;
+  private readonly heldLeases = new Set<string>();
+
+  constructor() {
+    this.connect();
+  }
+
+  private connect(): void {
+    const url = `${this.config.backendUrl.replace(/^http/, 'ws')}/ws/relive`;
+    this.socket = webSocket<ReliveSocketEvent | { type: 'lease'; runId: string }>({
+      url,
+      openObserver: {
+        // Every lease still held is re-sent on every (re)connect (contracts/rest-api.md) -
+        // including the first open, unlike reconnecting-socket.ts's onReconnect: a lease taken
+        // before the socket existed still needs to reach the very first connection.
+        next: () => this.heldLeases.forEach((runId) => this.socket?.next({ type: 'lease', runId })),
+      },
+    });
+    this.subscription = this.socket
+      .pipe(
+        retry({ delay: () => timer(RECONNECT_DELAY_MS) }),
+        repeat({ delay: () => timer(RECONNECT_DELAY_MS) }),
+      )
+      .subscribe((event) => {
+        if (event.type !== 'lease') {
+          this.events$.next(event);
+        }
+      });
+  }
+
+  holdLease(runId: string): void {
+    this.heldLeases.add(runId);
+    this.socket?.next({ type: 'lease', runId });
+  }
+
+  releaseLease(runId: string): void {
+    this.heldLeases.delete(runId);
+  }
+}

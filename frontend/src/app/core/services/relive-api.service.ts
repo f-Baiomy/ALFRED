@@ -1,0 +1,161 @@
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+import { AppConfigService } from './app-config.service';
+import {
+  CycleVersion,
+  LiveCall,
+  ReliveCycle,
+  ReliveCycleSummary,
+  Run,
+  StepResult,
+  UnattributedChoice,
+  ValidationFinding,
+} from '../../shared/utils/relive-types';
+
+export type ReliveWriteRequest = Omit<ReliveCycle, 'id' | 'createdAt' | 'updatedAt' | 'transient' | 'lastRun'>;
+
+export interface StartRunRequest {
+  readonly driver: 'AUTOMATIC' | 'GUIDED';
+  readonly fromStepKey?: string | null;
+  readonly seedFromRunId?: string | null;
+  readonly unattributedChoices: Readonly<Record<string, UnattributedChoice>>;
+}
+
+/** contracts/rest-api.md - one method per endpoint, in `scenario-api.service.ts`'s style. */
+@Injectable({ providedIn: 'root' })
+export class ReliveApiService {
+  private readonly http = inject(HttpClient);
+  private readonly config = inject(AppConfigService);
+  private get base(): string {
+    return `${this.config.backendUrl}/relive-cycles`;
+  }
+
+  // ---- Cycles ----
+
+  list(): Observable<ReliveCycleSummary[]> {
+    return this.http.get<ReliveCycleSummary[]>(this.base);
+  }
+
+  get(id: string): Observable<ReliveCycle> {
+    return this.http.get<ReliveCycle>(`${this.base}/${encodeURIComponent(id)}`);
+  }
+
+  create(cycle: ReliveWriteRequest, asTransient = false): Observable<ReliveCycle> {
+    const url = asTransient ? `${this.base}?transient=true` : this.base;
+    return this.http.post<ReliveCycle>(url, cycle);
+  }
+
+  /** Sets `If-Match` to `ifMatch` (the cycle's last-read `updatedAt`) for optimistic concurrency;
+   *  a `reason` snapshots the previous definition as a version first. */
+  update(id: string, cycle: ReliveWriteRequest, ifMatch: string, reason?: string): Observable<ReliveCycle> {
+    const url = reason ? `${this.base}/${encodeURIComponent(id)}?reason=${encodeURIComponent(reason)}` : `${this.base}/${encodeURIComponent(id)}`;
+    const headers = new HttpHeaders({ 'If-Match': ifMatch });
+    return this.http.put<ReliveCycle>(url, cycle, { headers });
+  }
+
+  duplicate(id: string, name?: string): Observable<ReliveCycle> {
+    return this.http.post<ReliveCycle>(`${this.base}/${encodeURIComponent(id)}/duplicate`, name ? { name } : {});
+  }
+
+  delete(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/${encodeURIComponent(id)}`);
+  }
+
+  validate(id: string): Observable<ValidationFinding[]> {
+    return this.http.post<ValidationFinding[]>(`${this.base}/${encodeURIComponent(id)}/validate`, {});
+  }
+
+  listVersions(id: string): Observable<CycleVersion[]> {
+    return this.http.get<CycleVersion[]>(`${this.base}/${encodeURIComponent(id)}/versions`);
+  }
+
+  restoreVersion(id: string, version: number): Observable<ReliveCycle> {
+    return this.http.post<ReliveCycle>(`${this.base}/${encodeURIComponent(id)}/versions/${version}/restore`, {});
+  }
+
+  // ---- Runs ----
+
+  startRun(cycleId: string, request: StartRunRequest): Observable<Run> {
+    return this.http.post<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs`, request);
+  }
+
+  listRuns(cycleId: string, limit = 50): Observable<Run[]> {
+    return this.http.get<Run[]>(`${this.base}/${encodeURIComponent(cycleId)}/runs?limit=${limit}`);
+  }
+
+  getRun(cycleId: string, runId: string): Observable<Run & { readonly stepResults: readonly StepResult[]; readonly secrets: readonly string[] }> {
+    return this.http.get<Run & { readonly stepResults: readonly StepResult[]; readonly secrets: readonly string[] }>(
+      `${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}`,
+    );
+  }
+
+  putStepAttempt(cycleId: string, runId: string, stepKey: string, attempt: number, result: StepResult): Observable<void> {
+    return this.http.put<void>(
+      `${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepKey)}/attempts/${attempt}`,
+      result,
+    );
+  }
+
+  setVariable(cycleId: string, runId: string, name: string, value: string, stepKey: string | null): Observable<void> {
+    return this.http.post<void>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/variables`, {
+      name,
+      value,
+      stepKey,
+    });
+  }
+
+  stopRun(cycleId: string, runId: string): Observable<Run> {
+    return this.http.post<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/stop`, {});
+  }
+
+  updateRunDefinition(cycleId: string, runId: string, definition: ReliveCycle, reason: string): Observable<Run> {
+    return this.http.put<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/definition`, {
+      definition,
+      reason,
+    });
+  }
+
+  setHold(cycleId: string, runId: string, hold: { stepKey: string; reason: 'FAILED' | 'DIFFERENCES' } | null): Observable<Run> {
+    return this.http.put<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/hold`, hold);
+  }
+
+  resumeRun(cycleId: string, runId: string, afterStepKey: string): Observable<Run> {
+    return this.http.post<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/resume`, { afterStepKey });
+  }
+
+  finishRun(cycleId: string, runId: string, status: string): Observable<Run> {
+    return this.http.post<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/finish`, { status });
+  }
+
+  saveStepEdits(cycleId: string, runId: string, stepKey: string, edits: unknown): Observable<ReliveCycle> {
+    return this.http.post<ReliveCycle>(
+      `${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepKey)}/save-edits`,
+      edits,
+    );
+  }
+
+  compareRuns(cycleId: string, runIdA: string, runIdB: string): Observable<unknown> {
+    return this.http.get(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runIdA)}/compare/${encodeURIComponent(runIdB)}`);
+  }
+
+  // ---- Live calls ----
+
+  listLiveCalls(cycleId: string, limit = 100): Observable<LiveCall[]> {
+    return this.http.get<LiveCall[]>(`${this.base}/${encodeURIComponent(cycleId)}/live-calls?limit=${limit}`);
+  }
+
+  getLiveCall(cycleId: string, liveId: string): Observable<LiveCall> {
+    return this.http.get<LiveCall>(`${this.base}/${encodeURIComponent(cycleId)}/live-calls/${encodeURIComponent(liveId)}`);
+  }
+
+  deleteLiveCall(cycleId: string, liveId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/${encodeURIComponent(cycleId)}/live-calls/${encodeURIComponent(liveId)}`);
+  }
+
+  useAsRecording(cycleId: string, liveId: string, stepKey: string): Observable<ReliveCycle> {
+    return this.http.post<ReliveCycle>(`${this.base}/${encodeURIComponent(cycleId)}/live-calls/${encodeURIComponent(liveId)}/use-as-recording`, {
+      stepKey,
+    });
+  }
+}
