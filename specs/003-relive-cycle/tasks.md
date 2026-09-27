@@ -184,7 +184,7 @@ below ends with the test that proves it.
 **Goal**: create, name, save, reorder, enable/disable, duplicate, reset and delete cycles built from recorded calls
 (FR-001-009). **Independent test**: spec.md US1 acceptance scenarios 1-6; mock walkthrough **1 Build**.
 
-- [ ] T022 [P] [US1] Create `FE/shared/utils/relive-freeze.ts`.
+- [X] T022 [P] [US1] Create `FE/shared/utils/relive-freeze.ts`.
   - **`freezeCalls(calls: CallRecord[], details: Map<id, detail>, settings): Step[]`** turns recorded calls (inbound roots with their outbound children) into steps.
     - **Parents:** use `buildCallTree` from `FE/shared/utils/call-tree.ts` to find each inbound call's outbound children.
     - **`FrozenCall`:** copy every field listed in data-model.md, bodies in full.
