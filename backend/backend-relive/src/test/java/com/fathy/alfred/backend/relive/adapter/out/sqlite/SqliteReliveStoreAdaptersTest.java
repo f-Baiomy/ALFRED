@@ -1,0 +1,160 @@
+package com.fathy.alfred.backend.relive.adapter.out.sqlite;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fathy.alfred.backend.relive.domain.model.CycleVersion;
+import com.fathy.alfred.backend.relive.domain.model.FrozenCall;
+import com.fathy.alfred.backend.relive.domain.model.GlobalRulesSelection;
+import com.fathy.alfred.backend.relive.domain.model.LiveCall;
+import com.fathy.alfred.backend.relive.domain.model.NoiseRule;
+import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
+import com.fathy.alfred.backend.relive.domain.model.ReliveCycleSummary;
+import com.fathy.alfred.backend.relive.domain.model.ReliveSettings;
+import com.fathy.alfred.backend.relive.domain.model.Run;
+import com.fathy.alfred.backend.relive.domain.model.RunStatus;
+import com.fathy.alfred.backend.relive.domain.model.RunSummary;
+import com.fathy.alfred.backend.relive.domain.model.StepResult;
+import com.fathy.alfred.backend.relive.domain.model.StepState;
+import com.fathy.alfred.backend.relive.domain.model.UnexpectedCallsPolicy;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/** Round-trips through a temp-file SQLite DB (constitution: SQLite adapters don't cache). */
+class SqliteReliveStoreAdaptersTest {
+
+    private SqliteReliveRepository repository;
+    private SqliteReliveCycleStoreAdapter cycleStore;
+    private SqliteReliveRunStoreAdapter runStore;
+    private SqliteLiveCallStoreAdapter liveCallStore;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @BeforeEach
+    void setUp(@TempDir Path tempDir) {
+        repository = new SqliteReliveRepository();
+        ReflectionTestUtils.setField(repository, "dbFile", tempDir.resolve("relive.db").toString());
+        repository.init();
+        cycleStore = new SqliteReliveCycleStoreAdapter(repository, objectMapper);
+        runStore = new SqliteReliveRunStoreAdapter(repository, objectMapper);
+        liveCallStore = new SqliteLiveCallStoreAdapter(repository, objectMapper);
+    }
+
+    private ReliveCycle newCycle(String id, boolean isTransient) {
+        String body = "x".repeat(30_000); // ~30 KB, per T010
+        JsonNode ruleDoc = objectMapper.createObjectNode().put("name", "call rule");
+        var callRule = new com.fathy.alfred.backend.relive.domain.model.CycleRule(ruleDoc, null);
+        var recording = new FrozenCall("POST", "https://api.supplier-a.com/v2/search",
+                Collections.emptyMap(), body, 200, Collections.emptyMap(), body, "2026-09-27T10:00:00Z",
+                420, null, null, "odeysys", "outbound");
+        var step = new com.fathy.alfred.backend.relive.domain.model.Step(
+                "s-search", null, "POST /v2/search", true, false, "inbound", "odeysys", callRule,
+                "BLOCK", recording, new com.fathy.alfred.backend.relive.domain.model.StepSource(null, null, "inbound"),
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+        return new ReliveCycle(id, "Book flow", "desc", List.of(step), List.of(), List.of(),
+                new GlobalRulesSelection("NONE", List.of()),
+                new ReliveSettings("LIVE", "HOLD", "CONTINUE", "AUTOMATIC", List.of()),
+                List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"),
+                "2026-09-27T10:00:00Z", "2026-09-27T10:00:00Z", isTransient, null);
+    }
+
+    @Test
+    void roundTripsACycle() {
+        ReliveCycle saved = cycleStore.save(newCycle("c-1", false));
+
+        Optional<ReliveCycle> found = cycleStore.findById("c-1");
+        assertThat(found).isPresent();
+        assertThat(found.get().name()).isEqualTo("Book flow");
+        assertThat(found.get().steps()).hasSize(1);
+        assertThat(found.get().steps().get(0).recording().requestBody()).hasSize(30_000);
+        assertThat(saved.id()).isEqualTo("c-1");
+    }
+
+    @Test
+    void listDoesNotReadBodies() {
+        cycleStore.save(newCycle("c-1", false));
+        List<ReliveCycleSummary> summaries = cycleStore.listSummaries();
+        assertThat(summaries).hasSize(1);
+        assertThat(summaries.get(0).stepCount()).isEqualTo(1);
+        assertThat(summaries.get(0).name()).isEqualTo("Book flow");
+    }
+
+    @Test
+    void versionPruningKeepsTheNewestTen() {
+        for (int i = 1; i <= 15; i++) {
+            CycleVersion version = new CycleVersion("c-1", i, "2026-09-27T1" + (i % 10) + ":00:00Z", "REBUILD_REFRESH", newCycle("c-1", false));
+            cycleStore.saveVersion(version, 10);
+        }
+        List<CycleVersion> versions = cycleStore.listVersions("c-1");
+        assertThat(versions).hasSize(10);
+        assertThat(versions.get(0).version()).isEqualTo(15);
+        assertThat(versions.get(9).version()).isEqualTo(6);
+    }
+
+    private Run newRun(String id, String cycleId) {
+        RunSummary summary = new RunSummary(1, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new Run(id, cycleId, "AUTOMATIC", RunStatus.RUNNING, "2026-09-27T10:00:00Z", null,
+                newCycle(cycleId, false), null, List.of(), List.of(), summary, null, List.of(), List.of());
+    }
+
+    @Test
+    void runPruningKeepsNewestFiftyAndSizeCap() {
+        for (int i = 1; i <= 55; i++) {
+            runStore.create(newRun("r-" + i, "c-1"));
+        }
+        List<Run> listed = runStore.listByCycleId("c-1", 100);
+        assertThat(listed).hasSize(55);
+
+        runStore.pruneRuns("c-1", 50, Long.MAX_VALUE);
+        assertThat(runStore.listByCycleId("c-1", 100)).hasSize(50);
+
+        // Size cap: each run's definition body is ~30 KB: cap far below that forces heavy pruning.
+        runStore.pruneRuns("c-1", 50, 50_000);
+        assertThat(runStore.listByCycleId("c-1", 100).size()).isLessThan(50);
+    }
+
+    @Test
+    void stepResultsRoundTrip() {
+        runStore.create(newRun("r-1", "c-1"));
+        StepResult result = new StepResult("r-1", "s-search", 1, StepState.COMPLETED, "REPLAY", "HEADER",
+                null, null, null, List.of(), List.of(), List.of(), List.of(), null,
+                "2026-09-27T10:00:00Z", "2026-09-27T10:00:01Z", 1000L, null, List.of(), null, List.of(), null);
+        runStore.putStepResult(result);
+        List<StepResult> results = runStore.listStepResults("r-1");
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).state()).isEqualTo(StepState.COMPLETED);
+    }
+
+    @Test
+    void liveCallsAreNeverPrunedByRunPruning() {
+        LiveCall call = new LiveCall("lv-1", "c-1", "r-1", "s-search", "LIVE", null,
+                objectMapper.createObjectNode().put("method", "POST").put("url", "https://api.supplier-a.com"),
+                objectMapper.createObjectNode().put("status", 200), 200, 900, "2026-09-27T10:00:00Z");
+        liveCallStore.add(call);
+
+        for (int i = 1; i <= 60; i++) {
+            runStore.create(newRun("r-" + i, "c-1"));
+        }
+        runStore.pruneRuns("c-1", 5, 1);
+
+        assertThat(liveCallStore.list("c-1", 100)).hasSize(1);
+        assertThat(liveCallStore.totalBytes("c-1")).isGreaterThan(0);
+    }
+
+    @Test
+    void liveCallDeletedOnlyByUser() {
+        LiveCall call = new LiveCall("lv-2", "c-1", "r-1", null, "UNEXPECTED", null,
+                objectMapper.createObjectNode(), objectMapper.createObjectNode(), 502, 10, "2026-09-27T10:00:00Z");
+        liveCallStore.add(call);
+        assertThat(liveCallStore.findById("lv-2")).isPresent();
+        assertThat(liveCallStore.deleteById("lv-2")).isTrue();
+        assertThat(liveCallStore.findById("lv-2")).isEmpty();
+    }
+}

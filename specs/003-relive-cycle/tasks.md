@@ -80,10 +80,10 @@ below ends with the test that proves it.
 
 ### Backend: model, storage, CRUD, events
 
-- [ ] T007 Create the domain records in `BR/domain/model/` from data-model.md: `ReliveCycle`, `ReliveSettings`, `Step`, `FrozenCall`, `CycleVariable`, `CycleRule`, `NoiseRule`, `UnexpectedCallsPolicy`, `GlobalRulesSelection`, `CycleVersion`, `Run`, `RunStatus` (enum), `RunSummary`, `StepResult`, `StepState` (enum), `ValidationFinding`, `LiveCall`.
+- [X] T007 Create the domain records in `BR/domain/model/` from data-model.md: `ReliveCycle`, `ReliveSettings`, `Step`, `FrozenCall`, `CycleVariable`, `CycleRule`, `NoiseRule`, `UnexpectedCallsPolicy`, `GlobalRulesSelection`, `CycleVersion`, `Run`, `RunStatus` (enum), `RunSummary`, `StepResult`, `StepState` (enum), `ValidationFinding`, `LiveCall`.
   - **Rule documents stay opaque:** hold them as Jackson `JsonNode` fields. This covers `Step.callRule`, `CycleRule.rule`, `extract`, `assertions`, `StepResult` request/response. The backend never interprets actions.
   - **Constants:** add `MAX_STEPS = 500`, `MAX_VARIABLES = 200`, `MAX_CYCLE_RULES = 200` and `MAX_LIST_LIMIT = 100` in `ReliveLimits.java`.
-- [ ] T008 Create `BR/adapter/out/sqlite/SqliteReliveRepository.java` by copying the structure of `backend/backend-scenarios/.../adapter/out/sqlite/SqliteScenariosRepository.java`:
+- [X] T008 Create `BR/adapter/out/sqlite/SqliteReliveRepository.java` by copying the structure of `backend/backend-scenarios/.../adapter/out/sqlite/SqliteScenariosRepository.java`:
   - Hikari pool; the PRAGMA `connectionInitSql`.
   - `@ConditionalOnProperty(prefix="alfred.storage.relive", name="type", havingValue="sqlite", matchIfMissing=true)`.
   - DB file from `${RELIVE_DB_FILE:/appdata/relive.db}`.
@@ -94,7 +94,7 @@ below ends with the test that proves it.
     - `relive_step_results(run_id, step_key, attempt, state, result_json, size_bytes, PRIMARY KEY(run_id, step_key, attempt))`
     - `relive_live_calls(id PK, cycle_id, run_id, step_key, reason, method, url, status, duration_ms, at, request_json, response_json, size_bytes)`
   - Add indexes on `cycle_id` for runs, versions and live calls.
-- [ ] T009 [P] Create the outbound ports in `BR/application/port/out/`:
+- [X] T009 [P] Create the outbound ports in `BR/application/port/out/`:
   - `ReliveCycleStorePort`: list, get, save, delete, `saveVersion`, `listVersions`, `getVersion`, `pruneVersions(cycleId, keep=10)`.
   - `ReliveRunStorePort`: create, get, list, update status/hold/resumed/summary, `putStepResult`, `listStepResults`, `pruneRuns(cycleId, keep 50, maxBytes)`.
   - `LiveCallStorePort`: add, list, get, delete, `totalBytes(cycleId)`.
@@ -102,7 +102,7 @@ below ends with the test that proves it.
   - `ReliveNotificationPort`: `cycleChanged()`, `runChanged(cycleId, runId)`, `runCall(event)`.
   - `RuleValidationPort`: `List<String> validate(JsonNode ruleDoc)`.
   - `GlobalRulesLookupPort`: `List<GlobalRuleRef> list()` and `boolean exists(id)`.
-- [ ] T010 Implement `BR/adapter/out/sqlite/SqliteReliveCycleStoreAdapter.java`, `SqliteReliveRunStoreAdapter.java` and `SqliteLiveCallStoreAdapter.java` as thin wrappers over `SqliteReliveRepository.jdbc()`, in the scenarios adapters' style.
+- [X] T010 Implement `BR/adapter/out/sqlite/SqliteReliveCycleStoreAdapter.java`, `SqliteReliveRunStoreAdapter.java` and `SqliteLiveCallStoreAdapter.java` as thin wrappers over `SqliteReliveRepository.jdbc()`, in the scenarios adapters' style.
   - **Serialisation:** records to and from `definition_json`, etc. with the Spring `ObjectMapper`.
   - **List queries select headers only, never bodies** (constitution II). The cycles list must not read `definition_json`: store `step_count`, `live_count` and `last_run_json` in extra columns when saving, and add those columns to T008.
   - **Test:** `BRT/adapter/out/sqlite/SqliteReliveStoreAdaptersTest.java` against a temp file DB (`@TempDir`) with ~30 KB bodies: round-trip; list without bodies; version pruning keeps the newest 10; run pruning keeps the newest 50 and the size cap; live calls are never pruned by run pruning.
