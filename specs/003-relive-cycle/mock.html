@@ -1,0 +1,1379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred · Relive Cycle - UX mock</title>
+<!--
+  UX approval mock for specs/003-relive-cycle. Self-contained: no build, no network.
+  Uses Alfred's own theme tokens (styles.scss :root) and component vocabulary (tab nav, method/status
+  badges, depth rails, pills, dialogs) so it reads like the real app.
+  Everything is simulated in this file - nothing is sent anywhere.
+-->
+<style>
+:root{
+  --bg:#0a0e2a; --nav:#11163d; --card:#141a45; --card-2:#101636; --inner:#070a24; --pop:#161c4a;
+  --border:rgba(139,92,246,.22); --border-s:rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-l:#c4b5fd; --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#f87171; --orange:#fb923c;
+  --text:#e5e9f5; --dim:#93a0c2; --faint:#5c6690;
+  --d0:#8b5cf6; --d1:#38bdf8; --d2:#e879f9; --d3:#818cf8;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:13px/1.45 'Segoe UI',system-ui,sans-serif;background:radial-gradient(ellipse at top,#131a4a 0%,#0a0e2a 55%);color:var(--text)}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,select,textarea{font:inherit;color:var(--text);background:var(--inner);border:1px solid var(--border-s);border-radius:8px;padding:6px 9px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--purple)}
+.mono{font-family:Consolas,'Cascadia Mono',monospace}
+.faint{color:var(--faint)} .dim{color:var(--dim)}
+/* ---- mock banner ---- */
+.mockbar{display:flex;gap:10px;align-items:center;padding:6px 16px;background:#2a1a55;color:var(--purple-l);font-size:12px;border-bottom:1px solid var(--border-s)}
+.mockbar b{color:#fff}
+.mockbar .sp{flex:1}
+.mockbar button{border:1px solid var(--border-s);border-radius:6px;padding:2px 8px}
+/* ---- app nav ---- */
+.nav{display:flex;align-items:center;gap:4px;padding:0 24px;background:linear-gradient(120deg,#1a1247,#0f1438 60%,#1a1247);border-bottom:1px solid var(--border-s)}
+.nav a{padding:12px 14px;color:var(--dim);text-decoration:none;font-weight:600;border-bottom:2px solid transparent;cursor:pointer}
+.nav a.on{color:var(--purple-l);border-bottom-color:var(--purple)}
+.nav .new{font-size:10px;background:var(--purple);color:#fff;border-radius:6px;padding:1px 5px;margin-left:4px;vertical-align:1px}
+.page{max-width:1320px;margin:0 auto;padding:18px 24px 60px}
+h1{font:700 20px Montserrat,'Segoe UI',sans-serif;margin:0}
+h2{font:700 15px Montserrat,'Segoe UI',sans-serif;margin:0}
+.sub{color:var(--dim);margin-top:2px}
+/* ---- generic ---- */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:9px;border:1px solid var(--border-s);background:var(--card);font-weight:600;white-space:nowrap}
+.btn:hover{background:#1c2358}
+.btn.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+.btn.primary:hover{background:#7c4ff0}
+.btn.danger{border-color:rgba(248,113,113,.5);color:var(--red)}
+.btn.sm{padding:3px 9px;border-radius:7px;font-size:12px}
+.btn[disabled]{opacity:.45;cursor:default}
+.link{color:var(--purple-l);font-size:12px}
+.link:hover{text-decoration:underline}
+.card{background:linear-gradient(160deg,#141a45,#101636);border:1px solid var(--border);border-radius:14px}
+.row{display:flex;align-items:center;gap:8px}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;white-space:nowrap;letter-spacing:.02em}
+.p-live{color:#fb923c;border-color:rgba(251,146,60,.6);background:rgba(251,146,60,.14)}
+.p-replay{color:var(--cyan);border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.1)}
+.p-global{color:#93c5fd;border-color:rgba(147,197,253,.45);background:rgba(147,197,253,.1)}
+.p-cycle{color:var(--purple-l);border-color:var(--border-s);background:rgba(139,92,246,.15)}
+.p-mod{color:var(--amber);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.1)}
+.p-diff{color:var(--amber);border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.12)}
+.p-fail{color:var(--red);border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.12)}
+.p-wait{color:var(--dim);border-color:var(--border);background:rgba(148,163,194,.1)}
+.p-ok{color:var(--green);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.1)}
+.p-secret{color:var(--dim);border-color:var(--border)}
+.p-pause{color:#f0abfc;border-color:rgba(232,121,249,.5);background:rgba(232,121,249,.12)}
+.st.paused{color:#3b0a3b;background:#e879f9;border-color:#e879f9}
+.pausebox{border:1px solid rgba(232,121,249,.55);background:rgba(232,121,249,.08);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.pausebox h3{margin:0 0 6px;font-size:13px;color:#f5d0fe}
+.haltbox{border:1px solid rgba(248,113,113,.55);background:rgba(248,113,113,.08);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.haltbox.diff{border-color:rgba(251,191,36,.55);background:rgba(251,191,36,.08)}
+.haltbox h3{margin:0 0 6px;font-size:13px;color:#fecaca}
+.haltbox.diff h3{color:#fde68a}
+.re-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.re-col{border:1px solid var(--border);border-radius:10px;padding:8px 10px;min-height:90px}
+.re-col h4{margin:0 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.re-act{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:4px 8px;margin-bottom:5px;font-size:12px;background:rgba(255,255,255,.02)}
+.re-pick{border:1px solid var(--border-s);border-radius:10px;padding:8px 10px;margin-top:8px;max-height:260px;overflow:auto}
+.re-pick .grp{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:8px 0 3px}
+.re-pick .it{display:block;width:100%;text-align:left;padding:4px 8px;border-radius:6px;font-size:12px;color:var(--text)}
+.re-pick .it:hover{background:rgba(139,92,246,.18)}
+.cmp{border:1px solid rgba(251,191,36,.35);border-radius:12px;padding:10px 12px;margin-bottom:12px;background:rgba(0,0,0,.18)}
+.cmp .strip{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}
+.cmp .strip button{border:1px solid var(--border);border-radius:8px;padding:4px 8px;text-align:left;font-size:11.5px;color:var(--text);min-width:88px}
+.cmp .strip button small{display:block;color:var(--faint);font-size:10.5px}
+.cmp .strip button.on{border-color:var(--border-s);background:rgba(139,92,246,.2)}
+.cmp .bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;border:1px solid var(--border);border-radius:10px;padding:5px 8px;margin:8px 0;font-size:11.5px}
+.cmp .dl{font-family:ui-monospace,monospace;font-size:11.5px;padding:1px 8px;white-space:pre}
+.cmp .dl.del{background:rgba(248,113,113,.16)} .cmp .dl.add{background:rgba(74,222,128,.14)}
+.cmp .dl.del::before{content:'– ';color:#f87171} .cmp .dl.add::before{content:'+ ';color:#4ade80} .cmp .dl.same::before{content:'  '}
+.cmp .dbox{border:1px solid var(--border);border-radius:8px;padding:4px 0;max-height:220px;overflow:auto}
+#extwatch{position:fixed;left:18px;bottom:18px;z-index:500;display:flex;flex-direction:column;gap:8px;width:min(430px,92vw)}
+.extnote{border:1px solid rgba(251,146,60,.7);background:#2a1a10;border-radius:12px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:12.5px;animation:fadein .2s}
+.extnote b{color:#fed7aa}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+.p-new{color:#86efac;border-color:rgba(134,239,172,.5);background:rgba(134,239,172,.1)}
+.ring{width:46px;height:46px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#f5d0fe;flex:none}
+.attempts{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0}
+.attempts button{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border)}
+.attempts button.on{background:rgba(139,92,246,.28);color:#fff;border-color:var(--border-s)}
+.pickpage{position:fixed;inset:0;background:radial-gradient(ellipse at top,#131a4a 0%,#0a0e2a 55%);z-index:45;overflow:auto}
+.pickbar{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;background:var(--pop);border:1px solid var(--purple);box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:46}
+.m{font:700 10px Consolas,monospace;padding:1px 5px;border-radius:4px;min-width:40px;text-align:center;display:inline-block;border:1px solid}
+.m-GET{color:var(--cyan);background:rgba(34,211,238,.12);border-color:rgba(34,211,238,.35)}
+.m-POST{color:var(--purple-l);background:rgba(139,92,246,.18);border-color:rgba(139,92,246,.4)}
+.m-PUT{color:#93c5fd;background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.35)}
+.dir{font-size:12px;width:14px;text-align:center;flex:none}
+.dir.in{color:var(--green)} .dir.out{color:var(--cyan)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:14px 0 12px}
+.tabs button{padding:8px 12px;color:var(--dim);font-weight:600;border-bottom:2px solid transparent}
+.tabs button.on{color:var(--purple-l);border-bottom-color:var(--purple)}
+.tabs .cnt{font-size:10px;color:var(--faint);margin-left:4px}
+.seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--inner);border:1px solid var(--border);gap:2px}
+.seg button{padding:3px 9px;border-radius:6px;font-size:11.5px;color:var(--dim);font-weight:600}
+.seg button.on{background:rgba(139,92,246,.28);color:#fff}
+.seg.mode button.on.live{background:rgba(251,146,60,.28);color:#fed7aa}
+.seg.mode button.on.replay{background:rgba(34,211,238,.2);color:#a5f3fc}
+/* ---- list page ---- */
+.cycles{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:16px}
+.cyc{padding:14px 16px;cursor:pointer}
+.cyc:hover{border-color:var(--border-s)}
+/* ---- cycle page ---- */
+.head{display:flex;align-items:flex-start;gap:12px;margin-bottom:4px}
+.head input.name{font:700 19px Montserrat,'Segoe UI',sans-serif;background:transparent;border:1px solid transparent;padding:2px 6px;margin-left:-6px;width:380px}
+.head input.name:hover{border-color:var(--border)}
+.dirty{font-size:11px;color:var(--amber);border:1px solid rgba(251,191,36,.4);border-radius:999px;padding:1px 8px}
+.summary{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:16px}
+.layout.nodrawer{grid-template-columns:minmax(0,1fr)}
+.panel{padding:12px}
+.toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.toolbar input.search{width:200px;padding:5px 9px}
+/* step tree */
+.step{display:flex;align-items:center;gap:8px;min-height:38px;padding:4px 8px;border-radius:9px;border:1px solid transparent;background:rgba(255,255,255,.015);margin-bottom:3px;position:relative}
+.step:hover{background:rgba(139,92,246,.07)}
+.step.sel{border-color:var(--purple);background:rgba(139,92,246,.1)}
+.step.off{opacity:.45}
+.step.child{margin-left:34px}
+.step.child::before{content:'';position:absolute;left:-18px;top:-6px;bottom:50%;border-left:2px solid rgba(56,189,248,.45);border-bottom:2px solid rgba(56,189,248,.45);width:12px;border-bottom-left-radius:6px}
+.step.dragging{opacity:.4}
+.step.dropabove{box-shadow:0 -2px 0 var(--purple)}
+.grip{color:var(--faint);cursor:grab;width:14px;text-align:center;flex:none;user-select:none}
+.num{color:var(--faint);width:18px;text-align:right;font-size:11px;flex:none}
+.lbl{min-width:0;flex:1;display:flex;align-items:center;gap:6px}
+.lbl .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lbl .u{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11.5px}
+.fold{width:16px;color:var(--dim);flex:none}
+.icb{width:24px;height:24px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--dim);flex:none}
+.icb:hover{background:rgba(139,92,246,.18);color:var(--text)}
+.ext-banner{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:9px;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.4);color:#fed7aa;margin-bottom:10px;font-size:12.5px}
+.warnlist{margin:0 0 10px;padding:8px 10px;border-radius:9px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3);font-size:12px}
+.warnlist div{padding:2px 0}
+.blk{color:var(--red)} .wrn{color:var(--amber)}
+/* drawer */
+.drawer{padding:0;position:sticky;top:12px;max-height:calc(100vh - 40px);overflow:auto}
+.dhead{padding:12px 14px;border-bottom:1px solid var(--border);position:sticky;top:0;background:#131947;z-index:2}
+.dbody{padding:12px 14px}
+.sect{margin-bottom:14px}
+.sect h3{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:0 0 6px}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:12px}
+pre{margin:0;padding:8px 10px;background:var(--inner);border:1px solid var(--border);border-radius:8px;font:11.5px/1.45 Consolas,monospace;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto}
+.hl{background:rgba(251,191,36,.18);border-radius:3px}
+.var{color:var(--purple-l);background:rgba(139,92,246,.18);border-radius:3px;padding:0 2px}
+.dtabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:10px}
+.dtabs button{font-size:11.5px;padding:4px 9px;border-radius:7px;color:var(--dim);border:1px solid var(--border)}
+.dtabs button.on{color:#fff;background:rgba(139,92,246,.25);border-color:var(--border-s)}
+/* variables / rules */
+table.grid{width:100%;border-collapse:collapse;font-size:12.5px}
+table.grid th{text-align:left;font-size:11px;color:var(--faint);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border)}
+table.grid td{padding:7px 8px;border-bottom:1px solid rgba(139,92,246,.1);vertical-align:middle}
+.rulecard{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;margin-bottom:6px;background:rgba(255,255,255,.015)}
+.rulecard.muted{opacity:.45}
+/* run */
+.progress{height:8px;border-radius:999px;background:var(--inner);border:1px solid var(--border);overflow:hidden;flex:1}
+.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--purple),var(--cyan));transition:width .4s}
+.st{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none;border:1.5px solid}
+.st.pending{color:var(--faint);border-color:var(--faint)}
+.st.waiting{color:var(--dim);border-color:var(--dim);border-style:dashed}
+.st.running{color:var(--purple-l);border-color:var(--purple);animation:pulse 1.1s infinite}
+.st.ok{color:#052e1f;background:var(--green);border-color:var(--green)}
+.st.diff{color:#3b2a00;background:var(--amber);border-color:var(--amber)}
+.st.fail{color:#3b0a0a;background:var(--red);border-color:var(--red)}
+.st.skip,.st.cancel,.st.notcalled{color:var(--faint);border-color:var(--faint);border-style:dotted}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(139,92,246,.6)}60%{box-shadow:0 0 0 6px rgba(139,92,246,0)}}
+.dur{font-size:11px;color:var(--faint);width:62px;text-align:right;flex:none}
+.filters{display:flex;gap:4px;flex-wrap:wrap}
+.filters button{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--dim)}
+.filters button.on{background:rgba(139,92,246,.25);color:#fff;border-color:var(--border-s)}
+.varpanel{margin-top:12px}
+.varrow{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:12px;border-bottom:1px dashed rgba(139,92,246,.12)}
+.varrow .nm{width:120px;color:var(--purple-l)}
+.flash{animation:flash 1.2s}
+@keyframes flash{0%{background:rgba(139,92,246,.45)}100%{background:transparent}}
+/* diff */
+.drow{display:grid;grid-template-columns:118px 1fr 1fr auto;gap:8px;align-items:start;padding:6px 0;border-bottom:1px solid rgba(139,92,246,.12);font-size:12px}
+.drow .old{color:#fca5a5;background:rgba(248,113,113,.08);border-radius:5px;padding:2px 6px;font-family:Consolas,monospace;word-break:break-all}
+.drow .new{color:#86efac;background:rgba(52,211,153,.08);border-radius:5px;padding:2px 6px;font-family:Consolas,monospace;word-break:break-all}
+.drow.noise{opacity:.5}
+details.noisebox summary{cursor:pointer;color:var(--dim);font-size:12px;padding:6px 0}
+/* modal */
+.backdrop{position:fixed;inset:0;background:rgba(3,5,20,.66);display:flex;align-items:flex-start;justify-content:center;padding-top:6vh;z-index:50}
+.modal{width:min(720px,94vw);max-height:86vh;overflow:auto;padding:18px 20px}
+.modal h2{margin-bottom:4px}
+.pick{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;border:1px solid transparent}
+.pick:hover{background:rgba(139,92,246,.08)}
+.pick.child{margin-left:26px}
+.choice{display:flex;gap:4px}
+.choice button{font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--border);color:var(--dim)}
+.choice button.on{background:rgba(139,92,246,.28);border-color:var(--border-s);color:#fff}
+.hint{font-size:11.5px;color:var(--faint)}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--pop);border:1px solid var(--border-s);border-radius:10px;padding:9px 13px;z-index:60;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+@media (max-width:1100px){
+  .layout{grid-template-columns:minmax(0,1fr)}
+  .drawer{position:fixed;right:12px;top:70px;bottom:12px;width:min(430px,94vw);max-height:none;z-index:40;box-shadow:0 20px 60px rgba(0,0,0,.55)}
+}
+.guided{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:1px dashed var(--border-s);background:rgba(139,92,246,.08);margin-bottom:10px}
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>UX mock - Relive Cycle</b> · everything is simulated in this page · walkthrough:
+  <button onclick="tour(1)">1 Build</button>
+  <button onclick="tour(2)">2 Configure a child</button>
+  <button onclick="tour(3)">3 Rules</button>
+  <button onclick="tour(4)">4 Run</button>
+  <button onclick="tour(5)">5 Pause &amp; replay</button>
+  <button onclick="tour(6)">6 Inspect differences</button>
+  <button onclick="tour(7)">7 Call picker</button>
+  <button onclick="tour(8)">8 Rebuild</button>
+  <button onclick="tour(9)">9 Relive ▾ from Live Calls</button>
+  <button onclick="tour(10)">10 Continue after a failure</button>
+  <button onclick="tour(11)">11 Call rule</button>
+  <button onclick="tour(12)">12 Edited inbound + unexpected calls</button>
+  <span class="sp"></span>
+  <button onclick="resetAll()">Reset mock</button>
+</div>
+<nav class="nav">
+  <a>Live Calls</a><a>Session Cycles</a><a>Profiles</a><a>Interception</a>
+  <a class="on" onclick="go('list')">Relive<span class="new">new</span></a>
+  <a>Settings</a>
+</nav>
+<div class="page" id="app"></div>
+<div id="modal"></div>
+<div id="toast"></div>
+<div id="extwatch"></div>
+
+<script>
+/* ============================================================
+   Mock data - a travel booking app ("odeysys") and its suppliers
+   ============================================================ */
+const RECORDED = [
+  {id:'r1',dir:'in',svc:'odeysys',m:'POST',path:'/api/auth/login',status:200,ms:210,label:'Login',
+    req:'{\n  "user": "agent.fathy",\n  "password": "••••••••"\n}',res:'{\n  "token": "eyJhbGciOi…9f2",\n  "expiresIn": 3600\n}'},
+  {id:'r2',dir:'in',svc:'odeysys',m:'POST',path:'/api/flights/search',status:200,ms:1480,label:'Search',
+    req:'{\n  "from": "DXB", "to": "LHR",\n  "date": "2026-10-04",\n  "pax": 1\n}',res:'{\n  "searchId": "S-88213",\n  "offers": 23,\n  "requestTime": "2026-09-26T10:00:04Z"\n}',
+    children:[
+      {id:'r2a',m:'POST',host:'api.supplier-a.com',path:'/v2/search',status:200,ms:610,label:'Supplier A',req:'{ "o":"DXB","d":"LHR","dt":"2026-10-04" }',res:'{\n  "flights": 12,\n  "cheapest": 1840\n}'},
+      {id:'r2b',m:'POST',host:'api.supplier-b.com',path:'/search',status:200,ms:880,label:'Supplier B',req:'{ "origin":"DXB","dest":"LHR","date":"2026-10-04" }',res:'{\n  "results": 12,\n  "currency": "AED",\n  "cheapest": 1795,\n  "traceId": "b-7c1e"\n}'},
+      {id:'r2c',m:'GET',host:'api.supplier-c.io',path:'/avail?o=DXB&d=LHR',status:200,ms:420,label:'Supplier C',req:'',res:'{ "available": true, "seats": 9 }'},
+    ]},
+  {id:'r3',dir:'in',svc:'odeysys',m:'POST',path:'/api/flights/price',status:200,ms:520,label:'Price',
+    req:'{\n  "searchId": "S-88213",\n  "offer": 4\n}',res:'{\n  "total": 450.00,\n  "currency": "AED"\n}',
+    children:[{id:'r3a',m:'POST',host:'pricing.internal',path:'/quote',status:200,ms:300,label:'Pricing engine',req:'{ "offer": 4 }',res:'{ "base": 410, "tax": 40 }'}]},
+  {id:'r4',dir:'in',svc:'odeysys',m:'POST',path:'/api/bookings',status:201,ms:1900,label:'Book',
+    req:'{\n  "searchId": "S-88213",\n  "passenger": "Fathy Biomy",\n  "ref": "{{bookingRef}}"\n}',res:'{\n  "bookingId": "BK-5521",\n  "status": "CONFIRMED"\n}',
+    children:[{id:'r4a',m:'POST',host:'pay.gateway.io',path:'/charge',status:200,ms:700,label:'Payment gateway',req:'{ "amount": 450 }',res:'{ "charged": true }'}]},
+  {id:'r5',dir:'in',svc:'odeysys',m:'POST',path:'/api/auth/logout',status:204,ms:40,label:'Logout',req:'',res:''},
+  {id:'r6',dir:'in',svc:'odeysys',m:'GET',path:'/api/profile',status:200,ms:90,label:'Profile',req:'',res:'{ "name": "Fathy" }'},
+  {id:'r7',dir:'in',svc:'odeysys',m:'GET',path:'/api/bookings/{{bookingId}}',status:200,ms:120,label:'Booking details',req:'',res:'{ "bookingId": "BK-5521", "status": "CONFIRMED" }'},
+];
+const GLOBAL_RULES = [
+  {id:'g1',name:'Currency → AED',desc:'Rewrites response currency on supplier calls',on:true,hits:'api.supplier-*'},
+  {id:'g2',name:'Slow Supplier A (2 s)',desc:'Delays api.supplier-a.com by 2000 ms',on:true,hits:'api.supplier-a.com'},
+  {id:'g3',name:'Mock loyalty points',desc:'Answers /loyalty with a file',on:true,hits:'/loyalty'},
+];
+
+let S; // mock state
+function initState(){
+  const ew=document.getElementById('extwatch'); if(ew) ew.innerHTML='';
+  S = {
+    view:'list', dirty:false, sel:null, tab:'steps', detailTab:'overview', search:'', folded:{},
+    name:'Book flow repro', desc:'Reproduce the price jump on DXB→LHR with Supplier B live.',
+    steps:[], vars:[
+      {name:'passengerName',value:'Fathy Biomy',secret:false,src:'defined'},
+      {name:'token',value:'',secret:true,src:'extracted · Login → response.body.token'},
+      {name:'searchId',value:'',secret:false,src:'extracted · Search → response.body.searchId'},
+    ],
+    globalMode:'SELECTED', selectedGlobals:{g1:true}, cycleRules:[{id:'c1',name:'Add X-Debug: 1',desc:'Adds header X-Debug: 1 to every inbound step',copiedFrom:null,on:true}],
+    driver:'AUTOMATIC', onFail:'HOLD', onDiff:'CONTINUE', newAction:false, unexp:'BLOCK', unexpFallback:'BLOCK', unexpRules:[], simUnexpected:false, run:null, runs:[
+      {id:'run-1',when:'yesterday 16:42',status:'FAILED',sum:'5 ok · 1 different · 1 failed',dur:'6.9 s'},
+    ],
+    unattributed:{}, ignored:{}, filter:'all', liveLog:[{id:'lv0',when:'yesterday 16:42',run:'run-1',key:null,label:'Supplier B',m:'POST',host:'api.supplier-b.com',path:'/search',why:'LIVE mode',status:200,ms:902,req:'{ "origin":"DXB","dest":"LHR","date":"2026-10-04" }',res:'{\n  "results": 12,\n  "currency": "AED",\n  "cheapest": 1801,\n  "traceId": "b-5a10"\n}'}],
+  };
+}
+initState();
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let uid = 100;
+function toast(msg){ const t=$('#toast'); t.innerHTML=`<div class="toast">${esc(msg)}</div>`; clearTimeout(toast.t); toast.t=setTimeout(()=>t.innerHTML='',2600); }
+function mb(m){ return `<span class="m m-${m}">${m}</span>`; }
+function markDirty(){ S.dirty=true; }
+function stepFromRecorded(r, parentKey=null){
+  const s={key:'k'+(uid++),rec:r.id,label:r.label,dir:parentKey?'out':'in',m:r.m,host:r.host||'',path:r.path,svc:r.svc||'odeysys',status:r.status,ms:r.ms,
+    req:r.req,res:r.res,parentKey,enabled:true,optional:false,mode:parentKey?'REPLAY':null,matchCustom:false,override:false,extract:[],assert:[],rules:[],onChanged:'FAIL',reqEdited:false,askedChanged:false,
+    cp:{before:false,after:false,timeout:60}};
+  return s;
+}
+function addRecorded(r){
+  const s=stepFromRecorded(r); S.steps.push(s);
+  (r.children||[]).forEach(c=>S.steps.push(stepFromRecorded(c,s.key)));
+}
+function tops(){ return S.steps.filter(s=>!s.parentKey); }
+function kids(k){ return S.steps.filter(s=>s.parentKey===k); }
+function stepByKey(k){ return S.steps.find(s=>s.key===k); }
+function hostHit(s){ return s.mode==='LIVE'||s.mode==='LIVE_MOCKED'; }
+function isExternal(s){ return s.enabled && s.parentKey && hostHit(s) && !s.host.endsWith('.internal'); }
+/* ===== The call rule: one real ALFRED rule per call. Mode buttons only edit it; the mode is read back from it. ===== */
+const ACT={mock:'Mock response (never contact upstream)',replace:'Reply with a different response',pauseReq:'Pause and wait for me (before forwarding)',pauseRes:'Pause the response and wait for me',cond:'Condition — look at the request, then decide',body:'Replace the request body'};
+function kindOf(t){ return Object.keys(ACT).find(k=>ACT[k]===t)||'other'; }
+function mkAct(t,s){ const k=kindOf(t); const a={id:'a'+(uid++),t,on:true,kind:k};
+  if(k==='mock'||k==='replace') a.data={status:s?s.status:200,headers:'Content-Type: application/json',body:s?s.res:''};
+  if(k==='pauseReq'||k==='pauseRes') a.data={timeout:s&&s.cp?s.cp.timeout:60};
+  if(k==='cond') a.data={els:'FAIL',fail:{status:502,headers:'Content-Type: application/json',body:'{\n  "error": "Request differs from the recording - blocked by ALFRED Relive"\n}'}};
+  if(k==='body') a.data={body:s?s.req:''};
+  return a; }
+function findAct(s,k){ return [...s.rule.request,...s.rule.response].find(a=>a.kind===k); }
+function sigOf(s){ return [s.mode,s.cp.before,s.cp.after,s.onChanged,s.reqEdited].join('|'); }
+function ensureAct(s,k,on){ let a=findAct(s,k); if(!a&&on){ a=mkAct(ACT[k],s); const ph=(k==='replace'||k==='pauseRes')?'response':'request'; if(k==='body'||k==='pauseReq') s.rule.request.unshift(a); else if(k==='cond'&&findAct(s,'mock')) s.rule.request.splice(s.rule.request.indexOf(findAct(s,'mock')),0,a); else s.rule[ph].push(a); } if(a) a.on=on; return a; }
+function removeAct(s,k){ ['request','response'].forEach(ph=>s.rule[ph]=s.rule[ph].filter(a=>a.kind!==k)); }
+function applyFields(s){ // a button (or anything outside the editor) changed the mode: write it into the rule
+  if(!s.rule) s.rule={request:[],response:[]};
+  const cond=findAct(s,'cond');
+  if(s.mode==='REPLAY'){ ensureAct(s,'mock',true); if(s.onChanged==='REPLAY'||!s.parentKey) removeAct(s,'cond'); else ensureAct(s,'cond',true).data.els=({LIVE:'SEND',ASK:'PAUSE',FAIL:'FAIL'})[s.onChanged]; const r=findAct(s,'replace'); if(r) r.on=false; }
+  else { const m=findAct(s,'mock'); if(m) m.on=false; if(cond) cond.on=false; const r=findAct(s,'replace'); if(s.mode==='LIVE_MOCKED') ensureAct(s,'replace',true); else if(r) r.on=false; }
+  if(s.cp.before) ensureAct(s,'pauseReq',true); else removeAct(s,'pauseReq');
+  if(s.cp.after) ensureAct(s,'pauseRes',true); else removeAct(s,'pauseRes');
+  if(s.reqEdited){ const b=findAct(s,'body')||ensureAct(s,'body',true); b.on=true; b.data.body=s.req; } else { const b=findAct(s,'body'); if(b) b.on=false; }
+}
+function deriveFields(s){ // read the mode back from the rule
+  const on=k=>{ const a=findAct(s,k); return a&&a.on; };
+  s.mode = on('mock') ? 'REPLAY' : on('replace') ? 'LIVE_MOCKED' : (s.parentKey?'LIVE':null);
+  { const c=findAct(s,'cond'); if(s.mode==='REPLAY' && s.parentKey) s.onChanged = c&&c.on ? ({SEND:'LIVE',PAUSE:'ASK',FAIL:'FAIL'})[c.data.els] : 'REPLAY'; }
+  s.cp.before=!!on('pauseReq'); s.cp.after=!!on('pauseRes');
+  const pa=findAct(s,'pauseReq')||findAct(s,'pauseRes'); if(pa) s.cp.timeout=pa.data.timeout;
+  s.reqEdited=!!on('body'); if(on('body')) s.req=findAct(s,'body').data.body;
+  const m=findAct(s,'mock'); s.override = !!(m && m.on && (m.data.body!==s.res || +m.data.status!==+s.status));
+  s._sig=sigOf(s);
+}
+function syncRule(s){ if(!s.rule||s._sig!==sigOf(s)){ applyFields(s); deriveFields(s); } }
+function ruleEdits(s){ return !!(s.override || s.matchCustom || [...s.rule.request,...s.rule.response].some(a=>a.on&&(a.kind==='other'||a.kind==='body'))); }
+function liveSteps(){ return S.steps.filter(isExternal); }
+/* ===== External-reach watcher: anything the user does that lets a call reach a real system is announced ===== */
+function extReason(s){
+  if(!s.enabled || !s.parentKey || s.host.endsWith('.internal') || !s.rule) return null;
+  const m=findAct(s,'mock'), c=findAct(s,'cond'), r=findAct(s,'replace');
+  const other=[...s.rule.request].find(a=>a.on&&a.kind==='other'&&/Send the call to the host|Rewrite URL/.test(a.t));
+  if(s.mode==='LIVE_MOCKED') return 'LIVE, reply mocked still calls the real host - only the answer odeysys gets is the recording';
+  if(c&&c.on&&c.data.els==='SEND'&&m&&m.on) return '“When the request differs” is set to Call live - a differing request goes to the real host';
+  if(s.mode==='LIVE') return !m ? 'the Mock response was deleted from its call rule' : m.on===false ? 'the Mock response in its call rule is turned off' : 'it is set to LIVE';
+  if(other) return 'its call rule has “'+other.t+'”';
+  return null;
+}
+function extSet(){ const o={}; S.steps.forEach(x=>{ const why=extReason(x); if(why) o[x.key]={label:x.label,host:x.host,why}; });
+  if(S.unexp==='SEND_REAL'||(S.unexp==='RULES'&&S.unexpFallback==='SEND_REAL')) o.__unexp={label:'Unexpected outbound calls',host:'any host',why:S.unexp==='SEND_REAL'?'the unexpected-call policy is “Send to the real system”':'unexpected calls no rule matches fall back to “Send to real”'};
+  Object.entries(S.unattributed||{}).forEach(([k,v])=>{ const x=stepByKey(k); if(v==='SEND_REAL'&&x&&x.enabled) o['__un'+k]={label:x.label,host:x.host,why:'calls ALFRED can\'t tell are yours are sent to the real system'}; });
+  return o; }
+function watchExternal(){
+  if(!S||!S.steps) return; const now=extSet(); const was=S._ext;
+  if(was && !S._quiet){ const fresh=Object.keys(now).filter(k=>!was[k]); if(fresh.length) notifyExternal(fresh.map(k=>now[k]), S._extSnap); }
+  S._ext=now; S._quiet=false; S._extSnap=JSON.stringify({steps:S.steps,unexp:S.unexp,unexpFallback:S.unexpFallback,unattributed:S.unattributed});
+}
+function notifyExternal(items, snap){
+  const id='xn'+(uid++); window.__extSnaps=window.__extSnaps||{}; window.__extSnaps[id]=snap;
+  const el=document.createElement('div'); el.className='extnote'; el.id=id;
+  el.innerHTML=`<div class="row" style="align-items:flex-start;gap:8px"><span style="font-size:16px">⚠</span><div style="flex:1">${items.map(i=>`<div style="margin-bottom:3px"><b>${esc(i.label)}</b> can now contact the real <b>${esc(i.host)}</b> - ${esc(i.why)}.</div>`).join('')}
+    <div class="faint" style="font-size:11.5px;margin-top:3px">It will be listed in the pre-run LIVE summary and needs your confirmation before a run.</div>
+    <div class="row" style="margin-top:6px"><button class="btn sm" onclick="undoExternal('${id}')">↶ Undo</button><button class="btn sm primary" onclick="document.getElementById('${id}').remove()">That's intended</button></div></div></div>`;
+  document.getElementById('extwatch').appendChild(el);
+}
+function undoExternal(id){ const snap=JSON.parse(window.__extSnaps[id]); S.steps=snap.steps; S.unexp=snap.unexp; S.unexpFallback=snap.unexpFallback; S.unattributed=snap.unattributed; S._quiet=true; document.getElementById(id)?.remove(); toast('Undone - nothing new reaches a real system'); render(); }
+/* the app's request to a REPLAY child may differ from the recording, e.g. because its inbound step was edited */
+function reqChanges(c){ const rec=findRecDeep(c.rec); if(c.reqEdited&&rec&&c.req!==rec.req) return [{path:'body (your edit)',a:rec.req.replace(/\s+/g,' '),b:c.req.replace(/\s+/g,' ')}];
+  const par=stepByKey(c.parentKey); if(!par||!par.reqEdited) return [];
+  const rd=(par.req.match(/"date":\s*"([^"]+)"/)||[])[1]; if(!rd||rd==='2026-10-04' || !/"(dt|date)"/.test(c.req)) return [];
+  return [{path:c.req.includes('"dt"')?'body.dt':'body.date',a:'2026-10-04',b:rd}]; }
+function findRecDeep(id){ for(const r of RECORDED){ if(r.id===id) return r; const c=(r.children||[]).find(x=>x.id===id); if(c) return c; } return null; }
+function mayGoLive(c){ return c.enabled && c.parentKey && c.mode==='REPLAY' && c.onChanged==='LIVE' && !c.host.endsWith('.internal'); }
+const CHANGED_LABEL={REPLAY:'Replay the recorded answer (default)',LIVE:'Send to the real supplier ⚠',ASK:'Hold and ask me'};
+function changedSection(c){
+  return `<div class="sect"><h3>If odeysys's request differs from the recording</h3>
+    <div class="choice" style="flex-wrap:wrap">${['REPLAY','LIVE','ASK'].map(v=>`<button class="${c.onChanged===v?'on':''}" onclick="stepByKey('${c.key}').onChanged='${v}';markDirty();render()">${CHANGED_LABEL[v]}</button>`).join('')}</div>
+    <div class="hint" style="margin-top:4px">${c.onChanged==='REPLAY'?'ALFRED still answers with the recorded response - change that answer in the <a class="link" onclick="S.detailTab=\'response\';render()">Response</a> tab or with a rule for this call. The run shows what changed in the request.'
+      :c.onChanged==='LIVE'?`<span style="color:#fed7aa">Only when the request differs, it goes to the real <b>${esc(c.host)}</b>. Listed in the pre-run LIVE summary.</span>`
+      :'The call is held (up to '+c.cp.timeout+' s) and you choose: replay, edit the answer and replay, send it to the real supplier, or fail it. No decision in time = replay.'}
+      Noise fields (ids, timestamps) never count as a change.</div></div>`;
+}
+function editedParentBanner(s){
+  const ks=kids(s.key).filter(c=>c.mode==='REPLAY'); if(!s.reqEdited||!ks.length) return '';
+  const all=v=>`<button class="${ks.every(c=>c.onChanged===v)?'on':''}" onclick="${v==='LIVE'?`if(confirm('Every REPLAY call of this step will go to its REAL supplier when its request differs. Continue?'))`:''}{kids('${s.key}').filter(c=>c.mode==='REPLAY').forEach(c=>{c.onChanged='${v}';c.askedChanged=true;});markDirty();render()}">${({FAIL:'Mock a failure',ASK:'Ask me',REPLAY:'Replay anyway',LIVE:'Call live ⚠'})[v]}</button>`;
+  return `<div class="warnlist" style="margin-bottom:10px"><div class="wrn">✎ You changed ${esc(s.label)}'s request, so its supplier calls may no longer match the recording.</div>
+    <div class="row" style="margin-top:6px;font-size:12.5px"><span style="flex:1">When they differ, for all ${ks.length} REPLAY call${ks.length>1?'s':''}:</span><div class="choice">${all('FAIL')}${all('ASK')}${all('REPLAY')}${all('LIVE')}</div></div></div>`;
+}
+function unexpectedSection(){
+  const b=(v,l)=>`<button class="${S.unexp===v?'on':''}" onclick="S.unexp='${v}';markDirty();render()">${l}</button>`;
+  return `<div class="sect"><h3>Unexpected outbound calls</h3>
+    <div class="hint" style="margin-bottom:6px">Calls the application makes during this cycle's runs that match <b>no step</b> - a retry, a new endpoint, a call made by mistake.</div>
+    <div class="choice" style="margin-bottom:8px">${b('BLOCK','Block (default)')}${b('SEND_REAL','Send to the real system ⚠')}${b('RULES','Handle with my rules')}</div>
+    ${S.unexp==='BLOCK'?'<div class="dim" style="font-size:12.5px">ALFRED answers <span class="mono">502 Blocked by ALFRED Relive</span>; nothing leaves. Every blocked call shows in the run.</div>'
+     :S.unexp==='SEND_REAL'?'<div class="ext-banner">⚠ Any unexpected outbound call goes to the real system. Shown in the pre-run LIVE summary.</div>'
+     :`${S.unexpRules.map((r,i)=>`<div class="rulecard"><span class="pill p-mod">UNEXPECTED</span><b>${esc(r.name)}</b><span class="dim">${esc((r.host||'any host')+' · '+ruleSummary(r))}</span><span class="spacer"></span><button class="btn sm" onclick="openRuleEditor('unexpected',null,${i})">Edit</button><button class="icb" onclick="S.unexpRules.splice(${i},1);markDirty();render()">✕</button></div>`).join('')||'<div class="faint">No rules yet.</div>'}
+       <button class="btn sm" style="margin-top:6px" onclick="openRuleEditor('unexpected')">＋ Add rule for unexpected calls…</button>
+       <div class="row" style="margin-top:8px;font-size:12.5px"><span style="flex:1">A call none of these rules match:</span><div class="choice"><button class="${S.unexpFallback==='BLOCK'?'on':''}" onclick="S.unexpFallback='BLOCK';markDirty();render()">Block</button><button class="${S.unexpFallback==='SEND_REAL'?'on':''}" onclick="S.unexpFallback='SEND_REAL';markDirty();render()">Send to real ⚠</button></div></div>
+       <div class="hint" style="margin-top:4px">Same rule editor, every action - e.g. mock a 200, answer with a file, delay, or pause and wait for you. First matching rule wins.</div>`}</div>`;
+}
+function handleUnexpected(call){
+  if(S.unexp==='RULES'){ const r=S.unexpRules.find(x=>!x.host||call.host.includes(x.host)); if(r) return {how:'rule',text:'handled by rule “'+r.name+'”: '+ruleSummary(r)}; }
+  const pol=S.unexp==='RULES'?S.unexpFallback:S.unexp;
+  return pol==='SEND_REAL'?{how:'live',text:'sent to the real '+call.host+' ⚠'}:{how:'block',text:'blocked - ALFRED answered 502, nothing sent'};
+}
+function mayUnattributed(s){ return s.parentKey && s.mode==='REPLAY' && s.host==='api.supplier-c.io'; }
+function varRefs(txt){ return [...String(txt||'').matchAll(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g)].map(m=>m[1]); }
+function findings(){
+  const f=[]; const names=new Set(S.vars.map(v=>v.name));
+  S.steps.filter(s=>s.enabled).forEach(s=>varRefs(s.req).forEach(n=>{ if(!names.has(n)) f.push({sev:'BLOCK',code:'UNRESOLVED_VARIABLE',key:s.key,msg:`${s.label} uses {{${n}}}, which is never defined or extracted`,fix:()=>{S.vars.push({name:n,value:'',secret:false,src:'defined'});markDirty();}} ); }));
+  liveSteps().forEach(s=>f.push({sev:'WARN',code:'LIVE_EXTERNAL',key:s.key,msg:`${s.label} is LIVE - it will contact ${s.host}`}));
+  S.steps.filter(s=>s.enabled&&mayUnattributed(s)).forEach(s=>f.push({sev:'WARN',code:'MAY_BE_UNATTRIBUTED',key:s.key,msg:`${s.label}: odeysys doesn't pass X-Operation-Id on this call - ALFRED may not be able to tell it's yours`}));
+  if(S.cycleRules.some(r=>r.copiedFrom==='g2'&&r.on) && S.globalMode!=='NONE' && (S.globalMode==='ALL'||S.selectedGlobals.g2))
+    f.push({sev:'WARN',code:'RULE_OVERLAP',key:null,msg:'CYCLE rule "Slow Supplier A (copy)" and GLOBAL rule "Slow Supplier A" both delay Supplier A - CYCLE applies first'});
+  S.steps.filter(s=>!s.enabled).forEach(s=>f.push({sev:'WARN',code:'DISABLED',key:s.key,msg:`${s.label} is disabled and will be skipped`}));
+  const recs=S.steps.filter(s=>!s.parentKey).map(s=>s.rec); recs.forEach((r,i)=>{ if(recs.indexOf(r)!==i){ const s=S.steps.filter(x=>!x.parentKey)[i]; f.push({sev:'WARN',code:'DUPLICATE_STEP',key:s.key,msg:`${s.label} appears more than once (intentional?)`}); }});
+  return f;
+}
+
+/* ============================================================
+   Views
+   ============================================================ */
+function go(v){ S.view=v; render(); }
+function render(){
+  if(S&&S.steps) S.steps.forEach(syncRule);
+  watchExternal();
+  const app=$('#app');
+  if(S.view==='list') app.innerHTML=listView();
+  else app.innerHTML=cycleView();
+  bindDnD();
+}
+
+function listView(){
+  const has=S.steps.length>0;
+  return `
+  <div class="row"><div><h1>Relive Cycles</h1><div class="sub">Replay recorded workflows step by step - choose what runs for real and what ALFRED plays back.</div></div>
+  <span class="spacer"></span><button class="btn primary" onclick="newCycle()">＋ New cycle</button></div>
+  <div class="cycles">
+    ${has?`<div class="card cyc" onclick="go('cycle')"><div class="row"><h2>${esc(S.name)}</h2><span class="spacer"></span>${lastRunPill()}</div>
+      <div class="dim" style="margin:4px 0 8px">${esc(S.desc)}</div>
+      <div class="row" style="flex-wrap:wrap;gap:6px"><span class="pill p-wait">${tops().length} steps · ${S.steps.length-tops().length} children</span>${liveSteps().length?`<span class="pill p-live">⚠ ${liveSteps().length} LIVE external</span>`:''}<span class="pill p-cycle">${S.cycleRules.length} cycle rule</span></div></div>`:''}
+    <div class="card cyc"><div class="row"><h2>Hotel search smoke</h2><span class="spacer"></span><span class="pill p-ok">✓ passed</span></div><div class="dim" style="margin:4px 0 8px">All suppliers replayed - safe to run anytime.</div><div class="row"><span class="pill p-wait">4 steps</span><span class="pill p-replay">all REPLAY</span></div></div>
+    <div class="card cyc"><div class="row"><h2>Refund edge case</h2><span class="spacer"></span><span class="pill p-diff">⚠ 3 differences</span></div><div class="dim" style="margin:4px 0 8px">Guided - click through the refund screens.</div><div class="row"><span class="pill p-wait">6 steps</span><span class="pill p-live">⚠ 1 LIVE external</span></div></div>
+  </div>`;
+}
+function lastRunPill(){ const r=S.runs[0]; if(!r) return '<span class="pill p-wait">never run</span>'; return r.status==='FAILED'?'<span class="pill p-fail">✕ last run failed</span>':r.status.includes('DIFF')?'<span class="pill p-diff">⚠ differences</span>':'<span class="pill p-ok">✓ passed</span>'; }
+function newCycle(){ if(!S.steps.length){ openAdd(true); } else go('cycle'); }
+
+function cycleView(){
+  const f=findings(); const live=liveSteps();
+  const running=S.run&&S.run.status==='RUNNING';
+  const drawerOn = S.sel && S.tab!=='history';
+  return `
+  <div class="head">
+    <div style="flex:1">
+      <div class="row"><a class="link" onclick="go('list')">← Relive Cycles</a></div>
+      <div class="row" style="margin-top:4px"><input class="name" value="${esc(S.name)}" oninput="S.name=this.value;markDirty();refreshHead()">
+        <span id="dirty">${S.dirty?'<span class="dirty">● unsaved changes</span>':''}</span></div>
+      <input style="width:620px;background:transparent;border-color:transparent;color:var(--dim);padding:2px 6px;margin-left:-6px" value="${esc(S.desc)}" oninput="S.desc=this.value;markDirty();refreshHead()">
+      <div class="summary">
+        <span class="pill p-wait">${tops().length} steps · ${S.steps.length-tops().length} outbound children</span>
+        <span class="pill ${live.length?'p-live':'p-replay'}">${live.length?`⚠ ${live.length} can reach an external system`:'✓ nothing external - all replayed'}</span>
+        <span class="pill p-global">GLOBAL rules: ${S.globalMode==='NONE'?'none':S.globalMode==='ALL'?'all':Object.values(S.selectedGlobals).filter(Boolean).length+' selected'}</span>
+        <span class="pill p-cycle">${S.cycleRules.length} CYCLE rule${S.cycleRules.length===1?'':'s'}</span>
+        <span class="pill p-wait">${S.vars.length} variables</span>
+        <span class="pill p-wait">inbound: sent to app (LIVE)</span>
+      </div>
+    </div>
+    <div class="row" style="padding-top:22px">
+      <button class="btn" onclick="save()" ${S.dirty?'':'disabled'}>Save</button>
+      <button class="btn" onclick="openRebuild()" title="Refresh from sources, rebuild from a new recording, or start over">⟳ Rebuild</button>
+      <button class="btn" onclick="toast('Cycle duplicated as “${esc(S.name)} (copy)”')">Duplicate</button>
+      ${running?`<button class="btn danger" onclick="stopRun()">■ Stop</button>`:`<button class="btn primary" onclick="openPrerun()">▶ Run</button>`}
+    </div>
+  </div>
+  ${S.transient?`<div class="ext-banner" style="background:rgba(139,92,246,.12);border-color:var(--border-s);color:var(--purple-l)">⚡ Quick run from your selection - <b>not saved</b>. Every supplier call is REPLAY.<span class="spacer"></span><button class="btn sm primary" onclick="S.transient=false;S.name='Relive of '+tops().length+' calls';S.runs.unshift({id:'x',when:'just now',status:S.run?S.run.status:'COMPLETED',sum:'saved from quick run',dur:S.run?S.run.elapsed+' s':'-'});toast('Saved as a cycle');render()">Save as cycle</button></div>`:''}
+  <div class="tabs">
+    ${['steps','variables','rules','run','history'].map(t=>`<button class="${S.tab===t?'on':''}" onclick="S.tab='${t}';render()">${({steps:'Steps',variables:'Variables',rules:'Rules',run:S.run?'Run'+(running?' ●':''):'Run',history:'History'})[t]}<span class="cnt">${t==='steps'?S.steps.length:t==='variables'?S.vars.length:t==='rules'?S.cycleRules.length:t==='history'?S.runs.length:''}</span></button>`).join('')}
+  </div>
+  <div class="layout ${drawerOn?'':'nodrawer'}">
+    <div class="card panel">${S.tab==='steps'?stepsPanel(f):S.tab==='variables'?varsPanel():S.tab==='rules'?rulesPanel():S.tab==='run'?runPanel():historyPanel()}</div>
+    ${drawerOn?`<div class="card drawer">${drawer()}</div>`:''}
+  </div>`;
+}
+function refreshHead(){ const d=$('#dirty'); if(d) d.innerHTML=S.dirty?'<span class="dirty">● unsaved changes</span>':''; }
+function save(){ S.dirty=false; toast('Saved'); render(); }
+
+/* ---------- Steps (overview) ---------- */
+function stepsPanel(f){
+  const q=S.search.toLowerCase();
+  const warn = f.length?`<div class="warnlist">${f.slice(0,5).map(x=>`<div class="${x.sev==='BLOCK'?'blk':'wrn'}">${x.sev==='BLOCK'?'⛔':'⚠'} ${esc(x.msg)}${x.fix?` <a class="link" onclick='fixFinding("${x.code}","${x.key}")'>Define it</a>`:''}</div>`).join('')}${f.length>5?`<div class="faint">+${f.length-5} more in the pre-run check</div>`:''}</div>`:'';
+  return `
+  <div class="toolbar">
+    <button class="btn sm" onclick="openAdd()">＋ Add calls</button>
+    <input class="search" placeholder="Search steps…" value="${esc(S.search)}" oninput="S.search=this.value;render();document.querySelector('.search').focus()">
+    <span class="spacer"></span>
+    <span class="hint">Drag ⋮⋮ to reorder · click a step to configure it</span>
+    <button class="btn sm" onclick="resetCycle()">Reset to recording</button>
+  </div>
+  ${liveSteps().length?`<div class="ext-banner">⚠ <b>${liveSteps().length} call${liveSteps().length>1?'s':''} can reach a real external system:</b> ${liveSteps().map(s=>esc(s.label)+' → '+esc(s.host)).join(', ')}</div>`:''}
+  ${warn}
+  <div id="tree">
+  ${tops().filter(s=>!q||s.label.toLowerCase().includes(q)||kids(s.key).some(c=>c.label.toLowerCase().includes(q))).map((s,i)=>stepRow(s,i)).join('')}
+  </div>
+  ${!S.steps.length?`<div class="faint" style="padding:30px;text-align:center">No steps yet. <a class="link" onclick="openAdd()">Add calls from a recording</a></div>`:''}`;
+}
+function stepRow(s,i){
+  const ch=kids(s.key); const folded=S.folded[s.key];
+  const inb=`<div class="step ${S.sel===s.key?'sel':''} ${s.enabled?'':'off'}" draggable="true" data-key="${s.key}" onclick="selStep('${s.key}')">
+    <span class="grip" title="Drag to reorder">⋮⋮</span><span class="num">${i+1}</span>
+    ${ch.length?`<button class="fold" onclick="event.stopPropagation();S.folded['${s.key}']=!S.folded['${s.key}'];render()">${folded?'▸':'▾'}</button>`:'<span class="fold"></span>'}
+    <span class="dir in" title="Inbound - sent to odeysys">↙</span>${mb(s.m)}
+    <span class="lbl"><span class="t">${esc(s.label)}</span><span class="u mono">${esc(s.svc)} ${esc(s.path)}</span></span>
+    ${s.optional?'<span class="pill p-wait">optional</span>':''}
+    ${cpBadge(s)}
+    ${varRefs(s.req).length?`<span class="pill p-mod" title="Uses variables">{{ }} ${varRefs(s.req).length}</span>`:''}
+    ${ch.length?`<span class="pill p-wait" title="Outbound calls it makes">${ch.length} ↗</span>`:''}
+    <span class="pill p-wait" title="Sent to the real application by ALFRED">APP · LIVE</span>
+    <button class="icb" title="${s.enabled?'Disable':'Enable'}" onclick="event.stopPropagation();s_toggle('${s.key}')">${s.enabled?'◉':'○'}</button>
+    <button class="icb" title="Duplicate" onclick="event.stopPropagation();dupStep('${s.key}')">⧉</button>
+    <button class="icb" title="Remove" onclick="event.stopPropagation();rmStep('${s.key}')">✕</button>
+  </div>`;
+  if(folded) return inb;
+  return inb + ch.map(c=>childRow(c)).join('');
+}
+function childRow(c){
+  const ext=isExternal(c);
+  return `<div class="step child ${S.sel===c.key?'sel':''} ${c.enabled?'':'off'}" data-key="${c.key}" onclick="selStep('${c.key}')" style="${ext?'border-color:rgba(251,146,60,.5);background:rgba(251,146,60,.06)':''}">
+    <span class="dir out" title="Outbound - made by odeysys">↗</span>${mb(c.m)}
+    <span class="lbl"><span class="t">${esc(c.label)}</span><span class="u mono">${esc(c.host)}${esc(c.path)}</span></span>
+    ${cpBadge(c)}
+    ${c.matchCustom?'<span class="pill p-mod" title="The call rule has a custom Match">custom match</span>':''}
+    ${c.rule&&ruleEdits(c)?'<span class="pill p-mod" title="Its call rule has changes beyond the mode">rule edited</span>':''}
+    ${c.override?'<span class="pill p-mod">MODIFIED</span>':''}
+    ${mayUnattributed(c)?`<span class="pill p-wait" title="ALFRED may not be able to tell this call is yours">? attribution</span>`:''}
+    <span class="seg mode" onclick="event.stopPropagation()">
+      <button class="${c.mode==='REPLAY'?'on replay':''}" onclick="setMode('${c.key}','REPLAY')" title="Call rule: Mock response with the recording - the supplier is not contacted">REPLAY</button>
+      <button class="${c.mode==='LIVE'?'on live':''}" onclick="setMode('${c.key}','LIVE')" title="Call rule: no mock - the real supplier is contacted">LIVE ⚠</button>
+      <button class="${c.mode==='LIVE_MOCKED'?'on live':''}" onclick="setMode('${c.key}','LIVE_MOCKED')" title="Call rule: the real supplier is contacted, then Reply with a different response gives odeysys the recording">LIVE · mocked reply ⚠</button>
+    </span>
+  </div>`;
+}
+function selStep(k){ S.sel=S.sel===k?null:k; S.detailTab='overview'; render(); }
+function setMode(k,m){ const s=stepByKey(k); if(s.mode===m) return; s.mode=m; if(m==='REPLAY') s.onChanged=s.onChanged||'FAIL'; syncRule(s); markDirty(); toast(m==='REPLAY'?`${s.label}: call rule now answers with “Mock response”${s.parentKey?' - '+s.host+' is not contacted':''}`:m==='LIVE'?`${s.label}: Mock response turned off in its call rule - ${s.parentKey?'it will contact '+s.host:'sent to odeysys'}`:`${s.label}: host is called, then “Reply with a different response” gives odeysys the recording`); render(); }
+function s_toggle(k){ const s=stepByKey(k); s.enabled=!s.enabled; kids(k).forEach(c=>c.enabled=s.enabled); markDirty(); render(); }
+function dupStep(k){ const s=stepByKey(k); const idx=S.steps.indexOf(s); const copy={...s,key:'k'+(uid++),label:s.label+' (2)'}; const ch=kids(k).map(c=>({...c,key:'k'+(uid++),parentKey:copy.key}));
+  let end=idx+1+kids(k).length; S.steps.splice(end,0,copy,...ch); markDirty(); toast('Step duplicated'); render(); }
+function rmStep(k){ S.steps=S.steps.filter(s=>s.key!==k&&s.parentKey!==k); if(S.sel===k) S.sel=null; markDirty(); render(); }
+function resetCycle(){ S.steps.forEach(s=>{ if(s.parentKey){s.mode='REPLAY';} s.matchCustom=false; s.override=false; s.enabled=true; const r=findRec(s.rec); if(r) s.req=r.req; }); markDirty(); toast('Every step reset to its recording'); render(); }
+function findRec(id){ for(const r of RECORDED){ if(r.id===id) return r; for(const c of (r.children||[])) if(c.id===id) return c; } }
+function fixFinding(code,key){ const x=findings().find(f=>f.code===code&&String(f.key)===key); if(x&&x.fix){x.fix(); S.tab='variables'; toast('Variable added - give it a value or an extraction'); render();} }
+
+/* drag & drop reorder (top-level steps; children move with their parent) */
+function bindDnD(){
+  document.querySelectorAll('#tree .step:not(.child)').forEach(el=>{
+    el.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain',el.dataset.key); el.classList.add('dragging'); });
+    el.addEventListener('dragend',()=>el.classList.remove('dragging'));
+    el.addEventListener('dragover',e=>{ e.preventDefault(); el.classList.add('dropabove'); });
+    el.addEventListener('dragleave',()=>el.classList.remove('dropabove'));
+    el.addEventListener('drop',e=>{ e.preventDefault(); el.classList.remove('dropabove'); moveBefore(e.dataTransfer.getData('text/plain'), el.dataset.key); });
+  });
+}
+function moveBefore(src,dst){
+  if(src===dst) return;
+  const block=[stepByKey(src),...kids(src)]; S.steps=S.steps.filter(s=>!block.includes(s));
+  const at=S.steps.indexOf(stepByKey(dst)); S.steps.splice(at,0,...block); markDirty();
+  const order=tops().map(s=>s.label); if(order.indexOf('Price')>-1 && order.indexOf('Price')<order.indexOf('Search')) toast('⚠ Price uses {{searchId}}, which Search extracts - Search must run first');
+  render();
+}
+
+/* ---------- Step drawer (configuration + details) ---------- */
+function drawer(){
+  const s=stepByKey(S.sel); if(!s) return '';
+  const res = S.run && S.run.results[s.key];
+  const tabs = res ? ['overview','original','effective','actual','diff','rules','log'] : ['overview','request','response','extract'];
+  const tabName={overview:'Configure',original:'Original',effective:'Effective',actual:'Actual',diff:'Compare',rules:'Rules & variables',log:'Log',request:'Request',response:'Response',extract:'Extract & assert',match:'Match rule'};
+  return `<div class="dhead"><div class="row">${s.parentKey?'<span class="dir out">↗</span>':'<span class="dir in">↙</span>'}${mb(s.m)}<b>${esc(s.label)}</b><span class="spacer"></span>
+      ${res?statePill(res):s.parentKey?(hostHit(s)?'<span class="pill p-live">LIVE ⚠</span>':'<span class="pill p-replay">REPLAY</span>'):''}
+      <button class="icb" onclick="S.sel=null;render()">✕</button></div>
+      <div class="mono faint" style="font-size:11.5px;margin-top:3px">${esc(s.host||s.svc)}${esc(s.path)}</div></div>
+    <div class="dbody"><div class="dtabs">${tabs.map(t=>`<button class="${S.detailTab===t?'on':''}" onclick="S.detailTab='${t}';render()">${tabName[t]}${t==='diff'&&res&&res.diffs?` (${res.diffs.filter(d=>d.kind==='UNEXPECTED').length})`:''}</button>`).join('')}</div>
+    ${drawerBody(s,res)}</div>`;
+}
+function drawerBody(s,res){
+  const t=S.detailTab;
+  if(!res){
+    if(t==='overview') return configTab(s);
+    if(t==='request') return `<div class="sect"><h3>Request - saved as “Replace the request body” in the call rule</h3><textarea style="width:100%;height:150px" class="mono" oninput="const x=stepByKey('${s.key}');x.req=this.value;x.reqEdited=true;syncRule(x);const b=findAct(x,'body');b.data.body=this.value;markDirty();refreshHead()" onchange="askIfEdited('${s.key}')">${esc(s.req)}</textarea>
+      <div class="hint" style="margin-top:4px">Use <span class="var">{{name}}</span> for cycle variables, <span class="var">{{$uuid}}</span> / <span class="var">{{$now}}</span> for dynamic tokens.</div></div>`;
+    if(t==='response'){ const a=findAct(s,s.mode==='LIVE_MOCKED'?'replace':'mock'); if(!a||!a.on) return `<div class="sect"><h3>Recorded response (reference)</h3><pre>${esc(s.res)}</pre><div class="hint">${s.mode===null||s.mode==='LIVE'?'LIVE - the host answers. Switch to REPLAY or “reply mocked” to edit what the caller gets.':''}</div></div>`;
+      return `<div class="sect"><h3>${esc(a.t)} - in the call rule</h3><div class="kv"><span class="dim">Status</span><input class="mono" value="${esc(a.data.status)}" oninput="findAct(stepByKey('${s.key}'),'${a.kind}').data.status=this.value;deriveFields(stepByKey('${s.key}'));markDirty();refreshHead()">
+        <span class="dim">Headers</span><input class="mono" value="${esc(a.data.headers)}" oninput="findAct(stepByKey('${s.key}'),'${a.kind}').data.headers=this.value;markDirty()"></div>
+        <textarea class="mono" style="width:100%;height:140px;margin-top:6px" oninput="findAct(stepByKey('${s.key}'),'${a.kind}').data.body=this.value;deriveFields(stepByKey('${s.key}'));markDirty();refreshHead()">${esc(a.data.body)}</textarea>
+        <div class="hint">Filled from the recording (status, headers, body). Your edits stay even if you switch to LIVE and back.</div></div>`; }
+    if(t==='extract') return extractTab(s);
+  }
+  if(t==='overview') return runOverview(s,res);
+  if(t==='original') return `<div class="sect"><h3>Original request (recorded)</h3><pre>${esc(s.req)||'<empty>'}</pre></div><div class="sect"><h3>Original response · ${s.status}</h3><pre>${esc(s.res)}</pre></div>`;
+  if(t==='effective') return `<div class="sect"><h3>Effective request - after variables and rules</h3><pre>${highlightVars(res.effReq||s.req)}</pre><div class="hint">Highlighted: values written by variables (<span class="var">purple</span>) and rules.</div></div>`;
+  if(t==='actual') return `<div class="sect"><h3>Actual request sent</h3><pre>${esc(res.actReq||res.effReq||s.req)}</pre></div><div class="sect"><h3>Actual response · ${res.status??'-'}</h3><pre>${esc(res.actRes||'')}</pre></div>`;
+  if(t==='diff') return diffTab(s,res);
+  if(t==='rules') return `<div class="sect"><h3>Rules applied, in order</h3>${(res.rules||[]).map(r=>`<div class="rulecard"><span class="pill ${r.tier==='GLOBAL'?'p-global':r.tier==='CYCLE'?'p-cycle':'p-replay'}">${r.tier}</span><span>${esc(r.name)}</span><span class="spacer"></span><span class="faint">${esc(r.act)}</span></div>`).join('')||'<div class="faint">No rule matched this call.</div>'}</div>
+     <div class="sect"><h3>Variables used</h3>${(res.used||[]).map(v=>`<div class="varrow"><span class="nm">${v.n}</span><span class="mono">${esc(v.v)}</span></div>`).join('')||'<div class="faint">none</div>'}</div>
+     <div class="sect"><h3>Variables produced</h3>${(res.produced||[]).map(v=>`<div class="varrow"><span class="nm">${v.n}</span><span class="mono">${esc(v.v)}</span></div>`).join('')||'<div class="faint">none</div>'}</div>`;
+  if(t==='log') return `<pre>${esc((res.log||[]).join('\n'))}</pre>`;
+}
+function modeButtons(s){
+  const b=(m,l,cls)=>`<button class="${s.mode===m?'on '+cls:''}" onclick="setMode('${s.key}','${m}')">${l}</button>`;
+  if(!s.parentKey) return `<div class="seg mode">${b(null,'LIVE - sent to odeysys','live')}${b('REPLAY','REPLAY - ALFRED answers','replay')}</div>`;
+  return `<div class="seg mode">${b('REPLAY','REPLAY - ALFRED answers','replay')}${b('LIVE','LIVE - real supplier ⚠','live')}${b('LIVE_MOCKED','LIVE, reply mocked ⚠','live')}</div>`;
+}
+function actLine(a){ const d=a.data||{};
+  const det = a.kind==='mock'||a.kind==='replace' ? `${d.status} · ${esc(d.headers)} · <span class="mono">${esc(String(d.body).replace(/\s+/g,' ').slice(0,46))}${String(d.body).length>46?'…':''}</span>`
+    : a.kind==='cond' ? `if the request <b>as it is at this point</b> (after the edits above) <b>matches the recorded call</b> (ignoring noise) → continue to Mock response · otherwise → <b>${d.els==='SEND'?'<span style="color:#fed7aa">send to the real host ⚠</span>':d.els==='PAUSE'?'pause and ask me (no answer in time = mocked failure)':'Mock response '+d.fail.status+' (failure) - host never contacted'}</b>`
+    : a.kind==='pauseReq'||a.kind==='pauseRes' ? `hold up to ${d.timeout} s` : a.kind==='body' ? `<span class="mono">${esc(String(d.body).replace(/\s+/g,' ').slice(0,50))}</span>` : '';
+  return `<div class="re-act" style="${a.on?'':'opacity:.45'}"><span style="flex:1"><b>${esc(a.t)}</b>${a.on?'':' <span class="pill p-wait">off</span>'}${det?'<div class="faint" style="font-size:11.5px;margin-top:2px">'+det+'</div>':''}</span></div>`; }
+function hostCard(s,acts){
+  const mockOn=acts.request.some(a=>a.on&&a.kind==='mock'), condOn=acts.request.some(a=>a.on&&a.kind==='cond'&&a.data.els==='SEND'), who=s.parentKey?s.host:'odeysys';
+  return condOn&&mockOn ? `<div class="re-col" style="min-height:0;border-style:dashed;border-color:rgba(251,146,60,.6)"><b style="color:#fed7aa">⚠ The host</b> <span class="dim">- ${esc(who)} IS contacted when the request differs from the recording (Call live).</span></div>`
+   : mockOn ? `<div class="re-col" style="min-height:0;border-style:dashed;opacity:.7"><b>✕ The host</b> <span class="dim">- ${esc(who)} is not contacted; Mock response answers.</span></div>`
+   : condOn ? `<div class="re-col" style="min-height:0;border-style:dashed;border-color:rgba(251,191,36,.5)"><b style="color:var(--amber)">? The host</b> <span class="dim">- ${esc(who)} is contacted only when the request differs from the recording.</span></div>`
+   : `<div class="re-col" style="min-height:0;border-style:dashed;border-color:rgba(45,212,191,.55);background:rgba(45,212,191,.06)"><b style="color:#5eead4">→ The host</b> <span class="dim">- the real request goes to <b>${esc(who)}</b> and the real answer comes back.</span></div>`; }
+function callRuleSection(s){
+  const acts=s.rule; const order=s.parentKey?'#'+(kids(s.parentKey).filter(c=>c.host===s.host).indexOf(s)+1)+' in '+esc(stepByKey(s.parentKey).label):'sent by ALFRED';
+  return `<div class="sect"><h3>Call rule</h3>
+    <div class="hint" style="margin-bottom:6px">One ALFRED interception rule for this call - the buttons above only edit it. Change anything here with every action ALFRED has.</div>
+    <div class="re-act"><span class="faint" style="width:52px">Match</span><span class="mono" style="flex:1;font-size:11.5px">${esc(s.m)} ${esc(s.host||'odeysys')}${esc(s.path.split('?')[0])} · ${order}</span><span class="pill ${s.matchCustom?'p-mod':'p-wait'}">${s.matchCustom?'custom':'endpoint + order'}</span></div>
+    <div class="re-col" style="min-height:0;margin:6px 0"><h4>1 Request - before it leaves ALFRED</h4>${acts.request.map(actLine).join('')||'<div class="faint" style="font-size:12px">Nothing - forwarded as it arrived.</div>'}</div>
+    ${hostCard(s,acts)}
+    <div class="re-col" style="min-height:0;margin-top:6px"><h4>2 Response - after the host answers</h4>${acts.response.map(actLine).join('')||'<div class="faint" style="font-size:12px">Nothing - the caller gets exactly what the host sent.</div>'}</div>
+    <div class="row" style="margin-top:8px;flex-wrap:wrap"><button class="btn sm primary" onclick="openRuleEditor('call','${s.key}')">Open call rule…</button>
+      <button class="btn sm" onclick="setCp('${s.key}','before')">${s.cp.before?'− ':'＋ '}Pause before</button><button class="btn sm" onclick="setCp('${s.key}','after')">${s.cp.after?'− ':'＋ '}Pause after</button>
+      ${s.parentKey&&s.mode==='REPLAY'?`<button class="btn sm" onclick="openChanged('${s.key}')">When the request differs: ${CHG[s.onChanged]?CHG[s.onChanged][0].replace(' (default)',''):'-'}…</button>`:''}
+      <span class="spacer"></span><button class="btn sm danger" onclick="confirmReset('${s.key}')">Reset call rule…</button></div></div>`;
+}
+function setCp(k,w){ const s=stepByKey(k); s.cp[w]=!s.cp[w]; syncRule(s); markDirty(); toast((s.cp[w]?'Added':'Removed')+' “'+(w==='before'?ACT.pauseReq:ACT.pauseRes)+'” '+(s.cp[w]?'to':'from')+' the call rule'); render(); }
+const CHG={FAIL:['Mock a failure (default)','ALFRED answers 502 (editable) - the supplier is never contacted.'],ASK:['Ask me','The call is held and you decide. No decision in time = mocked failure. Never sent without your yes.'],
+  REPLAY:['Replay recording anyway','The recorded answer is given even though the request changed.'],LIVE:['Call live ⚠','A differing request goes to the REAL supplier. Dangerous - you confirm this.']};
+function openChanged(k,why){ const s=stepByKey(k);
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:560px"><h2>When ${esc(s.label)}'s request differs from the recording</h2>
+   <div class="sub" style="margin:4px 0 10px">${why?esc(why)+' ':''}Compared <b>after your edits</b>, ignoring noise. Written into the call rule as a Condition.</div>
+   ${Object.entries(CHG).map(([v,[l,d]])=>`<button class="rulecard" style="width:100%;text-align:left;${s.onChanged===v?'border-color:var(--border-s);background:rgba(139,92,246,.18)':''}${v==='LIVE'?';border-color:rgba(251,146,60,.6)':''}" onclick="${v==='LIVE'?`confirmCallLive('${k}')`:`setChanged('${k}','${v}')`}"><b style="${v==='LIVE'?'color:#fed7aa':''}">${l}</b><span class="dim" style="flex:1">${d}</span>${s.onChanged===v?'<span class="pill p-cycle">current</span>':''}</button>`).join('')}
+   ${s.onChanged==='FAIL'?`<div class="kv" style="margin-top:8px"><span class="dim">Failure status</span><input class="mono" value="${esc((findAct(s,'cond')||{data:{fail:{status:502}}}).data.fail.status)}" oninput="const c=findAct(stepByKey('${k}'),'cond'); if(c) c.data.fail.status=this.value"></div>`:''}
+   <div class="hint" style="margin-top:8px">“Request matches a recorded call” is a new condition in ALFRED's Condition action - global rules can use it too.</div></div></div>`; }
+function setChanged(k,v){ const x=stepByKey(k); x.onChanged=v; x.askedChanged=true; if(v==='REPLAY') removeAct(x,'cond'); syncRule(x); markDirty(); closeModal(); toast(x.label+': when the request differs → '+CHG[v][0]); render(); }
+function confirmCallLive(k){ const x=stepByKey(k);
+  $('#modal').innerHTML=`<div class="backdrop"><div class="card modal" style="width:500px;border-color:rgba(251,146,60,.7)"><h2 style="color:#fed7aa">⚠ Call the real ${esc(x.host)}?</h2>
+   <div class="sub" style="margin:6px 0 10px">Whenever odeysys's request to <b>${esc(x.label)}</b> differs from the recording - including because of your own edits - it will be sent to the <b>real supplier</b>. That can create real bookings, charges or side effects.</div>
+   <div class="ext-banner">It will be listed in every pre-run LIVE summary and needs confirmation before each run.</div>
+   <label class="row" style="font-size:12.5px;margin-top:10px"><input type="checkbox" onchange="document.getElementById('cl-go').disabled=!this.checked"> I understand ${esc(x.host)} will be contacted</label>
+   <div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn" onclick="openChanged('${k}')">Back</button><button class="btn danger" id="cl-go" disabled onclick="setChanged('${k}','LIVE')">Yes, call live</button></div></div></div>`; }
+function askIfEdited(k){ const x=stepByKey(k); if(x.parentKey&&x.mode==='REPLAY'&&x.reqEdited&&!x.askedChanged) openChanged(k,'You edited this call\'s request, so it will differ from the recording at run time.'); }
+function confirmReset(k){ const s=stepByKey(k);
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:480px"><h2>Reset ${esc(s.label)}'s call rule?</h2>
+   <div class="sub" style="margin:6px 0 12px">Everything you changed in this call's rule - actions, edited mock data, pauses, conditions, the match - is removed. It is rebuilt from the recording with the cycle default: <b>${s.parentKey?'REPLAY':'LIVE (sent to odeysys)'}</b>. This can't be undone.</div>
+   <div class="row"><span class="spacer"></span><button class="btn" onclick="closeModal()">Keep my rule</button><button class="btn danger" onclick="doReset('${k}')">Reset call rule</button></div></div></div>`; }
+function doReset(k){ const s=stepByKey(k), r=findRec(s.rec); s.rule=null; s.mode=s.parentKey?'REPLAY':null; s.cp={before:false,after:false,timeout:60}; s.onChanged='FAIL'; s.reqEdited=false; s.askedChanged=false; s.matchCustom=false; s.override=false; if(r) s.req=r.req; s._sig=null; syncRule(s); closeModal(); markDirty(); toast(s.label+': call rule reset to the cycle default'); render(); }
+function configTab(s){
+  if(s.parentKey) return `
+  <div class="sect"><h3>Execution mode</h3>${modeButtons(s)}
+    <div class="hint" style="margin-top:6px">${s.mode==='REPLAY'?`ALFRED answers with the call rule's <b>Mock response</b>. <b>${esc(s.host)} is not contacted.</b>`:s.mode==='LIVE'?`<span style="color:#fed7aa">odeysys's call goes to the real <b>${esc(s.host)}</b>.</span>`:`<span style="color:#fed7aa">The real <b>${esc(s.host)}</b> is called</span>, then <b>Reply with a different response</b> gives odeysys the recorded answer.`}</div></div>
+  ${callRuleSection(s)}
+  ${s.mode==='REPLAY'?`<div class="sect"><h3>If ALFRED can't tell the call is yours</h3>
+    <div class="choice">${['BLOCK','REPLAY_ANYWAY','SEND_REAL'].map(c=>`<button class="${(S.unattributed[s.key]||'BLOCK')===c?'on':''}" onclick="S.unattributed['${s.key}']='${c}';markDirty();render()">${({BLOCK:'Block (default)',REPLAY_ANYWAY:'Replay anyway',SEND_REAL:'Send to real system'})[c]}</button>`).join('')}</div>
+    <div class="hint" style="margin-top:4px">Happens when the app doesn't pass ALFRED's tag on to this call and another request for odeysys is in flight at the same time.</div></div>`:''}`;
+  return `${editedParentBanner(s)}
+  <div class="sect"><h3>Step</h3><div class="kv"><span class="dim">Label</span><input value="${esc(s.label)}" oninput="stepByKey('${s.key}').label=this.value;markDirty();refreshHead()">
+    <span class="dim">Optional</span><label class="row"><input type="checkbox" ${s.optional?'checked':''} onchange="stepByKey('${s.key}').optional=this.checked;markDirty();render()"> a failure here doesn't fail the run</label>
+    <span class="dim">Recorded</span><span class="dim">${s.status} · ${s.ms} ms · <a class="link">open original ↗</a></span></div></div>
+  <div class="sect"><h3>Execution mode</h3>${modeButtons(s)}</div>
+  ${callRuleSection(s)}
+  <div class="sect"><h3>Outbound calls this step makes (${kids(s.key).length})</h3>${kids(s.key).map(c=>`<div class="row" style="padding:3px 0"><span class="dir out">↗</span>${mb(c.m)}<span style="flex:1">${esc(c.label)}</span><span class="seg mode"><button class="${c.mode==='REPLAY'?'on replay':''}" onclick="setMode('${c.key}','REPLAY')">REPLAY</button><button class="${c.mode==='LIVE'?'on live':''}" onclick="setMode('${c.key}','LIVE')">LIVE ⚠</button><button class="${c.mode==='LIVE_MOCKED'?'on live':''}" onclick="setMode('${c.key}','LIVE_MOCKED')">LIVE · mocked</button></span></div>`).join('')||'<div class="faint">none recorded</div>'}</div>`;
+}
+function extractTab(s){
+  const ex = s.label==='Search'?[{v:'searchId',p:'response.body.searchId'}]:s.label==='Login'?[{v:'token',p:'response.body.token'}]:[];
+  return `<div class="sect"><h3>Extract into cycle variables</h3>
+   ${ex.map(e=>`<div class="rulecard"><span class="var">${e.v}</span> = <span class="mono">${e.p}</span><span class="spacer"></span><span class="faint">from the actual response</span></div>`).join('')||'<div class="faint">Nothing extracted from this step.</div>'}
+   <button class="btn sm" onclick="toast('Opens the existing path picker (json-path-input) on the recorded response')">＋ Extract a value…</button></div>
+   <div class="sect"><h3>Assertions (turn a difference into a failure)</h3>
+   ${s.label==='Price'?`<div class="rulecard"><span class="mono">response.body.total</span><span>equals</span><span class="mono">450.00</span><span class="spacer"></span><span class="pill p-wait">off</span></div>`:'<div class="faint">None - differences show yellow, only real errors turn red.</div>'}
+   <button class="btn sm">＋ Add assertion</button></div>`;
+}
+function matchTab(s){
+  return `<div class="sect"><h3>Match rule for this call only</h3>
+    <div class="hint" style="margin-bottom:8px">ALFRED recognises <b>${esc(s.label)}</b> by <span class="pill ${s.matchCustom?'p-mod':'p-wait'}">${s.matchCustom?'a custom match rule':'endpoint + order'}</span>. Edit it in ALFRED's rule editor - the same Match section as Interception → Rules, every condition type, and cycle variables work in any field.</div>
+    <div class="row"><button class="btn sm primary" onclick="openRuleEditor('match','${s.key}')">Edit in rule editor…</button>${s.matchCustom?`<button class="btn sm" onclick="stepByKey('${s.key}').matchCustom=false;markDirty();render()">Reset to endpoint + order</button>`:''}</div></div>`;
+}
+function stepRulesSection(s){
+  return `<div class="sect"><h3>Rules for this call only (${s.rules.length})</h3>
+    ${s.rules.map((r,i)=>`<div class="rulecard"><span class="pill p-replay">STEP</span><b>${esc(r.name)}</b><span class="dim">${esc(ruleSummary(r))}</span><span class="spacer"></span><button class="btn sm" onclick="openRuleEditor('step','${s.key}',${i})">Edit</button><button class="icb" onclick="stepByKey('${s.key}').rules.splice(${i},1);markDirty();render()">✕</button></div>`).join('')||'<div class="faint">None. Delays, failures, pauses, header or body changes, mocks - anything a global rule can do.</div>'}
+    <button class="btn sm" style="margin-top:6px" onclick="openRuleEditor('step','${s.key}')">＋ Add rule for this call…</button>
+    <div class="hint" style="margin-top:4px">Opens ALFRED's own rule editor with every action, already matched to this call.</div></div>`;
+}
+function cpBadge(s){ const c=s.cp||{}; if(!c.before&&!c.after) return ''; return `<span class="pill p-pause" title="The run stops here and waits for you${s.parentKey?' (held up to '+c.timeout+' s)':''}">⏸ ${c.before&&c.after?'before + after':c.before?'before':'after'}${s.parentKey?' · '+c.timeout+'s':''}</span>`; }
+function cpSection(s){
+  const c=s.cp; const k=s.key;
+  return `<div class="sect"><h3>Checkpoint - pause the run here</h3>
+    <label class="row" style="font-size:12.5px;padding:2px 0"><input type="checkbox" ${c.before?'checked':''} onchange="stepByKey('${k}').cp.before=this.checked;markDirty();render()"> Pause <b>before</b> ${s.parentKey?'the app’s call goes out':'sending it'} - check or edit it first</label>
+    <label class="row" style="font-size:12.5px;padding:2px 0"><input type="checkbox" ${c.after?'checked':''} onchange="stepByKey('${k}').cp.after=this.checked;markDirty();render()"> Pause <b>after</b> it returns - continue, replay it as many times as you like, or stop</label>
+    ${s.parentKey?`<div class="row" style="margin-top:4px;font-size:12.5px"><span class="dim">Hold odeysys's call for up to</span><input type="number" min="5" max="600" value="${c.timeout}" style="width:70px" oninput="stepByKey('${k}').cp.timeout=Math.max(5,Math.min(600,+this.value||60));markDirty();refreshHead()"><span class="dim">seconds, then continue automatically</span></div>
+    <div class="hint">odeysys is waiting while this call is held - the timeout makes sure it never hangs.</div>`:''}</div>`;
+}
+function highlightVars(t){ return esc(t).replace(/\{\{([^}]+)\}\}/g,'<span class="var">{{$1}}</span>'); }
+
+/* ---------- Variables ---------- */
+function varsPanel(){
+  const live=S.run&&S.run.vars;
+  return `<div class="toolbar"><h2>Cycle variables</h2><span class="hint">only this cycle sees them · <span class="var">{{name}}</span> in URL, headers, body, answers and rules</span><span class="spacer"></span><button class="btn sm" onclick="S.vars.push({name:'newVar'+(uid++),value:'',secret:false,src:'defined'});markDirty();render()">＋ Variable</button></div>
+  <table class="grid"><tr><th>Name</th><th>Value</th><th>Source</th><th>Secret</th>${live?'<th>Current value in run</th>':''}</tr>
+  ${S.vars.map((v,i)=>`<tr><td><input class="mono" value="${esc(v.name)}" oninput="S.vars[${i}].name=this.value;markDirty();refreshHead()" style="width:150px"></td>
+    <td><input class="mono" type="${v.secret?'password':'text'}" value="${esc(v.value)}" placeholder="${v.src.startsWith('extracted')?'filled by extraction':''}" oninput="S.vars[${i}].value=this.value;markDirty();refreshHead()" style="width:190px"></td>
+    <td class="dim" style="font-size:12px">${esc(v.src)}</td>
+    <td><input type="checkbox" ${v.secret?'checked':''} onchange="S.vars[${i}].secret=this.checked;markDirty();render()"></td>
+    ${live?`<td class="mono">${v.secret&&S.run.vars[v.name]?'•••••••• <a class="link">reveal</a>':esc(S.run.vars[v.name]??'-')}</td>`:''}</tr>`).join('')}</table>`;
+}
+
+/* ---------- Rules ---------- */
+function rulesPanel(){
+  return `<div class="toolbar"><h2>Rules for this cycle</h2><span class="hint">CYCLE rules run first, then the GLOBAL rules you let in. Nothing here touches traffic outside this cycle's runs.</span></div>
+  <div class="sect"><h3>CYCLE rules</h3>
+   ${S.cycleRules.map((r,i)=>`<div class="rulecard"><span class="pill p-cycle">CYCLE</span><b>${esc(r.name)}</b><span class="dim">${esc(r.actions?ruleSummary(r):r.desc)}</span>${r.copiedFrom?`<span class="faint">copied from GLOBAL “${esc(GLOBAL_RULES.find(g=>g.id===r.copiedFrom).name)}”</span>`:''}<span class="spacer"></span><button class="btn sm" onclick="openRuleEditor('cycle',null,${i})">Edit</button><button class="icb" onclick="S.cycleRules.splice(${i},1);markDirty();render()">✕</button></div>`).join('')}
+   <button class="btn sm" onclick="openRuleEditor('cycle')">＋ New cycle rule</button></div>
+  <div class="sect"><h3>GLOBAL rules in this cycle</h3>
+   <div class="seg" style="margin-bottom:8px">${['NONE','ALL','SELECTED'].map(m=>`<button class="${S.globalMode===m?'on':''}" onclick="S.globalMode='${m}';markDirty();render()">${({NONE:'No global rules',ALL:'All global rules',SELECTED:'Selected global rules'})[m]}</button>`).join('')}</div>
+   ${GLOBAL_RULES.map(g=>{const active=S.globalMode==='ALL'||(S.globalMode==='SELECTED'&&S.selectedGlobals[g.id]);return `<div class="rulecard ${active?'':'muted'}">
+     ${S.globalMode==='SELECTED'?`<input type="checkbox" ${S.selectedGlobals[g.id]?'checked':''} onchange="S.selectedGlobals['${g.id}']=this.checked;markDirty();render()">`:''}
+     <span class="pill p-global">GLOBAL</span><b>${esc(g.name)}</b><span class="dim">${esc(g.desc)}</span><span class="spacer"></span>
+     <span class="faint">${active?'applies in this cycle':'ignored in this cycle'}</span>
+     <button class="btn sm" onclick="copyRule('${g.id}')" title="A cycle-only copy you can change without touching the global rule">Copy into cycle</button></div>`;}).join('')}</div>
+  ${unexpectedSection()}
+  ${findings().some(f=>f.code==='RULE_OVERLAP')?`<div class="warnlist"><div class="wrn">⚠ ${esc(findings().find(f=>f.code==='RULE_OVERLAP').msg)}</div></div>`:''}`;
+}
+function copyRule(id){ const g=GLOBAL_RULES.find(x=>x.id===id); S.cycleRules.push({id:'c'+(uid++),name:g.name+' (copy)',desc:g.desc+' - edit freely, the global rule stays as it is',copiedFrom:id,on:true,actions:g.id==='g2'?{request:['Delay request'],response:[]}:g.id==='g1'?{request:[],response:['Set JSON field in response body']}:{request:['Answer with an uploaded file'],response:[]}}); markDirty(); toast(`Copied “${g.name}” into the cycle as a CYCLE rule`); render(); }
+
+/* ---------- Rule editor: the one from Interception → Rules, with a scope ---------- */
+const CATALOG={
+  request:[['Timing',['Delay request']],['Variables',['Capture request variable','Set request variable']],['Headers & trailers',['Set request header','Remove request header','Set request trailer','Remove request trailer']],
+    ['URL & method',['Rewrite URL','Set method','Set query parameter','Remove query parameter']],['Body',['Set JSON field in request body','Remove request JSON field','Find & replace in request body','Replace the request body','Set form field']],
+    ['Cookies',['Set request cookie','Remove request cookie']],['Transport',['Disable cache (always get the full response)','Disable compression']],
+    ['Answer instead of the host',['Answer with a recorded call (never contact upstream)','Answer with an uploaded file (never contact upstream)','Mock response (never contact upstream)','Simulate a failure (network, not a status)','Abort request (kill the connection)']],
+    ['Control',['Pause and wait for me (before forwarding)','Condition — look at the request, then decide','Send the call to the host']]],
+  response:[['Timing',['Delay response']],['Variables',['Capture response variable']],['Status & headers',['Set response status','Set response header','Remove response header']],['Body',['Set JSON field in response body','Find & replace in response body']],
+    ['Cookies',['Set response cookie']],['Replace the whole response',['Reply with a different response','Replace with a recorded response','Replace with an uploaded file']],['Control',['Pause the response and wait for me','Condition — look at the response, then decide']]]};
+const GOALS=[['all','All',null],['slow','Make it slow',['Timing']],['fail','Make it fail',['Answer instead of the host','Transport']],['fake','Fake the answer',['Answer instead of the host','Replace the whole response']],['change','Change it',['Headers & trailers','URL & method','Body','Cookies','Status & headers','Variables']],['redirect','Send it elsewhere',['URL & method']],['inspect','Stop and inspect',['Control']]];
+function catalog(phase){ const c=CATALOG[phase].map(([g,a])=>[g,[...a]]); if(S.newAction) c.find(x=>x[0]===(phase==='request'?'Transport':'Timing'))[1].push(phase==='request'?'Throttle bandwidth':'Throttle response bandwidth'); return c; }
+function ruleSummary(r){ const a=[...(r.actions?.request||[]),...(r.actions?.response||[])]; return a.length?a.join(' → '):(r.desc||'no actions yet'); }
+function openRuleEditor(scope,key,idx){
+  const s=key?stepByKey(key):null;
+  if(scope==='call'){ S.re={scope,key,idx:null,name:'Call rule · '+s.label,actions:JSON.parse(JSON.stringify(s.rule)),cond:'',method:s.m,host:s.host||'odeysys',path:s.path.split('?')[0],picker:null,goal:'all',q:''}; renderRuleEditor(); return; }
+  const src = scope==='unexpected' ? (idx!=null?S.unexpRules[idx]:null) : scope==='cycle' ? (idx!=null?S.cycleRules[idx]:null) : scope==='step' ? (idx!=null?s.rules[idx]:null) : null;
+  S.re={scope,key,idx,name:src?src.name:(scope==='match'?'Match '+s.label:scope==='step'?s.label+' rule':scope==='unexpected'?'Unexpected calls':'New cycle rule'),
+    actions:{request:[...(src?.actions?.request||[])],response:[...(src?.actions?.response||[])]},
+    cond:src?.cond||'', method:s?s.m:'ANY', host:s?s.host:(src?.host||''), path:s?s.path.split('?')[0]:'', picker:null, goal:'all', q:''};
+  renderRuleEditor();
+}
+function renderRuleEditor(){
+  const e=S.re; const s=e.key?stepByKey(e.key):null;
+  const scopePill = e.scope==='call'?'<span class="pill p-replay">CALL rule</span><span class="faint">'+esc(s.label)+'\'s own rule in this cycle - the mode buttons edit this same rule</span>' : e.scope==='unexpected'?'<span class="pill p-mod">UNEXPECTED-CALL rule</span><span class="faint">applies only to outbound calls of this cycle\'s runs that match no step</span>' : e.scope==='cycle'?'<span class="pill p-cycle">CYCLE rule</span><span class="faint">applies only to this cycle\'s runs</span>'
+    : e.scope==='step'?'<span class="pill p-replay">STEP rule</span><span class="faint">applies only to <b>'+esc(s.label)+'</b> in this cycle</span>'
+    : '<span class="pill p-mod">MATCH rule</span><span class="faint">how ALFRED recognises <b>'+esc(s.label)+'</b></span>';
+  const col=(ph)=>`<div class="re-col"><h4>${ph==='request'?'1 Request - before it leaves ALFRED':'2 Response - after the host answers'}</h4>
+     ${e.actions[ph].map((a,i)=>{ const t=typeof a==='string'?a:a.t; const o=typeof a==='object'; return `<div class="re-act" style="${o&&!a.on?'opacity:.5':''}"><span class="faint">${i+1}</span><span style="flex:1">${esc(t)}${o&&a.data&&(a.kind==='mock'||a.kind==='replace')?`<div class="row" style="margin-top:4px;gap:4px"><input class="mono" style="width:60px" value="${esc(a.data.status)}" oninput="S.re.actions.${ph}[${i}].data.status=this.value"><input class="mono" style="flex:1" value="${esc(a.data.headers)}" oninput="S.re.actions.${ph}[${i}].data.headers=this.value"></div><textarea class="mono" style="width:100%;height:54px;margin-top:4px" oninput="S.re.actions.${ph}[${i}].data.body=this.value">${esc(a.data.body)}</textarea>`:''}${o&&a.kind==='cond'?`<div class="faint" style="font-size:11.5px">if <b>request matches a recorded call</b> (new condition) → Mock response · else → <select onchange="S.re.actions.${ph}[${i}].data.els=this.value"><option value="SEND" ${a.data.els==='SEND'?'selected':''}>Send the call to the host</option><option value="PAUSE" ${a.data.els==='PAUSE'?'selected':''}>Pause and wait for me</option></select></div>`:''}${o&&a.kind==='body'?`<textarea class="mono" style="width:100%;height:54px;margin-top:4px" oninput="S.re.actions.${ph}[${i}].data.body=this.value">${esc(a.data.body)}</textarea>`:''}</span>${t.startsWith('Throttle')?'<span class="pill p-new">new</span>':''}${o?`<button class="btn sm" title="Turn off - keeps its data" onclick="S.re.actions.${ph}[${i}].on=!S.re.actions.${ph}[${i}].on;renderRuleEditor()">${a.on?'on':'off'}</button>`:''}<button class="icb" title="Delete" onclick="S.re.actions.${ph}.splice(${i},1);renderRuleEditor()">✕</button></div>`; }).join('')||'<div class="faint" style="font-size:12px">nothing yet</div>'}
+     <button class="btn sm" onclick="S.re.picker='${ph}';renderRuleEditor()">＋ Add action</button></div>`;
+  const pick=()=>{ const ph=e.picker; const goal=GOALS.find(g=>g[0]===e.goal); const q=e.q.toLowerCase();
+    const groups=catalog(ph).filter(([g])=>!goal[2]||goal[2].includes(g)).map(([g,a])=>[g,a.filter(x=>!q||x.toLowerCase().includes(q)||g.toLowerCase().includes(q))]).filter(([,a])=>a.length);
+    return `<div class="re-pick"><div class="row" style="flex-wrap:wrap;gap:4px"><div class="choice">${GOALS.map(([id,l])=>`<button class="${e.goal===id?'on':''}" onclick="S.re.goal='${id}';renderRuleEditor()">${l}</button>`).join('')}</div>
+      <input placeholder="Search actions…" value="${esc(e.q)}" oninput="S.re.q=this.value;renderRuleEditor();const i=document.querySelector('.re-pick input');i.focus();i.setSelectionRange(i.value.length,i.value.length)" style="flex:1;min-width:140px"><button class="icb" onclick="S.re.picker=null;renderRuleEditor()">✕</button></div>
+      ${groups.map(([g,a])=>`<div class="grp">${esc(g)}</div>${a.map(x=>`<button class="it" onclick="S.re.actions.${ph}.push(S.re.scope==='call'?mkAct('${x.replace(/'/g,"\\'")}',stepByKey(S.re.key)):'${x.replace(/'/g,"\\'")}');S.re.picker=null;renderRuleEditor()">${esc(x)} ${x.startsWith('Throttle')?'<span class="pill p-new">new in ALFRED</span>':''}</button>`).join('')}`).join('')||'<div class="faint">no action matches</div>'}</div>`; };
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:min(820px,96vw)">
+   <div class="row"><h2>${e.idx!=null&&e.scope!=='match'?'Edit rule':e.scope==='match'?'Edit match rule':'New interception rule'}</h2><span class="spacer"></span><button class="icb" onclick="closeModal()">✕</button></div>
+   <div class="row" style="margin:4px 0 10px;gap:8px">${scopePill}</div>
+   <div class="hint" style="margin-bottom:10px">ALFRED's rule editor - the same one as <b>Interception → Rules</b>, with every action and condition. Saving writes into this cycle, never into the global rules. Cycle variables like <span class="var">{{searchId}}</span> work in any field.</div>
+   <div class="kv"><span class="dim">Name</span><input value="${esc(e.name)}" oninput="S.re.name=this.value"></div>
+   <div class="sect"><h3>Match — which traffic this affects</h3>
+    ${e.scope==='step'?`<div class="row" style="gap:8px"><span class="pill p-replay">locked</span><span class="mono dim" style="font-size:12px">only the call ALFRED matched to ${esc(s.label)} (${s.matchCustom?'custom match rule':'endpoint + order'})</span></div>`
+     : `<div class="kv"><span class="dim">Method</span><input class="mono" value="${esc(e.method)}"><span class="dim">Host</span><input class="mono" value="${esc(e.host)}" placeholder="any" oninput="S.re.host=this.value"><span class="dim">Path</span><input class="mono" value="${esc(e.path)}" placeholder="any" oninput="S.re.matchTouched=true">${e.scope==='match'||(e.scope==='call'&&s.parentKey)?`<span class="dim">Order</span><span>#${kids(s.parentKey).filter(c=>c.host===s.host).indexOf(s)+1} matching call inside ${esc(stepByKey(s.parentKey).label)}</span>`:''}</div>`}
+    <div class="kv" style="margin-top:6px"><span class="dim">Only when…</span><input class="mono" value="${esc(e.cond)}" oninput="S.re.cond=this.value" placeholder="header / query / cookie / body field, e.g. body.searchId equals {{searchId}}"></div></div>
+   ${e.scope==='call'&&s.parentKey&&!s.host.endsWith('.internal')&&!hostHit(s)&&e.actions.request.every(a=>!(a.on&&a.kind==='mock')) && !e.actions.request.some(a=>a.on&&a.kind==='cond'&&a.data.els==='PAUSE') ?`<div class="ext-banner" style="margin:8px 0">⚠ Saving this lets <b>${esc(s.label)}</b> reach the real <b>${esc(s.host)}</b>${e.actions.request.some(a=>a.on&&a.kind==='cond')?' when its request differs from the recording':''} - no enabled Mock response answers it.</div>`:''}
+   ${e.scope==='match'?'<div class="hint">A match rule only decides which call is this step - what ALFRED answers is set by the step\'s mode and its rules.</div>'
+    :`<div class="sect"><h3>Pipeline — what happens to a matching call</h3>${e.scope==='call'?col('request')+'<div style="margin:6px 0">'+hostCard(s,e.actions)+'</div>'+col('response'):`<div class="re-grid">${col('request')}${col('response')}</div>`}${e.picker?pick():''}
+      <div class="hint" style="margin-top:6px">The list of actions comes from ALFRED itself - an action added to ALFRED later appears here too, with no change to Relive.</div></div>`}
+   <div class="row" style="margin-top:12px"><label class="row faint" style="font-size:11.5px"><input type="checkbox" ${S.newAction?'checked':''} onchange="S.newAction=this.checked;renderRuleEditor()"> mock only: pretend ALFRED just shipped a “Throttle bandwidth” action</label><span class="spacer"></span><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveRuleEditor()">Save</button></div></div></div>`;
+}
+function saveRuleEditor(){
+  const e=S.re; const s=e.key?stepByKey(e.key):null;
+  const rule={id:'x'+(uid++),name:e.name||'Untitled rule',cond:e.cond,actions:e.actions,on:true,desc:''};
+  if(e.scope==='call'){ s.rule=e.actions; if(e.matchTouched||e.cond) s.matchCustom=true; deriveFields(s); closeModal(); markDirty(); toast(s.label+'\'s call rule saved - mode is now '+(s.mode||'LIVE').replace('_',' ')); render(); if([...s.rule.request].some(a=>a.on&&(a.kind==='body'||a.kind==='other')&&/request|header|query|URL|body|method|cookie|form/i.test(a.t))){ s.reqEdited=s.reqEdited||true; askIfEdited(s.key); } return; }
+  if(e.scope==='match'){ s.matchCustom=true; }
+  else if(e.scope==='unexpected'){ const u={...rule,host:e.host}; if(e.idx!=null) S.unexpRules[e.idx]=u; else S.unexpRules.push(u); }
+  else if(e.scope==='step'){ if(e.idx!=null) s.rules[e.idx]={...s.rules[e.idx],...rule}; else s.rules.push(rule); }
+  else { if(e.idx!=null) S.cycleRules[e.idx]={...S.cycleRules[e.idx],...rule,copiedFrom:S.cycleRules[e.idx].copiedFrom}; else S.cycleRules.push({...rule,copiedFrom:null}); }
+  closeModal(); markDirty(); toast(e.scope==='unexpected'?'Rule saved for unexpected calls':e.scope==='match'?'Match rule saved for '+s.label:e.scope==='step'?'Rule saved for '+s.label+' only':'CYCLE rule saved'); render();
+}
+
+/* ---------- Add calls ---------- */
+function openAdd(fromNew){
+  const chosen={};
+  const body=()=>`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal">
+    <div class="row"><h2>Add recorded calls</h2><span class="spacer"></span><button class="icb" onclick="closeModal()">✕</button></div>
+    <div class="row" style="margin-bottom:10px;gap:10px"><div class="sub" style="flex:1">From session cycle <b>“Booking bug 58755”</b> - outbound calls come with the inbound call that made them.</div>
+    <button class="btn sm primary" onclick="openPicker()" title="Browse Live Calls and any session cycle, pick calls with the pick bar, come back">📌 Pick from anywhere…</button></div>
+    ${RECORDED.map(r=>`<label class="pick"><input type="checkbox" ${chosen[r.id]?'checked':''} onchange="window.__ch['${r.id}']=this.checked"><span class="dir in">↙</span>${mb(r.m)}<b>${esc(r.label)}</b><span class="mono dim">${esc(r.path)}</span><span class="spacer"></span><span class="faint">${r.status} · ${r.ms} ms</span>${r.children?`<span class="pill p-wait">+${r.children.length} ↗</span>`:''}</label>
+      ${(r.children||[]).map(c=>`<div class="pick child"><span class="dir out">↗</span>${mb(c.m)}<span>${esc(c.label)}</span><span class="mono faint">${esc(c.host)}</span></div>`).join('')}`).join('')}
+    <div class="row" style="margin-top:12px"><span class="hint">Calls are copied into the cycle - the recording itself is never modified.</span><span class="spacer"></span><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="confirmAdd()">Add selected</button></div></div></div>`;
+  window.__ch = fromNew?{r1:true,r2:true,r3:true,r4:true,r5:true}:{}; Object.assign(chosen,window.__ch);
+  $('#modal').innerHTML=body();
+}
+function confirmAdd(){ const ids=Object.keys(window.__ch).filter(k=>window.__ch[k]); RECORDED.filter(r=>ids.includes(r.id)).forEach(addRecorded);
+  const logout=S.steps.find(s=>s.label==='Logout'); if(logout){logout.enabled=false;}
+  closeModal(); S.view='cycle'; S.tab='steps'; markDirty(); toast(`${ids.length} calls added`); render(); }
+function closeModal(){ $('#modal').innerHTML=''; }
+
+/* ---------- Call picker (ALFRED's existing pick flow) ---------- */
+const PICK_SOURCES = {
+  live: {title:'Live Calls', calls:[
+    {id:'r6',dir:'in',m:'GET',label:'Profile',path:'/api/profile',svc:'odeysys',status:200,ms:90,when:'14:31:02'},
+    {id:'r2',dir:'in',m:'POST',label:'Search',path:'/api/flights/search',svc:'odeysys',status:200,ms:1390,when:'14:30:11',kids:3},
+    {id:'x1',dir:'out',m:'GET',label:'FX rates',path:'fx.rates.io/latest?base=AED',svc:'',status:200,ms:120,when:'14:29:58'},
+  ]},
+  cycle: {title:'Session cycle · Booking bug 58755', calls:[
+    {id:'r1',dir:'in',m:'POST',label:'Login',path:'/api/auth/login',svc:'odeysys',status:200,ms:210,when:'yesterday 16:40'},
+    {id:'r3',dir:'in',m:'POST',label:'Price',path:'/api/flights/price',svc:'odeysys',status:200,ms:520,when:'yesterday 16:41',kids:1},
+    {id:'r4',dir:'in',m:'POST',label:'Book',path:'/api/bookings',svc:'odeysys',status:201,ms:1900,when:'yesterday 16:42',kids:1},
+  ]},
+};
+function openPicker(){ closeModal(); window.__pick={src:'live',picked:[]}; renderPicker(); }
+function renderPicker(){
+  const st=window.__pick; const src=PICK_SOURCES[st.src];
+  const picked=id=>st.picked.includes(id);
+  $('#modal').innerHTML=`<div class="pickpage">
+    <nav class="nav">${[['live','Live Calls'],['cycle','Session Cycles']].map(([k,l])=>`<a class="${st.src===k?'on':''}" onclick="window.__pick.src='${k}';renderPicker()">${l}</a>`).join('')}<a class="faint">Profiles</a><a class="faint">Interception</a><a class="faint">Relive</a></nav>
+    <div class="page"><h1>${esc(src.title)}</h1><div class="sub">You're picking calls for the Relive cycle <b>“${esc(S.name)}”</b>. Move between pages freely - the pick bar remembers.</div>
+    <div class="card" style="margin-top:14px;padding:6px 10px">
+      ${src.calls.map(c=>`<div class="pick" style="border-bottom:1px solid rgba(139,92,246,.1)"><span class="dir ${c.dir}">${c.dir==='in'?'↙':'↗'}</span>${mb(c.m)}<b>${esc(c.label)}</b><span class="mono dim">${esc(c.svc)} ${esc(c.path)}</span>${c.kids?`<span class="pill p-wait">+${c.kids} ↗</span>`:''}<span class="spacer"></span><span class="faint">${esc(c.when)} · ${c.status} · ${c.ms} ms</span>
+        ${c.dir==='out'?'<span class="faint" title="Standalone outbound calls can be picked too - they become a single outbound step">outbound</span>':''}
+        <button class="btn sm ${picked(c.id)?'primary':''}" onclick="togglePick('${c.id}')">${picked(c.id)?'✓ Picked':'📌 Pick'}</button>
+        <button class="icb" title="More actions" onclick="toast('The call menu also offers “Add to Relive cycle…” - pick a cycle or create one')">⋯</button></div>`).join('')}
+    </div>
+    <div class="hint" style="margin-top:10px">This is ALFRED's existing call picker - the same pick buttons and pick bar used by resend and session cycles. Calls are copied into the cycle; the recordings are never changed.</div></div>
+    <div class="pickbar"><span class="pill p-cycle">Relive</span><span>Picking for <b>“${esc(S.name)}”</b></span><span class="pill p-wait">${st.picked.length} picked</span>
+      ${st.picked.length?`<span class="dim" style="font-size:12px">${st.picked.map(id=>esc((PICK_SOURCES.live.calls.concat(PICK_SOURCES.cycle.calls)).find(c=>c.id===id).label)).join(' → ')}</span>`:''}
+      <button class="btn sm" onclick="closeModal();openAdd()">Cancel</button><button class="btn sm primary" ${st.picked.length?'':'disabled'} onclick="donePicking()">Done - add to cycle</button></div></div>`;
+}
+function togglePick(id){ const st=window.__pick; st.picked=st.picked.includes(id)?st.picked.filter(x=>x!==id):[...st.picked,id]; renderPicker(); }
+function donePicking(){
+  const ids=window.__pick.picked; let n=0;
+  ids.forEach(id=>{ const r=RECORDED.find(x=>x.id===id); if(r){ addRecorded(r); n++; } else { const c=PICK_SOURCES.live.calls.find(x=>x.id===id); S.steps.push(stepFromRecorded({id:c.id,m:c.m,label:c.label,path:c.path,svc:'odeysys',status:c.status,ms:c.ms,req:'',res:'{ "base":"AED","rates":{…} }'})); n++; } });
+  closeModal(); S.view='cycle'; S.tab='steps'; markDirty(); toast(n+' picked call'+(n>1?'s':'')+' added in the order you picked them'); render();
+}
+
+/* ---------- Rebuild (3 modes, preview, apply, undo) ---------- */
+function openRebuild(){
+  const card=(k,t,d)=>`<button class="card" style="text-align:left;padding:12px 14px;display:block;width:100%;margin-bottom:8px" onclick="rebuildPreview('${k}')"><b>${t}</b><div class="dim" style="font-size:12.5px;margin-top:3px">${d}</div></button>`;
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:600px">
+   <div class="row"><h2>Rebuild “${esc(S.name)}”</h2><span class="spacer"></span><button class="icb" onclick="closeModal()">✕</button></div>
+   <div class="sub" style="margin:4px 0 12px">You'll see a preview first - nothing changes until you apply it, and you can undo it. Past runs are never touched.</div>
+   ${card('refresh','⟳ Refresh from sources','Re-read the session cycle and Live Calls these calls came from: pick up calls recorded since, re-link supplier calls under their parents, update the frozen copies. Your modes, variables, rules and checkpoints stay where the calls still match.')}
+   ${card('recording','◉ Rebuild from a new recording','Use a newer recording as the baseline - pick a session cycle, or let ALFRED run the workflow once for real and capture it. Your configuration is carried over wherever a step matches.')}
+   ${card('startover','↺ Start over, keep settings','Rebuild the step list exactly as first added from the original recording. Step edits are dropped; variables, cycle rules and settings stay.')}
+  </div></div>`;
+}
+function rebuildPreview(mode){
+  let rows, extra='';
+  if(mode==='refresh') rows=[['added','GET /api/profile','recorded after the cycle was built','new step #6'],['updated','Search','frozen copy refreshed (recorded again 10:02)','config kept: extraction, checkpoint'],['relinked','Supplier C','now correctly nested under Search','mode REPLAY kept'],['kept','Login, Price, Book, Supplier A, Supplier B','unchanged','all config kept']];
+  if(mode==='recording'){ extra=`<div class="sect"><h3>New recording</h3><div class="choice"><button class="on">Session cycle “Booking bug - retest 27/09”</button><button onclick="toast('ALFRED will run every step LIVE once - you will see the LIVE confirmation first')">Run it for real now and capture ⚠</button></div></div>`;
+    rows=[['updated','Login, Search, Price, Book','new baseline from the retest recording','config carried over (endpoint + order match)'],['added','Supplier D','new supplier call inside Search','defaults: REPLAY, Block if unattributed'],['removed','Supplier C','not called in the new recording','its REPLAY + match rule dropped'],['kept','Payment gateway','matched','config kept']]; }
+  if(mode==='startover') rows=[['reset','all 10 steps','re-frozen from the original recording','step edits, overrides, match rules, checkpoints dropped'],['kept','cycle level','3 variables · 2 cycle rules · global rule selection · noise list','unchanged']];
+  const pill=k=>({added:'p-ok',updated:'p-cycle',relinked:'p-replay',kept:'p-wait',removed:'p-fail',reset:'p-mod'})[k];
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:660px">
+   <div class="row"><h2>Preview - ${({refresh:'Refresh from sources',recording:'Rebuild from a new recording',startover:'Start over, keep settings'})[mode]}</h2><span class="spacer"></span><button class="icb" onclick="closeModal()">✕</button></div>
+   ${extra}
+   <table class="grid" style="margin-top:10px"><tr><th></th><th>Steps</th><th>What happens</th><th>Your configuration</th></tr>
+   ${rows.map(r=>`<tr><td><span class="pill ${pill(r[0])}">${r[0]}</span></td><td><b>${esc(r[1])}</b></td><td class="dim">${esc(r[2])}</td><td class="dim">${esc(r[3])}</td></tr>`).join('')}</table>
+   <div class="row" style="margin-top:14px"><button class="link" onclick="openRebuild()">← other mode</button><span class="spacer"></span><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="applyRebuild('${mode}')">Apply rebuild</button></div></div></div>`;
+}
+function applyRebuild(mode){
+  S.prevSteps=JSON.parse(JSON.stringify(S.steps));
+  if(mode==='refresh' && !S.steps.some(x=>x.rec==='r6')) addRecorded(RECORDED.find(r=>r.id==='r6'));
+  if(mode==='startover') S.steps.forEach(x=>{ x.mode=x.parentKey?'REPLAY':null; x.matchCustom=false; x.override=false; x.cp={before:false,after:false,timeout:60}; const r=findRec(x.rec); if(r) x.req=r.req; });
+  if(mode==='recording'){ const c=S.steps.find(x=>x.label==='Supplier C'); if(c) S.steps=S.steps.filter(x=>x!==c); const sr=S.steps.find(x=>x.label==='Search'); if(sr){ const d=stepFromRecorded({id:'r2d',m:'POST',host:'api.supplier-d.net',path:'/fares',status:200,ms:540,label:'Supplier D',req:'{}',res:'{ "fares": 7 }'},sr.key); const at=S.steps.indexOf(sr)+1+kids(sr.key).length; S.steps.splice(at,0,d);} }
+  closeModal(); markDirty(); render();
+  $('#toast').innerHTML=`<div class="toast">Rebuild applied · previous version kept <button class="link" style="margin-left:8px" onclick="undoRebuild()">Undo</button></div>`;
+}
+function undoRebuild(){ if(S.prevSteps){ S.steps=S.prevSteps; S.prevSteps=null; render(); toast('Rebuild undone - back to the previous version'); } }
+
+/* ---------- Relive ▾ from a selection in Live Calls / a session cycle ---------- */
+function openLiveCalls(){ closeModal(); window.__sel={src:'live',ids:[],menu:false}; renderLiveCalls(); }
+function renderLiveCalls(){
+  const st=window.__sel; const src=PICK_SOURCES[st.src];
+  const all=src.calls; const on=id=>st.ids.includes(id);
+  $('#modal').innerHTML=`<div class="pickpage">
+    <nav class="nav">${[['live','Live Calls'],['cycle','Session Cycles']].map(([k,l])=>`<a class="${st.src===k?'on':''}" onclick="window.__sel={src:'${k}',ids:[],menu:false};renderLiveCalls()">${l}</a>`).join('')}<a class="faint">Profiles</a><a class="faint">Interception</a><a onclick="closeModal();go(S.steps.length?'cycle':'list')">Relive</a></nav>
+    <div class="page"><h1>${esc(src.title)}</h1><div class="sub">Select calls - the bulk bar and every call's ⋯ menu now have <b>Relive ▾</b>.</div>
+    <div class="card" style="margin-top:14px;padding:6px 10px">
+      ${all.map(c=>`<label class="pick" style="border-bottom:1px solid rgba(139,92,246,.1)"><input type="checkbox" ${on(c.id)?'checked':''} onchange="toggleSel('${c.id}')"><span class="dir ${c.dir}">${c.dir==='in'?'↙':'↗'}</span>${mb(c.m)}<b>${esc(c.label)}</b><span class="mono dim">${esc(c.svc)} ${esc(c.path)}</span>${c.kids?`<span class="pill p-wait">+${c.kids} ↗</span>`:''}<span class="spacer"></span><span class="faint">${esc(c.when)} · ${c.status}</span></label>`).join('')}
+    </div></div>
+    ${st.ids.length?`<div class="pickbar" style="gap:8px"><span class="pill p-cycle">${st.ids.length} selected</span><button class="btn sm">Resend…</button><button class="btn sm">Copy to cycle…</button><button class="btn sm">Export</button>
+      <span style="position:relative"><button class="btn sm primary" onclick="window.__sel.menu=!window.__sel.menu;renderLiveCalls()">Relive ▾</button>
+      ${st.menu?`<div class="card" style="position:absolute;bottom:38px;right:0;width:270px;padding:6px;z-index:5">
+        ${[['add','＋ Add to cycle…','Book flow repro, Hotel search smoke…'],['new','✚ New cycle from selection','opens it ready to configure'],['now','⚡ Relive now','run it immediately - every supplier call REPLAY'],['replace','⇄ Replace steps of cycle…','keeps its variables and rules']].map(([k,t,d])=>`<button style="display:block;width:100%;text-align:left;padding:7px 9px;border-radius:7px" onmouseover="this.style.background='rgba(139,92,246,.15)'" onmouseout="this.style.background=''" onclick="reliveAction('${k}')"><b>${t}</b><div class="faint" style="font-size:11.5px">${d}</div></button>`).join('')}
+      </div>`:''}</span></div>`:''}</div>`;
+}
+function toggleSel(id){ const st=window.__sel; st.ids=st.ids.includes(id)?st.ids.filter(x=>x!==id):[...st.ids,id]; st.menu=false; renderLiveCalls(); }
+function selectedRecorded(){ return window.__sel.ids.map(id=>RECORDED.find(r=>r.id===id)).filter(Boolean); }
+function reliveAction(k){
+  const recs=selectedRecorded();
+  if(k==='add'){ if(!S.steps.length) ensureCycle(); recs.forEach(addRecorded); closeModal(); S.view='cycle'; S.tab='steps'; markDirty(); toast(recs.length+(recs.length===1?' call':' calls')+' added to “'+S.name+'”'); render(); return; }
+  if(k==='new'){ initState(); S.name='New cycle from '+recs.length+(recs.length===1?' call':' calls'); S.desc=''; S.runs=[]; recs.forEach(addRecorded); closeModal(); S.view='cycle'; S.tab='steps'; markDirty(); toast('New cycle created from your selection'); render(); return; }
+  if(k==='now'){ initState(); S.name='Quick run'; S.desc='From a Live Calls selection'; S.runs=[]; S.transient=true; recs.forEach(addRecorded); S.cycleRules=[]; S.globalMode='NONE'; closeModal(); S.view='cycle'; startRun(); return; }
+  if(k==='replace'){ closeModal(); if(!S.steps.length) ensureCycle(); S.view='cycle'; render();
+    $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:600px"><h2>Replace the steps of “${esc(S.name)}”</h2>
+     <div class="sub" style="margin:4px 0 10px">Its variables, rules and settings stay. Step configuration is carried over wherever a step matches (endpoint + order).</div>
+     <table class="grid"><tr><th></th><th>Steps</th><th>Your configuration</th></tr>
+      ${recs.map(r=>{ const m=S.steps.find(x=>x.rec===r.id); return `<tr><td><span class="pill ${m?'p-cycle':'p-ok'}">${m?'matched':'new'}</span></td><td><b>${esc(r.label)}</b>${r.children?' <span class="faint">+'+r.children.length+' ↗</span>':''}</td><td class="dim">${m?'kept':'defaults (supplier calls REPLAY)'}</td></tr>`; }).join('')}
+      ${tops().filter(x=>!recs.some(r=>r.id===x.rec)).map(x=>`<tr><td><span class="pill p-fail">removed</span></td><td><b>${esc(x.label)}</b></td><td class="dim">dropped with the step</td></tr>`).join('')}</table>
+     <div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="applyReplace()">Replace steps</button></div></div></div>`;
+    window.__replace=recs; return; }
+}
+function applyReplace(){ const recs=window.__replace; S.prevSteps=JSON.parse(JSON.stringify(S.steps)); const keep=S.steps; S.steps=[]; recs.forEach(r=>{ const old=keep.find(x=>x.rec===r.id&&!x.parentKey); if(old){ S.steps.push(old,...keep.filter(x=>x.parentKey===old.key)); } else addRecorded(r); });
+  closeModal(); markDirty(); render(); $('#toast').innerHTML=`<div class="toast">Steps replaced · previous version kept <button class="link" style="margin-left:8px" onclick="undoRebuild()">Undo</button></div>`; }
+
+/* ---------- Pre-run ---------- */
+function openPrerun(){
+  const f=findings(); const blocks=f.filter(x=>x.sev==='BLOCK'); const live=liveSteps(); const unat=S.steps.filter(s=>s.enabled&&mayUnattributed(s));
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal">
+   <div class="row"><h2>Run “${esc(S.name)}”</h2><span class="spacer"></span><button class="icb" onclick="closeModal()">✕</button></div>
+   <div class="sect" style="margin-top:12px"><h3>How to drive it</h3><div class="seg">${['AUTOMATIC','GUIDED'].map(d=>`<button class="${S.driver===d?'on':''}" onclick="S.driver='${d}';openPrerun()">${d==='AUTOMATIC'?'Automatic - ALFRED sends each step':'Guided - I click through the app'}</button>`).join('')}</div></div>
+   ${blocks.length?`<div class="sect"><h3 style="color:var(--red)">Must fix before running</h3>${blocks.map(b=>`<div class="blk" style="padding:3px 0">⛔ ${esc(b.msg)} <a class="link" onclick='fixFinding("${b.code}","${b.key}");closeModal()'>Define it</a></div>`).join('')}</div>`:''}
+   ${(()=>{ const may=S.steps.filter(mayGoLive); const ux=S.unexp==='SEND_REAL'||(S.unexp==='RULES'&&S.unexpFallback==='SEND_REAL'); return (may.length||ux)?`<div class="sect"><h3>May reach external systems</h3>${may.map(c=>`<div class="ext-banner" style="margin-bottom:6px">⚠ <b>${esc(c.label)}</b> → <span class="mono">${esc(c.host)}</span> <span class="spacer"></span> only if odeysys's request differs from the recording</div>`).join('')}${ux?'<div class="ext-banner" style="margin-bottom:6px">⚠ Unexpected outbound calls are sent to the real system</div>':''}</div>`:''; })()}
+   <div class="sect"><h3>Can reach external systems (${live.length})</h3>
+    ${live.length?live.map(s=>`<div class="ext-banner" style="margin-bottom:6px">⚠ <b>${esc(s.label)}</b> → <span class="mono">${esc(s.host)}${esc(s.path)}</span> <span class="spacer"></span> inside ${esc(stepByKey(s.parentKey).label)}</div>`).join(''):'<div class="dim">None - every outbound call is answered by ALFRED.</div>'}</div>
+   ${unat.length?`<div class="sect"><h3>If ALFRED can't tell a call is yours</h3>${unat.map(s=>`<div class="row" style="padding:3px 0"><span style="flex:1">${esc(s.label)} <span class="faint">(no X-Operation-Id propagation seen)</span></span><div class="choice">${['BLOCK','REPLAY_ANYWAY','SEND_REAL'].map(c=>`<button class="${(S.unattributed[s.key]||'BLOCK')===c?'on':''}" onclick="S.unattributed['${s.key}']='${c}';openPrerun()">${({BLOCK:'Block',REPLAY_ANYWAY:'Replay anyway',SEND_REAL:'Send to real'})[c]}</button>`).join('')}</div></div>`).join('')}</div>`:''}
+   <div class="sect"><h3>Warnings</h3>${f.filter(x=>x.sev==='WARN'&&x.code!=='LIVE_EXTERNAL'&&x.code!=='MAY_BE_UNATTRIBUTED').map(x=>`<div class="wrn" style="padding:2px 0">⚠ ${esc(x.msg)}</div>`).join('')||'<div class="dim">none</div>'}</div>
+   ${policySection('openPrerun()')}
+   ${live.length?`<label class="row" style="font-size:12.5px;margin:8px 0;color:#fed7aa"><input type="checkbox" id="confirmLive" onchange="document.getElementById('go').disabled=!this.checked"> I understand ${live.length} call${live.length>1?'s':''} will contact real external systems</label>`:''}
+   <div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn primary" id="go" ${blocks.length||live.length?'disabled':''} onclick="closeModal();startRun()">▶ Start ${S.driver==='GUIDED'?'guided ':''}run</button></div></div></div>`;
+}
+
+/* ---------- Run simulation ---------- */
+const PLAN = {
+  Login:{outcome:'COMPLETED',status:200,ms:220,actRes:'{\n  "token": "eyJhbGciOi…c41",\n  "expiresIn": 3600\n}',produced:[{n:'token',v:'••••••••'}],diffs:[{kind:'NOISE_AUTO',path:'body.token',a:'eyJ…9f2',b:'eyJ…c41',why:'token (changes every login)'}],rules:[{tier:'CYCLE',name:'Add X-Debug: 1',act:'header added'}]},
+  Search:{outcome:'COMPLETED',status:200,ms:1390,actRes:'{\n  "searchId": "S-90417",\n  "offers": 23,\n  "requestTime": "2026-09-27T14:30:11Z"\n}',produced:[{n:'searchId',v:'S-90417'}],diffs:[{kind:'NOISE_AUTO',path:'body.searchId',a:'S-88213',b:'S-90417',why:'extracted into {{searchId}}'},{kind:'NOISE_AUTO',path:'body.requestTime',a:'2026-09-26T10:00:04Z',b:'2026-09-27T14:30:11Z',why:'timestamp'}],rules:[{tier:'CYCLE',name:'Add X-Debug: 1',act:'header added'}]},
+  'Supplier A':{outcome:'COMPLETED',state:'REPLAYED',status:200,ms:12,actRes:'{\n  "flights": 12,\n  "cheapest": 1840\n}',rules:[{tier:'STEP',name:'REPLAY answer (endpoint + order #1)',act:'answered from recording - supplier not contacted'}],diffs:[]},
+  'Supplier B':{outcome:'COMPLETED_WITH_DIFFERENCES',state:'LIVE',status:200,ms:910,actRes:'{\n  "results": 11,\n  "currency": "AED",\n  "cheapest": 1860,\n  "traceId": "b-99d0"\n}',
+    rules:[{tier:'GLOBAL',name:'Currency → AED',act:'response currency rewritten'}],
+    diffs:[{kind:'UNEXPECTED',path:'body.results',a:'12',b:'11',why:''},{kind:'UNEXPECTED',path:'body.cheapest',a:'1795',b:'1860',why:''},{kind:'EXPECTED',path:'body.currency',a:'USD',b:'AED',why:'GLOBAL rule “Currency → AED”'},{kind:'NOISE_AUTO',path:'body.traceId',a:'b-7c1e',b:'b-99d0',why:'trace id'}]},
+  'Supplier C':{outcome:'COMPLETED',state:'REPLAYED',status:200,ms:9,actRes:'{ "available": true, "seats": 9 }',rules:[{tier:'STEP',name:'REPLAY answer (endpoint + order #1)',act:'attributed by in-flight uniqueness'}],diffs:[]},
+  Price:{outcome:'COMPLETED_WITH_DIFFERENCES',status:200,ms:540,effReq:'{\n  "searchId": "{{searchId}}",\n  "offer": 4\n}',actReq:'{\n  "searchId": "S-90417",\n  "offer": 4\n}',actRes:'{\n  "total": 455.00,\n  "currency": "AED"\n}',used:[{n:'searchId',v:'S-90417'}],
+    diffs:[{kind:'UNEXPECTED',path:'body.total',a:'450.00',b:'455.00',why:''}],rules:[{tier:'CYCLE',name:'Add X-Debug: 1',act:'header added'}]},
+  'Pricing engine':{outcome:'COMPLETED',state:'REPLAYED',status:200,ms:8,actRes:'{ "base": 410, "tax": 40 }',rules:[{tier:'STEP',name:'REPLAY answer',act:'answered from recording'}],diffs:[]},
+  Book:{outcome:'FAILED',status:500,ms:1210,actRes:'{\n  "error": "Offer expired",\n  "code": "PRICE_CHANGED"\n}',error:'500 Internal Server Error - status class changed (201 → 500)',used:[{n:'searchId',v:'S-90417'},{n:'passengerName',v:'Fathy Biomy'}],diffs:[{kind:'UNEXPECTED',path:'status',a:'201',b:'500',why:''}],rules:[{tier:'CYCLE',name:'Add X-Debug: 1',act:'header added'}]},
+};
+function startRun(){
+  const order=[]; tops().forEach(s=>{ order.push(s); kids(s.key).forEach(c=>order.push(c)); });
+  S.run={status:'RUNNING',results:{},order:order.map(s=>s.key),idx:0,vars:{passengerName:'Fathy Biomy'},started:Date.now(),elapsed:0,guidedNext:null};
+  order.forEach(s=>S.run.results[s.key]={state:s.enabled?'PENDING':'SKIPPED'});
+  S.tab='run'; S.sel=null; render(); toast(S.driver==='GUIDED'?'Guided run started - use the app, ALFRED follows':'Run started');
+  if(S.driver==='GUIDED'){ guidedNext(); return; }
+  tick();
+}
+function tick(){
+  const r=S.run; if(!r||r.status!=='RUNNING'||r.pause||r.halt) return;
+  const key=r.order[r.idx]; if(!key){ finish(); return; }
+  const s=stepByKey(key); const res=r.results[key];
+  if(!s.enabled || (!s.parentKey && res.state==='SKIPPED')){ r.idx++; return tick(); }
+  if(s.parentKey && ['NOT_CALLED','CANCELLED','SKIPPED'].includes(res.state)){ r.idx++; return tick(); }
+  if(!s.parentKey) kids(s.key).forEach(c=>{ if(c.enabled&&r.results[c.key].state==='PENDING') r.results[c.key].state='WAITING'; });
+  if(s.cp.before && !res.okBefore) return pauseAt(key,'BEFORE');
+  if(s.parentKey && s.mode==='REPLAY' && reqChanges(s).length && s.onChanged==='ASK' && !res.changeDecided) return pauseAt(key,'CHANGED');
+  runStep(key);
+}
+function planFor(s,res){
+  const base=PLAN[s.label.replace(/ \(2\)$/,'')]||{outcome:'COMPLETED',status:s.status,ms:s.ms,actRes:s.res,diffs:[]};
+  // Book fixed by an edit at its checkpoint: the mock's "it works now" attempt
+  if(s.label==='Book' && res.edited) return {outcome:'COMPLETED',status:201,ms:1320,actRes:'{\n  "bookingId": "BK-6004",\n  "status": "CONFIRMED"\n}',used:[{n:'searchId',v:'S-90417'},{n:'passengerName',v:S.run.vars.passengerName||'Fathy Biomy'}],diffs:[{kind:'NOISE_AUTO',path:'body.bookingId',a:'BK-5521',b:'BK-6004',why:'generated id'}],rules:[{tier:'CYCLE',name:'Add X-Debug: 1',act:'header added'}]};
+  return base;
+}
+function runStep(key){
+  const r=S.run, s=stepByKey(key), res=r.results[key]; let p=planFor(s,res);
+  const ch=s.parentKey&&s.mode==='REPLAY'?reqChanges(s):[];
+  res.reqDiff=ch; res.liveNow = s.parentKey && (hostHit(s) || (ch.length && (res.changeDecided||s.onChanged)==='LIVE'));
+  if(ch.length && s.mode==='REPLAY' && (res.changeDecided||s.onChanged)==='FAIL'){ const c=findAct(s,'cond'); p={outcome:'FAILED',state:'REPLAYED',status:+(c?c.data.fail.status:502),ms:4,actRes:c?c.data.fail.body:'{"error":"Request differs from the recording - blocked by ALFRED Relive"}',error:'Request differed from the recording ('+ch[0].path+') - failure mocked, '+s.host+' never contacted',diffs:[{kind:'UNEXPECTED',path:'status',a:String(s.status),b:String(c?c.data.fail.status:502),why:''}],rules:[{tier:'STEP',name:'call rule · Condition (request matches recorded call) → no',act:'Mock response '+(c?c.data.fail.status:502)+' - supplier not contacted'}]}; }
+  else if(ch.length && res.liveNow && s.mode==='REPLAY') p={outcome:'COMPLETED_WITH_DIFFERENCES',state:'LIVE',status:200,ms:720,actRes:'{\n  "flights": 9,\n  "cheapest": 1910\n}',rules:[],diffs:[{kind:'EXPECTED',path:'request '+ch[0].path,a:ch[0].a,b:ch[0].b,why:'you edited '+stepByKey(s.parentKey).label},{kind:'UNEXPECTED',path:'body.flights',a:'12',b:'9',why:''},{kind:'UNEXPECTED',path:'body.cheapest',a:'1840',b:'1910',why:''}]};
+  else if(s.mode==='LIVE_MOCKED') p={outcome:'COMPLETED',state:'LIVE',status:s.status,ms:(s.ms||300)+40,actRes:s.res,diffs:[],rules:[{tier:'STEP',name:'call rule · Reply with a different response',act:'host called ('+s.host+' answered 200) - odeysys got the recorded answer'}]};
+  else if(ch.length) p={...p,rules:[{tier:'STEP',name:'REPLAY answer'+(res.answerEdited?' (edited for this run)':''),act:'request differed ('+ch[0].path+' '+ch[0].a+' → '+ch[0].b+') - answered from recording anyway'}]};
+  res.state = s.parentKey ? (res.liveNow?'LIVE':'REPLAYED') : 'RUNNING';
+  render();
+  setTimeout(()=>{
+    if(!S.run||S.run.status!=='RUNNING') return;
+    const head = new Date().toLocaleTimeString()+'  '+(res.attempt>1?'[attempt '+res.attempt+'] ':'')+(s.parentKey?(res.liveNow?'FORWARDED_LIVE -> '+s.host+(s.mode==='LIVE_MOCKED'?' - REPLACE_RESPONSE with the recording':'')+(ch.length&&s.mode==='REPLAY'?' (request differed from the recording)':''):'MATCHED endpoint+order #1 -> REPLAYED (supplier not contacted)'+(ch.length?' - REQUEST_CHANGED '+ch[0].path:'')):'SENT via ALFRED to odeysys');
+    if(S.simUnexpected && s.label==='Price' && !r.unexpected){ const call={m:'POST',host:'api.loyalty.io',path:'/v1/points',parent:'Price'}; r.unexpected=[{...call,...handleUnexpected(call)}]; if(r.unexpected[0].how==='live') logLive({key:null,label:'Unexpected call',m:call.m,host:call.host,path:call.path},{status:200,ms:310,actReq:'{ "points": 120 }',actRes:'{ "balance": 4820 }'},'unexpected-call policy: send to the real system'); }
+    Object.assign(res,{...p,effReq:p.effReq||s.req,log:[...(res.log||[]),head,...(p.rules||[]).map(x=>'RULE_APPLIED ['+x.tier+'] '+x.name),...(p.produced||[]).map(v=>'VARIABLE_SET '+v.n),p.error?'ERROR '+p.error:'DONE '+p.status+' in '+p.ms+' ms']});
+    const unexpected=(p.diffs||[]).filter(d=>d.kind==='UNEXPECTED'&&!S.ignored[s.label+d.path]).length;
+    res.state = p.outcome==='FAILED'?'FAILED':unexpected?'COMPLETED_WITH_DIFFERENCES':'COMPLETED';
+    res.settled=res.state; res.ms=p.ms; (p.produced||[]).forEach(v=>r.vars[v.n]=v.n==='token'?'eyJhbGciOi…c41':v.v);
+    (res.attempts=res.attempts||[]).push({n:res.attempt||1,state:res.state,status:p.status,ms:p.ms,edited:!!res.edited});
+    if(res.liveNow) logLive(s,res,s.mode==='LIVE_MOCKED'?'LIVE, reply mocked (odeysys got the recording)':res.changeDecided==='LIVE'?'Ask me → you sent it':s.mode==='REPLAY'?'Call live - request differed from the recording':'LIVE mode');
+    r.flash=key;
+    if(s.cp.after && !res.okAfter) return pauseAt(key,'AFTER');
+    afterSettle(key);
+  }, Math.min(1100, 300 + (p.ms||300)/2));
+}
+function afterSettle(key){
+  const r=S.run, s=stepByKey(key), res=r.results[key];
+  const failed=res.state==='FAILED' && !s.optional, diff=res.state==='COMPLETED_WITH_DIFFERENCES';
+  if(failed && !s.parentKey) kids(s.key).forEach(c=>{ if(['WAITING','PENDING'].includes(r.results[c.key].state)) r.results[c.key].state='NOT_CALLED'; });
+  if((failed && S.onFail==='HOLD') || (diff && S.onDiff==='HOLD')){ r.halt={key,reason:failed?'FAILED':'DIFF'}; render(); return; }
+  if(failed) skipDependents(key);
+  r.idx++; render(); setTimeout(tick,350);
+}
+function decideChanged(v){
+  const r=S.run, p=r.pause, s=stepByKey(p.key), res=r.results[p.key];
+  if(v==='EDIT'){ $('#modal').innerHTML=`<div class="backdrop"><div class="card modal" style="width:520px"><h2>Answer for ${esc(s.label)} - this run</h2><div class="sub" style="margin:4px 0 8px">Edit the recorded response ALFRED will give. The cycle keeps its answer unless you save this.</div><textarea class="mono" style="width:100%;height:120px">${esc(s.res)}</textarea><label class="row" style="font-size:12.5px;margin-top:6px"><input type="checkbox"> Also save to the cycle</label><div class="row" style="margin-top:10px"><span class="spacer"></span><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="closeModal();S.run.results['${p.key}'].answerEdited=true;decideChanged('REPLAY')">↩ Save &amp; replay</button></div></div></div>`; return; }
+  if(v==='LIVE' && !window.__liveOk){ $('#modal').innerHTML=`<div class="backdrop"><div class="card modal" style="width:460px;border-color:rgba(251,146,60,.7)"><h2 style="color:#fed7aa">⚠ Send this call to the real ${esc(s.host)}?</h2><div class="sub" style="margin:6px 0 12px">The request differs from the recording. The real supplier will receive it and may act on it.</div><div class="row"><span class="spacer"></span><button class="btn" onclick="closeModal()">Keep holding</button><button class="btn danger" onclick="window.__liveOk=true;closeModal();decideChanged('LIVE');window.__liveOk=false">Yes, send it</button></div></div></div>`; return; }
+  clearInterval(r.holdTimer);
+  res.pauses[res.pauses.length-1].choice=v; r.pause=null;
+  res.changeDecided=v; runStep(p.key);
+}
+/* ---- hold after a failure / differences ---- */
+const PRODUCES={Login:['token'],Search:['searchId'],Book:['bookingId']};
+function dependents(key){
+  const r=S.run, s=stepByKey(key); const lost=(PRODUCES[s.label]||[]).filter(n=>!r.vars[n] && !(S.vars.find(v=>v.name===n)||{}).value);
+  if(!lost.length) return [];
+  return r.order.slice(r.order.indexOf(key)+1).map(stepByKey).filter(x=>x&&x.enabled&&!x.parentKey&&['PENDING','CANCELLED'].includes(r.results[x.key].state))
+    .map(x=>({s:x,needs:varRefs(x.path+' '+x.req).filter(n=>lost.includes(n))})).filter(d=>d.needs.length);
+}
+function skipDependents(key){
+  const r=S.run, src=stepByKey(key);
+  dependents(key).forEach(d=>{ const res=r.results[d.s.key]; res.state='SKIPPED'; res.error='Skipped - needs {{'+d.needs.join('}}, {{')+'}}, which '+src.label+' did not produce';
+    kids(d.s.key).forEach(c=>r.results[c.key].state='NOT_CALLED'); });
+}
+function haltBox(){
+  const r=S.run, h=r&&r.halt; if(!h) return '';
+  const s=stepByKey(h.key), res=r.results[h.key], deps=dependents(h.key);
+  const left=r.order.slice(r.order.indexOf(h.key)+1).map(stepByKey).filter(x=>x&&x.enabled&&!x.parentKey).length;
+  const why=h.reason==='FAILED'?('failed - '+esc(res.error||res.status)):('came back with '+(res.diffs||[]).filter(d=>d.kind==='UNEXPECTED'&&!S.ignored[s.label+d.path]).length+' unexpected differences');
+  return `<div class="haltbox ${h.reason==='DIFF'?'diff':''}"><h3>${h.reason==='FAILED'?'✕':'⚠'} <b>${esc(s.label)}</b> ${why}. The run is holding.</h3>
+    <div class="dim" style="font-size:12.5px">Nothing else is sent until you decide. ${left?left+' step'+(left>1?'s are':' is')+' still to run.':'This was the last step.'}${h.reason==='DIFF'?' Differences hold the run only because this cycle is set to “hold on differences”.':''}</div>
+    ${deps.length?`<div class="wrn" style="font-size:12.5px;margin-top:6px">⚠ If you continue, ${deps.map(d=>'<b>'+esc(d.s.label)+'</b> (needs <span class="var">{{'+d.needs.join('}}, {{')+'}}</span>)').join(', ')} will be skipped - ${esc(s.label)} did not produce ${deps.length>1?'those values':'that value'}. Give the variable a value first to run ${deps.length>1?'them':'it'} anyway.</div>`:''}
+    <div class="row" style="margin-top:8px;flex-wrap:wrap">
+      ${s.parentKey?`<button class="btn sm" onclick="toast('Re-runs ${esc(stepByKey(s.parentKey).label)} - odeysys makes this call again')">↻ Re-run ${esc(stepByKey(s.parentKey).label)}</button>`:`<button class="btn sm" onclick="haltRetry()">↻ Retry</button><button class="btn sm" onclick="haltEdit()">✎ Edit &amp; retry</button>`}
+      <button class="btn sm primary" onclick="haltContinue()" ${left?'':'disabled'}>▶ Continue with next calls</button>
+      <button class="btn sm danger" onclick="haltEnd()">■ End run here</button>
+      <span class="spacer"></span><a class="link" style="font-size:12px" onclick="S.sel='${s.key}';S.detailTab='${h.reason==='DIFF'?'diff':'overview'}';render()">inspect ${esc(s.label)} →</a></div></div>`;
+}
+function haltRetry(){ const r=S.run, k=r.halt.key, res=r.results[k]; r.halt=null; res.attempt=(res.attempt||1)+1; runStep(k); }
+function haltEdit(){ const r=S.run, k=r.halt.key, res=r.results[k]; r.halt=null; r.pause={key:k,at:'AFTER'}; (res.pauses=res.pauses||[]).push({at:'AFTER',since:Date.now()}); pEditReplay(); }
+function haltContinue(){ const r=S.run, k=r.halt.key; const n=dependents(k).length; skipDependents(k); r.halt=null; r.continued=(r.continued||0)+1;
+  (r.results[k].log=r.results[k].log||[]).push('CONTINUED past this step by user'); toast('Continuing with the next calls'+(n?' - '+n+' step'+(n>1?'s':'')+' skipped for a missing value':'')); r.idx++; render(); setTimeout(tick,350); }
+function haltEnd(){ const r=S.run; r.halt=null; r.order.forEach(k=>{ const st=r.results[k]; if(st.state==='PENDING'||st.state==='WAITING') st.state='CANCELLED'; }); r.status='RUNNING'; finish(); }
+function resumeRun(key){
+  const r=S.run; const at=r.order.indexOf(key)+1+kids(key).length;
+  r.order.slice(at).forEach(k=>{ const st=r.results[k]; if(st.state==='CANCELLED') st.state='PENDING'; });
+  if(r.histId) S.runs=S.runs.filter(x=>x.id!==r.histId);
+  skipDependents(key); r.status='RUNNING'; r.idx=at; r.continued=(r.continued||0)+1; r.started=Date.now()-r.elapsed*1000;
+  toast('Resumed the same run - same variables, the rest of the steps run now'); render(); setTimeout(tick,350);
+}
+function policySection(rerender){
+  const b=(k,v,l)=>`<button class="${S[k]===v?'on':''}" onclick="S.${k}='${v}';markDirty();${rerender}">${l}</button>`;
+  return `<div class="sect"><h3>When something goes wrong</h3>
+    <div class="row" style="padding:2px 0"><span style="width:190px;font-size:12.5px">A step <b style="color:var(--red)">fails</b></span><div class="choice">${b('onFail','HOLD','Hold and ask me (default)')}${b('onFail','CONTINUE','Keep going')}</div></div>
+    <div class="row" style="padding:2px 0"><span style="width:190px;font-size:12.5px">A step has <b style="color:var(--amber)">differences</b></span><div class="choice">${b('onDiff','CONTINUE','Keep going (default)')}${b('onDiff','HOLD','Hold and ask me')}</div></div>
+    <div class="hint" style="margin-top:4px">Holding lets you retry, edit &amp; retry, <b>continue with the next calls</b>, or end the run. Steps that need a value the failed step didn't produce are skipped, never sent with a gap.</div></div>`;
+}
+/* ---- checkpoints ---- */
+function pauseAt(key,at){
+  const r=S.run, s=stepByKey(key), res=r.results[key];
+  r.pause={key,at,left:s.parentKey?s.cp.timeout:null};
+  res.state='PAUSED'; (res.pauses=res.pauses||[]).push({at,since:Date.now()});
+  if(s.parentKey){ // held inside ALFRED - odeysys is waiting; the mock runs the clock 5x faster
+    clearInterval(r.holdTimer);
+    r.holdTimer=setInterval(()=>{ if(!S.run||!S.run.pause||S.run.pause.key!==key){ clearInterval(r.holdTimer); return; }
+      S.run.pause.left--; if(S.run.pause.left<=0){ clearInterval(r.holdTimer); res.pauses[res.pauses.length-1].choice='TIMEOUT'; toast(s.label+': no decision in '+s.cp.timeout+' s - continued automatically'); pContinue(true); } else updateRing(); },200);
+  }
+  S.tab='run'; render();
+}
+function updateRing(){ const el=document.getElementById('ring'); const p=S.run.pause; if(!el||!p) return; const s=stepByKey(p.key); const pct=Math.round(p.left/s.cp.timeout*360); el.style.background='conic-gradient(#e879f9 '+pct+'deg, rgba(232,121,249,.15) 0)'; el.firstElementChild.textContent=p.left+'s'; }
+function pContinue(byTimeout){
+  const r=S.run, p=r.pause; if(!p) return; const res=r.results[p.key];
+  if(!byTimeout) res.pauses[res.pauses.length-1].choice='CONTINUE';
+  clearInterval(r.holdTimer); r.pause=null;
+  if(p.at==='CHANGED'){ closeModal(); res.changeDecided='FAIL'; (res.log=res.log||[]).push('NO DECISION in time - failure mocked, supplier not contacted'); runStep(p.key); return; }
+  if(p.at==='BEFORE'){ res.okBefore=true; runStep(p.key); }
+  else { res.okAfter=true; res.state=res.settled; afterSettle(p.key); }
+}
+function pReplay(){
+  const r=S.run, p=r.pause, res=r.results[p.key];
+  res.pauses[res.pauses.length-1].choice=res.editPending?'EDIT_REPLAY':'REPLAY'; res.editPending=false;
+  r.pause=null; res.attempt=(res.attempt||1)+1; res.okAfter=false; runStep(p.key);
+}
+function pEditReplay(){
+  const r=S.run, p=r.pause, s=stepByKey(p.key);
+  const vars=S.vars.filter(v=>!v.secret).map(v=>'<div class="row" style="margin-bottom:4px"><span class="var" style="width:130px">{{'+esc(v.name)+'}}</span><input class="mono" data-v="'+esc(v.name)+'" value="'+esc(r.vars[v.name]??v.value)+'" style="flex:1"></div>').join('');
+  $('#modal').innerHTML='<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:560px">'
+   +'<h2>Edit '+esc(s.label)+' for this run, then '+(p.at==='BEFORE'?'send':'replay')+'</h2><div class="sub" style="margin:4px 0 10px">The cycle stays as it is unless you save the change to it.</div>'
+   +'<div class="sect"><h3>Request</h3><textarea class="mono" style="width:100%;height:120px">'+esc(s.req)+'</textarea></div>'
+   +'<div class="sect"><h3>Variables</h3>'+vars+'</div>'
+   +'<label class="row" style="font-size:12.5px"><input type="checkbox" id="savecyc"> Also save these edits to the cycle</label>'
+   +'<div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="applyEditReplay()">'+(p.at==='BEFORE'?'▶ Save &amp; send':'↻ Save &amp; replay')+'</button></div></div></div>';
+}
+function applyEditReplay(){
+  const r=S.run, p=r.pause, res=r.results[p.key];
+  document.querySelectorAll('#modal [data-v]').forEach(i=>r.vars[i.dataset.v]=i.value);
+  const saved=document.getElementById('savecyc').checked; res.edited=true; res.editPending=true;
+  closeModal(); if(saved){ markDirty(); toast('Edits saved to the cycle'); } else toast('Edits apply to this run only');
+  if(p.at==='BEFORE'){ res.pauses[res.pauses.length-1].choice='EDIT_REPLAY'; pContinue(true); } else pReplay();
+}
+function pSkip(){
+  const r=S.run, p=r.pause, s=stepByKey(p.key), res=r.results[p.key];
+  res.pauses[res.pauses.length-1].choice='SKIP'; clearInterval(r.holdTimer); r.pause=null;
+  if(s.parentKey && p.at==='BEFORE'){ res.state='FAILED'; res.error='Failed at checkpoint - ALFRED did not send the call'; res.log=[...(res.log||[]),'BLOCKED at checkpoint by user']; afterSettle(p.key); return; }
+  if(p.at==='BEFORE'){ res.state='SKIPPED'; kids(s.key).forEach(c=>r.results[c.key].state='NOT_CALLED'); r.idx++; render(); setTimeout(tick,300); return; }
+  res.state=res.settled; if(res.state==='FAILED') res.state='SKIPPED';
+  kids(s.key).forEach(c=>{ const st=r.results[c.key]; if(['PENDING','WAITING'].includes(st.state)) st.state='SKIPPED'; }); afterSettle(p.key);
+}
+function pauseBox(){
+  const r=S.run, p=r&&r.pause; if(!p) return '';
+  if(p.at==='CHANGED'){ const s=stepByKey(p.key), ch=reqChanges(s);
+    return `<div class="pausebox"><div class="row" style="align-items:flex-start;gap:12px"><div class="ring" id="ring" style="background:conic-gradient(#e879f9 360deg, rgba(232,121,249,.15) 0)"><span>${p.left}s</span></div><div style="flex:1">
+      <h3>⏸ odeysys's call to <b>${esc(s.label)}</b> differs from the recording - held in ALFRED</h3>
+      <div class="drow"><span class="mono">${esc(ch[0].path)}</span><span class="old">${esc(ch[0].a)}</span><span class="new">${esc(ch[0].b)}</span><span class="faint">${ch[0].path.includes('your edit')?'your edit to this call':'because you edited '+esc(stepByKey(s.parentKey).label)}</span></div><a class="link" style="font-size:12px" onclick="S.sel='${s.key}';S.detailTab='diff';S.cmp={half:'request',view:'diff',part:'body',step:4};render()">compare the whole request with the recording →</a>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap"><button class="btn sm primary" onclick="decideChanged('REPLAY')">↩ Replay recorded answer</button><button class="btn sm" onclick="decideChanged('EDIT')">✎ Edit answer &amp; replay</button><button class="btn sm" style="border-color:rgba(251,146,60,.6);color:#fed7aa" onclick="decideChanged('LIVE')">⚠ Send to real ${esc(s.host)}</button><button class="btn sm" onclick="decideChanged('FAIL')">✕ Mock a failure</button><button class="btn sm danger" onclick="stopRun()">■ Stop run</button><span class="faint" style="font-size:11px">no decision = mocked failure · supplier never called without your yes · timer sped up 5x</span></div></div></div></div>`; }
+  const s=stepByKey(p.key), res=r.results[p.key]; const held=!!s.parentKey;
+  const tries=(res.attempts||[]);
+  const icon=t=>t.state==='FAILED'?'✕':t.state==='COMPLETED'?'✓':'⚠';
+  const desc = p.at==='BEFORE'
+    ? (held ? 'odeysys is calling <span class="mono">'+esc(s.host)+'</span>. It continues '+(s.mode==='LIVE'?'to the real supplier':'with ALFRED\'s recorded answer')+' when you press Continue, or by itself when the timer runs out.'
+            : 'Nothing has been sent yet. Check the request below, edit it if needed, then continue.')
+    : (held ? 'The response is held before it reaches odeysys.'
+            : 'Attempt '+(res.attempt||1)+' '+(res.settled==='FAILED'?'failed':res.settled==='COMPLETED_WITH_DIFFERENCES'?'came back with differences':'completed')+' ('+res.status+'). Replay it as often as you like - every try is kept - then continue.');
+  const body = p.at==='BEFORE' ? ((r.vars.searchId?s.req.replace('{{searchId}}',r.vars.searchId):s.req)||'<empty body>') : (res.actRes||'');
+  let btns='<button class="btn sm primary" onclick="pContinue()">▶ Continue'+(held?' now':'')+'</button>';
+  if(!held&&p.at==='AFTER') btns+='<button class="btn sm" onclick="pReplay()">↻ Replay</button><button class="btn sm" onclick="pEditReplay()">✎ Edit &amp; replay</button>';
+  if(!held&&p.at==='BEFORE') btns+='<button class="btn sm" onclick="pEditReplay()">✎ Edit request</button>';
+  if(held) btns+='<button class="btn sm" onclick="toast(\'odeysys made this call - re-running the parent step ('+esc(stepByKey(s.parentKey).label)+') is how to replay it\')">↻ Re-run parent step</button>';
+  btns+='<button class="btn sm" onclick="pSkip()">'+(held&&p.at==='BEFORE'?'Fail this call':'Skip')+'</button><button class="btn sm danger" onclick="stopRun()">■ Stop run</button>';
+  if(held) btns+='<span class="faint" style="font-size:11px">timer sped up 5x in this mock</span>';
+  return '<div class="pausebox"><div class="row" style="align-items:flex-start;gap:12px">'
+    +(held?'<div class="ring" id="ring" style="background:conic-gradient(#e879f9 360deg, rgba(232,121,249,.15) 0)"><span>'+p.left+'s</span></div>':'<span class="st paused" style="width:30px;height:30px;font-size:14px">⏸</span>')
+    +'<div style="flex:1;min-width:0"><h3>⏸ Paused '+(p.at==='BEFORE'?'before':'after')+' <b>'+esc(s.label)+'</b>'+(held?' - odeysys\'s call is held in ALFRED':'')+'</h3>'
+    +'<div class="dim" style="font-size:12.5px">'+desc+'</div>'
+    +(tries.length?'<div class="attempts">'+tries.map(t=>'<button class="'+(t.n===(res.attempt||1)?'on':'')+'" title="'+(t.edited?'edited before this try':'')+'">#'+t.n+' '+icon(t)+' '+t.status+(t.edited?' ✎':'')+'</button>').join('')+'</div>':'')
+    +'<pre style="max-height:110px;margin-top:6px">'+esc(body)+'</pre>'
+    +'<div class="row" style="margin-top:8px;flex-wrap:wrap">'+btns+'</div></div></div></div>';
+}
+function guidedNext(){
+  const r=S.run; const next=r.order.slice(r.idx).map(stepByKey).find(s=>s&&s.enabled&&!s.parentKey);
+  r.guidedNext=next?next.key:null; render();
+}
+function guidedArrive(){
+  const r=S.run; const key=r.guidedNext; if(!key){ finish(); return; }
+  r.idx=r.order.indexOf(key); const s=stepByKey(key);
+  const stopAt=r.order.indexOf(key)+1+kids(key).length;
+  const runOne=()=>{ if(r.idx>=stopAt||r.status!=='RUNNING'){ guidedNext(); return; } const k=r.order[r.idx]; const st=stepByKey(k); const p=PLAN[st.label]||{outcome:'COMPLETED',status:st.status,ms:st.ms,actRes:st.res,diffs:[]};
+    const res=r.results[k]; Object.assign(res,{...p,effReq:st.req,log:['GUIDED: matched arriving call to step '+st.label]});
+    const unexpected=(p.diffs||[]).filter(d=>d.kind==='UNEXPECTED').length; res.state=p.outcome==='FAILED'?'FAILED':unexpected?'COMPLETED_WITH_DIFFERENCES':'COMPLETED'; res.ms=p.ms;
+    (p.produced||[]).forEach(v=>r.vars[v.n]=v.v); r.flash=k; r.idx++; render(); setTimeout(runOne,250); };
+  runOne();
+}
+function stopRun(){ const r=S.run; if(!r) return; clearInterval(r.holdTimer); r.halt=null; if(r.pause){ const pr=r.results[r.pause.key]; if(pr.pauses) pr.pauses[pr.pauses.length-1].choice='STOP'; r.pause=null; } r.status='STOPPED'; r.order.forEach(k=>{ const st=r.results[k]; if(['PENDING','WAITING','RUNNING','PAUSED','REPLAYED','LIVE'].includes(st.state)) st.state='CANCELLED'; }); finish(true); toast('Run stopped - remaining steps cancelled'); }
+function finish(already){
+  const r=S.run; const states=Object.values(r.results).map(x=>x.state);
+  if(!already||r.status==='RUNNING') r.status=states.includes('FAILED')?'FAILED':states.includes('COMPLETED_WITH_DIFFERENCES')?'COMPLETED_WITH_DIFFERENCES':'COMPLETED';
+  r.elapsed=((Date.now()-r.started)/1000).toFixed(1);
+  const c=k=>states.filter(s=>s===k).length;
+  r.histId=r.runId||(r.runId='run-'+(uid++)); S.runs.unshift({id:r.histId,when:'just now',status:r.status,sum:`${c('COMPLETED')} ok · ${c('COMPLETED_WITH_DIFFERENCES')} different · ${c('FAILED')} failed · ${c('NOT_CALLED')+c('CANCELLED')+c('SKIPPED')} not run`+(r.continued?' · continued past '+r.continued:''),dur:r.elapsed+' s'});
+  render();
+}
+function retryStep(k){ const r=S.run; const res=r.results[k]; res.attempt=(res.attempt||1)+1; res.state='RUNNING'; render(); setTimeout(()=>{ res.state='FAILED'; res.log=[...(res.log||[]),`--- attempt ${res.attempt} ---`,'SENT via ALFRED to odeysys','ERROR 500 Internal Server Error (offer still expired)']; toast(`Attempt ${res.attempt} kept beside attempt 1`); render(); },900); }
+
+function statePill(res){
+  const m={PAUSED:['p-pause','⏸ Paused'],PENDING:['p-wait','Pending'],WAITING:['p-wait','Waiting'],RUNNING:['p-cycle','Running'],REPLAYED:['p-replay','Replaying…'],LIVE:['p-live','Live…'],
+    COMPLETED:['p-ok','✓ Completed'],COMPLETED_WITH_DIFFERENCES:['p-diff','⚠ Differences'],FAILED:['p-fail','✕ Failed'],SKIPPED:['p-wait','Skipped'],NOT_CALLED:['p-wait','Not called'],CANCELLED:['p-wait','Cancelled']};
+  const x=m[res.state]||['p-wait',res.state]; return `<span class="pill ${x[0]}">${x[1]}</span>`;
+}
+function stIcon(state){ const m={PAUSED:['paused','⏸'],PENDING:['pending',''],WAITING:['waiting','…'],RUNNING:['running','●'],REPLAYED:['running','●'],LIVE:['running','●'],COMPLETED:['ok','✓'],COMPLETED_WITH_DIFFERENCES:['diff','!'],FAILED:['fail','✕'],SKIPPED:['skip','–'],NOT_CALLED:['notcalled','·'],CANCELLED:['cancel','–']}; const x=m[state]||['pending','']; return `<span class="st ${x[0]}">${x[1]}</span>`; }
+
+function runPanel(){
+  const r=S.run; if(!r) return `<div class="faint" style="padding:30px;text-align:center">No run yet. <a class="link" onclick="openPrerun()">Run this cycle</a></div>`;
+  const all=r.order.map(k=>({s:stepByKey(k),res:r.results[k]})).filter(x=>x.s);
+  const done=all.filter(x=>['COMPLETED','COMPLETED_WITH_DIFFERENCES','FAILED'].includes(x.res.state)).length;
+  const counted=all.filter(x=>x.res.state!=='SKIPPED').length;
+  const fmap={all:()=>true,running:x=>['RUNNING','REPLAYED','LIVE','WAITING'].includes(x.res.state),diff:x=>x.res.state==='COMPLETED_WITH_DIFFERENCES',failed:x=>x.res.state==='FAILED',live:x=>x.s.parentKey&&x.hostHit(s),replayed:x=>x.s.parentKey&&x.s.mode==='REPLAY'};
+  const shown=all.filter(fmap[S.filter]);
+  const runTitle={RUNNING:r.halt?'<span class="pill p-fail">■ holding - your call</span>':'<span class="pill p-cycle">● running</span>',COMPLETED:'<span class="pill p-ok">✓ completed</span>',COMPLETED_WITH_DIFFERENCES:'<span class="pill p-diff">⚠ completed with differences</span>',FAILED:'<span class="pill p-fail">✕ failed</span>',STOPPED:'<span class="pill p-wait">■ stopped</span>'}[r.status];
+  return `
+  <div class="row" style="margin-bottom:10px">${runTitle}<span class="pill p-wait">${S.driver==='GUIDED'?'Guided':'Automatic'}</span><div class="progress"><i style="width:${counted?Math.round(done/counted*100):0}%"></i></div><b>${done} / ${counted}</b><span class="dim">completed</span>${r.status!=='RUNNING'?`<span class="dim">· ${r.elapsed} s total</span>`:''}</div>
+  ${pauseBox()}${haltBox()}
+  ${S.liveLog.filter(l=>l.run===r.runId).length?`<div class="ext-banner" style="margin-bottom:8px">⚠ ${S.liveLog.filter(l=>l.run===r.runId).length} call(s) in this run reached a real system - each is saved in full under <a class="link" onclick="S.tab='history';render()">History → Live calls</a>.</div>`:''}
+  ${S.driver==='GUIDED'&&r.status==='RUNNING'?`<div class="guided">👉 <span>Expected next: <b>${esc(stepByKey(r.guidedNext)?.label||'-')}</b> - do it in the app. ALFRED ticks it off when the call arrives.</span><span class="spacer"></span><button class="btn sm primary" onclick="guidedArrive()">Simulate: I did it</button><button class="btn sm" onclick="finish()">End run</button></div>`:''}
+  <div class="row" style="margin-bottom:8px"><div class="filters">${[['all','All'],['running','In progress'],['diff','Differences'],['failed','Failed'],['live','LIVE'],['replayed','REPLAY']].map(([k,l])=>`<button class="${S.filter===k?'on':''}" onclick="S.filter='${k}';render()">${l}</button>`).join('')}</div></div>
+  <div>
+  ${shown.map(({s,res})=>{ const unexpected=(res.diffs||[]).filter(d=>d.kind==='UNEXPECTED'&&!S.ignored[s.label+d.path]).length;
+    return `<div class="step ${s.parentKey?'child':''} ${S.sel===s.key?'sel':''} ${r.flash===s.key?'flash':''}" onclick="S.sel='${s.key}';S.detailTab='overview';render()" style="${s.parentKey&&hostHit(s)?'border-color:rgba(251,146,60,.45)':''}">
+      ${stIcon(res.state)}${s.parentKey?'<span class="dir out">↗</span>':'<span class="dir in">↙</span>'}${mb(s.m)}
+      <span class="lbl"><span class="t">${esc(s.label)}</span><span class="u mono">${esc(s.host||s.svc)}${esc(s.path)}</span></span>
+      ${s.parentKey?((hostHit(s)||res.liveNow)?'<span class="pill p-live">LIVE · contacted '+esc(s.host)+(s.mode==='LIVE_MOCKED'?' · reply mocked':'')+'</span>':'<span class="pill p-replay">REPLAY</span>'):''}
+      ${res.savedLive?'<span class="pill p-live" title="Saved in full in History → Live calls">💾 saved</span>':''}
+      ${(res.reqDiff||[]).length?`<span class="pill p-mod" title="${esc(res.reqDiff[0].path+': '+res.reqDiff[0].a+' → '+res.reqDiff[0].b)}">request changed${res.liveNow?'':' · replayed anyway'}${res.answerEdited?' · answer edited':''}</span>`:''}
+      ${(res.rules||[]).some(x=>x.tier==='GLOBAL')?'<span class="pill p-global">GLOBAL RULE</span>':''}
+      ${res.state==='COMPLETED_WITH_DIFFERENCES'?`<span class="pill p-diff">⚠ ${unexpected} difference${unexpected>1?'s':''}</span>`:''}
+      ${res.state==='FAILED'?`<span class="pill p-fail">✕ ${res.status}</span>`:''}
+      ${res.attempt>1?`<span class="pill p-wait">attempt ${res.attempt}</span>`:''}
+      ${res.state==='FAILED'&&r.status!=='RUNNING'?`<button class="btn sm" onclick="event.stopPropagation();retryStep('${s.key}')">↻ Retry</button>${!s.parentKey&&r.order.slice(r.order.indexOf(s.key)+1).some(k=>['CANCELLED','PENDING'].includes(r.results[k].state)&&stepByKey(k).enabled)?`<button class="btn sm primary" onclick="event.stopPropagation();resumeRun('${s.key}')" title="Same run, same variables - carry on with the steps after this one">▶ Continue with the rest</button>`:''}<button class="btn sm" onclick="event.stopPropagation();toast('New run starts at ${esc(s.label)} with searchId=S-90417, token from this run')">Run from here</button>`:''}
+      ${res.state==='SKIPPED'&&res.error?`<span class="pill p-wait" title="${esc(res.error)}">needs a missing value</span>`:''}
+      ${statePill(res)}<span class="dur">${res.ms?res.ms+' ms':''}</span></div>`;}).join('')}
+  </div>
+  ${(r.unexpected||[]).length?`<div class="card" style="padding:10px 12px;margin:10px 0"><h3 style="margin:0 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)">Unexpected outbound calls (${r.unexpected.length}) - matched no step</h3>${r.unexpected.map(u=>`<div class="row" style="padding:3px 0"><span class="dir out">↗</span>${mb(u.m)}<span class="mono">${esc(u.host+u.path)}</span><span class="faint">during ${esc(u.parent)}</span><span class="spacer"></span><span class="pill ${u.how==='live'?'p-live':u.how==='rule'?'p-mod':'p-wait'}">${esc(u.text)}</span></div>`).join('')}</div>`:''}
+  <div class="card varpanel" style="padding:10px 12px"><div class="row"><h3 style="margin:0;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)">Variables in this run</h3></div>
+   ${S.vars.map(v=>`<div class="varrow"><span class="nm">{{${esc(v.name)}}}</span><span class="mono">${r.vars[v.name]?(v.secret?'•••••••• <a class="link">reveal</a>':esc(r.vars[v.name])):'<span class="faint">not set yet</span>'}</span><span class="spacer"></span><span class="faint">${esc(v.src)}</span></div>`).join('')}</div>`;
+}
+function runOverview(s,res){
+  return `<div class="sect"><div class="kv">
+     <span class="dim">State</span><span>${statePill(res)}</span>
+     <span class="dim">Mode</span><span>${s.parentKey?(hostHit(s)?'<span class="pill p-live">LIVE - real supplier contacted</span>':'<span class="pill p-replay">REPLAY - answered by ALFRED</span>'):'sent by ALFRED to odeysys'}</span>
+     ${s.parentKey?`<span class="dim">Attribution</span><span>${s.host==='api.supplier-c.io'?'in-flight uniqueness (only odeysys call in flight)':'X-Operation-Id propagated by odeysys'}</span>`:''}
+     <span class="dim">Status</span><span>${res.status??'-'} <span class="faint">(recorded ${s.status})</span></span>
+     <span class="dim">Duration</span><span>${res.ms??'-'} ms <span class="faint">(recorded ${s.ms} ms)</span></span>
+     ${res.error?`<span class="dim">Error</span><span class="blk">${esc(res.error)}</span>`:''}
+     ${(res.attempts||[]).length>1?`<span class="dim">Attempts</span><span>${res.attempts.map(t=>'#'+t.n+' '+(t.state==='FAILED'?'✕':t.state==='COMPLETED'?'✓':'⚠')+' '+t.status+(t.edited?' (edited)':'')).join(' · ')}</span>`:''}
+     ${(res.pauses||[]).length?`<span class="dim">Checkpoints</span><span>${res.pauses.map(x=>'⏸ '+x.at.toLowerCase()+' → '+(x.choice||'waiting').toLowerCase().replace('_',' & ')).join(' · ')}</span>`:''}</div></div>
+   ${res.diffs&&res.diffs.length?`<div class="sect"><h3>Differences</h3><div class="row" style="gap:6px">${['UNEXPECTED','EXPECTED','NOISE_AUTO'].map(k=>{const n=res.diffs.filter(d=>d.kind===k).length;return n?`<span class="pill ${k==='UNEXPECTED'?'p-diff':k==='EXPECTED'?'p-cycle':'p-wait'}">${n} ${({UNEXPECTED:'unexpected',EXPECTED:'expected',NOISE_AUTO:'noise'})[k]}</span>`:''}).join('')}<a class="link" onclick="S.detailTab='diff';render()">inspect →</a></div></div>`:''}
+   <div class="sect"><h3>Quick look</h3><pre>${esc(res.actRes||'')}</pre></div>`;
+}
+/* same compare as a resent call (resend-panel → interception-panel): recorded vs this run */
+function lineDiff(a,b){
+  const A=String(a||'').split('\n'), B=String(b||'').split('\n'); const n=A.length, m=B.length;
+  const L=Array.from({length:n+1},()=>Array(m+1).fill(0));
+  for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--) L[i][j]=A[i]===B[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
+  const out=[]; let i=0,j=0; while(i<n&&j<m){ if(A[i]===B[j]){out.push(['same',A[i]]);i++;j++;} else if(L[i+1][j]>=L[i][j+1]) out.push(['del',A[i++]]); else out.push(['add',B[j++]]); }
+  while(i<n) out.push(['del',A[i++]]); while(j<m) out.push(['add',B[j++]]); return out;
+}
+function fakeHeaders(s,res,which){
+  const live=s.parentKey&&(hostHit(s)||res.liveNow);
+  if(which==='rec') return ['Content-Type: application/json;charset=UTF-8','Date: Sat, 26 Sep 2026 10:00:04 GMT',s.parentKey?'X-Trace: '+(s.label.slice(-1).toLowerCase())+'-7c1e':'Set-Cookie: SESSION=9f2…; HttpOnly'];
+  return ['Content-Type: application/json;charset=UTF-8','Date: Sun, 27 Sep 2026 14:30:11 GMT',s.parentKey?(live?'X-Trace: '+(s.label.slice(-1).toLowerCase())+'-99d0':'X-Alfred-Replayed: recorded answer'):'Set-Cookie: SESSION=c41…; HttpOnly'];
+}
+function compareBox(s,res){
+  const c=S.cmp||(S.cmp={half:'response',view:'diff',part:'all',step:7}); const live=s.parentKey&&(hostHit(s)||res.liveNow);
+  const recReq=s.req, actReq=res.actReq||(res.reqDiff||[]).reduce((t,x)=>t.replace(x.a,x.b),res.effReq||s.req);
+  const recRes=s.res, actRes=res.actRes||'';
+  const strip=[['Recorded call',s.m+' · '+s.status+' · '+s.ms+' ms'],['Your edits',res.edited||s.reqEdited||res.answerEdited?'edited':'none'],['Variables',(res.used||[]).length?(res.used.length+' used'):'none'],
+    ['Sent',s.parentKey?('by odeysys'+((res.reqDiff||[]).length?' · request changed':'')):'to odeysys'],['Rules',(res.rules||[]).length+' applied'],
+    [s.parentKey?(live?'Upstream':'ALFRED answered'):'Upstream',s.parentKey?(live?s.host+' · '+(res.ms||'-')+' ms':'supplier not contacted'):'odeysys · '+(res.ms||'-')+' ms'],['Response',(res.status??'-')+' · was '+s.status]];
+  const rec=c.half==='request'?recReq:recRes, act=c.half==='request'?actReq:actRes;
+  const hdr=lineDiff(fakeHeaders(s,res,'rec').join('\n'),fakeHeaders(s,res,'act').join('\n'));
+  const body=lineDiff(rec,act);
+  const pane=(lines)=>`<div class="dbox">${lines.map(([k,t])=>`<div class="dl ${k}">${esc(t)}</div>`).join('')||'<div class="dl same faint">empty</div>'}</div>`;
+  const view = c.view==='rec'?pane(String(rec||'').split('\n').map(t=>['same',t])) : c.view==='act'?pane(String(act||'').split('\n').map(t=>['same',t]))
+    : `${c.half==='response'?`<div class="row" style="font-size:12px;margin:4px 0"><span class="faint" style="width:60px">Status</span><span class="mono">${s.status} → ${res.status??'-'}</span></div>`:''}
+       ${c.part!=='body'?`<div class="faint" style="font-size:10.5px;letter-spacing:.06em;margin:6px 0 3px">HEADERS</div>${pane(hdr)}`:''}
+       ${c.part!=='headers'?`<div class="faint" style="font-size:10.5px;letter-spacing:.06em;margin:8px 0 3px">BODY</div>${pane(body)}`:''}`;
+  const changed=[s.status!==res.status?'status '+s.status+' → '+res.status:'', body.some(x=>x[0]!=='same')?'body differs':'', 'headers differ'].filter(Boolean).join(', ');
+  const b=(k,v,l)=>`<button class="${c[k]===v?'on':''}" onclick="S.cmp.${k}=${typeof v==='number'?v:`'${v}'`};render()">${l}</button>`;
+  return `<div class="cmp"><div class="row"><b>↻ ${live?'Live':'Replayed'} in this run</b><span class="mono faint" style="font-size:11.5px">${(res.reqDiff||[]).length?'request changed':'request unchanged'} · response ${res.status===s.status&&!body.some(x=>x[0]!=='same')?'unchanged':'changed: '+changed}</span></div>
+    <div class="strip">${strip.map(([t,sub],i)=>`<button class="${c.step===i+1?'on':''}" onclick="S.cmp.step=${i+1};S.cmp.half='${i<4?'request':'response'}';render()">${i+1} · ${esc(t)}<small>${esc(sub)}</small></button>`).join('')}</div>
+    <div class="seg" style="margin-bottom:6px">${b('half','request','Request')}${b('half','response','Response')}</div>
+    <div class="seg">${b('view','rec','Recorded '+c.half)}${b('view','act','This run\'s '+c.half)}${b('view','diff','Diff')}</div>
+    <div class="bar"><span class="pill p-cycle">JSON</span><input placeholder="Find in this view…" style="flex:1;min-width:120px"><span class="faint">IN</span><div class="choice">${b('part','all','All')}${b('part','headers','Headers')}${b('part','body','Body')}</div><span class="faint">COPY</span><div class="choice"><button onclick="toast('Copied the diff')">Diff</button><button onclick="toast('Copied headers')">Headers</button><button onclick="toast('Copied body')">Body</button></div></div>
+    ${view}
+    <div class="hint" style="margin-top:6px">Red is what the recording had; green is what happened this run. The same compare ALFRED shows for a resent call.</div></div>`;
+}
+function diffTab(s,res){
+  const d=res.diffs||[];
+  const rq=(res.reqDiff||[]).length?`<div class="sect"><h3>Request - what odeysys sent vs the recording</h3>${res.reqDiff.map(x=>`<div class="drow"><span class="mono">${esc(x.path)}</span><span class="old">${esc(x.a)}</span><span class="new">${esc(x.b)}</span><span class="faint">${res.liveNow?'sent to the real supplier':'replayed anyway'}</span></div>`).join('')}</div>`:'';
+  const row=(x,i)=>`<div class="drow ${x.kind.startsWith('NOISE')?'noise':''}"><span class="mono">${esc(x.path)}</span><span class="old">${esc(x.a)}</span><span class="new">${esc(x.b)}</span>
+    <span>${x.kind==='UNEXPECTED'?(S.ignored[s.label+x.path]?'<span class="pill p-wait">ignored</span>':`<button class="btn sm" onclick="ignoreField('${esc(s.label)}','${esc(x.path)}')" title="Mark as noise for this step or the whole cycle">Ignore this field</button>`):x.kind==='EXPECTED'?`<span class="pill p-cycle" title="${esc(x.why)}">expected</span>`:`<span class="pill p-wait" title="${esc(x.why)}">noise</span>`}</span></div>`;
+  const unexpected=d.filter(x=>x.kind==='UNEXPECTED'), expected=d.filter(x=>x.kind==='EXPECTED'), noise=d.filter(x=>x.kind.startsWith('NOISE'));
+  return compareBox(s,res)+rq+`<div class="sect"><h3>What ALFRED makes of it</h3></div><div class="sect"><h3>Unexpected (${unexpected.length})</h3><div class="drow faint" style="border:0"><span>field</span><span>recorded</span><span>now</span><span></span></div>${unexpected.map(row).join('')||'<div class="faint">none</div>'}</div>
+   <div class="sect"><h3>Expected - caused by this cycle (${expected.length})</h3>${expected.map(x=>row(x)+`<div class="hint" style="margin:-2px 0 6px">because of ${esc(x.why)}</div>`).join('')||'<div class="faint">none</div>'}</div>
+   <details class="noisebox"><summary>Ignored as noise (${noise.length}) - ALFRED filters values that change every run</summary>${noise.map(x=>row(x)+`<div class="hint" style="margin:-2px 0 6px">${esc(x.why)}</div>`).join('')||'<div class="faint">none</div>'}</details>`;
+}
+function ignoreField(label,path){
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:440px"><h2>Ignore <span class="mono">${esc(path)}</span></h2><div class="sub" style="margin:6px 0 12px">It stops counting as a difference from the next comparison. You can un-ignore it in the cycle's configuration.</div>
+   <div class="row"><button class="btn" onclick="doIgnore('${label}','${path}','step')">Only for ${esc(label)}</button><button class="btn primary" onclick="doIgnore('${label}','${path}','cycle')">For the whole cycle</button></div></div></div>`;
+}
+function doIgnore(label,path,scope){ S.ignored[label+path]=scope; closeModal(); const r=S.run; const s=S.steps.find(x=>x.label===label); if(r&&s){ const res=r.results[s.key]; const left=(res.diffs||[]).filter(d=>d.kind==='UNEXPECTED'&&!S.ignored[label+d.path]).length; if(res.state==='COMPLETED_WITH_DIFFERENCES'&&!left) res.state='COMPLETED'; } toast(`${path} ignored ${scope==='step'?'for '+label:'for the whole cycle'}`); render(); }
+
+/* ---------- Live-call log: every call that reached a real system is kept ---------- */
+function logLive(s,res,why){ const r=S.run;
+  S.liveLog.unshift({id:'lv'+(uid++),when:new Date().toLocaleTimeString(),run:r?(r.runId=r.runId||'run-'+(uid++)):'-',key:s.key,label:s.label,m:s.m,host:s.host,path:s.path,why,status:res.status,ms:res.ms,
+    req:res.actReq||(res.reqDiff||[]).reduce((t,x)=>t.replace(x.a,x.b),res.effReq||s.req||''),res:res.realRes||res.actRes||''});
+  (res.log=res.log||[]).push('SAVED to the cycle\'s live-call log (never pruned)'); res.savedLive=true; }
+function liveLogPanel(){
+  return `<div class="toolbar" style="margin-top:18px"><h2>Live calls <span class="pill p-live">${S.liveLog.length}</span></h2><span class="hint">every call that reached a real system, in full - kept even when its run is pruned; only you delete them</span></div>
+  ${S.liveLog.length?`<table class="grid"><tr><th>When</th><th>Call</th><th>Why it went live</th><th>Status</th><th></th></tr>
+  ${S.liveLog.map(l=>`<tr><td>${esc(l.when)}<div class="faint" style="font-size:11px">${esc(l.run)}</div></td><td><b>${esc(l.label)}</b> <span class="mono dim" style="font-size:11.5px">${esc(l.m)} ${esc(l.host)}${esc(l.path)}</span></td><td class="dim">${esc(l.why)}</td><td><span class="pill ${l.status<400?'p-ok':'p-fail'}">${l.status}</span> <span class="faint">${l.ms} ms</span></td>
+    <td style="white-space:nowrap"><button class="btn sm" onclick="useAsRecording('${l.id}')" ${stepFor(l)?'':'disabled title="no matching step in this cycle"'}>Use as recording</button> <button class="btn sm" onclick="mockWith('${l.id}')">Mock with it</button> <button class="btn sm" onclick="openLiveCompare('${l.id}')">Compare</button> <button class="btn sm" onclick="toast('Opens ALFRED\\'s resend for this call - it is LIVE, so the usual confirmation shows first')">Resend</button> <button class="btn sm" onclick="toast('.md / .json / .html / cURL - existing exports, never truncated')">Export ▾</button> <button class="icb" title="Delete" onclick="delLive('${l.id}')">✕</button></td></tr>`).join('')}</table>`:'<div class="faint">No call has reached a real system yet.</div>'}`;
+}
+function stepFor(l){ return (l.key&&stepByKey(l.key)) || S.steps.find(x=>x.parentKey&&x.host===l.host&&x.path===l.path); }
+function liveById(id){ return S.liveLog.find(x=>x.id===id); }
+function useAsRecording(id){ const l=liveById(id), st=stepFor(l);
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:620px"><h2>Use this live call as ${esc(st.label)}'s recording?</h2>
+   <div class="sub" style="margin:4px 0 10px">The step's recording and its call rule's <b>Mock response</b> get the real answer from ${esc(l.when)}. Past runs keep what they used.</div>
+   <div class="cmp"><div class="dbox">${lineDiff(st.res,l.res).map(([k,t])=>`<div class="dl ${k}">${esc(t)}</div>`).join('')}</div><div class="hint" style="margin-top:4px">Red: current recording · green: the live answer</div></div>
+   <div class="row"><span class="spacer"></span><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="applyRecording('${id}')">Use as recording</button></div></div></div>`; }
+function applyRecording(id){ const l=liveById(id), st=stepFor(l); const before={res:st.res,status:st.status,mock:JSON.stringify(findAct(st,'mock')?.data||null)};
+  st.res=l.res; st.status=l.status; const m=findAct(st,'mock'); if(m){ m.data.body=l.res; m.data.status=l.status; } deriveFields(st); markDirty(); closeModal(); render();
+  window.__undoRec=()=>{ st.res=before.res; st.status=before.status; const mm=findAct(st,'mock'); if(mm&&before.mock!=='null') mm.data=JSON.parse(before.mock); deriveFields(st); render(); toast('Recording restored'); };
+  toastHtml(`${esc(st.label)} now replays the live answer · <a class="link" onclick="window.__undoRec()">Undo</a>`); }
+function mockWith(id){ const l=liveById(id);
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:480px"><h2>Mock with this live answer</h2><div class="sub" style="margin:4px 0 10px">Puts status ${l.status}, its headers and body into a Mock response.</div>
+   ${S.steps.filter(x=>x.parentKey).map(x=>`<button class="rulecard" style="width:100%;text-align:left" onclick="applyMockWith('${id}','${x.key}')"><b>${esc(x.label)}</b><span class="dim">${esc(x.host)}</span><span class="spacer"></span><span class="faint">its call rule's Mock response</span></button>`).join('')}
+   <button class="rulecard" style="width:100%;text-align:left" onclick="closeModal();S.re=null;openRuleEditor('cycle');S.re.actions.request.push('Mock response (never contact upstream)');S.re.name='Mock from live ${esc(l.label)}';renderRuleEditor()"><b>＋ New cycle rule</b><span class="dim">with a Mock response holding this answer</span></button></div></div>`; }
+function applyMockWith(id,k){ const l=liveById(id), x=stepByKey(k); if(x.mode!=='REPLAY'){ x.mode='REPLAY'; syncRule(x); } const m=findAct(x,'mock'); m.data.body=l.res; m.data.status=l.status; deriveFields(x); markDirty(); closeModal(); toast(x.label+'’s Mock response now holds the live answer'); render(); }
+function openLiveCompare(id){ const l=liveById(id), st=stepFor(l);
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:760px"><div class="row"><h2>${esc(l.label)} · live ${esc(l.when)} vs recording</h2><span class="spacer"></span><button class="icb" onclick="closeModal()">✕</button></div>
+   ${st?compareBox(st,{status:l.status,ms:l.ms,actReq:l.req,actRes:l.res,liveNow:true,rules:[],used:[]}):'<div class="faint">No step to compare with.</div>'}</div></div>`; }
+function delLive(id){ const l=liveById(id);
+  $('#modal').innerHTML=`<div class="backdrop" onclick="if(event.target===this)closeModal()"><div class="card modal" style="width:440px"><h2>Delete this live call?</h2><div class="sub" style="margin:6px 0 12px">${esc(l.label)} → ${esc(l.host)} (${esc(l.when)}). A real supplier answered this - it can't be fetched again without calling it again.</div>
+   <div class="row"><span class="spacer"></span><button class="btn" onclick="closeModal()">Keep it</button><button class="btn danger" onclick="S.liveLog=S.liveLog.filter(x=>x.id!=='${id}');closeModal();render()">Delete</button></div></div></div>`; }
+function toastHtml(h){ const t=$('#toast'); t.innerHTML=`<div class="toast">${h}</div>`; clearTimeout(toast.t); toast.t=setTimeout(()=>t.innerHTML='',6000); }
+
+/* ---------- History ---------- */
+function historyPanel(){
+  return `<div class="toolbar"><h2>Runs</h2><span class="hint">each run keeps exactly what it executed, even after you edit the cycle · newest 50 kept</span></div>
+  <table class="grid"><tr><th>When</th><th>Status</th><th>Summary</th><th>Duration</th><th></th></tr>
+  ${S.runs.map((r,i)=>`<tr><td>${esc(r.when)}</td><td>${r.status==='FAILED'?'<span class="pill p-fail">✕ failed</span>':r.status==='STOPPED'?'<span class="pill p-wait">■ stopped</span>':r.status.includes('DIFF')?'<span class="pill p-diff">⚠ differences</span>':'<span class="pill p-ok">✓ completed</span>'}</td><td class="dim">${esc(r.sum)}</td><td>${esc(r.dur)}</td>
+    <td><button class="btn sm" onclick="S.tab='run';render()">Open</button> ${i>0?`<button class="btn sm" onclick="compare()">Compare with newest</button>`:''}</td></tr>`).join('')}</table>
+  <div id="cmp"></div>${liveLogPanel()}`;
+}
+function compare(){
+  $('#cmp').innerHTML=`<div class="card" style="padding:12px;margin-top:12px"><h2 style="margin-bottom:8px">Compare runs</h2>
+   <table class="grid"><tr><th>Step</th><th>Yesterday</th><th>Now</th><th>Change</th></tr>
+   <tr><td>Supplier B</td><td><span class="pill p-diff">⚠ 2</span></td><td><span class="pill p-diff">⚠ 2</span></td><td class="dim">same fields differ</td></tr>
+   <tr><td>Price</td><td><span class="pill p-ok">✓</span></td><td><span class="pill p-diff">⚠ total 450 → 455</span></td><td class="wrn">new difference</td></tr>
+   <tr><td>Book</td><td><span class="pill p-fail">✕ 500</span></td><td><span class="pill p-fail">✕ 500</span></td><td class="dim">still failing - PRICE_CHANGED</td></tr></table></div>`;
+}
+
+/* ---------- walkthrough ---------- */
+function resetAll(){ initState(); closeModal(); render(); }
+function ensureCycle(){ S._ext=null; if(!S.steps.length){ RECORDED.slice(0,5).forEach(addRecorded); const lo=S.steps.find(s=>s.label==='Logout'); lo.enabled=false; const b=S.steps.find(s=>s.label==='Supplier B'); b.mode='LIVE'; b.cp={before:true,after:false,timeout:30}; S.steps.find(s=>s.label==='Book').cp.after=true; } S.view='cycle'; }
+function tour(n){
+  closeModal();
+  if(n===1){ initState(); S.view='list'; render(); toast('Click “＋ New cycle” - pick calls - then drag ⋮⋮ to reorder'); return; }
+  ensureCycle();
+  if(n===2){ S.tab='steps'; S.sel=S.steps.find(s=>s.label==='Supplier C').key; S.detailTab='overview'; render(); toast('Each outbound child has its own REPLAY / LIVE switch and match rule'); }
+  if(n===3){ S.tab='rules'; S.sel=null; render(); toast('Choose GLOBAL participation, or “Copy into cycle” to edit a copy'); }
+  if(n===4){ S.tab='steps'; S.sel=null; render(); openPrerun(); toast('Pre-run check: fix the unresolved {{bookingRef}}, confirm LIVE, start'); }
+  if(n===5){ initState(); ensureCycle(); if(!S.vars.some(v=>v.name==='bookingRef')) S.vars.push({name:'bookingRef',value:'QA-1',secret:false,src:'defined'}); S.driver='AUTOMATIC'; startRun(); toast('Supplier B pauses before (held, 30 s timer) · Book pauses after - replay it, edit & replay, then continue'); return; }
+  if(n===7){ S.tab='steps'; S.sel=null; render(); openAdd(); return; }
+  if(n===8){ S.tab='steps'; S.sel=null; render(); openRebuild(); return; }
+  if(n===9){ openLiveCalls(); toast('Tick a few calls, then open Relive ▾ in the bulk bar'); return; }
+  if(n===10){ initState(); ensureCycle(); if(!S.vars.some(v=>v.name==='bookingRef')) S.vars.push({name:'bookingRef',value:'QA-1',secret:false,src:'defined'});
+    S.vars.push({name:'bookingId',value:'',secret:false,src:'extracted · Book → response.body.bookingId'});
+    addRecorded(RECORDED[6]); addRecorded(RECORDED[5]); const lo=S.steps.find(s=>s.label==='Logout'); S.steps=S.steps.filter(x=>x!==lo); S.steps.push(lo); lo.enabled=true;
+    S.steps.forEach(x=>x.cp={...x.cp,before:false,after:false}); S.driver='AUTOMATIC'; S.onFail='HOLD'; startRun(); toast('Book fails - the run holds. Continue with next calls: Booking details is skipped (needs {{bookingId}}), Profile and Logout run'); return; }
+  if(n===12){ initState(); ensureCycle(); if(!S.vars.some(v=>v.name==='bookingRef')) S.vars.push({name:'bookingRef',value:'QA-1',secret:false,src:'defined'});
+    S.steps.forEach(x=>x.cp={...x.cp,before:false,after:false}); const se=S.steps.find(x=>x.label==='Search'); se.req=se.req.replace('2026-10-04','2026-10-11'); se.reqEdited=true;
+    S.steps.find(x=>x.label==='Supplier A').onChanged='ASK'; S.unexp='RULES'; S.unexpRules=[{id:'u1',name:'Loyalty stub',host:'loyalty',cond:'',actions:{request:['Mock response (never contact upstream)'],response:[]},on:true}];
+    S.simUnexpected=true; S.tab='steps'; S.sel=se.key; S.detailTab='overview'; render(); toast('Search was edited (date → 11 Oct). See the banner, then Run: Supplier A holds and asks, the loyalty call is caught by your rule'); return; }
+  if(n===11){ initState(); ensureCycle(); S.tab='steps'; S.sel=S.steps.find(s=>s.label==='Supplier C').key; S.detailTab='overview'; render(); openRuleEditor('call',S.sel); toast('Supplier C\'s call rule: REPLAY = Mock response with the recording. Turn it off, add actions, save'); return; }
+  if(n===6){ initState(); ensureCycle(); if(!S.vars.some(v=>v.name==='bookingRef')) S.vars.push({name:'bookingRef',value:'QA-1',secret:false,src:'defined'}); S.steps.forEach(x=>x.cp={...x.cp,before:false,after:false}); S.driver='AUTOMATIC'; startRun(); const wait=setInterval(()=>{ if(S.run.status!=='RUNNING'){ clearInterval(wait); S.sel=S.steps.find(s=>s.label==='Supplier B').key; S.detailTab='diff'; render(); toast('Supplier B: 2 unexpected, 1 expected (GLOBAL rule), 1 noise'); } },300); }
+}
+render();
+</script>
+</body>
+</html>
