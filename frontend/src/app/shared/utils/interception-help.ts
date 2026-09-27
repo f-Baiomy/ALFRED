@@ -665,6 +665,15 @@ export const SUBJECT_HELP: Readonly<Record<ConditionSubject, HelpEntry>> = {
     ],
     warning: 'Available in the response half only.',
   },
+  RECORDED_CALL: {
+    title: 'Recorded call',
+    code: 'RECORDED_CALL',
+    what: 'Relive only: true when the request at this point matches the step\'s own frozen recording, ignoring noise fields.',
+    examples: [
+      { from: 'matches, ignoring body.requestTime', to: 'the app sent the same call it recorded, aside from a timestamp' },
+    ],
+    warning: 'Only meaningful inside a Relive call rule\'s request-differs condition.',
+  },
 };
 
 export const OPERATOR_HELP: Readonly<Record<ConditionOperator, HelpEntry>> = {

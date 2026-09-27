@@ -98,7 +98,10 @@ export type ConditionSubject =
   | 'RESPONSE_STATUS'
   | 'RESPONSE_HEADER'
   | 'RESPONSE_BODY'
-  | 'RESPONSE_JSON_FIELD';
+  | 'RESPONSE_JSON_FIELD'
+  /** Relive only (FR-014d, research D17): true when the request at this point in the pipeline
+   *  equals a frozen recording, ignoring noise paths. See Condition's `recordedStepKey`/`answerId`. */
+  | 'RECORDED_CALL';
 
 export type ConditionOperator =
   | 'EXISTS'
@@ -142,6 +145,17 @@ export interface Condition {
   readonly items?: 'ANY' | 'ALL' | 'NONE' | null;
   /** For IN and CONTAINS_ALL. */
   readonly values?: readonly string[] | null;
+  /**
+   * RECORDED_CALL only (Relive, FR-014d). In a cycle's own definition this names the step whose
+   * `recording` to compare against; `RunSnapshotBuilder` replaces it with `answerId` (a stored
+   * answer file) when it publishes the run's proxy snapshot - a rule document never carries both.
+   */
+  readonly recordedStepKey?: string | null;
+  readonly answerId?: string | null;
+  /** RECORDED_CALL only: JSON paths / header names to ignore (cycle noise plus this step's own noise). */
+  readonly ignore?: readonly string[] | null;
+  /** RECORDED_CALL only: also compare headers, not just method/path/query/body. Defaults to false. */
+  readonly headers?: boolean | null;
 }
 
 export const JSON_TYPES = ['text', 'number', 'boolean', 'null', 'object', 'list'] as const;
@@ -775,6 +789,7 @@ export const SUBJECT_LABELS: Readonly<Record<ConditionSubject, string>> = {
   RESPONSE_HEADER: 'Response header',
   RESPONSE_BODY: 'Response body',
   RESPONSE_JSON_FIELD: 'Response JSON field',
+  RECORDED_CALL: 'Recorded call',
 };
 
 export const OPERATOR_LABELS: Readonly<Record<ConditionOperator, string>> = {

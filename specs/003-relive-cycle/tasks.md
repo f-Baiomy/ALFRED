@@ -142,7 +142,7 @@ below ends with the test that proves it.
   - **Exposes:** `events$` (a `Subject` of the three event types), `holdLease(runId)` and `releaseLease(runId)`. Every lease still held is re-sent `{type:'lease',runId}` on every (re)connect.
   - **Test:** `relive-socket.service.spec.ts` with a fake WebSocket: leases are re-sent after reconnect.
 - [X] T019 [P] Create `FE/core/state/relive-cycles-state.service.ts` (root): `cycles` signal and `load()` via the API, reloaded when `relive-changed` arrives (no timers).
-- [ ] T020 Create `FE/shared/utils/relive-call-rule.ts`: the pure core of FR-010a (research D17). Behaviour must equal mock.html `ACT`, `mkAct`, `applyFields`, `deriveFields`, `ensureAct`, `removeAct`, but work on real `InterceptionRuleDraft` action objects (`type`, `enabled`, fields).
+- [X] T020 Create `FE/shared/utils/relive-call-rule.ts`: the pure core of FR-010a (research D17). Behaviour must equal mock.html `ACT`, `mkAct`, `applyFields`, `deriveFields`, `ensureAct`, `removeAct`, but work on real `InterceptionRuleDraft` action objects (`type`, `enabled`, fields).
   - **Action types:**
     - `MOCK_RESPONSE` (status, headers, body from `step.recording`)
     - `REPLACE_RESPONSE` ("Reply with a different response", filled the same way)
@@ -167,7 +167,7 @@ below ends with the test that proves it.
     - a deleted mock is re-created;
     - LIVE_MOCKED turns the replace on;
     - `reachesHost` is true for mock off, mock deleted, else=SEND_TO_HOST and a `REWRITE_URL` rule, and false for else=FAIL or PAUSE.
-- [ ] T021 Create `FE/shared/utils/relive-external-reach.ts`.
+- [X] T021 Create `FE/shared/utils/relive-external-reach.ts`.
   - **`externalReach(cycle): Map<string, {label, host, reason}>`** combines:
     - `reachesHost` for every enabled outbound child not on an internal host (hosts ending `.internal`, or listed in the cycle settings' `internalHosts: string[]` - add that field to `ReliveSettings` in T006/T007 with default `[]`);
     - the unexpected-call policy `SEND_REAL`, or `RULES` with fallback `SEND_REAL`;
