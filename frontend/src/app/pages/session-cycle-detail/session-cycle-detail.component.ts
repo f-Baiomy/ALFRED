@@ -35,6 +35,9 @@ import {
 } from '../../core/state/call-selection.tokens';
 import { SessionCycleDetailStateService } from '../../core/state/session-cycle-detail-state.service';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
+import { ScenarioCycleChainPanelComponent } from '../../components/scenario-cycle-chain-panel/scenario-cycle-chain-panel.component';
+import { ScenarioCycleSourceService } from '../../core/services/scenario-cycle-source.service';
+import { CallRecord } from '../../core/models/call.model';
 
 /**
  * One open session-cycle: its own poll+live-merge+selection+search/sort/group/stats state
@@ -47,7 +50,7 @@ import { SessionCyclesStateService } from '../../core/state/session-cycles-state
 @Component({
   selector: 'app-session-cycle-detail',
   standalone: true,
-  imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent],
+  imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent, ScenarioCycleChainPanelComponent],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },
@@ -80,7 +83,13 @@ export class SessionCycleDetailComponent {
   private readonly picker = inject(CallPickerService);
   private readonly refDetail = inject(CallRefDetailService);
   private readonly cyclesApi = inject(SessionCyclesApiService);
+  private readonly scenarioSource = inject(ScenarioCycleSourceService);
   readonly addMessage = signal<string | null>(null);
+
+  /** D2 "Create scenario from cycle" - null until opened; loading while the cycle's calls are being hydrated. */
+  readonly chainPanelCalls = signal<readonly CallRecord[] | null>(null);
+  readonly chainPanelLoading = signal(false);
+  readonly chainPanelError = signal<string | null>(null);
 
   constructor() {
     // `/cycles/<id>?requestId=<callId>` shows that one captured call - see CallFocusService.
@@ -141,6 +150,28 @@ export class SessionCycleDetailComponent {
 
   openImportDialog(): void {
     this.importDialog.open(this.state.cycleId());
+  }
+
+  /** D2 - fetches every call in this cycle with full bodies, then opens the chain-detection panel. */
+  openChainPanel(): void {
+    const cycleId = this.state.cycleId();
+    if (!cycleId || this.chainPanelLoading()) return;
+    this.chainPanelError.set(null);
+    this.chainPanelLoading.set(true);
+    this.scenarioSource.loadHydrated(cycleId).subscribe({
+      next: (calls) => {
+        this.chainPanelLoading.set(false);
+        this.chainPanelCalls.set(calls);
+      },
+      error: () => {
+        this.chainPanelLoading.set(false);
+        this.chainPanelError.set('Could not load this cycle\'s calls for scenario detection.');
+      },
+    });
+  }
+
+  closeChainPanel(): void {
+    this.chainPanelCalls.set(null);
   }
 
   toggleRecording(): void {

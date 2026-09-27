@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, input, signal } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { CallRecord } from '../../core/models/call.model';
 import { CallDepthInfo, CallTreeNode, DepthRail, depthRails, depthTintClass } from '../../shared/utils/call-tree';
@@ -20,6 +20,11 @@ import { CallCardComponent } from '../call-card/call-card.component';
 import { PickCallButtonComponent } from '../pick-call-button/pick-call-button.component';
 import { CallDiagnosticsComponent } from '../call-diagnostics/call-diagnostics.component';
 import { SpacerChipComponent } from '../spacer-chip/spacer-chip.component';
+import { InterceptionLogGroup, buildInterceptionLogGroups, openInterceptionRule, parseDelayMs } from '../../shared/utils/interception-log';
+import { originalRefOf } from '../../shared/utils/resend-summary';
+import { RuleDialogService } from '../../core/services/rule-dialog.service';
+import { InterceptionApiService } from '../../core/services/interception-api.service';
+import { CallFocusService } from '../../core/services/call-focus.service';
 
 /**
  * What a given line is showing:
@@ -101,6 +106,34 @@ interface WaterfallRow {
   /** Distinct from call.id, which a bracketing pair shares - used for tracking and for expanding
    * one half without the other. */
   readonly rowKey: string;
+  /** How many interception actions touched this call - 0 for the overwhelming majority. Drives the
+   * `⚡ N` badge and the amber inset edge on the bar (F2). Set on every kind so a bracketed pair's
+   * opening row can show it too, not only the closing one. */
+  readonly interceptedCount: number;
+  /** DELAY_REQUEST/DELAY_RESPONSE segments injected into this call, positioned against the same
+   * root-relative scale as the bar itself - see delaySegmentsOf. Empty unless `hasBar` (only a
+   * 'single' or 'response' row ever draws the real bar these overlay). */
+  readonly delaySegments: readonly DelaySegment[];
+  /** Set when this call is itself a resend - the id of its original and, only when that original is
+   * also currently loaded (so a real comparison exists), how much slower/faster this run was. */
+  readonly resend: ResendBadgeInfo | null;
+}
+
+/** One DELAY_REQUEST/DELAY_RESPONSE segment drawn as a hatched amber overlay on the bar - `offsetPercent`/
+ * `widthPercent` are already root-relative (same scale as the row's own offsetPercent/widthPercent),
+ * so the template positions it with a plain `left`/`width` inside the same `.waterfall-track`. */
+interface DelaySegment {
+  readonly side: 'lead' | 'tail';
+  readonly ms: number;
+  readonly offsetPercent: string;
+  readonly widthPercent: string;
+}
+
+interface ResendBadgeInfo {
+  readonly originalId: string;
+  /** "-40% vs original" / "+12% vs original" - only when the original's own duration is known
+   * (it's currently loaded too), else null so the badge reads "↻ resend" alone rather than guessing. */
+  readonly percentLabel: string | null;
 }
 
 /**
@@ -180,6 +213,8 @@ interface WaterfallGroup {
           [class.waterfall-open]="row.kind === 'request'"
           [class.waterfall-close]="row.kind === 'response'"
           [class.waterfall-root-start]="row.startsRootGroup"
+          [class.waterfall-row-flash]="flashCallId() === row.call.id"
+          [attr.data-call-row]="row.call.id"
         >
           @if (row.axisTotalLabel) {
             <!-- One scale per group: every row between this opener and its closing row is measured
@@ -261,6 +296,19 @@ interface WaterfallGroup {
             } @else {
               <span class="badge" [class]="statusClassOf(row.call)">{{ row.call.response?.status ?? '?' }}</span>
             }
+            @if (row.interceptedCount > 0) {
+              <!-- Indicator only - a button may not contain another, so the clickable badge that
+                   opens the hover card is a SIBLING of this row button (see below). -->
+              <span class="badge intercept-badge-mini" aria-hidden="true">&#9889; {{ row.interceptedCount }}</span>
+            }
+            @if (row.resend; as resend) {
+              <span class="badge resend-badge-mini" aria-hidden="true">
+                <span>&#8635; resend</span>
+                @if (resend.percentLabel) {
+                  <span class="resend-badge-percent">{{ resend.percentLabel }}</span>
+                }
+              </span>
+            }
             @if (row.indexLabel) {
               <span class="waterfall-index">{{ row.indexLabel }}</span>
             }
@@ -269,7 +317,7 @@ interface WaterfallGroup {
               <span class="waterfall-folded-count">{{ row.foldedCount }} folded</span>
             }
             <span class="waterfall-offset">{{ row.offsetLabel }}</span>
-            <span class="waterfall-track" aria-hidden="true">
+            <span class="waterfall-track" [class.waterfall-track-intercepted]="row.interceptedCount > 0" [class.waterfall-track-resent]="!!row.resend" aria-hidden="true">
               @if (row.hasBar) {
                 @if (row.kind === 'request') {
                   <!-- A start tick that trails off: at this point in the list the call has begun
@@ -290,6 +338,19 @@ interface WaterfallGroup {
                   @if (row.kind === 'response') {
                     <span class="waterfall-tick"></span>
                   }
+                  <!-- Injected delay(s), overlaid on top of the bar just drawn above rather than in
+                       its own flow position - see delaySegmentsOf for why these are already
+                       root-relative and don't need a separate margin-left dance. -->
+                  @for (segment of row.delaySegments; track $index) {
+                    <span
+                      class="waterfall-delay"
+                      [class.waterfall-delay-lead]="segment.side === 'lead'"
+                      [class.waterfall-delay-tail]="segment.side === 'tail'"
+                      [style.left]="segment.offsetPercent"
+                      [style.width]="segment.widthPercent"
+                      [title]="segment.ms + ' ms injected'"
+                    ></span>
+                  }
                 }
               }
             </span>
@@ -299,8 +360,55 @@ interface WaterfallGroup {
               } @else {
                 {{ row.call.error ? 'err' : row.call.duration_ms + ' ms' }}
               }
+              @if (row.delaySegments.length > 0) {
+                <span class="waterfall-delay-label">{{ delayLabel(row) }}</span>
+              }
             </span>
             </button>
+            <!-- Two more row buttons, siblings of waterfall-row-main for the same reason app-pick-call
+                 is below: a button may not contain another. -->
+            @if (row.interceptedCount > 0) {
+              <button
+                type="button"
+                class="waterfall-badge-btn"
+                title="Show the rules that changed this call"
+                aria-label="Show the rules that changed this call"
+                [attr.aria-expanded]="hoverCardOpen(row.rowKey)"
+                (click)="toggleHoverCard(row.rowKey, $event)"
+              ><svg class="waterfall-bolt-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.8 2 4.9 13h6l-.7 9 9-12h-6.1l.7-8z" fill="currentColor" /></svg></button>
+            }
+            @if (row.resend) {
+              <button
+                type="button"
+                class="waterfall-badge-btn"
+                [title]="row.resend.percentLabel ? 'Scroll to the original - ' + row.resend.percentLabel : 'Scroll to the original this call resent'"
+                (click)="focusOriginal(row, $event)"
+              >&#8635;</button>
+            }
+            @if (row.interceptedCount > 0 && hoverCardOpen(row.rowKey)) {
+              <div class="waterfall-hover-card" role="dialog" aria-label="What changed this call">
+                @for (group of interceptionGroups(row); track $index) {
+                  <div class="waterfall-hover-group">
+                    <div class="waterfall-hover-group-head">
+                      <strong>{{ group.ruleName }}</strong>
+                      @if (group.ruleId) {
+                        <button type="button" class="pill" [disabled]="openingRule(group.ruleId)" (click)="openRule(group.ruleId, $event)">
+                          {{ openingRule(group.ruleId) ? 'Opening…' : 'Open rule ↗' }}
+                        </button>
+                      }
+                    </div>
+                    @for (action of group.actions; track action.number) {
+                      <div class="waterfall-hover-step">
+                        <span>{{ group.ruleName }}</span> · <span>{{ action.label }}</span>
+                        @if (action.entry.detail) { <span class="waterfall-hover-detail">{{ action.entry.detail }}</span> }
+                      </div>
+                    }
+                  </div>
+                }
+                @if (ruleOpenError()) { <div class="waterfall-hover-error" role="alert">{{ ruleOpenError() }}</div> }
+                <button type="button" class="pill" (click)="showWhatChanged(row, $event)">Show what changed</button>
+              </div>
+            }
             <!-- A sibling, not inside the row button: a button may not contain another. -->
             <app-pick-call [call]="row.call" />
             @if (row.diagnosticsNode) {
@@ -337,6 +445,19 @@ interface WaterfallGroup {
         }
       }
     </div>
+    @if (hasBadges()) {
+      <!-- Only shown when the loaded window actually has something to explain - a trace with no
+           intercepted or resent calls gets no legend at all rather than one nobody needs. -->
+      <div class="waterfall-legend">
+        @if (hasIntercepted()) {
+          <span class="waterfall-legend-item"><span class="waterfall-legend-swatch waterfall-legend-intercepted">&#9889;</span> Intercepted</span>
+          <span class="waterfall-legend-item"><span class="waterfall-legend-swatch waterfall-legend-delay"></span> Injected delay</span>
+        }
+        @if (hasResent()) {
+          <span class="waterfall-legend-item"><span class="waterfall-legend-swatch waterfall-legend-resent">&#8635;</span> Resend</span>
+        }
+      </div>
+    }
   `,
 })
 export class CallWaterfallComponent {
@@ -350,9 +471,23 @@ export class CallWaterfallComponent {
    * asked. Keyed on the call rather than the row, so a bracketed pair can't end up with two. */
   private readonly diagIds = signal<ReadonlySet<string>>(new Set());
 
+  /** Every currently-loaded call, by id - what resendBadgeInfoOf uses to find a resend's original
+   * (for the duration comparison) when it's also loaded. Built once per render of the tree rather
+   * than searched per row. */
+  private readonly callsById = computed<ReadonlyMap<string, CallRecord>>(() => {
+    const map = new Map<string, CallRecord>();
+    const walk = (node: CallTreeNode): void => {
+      map.set(node.call.id, node.call);
+      node.children.forEach(walk);
+    };
+    this.nodes().forEach(walk);
+    return map;
+  });
+
   readonly rows = computed<readonly WaterfallRow[]>(() => {
     const depths = this.depths();
     const foldedIds = this.listState.foldedIds();
+    const callsById = this.callsById();
     const out: WaterfallRow[] = [];
 
     // childIndex is the call's 1-based position among its parent's outbound calls - the same number
@@ -385,6 +520,9 @@ export class CallWaterfallComponent {
         folded: false,
         foldedCount: 0,
         diagnosticsNode: null as CallTreeNode | null,
+        interceptedCount: node.call.interception?.applied.length ?? 0,
+        delaySegments: hasBar ? delaySegmentsOf(node.call, info!) : [],
+        resend: resendBadgeInfoOf(node.call, callsById),
       };
 
       if (node.children.length === 0) {
@@ -536,6 +674,148 @@ export class CallWaterfallComponent {
     if (!next.delete(callId)) next.add(callId);
     this.diagIds.set(next);
   }
+
+  // ---- F2: interception/resend badges, hover card, and delay/comparison labels ----
+
+  readonly hasIntercepted = computed(() => this.rows().some((r) => r.interceptedCount > 0));
+  readonly hasResent = computed(() => this.rows().some((r) => r.resend != null));
+  readonly hasBadges = computed(() => this.hasIntercepted() || this.hasResent());
+
+  /** Which row's hover card (the ⚡ badge's rule list) is currently open, by rowKey - only one at a
+   * time, same idea as diagIds but keyed to the badge rather than the call. */
+  private readonly hoverRowKey = signal<string | null>(null);
+  private readonly ruleDialog = inject(RuleDialogService);
+  private readonly interceptionApi = inject(InterceptionApiService);
+  private readonly callFocus = inject(CallFocusService);
+  private readonly hostRef = inject(ElementRef<HTMLElement>);
+  private readonly openingRuleId = signal<string | null>(null);
+  readonly ruleOpenError = signal('');
+  /** The call whose row should scroll into view and flash once - see focusOriginal(). Separate from
+   * `expandedIds`/`hoverRowKey`: flashing doesn't expand or open anything, it just points at a row. */
+  readonly flashCallId = signal<string | null>(null);
+
+  hoverCardOpen(rowKey: string): boolean {
+    return this.hoverRowKey() === rowKey;
+  }
+
+  toggleHoverCard(rowKey: string, event: Event): void {
+    event.stopPropagation();
+    this.hoverRowKey.update((current) => (current === rowKey ? null : rowKey));
+  }
+
+  /** Reuses buildInterceptionLogGroups - the exact grouping CallCardComponent's own interception log
+   * uses - so the hover card's "name · type · detail" list can never disagree with what the card
+   * shows once expanded. */
+  interceptionGroups(row: WaterfallRow): readonly InterceptionLogGroup[] {
+    return buildInterceptionLogGroups(row.call.interception);
+  }
+
+  /** "Open rule" in the hover card - the same lookup-then-open flow as CallCardComponent's own
+   * "Edit rule ↗", extracted into openInterceptionRule so the two can't drift on what happens when
+   * the rule has since been deleted or the fetch fails. */
+  openRule(ruleId: string, event: Event): void {
+    event.stopPropagation();
+    if (this.openingRuleId()) return;
+    this.ruleOpenError.set('');
+    this.openingRuleId.set(ruleId);
+    openInterceptionRule(this.interceptionApi, this.ruleDialog, ruleId, {
+      onError: (message) => this.ruleOpenError.set(message),
+      onDone: () => this.openingRuleId.set(null),
+    });
+  }
+
+  openingRule(ruleId: string): boolean {
+    return this.openingRuleId() === ruleId;
+  }
+
+  /** "Show what changed" in the hover card - rather than duplicating the diff viewer, this just
+   * expands the row (see toggle()), which already renders app-call-card with its own interception
+   * panels for exactly this call. */
+  showWhatChanged(row: WaterfallRow, event: Event): void {
+    event.stopPropagation();
+    this.hoverRowKey.set(null);
+    if (!this.isExpanded(row.rowKey)) this.toggle(row.rowKey);
+  }
+
+  /** "1500 ms injected" / "1500 ms + 300 ms injected" - one label for however many delay segments a
+   * call carries, so a call delayed on both halves states both rather than only the first. */
+  delayLabel(row: WaterfallRow): string {
+    return row.delaySegments.map((s) => `${s.ms} ms`).join(' + ') + ' injected';
+  }
+
+  /**
+   * Clicking a resend badge - scroll to and flash the original if its row is part of this SAME tree
+   * (the common case: a resend usually sits right beside what it resent), else fall back to
+   * CallFocusService's cross-page navigation (which also selects the right source and highlights
+   * once the target page's own card mounts).
+   */
+  focusOriginal(row: WaterfallRow, event: Event): void {
+    event.stopPropagation();
+    const resend = row.resend;
+    if (!resend) return;
+    const foundLocally = this.rows().some((r) => r.call.id === resend.originalId);
+    if (foundLocally) {
+      this.flashCallId.set(resend.originalId);
+      const target = this.hostRef.nativeElement.querySelector(`[data-call-row="${cssEscapeId(resend.originalId)}"]`);
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      setTimeout(() => this.flashCallId.set(null), 2400);
+      return;
+    }
+    const ref = originalRefOf(row.call);
+    if (!ref) return;
+    this.callFocus.go({ callId: ref.callId, cycleId: ref.cycleId, direction: ref.source === 'internal' ? 'inbound' : 'outbound', serviceName: null });
+  }
+}
+
+/** `CSS.escape` when available (every real browser); a plain quote-escape fallback keeps this
+ * working in a test environment that stubs it out. */
+function cssEscapeId(id: string): string {
+  return typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(id) : id.replace(/"/g, '\\"');
+}
+
+/**
+ * DELAY_REQUEST/DELAY_RESPONSE segments for one call, positioned on the same root-relative 0-1
+ * scale as the row's own bar (`info.spanStart`/`info.spanWidth`) so the template can overlay them
+ * with a plain `left`/`width` inside `.waterfall-track`. A request delay pads the LEAD of the bar
+ * (it happens before the call goes out); a response delay pads the TAIL (it happens after upstream
+ * answered, before the call returns) - see contracts.md §5's DELAY_* actions.
+ */
+function delaySegmentsOf(call: CallRecord, info: CallDepthInfo): readonly DelaySegment[] {
+  const spanStart = info.spanStart;
+  const spanWidth = info.spanWidth;
+  const durationMs = call.duration_ms ?? 0;
+  if (spanStart == null || spanWidth == null || durationMs <= 0) return [];
+
+  const segments: DelaySegment[] = [];
+  for (const applied of call.interception?.applied ?? []) {
+    const side = applied.action === 'DELAY_REQUEST' ? 'lead' : applied.action === 'DELAY_RESPONSE' ? 'tail' : null;
+    if (!side) continue;
+    const ms = parseDelayMs(applied.detail);
+    if (ms == null) continue;
+    // Capped at the bar's own width - a delay that (per its recorded detail) somehow exceeds the
+    // call's total duration must not paint past the bar it's meant to be part of.
+    const widthFrac = Math.min(spanWidth, (ms / durationMs) * spanWidth);
+    const offsetFrac = side === 'lead' ? spanStart : spanStart + spanWidth - widthFrac;
+    segments.push({ side, ms, offsetPercent: `${(offsetFrac * 100).toFixed(2)}%`, widthPercent: `${(widthFrac * 100).toFixed(2)}%` });
+  }
+  return segments;
+}
+
+/**
+ * Whether `call` is a resend, and - only when its original is part of the SAME currently-loaded
+ * window - how its duration compares. `callsById` is scoped to what's actually on screen (see
+ * `callsById` above), so an original from a page that hasn't been loaded, or that scrolled out of a
+ * paginated backend window, correctly reads as "unknown" rather than guessing.
+ */
+function resendBadgeInfoOf(call: CallRecord, callsById: ReadonlyMap<string, CallRecord>): ResendBadgeInfo | null {
+  if (!call.resendOf) return null;
+  const original = callsById.get(call.resendOf);
+  if (!original || original.duration_ms == null || original.duration_ms <= 0 || call.duration_ms == null) {
+    return { originalId: call.resendOf, percentLabel: null };
+  }
+  const percent = Math.round(((call.duration_ms - original.duration_ms) / original.duration_ms) * 100);
+  const sign = percent > 0 ? '+' : '';
+  return { originalId: call.resendOf, percentLabel: `${sign}${percent}% vs original` };
 }
 
 /** "+1.85s" / "+340ms" - sub-second offsets keep millisecond precision, since that's exactly the

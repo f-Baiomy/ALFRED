@@ -34,11 +34,21 @@ export interface SessionValueUsed {
   readonly fromCallId: string;
 }
 
+/** The supplier's response to the resend, per contracts.md section 2 - null when the send failed
+ *  before a response came back (the 502 path). Body is text, lossy for binary, header names
+ *  lower-case with repeats joined by ", ". */
+export interface ResendResponseSnapshot {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string | null;
+}
+
 export interface ResendResult {
   readonly newCallId: string;
   readonly status: number;
   readonly durationMs: number;
   readonly sessionValuesUsed: readonly SessionValueUsed[];
+  readonly response: ResendResponseSnapshot | null;
 }
 
 /** POST /resend - see contracts/rest-api.md. */

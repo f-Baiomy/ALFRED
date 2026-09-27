@@ -6,6 +6,7 @@ import { CallViewMode, requiresChronologicalSort } from '../../shared/utils/call
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { SourcesBarComponent } from '../sources-bar/sources-bar.component';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
+import { ALL_INTERCEPTION_FILTER, InterceptionRuleOption, ResendFilter } from '../../core/state/call-list-view';
 
 /** Short labels: this sits in a single-row toolbar, where "200 per page" costs width the search box
  * wants. The dropdown's own options spell it out. */
@@ -37,7 +38,7 @@ const VIEW_MODE_OPTIONS: readonly SelectOption[] = [
   { value: 'waterfall', label: 'Waterfall' },
 ];
 
-type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request' | 'nested';
+type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request' | 'nested' | 'interception' | 'resend';
 
 interface ActiveFilter {
   readonly key: ActiveFilterKey;
@@ -117,6 +118,13 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
     const request = this.state.requestIdFilter();
     if (request) chips.push({ key: 'request', label: `Request: ${request}` });
     if (this.state.nestedOnly()) chips.push({ key: 'nested', label: 'Only calls with nested calls' });
+    const interception = this.state.interceptionFilter();
+    if (interception.kind === 'intercepted') chips.push({ key: 'interception', label: 'Intercepted' });
+    else if (interception.kind === 'untouched') chips.push({ key: 'interception', label: 'Untouched only' });
+    else if (interception.kind === 'rule') chips.push({ key: 'interception', label: `Rule: ${interception.ruleName}` });
+    const resend = this.state.resendFilter();
+    if (resend === 'resent') chips.push({ key: 'resend', label: 'Resent calls' });
+    else if (resend === 'originals') chips.push({ key: 'resend', label: 'Originals that were resent' });
     return chips;
   });
 
@@ -137,7 +145,37 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
       case 'nested':
         this.state.setNestedOnly(false);
         return;
+      case 'interception':
+        this.state.setInterceptionFilter(ALL_INTERCEPTION_FILTER);
+        return;
+      case 'resend':
+        this.state.setResendFilter('all');
+        return;
     }
+  }
+
+  /** Whether the Filters menu's Intercepted/Untouched buttons should read as active - a 'rule'
+   * filter is a THIRD, distinct kind (unlike the stats-bar pill, which treats it as "intercepted"
+   * for its own single toggle), so neither button lights up while a specific rule is selected. */
+  isInterceptionKind(kind: 'intercepted' | 'untouched'): boolean {
+    return this.state.interceptionFilter().kind === kind;
+  }
+
+  setInterceptionKind(kind: 'intercepted' | 'untouched'): void {
+    this.state.setInterceptionFilter({ kind });
+  }
+
+  isRuleFilter(ruleId: string): boolean {
+    const filter = this.state.interceptionFilter();
+    return filter.kind === 'rule' && filter.ruleId === ruleId;
+  }
+
+  setRuleFilter(rule: InterceptionRuleOption): void {
+    this.state.setInterceptionFilter({ kind: 'rule', ruleId: rule.ruleId, ruleName: rule.ruleName });
+  }
+
+  setResendKind(kind: ResendFilter): void {
+    this.state.setResendFilter(kind);
   }
 
   clearAllFilters(): void {

@@ -1,0 +1,65 @@
+<div class="replace-preview">
+  <button type="button" class="pill" [class.on]="open()" (click)="toggle()">
+    {{ open() ? '▲ Hide the preview' : '▶ Preview on a call…' }}
+  </button>
+
+  @if (open()) {
+    @if (loading()) {
+      <small class="muted">Loading the call…</small>
+    } @else {
+    @if (call(); as c) {
+      <div class="rp-head">
+        <small class="muted">
+          <span class="badge">{{ c.method }}</span> {{ c.url }}
+        </small>
+        <button type="button" class="pill" (click)="pickAnother()">Try another call</button>
+      </div>
+      @if (shown(); as s) {
+        @if (s.found) {
+          <div class="capture-preview-result">
+            <span class="cp-badge cp-found">✓ Found</span>
+            @if (usedFallback()) {
+              <span class="muted">— the source was missing; showing the fallback value</span>
+            }
+            <code class="cp-value">{{ displayValue() }}</code>
+            @if (looksSecret()) {
+              <button type="button" class="link-btn" (click)="toggleReveal()">{{ revealed() ? 'Hide' : 'Reveal' }}</button>
+            }
+            @if (shape(); as sh) {
+              <small class="muted">
+                {{ sh.type }}{{ sh.length !== null ? ' · ' + sh.length + (sh.type === 'text' ? ' chars' : ' items') : '' }}
+              </small>
+            }
+          </div>
+        } @else {
+          <div class="capture-preview-result">
+            <span class="cp-badge cp-missing">✕ Missing</span>
+            <small class="muted">
+              @if (action().missingBehavior === 'FALLBACK') {
+                No fallback value is set, so dependent actions would be skipped.
+              } @else {
+                Actions that use {{ '{{this.' + (action().name || 'name') + '}}' }} would be skipped on this call.
+              }
+            </small>
+          </div>
+        }
+      }
+    } @else {
+      <app-call-finder
+        [part]="phase()"
+        pickLabel="Preview the capture on this call"
+        [allowPickAnywhere]="false"
+        [ruleHost]="ruleHost()"
+        [rulePath]="rulePath()"
+        [ruleMethods]="ruleMethods()"
+        [ruleSource]="ruleSource()"
+        [ruleServiceNames]="ruleServiceNames()"
+        (chosen)="onChosen($event)"
+      />
+    }
+    }
+    @if (error(); as message) {
+      <div class="rule-warning danger">{{ message }}</div>
+    }
+  }
+</div>

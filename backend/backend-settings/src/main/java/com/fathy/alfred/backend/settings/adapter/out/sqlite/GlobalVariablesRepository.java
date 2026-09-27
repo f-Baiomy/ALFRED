@@ -11,14 +11,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.fathy.alfred.backend.settings.application.port.out.GlobalVariablesStorePort;
+import com.fathy.alfred.backend.settings.domain.model.GlobalVariablesState;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 /** SQLite persistence and proxy snapshot publication for app-wide variables. */
 @Component
@@ -29,13 +30,6 @@ public class GlobalVariablesRepository implements GlobalVariablesStorePort {
     @Value("${INTERCEPTION_VARIABLES_FILE:/appdata/interception/variables.json}") private String variablesFile;
     private HikariDataSource dataSource;
     private JdbcTemplate jdbc;
-    /**
-     * Mirrors {@code GlobalVariablesService}'s name rule for the absorb path below, which cannot
-     * reach the service (the service sits above this port). Anything failing it is skipped, never
-     * thrown: a hand-edited file must not break the panel.
-     */
-    private static final java.util.regex.Pattern ABSORBABLE_NAME =
-            java.util.regex.Pattern.compile("[A-Za-z][A-Za-z0-9_.-]*");
 
     @PostConstruct void init() {
         Path path = Path.of(dbFile);
@@ -53,8 +47,8 @@ public class GlobalVariablesRepository implements GlobalVariablesStorePort {
     }
     @PreDestroy public void close() { if (dataSource != null) dataSource.close(); }
     @Override public synchronized Map<String, Object> load() {
-        Map<String, Object> state = readState();
-        Map<String, Object> absorbed = absorbFileState(state);
+        Map<String, Object> state = GlobalVariablesState.migrate(readState());
+        Map<String, Object> absorbed = GlobalVariablesState.absorb(state, readFileStateOrNull());
         if (absorbed != null) {
             writeState(absorbed);
             return absorbed;
@@ -65,6 +59,18 @@ public class GlobalVariablesRepository implements GlobalVariablesStorePort {
         writeState(state);
         publish(state);
         return state;
+    }
+    /**
+     * Runs load (absorption included) + {@code change} + save atomically under this adapter's own
+     * lock, so a concurrent {@code promote}/{@code save} can no longer read-modify-write the state
+     * unsynchronized and lose one side's write to the other. Skips the write/publish entirely when
+     * {@code change} returns the same state it was given (see {@link GlobalVariablesStorePort#update}).
+     */
+    @Override public synchronized GlobalVariablesStorePort.Update update(UnaryOperator<Map<String, Object>> change) {
+        Map<String, Object> current = load();
+        Map<String, Object> next = change.apply(current);
+        if (next.equals(current)) return new GlobalVariablesStorePort.Update(current, false);
+        return new GlobalVariablesStorePort.Update(save(next), true);
     }
     private Map<String, Object> readState() {
         String json = jdbc.query("SELECT value FROM global_variables WHERE key='state'", (rs, n) -> rs.getString(1)).stream().findFirst().orElse("{}");
@@ -78,58 +84,31 @@ public class GlobalVariablesRepository implements GlobalVariablesStorePort {
         } catch (IOException e) { throw new IllegalStateException("Could not encode global variables", e); }
     }
     /**
-     * Folds proxy-promoted values from variables.json into the database state. The proxy is a
-     * second writer of that file (GLOBAL captures, _save_global); without this the panel -
-     * which reads SQLite - would never show a promotion, and the next save or restart would
-     * publish the file back from SQLite and silently erase it. The file always holds the
-     * freshest value, so on conflict it wins; a key missing from the file is left alone, which
-     * keeps UI deletions working (save() republishes the file right away).
-     *
-     * <p>Best-effort by design: anything unreadable or invalid is skipped, never thrown - a
-     * half-written or hand-edited file must not break the panel.
+     * The published file, read back so a proxy GLOBAL capture (which writes {@code promotedAt}/
+     * {@code promotedBy} into it - see {@code interception.py::_save_global}) can be folded into
+     * the DB by {@link GlobalVariablesState#absorb}. Best-effort by design: anything unreadable or
+     * invalid returns {@code null} (no absorption), never thrown - a half-written or hand-edited
+     * file must not break the panel.
      */
-    private Map<String, Object> absorbFileState(Map<String, Object> state) {
-        Map<String, String> fileVariables = new LinkedHashMap<>();
+    private Map<String, Object> readFileStateOrNull() {
         try {
             Path path = Path.of(variablesFile);
             if (!Files.exists(path)) return null;
-            Map<String, Object> fileState = mapper.readValue(path.toFile(), new TypeReference<>() {});
-            if (!(fileState.get("variables") instanceof Map<?, ?> raw)) return null;
-            for (var entry : raw.entrySet()) {
-                if (entry.getKey() instanceof String name && !name.startsWith("this.")
-                        && ABSORBABLE_NAME.matcher(name).matches()
-                        && entry.getValue() instanceof String text) {
-                    fileVariables.put(name, text);
-                }
-            }
+            return mapper.readValue(path.toFile(), new TypeReference<>() {});
         } catch (Exception e) {
             return null;
         }
-        Object dbVariables = state.get("variables");
-        Map<String, Object> merged = null;
-        for (var entry : fileVariables.entrySet()) {
-            Object current = dbVariables instanceof Map<?, ?> db ? db.get(entry.getKey()) : null;
-            if (!entry.getValue().equals(current)) {
-                if (merged == null) {
-                    merged = new LinkedHashMap<>(state);
-                    Map<?, ?> base = dbVariables instanceof Map<?, ?> db ? db : Map.of();
-                    merged.put("variables", new LinkedHashMap<>(base));
-                }
-                @SuppressWarnings("unchecked")
-                Map<String, Object> vars = (Map<String, Object>) merged.get("variables");
-                vars.put(entry.getKey(), entry.getValue());
-            }
-        }
-        return merged;
     }
+
     private void publish(Map<String, Object> state) {
+        Map<String, Object> published = GlobalVariablesState.publishedView(state);
         Path target = Path.of(variablesFile).toAbsolutePath();
         Path parent = target.getParent();
         try {
             Files.createDirectories(parent);
             Path temp = Files.createTempFile(parent, ".variables", ".tmp");
             try {
-                mapper.writeValue(temp.toFile(), state);
+                mapper.writeValue(temp.toFile(), published);
                 try { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
                 catch (AtomicMoveNotSupportedException e) { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING); }
             } finally { Files.deleteIfExists(temp); }

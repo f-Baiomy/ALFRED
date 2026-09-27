@@ -58,7 +58,15 @@ public record RuleMatch(
         List<MatchTest> cookies,
         /** Request body tests - the whole text, a JSON field, or the size. */
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
-        List<BodyTest> body) {
+        List<BodyTest> body,
+        /**
+         * D5: variable-driven rules. Evaluated in the proxy against the call's promoted overlay,
+         * then the published variables, then fallbacks - an absent variable reads as NOT_EXISTS.
+         * Same operators/shape as header tests ({@link MatchTest}); {@code name} is a global
+         * variable name (see RuleValidator), never {@code this.}-prefixed.
+         */
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<MatchTest> variables) {
 
     public RuleMatch {
         methods = methods == null ? List.of() : List.copyOf(methods);
@@ -66,6 +74,7 @@ public record RuleMatch(
         query = query == null ? List.of() : List.copyOf(query);
         cookies = cookies == null ? List.of() : List.copyOf(cookies);
         body = body == null ? List.of() : List.copyOf(body);
+        variables = variables == null ? List.of() : List.copyOf(variables);
         serviceNames = serviceNames == null ? List.of() : List.copyOf(serviceNames);
         if (serviceNames.isEmpty() && serviceName != null && !serviceName.isBlank()) {
             serviceNames = List.of(serviceName);
@@ -73,11 +82,18 @@ public record RuleMatch(
         serviceName = null;
     }
 
+    /** The shape before variable-driven rules (D5) existed. */
+    public RuleMatch(String source, String serviceName, List<String> serviceNames, List<String> methods,
+                     String host, String pathContains, String pathRegex,
+                     List<MatchTest> headers, List<MatchTest> query, List<MatchTest> cookies, List<BodyTest> body) {
+        this(source, serviceName, serviceNames, methods, host, pathContains, pathRegex, headers, query, cookies, body, null);
+    }
+
     /** The shape before body tests existed. */
     public RuleMatch(String source, String serviceName, List<String> serviceNames, List<String> methods,
                      String host, String pathContains, String pathRegex,
                      List<MatchTest> headers, List<MatchTest> query, List<MatchTest> cookies) {
-        this(source, serviceName, serviceNames, methods, host, pathContains, pathRegex, headers, query, cookies, null);
+        this(source, serviceName, serviceNames, methods, host, pathContains, pathRegex, headers, query, cookies, null, null);
     }
 
     /** The shape before header, query and cookie tests existed - no tests. */

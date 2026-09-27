@@ -416,4 +416,102 @@ describe('CallWaterfallComponent', () => {
     // done both at once.
     expect(host.querySelector('app-call-card')).toBeNull();
   });
+
+  describe('F2: interception/resend badges', () => {
+    it('shows the intercepted-count badge and legend only for a call an interception rule touched', () => {
+      const calls: CallRecord[] = [
+        call('plain', 0, 100),
+        call('touched', 200, 100, {
+          interception: { applied: [{ ruleId: 'r-1', ruleName: 'Login token', action: 'CAPTURE_GLOBAL', detail: 'a -> {{token}}' }] },
+        }),
+      ];
+      const host: HTMLElement = createWaterfall(calls).nativeElement;
+
+      const badges = Array.from(host.querySelectorAll('.intercept-badge-mini'));
+      expect(badges.length).toBe(1);
+      expect(badges[0].textContent).toContain('1');
+      expect(host.querySelector('.waterfall-legend')).not.toBeNull();
+      expect(host.querySelector('.waterfall-legend-resent')).toBeNull();
+    });
+
+    it('renders no legend at all when nothing on the loaded window was intercepted or resent', () => {
+      const host: HTMLElement = createWaterfall([call('plain', 0, 100)]).nativeElement;
+      expect(host.querySelector('.waterfall-legend')).toBeNull();
+    });
+
+    it('opens a hover card listing the rule name/type/detail, with Open rule and Show what changed', () => {
+      const calls: CallRecord[] = [
+        call('touched', 0, 100, {
+          interception: { applied: [{ ruleId: 'r-1', ruleName: 'Login token', action: 'SET_REQUEST_HEADER', detail: 'X-Test' }] },
+        }),
+      ];
+      const fixture = createWaterfall(calls);
+      const host: HTMLElement = fixture.nativeElement;
+
+      (host.querySelector('.waterfall-badge-btn') as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      const card = host.querySelector('.waterfall-hover-card')!;
+      expect(card.textContent).toContain('Login token');
+      expect(card.textContent).toContain('X-Test');
+      expect(card.querySelector('.pill')?.textContent).toContain('Open rule');
+      expect(Array.from(card.querySelectorAll('.pill')).some((b) => b.textContent?.includes('Show what changed'))).toBe(true);
+
+      (Array.from(card.querySelectorAll('.pill')).find((b) => b.textContent?.includes('Show what changed')) as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(host.querySelector('app-call-card')).not.toBeNull();
+    });
+
+    it('draws a hatched delay segment and "N ms injected" label for DELAY_REQUEST/DELAY_RESPONSE', () => {
+      const calls: CallRecord[] = [
+        call('delayed', 0, 1000, {
+          interception: { applied: [{ ruleId: 'r-1', ruleName: 'Slow it down', action: 'DELAY_REQUEST', detail: '300 ms' }] },
+        }),
+      ];
+      const host: HTMLElement = createWaterfall(calls).nativeElement;
+
+      const delay = host.querySelector('.waterfall-delay') as HTMLElement;
+      expect(delay).not.toBeNull();
+      expect(delay.classList).toContain('waterfall-delay-lead');
+      expect(host.querySelector('.waterfall-delay-label')?.textContent).toContain('300 ms injected');
+    });
+
+    it('shows a resend badge with the duration comparison when the original is also loaded', () => {
+      const calls: CallRecord[] = [
+        call('original', 0, 1000),
+        call('resent', 2000, 600, { resendOf: 'original' }),
+      ];
+      const host: HTMLElement = createWaterfall(calls).nativeElement;
+
+      const badge = host.querySelector('.resend-badge-mini')!;
+      expect(badge.textContent).toContain('resend');
+      expect(badge.querySelector('.resend-badge-percent')?.textContent).toContain('-40%');
+    });
+
+    it('shows a resend badge with no percentage when the original is not loaded', () => {
+      const calls: CallRecord[] = [call('resent', 0, 600, { resendOf: 'somewhere-else' })];
+      const host: HTMLElement = createWaterfall(calls).nativeElement;
+
+      const badge = host.querySelector('.resend-badge-mini')!;
+      expect(badge.textContent).toContain('resend');
+      expect(badge.querySelector('.resend-badge-percent')).toBeNull();
+    });
+
+    it('clicking the resend badge scrolls to and flashes the original row when it is loaded locally', () => {
+      const calls: CallRecord[] = [
+        call('original', 0, 1000),
+        call('resent', 2000, 600, { resendOf: 'original' }),
+      ];
+      const fixture = createWaterfall(calls);
+      const host: HTMLElement = fixture.nativeElement;
+      const originalRow = host.querySelector('[data-call-row="original"]') as HTMLElement;
+      const scrollSpy = spyOn(originalRow, 'scrollIntoView');
+
+      (host.querySelectorAll('.waterfall-badge-btn')[0] as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      expect(scrollSpy).toHaveBeenCalled();
+      expect(originalRow.classList).toContain('waterfall-row-flash');
+    });
+  });
 });

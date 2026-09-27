@@ -13,6 +13,15 @@
       <button type="button" class="action-btn" title="Pick calls from Live Calls or other cycles, then copy them all in" (click)="addFromAnywhere()">
         Add calls from anywhere…
       </button>
+      <button
+        type="button"
+        class="action-btn"
+        title="Detect values reused across this cycle's calls and turn them into a resend scenario"
+        [disabled]="chainPanelLoading()"
+        (click)="openChainPanel()"
+      >
+        {{ chainPanelLoading() ? 'Analyzing…' : 'Create scenario from cycle…' }}
+      </button>
       <app-action-menu [label]="cycleExport.exportingCycleId() === c.id ? 'Exporting…' : 'Export cycle'">
         <button
           type="button"
@@ -47,6 +56,9 @@
 @if (addMessage(); as message) {
   <div class="bulk-action-message">{{ message }}</div>
 }
+@if (chainPanelError(); as message) {
+  <div class="bulk-action-message">{{ message }}</div>
+}
 
 <app-header
   [title]="cycle()?.name ?? 'Session Cycle'"
@@ -71,3 +83,12 @@
 <app-import-calls-dialog />
 <app-edit-cycle-dialog />
 <app-confirm-dialog />
+
+@if (chainPanelCalls(); as calls) {
+  <app-scenario-cycle-chain-panel
+    [calls]="calls"
+    [cycleId]="state.cycleId()"
+    [cycleName]="cycle()?.name ?? 'Cycle'"
+    (closed)="closeChainPanel()"
+  />
+}

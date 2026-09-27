@@ -1,0 +1,75 @@
+<div class="scenario-toolbar">
+  @if (error()) {
+    <span class="scenario-toolbar-error">{{ error() }}</span>
+  }
+  <button type="button" class="dialog-btn secondary" (click)="openSaveAs()">Save as scenario…</button>
+  @if (canSave()) {
+    <button type="button" class="dialog-btn secondary" [disabled]="saving()" (click)="save()">Save</button>
+  }
+  <button type="button" class="dialog-btn secondary" (click)="openLibrary()">Open…</button>
+  @if (loadedScenario()) {
+    <span class="scenario-toolbar-loaded">{{ loadedScenario()!.name }}</span>
+    <button type="button" class="dialog-btn secondary" (click)="openRunHistory()">Run history</button>
+  }
+</div>
+
+@if (saveAsOpen()) {
+  <div class="dialog-backdrop" (click)="cancelSaveAs()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <h3>Save as scenario</h3>
+      <input class="scenario-input" type="text" placeholder="Name" [value]="saveAsName()" (input)="saveAsName.set($any($event.target).value)" />
+      <input class="scenario-input" type="text" placeholder="Description (optional)" [value]="saveAsDescription()" (input)="saveAsDescription.set($any($event.target).value)" />
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="cancelSaveAs()">Cancel</button>
+        <button type="button" class="dialog-btn" [disabled]="saving() || !saveAsName().trim()" (click)="confirmSaveAs()">Save</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (libraryOpen()) {
+  <div class="dialog-backdrop" (click)="closeLibrary()">
+    <div class="dialog-card wide" (click)="$event.stopPropagation()">
+      <h3>Open scenario</h3>
+      <app-scenario-library (opened)="onOpened($event)" />
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="closeLibrary()">Close</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (runHistoryOpen()) {
+  <div class="dialog-backdrop" (click)="closeRunHistory()">
+    <div class="dialog-card wide" (click)="$event.stopPropagation()">
+      <h3>Run history - {{ loadedScenario()?.name }}</h3>
+      @if (runsLoading()) {
+        <p>Loading runs…</p>
+      } @else if (runs().length === 0) {
+        <p>No runs yet.</p>
+      } @else {
+        <ul class="scenario-library-list">
+          @for (run of runs(); track run.id) {
+            <li class="scenario-library-item">
+              <button type="button" class="scenario-library-open" (click)="viewRun(run)">
+                <span class="scenario-library-name">{{ run.startedAt }}</span>
+                <span class="scenario-library-last-run">{{ run.summary.passed }}/{{ run.summary.total }} passed</span>
+              </button>
+            </li>
+          }
+        </ul>
+        @if (selectedRun(); as run) {
+          @if (run.results) {
+            <app-scenario-run-report [scenarioName]="loadedScenario()?.name ?? ''" [drafts]="dialog.drafts()" [draftResults]="run.results.draftResults" [assertionResults]="run.results.assertionResults" />
+          }
+        }
+        @if (runs().length > 1) {
+          <app-scenario-run-compare [runs]="runs()" />
+        }
+      }
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="closeRunHistory()">Close</button>
+      </div>
+    </div>
+  </div>
+}

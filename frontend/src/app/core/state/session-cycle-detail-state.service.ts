@@ -20,7 +20,7 @@ import { PinService } from '../services/pin.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState, CycleSpacer } from './call-selection.tokens';
-import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
+import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, InterceptionFilter, ResendFilter, createCallListView } from './call-list-view';
 import { reconnectingSocket } from './reconnecting-socket';
 import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
@@ -528,6 +528,15 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get nestedOnly() {
     return this.view.nestedOnly;
   }
+  get interceptionFilter() {
+    return this.view.interceptionFilter;
+  }
+  get resendFilter() {
+    return this.view.resendFilter;
+  }
+  get interceptionRuleOptions() {
+    return this.view.interceptionRuleOptions;
+  }
   get expanded() {
     return this.view.expanded;
   }
@@ -632,6 +641,14 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   toggleShowOptionsCalls(): void {
     this.view.toggleShowOptionsCalls();
+  }
+
+  setInterceptionFilter(filter: InterceptionFilter): void {
+    this.view.setInterceptionFilter(filter);
+  }
+
+  setResendFilter(filter: ResendFilter): void {
+    this.view.setResendFilter(filter);
   }
 
   setNestedOnly(value: boolean): void {

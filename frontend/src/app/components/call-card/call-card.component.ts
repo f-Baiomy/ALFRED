@@ -21,11 +21,13 @@ import { InterceptionPanelComponent } from '../interception-panel/interception-p
 import { ResendPanelComponent } from '../resend-panel/resend-panel.component';
 import { resendSummaryOf } from '../../shared/utils/resend-summary';
 import { WsMessagesComponent } from '../ws-messages/ws-messages.component';
-import { AppliedInterception, OriginalHttp, actionPhase, wasEditedByHand } from '../../core/models/interception.model';
+import { OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { CALL_ORIGIN } from '../../core/state/call-origin.token';
+import { InterceptionLogGroup, buildInterceptionLogGroups, openInterceptionRule, parseCaptureLink } from '../../shared/utils/interception-log';
+import { GlobalVariablesService } from '../../core/services/global-variables.service';
 
 type BlockGroup = 'REQ' | 'RES';
 
@@ -42,12 +44,6 @@ export interface BlockChip {
   readonly availability: BlockAvailability;
   readonly open: boolean;
   readonly armed: boolean;
-}
-
-interface InterceptionLogGroup {
-  readonly ruleId: string | null;
-  readonly ruleName: string;
-  readonly actions: readonly { readonly entry: AppliedInterception; readonly number: number; readonly label: string; readonly phase: string }[];
 }
 
 const BLOCK_DEFINITIONS: readonly { part: CallDetailPart; group: BlockGroup; label: string; title: string }[] = [
@@ -105,26 +101,29 @@ export class CallCardComponent {
    * what you are looking at is not what your client actually sent.
    */
   readonly interception = computed(() => this.call().interception ?? null);
-  readonly interceptionLogGroups = computed<readonly InterceptionLogGroup[]>(() => {
-    const groups: { ruleId: string | null; ruleName: string; actions: { entry: AppliedInterception; number: number; label: string; phase: string }[] }[] = [];
-    for (const [index, entry] of (this.interception()?.applied ?? []).entries()) {
-      const ruleId = entry.ruleId ?? null;
-      const ruleName = entry.ruleName || 'Manual edit';
-      let group = groups[groups.length - 1];
-      // Keep separate runs separate, so actions from different rules remain in execution order.
-      if (!group || group.ruleId !== ruleId || group.ruleName !== ruleName) {
-        group = { ruleId, ruleName, actions: [] };
-        groups.push(group);
-      }
-      group.actions.push({
-        entry,
-        number: index + 1,
-        label: friendlyInterceptionAction(entry.action),
-        phase: actionPhase(entry.action) === 'response' ? 'Response' : actionPhase(entry.action) === 'message' ? 'Message' : 'Request',
-      });
+  readonly interceptionLogGroups = computed<readonly InterceptionLogGroup[]>(() => buildInterceptionLogGroups(this.interception()));
+
+  private readonly globalVariables = inject(GlobalVariablesService, { optional: true });
+
+  /**
+   * A GLOBAL capture's detail ends with ` -> {{name}}` (contracts.md §5) - split so the template can
+   * render everything before the arrow as plain text and the variable name as a link into
+   * GlobalVariablesService.focusVariable(name), rather than dead text naming a variable you then
+   * have to go find yourself.
+   */
+  captureLink(detail: string | null | undefined) {
+    return parseCaptureLink(detail);
+  }
+
+  focusVariable(name: string, event: Event): void {
+    event.stopPropagation();
+    // Guarded rather than assumed: F-VARS' GlobalVariablesService lands in the same batch, and a
+    // build that compiles before it's wired up must not crash a card just because a rule captured
+    // a variable.
+    if (this.globalVariables && typeof (this.globalVariables as unknown as { focusVariable?: unknown }).focusVariable === 'function') {
+      this.globalVariables.focusVariable(name);
     }
-    return groups;
-  });
+  }
 
   /** A human edited this call, not only a rule - worth a stronger badge than an automatic change. */
   readonly interceptedByHand = computed(() => wasEditedByHand(this.interception()));
@@ -401,17 +400,9 @@ export class CallCardComponent {
     if (this.openingRuleId()) return;
     this.ruleOpenError.set('');
     this.openingRuleId.set(ruleId);
-    this.interceptionApi.listRules().subscribe({
-      next: (rules) => {
-        this.openingRuleId.set(null);
-        const rule = rules.find((item) => item.id === ruleId);
-        if (rule) this.ruleDialog.openRule(rule);
-        else this.ruleOpenError.set('This rule no longer exists.');
-      },
-      error: () => {
-        this.openingRuleId.set(null);
-        this.ruleOpenError.set('Could not load the rule. Try again.');
-      },
+    openInterceptionRule(this.interceptionApi, this.ruleDialog, ruleId, {
+      onError: (message) => this.ruleOpenError.set(message),
+      onDone: () => this.openingRuleId.set(null),
     });
   }
   private readonly callFocus = inject(CallFocusService);
@@ -822,11 +813,4 @@ function parseUrl(value: string): URL | null {
   } catch {
     return null;
   }
-}
-
-function friendlyInterceptionAction(action: string): string {
-  if (action.startsWith('CAPTURE_')) return 'Captured variable';
-  if (action.startsWith('SET_') && action.includes('JSON_FIELD')) return 'Set JSON field';
-  if (action.startsWith('DELAY_')) return 'Waited';
-  return action.toLowerCase().replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase());
 }

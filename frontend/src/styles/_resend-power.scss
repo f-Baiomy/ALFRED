@@ -1,0 +1,96 @@
+// resend-power - see specs/002-power-features/contracts.md for ownership.
+//
+// New C1/D3/B2/B4 rules for BulkResendDialogComponent. The pre-existing .br-* block lives in
+// styles.scss; this file only adds what those features need, using the same tokens/primitives
+// (--card, --border, --purple, --text-dim, .dialog-btn, the frosted mixin) so it matches every
+// theme without its own palette.
+
+// F-SCENARIO's save/run-history/assertions toolbar mounts here (see the dialog header's
+// br-scenario-slot). Empty of its own styling until then - it only needs to sit inline with the
+// rest of the header and never collapse to nothing when there is something to show.
+.br-scenario-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+// C1: the "passes on" / "uses" chips on a list row - distinct from the edited/result badges, so a
+// row can carry all three without them reading as the same kind of thing.
+.br-badge.chain {
+  color: var(--purple-light);
+  border-color: color-mix(in srgb, var(--purple) 45%, transparent);
+  cursor: default;
+}
+
+// D3: the dataset paste box and its preview table.
+.br-dataset-text {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.4rem 0.5rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+}
+
+.br-dataset-preview {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.68rem;
+
+  th,
+  td {
+    border: 1px solid var(--border);
+    padding: 0.2rem 0.4rem;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 10rem;
+  }
+
+  th {
+    color: var(--text-dim);
+    font-weight: 600;
+    background: var(--card-inner);
+  }
+}
+
+// B2: the sticky per-run progress bar, sitting between the body and the foot so it stays visible
+// while the list scrolls. Four segments read left to right in send order: settled ok, settled
+// failed, on the wire right now, still waiting.
+.br-progress {
+  display: flex;
+  height: 0.4rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--card-inner);
+  margin-top: 0.6rem;
+  border: 1px solid var(--border);
+}
+
+.br-progress-seg {
+  height: 100%;
+  transition: width 0.2s ease;
+
+  &.ok {
+    background: var(--green, #3fb97a);
+  }
+
+  &.failed {
+    background: var(--red, #e5484d);
+  }
+
+  &.in-flight {
+    background: var(--purple);
+  }
+
+  &.waiting {
+    background: transparent;
+  }
+}

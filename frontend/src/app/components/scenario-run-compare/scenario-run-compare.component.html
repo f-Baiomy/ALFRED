@@ -1,0 +1,46 @@
+<div class="scenario-run-compare">
+  <div class="scenario-run-compare-pickers">
+    <select class="scenario-select" (change)="selectBefore($any($event.target).value)">
+      <option value="">Before run…</option>
+      @for (run of runs(); track run.id) {
+        <option [value]="run.id">{{ run.startedAt }} ({{ run.summary.passed }}/{{ run.summary.total }})</option>
+      }
+    </select>
+    <span>vs.</span>
+    <select class="scenario-select" (change)="selectAfter($any($event.target).value)">
+      <option value="">After run…</option>
+      @for (run of runs(); track run.id) {
+        <option [value]="run.id">{{ run.startedAt }} ({{ run.summary.passed }}/{{ run.summary.total }})</option>
+      }
+    </select>
+  </div>
+
+  @if (beforeRun() && afterRun()) {
+    @if (diffs().length === 0) {
+      <p class="scenario-compare-empty">No comparable draft results in either run.</p>
+    } @else {
+      @for (diff of diffs(); track diff.key) {
+        <div class="scenario-compare-row" [class.changed]="hasChanges(diff)">
+          <div class="scenario-compare-row-header">
+            <span>{{ diff.key }}</span>
+            <span>status: {{ diff.statusBefore ?? '—' }} → {{ diff.statusAfter ?? '—' }}</span>
+            <span>latency: {{ diff.latencyBefore ?? '—' }}ms → {{ diff.latencyAfter ?? '—' }}ms</span>
+          </div>
+          @if (diff.fieldChanges.length) {
+            <ul class="scenario-compare-fields">
+              @for (change of diff.fieldChanges; track change.path) {
+                <li [class]="'scenario-field-' + change.kind">
+                  {{ change.path }}: {{ change.kind }}
+                  @if (change.kind !== 'added') { <span> was {{ change.before }}</span> }
+                  @if (change.kind !== 'removed') { <span> now {{ change.after }}</span> }
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      }
+    }
+  } @else {
+    <p class="scenario-compare-empty">Pick two runs to compare.</p>
+  }
+</div>

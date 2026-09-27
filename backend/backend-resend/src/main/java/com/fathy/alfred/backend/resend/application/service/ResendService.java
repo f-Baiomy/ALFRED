@@ -2,12 +2,14 @@ package com.fathy.alfred.backend.resend.application.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase;
+import com.fathy.alfred.backend.resend.application.port.in.ResendResolutionException;
 import com.fathy.alfred.backend.resend.application.port.out.CallSenderPort;
 import com.fathy.alfred.backend.resend.application.port.out.CallSourcePort;
 import com.fathy.alfred.backend.resend.application.port.out.GlobalVariableLookupPort;
 import com.fathy.alfred.backend.resend.application.port.out.OutgoingCall;
 import com.fathy.alfred.backend.resend.application.port.out.SendOutcome;
 import com.fathy.alfred.backend.resend.application.port.out.SessionValueLookupPort;
+import com.fathy.alfred.backend.resend.domain.model.DynamicTokens;
 import com.fathy.alfred.backend.resend.domain.model.ResendBatch;
 import com.fathy.alfred.backend.resend.domain.model.ResendEdits;
 import com.fathy.alfred.backend.resend.domain.model.ResendRequest;
@@ -53,20 +55,31 @@ public class ResendService implements ResendCallUseCase {
     private static final String RESEND_OF_HEADER = "X-Alfred-Resend-Of";
     private static final String RESEND_EDITS_HEADER = "X-Alfred-Resend-Edits";
     private static final Set<String> SESSION_HEADER_NAMES = Set.of("cookie", "authorization");
+    /** Matches the proxy's own resolution semantics and the frontend's GlobalVariablesService.resolve. */
+    private static final int MAX_RESOLUTION_DEPTH = 20;
+    private static final int MAX_RESOLVED_LENGTH = 10 * 1024 * 1024;
 
     private final CallSourcePort calls;
     private final SessionValueLookupPort sessionValues;
     private final CallSenderPort sender;
     private final GlobalVariableLookupPort variableLookup;
+    private final java.time.Clock clock;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @org.springframework.beans.factory.annotation.Autowired
     public ResendService(CallSourcePort calls, SessionValueLookupPort sessionValues, CallSenderPort sender,
                          GlobalVariableLookupPort variableLookup) {
+        this(calls, sessionValues, sender, variableLookup, java.time.Clock.systemUTC());
+    }
+
+    /** Package-private: lets tests pin the clock {@code $now} dynamic tokens resolve against. */
+    ResendService(CallSourcePort calls, SessionValueLookupPort sessionValues, CallSenderPort sender,
+                 GlobalVariableLookupPort variableLookup, java.time.Clock clock) {
         this.calls = calls;
         this.sessionValues = sessionValues;
         this.sender = sender;
         this.variableLookup = variableLookup;
+        this.clock = clock;
     }
 
     public ResendService(CallSourcePort calls, SessionValueLookupPort sessionValues, CallSenderPort sender) {
@@ -121,9 +134,11 @@ public class ResendService implements ResendCallUseCase {
         }
 
         var variableState = variableLookup.current();
-        method = resolveVariables(method, variableState);
-        url = resolveVariables(url, variableState);
-        body = resolveVariables(body, variableState);
+        java.util.function.Function<String, String> base64Lookup =
+                name -> variableState.variables().getOrDefault(name, variableState.fallbacks().get(name));
+        method = resolveDynamic(resolveVariables(method, variableState), base64Lookup);
+        url = resolveDynamic(resolveVariables(url, variableState), base64Lookup);
+        body = resolveDynamic(resolveVariables(body, variableState), base64Lookup);
 
         List<SessionValueUse> sessionUses = new ArrayList<>();
         if (request.useCurrentSession()) {
@@ -141,8 +156,9 @@ public class ResendService implements ResendCallUseCase {
         }
 
         Map<String, String> resolvedHeaders = new LinkedHashMap<>();
-        headers.forEach((name, value) ->
-                resolvedHeaders.put(resolveVariables(name, variableState), resolveVariables(value, variableState)));
+        headers.forEach((name, value) -> resolvedHeaders.put(
+                resolveDynamic(resolveVariables(name, variableState), base64Lookup),
+                resolveDynamic(resolveVariables(value, variableState), base64Lookup)));
         headers.clear();
         headers.putAll(resolvedHeaders);
         ResendBatch batch = request.batch();
@@ -167,33 +183,63 @@ public class ResendService implements ResendCallUseCase {
         long durationMs = System.currentTimeMillis() - start;
 
         return switch (outcome) {
-            case SendOutcome.Sent sent ->
-                    new ResendOutcome.Success(new ResendResult(newCallId, sent.status(), durationMs, sessionUses));
+            case SendOutcome.Sent sent -> new ResendOutcome.Success(new ResendResult(newCallId, sent.status(),
+                    durationMs, sessionUses, new ResendResult.Response(sent.status(), sent.headers(), sent.body())));
             case SendOutcome.ReverseProxyNotRunning ignored -> new ResendOutcome.ReverseProxyNotRunning();
             case SendOutcome.Failed failed -> new ResendOutcome.SendFailed(failed.message());
         };
     }
 
+    /**
+     * Resolves {@code {{name}}} tokens recursively, matching the proxy's own semantics and the
+     * frontend's {@code GlobalVariablesService.resolve}: a name already being expanded (a cycle)
+     * or a depth of {@value #MAX_RESOLUTION_DEPTH} leaves the token literal, same as an unknown
+     * name; a concrete variable wins over a same-named fallback; a {@code this.}-prefixed name is
+     * never resolved (reserved for rule-local variables). Replaces the old fixed-20-pass,
+     * whole-string replace loop, which had no cycle guard at all - a self-referencing variable
+     * like {@code a="{{a}}{{a}}"} doubled in size every pass (~1M copies by pass 20), which could
+     * exhaust heap well before any caller saw a response.
+     */
     private static String resolveVariables(String text, GlobalVariableLookupPort.VariableState state) {
         if (text == null || text.isEmpty()) return text;
-        String value = text;
-        for (int pass = 0; pass < 20; pass++) {
-            java.util.regex.Matcher matcher = VARIABLE_TOKEN.matcher(value);
-            StringBuffer out = new StringBuffer();
-            boolean changed = false;
-            while (matcher.find()) {
-                String name = matcher.group(1);
+        return resolveToken(text, state, Set.of(), 0);
+    }
+
+    private static String resolveToken(String input, GlobalVariableLookupPort.VariableState state, Set<String> seen, int depth) {
+        java.util.regex.Matcher matcher = VARIABLE_TOKEN.matcher(input);
+        StringBuilder out = new StringBuilder();
+        int last = 0;
+        while (matcher.find()) {
+            out.append(input, last, matcher.start());
+            last = matcher.end();
+            String name = matcher.group(1);
+            String token = matcher.group();
+            if (name.startsWith("this.") || depth >= MAX_RESOLUTION_DEPTH || seen.contains(name)) {
+                out.append(token);
+            } else {
                 String replacement = state.variables().getOrDefault(name, state.fallbacks().get(name));
-                if (replacement == null) replacement = matcher.group();
-                else changed = true;
-                matcher.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(replacement));
+                if (replacement == null) {
+                    out.append(token);
+                } else {
+                    Set<String> nextSeen = new java.util.HashSet<>(seen);
+                    nextSeen.add(name);
+                    out.append(resolveToken(replacement, state, nextSeen, depth + 1));
+                }
             }
-            matcher.appendTail(out);
-            String next = out.toString();
-            if (!changed || next.equals(value)) return next;
-            value = next;
+            if (out.length() > MAX_RESOLVED_LENGTH) {
+                throw new ResendResolutionException("Resolved value exceeds " + MAX_RESOLVED_LENGTH + " characters.");
+            }
         }
-        return value;
+        out.append(input, last, input.length());
+        if (out.length() > MAX_RESOLVED_LENGTH) {
+            throw new ResendResolutionException("Resolved value exceeds " + MAX_RESOLVED_LENGTH + " characters.");
+        }
+        return out.toString();
+    }
+
+    /** D4: applied after global-variable resolution (see contracts.md section 2). */
+    private String resolveDynamic(String text, java.util.function.Function<String, String> base64Lookup) {
+        return DynamicTokens.resolve(text, base64Lookup, clock);
     }
 
     private static String hostOf(String url, String fallback) {

@@ -65,6 +65,7 @@ public class JdkHttpCallSender implements CallSenderPort {
     private final Map<String, Integer> forwardProxyPorts;
     private final String reverseProxyHost;
     private final Map<String, Integer> reverseListenPorts;
+    private final long maxAnswerBytes;
 
     @Autowired
     public JdkHttpCallSender(
@@ -74,16 +75,25 @@ public class JdkHttpCallSender implements CallSenderPort {
             @Value("${FORWARD_PROXY_DEFAULT_PORT:8080}") int forwardProxyDefaultPort,
             @Value("${FORWARD_PROXY_PORT_MAP:}") String forwardProxyPortMap,
             @Value("${alfred.resend.reverse-proxy-host}") String reverseProxyHost,
-            @Value("${INTERNAL_CALL_SERVICES:}") String internalCallServices) {
+            @Value("${INTERNAL_CALL_SERVICES:}") String internalCallServices,
+            @Value("${alfred.interception.max-answer-bytes}") long maxAnswerBytes) {
         this(Duration.ofMillis(timeoutMs), hostOf(forwardProxy), forwardProxyDefaultPort,
                 parsePairs(forwardProxyPortMap), reverseProxyHost, parseListenPorts(internalCallServices),
-                sslContextFrom(mitmCaFile));
+                sslContextFrom(mitmCaFile), maxAnswerBytes);
     }
 
     /** Package-private: lets tests point the proxy hosts at a local server and skip the real CA file. */
     JdkHttpCallSender(Duration timeout, String forwardProxyHost, int forwardProxyDefaultPort,
                        Map<String, Integer> forwardProxyPorts, String reverseProxyHost,
                        Map<String, Integer> reverseListenPorts, SSLContext sslContext) {
+        this(timeout, forwardProxyHost, forwardProxyDefaultPort, forwardProxyPorts, reverseProxyHost,
+                reverseListenPorts, sslContext, 10L * 1024 * 1024);
+    }
+
+    /** Package-private: as above, but also lets tests exercise the response body cap. */
+    JdkHttpCallSender(Duration timeout, String forwardProxyHost, int forwardProxyDefaultPort,
+                       Map<String, Integer> forwardProxyPorts, String reverseProxyHost,
+                       Map<String, Integer> reverseListenPorts, SSLContext sslContext, long maxAnswerBytes) {
         this.timeout = timeout;
         this.forwardProxyHost = forwardProxyHost;
         this.forwardProxyDefaultPort = forwardProxyDefaultPort;
@@ -91,6 +101,7 @@ public class JdkHttpCallSender implements CallSenderPort {
         this.reverseProxyHost = reverseProxyHost;
         this.reverseListenPorts = reverseListenPorts;
         this.sslContext = sslContext;
+        this.maxAnswerBytes = maxAnswerBytes;
         HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(timeout);
         if (sslContext != null) {
             builder.sslContext(sslContext);
@@ -155,9 +166,31 @@ public class JdkHttpCallSender implements CallSenderPort {
         return builder.build();
     }
 
-    private static SendOutcome doSend(HttpClient client, HttpRequest request) throws IOException, InterruptedException {
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        return new SendOutcome.Sent(response.statusCode(), response.body());
+    private SendOutcome doSend(HttpClient client, HttpRequest request) throws IOException, InterruptedException {
+        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        byte[] body = response.body();
+        int length = body == null ? 0 : (int) Math.min(body.length, maxAnswerBytes);
+        // UTF-8 lossy: String's own decoder replaces malformed sequences rather than throwing,
+        // which is exactly what a text passthrough of an arbitrary supplier body needs.
+        String text = body == null ? "" : new String(body, 0, length, StandardCharsets.UTF_8);
+        return new SendOutcome.Sent(response.statusCode(), lowerCaseJoinedHeaders(response.headers().map()), text);
+    }
+
+    /**
+     * Contracts.md section 2: header names lower-case, repeated headers joined with {@code ", "}.
+     * {@link HttpResponse#headers()} already groups same-named headers (case-insensitively, first
+     * casing seen) into one list - this only needs to lower-case the key and re-merge lists that
+     * collide once their names are folded (e.g. a supplier sending both {@code Set-Cookie} and
+     * {@code set-cookie}, which the JDK would otherwise keep as two separate entries).
+     */
+    private static Map<String, String> lowerCaseJoinedHeaders(Map<String, java.util.List<String>> headers) {
+        Map<String, java.util.List<String>> byLowerName = new java.util.LinkedHashMap<>();
+        headers.forEach((name, values) -> byLowerName
+                .computeIfAbsent(name.toLowerCase(Locale.ROOT), ignored -> new java.util.ArrayList<>())
+                .addAll(values));
+        Map<String, String> joined = new java.util.LinkedHashMap<>();
+        byLowerName.forEach((name, values) -> joined.put(name, String.join(", ", values)));
+        return joined;
     }
 
     private static void applyHeaders(HttpRequest.Builder builder, Map<String, String> headers) {

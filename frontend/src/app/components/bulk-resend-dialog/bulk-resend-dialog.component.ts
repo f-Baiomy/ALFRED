@@ -1,4 +1,5 @@
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
+import { KeyValuePipe } from '@angular/common';
 import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { forkJoin, map, of } from 'rxjs';
@@ -10,8 +11,13 @@ import { CallPickerService } from '../../core/services/call-picker.service';
 import { CallRefDetailService } from '../../core/services/call-ref-detail.service';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { buildMatcher, literalReplacement, matcherError } from '../../shared/utils/find-replace';
+import { parseDatasetText } from '../../shared/utils/resend-draft-dataset';
 import {
+  Dataset,
+  Assertion,
+  ExtractRule,
   ResendDraft,
+  RetryPolicy,
   countMatches,
   describeEdits,
   draftFrom,
@@ -43,6 +49,7 @@ import {
 } from '../../shared/utils/resend-group';
 import { ResendCallEditorComponent } from '../resend-call-editor/resend-call-editor.component';
 import { ResendPanelComponent } from '../resend-panel/resend-panel.component';
+import { ScenarioAssertionEditorComponent } from '../scenario-assertion-editor/scenario-assertion-editor.component';
 
 const PICK_REQUESTER = 'bulk-resend';
 
@@ -74,7 +81,7 @@ type DragPayload =
 @Component({
   selector: 'app-bulk-resend-dialog',
   standalone: true,
-  imports: [CdkDropList, CdkDrag, CdkDragHandle, ResendCallEditorComponent, ResendPanelComponent],
+  imports: [CdkDropList, CdkDrag, CdkDragHandle, KeyValuePipe, ResendCallEditorComponent, ResendPanelComponent, ScenarioAssertionEditorComponent],
   templateUrl: './bulk-resend-dialog.component.html',
 })
 export class BulkResendDialogComponent {
@@ -87,8 +94,8 @@ export class BulkResendDialogComponent {
 
   readonly mode = signal<'call' | 'all'>('call');
   readonly selectedKey = signal<string | null>(null);
-  readonly stopOnFailure = signal(true);
-  readonly delayMs = signal(0);
+  readonly stopOnFailure = this.service.stopOnFailure;
+  readonly delayMs = this.service.delayMs;
   readonly notice = signal<string | null>(null);
 
   // Edit all at once
@@ -103,6 +110,24 @@ export class BulkResendDialogComponent {
   readonly inBody = signal(true);
   readonly method = signal('');
   readonly host = signal('');
+
+  // C1: a new "Pass on" row being drafted for the selected call.
+  readonly extractFrom = signal<ExtractRule['from']>('JSON');
+  readonly extractPath = signal('');
+  readonly extractAs = signal('');
+  readonly extractMissing = signal<ExtractRule['missing']>('SKIP');
+  readonly extractFallback = signal('');
+
+  // D3: retry policy and parallel cap, applied to the whole resend.
+  readonly retryAttempts = signal(0);
+  readonly retryBackoffMs = signal(1000);
+  readonly retryOn5xx = signal(true);
+  readonly retryOnNetwork = signal(true);
+  readonly maxParallelInput = signal('');
+
+  // D3: dataset text pasted for the currently-selected group.
+  readonly datasetText = signal('');
+  readonly datasetError = signal<string | null>(null);
 
   /** The resent call, fetched when "View the cycle" is pressed on a result, keyed by draft. */
   readonly journeys = signal<Readonly<Record<string, CallRecord | 'loading' | 'missing'>>>({});
@@ -125,8 +150,8 @@ export class BulkResendDialogComponent {
 
   /** "3 sent", "1 failed", or "waiting" - a group's own tally, on its header. */
   runProgress(run: SendRun): string {
-    const sent = run.drafts.filter((d) => this.resultOf(d)?.ok).length;
-    const failed = run.drafts.filter((d) => this.resultOf(d) && !this.resultOf(d)!.ok).length;
+    const sent = run.drafts.filter((d) => this.resultOf(d)?.error === null).length;
+    const failed = run.drafts.filter((d) => this.resultOf(d) && this.resultOf(d)!.error !== null).length;
     if (this.service.currentRun() === run) {
       const inFlight = run.drafts.filter((d) => !this.resultOf(d)).length;
       if (inFlight > 1) return `${sent + failed} done · ${inFlight} in flight`;
@@ -239,7 +264,26 @@ export class BulkResendDialogComponent {
   }
 
   resultOf(draft: ResendDraft): DraftResult | null {
-    return this.service.results()[draft.key] ?? null;
+    return this.service.latestResult(draft.key);
+  }
+
+  /** Every attempt for a draft - a dataset gives one per row, a retry policy one per attempt. */
+  resultsOf(draft: ResendDraft): readonly DraftResult[] {
+    return this.service.resultsFor(draft.key);
+  }
+
+  /** "200 · 38 ms", "502 · failed", with a retry/row count folded in when there is more than one
+   *  attempt - the list row's B2 result chip. */
+  resultChip(draft: ResendDraft): string | null {
+    const all = this.resultsOf(draft);
+    if (all.length === 0) return null;
+    const last = all[all.length - 1];
+    const base = last.error === null ? `${last.status} · ${last.durationMs} ms` : `${last.status ?? 'failed'} · failed`;
+    const rowCount = new Set(all.map((r) => r.row).filter((r) => r !== undefined)).size;
+    const parts = [base];
+    if (rowCount > 1) parts.push(`${rowCount} rows`);
+    else if (all.length > 1) parts.push(`${all.length} attempts`);
+    return parts.join(' · ');
   }
 
   isEdited = isEdited;
@@ -252,6 +296,10 @@ export class BulkResendDialogComponent {
 
   updateDraft(next: ResendDraft): void {
     this.service.drafts.update((all) => all.map((d) => (d.key === next.key ? next : d)));
+  }
+
+  updateAssertions(draft: ResendDraft, assertions: readonly Assertion[]): void {
+    this.updateDraft({ ...draft, assertions });
   }
 
   toggleInclude(draft: ResendDraft, event: Event): void {
@@ -626,6 +674,139 @@ export class BulkResendDialogComponent {
     this.delayMs.set(Number.isFinite(value) ? Math.min(Math.max(0, Math.round(value)), 60_000) : 0);
   }
 
+  // ---- C1: chaining ("Pass on") ----
+
+  /** What the selected call passes on to later drafts - the "Pass on" editor's own list. */
+  extractRulesOf(draft: ResendDraft): readonly ExtractRule[] {
+    return draft.extract ?? [];
+  }
+
+  addExtractRule(draft: ResendDraft): void {
+    const as = this.extractAs().trim();
+    const path = this.extractPath().trim();
+    if (!as || !path) return;
+    const rule: ExtractRule = {
+      from: this.extractFrom(),
+      path,
+      as,
+      missing: this.extractMissing(),
+      ...(this.extractMissing() === 'FALLBACK' ? { fallback: this.extractFallback() } : {}),
+    };
+    this.updateDraft({ ...draft, extract: [...this.extractRulesOf(draft), rule] });
+    this.extractPath.set('');
+    this.extractAs.set('');
+    this.extractFallback.set('');
+  }
+
+  removeExtractRule(draft: ResendDraft, index: number): void {
+    this.updateDraft({ ...draft, extract: this.extractRulesOf(draft).filter((_, i) => i !== index) });
+  }
+
+  /** Chip text for a list row: what it passes on (`this.token`) and what it uses from earlier
+   *  calls (any `{{this.x}}` its own method/url/headers/body references). */
+  passesOnChip(draft: ResendDraft): string | null {
+    const names = this.extractRulesOf(draft).map((r) => r.as);
+    return names.length ? `passes on ${names.map((n) => `this.${n}`).join(', ')}` : null;
+  }
+
+  usesChip(draft: ResendDraft): string | null {
+    const text = [draft.method, draft.url, draft.body, ...draft.headers.map((h) => h.value)].join(' ');
+    const names = new Set<string>();
+    for (const m of text.matchAll(/\{\{this\.([A-Za-z0-9_.-]+)\}\}/g)) names.add(m[1]);
+    for (const m of text.matchAll(/\{\{\$base64:this\.([A-Za-z0-9_.-]+)\}\}/g)) names.add(m[1]);
+    return names.size ? `uses ${[...names].map((n) => `this.${n}`).join(', ')}` : null;
+  }
+
+  // ---- D3: retry, parallel cap, datasets ----
+
+  applyRetry(): void {
+    const attempts = Math.min(Math.max(0, Math.round(Number(this.retryAttempts()) || 0)), 5);
+    const on: RetryPolicy['on'] = [...(this.retryOn5xx() ? (['5XX'] as const) : []), ...(this.retryOnNetwork() ? (['NETWORK'] as const) : [])];
+    this.service.retry.set(attempts === 0 || on.length === 0 ? null : { attempts, backoffMs: Math.max(0, Math.round(this.retryBackoffMs()) || 0), on });
+  }
+
+  clearRetry(): void {
+    this.retryAttempts.set(0);
+    this.service.retry.set(null);
+  }
+
+  applyMaxParallel(): void {
+    const raw = this.maxParallelInput().trim();
+    if (!raw) {
+      this.service.maxParallel.set(null);
+      return;
+    }
+    const n = Math.round(Number(raw));
+    this.service.maxParallel.set(Number.isFinite(n) && n > 0 ? n : null);
+  }
+
+  datasetOf(groupId: string): Dataset | null {
+    return this.service.datasets()[groupId] ?? null;
+  }
+
+  /** First 3 rows of the active group's dataset, for the preview under the paste box. */
+  datasetPreview(groupId: string): readonly Record<string, string>[] {
+    return this.datasetOf(groupId)?.rows.slice(0, 3) ?? [];
+  }
+
+  applyDataset(groupId: string, groupName: string, onRowFailure: 'SKIP' | 'STOP'): void {
+    const parsed = parseDatasetText(this.datasetText());
+    if (parsed.error) {
+      this.datasetError.set(parsed.error);
+      return;
+    }
+    this.datasetError.set(null);
+    if (parsed.rows.length === 0) {
+      this.service.datasets.update(({ [groupId]: _removed, ...rest }) => rest);
+      return;
+    }
+    this.service.datasets.update((all) => ({ ...all, [groupId]: { name: groupName, rows: parsed.rows, onRowFailure } }));
+  }
+
+  clearDataset(groupId: string): void {
+    this.datasetText.set('');
+    this.datasetError.set(null);
+    this.service.datasets.update(({ [groupId]: _removed, ...rest }) => rest);
+  }
+
+  setDatasetRowFailure(groupId: string, event: Event): void {
+    const value = (event.target as HTMLSelectElement).value as 'SKIP' | 'STOP';
+    const current = this.datasetOf(groupId);
+    if (!current) return;
+    this.service.datasets.update((all) => ({ ...all, [groupId]: { ...current, onRowFailure: value } }));
+  }
+
+  // ---- B4: a stable, unique tail for a long URL ----
+
+  /** The end of the path, with a leading ellipsis when it was truncated - the full URL stays in
+   *  the title tooltip. Grows the tail (or falls back to the full path) until it no longer matches
+   *  another visible row's tail, so two different calls never render identically. */
+  urlTail(draft: ResendDraft): string {
+    const others = this.listRuns()
+      .flatMap((run) => run.drafts)
+      .filter((d) => d.key !== draft.key)
+      .map((d) => d.url);
+    return uniqueTail(draft.url, others);
+  }
+
+  // ---- B2: progress ----
+
+  /** ok/failed/in-flight/waiting segment widths (percent) for the sticky footer's progress bar. */
+  progressSegments(): { ok: number; failed: number; inFlight: number; waiting: number } {
+    const total = this.service.total() || 1;
+    const results = Object.values(this.service.results()).flat();
+    const ok = results.filter((r) => r.error === null).length;
+    const failed = results.filter((r) => r.error !== null).length;
+    const inFlight = this.service.inFlight();
+    const waiting = Math.max(0, total - ok - failed - inFlight);
+    const pct = (n: number) => (100 * n) / total;
+    return { ok: pct(ok), failed: pct(failed), inFlight: pct(inFlight), waiting: pct(waiting) };
+  }
+
+  liveCallsHref(): string {
+    return '/';
+  }
+
   // ---- send / pick / close ----
 
   send(): void {
@@ -703,5 +884,35 @@ export class BulkResendDialogComponent {
 
   newCallHref(result: DraftResult): string {
     return `/?requestId=${encodeURIComponent(result.newCallId ?? '')}`;
+  }
+}
+
+/**
+ * B4: the last `segments` path segments of `url`, ellipsised, growing by one segment (then falling
+ * back to the full URL) until it stops matching any of `others` - so two different calls never
+ * render the same tail even when they share a long common path.
+ */
+function uniqueTail(url: string, others: readonly string[], segments = 2): string {
+  const parts = pathSegmentsOf(url);
+  if (parts.length === 0) return url;
+  const tailAt = (path: string, n: number): string => {
+    const p = pathSegmentsOf(path);
+    if (p.length === 0) return path;
+    const take = Math.min(n, p.length);
+    const tail = p.slice(-take).join('/');
+    return take < p.length ? `…/${tail}` : `/${tail}`;
+  };
+  for (let n = Math.min(segments, parts.length); n <= parts.length; n++) {
+    const text = tailAt(url, n);
+    if (!others.some((other) => tailAt(other, n) === text)) return text;
+  }
+  return url;
+}
+
+function pathSegmentsOf(url: string): string[] {
+  try {
+    return new URL(url).pathname.split('/').filter(Boolean);
+  } catch {
+    return url.split('/').filter(Boolean);
   }
 }

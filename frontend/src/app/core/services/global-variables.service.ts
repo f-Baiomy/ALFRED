@@ -5,13 +5,43 @@ import { VARIABLE_NAME, VARIABLE_TOKEN } from '../../shared/utils/variable-token
 import { reconnectingSocket } from '../state/reconnecting-socket';
 
 export interface GlobalVariable { readonly name: string; readonly value: string; }
+export type VariableSourceKind = 'MANUAL' | 'CAPTURE' | 'IMPORT';
+export interface VariableSource {
+  readonly kind: VariableSourceKind;
+  readonly ruleId?: string;
+  readonly ruleName?: string;
+}
 export interface GlobalVariablesState {
   readonly variables: Readonly<Record<string, string>>;
   /** Resolution policy for tokens whose variable was deleted. Missing entry means keep {{name}}. */
   readonly fallbacks: Readonly<Record<string, string>>;
+  /** Epoch ms of the last write to each name (active environment). Tombstones kept for deletes. */
+  readonly updatedAt: Readonly<Record<string, number>>;
+  readonly sources: Readonly<Record<string, VariableSource>>;
+  /** Names marked secret - GLOBAL, not per-environment (contract section 1). */
+  readonly secrets: readonly string[];
+  readonly activeEnvironment: string;
+  /** Sorted, active included. */
+  readonly environments: readonly string[];
 }
 
-const EMPTY: GlobalVariablesState = { variables: {}, fallbacks: {} };
+export interface VariableExport {
+  readonly name: string;
+  readonly variables: Readonly<Record<string, string>>;
+  readonly fallbacks: Readonly<Record<string, string>>;
+}
+
+const EMPTY: GlobalVariablesState = {
+  variables: {}, fallbacks: {}, updatedAt: {}, sources: {}, secrets: [],
+  activeEnvironment: 'Default', environments: ['Default'],
+};
+
+const SECRET_NAME_PATTERN = /token|session|auth|key|password|secret/i;
+
+/** One queued per-name write. Applied to local state the instant it's created; sent in order. */
+type VariableOp =
+  | { readonly kind: 'upsert'; readonly name: string; readonly value: string }
+  | { readonly kind: 'remove'; readonly name: string; readonly replacement: string | null };
 
 @Injectable({ providedIn: 'root' })
 export class GlobalVariablesService {
@@ -20,16 +50,31 @@ export class GlobalVariablesService {
   readonly state = signal<GlobalVariablesState>(EMPTY);
   readonly loaded = signal(false);
   readonly loading = signal(false);
-  readonly saving = signal(false);
+  private readonly savingFullState = signal(false);
+  private readonly savingOps = signal(false);
+  /** True while either a bulk save() or a per-name upsert/remove is in flight or queued. */
+  readonly saving = computed(() => this.savingFullState() || this.savingOps());
   readonly error = signal('');
   private pending: GlobalVariablesState | null = null;
   private inFlight = false;
+  /** Per-name writes, sent one at a time and in order - see enqueueOp/flushOps. */
+  private opQueue: VariableOp[] = [];
+  private opInFlight = false;
+  /** Set when the queue's head request failed; flushOps stays paused until retry() clears it. */
+  private opFailed = false;
   private revision = 0;
   private watched = false;
   private pendingRefresh = false;
   private readonly sortedEntries = computed(() => Object.entries(this.state().variables)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => ({ name, value })));
+
+  /** Bumped on every applied change (local or server); the drawer/launch-tab badge watches it to
+   *  know which names just changed, without keeping its own diffing logic. */
+  readonly lastChangedNames = signal<readonly string[]>([]);
+  /** focusVariable() bumps this so the component can open the drawer and flash a row even though
+   *  the service has no view of the DOM itself (contract section 6: `focusVariable`/`isSecret`). */
+  readonly focusRequest = signal<{ readonly name: string; readonly nonce: number } | null>(null);
 
   load(): void {
     if (this.loaded() || this.loading()) return;
@@ -38,7 +83,11 @@ export class GlobalVariablesService {
     const revision = this.revision;
     this.http.get<GlobalVariablesState>(`${this.config.backendUrl}/settings/variables`).subscribe({
       next: (state) => {
-        if (this.revision === revision) this.state.set(this.normalize(state));
+        // Queued per-name ops (e.g. held after a failed send) are re-applied on top, so a
+        // refetch never hides an edit that is still waiting to reach the backend.
+        if (this.revision === revision || this.opQueue.length) {
+          this.applyServerState(this.opQueue.reduce((acc, queued) => this.applyOp(acc, queued), this.normalize(state)));
+        }
         this.loaded.set(true);
         this.loading.set(false);
         this.error.set('');
@@ -77,9 +126,9 @@ export class GlobalVariablesService {
     return this.sortedEntries();
   }
 
-  save(state: GlobalVariablesState): void {
+  save(state: Partial<GlobalVariablesState> & Pick<GlobalVariablesState, 'variables' | 'fallbacks'>): void {
     this.revision++;
-    this.state.set(this.normalize(state));
+    this.applyLocalState(this.normalize({ ...this.state(), ...state }));
     this.pending = this.state();
     this.flush();
   }
@@ -87,51 +136,190 @@ export class GlobalVariablesService {
   /** Serialize full-state writes. Rapid edits must never let an old response replace a new value. */
   private flush(): void {
     if (this.inFlight || !this.pending) return;
-    if (!this.http) { this.pending = null; this.saving.set(false); return; }
+    if (!this.http) { this.pending = null; this.savingFullState.set(false); return; }
     const next = this.pending;
     this.pending = null;
     this.inFlight = true;
-    this.saving.set(true);
-    this.http.put<GlobalVariablesState>(`${this.config.backendUrl}/settings/variables`, next).subscribe({
+    this.savingFullState.set(true);
+    this.http.put<GlobalVariablesState>(`${this.config.backendUrl}/settings/variables`, {
+      variables: next.variables,
+      fallbacks: next.fallbacks,
+    }).subscribe({
       next: () => {
         this.inFlight = false;
         this.error.set('');
         if (this.pending) this.flush();
         else {
-          this.saving.set(false);
+          this.savingFullState.set(false);
           if (this.pendingRefresh) { this.pendingRefresh = false; this.refresh(); }
         }
       },
       error: () => {
         this.inFlight = false;
         this.pending = this.state();
-        this.saving.set(false);
+        this.savingFullState.set(false);
         this.error.set('Could not save global variables. Your edits are still here; retry before leaving.');
       },
     });
   }
 
   retry(): void {
-    if (this.pending) this.flush();
-    else if (!this.loaded()) this.load();
+    if (this.pending) { this.flush(); return; }
+    if (this.opFailed) { this.opFailed = false; this.flushOps(); return; }
+    if (!this.loaded()) this.load();
   }
 
   upsert(name: string, value: string): void {
     if (!VARIABLE_NAME.test(name) || name.startsWith('this.')) throw new Error('Invalid variable name');
-    const state = this.state();
-    const fallbacks = { ...state.fallbacks };
-    delete fallbacks[name];
-    this.save({ variables: { ...state.variables, [name]: value }, fallbacks });
+    this.enqueueOp({ kind: 'upsert', name, value });
   }
 
   remove(name: string, replacement: string | null): void {
     if (!VARIABLE_NAME.test(name) || name.startsWith('this.')) throw new Error('Invalid variable name');
-    const variables = { ...this.state().variables };
-    delete variables[name];
-    const fallbacks = { ...this.state().fallbacks };
-    if (replacement !== null) fallbacks[name] = replacement;
-    else delete fallbacks[name];
-    this.save({ variables, fallbacks });
+    this.enqueueOp({ kind: 'remove', name, replacement });
+  }
+
+  /** Applies one op to a state value - shared by the optimistic update and by re-basing onto a fresh server response. */
+  private applyOp(state: GlobalVariablesState, op: VariableOp): GlobalVariablesState {
+    if (op.kind === 'upsert') {
+      const fallbacks = { ...state.fallbacks };
+      delete fallbacks[op.name];
+      const sources = { ...state.sources, [op.name]: { kind: 'MANUAL' as const } };
+      const updatedAt = { ...state.updatedAt, [op.name]: Date.now() };
+      return { ...state, variables: { ...state.variables, [op.name]: op.value }, fallbacks, sources, updatedAt };
+    }
+    const variables = { ...state.variables };
+    delete variables[op.name];
+    const fallbacks = { ...state.fallbacks };
+    if (op.replacement !== null) fallbacks[op.name] = op.replacement;
+    else delete fallbacks[op.name];
+    const sources = { ...state.sources };
+    delete sources[op.name];
+    const updatedAt = { ...state.updatedAt, [op.name]: Date.now() };
+    return { ...state, variables, fallbacks, sources, updatedAt };
+  }
+
+  private enqueueOp(op: VariableOp): void {
+    this.revision++;
+    this.applyLocalState(this.applyOp(this.state(), op));
+    this.opQueue.push(op);
+    this.flushOps();
+  }
+
+  /**
+   * Serialize per-name writes, one at a time and strictly in order - a name PUT and a later
+   * name DELETE must land on the backend in the order they were made, or the last write there
+   * would not match what the user last saw locally. On success the response (the fresh full
+   * state, which may carry an unrelated proxy promotion) becomes the new state, with every
+   * op still queued behind this one re-applied on top so an edit already made locally - but
+   * not sent yet - is never reverted by a response that predates it.
+   */
+  private flushOps(): void {
+    if (this.opInFlight || this.opFailed || !this.opQueue.length) return;
+    if (!this.http) { this.opQueue = []; this.savingOps.set(false); return; }
+    const op = this.opQueue[0];
+    this.opInFlight = true;
+    this.savingOps.set(true);
+    const path = `${this.config.backendUrl}/settings/variables/${encodeURIComponent(op.name)}`;
+    const request$ = op.kind === 'upsert'
+      ? this.http.put<GlobalVariablesState>(path, { value: op.value })
+      : this.http.delete<GlobalVariablesState>(op.replacement !== null ? `${path}?fallback=${encodeURIComponent(op.replacement)}` : path);
+    request$.subscribe({
+      next: (response) => {
+        this.opInFlight = false;
+        this.opQueue.shift();
+        this.applyServerState(this.opQueue.reduce((acc, queued) => this.applyOp(acc, queued), this.normalize(response)));
+        this.error.set('');
+        if (this.opQueue.length) this.flushOps();
+        else {
+          this.savingOps.set(false);
+          if (this.pendingRefresh) { this.pendingRefresh = false; this.refresh(); }
+        }
+      },
+      error: () => {
+        this.opInFlight = false;
+        this.opFailed = true;
+        this.savingOps.set(false);
+        this.error.set('Could not save global variables. Your edits are still here; retry before leaving.');
+      },
+    });
+  }
+
+  /** PUT /settings/variables/{name}/secret - name need not already exist (contract section 1, D6). */
+  setSecret(name: string, secret: boolean): void {
+    if (!this.http) return;
+    this.http.put<GlobalVariablesState>(
+      `${this.config.backendUrl}/settings/variables/${encodeURIComponent(name)}/secret`,
+      { secret },
+    ).subscribe({
+      next: (response) => this.applyServerState(this.normalize(response)),
+      error: () => this.error.set('Could not update the secret flag.'),
+    });
+  }
+
+  isSecret(name: string): boolean {
+    return this.state().secrets.includes(name) || SECRET_NAME_PATTERN.test(name);
+  }
+
+  /** POST /settings/variables/environments - the new environment is NOT activated. */
+  createEnvironment(name: string, copyFrom?: string): void {
+    if (!this.http) return;
+    this.http.post<GlobalVariablesState>(
+      `${this.config.backendUrl}/settings/variables/environments`,
+      copyFrom ? { name, copyFrom } : { name },
+    ).subscribe({
+      next: (response) => this.applyServerState(this.normalize(response)),
+      error: () => this.error.set(`Could not create environment "${name}".`),
+    });
+  }
+
+  /** PUT /settings/variables/environments/active - republishes variables.json on the backend. */
+  switchEnvironment(name: string): void {
+    if (!this.http) return;
+    this.http.put<GlobalVariablesState>(
+      `${this.config.backendUrl}/settings/variables/environments/active`,
+      { name },
+    ).subscribe({
+      next: (response) => this.applyServerState(this.normalize(response)),
+      error: () => this.error.set(`Could not switch to environment "${name}".`),
+    });
+  }
+
+  /** DELETE /settings/variables/environments/{name} - 400 if active or last, surfaced via error(). */
+  deleteEnvironment(name: string): void {
+    if (!this.http) return;
+    this.http.delete<GlobalVariablesState>(
+      `${this.config.backendUrl}/settings/variables/environments/${encodeURIComponent(name)}`,
+    ).subscribe({
+      next: (response) => this.applyServerState(this.normalize(response)),
+      error: () => this.error.set(`Could not delete environment "${name}".`),
+    });
+  }
+
+  /** GET /settings/variables/environments/{name}/export - caller turns this into a download. */
+  exportEnvironment(name: string, onLoad: (payload: VariableExport) => void): void {
+    if (!this.http) return;
+    this.http.get<VariableExport>(
+      `${this.config.backendUrl}/settings/variables/environments/${encodeURIComponent(name)}/export`,
+    ).subscribe({
+      next: onLoad,
+      error: () => this.error.set(`Could not export environment "${name}".`),
+    });
+  }
+
+  /** POST /settings/variables/import - env created if absent; imported names get source IMPORT. */
+  import(payload: { environment: string; variables: Record<string, string>; fallbacks?: Record<string, string>; mode: 'MERGE' | 'REPLACE' }): void {
+    if (!this.http) return;
+    this.http.post<GlobalVariablesState>(`${this.config.backendUrl}/settings/variables/import`, payload).subscribe({
+      next: (response) => this.applyServerState(this.normalize(response)),
+      error: () => this.error.set('Could not import variables - check the file is valid.'),
+    });
+  }
+
+  /** Opens the drawer scrolled to and flashing `name` (contract section 6). The component reacts
+   *  to focusRequest(); this service has no DOM access of its own. */
+  focusVariable(name: string): void {
+    this.focusRequest.set({ name, nonce: Date.now() });
   }
 
   /** Resolve recursively while leaving unknown tokens intact; cycles remain visible instead of hanging. */
@@ -148,7 +336,34 @@ export class GlobalVariablesService {
     return visit(text, new Set(), 0);
   }
 
-  private normalize(state: GlobalVariablesState | null): GlobalVariablesState {
-    return { variables: state?.variables ?? {}, fallbacks: state?.fallbacks ?? {} };
+  /** Local (optimistic) state change - no diffing against the previous value, since the new
+   *  value IS the edit the user just made. */
+  private applyLocalState(next: GlobalVariablesState): void {
+    this.state.set(next);
+  }
+
+  /** State arriving from the server (initial load, refresh, or a mutation's response) - the only
+   *  path that can carry a change nobody in this tab made (another tab, a proxy promotion), so
+   *  it is the only path that computes which names actually changed for the flash/badge. */
+  private applyServerState(next: GlobalVariablesState): void {
+    const previous = this.state();
+    const changed = new Set<string>();
+    for (const name of new Set([...Object.keys(previous.variables), ...Object.keys(next.variables)])) {
+      if (previous.variables[name] !== next.variables[name]) changed.add(name);
+    }
+    this.state.set(next);
+    if (changed.size) this.lastChangedNames.set([...changed]);
+  }
+
+  private normalize(state: Partial<GlobalVariablesState> | null): GlobalVariablesState {
+    return {
+      variables: state?.variables ?? {},
+      fallbacks: state?.fallbacks ?? {},
+      updatedAt: state?.updatedAt ?? {},
+      sources: state?.sources ?? {},
+      secrets: state?.secrets ?? [],
+      activeEnvironment: state?.activeEnvironment ?? 'Default',
+      environments: state?.environments ?? ['Default'],
+    };
   }
 }

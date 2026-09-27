@@ -7,6 +7,7 @@ import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { RuleDialogService } from '../../core/services/rule-dialog.service';
 import { CallsStateService } from '../../core/state/calls-state.service';
 import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from '../../core/state/call-selection.tokens';
+import { GlobalVariablesService } from '../../core/services/global-variables.service';
 
 function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
   return {
@@ -133,6 +134,36 @@ describe('CallCardComponent', () => {
     expect(groups[0].textContent).toContain('Waited');
     expect(groups[0].textContent).toContain('Set JSON field');
     expect(groups[1].textContent).toContain('Other rule');
+  });
+
+  it('renders a GLOBAL capture detail\'s trailing "-> {{name}}" as a link into GlobalVariablesService.focusVariable', () => {
+    const fixture = createCard(makeCall({ interception: { applied: [
+      { ruleId: 'r-1', ruleName: 'Login token', action: 'CAPTURE_GLOBAL', detail: 'Authorization header -> {{token}}' },
+    ] } }));
+    const host = fixture.nativeElement as HTMLElement;
+    (host.querySelector('.intercept-badge') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const link = host.querySelector('.intercept-log-detail .capture-link') as HTMLButtonElement;
+    expect(link).not.toBeNull();
+    expect(link.textContent).toContain('token');
+    expect(host.querySelector('.intercept-log-detail')?.textContent).toContain('Authorization header');
+
+    const focusSpy = spyOn(TestBed.inject(GlobalVariablesService), 'focusVariable');
+    link.click();
+    expect(focusSpy).toHaveBeenCalledWith('token');
+  });
+
+  it('leaves an ordinary capture detail with no trailing token as plain text', () => {
+    const fixture = createCard(makeCall({ interception: { applied: [
+      { ruleId: 'r-1', ruleName: 'Login token', action: 'CAPTURE_LOCAL', detail: 'Authorization header -> this.token' },
+    ] } }));
+    const host = fixture.nativeElement as HTMLElement;
+    (host.querySelector('.intercept-badge') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.capture-link')).toBeNull();
+    expect(host.querySelector('.intercept-log-detail')?.textContent).toContain('Authorization header -> this.token');
   });
 
   it('lists all four blocks collapsed, fetching none of them', () => {

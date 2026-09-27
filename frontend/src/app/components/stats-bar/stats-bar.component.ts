@@ -21,4 +21,20 @@ export class StatsBarComponent {
   showFilter(filter: CallStatusFilter): void {
     this.controlsState.setStatusFilter(filter);
   }
+
+  /** Active for BOTH interceptionFilter kinds this pill can produce - 'intercepted' from clicking
+   * it here, and 'rule' from the Filters menu's "By rule…" submenu, since narrowing to one specific
+   * rule is still, at heart, "these are intercepted calls". */
+  isInterceptedActive(): boolean {
+    const filter = this.controlsState.interceptionFilter();
+    return filter.kind === 'intercepted' || filter.kind === 'rule';
+  }
+
+  toggleIntercepted(): void {
+    this.controlsState.setInterceptionFilter({ kind: 'intercepted' });
+  }
+
+  toggleResent(): void {
+    this.controlsState.setResendFilter('resent');
+  }
 }

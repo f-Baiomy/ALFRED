@@ -92,6 +92,58 @@ class JdkHttpCallSenderTest {
     }
 
     @Test
+    void responseHeadersAreLowerCasedAndRepeatedOnesJoinedWithCommaSpace() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            exchange.getResponseHeaders().add("Set-Cookie", "a=1");
+            exchange.getResponseHeaders().add("Set-Cookie", "b=2");
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            byte[] body = "{}".getBytes();
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        this.server = server;
+        int port = server.getAddress().getPort();
+
+        JdkHttpCallSender sender = new JdkHttpCallSender(Duration.ofSeconds(5), "proxy.invalid", 8080,
+                Map.of(), "127.0.0.1", Map.of("odeysys", port), null);
+        OutgoingCall call = new OutgoingCall("inbound", "GET", "http://localhost:9001/x", Map.of(), null, "localhost", "odeysys");
+
+        SendOutcome outcome = sender.send(call);
+
+        assertThat(outcome).isInstanceOf(SendOutcome.Sent.class);
+        SendOutcome.Sent sent = (SendOutcome.Sent) outcome;
+        assertThat(sent.headers()).containsEntry("content-type", "application/json");
+        assertThat(sent.headers().get("set-cookie")).isEqualTo("a=1, b=2");
+        assertThat(sent.headers()).doesNotContainKey("Content-Type").doesNotContainKey("Set-Cookie");
+        assertThat(sent.body()).isEqualTo("{}");
+    }
+
+    @Test
+    void responseBodyIsCappedAtMaxAnswerBytesAndDecodedUtf8Lossy() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            byte[] body = "abcdef".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        this.server = server;
+        int port = server.getAddress().getPort();
+
+        JdkHttpCallSender sender = new JdkHttpCallSender(Duration.ofSeconds(5), "proxy.invalid", 8080,
+                Map.of(), "127.0.0.1", Map.of("odeysys", port), null, 3L);
+        OutgoingCall call = new OutgoingCall("inbound", "GET", "http://localhost:9001/x", Map.of(), null, "localhost", "odeysys");
+
+        SendOutcome outcome = sender.send(call);
+
+        assertThat(((SendOutcome.Sent) outcome).body()).isEqualTo("abc");
+    }
+
+    @Test
     void aServiceWithNoMappedPortFallsBackToTheDefault() {
         JdkHttpCallSender sender = new JdkHttpCallSender(Duration.ofSeconds(2), "proxy.invalid", 8080,
                 Map.of("odeysys", 8091), "127.0.0.1", Map.of(), null);

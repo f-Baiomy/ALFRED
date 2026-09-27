@@ -59,6 +59,13 @@ public final class RuleValidator {
 
     private static final Pattern COOKIE_NAME = Pattern.compile("[!#$%&'*+\\-.^_`|~0-9A-Za-z]+");
     private static final Pattern LOCAL_REFERENCE = Pattern.compile("\\{\\{this\\.([A-Za-z][A-Za-z0-9_]*)\\}\\}");
+    /**
+     * Mirrors backend-settings' GlobalVariablesService name rule for D5's {@code match.variables}
+     * (this module cannot depend on that slice - see docs/architecture.md's module-boundary rule).
+     */
+    private static final Pattern VARIABLE_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_.-]*");
+    private static final int MIN_EVERY_NTH = 2;
+    private static final int MAX_EVERY_NTH = 1000;
 
     public static List<String> validate(InterceptionRule rule) {
         return validate(rule, SelfTargets.none());
@@ -96,6 +103,9 @@ public final class RuleValidator {
         }
         if (rule.actions().size() > MAX_ACTIONS_PER_RULE) {
             problems.add("A rule may have at most " + MAX_ACTIONS_PER_RULE + " actions.");
+        }
+        if (rule.everyNth() != null && (rule.everyNth() < MIN_EVERY_NTH || rule.everyNth() > MAX_EVERY_NTH)) {
+            problems.add("Every Nth call must be between " + MIN_EVERY_NTH + " and " + MAX_EVERY_NTH + ".");
         }
 
         validateMatch(rule.match(), problems);
@@ -172,7 +182,9 @@ public final class RuleValidator {
                 }
             }
             if (action.type() == ActionType.CAPTURE_REQUEST_VARIABLE
-                    || action.type() == ActionType.CAPTURE_RESPONSE_VARIABLE) {
+                    || action.type() == ActionType.CAPTURE_RESPONSE_VARIABLE
+                    || action.type() == ActionType.SET_REQUEST_VARIABLE
+                    || action.type() == ActionType.SET_RESPONSE_VARIABLE) {
                 // Dual visibility: a GLOBAL capture lands in the rule-local values too
                 // (proxy/interception.py's _capture_rule_variable), so {{this.name}} works
                 // in the capturing rule while {{name}} serves later calls. Excluding GLOBAL
@@ -208,6 +220,37 @@ public final class RuleValidator {
         validateMatchTests(match.query(), "query parameter", problems);
         validateMatchTests(match.cookies(), "cookie", problems);
         validateBodyTests(match.body(), problems);
+        validateVariableTests(match.variables(), problems);
+    }
+
+    /**
+     * D5's {@code match.variables} - same operator/value shape as a header test, but the name is a
+     * global variable name (never {@code this.}-prefixed - that namespace is rule-local, not
+     * something a match test can see) rather than an arbitrary header/cookie name.
+     */
+    private static void validateVariableTests(List<MatchTest> tests, List<String> problems) {
+        for (MatchTest test : tests) {
+            if (test == null || test.name() == null || test.name().isBlank()) {
+                problems.add("Every variable test needs a name.");
+                continue;
+            }
+            if (test.name().startsWith("this.") || !VARIABLE_NAME.matcher(test.name()).matches()) {
+                problems.add("\"" + test.name() + "\" is not a valid variable name.");
+                continue;
+            }
+            if (test.operator() == null) {
+                problems.add("The variable test on " + test.name() + " needs an operator.");
+                continue;
+            }
+            if (test.needsValue() && test.value() == null) {
+                problems.add("The variable test on " + test.name() + " needs a value to compare with.");
+            }
+            if (test.operator() == MatchTest.Operator.MATCHES && test.value() != null) {
+                for (String problem : PatternSafety.problems(test.value(), true)) {
+                    problems.add("The variable test on " + test.name() + ": " + problem);
+                }
+            }
+        }
     }
 
     private static void validateBodyTests(List<BodyTest> tests, List<String> problems) {
@@ -312,6 +355,14 @@ public final class RuleValidator {
                     problems.add(action.type() + " needs a field path, e.g. itinerary.seatsRemaining.");
                 } else if (!isValidPath(action.path())) {
                     problems.add("\"" + action.path() + "\" is not a valid field path.");
+                }
+            }
+            case SET_REQUEST_VARIABLE, SET_RESPONSE_VARIABLE -> {
+                if (action.name() == null || !action.name().matches("[A-Za-z][A-Za-z0-9_]*")) {
+                    problems.add("Set variable needs a name with letters, digits or underscores, starting with a letter.");
+                }
+                if (action.scope() != null && !List.of("GLOBAL", "LOCAL").contains(action.scope())) {
+                    problems.add("Set variable scope must be GLOBAL, LOCAL, or absent.");
                 }
             }
             case CAPTURE_REQUEST_VARIABLE, CAPTURE_RESPONSE_VARIABLE -> {

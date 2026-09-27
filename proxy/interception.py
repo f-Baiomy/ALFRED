@@ -28,6 +28,7 @@ module existed.
 """
 
 import asyncio
+import base64
 import collections
 import datetime
 import email.utils
@@ -35,11 +36,14 @@ import json
 from http.cookies import SimpleCookie
 import os
 import queue
+import random
 import re
 import socket
+import tempfile
 import threading
 import time
 import urllib.parse
+import uuid
 import urllib.request
 from http import HTTPStatus
 
@@ -65,12 +69,17 @@ _NOTIFY_TIMEOUT_SECONDS = 3
 _notify_queue: queue.Queue = queue.Queue()
 
 
+def _rule_ref(rule):
+    """Which rule promoted a value - shown as the variable's source in the dashboard."""
+    return {'ruleId': getattr(rule, 'id', None) or None, 'ruleName': getattr(rule, 'name', None) or None}
+
+
 def _post_promotion(item):
-    name, text = item
+    name, text, ref = item
     try:
         request = urllib.request.Request(
             _PROMOTE_URL,
-            data=json.dumps({'name': name, 'value': text}).encode('utf-8'),
+            data=json.dumps({'name': name, 'value': text, **{k: v for k, v in ref.items() if v}}).encode('utf-8'),
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
@@ -88,7 +97,7 @@ if _PROMOTE_URL:
     threading.Thread(target=_notify_worker, daemon=True).start()
 
 
-def _notify_promotion(name, value):
+def _notify_promotion(name, value, rule=None):
     """Enqueue a dashboard refresh nudge for a promoted variable. Never blocks, never raises.
 
     The text form is sent (mirroring what _save_global persisted - the backend store is
@@ -98,7 +107,7 @@ def _notify_promotion(name, value):
         return
     try:
         text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-        _notify_queue.put_nowait((name, text))
+        _notify_queue.put_nowait((name, text, _rule_ref(rule)))
     except Exception as e:
         print(f"[interception] promotion notify queue full for {name!r}: {e}")
 
@@ -116,7 +125,7 @@ MAX_PATTERN_LENGTH = 500
 MAX_PAUSE_SECONDS = int(os.environ.get('INTERCEPTION_MAX_PAUSE_SECONDS', '300'))
 
 REQUEST_ACTIONS = {
-    'CAPTURE_REQUEST_VARIABLE',
+    'CAPTURE_REQUEST_VARIABLE', 'SET_REQUEST_VARIABLE',
     'DELAY_REQUEST', 'SET_REQUEST_HEADER', 'REMOVE_REQUEST_HEADER',
     'SET_REQUEST_TRAILER', 'REMOVE_REQUEST_TRAILER',
     'SET_QUERY_PARAM', 'REMOVE_QUERY_PARAM', 'SET_REQUEST_JSON_FIELD',
@@ -128,7 +137,7 @@ REQUEST_ACTIONS = {
     'SIMULATE_FAILURE', 'IF_REQUEST',
 }
 RESPONSE_ACTIONS = {
-    'CAPTURE_RESPONSE_VARIABLE',
+    'CAPTURE_RESPONSE_VARIABLE', 'SET_RESPONSE_VARIABLE',
     'DELAY_RESPONSE', 'SET_RESPONSE_STATUS', 'SET_RESPONSE_HEADER',
     'REMOVE_RESPONSE_HEADER', 'SET_RESPONSE_TRAILER', 'REMOVE_RESPONSE_TRAILER',
     'SET_RESPONSE_JSON_FIELD', 'SET_RESPONSE_BODY',
@@ -297,7 +306,8 @@ class Match:
     so a rule with an empty match applies to all traffic (which is why the UI states the match
     back to the user in plain language before saving)."""
 
-    __slots__ = ('source', 'service_names', 'methods', 'host', 'path_contains', 'path_regex', 'tests', 'body_tests')
+    __slots__ = ('source', 'service_names', 'methods', 'host', 'path_contains', 'path_regex', 'tests', 'body_tests',
+                 'variable_tests')
 
     def __init__(self, raw):
         raw = raw or {}
@@ -331,6 +341,11 @@ class Match:
             for test in (_MatchTest.parse(where, one) for one in (raw.get(where) or []))
             if test is not None
         )
+        # Variable tests (contracts section 5): flip a global variable to switch a rule on or off
+        # live, without editing the rule. Read from the published snapshot - never the backend.
+        self.variable_tests = tuple(
+            test for test in (_MatchTest.parse('variables', one) for one in (raw.get('variables') or []))
+            if test is not None)
         # Request-body tests: read the body, so after everything else - and parsed here, once.
         # Every one must hold, so they run cheapest first: the size needs no parse at all, a JSON
         # field one parse shared by every test and rule (see _memo_for), and a whole-body test may
@@ -339,7 +354,7 @@ class Match:
             (_BodyTest(one) for one in (raw.get('body') or []) if isinstance(one, dict)),
             key=lambda test: _BODY_TEST_COST.get(test.kind, 3)))
 
-    def matches(self, source, service_name, method, host, path, request=None):
+    def matches(self, source, service_name, method, host, path, request=None, variable=None):
         # Ordered cheapest first: a rule that doesn't apply to this direction costs one string
         # comparison, not a regex.
         if self.source is not None and self.source != source:
@@ -354,6 +369,11 @@ class Match:
             return False
         if self.path_regex is not None and not self.path_regex.search(path or ''):
             return False
+        # A dict lookup each: cheaper than anything that reads the call itself. `variable` maps a
+        # name to its current value (None when absent, which EXISTS/NOT_EXISTS read as such).
+        for test in self.variable_tests:
+            if not test.holds(variable(test.name) if variable is not None else None):
+                return False
         # Last: the only checks that read the call's headers, and only reached by a call every
         # cheaper check above already let through.
         if self.tests:
@@ -734,6 +754,9 @@ async def _rewrite_url(request, rule, action, kind, verdict):
     if after == before:
         verdict.skip(rule, kind, 'target unchanged')
         return
+    if action.get('__local_value_used'):
+        verdict.record(rule, kind, 'URL rewritten (value not logged)')
+        return
     verdict.record(rule, kind, f'{_masked_url(before, verdict)} → {_masked_url(after, verdict)}')
 
 
@@ -992,7 +1015,7 @@ def _positive_int(value):
 
 
 class Rule:
-    __slots__ = ('id', 'name', 'enabled', 'priority', 'stop_processing', 'match', 'actions')
+    __slots__ = ('id', 'name', 'enabled', 'priority', 'stop_processing', 'match', 'actions', 'every_nth')
 
     def __init__(self, raw, limits=None):
         self.id = str(raw.get('id') or '')
@@ -1003,6 +1026,11 @@ class Rule:
         except (TypeError, ValueError):
             self.priority = 100
         self.stop_processing = raw.get('stopProcessing', False) is True
+        # Apply to every Nth otherwise-matching call (contracts section 5). Anything outside the
+        # range the backend validates means "every call", never a surprise skip.
+        every_nth = raw.get('everyNth')
+        self.every_nth = (every_nth if isinstance(every_nth, int) and not isinstance(every_nth, bool)
+                          and 2 <= every_nth <= 1000 else None)
         self.match = Match(raw.get('match'))
         self.actions = _prepare_actions(raw.get('actions'), limits)
 
@@ -1042,10 +1070,10 @@ class RuleSet:
     off without touching a single rule, which is what the UI's "Turn all off" writes."""
 
     __slots__ = ('enabled', 'rules', 'error', 'sensitive', 'self_targets', 'limits',
-                 'variables', 'fallbacks')
+                 'variables', 'fallbacks', 'secrets')
 
     def __init__(self, enabled=False, rules=None, error=None, sensitive=None, self_targets=None,
-                 limits=None, variables=None, fallbacks=None):
+                 limits=None, variables=None, fallbacks=None, secrets=None):
         self.enabled = enabled
         self.rules = rules or []
         self.error = error
@@ -1060,6 +1088,7 @@ class RuleSet:
         # skip set): fresh capture first, these second, fallbacks third.
         self.variables = variables if isinstance(variables, dict) else {}
         self.fallbacks = fallbacks if isinstance(fallbacks, dict) else {}
+        self.secrets = frozenset(secrets or ())
 
     @property
     def inert(self):
@@ -1233,7 +1262,8 @@ def _globally_captured_names(node, into):
     elif isinstance(node, dict):
         if node.get('enabled') is False:
             return
-        if (node.get('type') in ('CAPTURE_REQUEST_VARIABLE', 'CAPTURE_RESPONSE_VARIABLE')
+        if (node.get('type') in ('CAPTURE_REQUEST_VARIABLE', 'CAPTURE_RESPONSE_VARIABLE',
+                                 'SET_REQUEST_VARIABLE', 'SET_RESPONSE_VARIABLE')
                 and node.get('scope') == 'GLOBAL'
                 and isinstance(node.get('name'), str) and node['name']):
             into.add(node['name'])
@@ -1241,9 +1271,98 @@ def _globally_captured_names(node, into):
             _globally_captured_names(value, into)
 
 
+_BASE64_ARG = re.compile(r'\{\{\$base64:([^{}]+)\}\}')
+
+
+def _mark_secret_actions(node, secrets):
+    """Flags every action whose authored text references a secret variable (D6), so its record
+    names what changed but never shows the value. Must run BEFORE load-time baking, which
+    replaces the token with the value and leaves nothing to recognise."""
+    if isinstance(node, list):
+        for item in node:
+            _mark_secret_actions(item, secrets)
+    elif isinstance(node, dict):
+        if node.get('type'):
+            text = json.dumps({k: v for k, v in node.items() if k not in ('branches', 'otherwise')},
+                              ensure_ascii=False)
+            if (any(name in secrets for name in VARIABLE_TOKEN.findall(text))
+                    or any(arg in secrets for arg in _BASE64_ARG.findall(text))):
+                node['__secret_used'] = True
+        for value in node.values():
+            if isinstance(value, (dict, list)):
+                _mark_secret_actions(value, secrets)
+
+
 class _MissingLocal(Exception):
     def __init__(self, name):
         self.name = name
+
+
+# Dynamic {{$...}} tokens - specs/002-power-features/contracts.md section 4. Resolved per use,
+# never at rule-load time (a baked {{$uuid}} would repeat on every call). The frontend preview
+# (dynamic-tokens.ts) and the resend backend implement the same grammar; all three are held to
+# specs/002-power-features/dynamic-token-vectors.json. Anything unrecognised stays literal.
+DYNAMIC_TOKEN = re.compile(r'\{\{\$([A-Za-z][A-Za-z0-9]*)((?:[+-]\d{1,6}[smhd])?)(?::([^{}]*))?\}\}')
+_DYNAMIC_OFFSET_MS = {'s': 1000, 'm': 60_000, 'h': 3_600_000, 'd': 86_400_000}
+_DYNAMIC_RANDOM_LIMIT = 10 ** 12
+_DYNAMIC_PATTERN = re.compile(r'yyyy|SSS|MM|dd|HH|mm|ss')
+_DYNAMIC_INT = re.compile(r'-?\d+')
+
+
+def resolve_dynamic_tokens(text, lookup, now_ms=None, rng=None):
+    """`lookup(name)` returns a variable's value or None; `now_ms` and `rng` are for tests."""
+    if not isinstance(text, str) or '{{$' not in text:
+        return text
+
+    def replace(match):
+        out = _dynamic_one(match.group(1), match.group(2), match.group(3), lookup,
+                           int(time.time() * 1000) if now_ms is None else now_ms, rng or random.random)
+        return match.group(0) if out is None else out
+
+    return DYNAMIC_TOKEN.sub(replace, text)
+
+
+def _dynamic_one(fn, offset, arg, lookup, now_ms, rng):
+    if fn == 'now':
+        if offset:
+            now_ms += int(offset[:-1]) * _DYNAMIC_OFFSET_MS[offset[-1]]
+        return _dynamic_format(now_ms, arg)
+    if offset:
+        return None
+    if fn == 'uuid':
+        return str(uuid.uuid4()) if arg is None else None
+    if fn == 'randomInt':
+        parts = (arg or '').split(':')
+        if len(parts) != 2 or not all(_DYNAMIC_INT.fullmatch(p) for p in parts):
+            return None
+        low, high = int(parts[0]), int(parts[1])
+        if low > high or abs(low) > _DYNAMIC_RANDOM_LIMIT or abs(high) > _DYNAMIC_RANDOM_LIMIT:
+            return None
+        return str(low + int(rng() * (high - low + 1)))
+    if fn == 'base64':
+        if not arg:
+            return None
+        value = lookup(arg)
+        if value is None:
+            return None
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        return base64.b64encode(text.encode('utf-8')).decode('ascii')
+    return None
+
+
+def _dynamic_format(ms, pattern):
+    moment = datetime.datetime.fromtimestamp(ms / 1000, tz=datetime.timezone.utc)
+    millis = ms % 1000
+    if pattern is None:
+        return moment.strftime('%Y-%m-%dT%H:%M:%S.') + f'{millis:03d}Z'
+    if pattern == 'epoch':
+        return str(ms // 1000)
+    if pattern == 'epochMs':
+        return str(ms)
+    parts = {'yyyy': f'{moment.year:04d}', 'MM': f'{moment.month:02d}', 'dd': f'{moment.day:02d}',
+             'HH': f'{moment.hour:02d}', 'mm': f'{moment.minute:02d}', 'ss': f'{moment.second:02d}',
+             'SSS': f'{millis:03d}'}
+    return _DYNAMIC_PATTERN.sub(lambda m: parts[m.group(0)], pattern)
 
 
 def _render_local(value, values, promoted=None, variables=None, fallbacks=None):
@@ -1261,11 +1380,19 @@ def _render_local(value, values, promoted=None, variables=None, fallbacks=None):
     if not isinstance(value, str):
         return value
 
+    missing = object()
+
     def _bare(token):
         for layer in (promoted, variables, fallbacks):
-            if isinstance(layer, dict) and layer.get(token) is not None:
+            if isinstance(layer, dict) and token in layer:
                 return layer[token]
-        return None
+        return missing
+
+    def _dynamic_lookup(token):
+        if token.startswith('this.'):
+            return values.get(token[5:])
+        resolved = _bare(token)
+        return None if resolved is missing else resolved
 
     whole = VARIABLE_TOKEN.fullmatch(value)
     if whole:
@@ -1276,9 +1403,9 @@ def _render_local(value, values, promoted=None, variables=None, fallbacks=None):
                 raise _MissingLocal(name)
             return values[name]
         resolved = _bare(token)
-        if resolved is not None:
+        if resolved is not missing:
             return resolved
-        return value
+        return resolve_dynamic_tokens(value, _dynamic_lookup)
 
     def replace(match):
         token = match.group(1)
@@ -1289,17 +1416,18 @@ def _render_local(value, values, promoted=None, variables=None, fallbacks=None):
             result = values[name]
             return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
         resolved = _bare(token)
-        if resolved is not None:
+        if resolved is not missing:
             return resolved if isinstance(resolved, str) else json.dumps(resolved, ensure_ascii=False)
         return match.group(0)
 
-    return VARIABLE_TOKEN.sub(replace, value)
+    return resolve_dynamic_tokens(VARIABLE_TOKEN.sub(replace, value), _dynamic_lookup)
 
 
 def _render_local_action(action, values, promoted=None, variables=None, fallbacks=None):
     rendered = {key: _render_local(value, values, promoted, variables, fallbacks) if not key.startswith('__') and key not in ('type', 'branches', 'otherwise')
                 else value for key, value in action.items()}
-    rendered['__local_value_used'] = '{{this.' in str(action.get('value', ''))
+    rendered['__local_value_used'] = ('{{this.' in str(action.get('value', ''))
+                                      or action.get('__secret_used') is True)
     if rendered.get('pattern') != action.get('pattern') or rendered.get('replacement') != action.get('replacement'):
         rendered['__pattern'] = _Pattern(rendered)
     return rendered
@@ -1319,6 +1447,14 @@ class _RulesCache:
     @property
     def variables_path(self) -> str:
         return self._variables_path
+
+    @property
+    def rules_generation(self):
+        """Identifies the published RULES, not the loaded RuleSet object. A variables.json
+        change - any GLOBAL capture, from any call, or a panel edit - also reloads the RuleSet,
+        but it leaves every rule id meaning the same rule, so captured {{this.name}} values must
+        survive it. Only a rules.json change may discard them."""
+        return self._mtimes[0] if self._mtimes else None
 
     def current(self):
         try:
@@ -1365,6 +1501,10 @@ class _RulesCache:
             variables = {}
         if not isinstance(fallbacks, dict):
             fallbacks = {}
+        secrets = variable_state.get('secrets') if isinstance(variable_state, dict) else None
+        secrets = frozenset(n for n in (secrets if isinstance(secrets, list) else []) if isinstance(n, str))
+        if secrets:
+            _mark_secret_actions(raw.get('rules'), secrets)
         skip = set()
         _globally_captured_names(raw.get('rules'), skip)
         raw['rules'] = _resolve_variable_tokens(raw.get('rules') or [], variables, fallbacks,
@@ -1392,7 +1532,7 @@ class _RulesCache:
         sensitive = [str(n).strip().lower() for n in (raw.get('sensitiveHeaders') or []) if str(n).strip()]
         self_targets = [str(n).strip().lower() for n in (raw.get('selfTargets') or []) if str(n).strip()]
         return RuleSet(enabled=enabled, rules=rules, sensitive=sensitive, self_targets=self_targets,
-                       limits=limits, variables=variables, fallbacks=fallbacks)
+                       limits=limits, variables=variables, fallbacks=fallbacks, secrets=secrets)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1805,35 +1945,65 @@ def _capture_value(flow, action, phase):
     return False, None
 
 
-def _save_global(name: str, value: object, variables_path: str) -> bool:
+def _save_global(name: str, value: object, variables_path: str, rule=None) -> bool:
     """Persist a captured value into the shared variables store (variables.json).
-    Returns whether the value landed - the caller nudges dashboards only on success."""
+    Returns whether the value changed and landed - the caller nudges dashboards only then.
+
+    An unchanged value writes nothing. A capture on hot traffic fires on every call, and each
+    write would reload the rules in BOTH proxies and cost the backend a save and a broadcast.
+
+    The name's `promotedAt` (epoch ms) is stamped beside it: the backend absorbs a file value
+    only when that stamp is newer than its own per-name `updatedAt`, so this read-modify-write
+    racing a panel edit can never revert the edit or resurrect a deleted name."""
     if not isinstance(name, str) or not name.isidentifier() or name.startswith('this.'):
         return False
     try:
         with open(variables_path, 'r', encoding='utf-8') as f:
             state = json.load(f)
     except (OSError, ValueError):
-        state = {'variables': {}, 'fallbacks': {}}
-    variables = state.get('variables', {})
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    variables = state.get('variables')
     if not isinstance(variables, dict):
         variables = {}
-    if isinstance(value, str):
-        variables[name] = value
-    else:
-        # The backend's variable store is strings-only (GlobalVariablesService rejects
-        # anything else, which would 500 the whole panel): a captured number or boolean
-        # is stored as its JSON text. Same-rule reuse still sees the raw value through
-        # the flow overlay; only the persisted copy is text.
-        variables[name] = json.dumps(value, ensure_ascii=False)
+    # The backend's variable store is strings-only (GlobalVariablesService rejects anything
+    # else, which would 500 the whole panel): a captured number or boolean is stored as its
+    # JSON text. Same-rule reuse still sees the raw value through the flow overlay.
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    if variables.get(name) == text:
+        return False
+    variables[name] = text
+    promoted_at = state.get('promotedAt')
+    if not isinstance(promoted_at, dict):
+        promoted_at = {}
+    promoted_at[name] = int(time.time() * 1000)
+    promoted_by = state.get('promotedBy')
+    if not isinstance(promoted_by, dict):
+        promoted_by = {}
+    promoted_by[name] = _rule_ref(rule)
     state['variables'] = variables
+    state['promotedAt'] = promoted_at
+    state['promotedBy'] = promoted_by
+    state.setdefault('fallbacks', {})
+    tmp = None
     try:
-        tmp = variables_path + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
+        # A unique temp name: both proxy containers write into this one shared directory, and
+        # a fixed name let one truncate the other's half-written file before its rename.
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(variables_path)),
+                                   prefix='.variables-', suffix='.tmp')
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
+        # mkstemp creates 0600; the backend (another container) must still read the file.
+        os.chmod(tmp, 0o644)
         os.replace(tmp, variables_path)
         return True
     except OSError as e:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
         # Never break traffic over a promotion, but never swallow it either: a silent
         # pass here once hid a read-only mount for a whole session (the capture fired,
         # the rule worked, and variables.json simply never changed).
@@ -1851,18 +2021,34 @@ def _capture_rule_variable(flow, rule, action, kind, verdict, values, phase, rul
     if found:
         values[name] = value
         if action.get('scope') == 'GLOBAL' and rules_cache is not None:
-            if _save_global(name, value, rules_cache.variables_path):
-                _notify_promotion(name, value)
+            if _save_global(name, value, rules_cache.variables_path, rule):
+                _notify_promotion(name, value, rule)
             # Flow-scoped overlay so later actions in this call resolve {{name}} too -
             # load-time baking cannot see a value captured after the rules were loaded.
             # Survives the request->response phase; never leaves this flow's metadata.
             flow.metadata.setdefault('_interception_promoted', {})[name] = value
         detail = (f'this.{name} used fallback (source missing)' if fallback else
                   f"this.{name} captured from {action['captureSource']} {action['path']}")
+        if action.get('scope') == 'GLOBAL':
+            # Parsed by the call card into a link to the variable (contracts section 5).
+            detail += ' -> {{' + name + '}}'
         verdict.record(rule, kind, detail)
     else:
         values.pop(name, None)
         verdict.skip(rule, kind, f"{action['captureSource']} {action['path']} missing; this.{name} unavailable")
+
+
+def _set_rule_variable(flow, rule, action, kind, verdict, values, rules_cache=None):
+    """Set an authored value in this rule, optionally publishing it for later calls."""
+    name = action['name']
+    value = action.get('value')
+    values[name] = value
+    if action.get('scope') == 'GLOBAL' and rules_cache is not None:
+        if _save_global(name, value, rules_cache.variables_path, rule):
+            _notify_promotion(name, value, rule)
+        flow.metadata.setdefault('_interception_promoted', {})[name] = value
+    detail = f'this.{name} set' + (' -> {{' + name + '}}' if action.get('scope') == 'GLOBAL' else '')
+    verdict.record(rule, kind, detail)
 
 
 def _squashed_body(message, form):
@@ -2393,11 +2579,48 @@ class InterceptionEngine:
         # process, since a given mitmproxy addon only ever sees one direction.
         self.source = source
         self._cache = _RulesCache(rules_file, variables_path)
+        # everyNth counters, per rule id, for the current rules generation only.
+        self._nth_counts = {}
+        self._nth_generation = None
         # Beside the snapshot, wherever that is - the backend publishes both into one directory.
         self._answers = _AnswerCache(os.path.join(os.path.dirname(os.path.abspath(rules_file or RULES_FILE)), 'answers'))
 
     def enabled(self):
         return not self._cache.current().inert
+
+    def _variable_lookup(self, flow, ruleset):
+        """A rule's variable tests read the freshest value first: this call's own GLOBAL captures,
+        then the published variables, then fallbacks - the same order runtime rendering uses."""
+        metadata = getattr(flow, 'metadata', None) or {}
+        layers = (metadata.get('_interception_promoted') or {}, ruleset.variables, ruleset.fallbacks)
+
+        def lookup(name):
+            for layer in layers:
+                value = layer.get(name)
+                if value is not None:
+                    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            return None
+        return lookup
+
+    def _nth_allows(self, flow, rule):
+        """everyNth: count this otherwise-matching call and say whether it is an Nth one. Decided
+        once per call - the response phase and a variables-only reload reuse the answer rather
+        than counting the same call twice. Counters restart when rules.json changes."""
+        if rule.every_nth is None:
+            return True
+        metadata = getattr(flow, 'metadata', None)
+        decided = metadata.setdefault('_interception_nth', {}) if isinstance(metadata, dict) else {}
+        if rule.id in decided:
+            return decided[rule.id]
+        generation = self._cache.rules_generation
+        if generation != self._nth_generation:
+            self._nth_counts = {}
+            self._nth_generation = generation
+        count = self._nth_counts.get(rule.id, 0) + 1
+        self._nth_counts[rule.id] = count
+        allowed = count % rule.every_nth == 0
+        decided[rule.id] = allowed
+        return allowed
 
     def _matching(self, flow, service_name, ruleset):
         if ruleset.inert:
@@ -2405,10 +2628,12 @@ class InterceptionEngine:
         request = flow.request
         host = (request.pretty_host or request.host or '')
         path = request.path or ''
+        variable = self._variable_lookup(flow, ruleset)
         out = []
         for rule in ruleset.rules:
             try:
-                if rule.match.matches(self.source, service_name, request.method, host, path, request):
+                if (rule.match.matches(self.source, service_name, request.method, host, path, request, variable)
+                        and self._nth_allows(flow, rule)):
                     out.append(rule)
                     if rule.stop_processing:
                         break
@@ -2448,6 +2673,7 @@ class InterceptionEngine:
         ruleset = self._cache.current()
         flow.metadata['_interception_locals'] = {}
         flow.metadata['_interception_local_ruleset'] = ruleset
+        flow.metadata['_interception_local_generation'] = self._cache.rules_generation
         verdict.sensitive = ruleset.sensitive
         verdict.self_targets = ruleset.self_targets
         matching = self._matching(flow, service_name, ruleset)
@@ -2497,6 +2723,10 @@ class InterceptionEngine:
 
         if kind == 'CAPTURE_REQUEST_VARIABLE':
             _capture_rule_variable(flow, rule, action, kind, verdict, values, 'request', self._cache)
+            return
+
+        if kind == 'SET_REQUEST_VARIABLE':
+            _set_rule_variable(flow, rule, action, kind, verdict, values, self._cache)
             return
 
         if kind == 'DELAY_REQUEST':
@@ -2805,8 +3035,12 @@ class InterceptionEngine:
         if flow.response is None:
             return verdict
         ruleset = self._cache.current()
-        if flow.metadata.get('_interception_local_ruleset') is not ruleset:
+        # Keyed on the rules generation, not RuleSet identity: our own request-phase GLOBAL
+        # capture rewrites variables.json, which reloads the RuleSet before this response runs.
+        generation = self._cache.rules_generation
+        if flow.metadata.get('_interception_local_generation') != generation:
             flow.metadata['_interception_locals'] = {}
+        flow.metadata['_interception_local_generation'] = generation
         flow.metadata['_interception_local_ruleset'] = ruleset
         verdict.sensitive = ruleset.sensitive
         matching = self._matched_for_response(flow, service_name, ruleset)
@@ -2846,6 +3080,10 @@ class InterceptionEngine:
 
         if kind == 'CAPTURE_RESPONSE_VARIABLE':
             _capture_rule_variable(flow, rule, action, kind, verdict, values, 'response', self._cache)
+            return
+
+        if kind == 'SET_RESPONSE_VARIABLE':
+            _set_rule_variable(flow, rule, action, kind, verdict, values, self._cache)
             return
 
         if kind == 'DELAY_RESPONSE':
@@ -3012,12 +3250,14 @@ class InterceptionEngine:
         request = flow.request
         host = (request.pretty_host or request.host or '')
         path = request.path or ''
+        variable = self._variable_lookup(flow, ruleset)
         out = []
         for rule in ruleset.rules:
             if not any(a.get('type') in MESSAGE_ACTIONS for a in rule.actions):
                 continue
             try:
-                if rule.match.matches(self.source, service_name, request.method, host, path, request):
+                if (rule.match.matches(self.source, service_name, request.method, host, path, request, variable)
+                        and self._nth_allows(flow, rule)):
                     out.append(rule)
                     if rule.stop_processing:
                         break

@@ -657,6 +657,22 @@ class RuleValidatorTest {
     }
 
     @Test
+    void setVariableAcceptsBothScopesAndMakesLaterLocalReferencesAvailable() {
+        RuleAction set = action(Map.of("type", "SET_REQUEST_VARIABLE", "name", "supplier",
+                "value", "ACME", "scope", "GLOBAL"));
+        RuleAction use = action(Map.of("type", "SET_RESPONSE_HEADER", "name", "X-Supplier",
+                "value", "{{this.supplier}}"));
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), set, use))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_VARIABLE", "name", "supplier",
+                "value", "ACME", "scope", "LOCAL"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "SET_REQUEST_VARIABLE", "name", "bad name",
+                "value", "ACME"))).anyMatch(p -> p.contains("Set variable needs a name"));
+        assertThat(problemsOf(Map.of("type", "SET_RESPONSE_VARIABLE", "name", "supplier",
+                "value", "ACME", "scope", "PEER")))
+                .anyMatch(p -> p.contains("scope must be GLOBAL, LOCAL"));
+    }
+
+    @Test
     void aGlobalCaptureSatisfiesALaterLocalReferenceInTheSameRule() {
         // Dual visibility: the engine keeps a GLOBAL capture in the rule-local values,
         // so {{this.x}} after it must validate clean - this is the reported save failure.

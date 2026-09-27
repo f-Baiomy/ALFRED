@@ -229,7 +229,7 @@ describe('CallsStateService', () => {
     const { state } = setup([ok, clientErr, serverErr]);
     tick();
 
-    expect(state.stats()).toEqual({ total: 3, ok: 1, client: 1, failed: 1, inProgress: 0 });
+    expect(state.stats()).toEqual({ total: 3, ok: 1, client: 1, failed: 1, inProgress: 0, intercepted: 0, resent: 0 });
     discardPeriodicTasks();
   }));
 
@@ -239,7 +239,7 @@ describe('CallsStateService', () => {
     const { state } = setup([pending, ok]);
     tick();
 
-    expect(state.stats()).toEqual({ total: 2, ok: 1, client: 0, failed: 0, inProgress: 1 });
+    expect(state.stats()).toEqual({ total: 2, ok: 1, client: 0, failed: 0, inProgress: 1, intercepted: 0, resent: 0 });
     discardPeriodicTasks();
   }));
 

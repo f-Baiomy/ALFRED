@@ -313,6 +313,62 @@ class RuleLocalVariableTest(unittest.TestCase):
     def engine(self, rules):
         return interception.InterceptionEngine('outbound', write_rules(self.tmp.name, rules))
 
+    def test_set_variable_in_request_and_response_reuses_tokens(self):
+        engine = self.engine([rule(actions=[
+            {'type': 'SET_REQUEST_VARIABLE', 'name': 'supplier', 'value': 'ACME', 'scope': 'LOCAL'},
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-Supplier', 'value': '{{this.supplier}}'},
+            {'type': 'SET_RESPONSE_VARIABLE', 'name': 'reply', 'value': '{{this.supplier}}-ok', 'scope': 'LOCAL'},
+            {'type': 'SET_RESPONSE_HEADER', 'name': 'X-Reply', 'value': '{{this.reply}}'},
+        ])])
+        flow = FakeFlow(FakeRequest())
+        run(engine.apply_request(flow))
+        self.assertEqual(flow.request.headers['X-Supplier'], 'ACME')
+        flow.response = CodecMessage(status=200, text='{}')
+        run(engine.apply_response(flow))
+        self.assertEqual(flow.response.headers['X-Reply'], 'ACME-ok')
+
+    def test_set_global_variable_persists_and_resolves_in_the_same_call(self):
+        variables_path = os.path.join(self.tmp.name, 'variables.json')
+        with open(variables_path, 'w', encoding='utf-8') as f:
+            json.dump({'variables': {'shared': 'old'}, 'fallbacks': {}}, f)
+        engine = interception.InterceptionEngine('outbound', write_rules(self.tmp.name, [rule(actions=[
+            {'type': 'SET_REQUEST_VARIABLE', 'name': 'shared', 'value': 'new', 'scope': 'GLOBAL'},
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-Shared', 'value': '{{shared}}'},
+        ])]), variables_path=variables_path)
+        flow = FakeFlow(FakeRequest())
+        run(engine.apply_request(flow))
+        self.assertEqual(flow.request.headers['X-Shared'], 'new')
+        with open(variables_path, encoding='utf-8') as f:
+            self.assertEqual(json.load(f)['variables']['shared'], 'new')
+
+    def test_set_response_global_variable_uses_request_local_value(self):
+        variables_path = os.path.join(self.tmp.name, 'variables.json')
+        with open(variables_path, 'w', encoding='utf-8') as f:
+            json.dump({'variables': {}, 'fallbacks': {}}, f)
+        engine = interception.InterceptionEngine('outbound', write_rules(self.tmp.name, [rule(actions=[
+            {'type': 'SET_REQUEST_VARIABLE', 'name': 'prefix', 'value': 'request'},
+            {'type': 'SET_RESPONSE_VARIABLE', 'name': 'result', 'value': '{{this.prefix}}-response', 'scope': 'GLOBAL'},
+            {'type': 'SET_RESPONSE_HEADER', 'name': 'X-Result', 'value': '{{result}}'},
+        ])]), variables_path=variables_path)
+        flow = FakeFlow(FakeRequest(), CodecMessage(status=200, text='{}'))
+        run(engine.apply_request(flow))
+        run(engine.apply_response(flow))
+        self.assertEqual(flow.response.headers['X-Result'], 'request-response')
+        with open(variables_path, encoding='utf-8') as f:
+            self.assertEqual(json.load(f)['variables']['result'], 'request-response')
+
+    def test_set_global_null_keeps_json_type_in_same_call(self):
+        variables_path = os.path.join(self.tmp.name, 'variables.json')
+        with open(variables_path, 'w', encoding='utf-8') as f:
+            json.dump({'variables': {}, 'fallbacks': {}}, f)
+        engine = interception.InterceptionEngine('outbound', write_rules(self.tmp.name, [rule(actions=[
+            {'type': 'SET_REQUEST_VARIABLE', 'name': 'empty', 'value': None, 'scope': 'GLOBAL'},
+            {'type': 'SET_REQUEST_JSON_FIELD', 'path': 'copy', 'value': '{{empty}}', 'createIfMissing': True},
+        ])]), variables_path=variables_path)
+        flow = FakeFlow(FakeRequest(text='{}'))
+        run(engine.apply_request(flow))
+        self.assertIsNone(json.loads(flow.request.text)['copy'])
+
     def test_capture_request_json_and_use_in_later_request_and_response_actions(self):
         engine = self.engine([rule(actions=[
             {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'supplier', 'captureSource': 'JSON_FIELD', 'path': 'supplier'},
@@ -418,6 +474,69 @@ class RuleLocalVariableTest(unittest.TestCase):
         # The file is overwritten, and the capturing rule uses the fresh value locally.
         self.assertEqual(self.read_variables(variables_path)['token'], 'new')
         self.assertEqual(flow.request.headers['X-Local'], 'new')
+
+    def test_global_request_capture_keeps_this_value_for_the_response_phase(self):
+        # The capture rewrites variables.json, which reloads the RuleSet between the phases.
+        # That reload must not discard the rule's own captured values - only a rules change may.
+        engine, variables_path = self.engine_with_variables([
+            rule(actions=[
+                {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'token', 'captureSource': 'HEADER',
+                 'path': 'X-Token', 'scope': 'GLOBAL'},
+                {'type': 'SET_RESPONSE_HEADER', 'name': 'X-Echo', 'value': '{{this.token}}'},
+            ]),
+        ])
+        past = time.time() - 100
+        os.utime(variables_path, (past, past))
+        flow = FakeFlow(FakeRequest(headers={'X-Token': 'v'}))
+        run(engine.apply_request(flow))
+        flow.response = CodecMessage(status=200, text='{}')
+        run(engine.apply_response(flow))
+        self.assertEqual(flow.response.headers['X-Echo'], 'v')
+
+    def test_rules_change_between_phases_still_discards_captured_values(self):
+        engine, _ = self.engine_with_variables([
+            rule(actions=[
+                {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'token', 'captureSource': 'HEADER',
+                 'path': 'X-Token', 'scope': 'LOCAL'},
+                {'type': 'SET_RESPONSE_HEADER', 'name': 'X-Echo', 'value': '{{this.token}}'},
+            ]),
+        ])
+        flow = FakeFlow(FakeRequest(headers={'X-Token': 'v'}))
+        run(engine.apply_request(flow))
+        rules_path = engine._cache._path
+        future = time.time() + 100
+        os.utime(rules_path, (future, future))
+        flow.response = CodecMessage(status=200, text='{}')
+        run(engine.apply_response(flow))
+        self.assertNotIn('X-Echo', flow.response.headers)
+
+    def test_unchanged_global_capture_writes_nothing(self):
+        engine, variables_path = self.engine_with_variables([
+            rule(actions=[
+                {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'token', 'captureSource': 'HEADER',
+                 'path': 'X-Token', 'scope': 'GLOBAL'},
+            ]),
+        ], variables={'token': 'same'})
+        past = time.time() - 100
+        os.utime(variables_path, (past, past))
+        run(engine.apply_request(FakeFlow(FakeRequest(headers={'X-Token': 'same'}))))
+        self.assertAlmostEqual(os.path.getmtime(variables_path), past, delta=1)
+
+    def test_global_capture_stamps_promoted_at_and_keeps_other_keys(self):
+        variables_path = os.path.join(self.tmp.name, 'variables.json')
+        with open(variables_path, 'w', encoding='utf-8') as f:
+            json.dump({'variables': {'a': '1'}, 'fallbacks': {'gone': 'x'},
+                       'updatedAt': {'a': 5}}, f)
+        before = int(time.time() * 1000)
+        self.assertTrue(interception._save_global('token', 7, variables_path))
+        with open(variables_path, encoding='utf-8') as f:
+            state = json.load(f)
+        self.assertEqual(state['variables'], {'a': '1', 'token': '7'})
+        self.assertEqual(state['fallbacks'], {'gone': 'x'})
+        self.assertEqual(state['updatedAt'], {'a': 5})
+        self.assertGreaterEqual(state['promotedAt']['token'], before)
+        # No temp file is left beside it.
+        self.assertEqual([n for n in os.listdir(self.tmp.name) if n.endswith('.tmp')], [])
 
     def test_global_capture_visible_as_bare_token_in_same_rule(self):
         engine, _ = self.engine_with_variables([
@@ -589,23 +708,23 @@ class PromotionNotifyTest(unittest.TestCase):
     def test_notify_enqueues_when_configured(self):
         interception._PROMOTE_URL = 'http://backend:5000/settings/variables/promoted'
         interception._notify_promotion('token', 'NEW')
-        self.assertEqual(interception._notify_queue.get_nowait(), ('token', 'NEW'))
+        self.assertEqual(interception._notify_queue.get_nowait(), ('token', 'NEW', {'ruleId': None, 'ruleName': None}))
         interception._notify_promotion('n', 5)
-        self.assertEqual(interception._notify_queue.get_nowait(), ('n', '5'))
+        self.assertEqual(interception._notify_queue.get_nowait(), ('n', '5', {'ruleId': None, 'ruleName': None}))
 
     def test_post_promotion_sends_json_name(self):
         interception._PROMOTE_URL = 'http://backend:5000/settings/variables/promoted'
         with unittest.mock.patch.object(interception.urllib.request, 'urlopen') as urlopen:
-            interception._post_promotion(('token', 'NEW'))
+            interception._post_promotion(('token', 'NEW', {'ruleId': 'r1', 'ruleName': 'Login'}))
         (request,), kwargs = urlopen.call_args
         self.assertEqual(request.full_url, 'http://backend:5000/settings/variables/promoted')
-        self.assertEqual(json.loads(request.data.decode('utf-8')), {'name': 'token', 'value': 'NEW'})
+        self.assertEqual(json.loads(request.data.decode('utf-8')), {'name': 'token', 'value': 'NEW', 'ruleId': 'r1', 'ruleName': 'Login'})
         self.assertEqual(kwargs.get('timeout'), interception._NOTIFY_TIMEOUT_SECONDS)
 
     def test_post_promotion_failure_does_not_raise(self):
         interception._PROMOTE_URL = 'http://x/'
         with unittest.mock.patch.object(interception.urllib.request, 'urlopen', side_effect=OSError('down')):
-            interception._post_promotion(('token', 'NEW'))
+            interception._post_promotion(('token', 'NEW', {'ruleId': None, 'ruleName': None}))
 
 
 class MatchingTest(unittest.TestCase):
@@ -1832,6 +1951,8 @@ class EveryActionIsCoveredTest(unittest.TestCase):
     NO_CHANGE = {
         'CAPTURE_REQUEST_VARIABLE': 'captures a value without changing traffic',
         'CAPTURE_RESPONSE_VARIABLE': 'captures a value without changing traffic',
+        'SET_REQUEST_VARIABLE': 'sets a variable without changing traffic',
+        'SET_RESPONSE_VARIABLE': 'sets a variable without changing traffic',
         'DELAY_REQUEST': 'changes when, not what',
         'DELAY_RESPONSE': 'changes when, not what',
         'SEND_TO_HOST': 'forwarding already happens; it only refuses a later short-circuit',
@@ -1844,6 +1965,8 @@ class EveryActionIsCoveredTest(unittest.TestCase):
     SAMPLES = {
         'CAPTURE_REQUEST_VARIABLE': {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'saved', 'captureSource': 'JSON_FIELD', 'path': 'a'},
         'CAPTURE_RESPONSE_VARIABLE': {'type': 'CAPTURE_RESPONSE_VARIABLE', 'name': 'saved', 'captureSource': 'JSON_FIELD', 'path': 'a'},
+        'SET_REQUEST_VARIABLE': {'type': 'SET_REQUEST_VARIABLE', 'name': 'saved', 'value': 'ready'},
+        'SET_RESPONSE_VARIABLE': {'type': 'SET_RESPONSE_VARIABLE', 'name': 'saved', 'value': 'ready'},
         'SET_REQUEST_HEADER': {'type': 'SET_REQUEST_HEADER', 'name': 'X-A', 'value': '1'},
         'REMOVE_REQUEST_HEADER': {'type': 'REMOVE_REQUEST_HEADER', 'name': 'X-Gone'},
         'SET_REQUEST_TRAILER': {'type': 'SET_REQUEST_TRAILER', 'name': 'X-Trailer-A', 'value': '1'},
@@ -3559,3 +3682,77 @@ class RuleCostTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PowerFeaturesTest(unittest.TestCase):
+    """specs/002-power-features: variable tests, everyNth, secrets, dynamic tokens, capture links."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.variables_path = os.path.join(self.tmp.name, 'variables.json')
+
+    def engine(self, rules, variables=None, secrets=None):
+        with open(self.variables_path, 'w', encoding='utf-8') as f:
+            json.dump({'variables': variables or {}, 'fallbacks': {}, 'secrets': secrets or []}, f)
+        return interception.InterceptionEngine(
+            'outbound', write_rules(self.tmp.name, rules), variables_path=self.variables_path)
+
+    def call(self, engine, **request):
+        flow = FakeFlow(FakeRequest(**request))
+        verdict = run(engine.apply_request(flow))
+        return flow, verdict
+
+    def test_variable_test_switches_a_rule_on_and_off(self):
+        rules = [rule(match={'variables': [{'name': 'chaosMode', 'operator': 'EQUALS', 'value': 'down'}]},
+                      actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Chaos', 'value': 'on'}])]
+        flow, _ = self.call(self.engine(rules, {'chaosMode': 'down'}))
+        self.assertEqual(flow.request.headers.get('X-Chaos'), 'on')
+        flow, _ = self.call(self.engine(rules, {'chaosMode': 'up'}))
+        self.assertIsNone(flow.request.headers.get('X-Chaos'))
+
+    def test_absent_variable_reads_as_not_exists(self):
+        rules = [rule(match={'variables': [{'name': 'flag', 'operator': 'NOT_EXISTS'}]},
+                      actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Hit', 'value': '1'}])]
+        flow, _ = self.call(self.engine(rules))
+        self.assertEqual(flow.request.headers.get('X-Hit'), '1')
+
+    def test_every_nth_applies_to_every_third_call_and_decides_once_per_call(self):
+        engine = self.engine([rule(everyNth=3, actions=[
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-Hit', 'value': '1'},
+            {'type': 'SET_RESPONSE_HEADER', 'name': 'X-Res', 'value': '1'}])])
+        hits = []
+        for _ in range(6):
+            flow, _ = self.call(engine)
+            flow.response = CodecMessage(status=200, text='{}')
+            run(engine.apply_response(flow))
+            hits.append((flow.request.headers.get('X-Hit'), flow.response.headers.get('X-Res')))
+        self.assertEqual(hits, [(None, None), (None, None), ('1', '1')] * 2)
+
+    def test_action_referencing_a_secret_logs_no_value(self):
+        engine = self.engine([rule(actions=[{'type': 'SET_QUERY_PARAM', 'name': 'k', 'value': '{{apiKey}}'}])],
+                             {'apiKey': 'S3CRET'}, secrets=['apiKey'])
+        flow, verdict = self.call(engine)
+        self.assertEqual(flow.request.query['k'], 'S3CRET')
+        self.assertNotIn('S3CRET', ' '.join(str(a.detail) for a in verdict.applied))
+
+    def test_dynamic_tokens_resolve_per_call(self):
+        engine = self.engine([rule(actions=[
+            {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'creds', 'captureSource': 'HEADER', 'path': 'X-Creds'},
+            {'type': 'SET_REQUEST_HEADER', 'name': 'X-Id', 'value': '{{$uuid}}'},
+            {'type': 'SET_REQUEST_HEADER', 'name': 'Authorization', 'value': 'Basic {{$base64:this.creds}}'}])])
+        first, _ = self.call(engine, headers={'X-Creds': 'user:pass'})
+        second, _ = self.call(engine, headers={'X-Creds': 'user:pass'})
+        self.assertRegex(first.request.headers['X-Id'], r'^[0-9a-f-]{36}$')
+        self.assertNotEqual(first.request.headers['X-Id'], second.request.headers['X-Id'])
+        self.assertEqual(first.request.headers['Authorization'], 'Basic dXNlcjpwYXNz')
+
+    def test_global_capture_links_the_variable_and_records_its_rule(self):
+        engine = self.engine([rule(id='r9', name='Login token', actions=[
+            {'type': 'CAPTURE_REQUEST_VARIABLE', 'name': 'token', 'captureSource': 'HEADER',
+             'path': 'X-Token', 'scope': 'GLOBAL'}])])
+        _, verdict = self.call(engine, headers={'X-Token': 'v'})
+        self.assertTrue(any(str(a.detail).endswith(' -> {{token}}') for a in verdict.applied))
+        with open(self.variables_path, encoding='utf-8') as f:
+            state = json.load(f)
+        self.assertEqual(state['promotedBy']['token'], {'ruleId': 'r9', 'ruleName': 'Login token'})

@@ -12,6 +12,66 @@ export interface DraftHeader {
 }
 
 /**
+ * C1: one thing to pull out of a call's resend response and remember as `this.<as>` for later
+ * drafts to substitute with `{{this.<as>}}`. See contracts.md section 6 (shared with F-SCENARIO,
+ * which also reads `as` names when building assertions) and resend-draft-chain.ts for evaluation.
+ */
+export interface ExtractRule {
+  readonly from: 'JSON' | 'HEADER' | 'COOKIE';
+  readonly path: string;
+  readonly as: string;
+  readonly missing: 'SKIP' | 'FALLBACK';
+  readonly fallback?: string;
+}
+
+/** D1/F-SCENARIO: an assertion evaluated against a DraftResult. Owned by F-SCENARIO; the type is
+ *  kept here (contracts.md section 6) purely so both sides import the same shape. */
+export interface Assertion {
+  readonly kind: 'STATUS' | 'JSON' | 'HEADER' | 'LATENCY';
+  readonly path?: string;
+  readonly operator: 'EQUALS' | 'NOT_EQUALS' | 'EXISTS' | 'NOT_EXISTS' | 'CONTAINS' | 'GT' | 'LT' | 'MATCHES';
+  readonly value?: string;
+}
+
+/** D3: attempts 0-5, applied on top of `on` failure kinds. A retry is a new POST /resend. */
+export interface RetryPolicy {
+  readonly attempts: number;
+  readonly backoffMs: number;
+  readonly on: readonly ('5XX' | 'NETWORK')[];
+}
+
+/** D3: a group's data-driven rows - CSV (header row) or a JSON array of objects, parsed client-side. */
+export interface Dataset {
+  readonly name: string;
+  readonly rows: readonly Record<string, string>[];
+  readonly onRowFailure: 'SKIP' | 'STOP';
+}
+
+/** The supplier response as C1/D1 see it - the same shape POST /resend now returns (contracts.md section 2). */
+export interface ResendResponseSnapshot {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string | null;
+}
+
+/**
+ * One send attempt's outcome (contracts.md section 6). An array of these lives per draft key in
+ * `BulkResendDialogService.results`, because a retry or a dataset row produces more than one per
+ * key - `row` and `attempt` tell them apart.
+ */
+export interface DraftResult {
+  readonly key: string;
+  readonly row?: number;
+  readonly attempt: number;
+  readonly status: number | null;
+  readonly durationMs: number | null;
+  readonly newCallId: string | null;
+  readonly error: string | null;
+  readonly response: ResendResponseSnapshot | null;
+  readonly extracted: Readonly<Record<string, string>>;
+}
+
+/**
  * One call as it will be resent. Starts as an exact copy of the logged request and is edited
  * freely; `editsOf` then sends only what actually differs. Shared by the single Resend dialog and
  * the multi-call resend editor so both turn a form into `ResendEdits` the same way.
@@ -30,6 +90,10 @@ export interface ResendDraft {
   readonly headers: readonly DraftHeader[];
   readonly body: string;
   readonly useCurrentSession: boolean;
+  /** C1: what to pull out of this call's response and remember as `this.<as>` for later drafts. */
+  readonly extract?: readonly ExtractRule[];
+  /** D1: evaluated by F-SCENARIO against this draft's DraftResult(s); not read by the resend send path. */
+  readonly assertions?: readonly Assertion[];
 }
 
 let nextKey = 0;
@@ -49,9 +113,20 @@ export function draftFrom(call: CallRecord, cycleId: string | null): ResendDraft
   };
 }
 
-/** Back to the logged request, keeping only whether it is included. */
+/**
+ * Back to the logged request, keeping whatever is not itself a request edit: which group it is
+ * in, whether it is included, and its C1/D1 resend-time configuration (extract rules, assertions)
+ * - none of those describe the REQUEST, so "reset this call" must not silently drop them.
+ */
 export function resetDraft(draft: ResendDraft): ResendDraft {
-  return { ...draftFrom(draft.original, draft.ref.cycleId), key: draft.key, include: draft.include };
+  return {
+    ...draftFrom(draft.original, draft.ref.cycleId),
+    key: draft.key,
+    include: draft.include,
+    groupId: draft.groupId,
+    extract: draft.extract,
+    assertions: draft.assertions,
+  };
 }
 
 /**

@@ -1,0 +1,35 @@
+// rules-power - see specs/002-power-features/contracts.md for ownership.
+
+// B1: capture preview's Found/Missing result line, under a CAPTURE_*_VARIABLE action card.
+.capture-preview-result {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+
+.cp-badge {
+  font-weight: 600;
+}
+
+.cp-found {
+  color: var(--green);
+}
+
+.cp-missing {
+  color: var(--red);
+}
+
+.cp-value {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--bg-2);
+  word-break: break-all;
+}
+
+// B1: "used later" / "used in other rules" hints under a capture card.
+.capture-usage-hint {
+  display: block;
+  margin-top: 0.3rem;
+}

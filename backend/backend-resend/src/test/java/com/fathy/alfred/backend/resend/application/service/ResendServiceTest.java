@@ -36,7 +36,7 @@ class ResendServiceTest {
 
     private static class CapturingSender implements CallSenderPort {
         OutgoingCall lastCall;
-        SendOutcome outcome = new SendOutcome.Sent(200, "ok");
+        SendOutcome outcome = new SendOutcome.Sent(200, Map.of(), "ok");
 
         @Override
         public SendOutcome send(OutgoingCall call) {
@@ -119,6 +119,21 @@ class ResendServiceTest {
         ResendResult result = ((ResendOutcome.Success) outcome).result();
         assertThat(result.sessionValuesUsed()).isEmpty();
         assertThat(sender.lastCall.headers()).containsEntry("Accept", "application/json");
+    }
+
+    @Test
+    void theSupplierResponseIsCarriedBackOnSuccess() {
+        CapturingSender sender = new CapturingSender();
+        sender.outcome = new SendOutcome.Sent(201, Map.of("content-type", "application/json"), "{\"ok\":true}");
+        ResendService service = new ResendService(calls(ORIGINAL), new FixedSessionValues(List.of()), sender);
+
+        ResendOutcome outcome = service.resend(new ResendRequest("outbound", "call-1", null, null, false));
+
+        ResendResult result = ((ResendOutcome.Success) outcome).result();
+        assertThat(result.response()).isNotNull();
+        assertThat(result.response().status()).isEqualTo(201);
+        assertThat(result.response().headers()).containsEntry("content-type", "application/json");
+        assertThat(result.response().body()).isEqualTo("{\"ok\":true}");
     }
 
     @Test

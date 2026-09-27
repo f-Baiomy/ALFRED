@@ -1,0 +1,26 @@
+<div class="dialog-backdrop" (click)="cancel()">
+  <div class="dialog-card wide" (click)="$event.stopPropagation()">
+    <h3>Create scenario from cycle</h3>
+
+    @if (suggestions().length === 0) {
+      <p class="scenario-chain-empty">No reused values were detected between these calls.</p>
+    } @else {
+      <ul class="scenario-chain-list">
+        @for (suggestion of suggestions(); track suggestion.name) {
+          <li class="scenario-chain-item">
+            <label>
+              <input type="checkbox" [checked]="isChained(suggestion.name)" (change)="toggle(suggestion.name)" />
+              <span class="scenario-chain-name">{{ suggestion.useCurrentSession ? 'Use current session' : suggestion.name }}</span>
+            </label>
+            <span class="scenario-chain-detail">{{ describeSource(suggestion) }}</span>
+          </li>
+        }
+      </ul>
+    }
+
+    <div class="dialog-actions">
+      <button type="button" class="dialog-btn secondary" (click)="cancel()">Cancel</button>
+      <button type="button" class="dialog-btn" (click)="createScenario()">Create scenario…</button>
+    </div>
+  </div>
+</div>

@@ -20,7 +20,7 @@ import { InternalCallServiceDto, InternalLoggingApiService } from '../services/i
 import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
 import { CallListControlsState, BulkSelectionState, CallSelectionState } from './call-selection.tokens';
-import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, createCallListView } from './call-list-view';
+import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, InterceptionFilter, ResendFilter, createCallListView } from './call-list-view';
 import { reconnectingSocket } from './reconnecting-socket';
 
 export type { CallStats, CallStatusFilter, SupplierGroup, SupplierOption } from './call-list-view';
@@ -305,6 +305,15 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get nestedOnly() {
     return this.view.nestedOnly;
   }
+  get interceptionFilter() {
+    return this.view.interceptionFilter;
+  }
+  get resendFilter() {
+    return this.view.resendFilter;
+  }
+  get interceptionRuleOptions() {
+    return this.view.interceptionRuleOptions;
+  }
   get expanded() {
     return this.view.expanded;
   }
@@ -413,6 +422,14 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   setNestedOnly(value: boolean): void {
     this.view.setNestedOnly(value);
+  }
+
+  setInterceptionFilter(filter: InterceptionFilter): void {
+    this.view.setInterceptionFilter(filter);
+  }
+
+  setResendFilter(filter: ResendFilter): void {
+    this.view.setResendFilter(filter);
   }
 
   setViewMode(mode: CallViewMode): void {

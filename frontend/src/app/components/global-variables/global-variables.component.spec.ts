@@ -1,6 +1,9 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { GlobalVariablesComponent } from './global-variables.component';
 import { GlobalVariablesService } from '../../core/services/global-variables.service';
+import { AppConfigService } from '../../core/services/app-config.service';
 import { BodyEditorComponent } from '../body-editor/body-editor.component';
 
 describe('GlobalVariablesComponent input highlighting', () => {
@@ -70,15 +73,38 @@ describe('GlobalVariablesComponent input highlighting', () => {
     expect(component.selectionCanReplace()).toBeFalse();
   });
 
-  it('suggests only captures available on the current rule action', () => {
-    const card = document.createElement('app-rule-action-card');
-    card.setAttribute('data-rule-locals', 'supplier,code');
-    card.append(input);
-    document.body.append(card);
+  it('suggests only captures available on the current rule action, from data-local-variables on the input itself (contract C3)', () => {
+    input.setAttribute('data-local-variables', JSON.stringify([
+      { name: 'supplier', available: true },
+      { name: 'code', available: true },
+    ]));
+    document.body.append(input);
     component.autocompleteControl.set(input);
     component.autocompleteQuery.set('this.s');
-    expect(component.autocompleteMatches()).toEqual([{ name: 'this.supplier', value: 'Rule variable' }]);
-    card.remove();
+    expect(component.autocompleteMatches()).toEqual([{ name: 'this.supplier', value: 'Rule variable', available: true }]);
+  });
+
+  it('greys out an unavailable local variable with its reason, and does not let it be chosen', () => {
+    input.setAttribute('data-local-variables', JSON.stringify([
+      { name: 'supplier', available: false, reason: 'Set later in the chain' },
+    ]));
+    document.body.append(input);
+    component.autocompleteControl.set(input);
+    component.autocompleteQuery.set('this.');
+    expect(component.autocompleteMatches()).toEqual([
+      { name: 'this.supplier', value: 'Set later in the chain', available: false },
+    ]);
+  });
+
+  it('lists local variables before global ones when the query does not start with "this."', () => {
+    (component.variables as unknown as { entries: () => Array<{ name: string; value: string }> }).entries =
+      () => [{ name: 'globalOne', value: 'x' }];
+    input.setAttribute('data-local-variables', JSON.stringify([{ name: 'supplier', available: true }]));
+    document.body.append(input);
+    component.autocompleteControl.set(input);
+    component.autocompleteQuery.set('');
+    const names = component.autocompleteMatches().map((entry) => entry.name);
+    expect(names[0]).toBe('this.supplier');
   });
 
   it('refetches when opened so promotions show without a page reload', () => {
@@ -318,5 +344,355 @@ describe('GlobalVariablesComponent inserting a variable into a body editor', () 
 
     expect(area.value).toBe('{"a":"heyjuada{{code}}"}');
     expect(area.selectionStart).toBe(22);
+  });
+});
+
+describe('GlobalVariablesComponent duplicate name warning', () => {
+  let component: GlobalVariablesComponent;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [{
+        provide: GlobalVariablesService,
+        useValue: {
+          load: jasmine.createSpy('load'),
+          upsert: jasmine.createSpy('upsert'),
+          watchForChanges: jasmine.createSpy('watchForChanges'),
+          refresh: jasmine.createSpy('refresh'),
+          state: () => ({ variables: { code: '0123456789012345678901234567890123456789EXTRA' }, fallbacks: {} }),
+        },
+      }],
+    });
+    component = TestBed.runInInjectionContext(() => new GlobalVariablesComponent());
+  });
+
+  it('is empty with no name entered', () => {
+    component.editName.set('');
+    expect(component.duplicateNameWarning()).toBe('');
+  });
+
+  it('is empty for a name that does not exist yet', () => {
+    component.editName.set('brandNew');
+    expect(component.duplicateNameWarning()).toBe('');
+  });
+
+  it('warns, truncated to 40 chars, when the name already exists - and does not block saving', () => {
+    component.editName.set('code');
+    expect(component.duplicateNameWarning()).toBe('"code" exists (current: 0123456789012345678901234567890123456789…) — Save will overwrite');
+    component.editValue.set('replacement');
+    component.createOrUpdate();
+    expect(component.variables.upsert).toHaveBeenCalledWith('code', 'replacement');
+  });
+});
+
+describe('GlobalVariablesComponent duplicate name warning rendering', () => {
+  it('renders the warning under the name field while the add form is open', () => {
+    TestBed.configureTestingModule({
+      imports: [GlobalVariablesComponent],
+      providers: [{
+        provide: GlobalVariablesService,
+        useValue: {
+          load: jasmine.createSpy('load'),
+          watchForChanges: jasmine.createSpy('watchForChanges'),
+          refresh: jasmine.createSpy('refresh'),
+          error: () => '',
+          saving: () => false,
+          entries: () => [{ name: 'code', value: '0123456789012345678901234567890123456789EXTRA' }],
+          state: () => ({ variables: { code: '0123456789012345678901234567890123456789EXTRA' }, fallbacks: {} }),
+        },
+      }],
+    });
+    const fixture: ComponentFixture<GlobalVariablesComponent> = TestBed.createComponent(GlobalVariablesComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.open.set(true);
+    fixture.componentInstance.editing.set(true);
+    fixture.componentInstance.editName.set('code');
+    fixture.detectChanges();
+    const warning = fixture.nativeElement.querySelector('.variable-name-warning');
+    expect(warning?.textContent).toContain('"code" exists');
+    expect(warning?.textContent).toContain('Save will overwrite');
+  });
+});
+
+describe('GlobalVariablesComponent grouping by source (B3)', () => {
+  let component: GlobalVariablesComponent;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [{
+        provide: GlobalVariablesService,
+        useValue: {
+          load: jasmine.createSpy('load'),
+          watchForChanges: jasmine.createSpy('watchForChanges'),
+          refresh: jasmine.createSpy('refresh'),
+          entries: () => [
+            { name: 'token', value: 'abc' },
+            { name: 'accountId', value: '123' },
+            { name: 'imported1', value: 'x' },
+          ],
+          state: () => ({
+            variables: { token: 'abc', accountId: '123', imported1: 'x' },
+            fallbacks: { removedName: 'null' },
+            updatedAt: {},
+            sources: {
+              token: { kind: 'CAPTURE', ruleId: 'r-1', ruleName: 'Login token' },
+              accountId: { kind: 'MANUAL' },
+              imported1: { kind: 'IMPORT' },
+            },
+            secrets: [],
+            activeEnvironment: 'Default',
+            environments: ['Default'],
+          }),
+        },
+      }],
+    });
+    component = TestBed.runInInjectionContext(() => new GlobalVariablesComponent());
+  });
+
+  it('buckets rows into Captured by rules / Set by hand / Imported / Deleted-fallback sections', () => {
+    const sections = component.groupedSections();
+    const byTitle = Object.fromEntries(sections.map((s) => [s.title, s.entries.map((e) => e.name)]));
+    expect(byTitle['Captured by rules']).toEqual(['token']);
+    expect(byTitle['Set by hand']).toEqual(['accountId']);
+    expect(byTitle['Imported']).toEqual(['imported1']);
+    expect(byTitle['Deleted, fallback still applies']).toEqual(['removedName']);
+  });
+
+  it('shows the capturing rule name for a CAPTURE row', () => {
+    expect(component.ruleNameOf('token')).toBe('Login token');
+    expect(component.ruleNameOf('accountId')).toBeNull();
+  });
+
+  it('filters rows across every section by name', () => {
+    component.filterQuery.set('acc');
+    const sections = component.groupedSections();
+    const names = sections.flatMap((s) => s.entries.map((e) => e.name));
+    expect(names).toEqual(['accountId']);
+  });
+});
+
+describe('GlobalVariablesComponent secret masking (B4/D6)', () => {
+  let component: GlobalVariablesComponent;
+  let setSecretSpy: jasmine.Spy;
+
+  beforeEach(() => {
+    setSecretSpy = jasmine.createSpy('setSecret');
+    TestBed.configureTestingModule({
+      providers: [{
+        provide: GlobalVariablesService,
+        useValue: {
+          load: jasmine.createSpy('load'),
+          watchForChanges: jasmine.createSpy('watchForChanges'),
+          refresh: jasmine.createSpy('refresh'),
+          entries: () => [{ name: 'apiKey', value: 'shh' }, { name: 'accountId', value: '123' }],
+          state: () => ({
+            variables: { apiKey: 'shh', accountId: '123' }, fallbacks: {}, updatedAt: {}, sources: {},
+            secrets: ['apiKey'], activeEnvironment: 'Default', environments: ['Default'],
+          }),
+          isSecret: (name: string) => name === 'apiKey' || /token|session|auth|key|password|secret/i.test(name),
+          setSecret: setSecretSpy,
+        },
+      }],
+    });
+    component = TestBed.runInInjectionContext(() => new GlobalVariablesComponent());
+  });
+
+  it('masks a variable listed as secret, and one whose name matches the secret pattern', () => {
+    expect(component.isMasked('apiKey')).toBeTrue();
+    expect(component.isMasked('accountId')).toBeFalse();
+  });
+
+  it('toggles per-row reveal state independently of other rows', () => {
+    expect(component.isRevealed('apiKey')).toBeFalse();
+    component.toggleReveal('apiKey');
+    expect(component.isRevealed('apiKey')).toBeTrue();
+    expect(component.isRevealed('accountId')).toBeFalse();
+    component.toggleReveal('apiKey');
+    expect(component.isRevealed('apiKey')).toBeFalse();
+  });
+
+  it('marks/unmarks a variable as secret through the explicit list, not the name-pattern heuristic', () => {
+    expect(component.isExplicitSecret('apiKey')).toBeTrue();
+    expect(component.isExplicitSecret('accountId')).toBeFalse();
+    component.toggleSecret('accountId');
+    expect(setSecretSpy).toHaveBeenCalledWith('accountId', true);
+  });
+});
+
+describe('GlobalVariablesComponent environments (C2)', () => {
+  let component: GlobalVariablesComponent;
+  let service: {
+    switchEnvironment: jasmine.Spy; createEnvironment: jasmine.Spy; deleteEnvironment: jasmine.Spy;
+    exportEnvironment: jasmine.Spy; import: jasmine.Spy; state: () => unknown; entries: () => unknown[];
+  };
+
+  beforeEach(() => {
+    service = {
+      switchEnvironment: jasmine.createSpy('switchEnvironment'),
+      createEnvironment: jasmine.createSpy('createEnvironment'),
+      deleteEnvironment: jasmine.createSpy('deleteEnvironment'),
+      exportEnvironment: jasmine.createSpy('exportEnvironment'),
+      import: jasmine.createSpy('import'),
+      state: () => ({ variables: {}, fallbacks: {}, updatedAt: {}, sources: {}, secrets: [], activeEnvironment: 'Default', environments: ['Default', 'Staging'] }),
+      entries: () => [],
+    };
+    TestBed.configureTestingModule({
+      providers: [{
+        provide: GlobalVariablesService,
+        useValue: { load: jasmine.createSpy('load'), watchForChanges: jasmine.createSpy('watchForChanges'), refresh: jasmine.createSpy('refresh'), ...service },
+      }],
+    });
+    component = TestBed.runInInjectionContext(() => new GlobalVariablesComponent());
+  });
+
+  it('switches environment on click, but not when it is already active', () => {
+    component.switchEnv('Staging');
+    expect(service.switchEnvironment).toHaveBeenCalledWith('Staging');
+    component.switchEnv('Default');
+    expect(service.switchEnvironment).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates an environment with an optional copy-from source', () => {
+    component.newEnvName.set('Prod');
+    component.newEnvCopyFrom.set('Staging');
+    component.confirmCreateEnv();
+    expect(service.createEnvironment).toHaveBeenCalledWith('Prod', 'Staging');
+  });
+
+  it('rejects an invalid environment name', () => {
+    component.newEnvName.set('bad name!');
+    component.confirmCreateEnv();
+    expect(service.createEnvironment).not.toHaveBeenCalled();
+  });
+
+  it('deletes an environment after confirmation', () => {
+    component.confirmDeleteEnv('Staging');
+    expect(component.deletingEnvironment()).toBe('Staging');
+    component.doDeleteEnv();
+    expect(service.deleteEnvironment).toHaveBeenCalledWith('Staging');
+    expect(component.deletingEnvironment()).toBe('');
+  });
+
+  it('exports the active environment', () => {
+    component.exportCurrent();
+    expect(service.exportEnvironment).toHaveBeenCalledWith('Default', jasmine.any(Function));
+  });
+
+  it('imports the contract export shape as-is', () => {
+    const payload = JSON.stringify({ environment: 'Staging', variables: { a: '1' }, fallbacks: { b: '2' } });
+    const parsed = (component as unknown as { normalizeImportPayload: (raw: string) => { environment: string; variables: Record<string, string>; fallbacks?: Record<string, string> } }).normalizeImportPayload(payload);
+    expect(parsed).toEqual({ environment: 'Staging', variables: { a: '1' }, fallbacks: { b: '2' } });
+  });
+
+  it('converts a Postman environment file, keeping only enabled values', () => {
+    const postman = JSON.stringify({
+      name: 'My Postman Env',
+      values: [
+        { key: 'a', value: '1', enabled: true },
+        { key: 'b', value: '2', enabled: false },
+        { key: 'c', value: '3' },
+      ],
+    });
+    const parsed = (component as unknown as { normalizeImportPayload: (raw: string) => { environment: string; variables: Record<string, string>; fallbacks?: Record<string, string> } }).normalizeImportPayload(postman);
+    expect(parsed).toEqual({ environment: 'My Postman Env', variables: { a: '1', c: '3' } });
+  });
+
+  it('rejects a file that matches neither shape', () => {
+    const parsed = (component as unknown as { normalizeImportPayload: (raw: string) => unknown }).normalizeImportPayload('{"nonsense": true}');
+    expect(parsed).toBeNull();
+  });
+
+  it('confirmImport() sends the chosen mode', () => {
+    component.pendingImport.set({ environment: 'Staging', variables: { a: '1' } });
+    component.importMode.set('REPLACE');
+    component.confirmImport();
+    expect(service.import).toHaveBeenCalledWith({ environment: 'Staging', variables: { a: '1' }, mode: 'REPLACE' });
+  });
+});
+
+describe('GlobalVariablesComponent undo toast (C4)', () => {
+  let component: GlobalVariablesComponent;
+  let upsertSpy: jasmine.Spy;
+  let removeSpy: jasmine.Spy;
+
+  beforeEach(() => {
+    upsertSpy = jasmine.createSpy('upsert');
+    removeSpy = jasmine.createSpy('remove');
+    TestBed.configureTestingModule({
+      providers: [{
+        provide: GlobalVariablesService,
+        useValue: {
+          load: jasmine.createSpy('load'),
+          watchForChanges: jasmine.createSpy('watchForChanges'),
+          refresh: jasmine.createSpy('refresh'),
+          upsert: upsertSpy,
+          remove: removeSpy,
+          state: () => ({ variables: { name: 'old' }, fallbacks: {}, updatedAt: {}, sources: {}, secrets: [], activeEnvironment: 'Default', environments: ['Default'] }),
+        },
+      }],
+    });
+    component = TestBed.runInInjectionContext(() => new GlobalVariablesComponent());
+  });
+
+  it('offers undo after deleting a variable, restoring its previous value', () => {
+    component.deleteVariable('name');
+    component.confirmDelete();
+    expect(component.lastUndo()?.label).toContain('Deleted');
+    component.undo();
+    expect(upsertSpy).toHaveBeenCalledWith('name', 'old');
+    expect(component.lastUndo()).toBeNull();
+  });
+
+  it('offers undo after overwriting an existing variable value', () => {
+    component.editName.set('name');
+    component.editValue.set('new');
+    component.createOrUpdate();
+    expect(upsertSpy).toHaveBeenCalledWith('name', 'new');
+    expect(component.lastUndo()?.label).toContain('Updated');
+    component.undo();
+    expect(upsertSpy).toHaveBeenCalledWith('name', 'old');
+  });
+
+  it('does not offer undo when adding a brand-new variable', () => {
+    component.editName.set('brandNew');
+    component.editValue.set('v');
+    component.createOrUpdate();
+    expect(component.lastUndo()).toBeNull();
+  });
+});
+
+describe('GlobalVariablesComponent focusVariable / live-change flash (contract section 6)', () => {
+  let fixture: ComponentFixture<GlobalVariablesComponent>;
+  let http: HttpTestingController;
+  let service: GlobalVariablesService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [GlobalVariablesComponent],
+      providers: [
+        provideHttpClient(), provideHttpClientTesting(),
+        { provide: AppConfigService, useValue: { backendUrl: 'http://backend' } },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(GlobalVariablesComponent);
+    service = TestBed.inject(GlobalVariablesService);
+    fixture.detectChanges();
+    http.expectOne('http://backend/settings/variables').flush({ variables: {}, fallbacks: {} });
+  });
+
+  it('opens the drawer and flashes the row focusVariable() names', () => {
+    service.focusVariable('accountId');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBeTrue();
+    expect(fixture.componentInstance.flashedNames().has('accountId')).toBeTrue();
+  });
+
+  it('bumps the launch-tab badge for a remote change while the drawer is closed', () => {
+    expect(fixture.componentInstance.open()).toBeFalse();
+    service.upsert('name', 'one');
+    http.expectOne('http://backend/settings/variables/name').flush({ variables: { name: 'one', other: 'promoted' }, fallbacks: {} });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.badgeCount()).toBeGreaterThan(0);
   });
 });

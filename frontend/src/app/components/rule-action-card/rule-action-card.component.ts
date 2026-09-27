@@ -11,6 +11,7 @@ import { ActionAdderComponent } from '../action-adder/action-adder.component';
 import { JsonPathInputComponent } from '../json-path-input/json-path-input.component';
 import { CopyFromCallComponent } from '../copy-from-call/copy-from-call.component';
 import { ReplacePreviewComponent } from '../replace-preview/replace-preview.component';
+import { CaptureValuePreviewComponent } from './capture-value-preview.component';
 import type { RuleEditorComponent } from '../rule-editor/rule-editor.component';
 
 /**
@@ -62,6 +63,7 @@ export interface ActionStep {
     HeaderEditorComponent,
     CopyFromCallComponent,
     ReplacePreviewComponent,
+    CaptureValuePreviewComponent,
     HelpPopoverComponent,
     CdkDropList,
     CdkDrag,
@@ -79,6 +81,17 @@ export class RuleActionCardComponent {
   @HostBinding('attr.data-rule-locals')
   get availableLocals(): string {
     return this.editor && this.step ? this.editor.availableLocalNames(this.step.path).join(',') : '';
+  }
+
+  /**
+   * Scope-aware autocomplete (C3, contracts.md section 6): every capture in the rule, available or
+   * not, with why - the global-variables popup (owner F-VARS) reads this off the nearest ancestor
+   * carrying it. Alongside `data-rule-locals` above rather than replacing it, so nothing that
+   * already reads that attribute breaks while F-VARS migrates to this richer shape.
+   */
+  @HostBinding('attr.data-local-variables')
+  get localVariables(): string {
+    return this.editor && this.step ? this.editor.localVariablesJsonFor(this.step.path) : '[]';
   }
 
   /** Dimmed when this action is off, or when any condition above it is. */

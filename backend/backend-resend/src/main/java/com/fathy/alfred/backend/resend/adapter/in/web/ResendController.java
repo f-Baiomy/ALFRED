@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.resend.adapter.in.web.dto.ResendEditsDto;
 import com.fathy.alfred.backend.resend.adapter.in.web.dto.ResendRequestDto;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase.ResendOutcome;
+import com.fathy.alfred.backend.resend.application.port.in.ResendResolutionException;
 import com.fathy.alfred.backend.resend.domain.model.ResendBatch;
 import com.fathy.alfred.backend.resend.domain.model.ResendEdits;
 import com.fathy.alfred.backend.resend.domain.model.ResendRequest;
@@ -49,7 +50,13 @@ public class ResendController {
 
         ResendRequest request = new ResendRequest(body.direction(), body.callId(), blankToNull(body.cycleId()),
                 toDomain(body.edits()), body.useCurrentSession(), toDomain(body.batch()));
-        ResendOutcome outcome = resendCallUseCase.resend(request);
+        ResendOutcome outcome;
+        try {
+            outcome = resendCallUseCase.resend(request);
+        } catch (ResendResolutionException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "invalid-request", "problems", List.of(e.getMessage())));
+        }
         return switch (outcome) {
             case ResendOutcome.Success success -> ResponseEntity.ok(success.result());
             case ResendOutcome.NotFound notFound -> ResponseEntity.status(HttpStatus.NOT_FOUND)

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alfred · Interception details mock</title>
+  <style>
+    :root { color-scheme: dark; font: 14px/1.45 Inter, system-ui, sans-serif; background:#0d101a; color:#edf1f8; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:36px 24px; }
+    .note { max-width:1200px; margin:0 auto 20px; color:#9da8bd; }
+    .card { max-width:1200px; margin:auto; padding:18px 22px; background:#1b1d24; border:1px solid #454753; border-radius:18px; box-shadow:0 16px 50px #0006; }
+    .top, .actions, .rule-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .top { margin-bottom:14px; }
+    .badge { padding:5px 12px; border-radius:7px; border:1px solid #47638d; color:#86b2fa; background:#27354d; font-weight:700; font-size:12px; }
+    .badge.status { color:#8dcdff; }
+    .badge.time { color:#ff666b; border:0; background:#292b33; }
+    .badge.project { color:#a0b9ee; }
+    button { font:inherit; cursor:pointer; }
+    .intercept { padding:7px 13px; border:1px solid #9a7135; border-radius:7px; color:#ffc56b; background:#4a3825; font-weight:700; letter-spacing:.03em; }
+    .intercept:hover, .intercept[aria-expanded="true"] { background:#604529; }
+    .action { padding:5px 10px; border:1px solid #414b5e; border-radius:7px; background:#283144; color:#a6c5ff; font-size:12px; }
+    .date { color:#788092; font-size:12px; }
+    .url { color:#58e4e4; font:13px Consolas, monospace; overflow-wrap:anywhere; }
+    .url b { color:#8bdadd; border:1px solid #446773; padding:2px 6px; border-radius:4px; margin-right:7px; }
+    .details { margin-top:20px; border:1px solid #5d4b38; border-radius:13px; overflow:hidden; background:#22232a; }
+    .details[hidden] { display:none; }
+    .details-head { padding:14px 17px; display:flex; justify-content:space-between; gap:15px; align-items:center; border-bottom:1px solid #41414a; }
+    .heading { font-size:15px; font-weight:750; }
+    .sub { color:#99a3b5; font-size:12px; }
+    .rule { padding:15px 17px; }
+    .rule-head { justify-content:space-between; }
+    .rule-name { color:#e9edf5; font-weight:700; }
+    .rule-meta { color:#9ca9bd; font-size:12px; }
+    .edit { color:#b7cfff; background:#303c54; border:1px solid #506489; border-radius:7px; padding:6px 12px; font-size:12px; font-weight:650; }
+    .edit:hover { background:#3d5072; }
+    .rule-body { margin-top:12px; padding-left:13px; border-left:2px solid #846139; }
+    .step { display:flex; gap:13px; align-items:baseline; padding:5px 0; color:#c8d0dc; font-size:13px; }
+    .num { color:#e9b45f; font:12px Consolas, monospace; width:18px; flex:none; }
+    .step strong { color:#f0f2f8; font-weight:600; }
+    .step small { color:#97a1b4; font-size:12px; }
+    .phase { margin:10px 0 3px 31px; color:#8998af; text-transform:uppercase; letter-spacing:.09em; font-size:10px; font-weight:750; }
+    .phase:first-child { margin-top:0; }
+    .foot { padding:11px 17px; background:#1d2028; border-top:1px solid #41414a; color:#9da8bd; font-size:12px; }
+    .foot a { color:#a9c8ff; text-decoration:none; }
+    @media(max-width:650px) { body { padding:12px; } .card { padding:14px; } .details-head { align-items:flex-start; } .step { display:block; padding-left:30px; position:relative; } .num { position:absolute; left:0; } .step small { display:block; } }
+  </style>
+</head>
+<body>
+  <div class="note">Mock: click <b>INTERCEPTED</b> to show or hide the log. Actions from the same rule appear together, with one clear <b>Edit rule</b> action.</div>
+  <article class="card">
+    <div class="top">
+      <span class="badge">POST</span><span class="badge status">307</span><span class="badge time">5016.65 ms</span><span class="badge project">Odeysys</span>
+      <button class="intercept" id="toggle" type="button" aria-expanded="true" aria-controls="details">⚡ INTERCEPTED · 8 actions</button>
+      <button class="action" type="button">⚡+ Rule</button><button class="action" type="button">Resend…</button><button class="action" type="button">☆ Pin</button>
+      <span class="date">9/26/2026, 11:43:38 PM</span>
+    </div>
+    <div class="url"><b>URL</b>/odeysysadmin/Booking2/flight-search/search</div>
+    <section class="details" id="details" aria-label="Interception details">
+      <div class="details-head"><div><div class="heading">What the rule did</div><div class="sub">8 actions applied to this call · shown in execution order</div></div></div>
+      <div class="rule">
+        <div class="rule-head">
+          <div><div class="rule-name">Rule for POST /odeysysadmin/Booking2/flight-search/search</div><div class="rule-meta">Request and response · 8 actions</div></div>
+          <button class="edit" type="button" onclick="document.getElementById('edit-note').textContent='In Alfred, this opens the existing rule editor popup.'">Edit rule ↗</button>
+        </div>
+        <div class="rule-body">
+          <div class="phase">Request</div>
+          <div class="step"><span class="num">01</span><span><strong>Waited</strong> <small>5,000 ms before sending</small></span></div>
+          <div class="step"><span class="num">02</span><span><strong>Set JSON field</strong> <small>test[*].added</small></span></div>
+          <div class="step"><span class="num">03</span><span><strong>Set JSON field</strong> <small>test[1].addedto</small></span></div>
+          <div class="step"><span class="num">04</span><span><strong>Set JSON field</strong> <small>test[4].adedagain</small></span></div>
+          <div class="step"><span class="num">05</span><span><strong>Captured variable</strong> <small>this.cap from request JSON field noOfAdults</small></span></div>
+          <div class="step"><span class="num">06</span><span><strong>Set JSON field</strong> <small>filters.test[*].adedagain</small></span></div>
+          <div class="phase">Response</div>
+          <div class="step"><span class="num">07</span><span><strong>Captured variable</strong> <small>this.message from response JSON field message</small></span></div>
+          <div class="step"><span class="num">08</span><span><strong>Set JSON field</strong> <small>addedmessage</small></span></div>
+        </div>
+      </div>
+      <div class="foot"><span id="edit-note">Open “show what changed” below the call to compare the original and final content.</span></div>
+    </section>
+  </article>
+  <script>
+    const toggle = document.getElementById('toggle');
+    const details = document.getElementById('details');
+    toggle.addEventListener('click', () => { details.hidden = !details.hidden; toggle.setAttribute('aria-expanded', String(!details.hidden)); });
+  </script>
+</body>
+</html>

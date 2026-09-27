@@ -78,6 +78,12 @@ These are internal Java APIs reached through the backend-app bridge; there is no
 |---|---|---|
 | `GET /settings/variables` | — | `{variables:{name:value}, fallbacks:{deletedName:text}}` |
 | `PUT /settings/variables` | Same state object; variable values and fallback text are strings and may be multiline. | Saved state object |
+| `PUT /settings/variables/{name}` | `{value: string}` - sets the variable, clears its fallback | Full state |
+| `DELETE /settings/variables/{name}?fallback=<text>` | — (omit `fallback` for none) | Full state |
+| `POST /settings/variables/promoted` | `{name, value: string}` - sent by the proxy after a GLOBAL capture | Full state |
+
+State responses also carry `updatedAt:{name:epochMs}`, maintained server-side (a client-sent one is ignored).
+Limits: at most 1000 variable+fallback names and 1,048,576 characters per value, else `400`.
 
 The backend persists this global state in SQLite by default and atomically publishes it to the shared proxy
 volume. With file storage selected, the atomically written shared file is the store. The proxy reloads the variable snapshot when its modification time changes and resolves

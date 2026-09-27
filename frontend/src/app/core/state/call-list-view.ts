@@ -76,7 +76,41 @@ export interface CallStats {
   readonly client: number;
   readonly failed: number;
   readonly inProgress: number;
+  /** How many of the scoped calls an interception rule (or a hand-made breakpoint edit) touched -
+   * see `interceptionFilter`'s doc for why this is scoped the same way `ok`/`client`/`failed` are. */
+  readonly intercepted: number;
+  /** How many of the scoped calls are themselves a resend (`resendOf` set) - see `resendFilter`. */
+  readonly resent: number;
 }
+
+/** One rule that touched at least one currently-loaded call, and how many - what the Filters
+ * menu's "By rule…" submenu lists (F1). Scoped like `supplierOptions` (optionsFiltered), so it
+ * only ever offers rules that actually appear on a call you can currently see. */
+export interface InterceptionRuleOption {
+  readonly ruleId: string;
+  readonly ruleName: string;
+  readonly count: number;
+}
+
+/**
+ * Client-side narrowing by whether an interception rule touched a call - re-filters the
+ * already-loaded window exactly like `statusFilter`/`nestedOnly`, never refetches. `'rule'` narrows
+ * to one specific rule (the Filters menu's "By rule…" submenu); `'untouched'` is its complement of
+ * `'intercepted'`, not simply "not this rule", so it still means "no rule touched this call" even
+ * while a specific rule is also selectable.
+ */
+export type InterceptionFilter =
+  | { readonly kind: 'all' }
+  | { readonly kind: 'intercepted' }
+  | { readonly kind: 'untouched' }
+  | { readonly kind: 'rule'; readonly ruleId: string; readonly ruleName: string };
+
+export const ALL_INTERCEPTION_FILTER: InterceptionFilter = { kind: 'all' };
+
+/** Same idea as InterceptionFilter, for resend: 'resent' keeps only calls that ARE a resend,
+ * 'originals' keeps only calls that WERE resent (a loaded call whose id is some loaded call's
+ * `resendOf`) - see `originalCallIds`. */
+export type ResendFilter = 'all' | 'resent' | 'originals';
 
 /** How long a burst of refresh() calls is folded into one trailing fetch - see refreshes$. */
 export const REFRESH_WINDOW_MS = 400;
@@ -169,6 +203,17 @@ export interface CallListView {
    * later visit. It shows as a removable chip in the header for the same reason.
    */
   readonly nestedOnly: Signal<boolean>;
+  /**
+   * Client-side narrowing by interception, combined with `statusFilter` (AND, not OR - "intercepted"
+   * plus "errors/5xx" means both) - see InterceptionFilter's doc. Not persisted, like `statusFilter`
+   * and `nestedOnly`: it's a temporary drill-down over the current window, not a standing preference.
+   */
+  readonly interceptionFilter: Signal<InterceptionFilter>;
+  /** Client-side narrowing by resend, combined with the other filters the same way. */
+  readonly resendFilter: Signal<ResendFilter>;
+  /** The rules currently appearing on loaded calls, for the Filters menu's "By rule…" submenu -
+   * scoped like `supplierOptions` (see InterceptionRuleOption's doc). */
+  readonly interceptionRuleOptions: Signal<readonly InterceptionRuleOption[]>;
   readonly expanded: Signal<boolean>;
   readonly collapseAllVersion: Signal<number>;
   readonly loading: Signal<boolean>;
@@ -234,6 +279,11 @@ export interface CallListView {
   /** See `nestedOnly`. Takes an explicit value rather than toggling so the header's "clear this
    * filter" chip and its menu item can't drift apart about what "off" means. */
   setNestedOnly(value: boolean): void;
+  /** Clicking the same filter again clears it back to 'all' - see the two stat-bar pills and the
+   * Filters menu's Interception section, both of which go through this one setter. */
+  setInterceptionFilter(filter: InterceptionFilter): void;
+  /** Same toggle-off-on-repeat rule as setInterceptionFilter/setStatusFilter. */
+  setResendFilter(filter: ResendFilter): void;
   /** Picking a tree view ('nested'/'waterfall') while a non-chronological sort is active also moves
    * the list back to a chronological sort - a tree can't be drawn over an order that scatters a
    * parent away from its children (see CallViewMode's doc). */
@@ -300,6 +350,8 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const groupBySupplier = signal(false);
   const showOptionsCalls = signal(loadShowOptionsCalls());
   const nestedOnly = signal(false);
+  const interceptionFilter = signal<InterceptionFilter>(ALL_INTERCEPTION_FILTER);
+  const resendFilter = signal<ResendFilter>('all');
   const viewMode = signal<CallViewMode>(loadViewMode());
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
@@ -423,18 +475,56 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   });
 
   /**
-   * statusFiltered narrowed to calls involved in nesting, when that filter is on - see `nestedOnly`.
+   * Every id that's some LOADED call's `resendOf` - what "Originals that were resent" (resendFilter
+   * 'originals') keeps. Scoped to optionsFiltered like stats()/supplierOptions(), not to whatever's
+   * currently filtered further down, so this doesn't shrink just because another filter narrowed the
+   * window it's read against - an original resent twice stays findable either way.
+   */
+  const originalCallIds = computed<ReadonlySet<string>>(() => {
+    const ids = new Set<string>();
+    for (const c of optionsFiltered()) {
+      if (c.resendOf) ids.add(c.resendOf);
+    }
+    return ids;
+  });
+
+  /**
+   * statusFiltered narrowed by interception/resend, when either filter is on - see
+   * InterceptionFilter/ResendFilter's docs. Both combine with statusFilter by AND (this sits after
+   * it), and with EACH OTHER by AND too (narrow to intercepted AND resent calls, if both are set,
+   * rather than either).
+   */
+  const powerFiltered = computed(() => {
+    let calls = statusFiltered();
+    const filter = interceptionFilter();
+    if (filter.kind === 'intercepted') calls = calls.filter((c) => c.interception != null);
+    else if (filter.kind === 'untouched') calls = calls.filter((c) => c.interception == null);
+    else if (filter.kind === 'rule') {
+      const ruleId = filter.ruleId;
+      calls = calls.filter((c) => (c.interception?.applied ?? []).some((a) => a.ruleId === ruleId));
+    }
+    const resend = resendFilter();
+    if (resend === 'resent') calls = calls.filter((c) => c.resendOf != null);
+    else if (resend === 'originals') {
+      const originals = originalCallIds();
+      calls = calls.filter((c) => originals.has(c.id));
+    }
+    return calls;
+  });
+
+  /**
+   * powerFiltered narrowed to calls involved in nesting, when that filter is on - see `nestedOnly`.
    *
-   * Sits here, AFTER the pin/status narrowing and BEFORE the sort, for two reasons: the tree must be
-   * built over exactly the calls the list would otherwise show (building it earlier would find
-   * parents among calls that are filtered out, and keep children whose parent isn't there), and
+   * Sits here, AFTER the pin/status/power narrowing and BEFORE the sort, for two reasons: the tree
+   * must be built over exactly the calls the list would otherwise show (building it earlier would
+   * find parents among calls that are filtered out, and keep children whose parent isn't there), and
    * `stats()`/`supplierOptions()` are scoped further up on purpose, so turning this on never makes
    * the stat pills' own counts shrink underneath it.
    *
    * The extra buildCallTree here is only paid while the filter is actually on.
    */
   const nestingFiltered = computed(() => {
-    const calls = statusFiltered();
+    const calls = powerFiltered();
     if (!nestedOnly()) return calls;
     const keep = nestedCallIds(buildCallTree(calls));
     return calls.filter((c) => keep.has(c.id));
@@ -517,7 +607,32 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       client: list.filter((c) => c.response && c.response.status >= 400 && c.response.status < 500).length,
       failed: list.filter((c) => c.error || (c.response && c.response.status >= 500)).length,
       inProgress: list.filter(isInProgress).length,
+      intercepted: list.filter((c) => c.interception != null).length,
+      resent: list.filter((c) => c.resendOf != null).length,
     };
+  });
+
+  /** See InterceptionRuleOption's doc - one entry per rule id/name pair that appears on a loaded
+   * call, scoped to optionsFiltered like stats()/supplierOptions() above. A rule applied under two
+   * different names (renamed between two calls) is kept as two separate options rather than merged,
+   * since "Edit rule" from either one still opens the same current rule - the name is just a label. */
+  const interceptionRuleOptions = computed<InterceptionRuleOption[]>(() => {
+    const counts = new Map<string, { ruleName: string; count: number }>();
+    for (const c of optionsFiltered()) {
+      // A rule that fired several actions on the same call (e.g. one SET_HEADER per header) must
+      // only count that call once here - this counts CALLS a rule touched, not actions it took.
+      const ruleIdsOnThisCall = new Set<string>();
+      for (const applied of c.interception?.applied ?? []) {
+        if (!applied.ruleId || ruleIdsOnThisCall.has(applied.ruleId)) continue;
+        ruleIdsOnThisCall.add(applied.ruleId);
+        const existing = counts.get(applied.ruleId);
+        if (existing) existing.count += 1;
+        else counts.set(applied.ruleId, { ruleName: applied.ruleName || 'Manual edit', count: 1 });
+      }
+    }
+    return [...counts.entries()]
+      .map(([ruleId, value]) => ({ ruleId, ruleName: value.ruleName, count: value.count }))
+      .sort((a, b) => a.ruleName.localeCompare(b.ruleName));
   });
 
   /** Declared here rather than inline below because `descendants` and the fold helpers all read it. */
@@ -535,6 +650,9 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     groupBySupplier,
     showOptionsCalls,
     nestedOnly,
+    interceptionFilter,
+    resendFilter,
+    interceptionRuleOptions,
     expanded,
     collapseAllVersion,
     loading,
@@ -615,6 +733,12 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     setNestedOnly(value: boolean) {
       nestedOnly.set(value);
     },
+    setInterceptionFilter(filter: InterceptionFilter) {
+      interceptionFilter.update((current) => (sameInterceptionFilter(current, filter) ? ALL_INTERCEPTION_FILTER : filter));
+    },
+    setResendFilter(filter: ResendFilter) {
+      resendFilter.update((current) => (current === filter ? 'all' : filter));
+    },
     setViewMode(mode: CallViewMode) {
       viewMode.set(mode);
       saveViewMode(mode);
@@ -654,4 +778,13 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       fetch(0, pageSize(), true);
     },
   };
+}
+
+/** Value equality for InterceptionFilter - a plain `===` would never match two 'rule' filters for
+ * the same rule (different object identity), so clicking the same "By rule…" entry twice would
+ * never clear it the way every other filter in this file does on a repeat click. */
+function sameInterceptionFilter(a: InterceptionFilter, b: InterceptionFilter): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'rule' && b.kind === 'rule') return a.ruleId === b.ruleId;
+  return true;
 }

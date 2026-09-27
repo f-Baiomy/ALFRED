@@ -34,6 +34,7 @@ import {
   MatchTest,
   MatchTestKind,
   MatchTestOperator,
+  matchTestNeedsValue as matchTestOperatorNeedsValue,
   BODY_TEST_OPERATORS,
   BodyTest,
   bodyTestFormats,
@@ -47,6 +48,8 @@ import {
   isActionEnabled,
   isTerminalAction,
 } from '../../core/models/interception.model';
+import { GlobalVariablesService } from '../../core/services/global-variables.service';
+import { VARIABLE_NAME } from '../../shared/utils/variable-tokens';
 import { CallRuleDraft } from '../../core/services/rule-draft.service';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { EditTabService } from '../../core/services/edit-tab.service';
@@ -112,6 +115,7 @@ import {
   FAILURE_HELP,
   HelpEntry,
   MATCH_TEST_HELP,
+  VARIABLE_TEST_HELP,
   helpForAction,
   helpForOperator,
   helpForSubject,
@@ -474,6 +478,23 @@ export class RuleEditorComponent implements OnInit {
     Object.keys(MATCH_TEST_OPERATOR_LABELS) as MatchTestOperator[]
   ).map((operator) => ({ value: operator, label: MATCH_TEST_OPERATOR_LABELS[operator] }));
   readonly matchTestHelp = MATCH_TEST_HELP;
+  /** Exposed for the template - whether a variable test's operator needs a value box at all. */
+  readonly matchTestOperatorNeedsValue = matchTestOperatorNeedsValue;
+
+  /**
+   * "Variable tests" (D5) - kept as its own list rather than folded into `matchTests`: a variable
+   * test reads the shared variable store, not anything on the call being matched, so it does not
+   * belong in the "Only when…" row picker (fill-from-a-call, its live "still matches" check) that
+   * `matchTests` shares with header/query/cookie/body rows.
+   */
+  readonly variableTests = signal<MatchTest[]>([]);
+  readonly variableTestHelp = VARIABLE_TEST_HELP;
+  private readonly globalVariables = inject(GlobalVariablesService);
+  /** Names offered by the variable test's autocomplete - every variable the shared store knows about. */
+  readonly globalVariableNames = computed(() => this.globalVariables.entries().map((v) => v.name));
+
+  /** Rule-level "Apply to every Nth matching call" (D5) - null/absent means every one. */
+  readonly everyNth = signal<number | null>(null);
 
   /** Mutable working copy - the domain type is readonly, and this is the one place a rule is edited. */
   readonly actions = signal<RuleAction[]>([]);
@@ -626,6 +647,7 @@ export class RuleEditorComponent implements OnInit {
     this.name.set(rule.name);
     this.description.set(rule.description ?? '');
     this.stopProcessing.set(rule.stopProcessing ?? false);
+    this.everyNth.set(rule.everyNth ?? null);
     this.source.set((rule.match.source as RuleSource) ?? 'both');
     // Either shape - a rule saved before the field was a list still has to load into the form
     // it is now edited with.
@@ -655,6 +677,7 @@ export class RuleEditorComponent implements OnInit {
         })
       ),
     ]);
+    this.variableTests.set((rule.match.variables ?? []).map((t) => ({ ...t })));
     this.actions.set(rule.actions.map((a) => ({ ...a })));
   }
 
@@ -695,6 +718,57 @@ export class RuleEditorComponent implements OnInit {
     const operator = value as ConditionOperator;
     // A value left behind on EXISTS would be saved, shown nowhere, and confuse the next reader of the JSON.
     this.patchMatchTest(index, bodyTestNeedsValue(operator) ? { operator } : { operator, value: null, caseSensitive: null });
+  }
+
+  addVariableTest(): void {
+    this.variableTests.update((rows) => [...rows, { name: '', operator: 'EXISTS', value: null }]);
+  }
+
+  removeVariableTest(index: number): void {
+    this.variableTests.update((rows) => rows.filter((_, i) => i !== index));
+  }
+
+  patchVariableTest(index: number, patch: Partial<MatchTest>): void {
+    this.variableTests.update((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  onVariableTestOperator(index: number, value: string): void {
+    const operator = value as MatchTestOperator;
+    this.patchVariableTest(index, matchTestOperatorNeedsValue(operator) ? { operator } : { operator, value: null });
+  }
+
+  /**
+   * Client-side mirror of the backend's variable-name check (GlobalVariablesService.NAME /
+   * RuleValidator) - shown inline, non-blocking; the backend has the final word on save.
+   */
+  variableTestNameProblem(name: string): string | null {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith('this.')) return 'A variable test names a GLOBAL variable - "this." is reserved for rule-local captures.';
+    if (!VARIABLE_NAME.test(trimmed)) return 'A variable name starts with a letter, then letters, digits, _, . or -.';
+    return null;
+  }
+
+  /** Mirrors RuleValidator: a value is required unless the operator compares against nothing. */
+  variableTestValueProblem(row: MatchTest): string | null {
+    return matchTestOperatorNeedsValue(row.operator) && !row.value?.trim() ? 'This test needs a value to compare with.' : null;
+  }
+
+  /** Mirrors the backend's 2..1000 range for `everyNth` - empty means every matching call. */
+  everyNthProblem(): string | null {
+    const value = this.everyNth();
+    if (value == null) return null;
+    return Number.isInteger(value) && value >= 2 && value <= 1000 ? null : 'Apply to every Nth call needs a whole number between 2 and 1000, or leave it empty for every call.';
+  }
+
+  onEveryNth(raw: string): void {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      this.everyNth.set(null);
+      return;
+    }
+    const parsed = Number.parseInt(trimmed, 10);
+    this.everyNth.set(Number.isFinite(parsed) ? parsed : null);
   }
 
   /** Switching kind keeps what still makes sense and resets the operator to one the new kind takes. */
@@ -1739,6 +1813,10 @@ export class RuleEditorComponent implements OnInit {
     return type === 'CAPTURE_REQUEST_VARIABLE' || type === 'CAPTURE_RESPONSE_VARIABLE';
   }
 
+  isSetVariable(type: ActionType): boolean {
+    return type === 'SET_REQUEST_VARIABLE' || type === 'SET_RESPONSE_VARIABLE';
+  }
+
   availableLocalNames(path: readonly number[]): string[] {
     const current = actionAt(this.actions(), path);
     if (!current) return [];
@@ -1746,7 +1824,8 @@ export class RuleEditorComponent implements OnInit {
     const names = new Set<string>();
     const add = (action: RuleAction) => {
       if (action.enabled === false || !action.name) return;
-      if (action.type === 'CAPTURE_REQUEST_VARIABLE' || (phase === 'response' && action.type === 'CAPTURE_RESPONSE_VARIABLE')) {
+      if (action.type === 'CAPTURE_REQUEST_VARIABLE' || action.type === 'SET_REQUEST_VARIABLE'
+          || (phase === 'response' && (action.type === 'CAPTURE_RESPONSE_VARIABLE' || action.type === 'SET_RESPONSE_VARIABLE'))) {
         // Dual visibility: a GLOBAL capture stays usable as {{this.name}} in its own
         // rule (the engine keeps it in the rule-local values), while {{name}} serves
         // later calls - so both scopes are offered here.
@@ -1754,14 +1833,99 @@ export class RuleEditorComponent implements OnInit {
       }
     };
     this.actions().forEach((action, index) => {
-      if (action.type === 'CAPTURE_REQUEST_VARIABLE' && (phase === 'response' || index < path[0])) add(action);
-      if (phase === 'response' && index < path[0] && action.type === 'CAPTURE_RESPONSE_VARIABLE') add(action);
+      if ((action.type === 'CAPTURE_REQUEST_VARIABLE' || action.type === 'SET_REQUEST_VARIABLE') && (phase === 'response' || index < path[0])) add(action);
+      if (phase === 'response' && index < path[0] && (action.type === 'CAPTURE_RESPONSE_VARIABLE' || action.type === 'SET_RESPONSE_VARIABLE')) add(action);
     });
     if (path.length > 1) {
       const siblings = listAt(this.actions(), path.slice(0, -1));
       siblings.slice(0, path[path.length - 1]).forEach(add);
     }
     return [...names].sort();
+  }
+
+  /** Every action in the rule, branches and their `otherwise` included, in no particular order. */
+  private flattenActions(actions: readonly RuleAction[]): RuleAction[] {
+    const out: RuleAction[] = [];
+    for (const action of actions) {
+      out.push(action);
+      if (action.branches) for (const branch of action.branches) out.push(...this.flattenActions(branch.actions));
+      if (action.otherwise) out.push(...this.flattenActions(action.otherwise));
+    }
+    return out;
+  }
+
+  /**
+   * C3 (scope-aware autocomplete): every capture in the rule, named, with whether it is available
+   * at `path` and why not when it is not - mirrors the backend RuleValidator's LOCAL_REFERENCE
+   * check (see `validateLocalOrder`): a request capture is available to later request actions and
+   * to every response action; a response capture only to later response actions. JSON-encoded onto
+   * `data-local-variables` (contracts.md section 6) for the global-variables popup (owner F-VARS)
+   * to read - this only sets the attribute, it does not read it back.
+   */
+  localVariablesFor(path: readonly number[]): { name: string; available: boolean; reason: string }[] {
+    const current = actionAt(this.actions(), path);
+    const phase = current ? actionPhase(current.type) : 'request';
+    const available = new Set(this.availableLocalNames(path));
+    const at = path[0];
+    const seen = new Map<string, { name: string; available: boolean; reason: string }>();
+    this.actions().forEach((action, index) => {
+      if (!this.isCapture(action.type) && !this.isSetVariable(action.type)) return;
+      const name = action.name?.trim();
+      if (!name || seen.has(name)) return;
+      if (available.has(name)) {
+        seen.set(name, { name, available: true, reason: '' });
+        return;
+      }
+      const reason =
+        (action.type === 'CAPTURE_RESPONSE_VARIABLE' || action.type === 'SET_RESPONSE_VARIABLE') && phase === 'request'
+          ? 'response capture, not available in request'
+          : index >= at
+            ? `captured later in this rule (step ${index + 1})`
+            : 'captured in an earlier or later branch, not this one';
+      seen.set(name, { name, available: false, reason });
+    });
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Every capture, JSON-encoded for a `[attr.data-local-variables]` binding. */
+  localVariablesJsonFor(path: readonly number[]): string {
+    return JSON.stringify(this.localVariablesFor(path));
+  }
+
+  /**
+   * Match tests run before any action in the rule, so no capture is ever available there - still
+   * named (greyed out, with why) rather than an empty list, so the popup can say what would make
+   * one available instead of just offering nothing.
+   */
+  readonly matchLocalVariables = computed<{ name: string; available: boolean; reason: string }[]>(() => {
+    const seen = new Map<string, { name: string; available: boolean; reason: string }>();
+    this.flattenActions(this.actions()).forEach((action) => {
+      if (!this.isCapture(action.type) && !this.isSetVariable(action.type)) return;
+      const name = action.name?.trim();
+      if (!name || seen.has(name)) return;
+      seen.set(name, { name, available: false, reason: 'captured while the rule runs - not available in match tests' });
+    });
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  readonly matchLocalVariablesJson = computed(() => JSON.stringify(this.matchLocalVariables()));
+
+  /** B1: "used later as {{this.x}} in N actions" - actions elsewhere in this rule whose text references it. */
+  countLocalUses(action: RuleAction): number {
+    const name = action.name?.trim();
+    if (!name) return 0;
+    const token = `{{this.${name}}}`;
+    return this.flattenActions(this.actions()).filter((a) => a !== action && JSON.stringify(a).includes(token)).length;
+  }
+
+  /** B1: "as {{x}} in M other rules" - GLOBAL scope only. Scans every OTHER published rule's text. */
+  countOtherRuleUses(action: RuleAction): number {
+    if (action.scope !== 'GLOBAL') return 0;
+    const name = action.name?.trim();
+    if (!name) return 0;
+    const token = `{{${name}}}`;
+    const id = this.rule?.id ?? null;
+    return this.state.rules().filter((r) => r.id !== id && JSON.stringify(r).includes(token)).length;
   }
 
   readonly captureSourceOptions: readonly SelectOption[] = [
@@ -2084,6 +2248,7 @@ export class RuleEditorComponent implements OnInit {
       enabled: this.rule?.enabled ?? this.snapshot?.draft.enabled ?? true,
       priority: this.rule?.priority ?? this.snapshot?.draft.priority ?? 100,
       stopProcessing: this.stopProcessing(),
+      everyNth: this.everyNth(),
       match: {
         source: this.source(),
         serviceNames: this.serviceNames(),
@@ -2092,6 +2257,9 @@ export class RuleEditorComponent implements OnInit {
         pathContains: this.pathContains().trim() || null,
         pathRegex: this.pathRegex().trim() || null,
         ...this.matchTestLists(),
+        variables: this.variableTests()
+          .filter((t) => t.name.trim())
+          .map((t) => ({ ...t, name: t.name.trim() })),
       },
       actions: this.actions(),
       sourceCall: this.sourceCall(),
@@ -2155,6 +2323,9 @@ function defaultsFor(type: ActionType): RuleAction {
     case 'CAPTURE_REQUEST_VARIABLE':
     case 'CAPTURE_RESPONSE_VARIABLE':
       return { type, name: '', path: '', captureSource: 'JSON_FIELD', missingBehavior: 'SKIP', scope: 'LOCAL' };
+    case 'SET_REQUEST_VARIABLE':
+    case 'SET_RESPONSE_VARIABLE':
+      return { type, name: '', value: '', scope: 'LOCAL' };
     case 'SET_RESPONSE_STATUS':
       return { type, status: 500 };
     case 'SET_RESPONSE_BODY':

@@ -73,6 +73,7 @@ export const CATALOG: Readonly<Partial<Record<ActionType, CatalogEntry>>> = {
   REMOVE_QUERY_PARAM: { group: 'url', goals: ['change'], hint: 'Strip one query parameter.' },
   SET_REQUEST_JSON_FIELD: { group: 'body', goals: ['change'], hint: 'Change one value in a JSON body, by path.', fits: 'json' },
   CAPTURE_REQUEST_VARIABLE: { group: 'variables', goals: ['change'], hint: 'Read a request field, header or cookie for later actions.' },
+  SET_REQUEST_VARIABLE: { group: 'variables', goals: ['change'], hint: 'Set a value for later actions or share it globally.' },
   REMOVE_REQUEST_JSON_FIELD: { group: 'body', goals: ['change'], hint: 'Delete one value from a JSON body.', fits: 'json' },
   REPLACE_IN_REQUEST_BODY: {
     group: 'body',
@@ -112,6 +113,7 @@ export const CATALOG: Readonly<Partial<Record<ActionType, CatalogEntry>>> = {
   SET_RESPONSE_ENCODING: { group: 'status', goals: ['change'], hint: 'Re-encode the body.' },
   SET_RESPONSE_JSON_FIELD: { group: 'body', goals: ['change'], hint: 'Change one value in a JSON body, by path.', fits: 'json' },
   CAPTURE_RESPONSE_VARIABLE: { group: 'variables', goals: ['change'], hint: 'Read a response field, header or cookie for later actions.' },
+  SET_RESPONSE_VARIABLE: { group: 'variables', goals: ['change'], hint: 'Set a value for later response actions or share it globally.' },
   REMOVE_RESPONSE_JSON_FIELD: { group: 'body', goals: ['change'], hint: 'Delete one value from a JSON body.', fits: 'json' },
   REPLACE_IN_RESPONSE_BODY: {
     group: 'body',

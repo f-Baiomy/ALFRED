@@ -29,7 +29,9 @@ public record InterceptionRuleRequestDto(
         Boolean stopProcessing,
         RuleMatch match,
         List<RuleAction> actions,
-        SourceCallRef sourceCall) {
+        SourceCallRef sourceCall,
+        /** D5: applies to every Nth call that otherwise matches - null or 2..1000, see RuleValidator. */
+        Integer everyNth) {
 
     public InterceptionRule toDomain() {
         return new InterceptionRule(
@@ -46,6 +48,7 @@ public record InterceptionRuleRequestDto(
                 actions,
                 sourceCall,
                 null,
-                null);
+                null,
+                everyNth);
     }
 }

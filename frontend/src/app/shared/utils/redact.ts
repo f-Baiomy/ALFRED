@@ -155,8 +155,72 @@ function redactSnapshot(
   return { http: { ...http, headers: headers.headers, body: body.body, url: url.url ?? http.url }, count };
 }
 
+/**
+ * Values of secret global variables (D6, specs/002-power-features). Unlike the named redactions
+ * above - which say WHERE a secret sits - a secret variable says WHAT it is, so it is masked by
+ * value, wherever it turns up: a header, a body, a URL, an interception snapshot, a resend edit.
+ * Pushed here by SecretValuesService whenever the variables change, so every export path that
+ * already calls redactCall/redactCalls is covered without knowing this exists.
+ */
+let secretValues: readonly string[] = [];
+
+/** Very short values are skipped: masking every "1" or "ok" in a capture would shred it. */
+const MIN_SECRET_LENGTH = 4;
+
+export function setSecretValues(values: readonly string[]): void {
+  // Longest first, so a secret that contains another is masked whole rather than in pieces.
+  secretValues = [...new Set(values.filter((v) => typeof v === 'string' && v.length >= MIN_SECRET_LENGTH))]
+    .sort((a, b) => b.length - a.length);
+}
+
+function maskSecretsDeep(node: unknown, counter: { n: number }): unknown {
+  if (typeof node === 'string') {
+    let out = node;
+    for (const secret of secretValues) {
+      if (!out.includes(secret)) continue;
+      const parts = out.split(secret);
+      counter.n += parts.length - 1;
+      out = parts.join(REDACTED);
+    }
+    return out;
+  }
+  if (Array.isArray(node)) {
+    let changed = false;
+    const mapped = node.map((item) => {
+      const next = maskSecretsDeep(item, counter);
+      if (next !== item) changed = true;
+      return next;
+    });
+    return changed ? mapped : node;
+  }
+  if (node !== null && typeof node === 'object') {
+    let changed = false;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      const next = maskSecretsDeep(value, counter);
+      if (next !== value) changed = true;
+      out[key] = next;
+    }
+    return changed ? out : node;
+  }
+  return node;
+}
+
 /** Masks one call. Returns the call unchanged (same reference) when nothing applies, so an export with no redactions costs nothing. */
 export function redactCall(call: CallRecord, redactions: readonly Redaction[]): { call: CallRecord; count: number } {
+  const named = redactByName(call, redactions);
+  if (secretValues.length === 0) return named;
+  const counter = { n: 0 };
+  const masked = maskSecretsDeep(named.call, counter) as CallRecord;
+  return counter.n === 0 ? named : { call: masked, count: named.count + counter.n };
+}
+
+/** Masks free text (a scenario report, a cURL line) with the same secret values. */
+export function redactSecrets(text: string): string {
+  return secretValues.length === 0 ? text : (maskSecretsDeep(text, { n: 0 }) as string);
+}
+
+function redactByName(call: CallRecord, redactions: readonly Redaction[]): { call: CallRecord; count: number } {
   if (redactions.length === 0) return { call, count: 0 };
 
   const reqHeaders = redactHeaders(call.request?.headers, namesOfKind(redactions, call.id, 'request-header'));
@@ -220,7 +284,7 @@ export function redactCall(call: CallRecord, redactions: readonly Redaction[]): 
 
 /** The choke point every export path calls before handing calls to a builder. */
 export function redactCalls(calls: readonly CallRecord[], redactions: readonly Redaction[]): RedactionResult {
-  if (redactions.length === 0) return { calls, redactedValueCount: 0 };
+  if (redactions.length === 0 && secretValues.length === 0) return { calls, redactedValueCount: 0 };
   let total = 0;
   const out = calls.map((call) => {
     const { call: redacted, count } = redactCall(call, redactions);

@@ -1,6 +1,6 @@
 import { CallRecord } from '../../core/models/call.model';
 import { Redaction, RedactionKind, RedactionScope } from '../../core/models/redaction.model';
-import { REDACTED, redactCall, redactCalls } from './redact';
+import { REDACTED, redactCall, redactCalls, redactSecrets, setSecretValues } from './redact';
 
 const TOKEN = 'Bearer eyJhbGciOiJIUzI1NiJ9.SUPERSECRET';
 const APIKEY = 'test_api_key_do_not_use_in_production';
@@ -230,5 +230,35 @@ describe('redactCalls', () => {
     const { call: out } = redactCall(original, [redaction('request-header', 'nothing-matches-this')]);
 
     expect(out).toBe(original);
+  });
+});
+
+describe('secret variable values (D6)', () => {
+  afterEach(() => setSecretValues([]));
+
+  it('masks a secret value wherever it appears, longest first, and counts it', () => {
+    setSecretValues(['abcd', 'abcdefgh', 'x']);
+    const call = {
+      id: 'c1', url: 'https://h/p?k=abcdefgh', method: 'GET', timestamp: 't',
+      request: { headers: { Authorization: 'Bearer abcdefgh' }, body: '{"a":"abcd"}' },
+      resendEdits: { note: 'abcd' },
+    } as unknown as CallRecord;
+    const { call: out, count } = redactCall(call, []);
+    expect(out.url).toBe('https://h/p?k=***REDACTED***');
+    expect(out.request?.headers?.['Authorization']).toBe('Bearer ***REDACTED***');
+    expect(out.request?.body).toBe('{"a":"***REDACTED***"}');
+    expect((out.resendEdits as { note: string }).note).toBe('***REDACTED***');
+    expect(count).toBe(4);
+  });
+
+  it('returns the same call when no secret occurs', () => {
+    setSecretValues(['zzzz']);
+    const call = { id: 'c1', url: 'u', method: 'GET', timestamp: 't' } as unknown as CallRecord;
+    expect(redactCall(call, []).call).toBe(call);
+  });
+
+  it('redactSecrets masks free text', () => {
+    setSecretValues(['s3cret-token']);
+    expect(redactSecrets('curl -H "X: s3cret-token"')).toBe('curl -H "X: ***REDACTED***"');
   });
 });

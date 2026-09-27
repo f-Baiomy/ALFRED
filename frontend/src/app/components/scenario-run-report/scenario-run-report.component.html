@@ -1,0 +1,36 @@
+<div class="scenario-run-report">
+  <div class="scenario-run-summary">
+    <span>{{ passedCount() }} / {{ rows().length }} drafts passed</span>
+    <div class="scenario-run-export-actions">
+      <button type="button" class="dialog-btn secondary" (click)="exportMarkdown()">Export .md</button>
+      <button type="button" class="dialog-btn secondary" (click)="exportHtml()">Export .html</button>
+    </div>
+  </div>
+
+  @for (row of rows(); track row.key) {
+    <div class="scenario-report-row" [class.failed]="!row.passed">
+      <button type="button" class="scenario-report-row-header" (click)="toggle(row)">
+        <span class="scenario-status-chip" [class.pass]="row.passed" [class.fail]="!row.passed">{{ row.passed ? 'PASS' : 'FAIL' }}</span>
+        <span class="scenario-report-label">{{ row.label }}</span>
+        <span class="scenario-report-meta">{{ row.result.status ?? '—' }} · {{ row.result.durationMs ?? '—' }}ms</span>
+      </button>
+      @if (isExpanded(row)) {
+        <div class="scenario-report-body">
+          @if (row.result.error) {
+            <p class="scenario-report-error">{{ row.result.error }}</p>
+          }
+          <div class="scenario-assertion-chips">
+            @for (a of row.assertions; track $index) {
+              <span class="scenario-assertion-chip" [class.pass]="a.passed" [class.fail]="!a.passed" [title]="a.message">
+                {{ a.assertion.kind }}{{ a.assertion.path ? ' ' + a.assertion.path : '' }}
+              </span>
+            }
+          </div>
+          @if (!row.passed && row.result.response) {
+            <pre class="scenario-report-body-text">{{ row.result.response.body }}</pre>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>

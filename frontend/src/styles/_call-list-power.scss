@@ -1,0 +1,283 @@
+// call-list-power - see specs/002-power-features/contracts.md for ownership.
+//
+// F1: the two extra stat-bar pills and the Filters menu's Interception/Resend sections.
+// F2: waterfall interception/resend badges, injected-delay overlay, hover card and legend.
+// F3: the capture-link button inside a call card's interception log (C4).
+//
+// Every rule below uses the app's existing theme tokens (--amber/--cyan/--purple/--border/--card/
+// --text-dim/etc.) rather than hardcoded colors, so it renders correctly across dark/light/glass
+// and any theme added later - same convention as the rest of styles.scss.
+
+// ---- F1: stat-bar pills ----
+
+.stat-pill-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 0.15rem;
+}
+
+.stat-pill.intercepted b {
+  color: var(--amber);
+}
+.stat-pill.resent b {
+  color: var(--cyan);
+}
+.stat-pill.intercepted.active {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 18%, var(--card));
+}
+.stat-pill.resent.active {
+  border-color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 18%, var(--card));
+}
+
+// ---- F1: Filters menu - Interception/Resend sections ----
+
+.filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.filter-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-left: 0.6rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid var(--border);
+}
+
+.filter-submenu-label {
+  margin-top: 0.15rem;
+}
+
+.filter-option-item.active {
+  color: var(--purple-light);
+  background: color-mix(in srgb, var(--purple) 16%, transparent);
+}
+
+.filter-option-count {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+// ---- F3/C4: capture-link inside a call card's interception log ----
+
+.capture-link {
+  display: inline;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--cyan);
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--purple-light);
+  }
+}
+
+// ---- F2: waterfall badges ----
+
+.intercept-badge-mini,
+.resend-badge-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+.intercept-badge-mini {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+}
+
+.resend-badge-mini {
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 35%, transparent);
+}
+
+.resend-badge-percent {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+// The actual click targets for the two badges above (siblings of .waterfall-row-main - a button
+// can't contain another), rendered as small icon-only buttons right after it.
+.waterfall-badge-btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 999px;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-dim);
+  flex: none;
+
+  &:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+}
+
+.waterfall-bolt-icon {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  color: var(--amber);
+}
+
+// Amber inset edge on an intercepted call's bar / cyan outline on a resent call's bar.
+.waterfall-track-intercepted .waterfall-bar {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 55%, transparent);
+}
+.waterfall-track-resent .waterfall-bar {
+  outline: 1px solid color-mix(in srgb, var(--cyan) 55%, transparent);
+  outline-offset: -1px;
+}
+
+// Hatched amber overlay for an injected DELAY_REQUEST/DELAY_RESPONSE segment - positioned with
+// left/width already root-relative (see delaySegmentsOf), same 0-100% scale as the bar it sits on.
+.waterfall-delay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--amber) 45%, transparent),
+    color-mix(in srgb, var(--amber) 45%, transparent) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.waterfall-track {
+  position: relative;
+}
+
+.waterfall-delay-label {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+// The row that's currently being scrolled-to-and-flashed (see focusOriginal()) - same idea as
+// CallCardComponent's .call-focus-flash, one flash then it's gone.
+@keyframes waterfall-row-flash {
+  0%,
+  100% {
+    background: transparent;
+  }
+  30% {
+    background: color-mix(in srgb, var(--cyan) 22%, transparent);
+  }
+}
+.waterfall-row-flash {
+  animation: waterfall-row-flash 2.4s ease-out;
+}
+
+// Hover card listing which rule(s) changed a call - opened from the ⚡ badge button.
+.waterfall-hover-card {
+  position: relative;
+  z-index: 5;
+  margin: 0.3rem 0 0.5rem 2.2rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.waterfall-hover-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.waterfall-hover-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.waterfall-hover-step {
+  color: var(--text-dim);
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.waterfall-hover-detail {
+  color: var(--text);
+}
+
+.waterfall-hover-error {
+  color: var(--red);
+}
+
+// Legend under the whole waterfall - only rendered when the loaded window has something to explain.
+.waterfall-legend {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.25rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+
+.waterfall-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.waterfall-legend-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 3px;
+}
+
+.waterfall-legend-intercepted {
+  color: var(--amber);
+}
+.waterfall-legend-resent {
+  color: var(--cyan);
+}
+.waterfall-legend-delay {
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--amber) 45%, transparent),
+    color-mix(in srgb, var(--amber) 45%, transparent) 2px,
+    transparent 2px,
+    transparent 4px
+  );
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+}

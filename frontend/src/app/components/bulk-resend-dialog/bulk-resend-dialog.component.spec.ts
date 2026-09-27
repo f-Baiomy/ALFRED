@@ -85,6 +85,15 @@ describe('BulkResendDialogComponent', () => {
     component.send();
     expect(spy).toHaveBeenCalledWith({ stopOnFailure: false, delayMs: 250 });
   });
+  it('edits assertions on the selected call without changing another draft', () => {
+    const editor = fixture.nativeElement.querySelector('app-scenario-assertion-editor');
+    expect(editor).toBeTruthy();
+    const add: HTMLButtonElement = Array.from(editor.querySelectorAll('button')).find((button: any) => button.textContent?.includes('Add assertion')) as HTMLButtonElement;
+    add.click();
+    fixture.detectChanges();
+    expect(service.drafts()[0].assertions).toEqual([{ kind: 'STATUS', operator: 'EQUALS', value: '200' }]);
+    expect(service.drafts()[1].assertions).toBeUndefined();
+  });
   it('hides while picking more calls, refusing ones already in the batch, and appends the picks on Return', () => {
     const picker = TestBed.inject(CallPickerService);
     component.addFromAnywhere();

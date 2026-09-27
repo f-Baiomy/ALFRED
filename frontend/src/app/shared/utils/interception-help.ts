@@ -36,15 +36,25 @@ export interface HelpEntry {
 const SAMPLE_BODY = `{"supplier":"TravelportNdc","searchCriteria":[{"origin":"CAI","destination":"DXB"}],"passengers":[{"count":1}],"promoCodes":null}`;
 
 export const ACTION_HELP: Readonly<Record<ActionType, HelpEntry>> = {
+  SET_REQUEST_VARIABLE: {
+    title: 'Set request variable', code: 'SET_REQUEST_VARIABLE',
+    what: 'Assign text or JSON to a variable before sending the request. Later actions can use {{this.name}}; Global scope also publishes {{name}} for other rules and calls.',
+    warning: 'Global scope overwrites the existing shared value.',
+  },
+  SET_RESPONSE_VARIABLE: {
+    title: 'Set response variable', code: 'SET_RESPONSE_VARIABLE',
+    what: 'Assign text or JSON after the response arrives. Later response actions can use {{this.name}}; Global scope also publishes {{name}} for other rules and calls.',
+    warning: 'A response value is not available to request actions on the same call.',
+  },
   CAPTURE_REQUEST_VARIABLE: {
     title: 'Capture request variable', code: 'CAPTURE_REQUEST_VARIABLE',
     what: 'Read a JSON field, header or cookie from this request and make it available to later actions in this rule as {{this.name}}.',
-    warning: 'A missing source skips actions that use the variable unless you set a fallback. The value lasts for this call only.',
+    warning: 'A missing source skips actions that use the variable unless you set a fallback. Global scope also stores the captured value for later calls.',
   },
   CAPTURE_RESPONSE_VARIABLE: {
     title: 'Capture response variable', code: 'CAPTURE_RESPONSE_VARIABLE',
     what: 'Read a JSON field, header or Set-Cookie from the response and make it available to later response actions in this rule as {{this.name}}.',
-    warning: 'This value is available after the response arrives. It cannot be used in request actions.',
+    warning: 'This value is available after the response arrives. It cannot be used in request actions. Global scope stores it for later calls.',
   },
   DELAY_REQUEST: {
     title: 'Delay request',
@@ -526,6 +536,24 @@ export const MATCH_TEST_HELP: HelpEntry = {
   ],
   warning:
     'Why here and not in a condition: a rule with "stop processing" stops later rules for every call it matches. A condition runs after the rule has matched, so it would stop them for calls without the header too. A match test that fails means the rule never matched.',
+};
+
+/**
+ * "Variable tests" in the match section - narrows the rule by a GLOBAL variable's current value,
+ * rather than anything on the call itself. Filed apart from MATCH_TEST_HELP because what it reads
+ * (the shared variable store) is nothing like a header, query parameter or cookie.
+ */
+export const VARIABLE_TEST_HELP: HelpEntry = {
+  title: 'Variable tests',
+  code: 'MATCH_VARIABLE_TEST',
+  what: 'Narrows which calls the rule applies to by a global variable\'s current value - the promoted overlay from this call first, then the published variables, then their fallbacks. A variable nobody has captured yet reads as "does not exist".',
+  exampleIntro: 'With "variable env equals staging":',
+  examples: [
+    { from: 'env was captured as "staging" earlier', to: 'the rule applies' },
+    { from: 'env was never captured, and has no fallback', to: 'the rule does not match' },
+  ],
+  warning:
+    'This reads the SAME store a GLOBAL capture writes to, not a rule-local {{this.name}} value - a capture from earlier in this same rule has not reached the store until the action runs, so a variable test evaluated at match time cannot see it.',
 };
 
 export const SUBJECT_HELP: Readonly<Record<ConditionSubject, HelpEntry>> = {

@@ -7,12 +7,13 @@ import { RuleDialogComponent } from '../../components/rule-dialog/rule-dialog.co
 import { ThemePickerComponent } from '../../components/theme-picker/theme-picker.component';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { GlobalVariablesComponent } from '../../components/global-variables/global-variables.component';
+import { ScenarioToolbarComponent } from '../../components/scenario-toolbar/scenario-toolbar.component';
 
 /** First tab-nav shell in the app - "Live Calls" (the original dashboard) and "Session Cycles" render as children below this same nav bar. The /view route deliberately stays outside this layout (opened via window.open, wants the full page to itself). The theme picker lives here rather than in `HeaderComponent` since it's app-wide, not per-page. */
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ThemePickerComponent, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent, RuleDialogComponent, GlobalVariablesComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ThemePickerComponent, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent, ScenarioToolbarComponent, RuleDialogComponent, GlobalVariablesComponent],
   templateUrl: './main-layout.component.html',
 })
 export class MainLayoutComponent {

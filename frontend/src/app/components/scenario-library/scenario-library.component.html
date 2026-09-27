@@ -1,0 +1,37 @@
+<div class="scenario-library dialog-card">
+  @if (state.error()) {
+    <p class="dialog-error-note">{{ state.error() }}</p>
+  }
+  @if (actionError()) {
+    <p class="dialog-error-note">{{ actionError() }}</p>
+  }
+
+  @if (state.loading() && !state.loaded()) {
+    <p class="scenario-library-empty">Loading scenarios…</p>
+  } @else if (state.scenarios().length === 0) {
+    <p class="scenario-library-empty">No saved scenarios yet.</p>
+  } @else {
+    <ul class="scenario-library-list">
+      @for (scenario of state.scenarios(); track scenario.id) {
+        <li class="scenario-library-item">
+          @if (renamingId() === scenario.id) {
+            <input class="scenario-input" type="text" [value]="renameValue()" (input)="renameValue.set($any($event.target).value)" />
+            <button type="button" class="dialog-btn secondary" [disabled]="busyId() === scenario.id" (click)="confirmRename(scenario)">Save</button>
+            <button type="button" class="dialog-btn secondary" (click)="cancelRename()">Cancel</button>
+          } @else {
+            <button type="button" class="scenario-library-open" [disabled]="busyId() === scenario.id" (click)="open(scenario)">
+              <span class="scenario-library-name">{{ scenario.name }}</span>
+              @if (scenario.lastRun) {
+                <span class="scenario-library-last-run">last run: {{ scenario.lastRun.passed }}/{{ scenario.lastRun.total }} passed</span>
+              } @else {
+                <span class="scenario-library-last-run">never run</span>
+              }
+            </button>
+            <button type="button" class="dialog-btn secondary" (click)="startRename(scenario)">Rename</button>
+            <button type="button" class="dialog-btn danger" (click)="remove(scenario)">Delete</button>
+          }
+        </li>
+      }
+    </ul>
+  }
+</div>

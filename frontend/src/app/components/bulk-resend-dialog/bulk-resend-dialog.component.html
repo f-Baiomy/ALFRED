@@ -6,6 +6,7 @@
         @if (editedCount()) {
           <small class="muted">{{ editedCount() }} edited</small>
         }
+        <div class="br-scenario-slot"><ng-content select="[br-scenario-toolbar]" /></div>
         <button type="button" class="pill" [disabled]="service.running()" (click)="addFromAnywhere()">Add calls from anywhere…</button>
         <button type="button" class="pill" aria-label="Close" (click)="close()">✕</button>
       </div>
@@ -122,12 +123,18 @@
                         <input type="checkbox" [checked]="d.include" [attr.aria-label]="'Include call ' + positionOf(d)" (click)="$event.stopPropagation()" (change)="toggleInclude(d, $event)" />
                         <span class="br-index">{{ positionOf(d) }}</span>
                         <span class="badge">{{ d.method }}</span>
-                        <span class="br-url" [title]="d.url">{{ pathOf(d.url) }}</span>
+                        <span class="br-url" [title]="d.url">{{ urlTail(d) }}</span>
+                        @if (passesOnChip(d); as chip) {
+                          <span class="br-badge chain" [title]="chip">↦</span>
+                        }
+                        @if (usesChip(d); as chip) {
+                          <span class="br-badge chain" [title]="chip">←</span>
+                        }
                         @if (isEdited(d)) {
                           <span class="br-badge edited" [title]="describeEdits(d).join(' · ')">edited</span>
                         }
-                        @if (resultOf(d); as r) {
-                          <span class="br-badge" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.error ?? ''">{{ r.ok ? r.status : 'failed' }}</span>
+                        @if (resultChip(d); as chip) {
+                          <span class="br-badge" [class.ok]="resultOf(d)!.error === null" [class.bad]="resultOf(d)!.error !== null" [title]="resultOf(d)!.error ?? ''">{{ chip }}</span>
                         }
                         <span class="br-move">
                           <button type="button" class="icon-btn" aria-label="Move up" [disabled]="service.running()" (click)="moveBy(d, -1, $event)">▲</button>
@@ -152,14 +159,21 @@
                     <input type="checkbox" [checked]="d.include" [attr.aria-label]="'Include call ' + positionOf(d)" (click)="$event.stopPropagation()" (change)="toggleInclude(d, $event)" />
                     <span class="br-index">{{ positionOf(d) }}</span>
                     <span class="badge">{{ d.method }}</span>
-                    <!-- Path only: the row is narrow and the host is usually the same for the whole
-                         batch; the full URL is in the tooltip and in the editor. -->
-                    <span class="br-url" [title]="d.url">{{ pathOf(d.url) }}</span>
+                    <!-- The tail of the path only: the row is narrow and the host is usually the
+                         same for the whole batch; the full URL is in the tooltip and the editor.
+                         B4: grown just far enough that it never reads the same as another row's. -->
+                    <span class="br-url" [title]="d.url">{{ urlTail(d) }}</span>
+                    @if (passesOnChip(d); as chip) {
+                      <span class="br-badge chain" [title]="chip">↦</span>
+                    }
+                    @if (usesChip(d); as chip) {
+                      <span class="br-badge chain" [title]="chip">←</span>
+                    }
                     @if (isEdited(d)) {
                       <span class="br-badge edited" [title]="describeEdits(d).join(' · ')">edited</span>
                     }
-                    @if (resultOf(d); as r) {
-                      <span class="br-badge" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.error ?? ''">{{ r.ok ? r.status : 'failed' }}</span>
+                    @if (resultChip(d); as chip) {
+                      <span class="br-badge" [class.ok]="resultOf(d)!.error === null" [class.bad]="resultOf(d)!.error !== null" [title]="resultOf(d)!.error ?? ''">{{ chip }}</span>
                     }
                     <span class="br-move">
                       <button type="button" class="icon-btn" aria-label="Move up" [disabled]="service.running()" (click)="moveBy(d, -1, $event)">▲</button>
@@ -184,9 +198,52 @@
               </div>
               <app-resend-call-editor [draft]="d" (draftChange)="updateDraft($event)" />
 
+              <!-- C1: what this call remembers from its response, for later drafts to use as
+                   {{ '{{this.x}}' }}. -->
+              <fieldset class="br-tool">
+                <legend>Pass on</legend>
+                @for (rule of extractRulesOf(d); track $index) {
+                  <div class="br-tool-row">
+                    <span class="badge">{{ rule.from }}</span>
+                    <code>{{ rule.path }}</code>
+                    <span class="muted">→ this.{{ rule.as }}</span>
+                    @if (rule.missing === 'FALLBACK') {
+                      <span class="muted">(falls back to "{{ rule.fallback }}")</span>
+                    }
+                    <button type="button" class="icon-btn" aria-label="Remove this pass-on rule" (click)="removeExtractRule(d, $index)">✕</button>
+                  </div>
+                }
+                <div class="br-tool-row">
+                  <select aria-label="Extract from" [value]="extractFrom()" (change)="extractFrom.set($any($event.target).value)">
+                    <option value="JSON">JSON body</option>
+                    <option value="HEADER">header</option>
+                    <option value="COOKIE">cookie</option>
+                  </select>
+                  <input type="text" placeholder="path, header or cookie name" aria-label="Path" [value]="extractPath()" (input)="text(extractPath.set, $event)" />
+                  <span class="muted">as</span>
+                  <input type="text" placeholder="token" aria-label="Name" [value]="extractAs()" (input)="text(extractAs.set, $event)" />
+                  <select aria-label="If missing" [value]="extractMissing()" (change)="extractMissing.set($any($event.target).value)">
+                    <option value="SKIP">skip if missing</option>
+                    <option value="FALLBACK">fall back to…</option>
+                  </select>
+                  @if (extractMissing() === 'FALLBACK') {
+                    <input type="text" placeholder="fallback value" aria-label="Fallback value" [value]="extractFallback()" (input)="text(extractFallback.set, $event)" />
+                  }
+                  <button type="button" class="pill" [disabled]="!extractPath().trim() || !extractAs().trim()" (click)="addExtractRule(d)">Add</button>
+                </div>
+              </fieldset>
+
+              <fieldset class="br-tool">
+                <legend>Check response</legend>
+                <app-scenario-assertion-editor
+                  [assertions]="d.assertions ?? []"
+                  (assertionsChange)="updateAssertions(d, $event)"
+                />
+              </fieldset>
+
               @if (resultOf(d); as r) {
-                <div class="br-result" [class.ok]="r.ok" [class.bad]="!r.ok">
-                  @if (r.ok) {
+                <div class="br-result" [class.ok]="r.error === null" [class.bad]="r.error !== null">
+                  @if (r.error === null) {
                     ✓ Sent · {{ r.status }} in {{ r.durationMs }} ms ·
                     <a [href]="newCallHref(r)">view the new call</a> ·
                     <button type="button" class="link-btn" (click)="viewCycle(d)">{{ journeyOf(d) ? 'hide the cycle' : 'view the cycle' }}</button>
@@ -265,6 +322,82 @@
             <fieldset class="br-tool">
               <label><input type="checkbox" (change)="setSessionOnAll($event)" /> <b>Use current session on all</b></label>
             </fieldset>
+
+            <fieldset class="br-tool">
+              <legend>Retry on failure</legend>
+              <div class="br-tool-row">
+                <label>attempts <input type="number" min="0" max="5" class="br-short" [value]="retryAttempts()" (input)="retryAttempts.set(+$any($event.target).value)" /></label>
+                <label>backoff <input type="number" min="0" class="br-short" [value]="retryBackoffMs()" (input)="retryBackoffMs.set(+$any($event.target).value)" /> ms</label>
+                <label><input type="checkbox" [checked]="retryOn5xx()" (change)="checked(retryOn5xx.set, $event)" /> on 5XX</label>
+                <label><input type="checkbox" [checked]="retryOnNetwork()" (change)="checked(retryOnNetwork.set, $event)" /> on network error</label>
+                <button type="button" class="pill" (click)="applyRetry()">Apply</button>
+                @if (service.retry(); as r) {
+                  <small class="muted">{{ r.attempts }} retr{{ r.attempts === 1 ? 'y' : 'ies' }}, {{ r.backoffMs }} ms backoff.</small>
+                  <button type="button" class="pill" (click)="clearRetry()">Off</button>
+                }
+              </div>
+            </fieldset>
+
+            <fieldset class="br-tool">
+              <legend>Parallel cap</legend>
+              <div class="br-tool-row">
+                <input type="number" min="1" class="br-short" placeholder="uncapped" aria-label="Max parallel" [value]="maxParallelInput()" (input)="text(maxParallelInput.set, $event)" />
+                <button type="button" class="pill" (click)="applyMaxParallel()">Apply</button>
+                <small class="muted">How many of a parallel group's calls may be in flight at once. Empty = uncapped.</small>
+              </div>
+            </fieldset>
+
+            @if (effectiveScopeId(); as groupId) {
+              <fieldset class="br-tool">
+                <legend>Data-driven run</legend>
+                <div class="br-tool-row">
+                  <textarea
+                    class="br-dataset-text"
+                    aria-label="Dataset - CSV with a header row, or a JSON array of objects"
+                    placeholder="CSV (header row) or a JSON array of objects"
+                    [value]="datasetText()"
+                    (input)="text(datasetText.set, $event)"
+                  ></textarea>
+                </div>
+                <div class="br-tool-row">
+                  <select aria-label="On a row's failure" [value]="datasetOf(groupId)?.onRowFailure ?? 'SKIP'" (change)="setDatasetRowFailure(groupId, $event)">
+                    <option value="SKIP">skip the failed row</option>
+                    <option value="STOP">stop this group's rows</option>
+                  </select>
+                  <button type="button" class="pill" [disabled]="!datasetText().trim()" (click)="applyDataset(groupId, groups()[groupId]?.name ?? 'Group', datasetOf(groupId)?.onRowFailure ?? 'SKIP')">Load rows</button>
+                  @if (datasetOf(groupId)) {
+                    <button type="button" class="pill" (click)="clearDataset(groupId)">Clear</button>
+                  }
+                </div>
+                @if (datasetError(); as err) {
+                  <small class="br-error">{{ err }}</small>
+                } @else {
+                  @if (datasetOf(groupId); as ds) {
+                  <small class="muted">{{ ds.rows.length }} row{{ ds.rows.length === 1 ? '' : 's' }} loaded - the group runs once per row.</small>
+                  <table class="br-dataset-preview">
+                    <thead>
+                      <tr>
+                        @for (col of datasetPreview(groupId)[0] | keyvalue; track col.key) {
+                          <th>{{ col.key }}</th>
+                        }
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (row of datasetPreview(groupId); track $index) {
+                        <tr>
+                          @for (col of row | keyvalue; track col.key) {
+                            <td>{{ col.value }}</td>
+                          }
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                } @else {
+                  <small class="muted">Only applies to the selected group above; a group with no dataset runs once, as before.</small>
+                }
+                }
+              </fieldset>
+            }
           }
           @if (notice(); as message) {
             <small class="br-notice">{{ message }}</small>
@@ -272,6 +405,15 @@
         </div>
       </div>
 
+      @if (service.runState() !== 'idle') {
+        <!-- B2: a per-run progress bar, sticky so it stays visible while the list scrolls. -->
+        <div class="br-progress" role="progressbar" [attr.aria-valuenow]="service.progress()" [attr.aria-valuemax]="service.total()">
+          <span class="br-progress-seg ok" [style.width.%]="progressSegments().ok"></span>
+          <span class="br-progress-seg failed" [style.width.%]="progressSegments().failed"></span>
+          <span class="br-progress-seg in-flight" [style.width.%]="progressSegments().inFlight"></span>
+          <span class="br-progress-seg waiting" [style.width.%]="progressSegments().waiting"></span>
+        </div>
+      }
       <div class="br-foot">
         <label><input type="checkbox" [checked]="stopOnFailure()" (change)="checked(stopOnFailure.set, $event)" /> Stop at first failure</label>
         <label [title]="hasParallel() ? 'In a parallel group this staggers the launches instead of separating them.' : 'Waited between sends, not before the first.'">
@@ -287,7 +429,9 @@
               · {{ service.inFlight() }} still in flight
             }
           </small>
-          <button type="button" class="pill" (click)="service.stop()">Stop</button>
+          <button type="button" class="pill" [disabled]="service.runState() === 'stopping'" (click)="service.stop()">
+            {{ service.runState() === 'stopping' ? 'Stopping…' : 'Stop after this run' }}
+          </button>
         } @else if (service.total()) {
           <small class="muted">
             @if (service.stoppedEarly()) {
@@ -296,6 +440,7 @@
               Sent {{ service.progress() }}/{{ service.total() }}.
             }
           </small>
+          <a class="pill" [href]="liveCallsHref()">Open results in Live Calls</a>
         }
         <button type="button" class="pill" (click)="close()">Close</button>
         <button type="button" class="pill on" [disabled]="service.running() || included().length === 0" (click)="send()">

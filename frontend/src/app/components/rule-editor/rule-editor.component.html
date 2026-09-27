@@ -132,7 +132,7 @@
       }
     </div>
 
-    <div class="field">
+    <div class="field" [attr.data-local-variables]="matchLocalVariablesJson()">
       <span class="field-label">
         Only when… <em>optional · every test must hold</em>
         <app-help-popover [entries]="[matchTestHelp]" label="How do match tests work?" />
@@ -225,6 +225,55 @@
         </button>
       </div>
       <ng-container *ngTemplateOutlet="browsePanel; context: { $implicit: 'match' }" />
+    </div>
+
+    <div class="field" [attr.data-local-variables]="matchLocalVariablesJson()">
+      <span class="field-label">
+        Variable tests <em>optional · every test must hold</em>
+        <app-help-popover [entries]="[variableTestHelp]" label="How do variable tests work?" />
+      </span>
+      <datalist id="rule-global-variable-names">
+        @for (name of globalVariableNames(); track name) {
+          <option [value]="name"></option>
+        }
+      </datalist>
+      @for (row of variableTests(); track $index; let i = $index) {
+        <div class="cond-row">
+          <span class="cond-and">{{ i === 0 ? 'if' : 'and' }}</span>
+          <input
+            type="text"
+            class="cond-name"
+            list="rule-global-variable-names"
+            [value]="row.name"
+            placeholder="env"
+            (input)="patchVariableTest(i, { name: $any($event.target).value })"
+          />
+          <app-select-picker [options]="matchTestOperatorOptions" [value]="row.operator" (valueChange)="onVariableTestOperator(i, $event)" />
+          @if (matchTestOperatorNeedsValue(row.operator)) {
+            <input
+              type="text"
+              class="cond-value"
+              [value]="row.value ?? ''"
+              placeholder="staging"
+              (input)="patchVariableTest(i, { value: $any($event.target).value })"
+            />
+            <label class="cond-case" title="Compare the value exactly as typed">
+              <input type="checkbox" [checked]="row.caseSensitive !== false" (change)="patchVariableTest(i, { caseSensitive: $any($event.target).checked })" />
+              Aa
+            </label>
+          }
+          <button type="button" class="icon-btn danger" title="Remove this test" (click)="removeVariableTest(i)">×</button>
+          @if (variableTestNameProblem(row.name); as problem) {
+            <small class="muted span-all rule-warning">{{ problem }}</small>
+          }
+          @if (!variableTestNameProblem(row.name) && variableTestValueProblem(row); as problem) {
+            <small class="muted span-all rule-warning">{{ problem }}</small>
+          }
+        </div>
+      }
+      <div class="cond-add-row">
+        <button type="button" class="pill add cond-add" (click)="addVariableTest()">+ Add test</button>
+      </div>
     </div>
 
     <h3 class="section-title">Pipeline — what happens to a matching call</h3>
@@ -398,6 +447,22 @@
     <label class="checkbox-field">
       <input type="checkbox" [checked]="stopProcessing()" (change)="stopProcessing.set($any($event.target).checked)" />
       <span>Stop after this rule — don't evaluate any rule below it for a matching call</span>
+    </label>
+
+    <label class="field span-2">
+      <span>Apply to every Nth matching call <em>optional</em></span>
+      <input
+        type="number"
+        min="2"
+        max="1000"
+        [value]="everyNth() ?? ''"
+        placeholder="every call"
+        (input)="onEveryNth($any($event.target).value)"
+      />
+      <small class="muted">Counted per rule, reset whenever rules change. Leave empty to apply to every matching call.</small>
+      @if (everyNthProblem(); as problem) {
+        <small class="rule-warning">{{ problem }}</small>
+      }
     </label>
   </div>
 

@@ -17,7 +17,13 @@
               <div class="intercept-log-step">
                 <span class="intercept-log-number">{{ action.number < 10 ? '0' : '' }}{{ action.number }}</span>
                 <span class="intercept-log-action">{{ action.label }}</span>
-                @if (action.entry.detail) { <span class="intercept-log-detail">{{ action.entry.detail }}</span> }
+                @if (action.entry.detail) {
+                  @if (captureLink(action.entry.detail); as link) {
+                    <span class="intercept-log-detail">{{ link.prefix }} -&gt; <button type="button" class="capture-link" [title]="'Open ' + link.name + ' in Global variables'" (click)="focusVariable(link.name, $event)">{{ '{{' + link.name + '}}' }}</button></span>
+                  } @else {
+                    <span class="intercept-log-detail">{{ action.entry.detail }}</span>
+                  }
+                }
                 <span class="intercept-log-phase">{{ action.phase }}</span>
               </div>
             }

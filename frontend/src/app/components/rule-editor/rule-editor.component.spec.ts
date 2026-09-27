@@ -63,7 +63,11 @@ describe('RuleEditorComponent', () => {
     fixture.detectChanges();
   }
 
-  afterEach(() => http.verify({ ignoreCancelled: true }));
+  afterEach(() => {
+    // The editor's root state can be initialized without calling open() in validation-only specs.
+    http.match((request) => request.url.startsWith(`${BACKEND}/interception/`));
+    http.verify({ ignoreCancelled: true });
+  });
 
   const first = (): RuleAction => component.actions()[0];
 
@@ -977,6 +981,154 @@ describe('RuleEditorComponent', () => {
       expect(ids).toContain(component.listId([0, 1]));
       expect(ids).toContain(component.listId([0, -1]));
       expect(ids.length).toBe(6);
+    });
+  });
+
+  /** D5: variable tests and "every Nth call", plus their inline client-side validation. */
+  describe('variable tests and everyNth (D5)', () => {
+    it('round-trips a variable test into the saved match', () => {
+      open(null);
+      component.addVariableTest();
+      component.patchVariableTest(0, { name: 'env', operator: 'EQUALS', value: 'staging' });
+      component.everyNth.set(10);
+      fixture.detectChanges();
+
+      component.save();
+      const saved = http.expectOne((r) => r.url.startsWith(`${BACKEND}/interception/rules`) && r.method !== 'GET');
+      expect(saved.request.body.match.variables).toEqual([{ name: 'env', operator: 'EQUALS', value: 'staging' }]);
+      expect(saved.request.body.everyNth).toBe(10);
+      saved.flush({ id: 'rule-1' });
+      http.match(`${BACKEND}/interception/rules`).forEach((request) => request.flush([]));
+    });
+
+    it('loads existing variable tests and everyNth from a saved rule', () => {
+      open({
+        id: 'r1',
+        name: 'Has variables',
+        enabled: true,
+        priority: 100,
+        stopProcessing: false,
+        everyNth: 5,
+        match: { variables: [{ name: 'env', operator: 'EXISTS' }] },
+        actions: [],
+      });
+
+      expect(component.variableTests()).toEqual([{ name: 'env', operator: 'EXISTS' }]);
+      expect(component.everyNth()).toBe(5);
+    });
+
+    it('flags a variable name starting with "this." - reserved for rule-local captures', () => {
+      expect(component.variableTestNameProblem('this.token')).toContain('reserved');
+      expect(component.variableTestNameProblem('env')).toBeNull();
+    });
+
+    it('flags a variable name that does not match the global name grammar', () => {
+      expect(component.variableTestNameProblem('9bad')).not.toBeNull();
+      expect(component.variableTestNameProblem('')).toBeNull();
+    });
+
+    it('flags a value-needing operator with no value', () => {
+      expect(component.variableTestValueProblem({ name: 'env', operator: 'EQUALS', value: '' })).not.toBeNull();
+      expect(component.variableTestValueProblem({ name: 'env', operator: 'EXISTS' })).toBeNull();
+    });
+
+    it('flags everyNth outside 2..1000, accepts empty', () => {
+      component.everyNth.set(1);
+      expect(component.everyNthProblem()).not.toBeNull();
+      component.everyNth.set(1001);
+      expect(component.everyNthProblem()).not.toBeNull();
+      component.everyNth.set(null);
+      expect(component.everyNthProblem()).toBeNull();
+      component.everyNth.set(50);
+      expect(component.everyNthProblem()).toBeNull();
+    });
+
+    it('onEveryNth treats a blank field as "every call"', () => {
+      component.onEveryNth('7');
+      expect(component.everyNth()).toBe(7);
+      component.onEveryNth('  ');
+      expect(component.everyNth()).toBeNull();
+    });
+  });
+
+  /** C3: scope-aware autocomplete - every capture in the rule, flagged available or not, with why. */
+  describe('localVariablesFor (C3)', () => {
+    function openWith(actions: RuleAction[]): void {
+      open({ id: 'r1', name: 'Scope test', enabled: true, priority: 100, stopProcessing: false, match: {}, actions });
+    }
+
+    it('a request capture is available to a later request action', () => {
+      openWith([
+        { type: 'CAPTURE_REQUEST_VARIABLE', name: 'supplier', captureSource: 'JSON_FIELD', path: 'supplier' },
+        { type: 'SET_REQUEST_HEADER', name: 'X-Supplier', value: '' },
+      ]);
+      const locals = component.localVariablesFor([1]);
+      expect(locals).toEqual([{ name: 'supplier', available: true, reason: '' }]);
+    });
+
+    it('a set variable action is available locally after it runs', () => {
+      openWith([
+        { type: 'SET_REQUEST_VARIABLE', name: 'supplier', value: 'ACME', scope: 'GLOBAL' },
+        { type: 'SET_REQUEST_HEADER', name: 'X-Supplier', value: '{{this.supplier}}' },
+      ]);
+      expect(component.availableLocalNames([1])).toContain('supplier');
+      expect(component.localVariablesFor([1])).toEqual([{ name: 'supplier', available: true, reason: '' }]);
+    });
+
+    it('a request capture is available to every response action', () => {
+      openWith([
+        { type: 'CAPTURE_REQUEST_VARIABLE', name: 'supplier', captureSource: 'JSON_FIELD', path: 'supplier' },
+        { type: 'SET_RESPONSE_STATUS', status: 200 },
+      ]);
+      const locals = component.localVariablesFor([1]);
+      expect(locals).toEqual([{ name: 'supplier', available: true, reason: '' }]);
+    });
+
+    it('a response capture is not available to a request action', () => {
+      openWith([
+        { type: 'SET_REQUEST_HEADER', name: 'X-A', value: '' },
+        { type: 'CAPTURE_RESPONSE_VARIABLE', name: 'session', captureSource: 'COOKIE', path: 'sid' },
+      ]);
+      const locals = component.localVariablesFor([0]);
+      expect(locals).toEqual([{ name: 'session', available: false, reason: 'response capture, not available in request' }]);
+    });
+
+    it('a capture is not available to an action before it', () => {
+      openWith([
+        { type: 'SET_REQUEST_HEADER', name: 'X-A', value: '' },
+        { type: 'CAPTURE_REQUEST_VARIABLE', name: 'x', captureSource: 'HEADER', path: 'X-Source' },
+      ]);
+      const locals = component.localVariablesFor([0]);
+      expect(locals[0].name).toBe('x');
+      expect(locals[0].available).toBeFalse();
+      expect(locals[0].reason).toContain('captured later');
+    });
+
+    it('match tests never see a capture - it has not run yet', () => {
+      openWith([{ type: 'CAPTURE_REQUEST_VARIABLE', name: 'x', captureSource: 'HEADER', path: 'X-Source' }]);
+      expect(component.matchLocalVariables()).toEqual([{ name: 'x', available: false, reason: 'captured while the rule runs - not available in match tests' }]);
+    });
+  });
+
+  /** B1: "used later"/"used in other rules" hints beside a capture card. */
+  describe('capture usage hints (B1)', () => {
+    function openWith(actions: RuleAction[]): void {
+      open({ id: 'r1', name: 'Usage test', enabled: true, priority: 100, stopProcessing: false, match: {}, actions });
+    }
+
+    it('counts actions in this rule referencing {{this.name}}', () => {
+      openWith([
+        { type: 'CAPTURE_REQUEST_VARIABLE', name: 'supplier', captureSource: 'JSON_FIELD', path: 'supplier' },
+        { type: 'SET_REQUEST_HEADER', name: 'X-Supplier', value: '{{this.supplier}}' },
+        { type: 'SET_RESPONSE_HEADER', name: 'X-Supplier', value: '{{this.supplier}}' },
+        { type: 'SET_METHOD', method: 'PUT' },
+      ]);
+      expect(component.countLocalUses(component.actions()[0])).toBe(2);
+    });
+
+    it('a LOCAL capture is never counted against other rules', () => {
+      openWith([{ type: 'CAPTURE_REQUEST_VARIABLE', name: 'x', captureSource: 'HEADER', path: 'X-Source', scope: 'LOCAL' }]);
+      expect(component.countOtherRuleUses(component.actions()[0])).toBe(0);
     });
   });
 });

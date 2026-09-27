@@ -1,0 +1,32 @@
+{
+  "now": "2026-09-27T16:04:05.123Z",
+  "variables": { "creds": "user:pass", "empty": "", "uni": "é✓" },
+  "cases": [
+    { "input": "{{$now}}", "expect": "2026-09-27T16:04:05.123Z" },
+    { "input": "{{$now:epoch}}", "expect": "1790525045" },
+    { "input": "{{$now:epochMs}}", "expect": "1790525045123" },
+    { "input": "{{$now:yyyy-MM-dd}}", "expect": "2026-09-27" },
+    { "input": "{{$now:HH:mm:ss.SSS}}", "expect": "16:04:05.123" },
+    { "input": "{{$now:dd/MM/yyyy HHmm}}", "expect": "27/09/2026 1604" },
+    { "input": "{{$now+2d:yyyy-MM-dd}}", "expect": "2026-09-29" },
+    { "input": "{{$now-90m:HH:mm}}", "expect": "14:34" },
+    { "input": "{{$now+30s}}", "expect": "2026-09-27T16:04:35.123Z" },
+    { "input": "{{$now+1h:epoch}}", "expect": "1790528645" },
+    { "input": "id={{$now:yyyyMMdd}}-x", "expect": "id=20260927-x" },
+    { "input": "{{$base64:creds}}", "expect": "dXNlcjpwYXNz" },
+    { "input": "{{$base64:empty}}", "expect": "" },
+    { "input": "{{$base64:uni}}", "expect": "w6ninJM=" },
+    { "input": "{{$base64:missing}}", "expect": "{{$base64:missing}}" },
+    { "input": "{{$randomInt:5:5}}", "expect": "5" },
+    { "input": "{{$randomInt:1:9}}", "expectRegex": "^[1-9]$" },
+    { "input": "{{$randomInt:-3:-1}}", "expectRegex": "^-[1-3]$" },
+    { "input": "{{$randomInt:9:1}}", "expect": "{{$randomInt:9:1}}" },
+    { "input": "{{$randomInt:1:9999999999999}}", "expect": "{{$randomInt:1:9999999999999}}" },
+    { "input": "{{$randomInt:a:b}}", "expect": "{{$randomInt:a:b}}" },
+    { "input": "{{$uuid}}", "expectRegex": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    { "input": "{{$unknown}}", "expect": "{{$unknown}}" },
+    { "input": "{{$now+5y}}", "expect": "{{$now+5y}}" },
+    { "input": "{{plain}} {{$now:yyyy}}", "expect": "{{plain}} 2026" },
+    { "input": "no tokens", "expect": "no tokens" }
+  ]
+}

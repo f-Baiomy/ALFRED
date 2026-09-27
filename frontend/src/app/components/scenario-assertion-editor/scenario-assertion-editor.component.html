@@ -1,0 +1,36 @@
+<div class="scenario-assertion-editor">
+  @for (assertion of assertions(); track $index) {
+    <div class="scenario-assertion-row">
+      <select class="scenario-select" [value]="assertion.kind" (change)="updateKind($index, $any($event.target).value)">
+        @for (kind of kinds; track kind) {
+          <option [value]="kind">{{ kind }}</option>
+        }
+      </select>
+      @if (needsPath(assertion.kind)) {
+        <input
+          class="scenario-input"
+          type="text"
+          [placeholder]="pathLabel(assertion.kind)"
+          [value]="assertion.path ?? ''"
+          (input)="updatePath($index, $any($event.target).value)"
+        />
+      }
+      <select class="scenario-select" [value]="assertion.operator" (change)="updateOperator($index, $any($event.target).value)">
+        @for (op of operators; track op) {
+          <option [value]="op">{{ op }}</option>
+        }
+      </select>
+      @if (needsValue(assertion.operator)) {
+        <input
+          class="scenario-input"
+          type="text"
+          placeholder="Value"
+          [value]="assertion.value ?? ''"
+          (input)="updateValue($index, $any($event.target).value)"
+        />
+      }
+      <button type="button" class="dialog-btn secondary scenario-remove-btn" (click)="remove($index)">Remove</button>
+    </div>
+  }
+  <button type="button" class="dialog-btn secondary" (click)="add()">+ Add assertion</button>
+</div>

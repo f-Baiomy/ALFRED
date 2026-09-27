@@ -351,6 +351,28 @@
           </small>
         }
 
+        @if (editor.isSetVariable(step.action.type)) {
+          <label class="inline-field grow">
+            <span>Variable name</span>
+            <input type="text" [value]="step.action.name ?? ''" (input)="editor.onText(step.path, 'name', $event)" placeholder="supplier" />
+          </label>
+          <label class="inline-field grow">
+            <span>Value (JSON or text)</span>
+            <input type="text" [value]="editor.valueText(step.action)" (input)="editor.onValue(step.path, $event, true)" placeholder="EUR or a variable token" />
+          </label>
+          <div class="inline-field">
+            <span>Scope</span>
+            <app-select-picker [options]="editor.captureScopeOptions" [value]="step.action.scope ?? 'LOCAL'" (valueChange)="editor.patchAt(step.path, { scope: $any($event) })" />
+          </div>
+          <small class="muted span-all">
+            @if (step.action.scope === 'GLOBAL') {
+              Shared — use <code>{{ '{{' + (step.action.name || 'name') + '}}' }}</code> anywhere after this action. This overwrites the current global value.
+            } @else {
+              Kept in this call and rule — use <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code> in later actions.
+            }
+          </small>
+        }
+
         @if (editor.isCapture(step.action.type)) {
           <label class="inline-field grow">
             <span>Variable name</span>
@@ -385,6 +407,22 @@
               Kept local — use later as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code>. Each call and rule has its own value.
             }
           </small>
+          <small class="muted span-all capture-usage-hint">
+            Used later as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code> in {{ editor.countLocalUses(step.action) }} action{{ editor.countLocalUses(step.action) === 1 ? '' : 's' }}.
+            @if (step.action.scope === 'GLOBAL') {
+              As <code>{{ '{{' + (step.action.name || 'name') + '}}' }}</code> in {{ editor.countOtherRuleUses(step.action) }} other rule{{ editor.countOtherRuleUses(step.action) === 1 ? '' : 's' }}.
+            }
+          </small>
+          <div class="span-all">
+            <app-capture-value-preview
+              [action]="step.action"
+              [ruleHost]="editor.host()"
+              [rulePath]="editor.pathContains()"
+              [ruleMethods]="editor.selectedMethods()"
+              [ruleSource]="editor.source()"
+              [ruleServiceNames]="editor.serviceNames()"
+            />
+          </div>
         }
 
         @if (editor.isJsonPathOnly(step.action.type)) {

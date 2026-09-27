@@ -222,4 +222,123 @@ describe('createCallListView', () => {
       expect(view.mainListCalls().map((c) => c.id)).toEqual(['parent', 'child', 'standalone']);
     });
   });
+
+  describe('interceptionFilter/resendFilter (F1)', () => {
+    const powerPage = () => [
+      makeCall({
+        id: 'intercepted-ok',
+        timestamp: 'a',
+        response: { status: 200, headers: {}, body: '{}' },
+        interception: { applied: [{ ruleId: 'r-1', ruleName: 'Login token', action: 'CAPTURE_GLOBAL', detail: 'a -> {{token}}' }] },
+      }),
+      makeCall({
+        id: 'intercepted-failed',
+        timestamp: 'b',
+        response: { status: 500, headers: {}, body: '{}' },
+        interception: { applied: [{ ruleId: 'r-2', ruleName: 'Fault inject', action: 'SIMULATE_FAILURE' }] },
+      }),
+      makeCall({ id: 'untouched', timestamp: 'c', response: { status: 200, headers: {}, body: '{}' } }),
+      makeCall({ id: 'resent', timestamp: 'd', response: { status: 200, headers: {}, body: '{}' }, resendOf: 'untouched' }),
+    ];
+
+    it('defaults to showing everything, with intercepted/resent counted in stats()', () => {
+      const { view } = makeView([powerPage()]);
+
+      expect(view.interceptionFilter()).toEqual({ kind: 'all' });
+      expect(view.resendFilter()).toBe('all');
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['intercepted-ok', 'intercepted-failed', 'untouched', 'resent']);
+      expect(view.stats().intercepted).toBe(2);
+      expect(view.stats().resent).toBe(1);
+    });
+
+    it('"intercepted" narrows to touched calls, and combines with statusFilter by AND', () => {
+      const { view } = makeView([powerPage()]);
+
+      view.setInterceptionFilter({ kind: 'intercepted' });
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['intercepted-ok', 'intercepted-failed']);
+
+      view.setStatusFilter('failed');
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['intercepted-failed']);
+    });
+
+    it('"untouched" keeps only calls with no interception at all', () => {
+      const { view } = makeView([powerPage()]);
+
+      view.setInterceptionFilter({ kind: 'untouched' });
+
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['untouched', 'resent']);
+    });
+
+    it('"rule" narrows to the one rule id, regardless of how many rules touched other calls', () => {
+      const { view } = makeView([powerPage()]);
+
+      view.setInterceptionFilter({ kind: 'rule', ruleId: 'r-2', ruleName: 'Fault inject' });
+
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['intercepted-failed']);
+    });
+
+    it('clicking the same interception filter again clears it back to all', () => {
+      const { view } = makeView([powerPage()]);
+
+      view.setInterceptionFilter({ kind: 'intercepted' });
+      view.setInterceptionFilter({ kind: 'intercepted' });
+
+      expect(view.interceptionFilter()).toEqual({ kind: 'all' });
+    });
+
+    it('"resent" keeps only calls that are themselves a resend', () => {
+      const { view } = makeView([powerPage()]);
+
+      view.setResendFilter('resent');
+
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['resent']);
+    });
+
+    it('"originals" keeps only a loaded call whose id is some loaded call\'s resendOf', () => {
+      const { view } = makeView([powerPage()]);
+
+      view.setResendFilter('originals');
+
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['untouched']);
+    });
+
+    it('clicking the same resend filter again clears it back to all', () => {
+      const { view } = makeView([powerPage()]);
+
+      view.setResendFilter('resent');
+      view.setResendFilter('resent');
+
+      expect(view.resendFilter()).toBe('all');
+    });
+
+    it('interception/resend filters never shrink stats()/interceptionRuleOptions(), like the status pill', () => {
+      const { view } = makeView([powerPage()]);
+
+      view.setInterceptionFilter({ kind: 'intercepted' });
+      view.setResendFilter('resent');
+
+      expect(view.stats().total).toBe(4);
+      expect(view.stats().intercepted).toBe(2);
+      expect(view.stats().resent).toBe(1);
+      expect(view.interceptionRuleOptions().map((r) => r.ruleId)).toEqual(['r-2', 'r-1']);
+    });
+
+    it('interceptionRuleOptions lists each rule id once with how many loaded calls it touched', () => {
+      const { view } = makeView([powerPage()]);
+
+      const options = view.interceptionRuleOptions();
+
+      expect(options.find((r) => r.ruleId === 'r-1')).toEqual({ ruleId: 'r-1', ruleName: 'Login token', count: 1 });
+      expect(options.find((r) => r.ruleId === 'r-2')).toEqual({ ruleId: 'r-2', ruleName: 'Fault inject', count: 1 });
+    });
+
+    it('narrows without refetching - both filters just re-filter the window already in hand', () => {
+      const { view, queries } = makeView([powerPage()]);
+
+      view.setInterceptionFilter({ kind: 'intercepted' });
+      view.setResendFilter('resent');
+
+      expect(queries.length).toBe(1);
+    });
+  });
 });

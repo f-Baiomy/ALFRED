@@ -1,0 +1,314 @@
+// scenarios - see specs/002-power-features/contracts.md for ownership (F-SCENARIO: D1 scenarios,
+// D2 cycle-to-scenario). Every surface here reuses the app's own tokens/primitives
+// (--card/--border/--purple/--text-dim, .dialog-card/.dialog-btn, frosted()) rather than
+// introducing a parallel palette - see CLAUDE.md.
+
+.scenario-select,
+.scenario-input {
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: inherit;
+  padding: 6px 10px;
+  font: inherit;
+
+  &:focus {
+    outline: none;
+    border-color: var(--purple);
+  }
+}
+
+// ---- assertion editor ----
+
+.scenario-assertion-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scenario-assertion-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+// ---- run report ----
+
+.scenario-run-report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scenario-run-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.scenario-run-export-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.scenario-report-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  overflow: hidden;
+
+  &.failed {
+    border-color: color-mix(in srgb, #ef4444 55%, var(--border));
+  }
+}
+
+.scenario-report-row-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: color-mix(in srgb, var(--purple) 8%, transparent);
+  }
+}
+
+.scenario-status-chip {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+
+  &.pass {
+    background: color-mix(in srgb, #22c55e 25%, transparent);
+    color: #4ade80;
+  }
+
+  &.fail {
+    background: color-mix(in srgb, #ef4444 25%, transparent);
+    color: #f87171;
+  }
+}
+
+.scenario-report-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scenario-report-meta {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.scenario-report-body {
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.scenario-report-error {
+  color: #f87171;
+}
+
+.scenario-assertion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.scenario-assertion-chip {
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+
+  &.pass {
+    color: #4ade80;
+    border-color: color-mix(in srgb, #22c55e 45%, var(--border));
+  }
+
+  &.fail {
+    color: #f87171;
+    border-color: color-mix(in srgb, #ef4444 45%, var(--border));
+  }
+}
+
+.scenario-report-body-text {
+  background: var(--card-inner);
+  border-radius: 6px;
+  padding: 10px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+// ---- run compare ----
+
+.scenario-run-compare-pickers {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.scenario-compare-empty {
+  color: var(--text-dim);
+}
+
+.scenario-compare-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+
+  &.changed {
+    border-color: var(--border-strong);
+  }
+}
+
+.scenario-compare-row-header {
+  display: flex;
+  gap: 16px;
+  font-weight: 600;
+}
+
+.scenario-compare-fields {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+}
+
+.scenario-field-added {
+  color: #4ade80;
+}
+
+.scenario-field-removed {
+  color: #f87171;
+}
+
+.scenario-field-changed {
+  color: var(--purple-light);
+}
+
+// ---- library ----
+
+.scenario-library-empty {
+  color: var(--text-dim);
+  padding: 8px 0;
+}
+
+.scenario-library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scenario-library-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scenario-library-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+
+  &:hover {
+    border-color: var(--purple);
+  }
+}
+
+.scenario-library-name {
+  font-weight: 600;
+}
+
+.scenario-library-last-run {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+// ---- toolbar ----
+
+.scenario-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scenario-toolbar-error {
+  color: #f87171;
+  font-size: 0.85rem;
+}
+
+.scenario-toolbar-loaded {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+// ---- cycle chain panel (D2) ----
+
+.scenario-chain-empty {
+  color: var(--text-dim);
+}
+
+.scenario-chain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.scenario-chain-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+.scenario-chain-name {
+  font-weight: 600;
+}
+
+.scenario-chain-detail {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin-left: 24px;
+}

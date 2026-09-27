@@ -88,6 +88,26 @@
             (input)="onRequestIdInput($any($event.target).value)"
           />
         </label>
+        <div class="filter-section">
+          <span class="id-filter-label">Interception</span>
+          <button type="button" class="filter-option-item" [class.active]="isInterceptionKind('intercepted')" (click)="setInterceptionKind('intercepted')">Intercepted</button>
+          <button type="button" class="filter-option-item" [class.active]="isInterceptionKind('untouched')" (click)="setInterceptionKind('untouched')">Untouched only</button>
+          @if (state.interceptionRuleOptions().length > 0) {
+            <div class="filter-submenu">
+              <span class="id-filter-label filter-submenu-label">By rule&hellip;</span>
+              @for (rule of state.interceptionRuleOptions(); track rule.ruleId) {
+                <button type="button" class="filter-option-item" [class.active]="isRuleFilter(rule.ruleId)" (click)="setRuleFilter(rule)">
+                  {{ rule.ruleName }} <span class="filter-option-count">{{ rule.count }}</span>
+                </button>
+              }
+            </div>
+          }
+        </div>
+        <div class="filter-section">
+          <span class="id-filter-label">Resend</span>
+          <button type="button" class="filter-option-item" [class.active]="state.resendFilter() === 'resent'" (click)="setResendKind('resent')">Resent calls</button>
+          <button type="button" class="filter-option-item" [class.active]="state.resendFilter() === 'originals'" (click)="setResendKind('originals')">Originals that were resent</button>
+        </div>
         @if (activeFilters().length > 0) {
           <button type="button" class="filter-clear-all" (click)="clearAllFilters()">Clear all filters</button>
         }

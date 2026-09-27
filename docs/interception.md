@@ -1316,7 +1316,15 @@ Both fixed; the whole resend feature was unreachable in a real deploy until this
     internet host rather than local supplier latency — a controlled local-supplier run would give
     tighter numbers, but the ON-vs-OFF parity is the claim being checked, and it held.
 
-## Rule-local captured variables
+## Rule variables
+
+`SET_REQUEST_VARIABLE` and `SET_RESPONSE_VARIABLE` assign an entered text or JSON value without
+reading a field from the call. The value can contain variable tokens resolved when the action runs.
+Like captures, request values are available to later request and response actions; response
+values are available only to later response actions. Both offer `LOCAL` and `GLOBAL` scope.
+`GLOBAL` also publishes the value as `{{name}}` for other rules and later calls, while
+`{{this.name}}` remains available in the rule that set it. A set action changes no HTTP content
+until another action uses its value.
 
 `CAPTURE_REQUEST_VARIABLE` and `CAPTURE_RESPONSE_VARIABLE` read a JSON field (the same dotted
 path grammar used by Set JSON field), header, or cookie into a name used later as
@@ -1364,6 +1372,27 @@ past an in-flight load or save rather than racing it, and safe for half-typed dr
 because a refetch only swaps rows whose text actually changed. The notify is fire-and-forget
 on a worker thread: if the backend is down, traffic is unaffected and the panel converges
 on its next load via the file, which the SQLite store absorbs on every read.
+
+### Two writers, one file
+
+`variables.json` has two writers: the backend publishes it, and each proxy rewrites it on a
+GLOBAL promotion. Three rules keep them from undoing each other:
+
+- **The proxy only writes a changed value.** A capture on hot traffic fires on every call; an
+  unchanged value writes nothing, so it costs no rules reload in either proxy and no backend
+  save or broadcast. Each write goes through a unique temp file plus rename, because both proxy
+  containers share the directory.
+- **Every promotion is timestamped.** The proxy stamps `promotedAt: {name: epochMs}` beside the
+  value; the backend keeps its own per-name `updatedAt` (tombstones included, so a delete is
+  dated too). The SQLite store absorbs a file value only when its `promotedAt` is newer than
+  that name's `updatedAt` - so a proxy write that read the file just before a panel edit or
+  delete can never revert the edit or resurrect the name.
+- **The panel writes one name at a time** (`PUT`/`DELETE /settings/variables/{name}`), merged
+  server-side under the store's lock, never a whole-state PUT built from a possibly stale copy.
+
+Captured `{{this.name}}` values live for the whole call. A variables change between the
+request and response phases - including the call's own GLOBAL capture - reloads the RuleSet
+but keeps them; only a `rules.json` change discards them.
 
 ## Safety
 

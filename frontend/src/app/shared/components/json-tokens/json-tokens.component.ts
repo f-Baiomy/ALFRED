@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import { HighlightToken, markVariableTokens } from '../../utils/json-tokenizer';
 import { GlobalVariablesService } from '../../../core/services/global-variables.service';
 
@@ -30,6 +30,13 @@ export class JsonTokensComponent {
   readonly hoveredVariable = signal('');
   private openTimer?: ReturnType<typeof setTimeout>;
   private closeTimer?: ReturnType<typeof setTimeout>;
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => {
+      clearTimeout(this.openTimer);
+      clearTimeout(this.closeTimer);
+    });
+  }
 
   /** Opens only from the variable token itself - not from the wrapper, and so not from the card
    *  floating over the neighbouring field. */

@@ -23,6 +23,7 @@ export type ActionType =
   | 'REMOVE_QUERY_PARAM'
   | 'SET_REQUEST_JSON_FIELD'
   | 'CAPTURE_REQUEST_VARIABLE'
+  | 'SET_REQUEST_VARIABLE'
   | 'REPLACE_IN_REQUEST_BODY'
   | 'REWRITE_URL'
   | 'SET_METHOD'
@@ -50,6 +51,7 @@ export type ActionType =
   | 'REMOVE_RESPONSE_TRAILER'
   | 'SET_RESPONSE_JSON_FIELD'
   | 'CAPTURE_RESPONSE_VARIABLE'
+  | 'SET_RESPONSE_VARIABLE'
   | 'SET_RESPONSE_BODY'
   | 'REPLACE_IN_RESPONSE_BODY'
   | 'REMOVE_RESPONSE_JSON_FIELD'
@@ -190,6 +192,12 @@ export interface RuleMatch {
   readonly cookies?: readonly MatchTest[];
   /** Request body tests - the text, one JSON field, or the size. */
   readonly body?: readonly BodyTest[];
+  /**
+   * Global variable tests - `name` is a variable name, not a header/query/cookie name. Evaluated
+   * in the proxy against the call's promoted overlay, then the published variables, then
+   * fallbacks; an absent variable reads as NOT_EXISTS. Same operators as a header test.
+   */
+  readonly variables?: readonly MatchTest[];
 }
 
 export type BodyTestKind = 'BODY' | 'JSON_FIELD' | 'SIZE';
@@ -284,6 +292,20 @@ export const MATCH_TEST_OPERATOR_LABELS: Readonly<Record<MatchTestOperator, stri
 
 export function matchTestNeedsValue(operator: MatchTestOperator): boolean {
   return operator !== 'EXISTS' && operator !== 'NOT_EXISTS';
+}
+
+/**
+ * "variable token equals "abc"" - a rule-level variable test (`match.variables`), described apart
+ * from `describeMatchTest`/`MATCH_TEST_KINDS` because a variable test's `name` names a GLOBAL
+ * variable, not a header/query/cookie on the call - folding it into that generic kind map would
+ * also offer it from the "Only when…" row picker, where it does not belong (a variable is not
+ * read from the call being matched).
+ */
+export function describeVariableTest(test: MatchTest): string {
+  const head = `variable ${test.name}`;
+  const operator = MATCH_TEST_OPERATOR_LABELS[test.operator] ?? test.operator;
+  if (!matchTestNeedsValue(test.operator)) return `${head} ${operator}`;
+  return `${head} ${operator} "${test.value ?? ''}"`;
 }
 
 /**
@@ -400,6 +422,12 @@ export interface InterceptionRule {
   readonly sourceCall?: SourceCallRef | null;
   readonly createdAt?: string | null;
   readonly updatedAt?: string | null;
+  /**
+   * Apply this rule to every Nth call that otherwise matches (2..1000) - null/absent means every
+   * one. Counted per rule, per proxy process; reset whenever rules.json changes. Useful for
+   * "fail one in ten" without hand-rolled randomness the log can't reproduce.
+   */
+  readonly everyNth?: number | null;
 }
 
 /** Backend SourceCallRef - which call a rule was made from, and how it read at the time. */
@@ -445,6 +473,7 @@ export interface InterceptionRuleDraft {
   readonly match: RuleMatch;
   readonly actions: readonly RuleAction[];
   readonly sourceCall?: SourceCallRef | null;
+  readonly everyNth?: number | null;
 }
 
 export interface PausedHttp {
@@ -691,6 +720,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   REMOVE_QUERY_PARAM: 'Remove query parameter',
   SET_REQUEST_JSON_FIELD: 'Set JSON field in request body',
   CAPTURE_REQUEST_VARIABLE: 'Capture request variable',
+  SET_REQUEST_VARIABLE: 'Set request variable',
   REPLACE_IN_REQUEST_BODY: 'Find & replace in request body',
   REWRITE_URL: 'Rewrite URL',
   SET_METHOD: 'Set method',
@@ -718,6 +748,7 @@ export const ACTION_LABELS: Readonly<Record<ActionType, string>> = {
   REMOVE_RESPONSE_TRAILER: 'Remove response trailer',
   SET_RESPONSE_JSON_FIELD: 'Set JSON field in response body',
   CAPTURE_RESPONSE_VARIABLE: 'Capture response variable',
+  SET_RESPONSE_VARIABLE: 'Set response variable',
   SET_RESPONSE_BODY: 'Replace the response body',
   REPLACE_IN_RESPONSE_BODY: 'Find & replace in response body',
   REMOVE_RESPONSE_JSON_FIELD: 'Remove response JSON field',
@@ -831,6 +862,7 @@ export function describeMatch(match: RuleMatch, sensitive: ReadonlySet<string> |
     (match[kind] ?? []).map((test) => describeMatchTest(kind, test, sensitive))
   );
   tests.push(...(match.body ?? []).map(describeBodyTest));
+  tests.push(...(match.variables ?? []).map(describeVariableTest));
   if (tests.length) parts.push(`only when ${tests.join(' and ')}`);
   return parts.join(' · ');
 }
@@ -863,6 +895,9 @@ export function describeAction(action: RuleAction): string {
       const token = scope === 'GLOBAL' ? `{{${action.name ?? ''}}} (global, also {{this.${action.name ?? ''}}} here)` : `{{this.${action.name ?? ''}}}`;
       return `Capture ${action.captureSource?.toLowerCase() ?? 'field'} ${action.path ?? ''} as ${token}`;
     }
+    case 'SET_REQUEST_VARIABLE':
+    case 'SET_RESPONSE_VARIABLE':
+      return `Set ${action.scope === 'GLOBAL' ? '{{' + (action.name ?? '') + '}}' : '{{this.' + (action.name ?? '') + '}}'} = ${JSON.stringify(action.value)}`;
     case 'SET_RESPONSE_STATUS':
       return `${label} ${action.status}`;
     case 'MOCK_RESPONSE':
