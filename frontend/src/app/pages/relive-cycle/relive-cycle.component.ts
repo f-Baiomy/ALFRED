@@ -6,13 +6,14 @@ import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.co
 import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/relive-step-drawer.component';
 import { ReliveRequestDiffersDialogComponent } from '../../components/relive-request-differs-dialog/relive-request-differs-dialog.component';
 import { ReliveExternalNoticeComponent } from '../../components/relive-external-notice/relive-external-notice.component';
+import { ReliveRulesTabComponent } from '../../components/relive-rules-tab/relive-rules-tab.component';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { InterceptionRuleDraft } from '../../core/models/interception.model';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { externalReach } from '../../shared/utils/relive-external-reach';
-import { Step } from '../../shared/utils/relive-types';
+import { ReliveCycle, Step } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
 import { ReliveRuleDialogService } from './relive-rule-dialog.service';
@@ -28,7 +29,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 @Component({
   selector: 'app-relive-cycle',
   standalone: true,
-  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent, ReliveStepDrawerComponent, RuleEditorComponent, ReliveRequestDiffersDialogComponent, ReliveExternalNoticeComponent],
+  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent, ReliveStepDrawerComponent, RuleEditorComponent, ReliveRequestDiffersDialogComponent, ReliveExternalNoticeComponent, ReliveRulesTabComponent],
   providers: [ReliveCycleEditorState],
   templateUrl: './relive-cycle.component.html',
 })
@@ -54,21 +55,23 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     }
     if (scope === 'CYCLE') {
       this.state.update((cycle) => {
-        const exists = targetKey && cycle.cycleRules.some((r) => (r as { id?: string }).id === targetKey);
-        const rules = exists
-          ? cycle.cycleRules.map((r) => ((r as { id?: string }).id === targetKey ? { ...r, ...draft } : r))
-          : [...cycle.cycleRules, draft as typeof cycle.cycleRules[number]];
+        const index = targetKey === null ? -1 : Number(targetKey);
+        const rules =
+          index >= 0 && index < cycle.cycleRules.length
+            ? cycle.cycleRules.map((r, i) => (i === index ? { ...r, ...draft } : r))
+            : [...cycle.cycleRules, draft as (typeof cycle.cycleRules)[number]];
         return { ...cycle, cycleRules: rules };
       });
       return;
     }
     if (scope === 'UNEXPECTED') {
       this.state.update((cycle) => {
+        const index = targetKey === null ? -1 : Number(targetKey);
         const rules = cycle.unexpectedCalls.rules;
-        const exists = targetKey && rules.some((r) => (r as { id?: string }).id === targetKey);
-        const updated = exists
-          ? rules.map((r) => ((r as { id?: string }).id === targetKey ? { ...r, ...draft } : r))
-          : [...rules, draft as typeof rules[number]];
+        const updated =
+          index >= 0 && index < rules.length
+            ? rules.map((r, i) => (i === index ? { ...r, ...draft } : r))
+            : [...rules, draft as (typeof rules)[number]];
         return { ...cycle, unexpectedCalls: { ...cycle.unexpectedCalls, rules: updated } };
       });
     }
@@ -85,9 +88,9 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
       const step = draft.steps.find((s) => s.key === req.targetKey);
       ruleDraft = step?.callRule ?? null;
     } else if (req.scope === 'CYCLE') {
-      ruleDraft = req.targetKey ? (draft.cycleRules.find((r) => (r as { id?: string }).id === req.targetKey) ?? null) : null;
+      ruleDraft = req.targetKey !== null ? (draft.cycleRules[Number(req.targetKey)] ?? null) : null;
     } else {
-      ruleDraft = req.targetKey ? (draft.unexpectedCalls.rules.find((r) => (r as { id?: string }).id === req.targetKey) ?? null) : null;
+      ruleDraft = req.targetKey !== null ? (draft.unexpectedCalls.rules[Number(req.targetKey)] ?? null) : null;
     }
     return { ruleId: null, draft: ruleDraft ?? { name: '', match: {}, actions: [] }, answerPath: [] };
   });
@@ -194,6 +197,10 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   setSteps(steps: readonly Step[]): void {
     this.state.update((draft) => ({ ...draft, steps: [...steps] }));
+  }
+
+  setCycle(updated: ReliveCycle): void {
+    this.state.update(() => updated);
   }
 
   selectStep(key: string): void {

@@ -93,7 +93,12 @@
         <div class="rl-faint">Variables panel coming with US5.</div>
       }
       @case ('rules') {
-        <div class="rl-faint">Cycle rules panel coming with US4/US6.</div>
+        <app-relive-rules-tab
+          [cycle]="draft"
+          (cycleChange)="setCycle($event)"
+          (openCycleRule)="ruleDialog.open('CYCLE', $event, null)"
+          (openUnexpectedRule)="ruleDialog.open('UNEXPECTED', $event, null)"
+        />
       }
       @case ('run') {
         <div class="rl-faint">Run view coming with US3.</div>

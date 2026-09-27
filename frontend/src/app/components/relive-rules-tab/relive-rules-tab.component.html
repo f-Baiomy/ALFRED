@@ -1,0 +1,69 @@
+<div class="rl-sect">
+  <h3>Inbound calls</h3>
+  <p class="rl-hint" style="margin-bottom: 6px">Whether inbound steps run for real against the app, or are replayed by ALFRED.</p>
+  <span class="rl-seg rl-mode">
+    <button [class.rl-on]="cycle().settings.inboundMode === 'LIVE'" [class.rl-live]="cycle().settings.inboundMode === 'LIVE'" (click)="setInboundMode('LIVE')">LIVE - sent to the app</button>
+    <button [class.rl-on]="cycle().settings.inboundMode === 'REPLAY'" [class.rl-replay]="cycle().settings.inboundMode === 'REPLAY'" (click)="setInboundMode('REPLAY')">REPLAY - ALFRED answers</button>
+  </span>
+</div>
+
+<div class="rl-sect">
+  <div class="rl-row">
+    <h3 style="margin: 0">Cycle rules</h3>
+    <span class="rl-spacer"></span>
+    <button class="rl-btn rl-sm" (click)="openCycleRule.emit(null)">＋ Add cycle rule</button>
+  </div>
+  @for (rule of cycle().cycleRules; track $index) {
+    <div class="rl-rulecard">
+      <span class="rl-pill rl-p-cycle">CYCLE</span>
+      <b>{{ ruleName(rule) }}</b>
+      <span class="rl-spacer"></span>
+      <button class="rl-btn rl-sm" (click)="openCycleRule.emit($index + '')">Edit</button>
+      <button class="icon-btn" (click)="removeCycleRule($index)">✕</button>
+    </div>
+  } @empty {
+    <div class="rl-faint">No cycle rules yet.</div>
+  }
+</div>
+
+<div class="rl-sect">
+  <h3>Unexpected outbound calls</h3>
+  <p class="rl-hint" style="margin-bottom: 6px">Calls the application makes during this cycle's runs that match no step - a retry, a new endpoint, a call made by mistake.</p>
+  <div class="rl-choice" style="margin-bottom: 8px">
+    <button [class.rl-on]="cycle().unexpectedCalls.policy === 'BLOCK'" (click)="setUnexpectedPolicy('BLOCK')">Block (default)</button>
+    <button [class.rl-on]="cycle().unexpectedCalls.policy === 'SEND_REAL'" (click)="setUnexpectedPolicy('SEND_REAL')">Send to the real system ⚠</button>
+    <button [class.rl-on]="cycle().unexpectedCalls.policy === 'RULES'" (click)="setUnexpectedPolicy('RULES')">Handle with my rules</button>
+  </div>
+
+  @switch (cycle().unexpectedCalls.policy) {
+    @case ('BLOCK') {
+      <div class="rl-dim" style="font-size: 12.5px">ALFRED answers <span class="rl-mono">502 Blocked by ALFRED Relive</span>; nothing leaves. Every blocked call shows in the run.</div>
+    }
+    @case ('SEND_REAL') {
+      <div class="rl-ext-banner">⚠ Any unexpected outbound call goes to the real system. Shown in the pre-run LIVE summary.</div>
+    }
+    @case ('RULES') {
+      @for (rule of cycle().unexpectedCalls.rules; track $index) {
+        <div class="rl-rulecard">
+          <span class="rl-pill rl-p-mod">UNEXPECTED</span>
+          <b>{{ ruleName(rule) }}</b>
+          <span class="rl-spacer"></span>
+          <button class="rl-btn rl-sm" (click)="openUnexpectedRule.emit($index + '')">Edit</button>
+          <button class="icon-btn" (click)="removeUnexpectedRule($index)">✕</button>
+        </div>
+      } @empty {
+        <div class="rl-faint">No rules yet.</div>
+      }
+      <button class="rl-btn rl-sm" style="margin-top: 6px" (click)="openUnexpectedRule.emit(null)">＋ Add rule for unexpected calls…</button>
+      <div class="rl-row" style="margin-top: 8px; font-size: 12.5px">
+        <span class="rl-spacer"></span>
+        <span>A call none of these rules match:</span>
+        <div class="rl-choice">
+          <button [class.rl-on]="cycle().unexpectedCalls.fallback === 'BLOCK'" (click)="setUnexpectedFallback('BLOCK')">Block</button>
+          <button [class.rl-on]="cycle().unexpectedCalls.fallback === 'SEND_REAL'" (click)="setUnexpectedFallback('SEND_REAL')">Send to real ⚠</button>
+        </div>
+      </div>
+      <p class="rl-hint" style="margin-top: 4px">Same rule editor, every action - e.g. mock a 200, answer with a file, delay, or pause and wait for you. First matching rule wins.</p>
+    }
+  }
+</div>

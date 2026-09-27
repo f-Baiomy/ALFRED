@@ -329,10 +329,10 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Notice:** a new small component `FE/components/relive-external-notice/…` stacked bottom-left, copying mock `notifyExternal()`. It reads "**Label** can now contact the real **host** - reason." with ↶ Undo (restores the draft snapshot taken before the edit) and "That's intended".
   - **No setup noise:** loading, resetting, or a rebuild's apply must not notify - pass a `quiet` flag.
   - **Test:** turning off a mock notifies; Undo restores; an internal host doesn't notify.
-- [ ] T041 [US2] Cycle-level inbound switch (FR-011 clarification): in the Rules or Settings area of the cycle page, "inbound: LIVE / REPLAY".
+- [X] T041 [US2] Cycle-level inbound switch (FR-011 clarification): in the Rules or Settings area of the cycle page, "inbound: LIVE / REPLAY".
   - **Effect:** changing it runs `applyMode` on every inbound step's call rule.
   - **Hand-edited steps:** steps where `isModified` is true are listed in a confirm dialog first ("these N steps have hand-edited call rules - apply anyway?").
-- [ ] T042 [US2] Unexpected-calls section in the Rules tab. It copies mock.html `unexpectedSection()` and `handleUnexpected()` wording.
+- [X] T042 [US2] Unexpected-calls section in the Rules tab. It copies mock.html `unexpectedSection()` and `handleUnexpected()` wording.
   - **Policy:** Block (default) / Send to the real system ⚠ / Handle with my rules.
   - **Rules:** a list of UNEXPECTED rules edited with the T039 editor in `UNEXPECTED` scope, plus a fallback choice.
   - **Warning:** changing the policy to send-real triggers the T040 notice.
