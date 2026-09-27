@@ -7,6 +7,7 @@ import { ProfilesListComponent } from './pages/profiles-list/profiles-list.compo
 import { SessionCyclesListComponent } from './pages/session-cycles-list/session-cycles-list.component';
 import { SessionCycleDetailComponent } from './pages/session-cycle-detail/session-cycle-detail.component';
 import { SettingsComponent } from './pages/settings/settings.component';
+import { reliveUnsavedChangesGuard } from './pages/relive-cycle/relive-unsaved-changes.guard';
 
 export const routes: Routes = [
   {
@@ -20,7 +21,11 @@ export const routes: Routes = [
       // Lazy: the rule editor and its action panels are the heaviest page and most visits never open it.
       { path: 'interception', loadComponent: () => import('./pages/interception/interception.component').then((m) => m.InterceptionComponent) },
       { path: 'relive', loadComponent: () => import('./pages/relive/relive-list.component').then((m) => m.ReliveListComponent) },
-      { path: 'relive/:id', loadComponent: () => import('./pages/relive-cycle/relive-cycle.component').then((m) => m.ReliveCycleComponent) },
+      {
+        path: 'relive/:id',
+        loadComponent: () => import('./pages/relive-cycle/relive-cycle.component').then((m) => m.ReliveCycleComponent),
+        canDeactivate: [reliveUnsavedChangesGuard],
+      },
       { path: 'settings', component: SettingsComponent },
     ],
   },

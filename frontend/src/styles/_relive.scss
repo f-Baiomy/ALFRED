@@ -558,6 +558,59 @@
   margin-top: 24px;
   color: var(--text-dim);
 }
+.rl-link {
+  color: var(--purple-light);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+.rl-dirty {
+  font-size: 11px;
+  color: var(--amber);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 8px;
+}
+.rl-name-input {
+  font: 700 19px 'Montserrat', 'Segoe UI', sans-serif;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 2px 6px;
+  margin-left: -6px;
+  min-width: 320px;
+  color: var(--text);
+
+  &:hover {
+    border-color: var(--border);
+  }
+}
+.rl-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin: 14px 0 12px;
+
+  button {
+    padding: 8px 12px;
+    color: var(--text-dim);
+    font-weight: 600;
+    border-bottom: 2px solid transparent;
+
+    &.rl-on {
+      color: var(--purple-light);
+      border-bottom-color: var(--purple);
+    }
+  }
+  .rl-cnt {
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-left: 4px;
+  }
+}
 
 // Nav "new" badge on the Relive tab (main-layout.component.html).
 .nav-new {

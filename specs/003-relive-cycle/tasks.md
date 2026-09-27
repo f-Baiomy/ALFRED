@@ -198,7 +198,7 @@ below ends with the test that proves it.
   - **Empty state:** text from the mock.
   - **Data:** from `ReliveCyclesStateService`.
   - **Test:** `relive-list.component.spec.ts`: rows render; delete asks for confirmation.
-- [ ] T024 [US1] Create the cycle page shell `FE/pages/relive-cycle/relive-cycle.component.{ts,html}` and its state `FE/pages/relive-cycle/relive-cycle-editor.state.ts` (component-provided service).
+- [X] T024 [US1] Create the cycle page shell `FE/pages/relive-cycle/relive-cycle.component.{ts,html}` and its state `FE/pages/relive-cycle/relive-cycle-editor.state.ts` (component-provided service).
   - **Page:** copies mock.html `cycleView()`: header with editable name and description, the badge row (`N steps · M outbound children`, `⚠ N can reach an external system`, `GLOBAL rules: …`, `N CYCLE rule`, `N variables`, `inbound: …`), the tabs Steps / Variables / Rules / Run / History, and the Save / ⟳ Rebuild / Duplicate / ▶ Run buttons.
   - **Editor state:** holds `draft: signal<ReliveCycle>`, `saved` (last loaded), `dirty = computed(...)`, `selectedStepKey`, `save()` (PUT with If-Match; 409 shows a "changed elsewhere - reload?" dialog), `discardGuard` (FR-008: warn on leaving with unsaved changes, via a `canDeactivate` guard on the route in `app.routes.ts`).
   - **Test:** `relive-cycle-editor.state.spec.ts`: dirty tracking; a 409 shows the reload prompt.

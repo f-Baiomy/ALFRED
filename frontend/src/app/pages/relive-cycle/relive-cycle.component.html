@@ -1,0 +1,81 @@
+@if (state.draft(); as draft) {
+  <div class="rl-page">
+    <div class="rl-row" style="align-items: flex-start">
+      <div style="flex: 1">
+        <a class="rl-link" routerLink="/relive">← Relive Cycles</a>
+        <div class="rl-row" style="margin-top: 4px">
+          <input class="rl-name-input" [value]="draft.name" (input)="setName($any($event.target).value)" />
+          @if (state.dirty()) {
+            <span class="rl-dirty">● unsaved changes</span>
+          }
+        </div>
+        <input
+          style="width: 620px; background: transparent; border-color: transparent; padding: 2px 6px; margin-left: -6px"
+          class="rl-dim"
+          [value]="draft.description ?? ''"
+          (input)="setDescription($any($event.target).value)"
+        />
+        <div class="rl-row" style="flex-wrap: wrap; gap: 6px; margin-top: 8px">
+          <span class="rl-pill rl-p-wait">{{ topSteps().length }} steps · {{ childSteps().length }} outbound children</span>
+          <span class="rl-pill" [class]="externalCount() ? 'rl-p-live' : 'rl-p-replay'">
+            {{ externalCount() ? '⚠ ' + externalCount() + ' can reach an external system' : '✓ nothing external - all replayed' }}
+          </span>
+          <span class="rl-pill rl-p-global">
+            GLOBAL rules: {{ draft.globalRules.mode === 'NONE' ? 'none' : draft.globalRules.mode === 'ALL' ? 'all' : draft.globalRules.selectedIds.length + ' selected' }}
+          </span>
+          <span class="rl-pill rl-p-cycle">{{ draft.cycleRules.length }} CYCLE rule{{ draft.cycleRules.length === 1 ? '' : 's' }}</span>
+          <span class="rl-pill rl-p-wait">{{ draft.variables.length }} variables</span>
+        </div>
+      </div>
+      <div class="rl-row" style="padding-top: 22px">
+        <button class="rl-btn" (click)="save()" [disabled]="!state.dirty() || state.saving()">Save</button>
+        <button class="rl-btn" disabled title="Coming with the Rebuild flow (US6)">⟳ Rebuild</button>
+        <button class="rl-btn" (click)="duplicate()">Duplicate</button>
+        <button class="rl-btn rl-primary" disabled title="Coming with Run (US3)">▶ Run</button>
+      </div>
+    </div>
+
+    @if (draft.transient) {
+      <div class="rl-ext-banner" style="background: rgba(139, 92, 246, 0.12); border-color: var(--border-strong); color: var(--purple-light)">
+        ⚡ Quick run from your selection - <b>not saved</b>. Every supplier call is REPLAY.
+      </div>
+    }
+
+    @if (state.conflict()) {
+      <div class="rl-ext-banner">
+        ⚠ This cycle changed elsewhere since you opened it.
+        <span class="rl-spacer"></span>
+        <button class="rl-btn rl-sm" (click)="state.discardConflict()">Keep editing</button>
+        <button class="rl-btn rl-sm rl-primary" (click)="state.reloadFromConflict()">Reload</button>
+      </div>
+    }
+
+    <div class="rl-tabs">
+      <button [class.rl-on]="tab() === 'steps'" (click)="setTab('steps')">Steps <span class="rl-cnt">{{ draft.steps.length }}</span></button>
+      <button [class.rl-on]="tab() === 'variables'" (click)="setTab('variables')">Variables <span class="rl-cnt">{{ draft.variables.length }}</span></button>
+      <button [class.rl-on]="tab() === 'rules'" (click)="setTab('rules')">Rules <span class="rl-cnt">{{ draft.cycleRules.length }}</span></button>
+      <button [class.rl-on]="tab() === 'run'" (click)="setTab('run')">Run</button>
+      <button [class.rl-on]="tab() === 'history'" (click)="setTab('history')">History</button>
+    </div>
+
+    @switch (tab()) {
+      @case ('steps') {
+        <div class="rl-faint">Step tree coming next (T025).</div>
+      }
+      @case ('variables') {
+        <div class="rl-faint">Variables panel coming with US5.</div>
+      }
+      @case ('rules') {
+        <div class="rl-faint">Cycle rules panel coming with US4/US6.</div>
+      }
+      @case ('run') {
+        <div class="rl-faint">Run view coming with US3.</div>
+      }
+      @case ('history') {
+        <div class="rl-faint">Run history and Live calls log coming with US3/US7.</div>
+      }
+    }
+  </div>
+} @else {
+  <div class="rl-page rl-faint">Loading…</div>
+}
