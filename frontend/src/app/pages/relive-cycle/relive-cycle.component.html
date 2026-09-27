@@ -60,6 +60,9 @@
 
     @switch (tab()) {
       @case ('steps') {
+        <div class="rl-row" style="margin-bottom: 8px">
+          <button class="rl-btn rl-sm" (click)="openAddCalls()">＋ Add calls</button>
+        </div>
         <app-relive-step-tree
           [steps]="draft.steps"
           [settings]="draft.settings"
@@ -82,6 +85,14 @@
       }
     }
   </div>
+
+  <app-relive-add-calls-dialog
+    [open]="addCallsOpen()"
+    [cycleId]="draft.id"
+    [settings]="draft.settings"
+    (closed)="addCallsOpen.set(false)"
+    (added)="appendSteps($event)"
+  />
 } @else {
   <div class="rl-page rl-faint">Loading…</div>
 }

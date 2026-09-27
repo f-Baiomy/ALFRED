@@ -1,8 +1,11 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
+import { CallPickerService } from '../../core/services/call-picker.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ReliveApiService } from '../../core/services/relive-api.service';
+import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { externalReach } from '../../shared/utils/relive-external-reach';
 import { Step } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
@@ -19,7 +22,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 @Component({
   selector: 'app-relive-cycle',
   standalone: true,
-  imports: [RouterLink, ReliveStepTreeComponent],
+  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent],
   providers: [ReliveCycleEditorState],
   templateUrl: './relive-cycle.component.html',
 })
@@ -27,9 +30,11 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(ReliveApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly picker = inject(CallPickerService);
   readonly state = inject(ReliveCycleEditorState);
 
   readonly tab = signal<ReliveTab>('steps');
+  readonly addCallsOpen = signal(false);
 
   readonly topSteps = computed(() => this.state.draft()?.steps.filter((s) => !s.parentKey) ?? []);
   readonly childSteps = computed(() => this.state.draft()?.steps.filter((s) => s.parentKey) ?? []);
@@ -41,6 +46,32 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   constructor() {
     const id = this.route.snapshot.paramMap.get('id');
     if (id) this.state.load(id);
+    this.handleReturnFromPicker();
+  }
+
+  /** After "Pick from anywhere" sends the user off to pick and back (research: the pick bar
+   *  pattern) - append whatever they picked, the same way "Add calls" does directly. */
+  private handleReturnFromPicker(): void {
+    if (!this.picker.hasResult(RELIVE_ADD_CALLS_REQUESTER)) return;
+    const result = this.picker.takeResult(RELIVE_ADD_CALLS_REQUESTER);
+    if (!result || !result.picked.length) return;
+    const resume = result.resume as ReliveAddCallsResume;
+    const draft = this.state.draft();
+    if (!draft || draft.id !== resume.cycleId) return;
+    const steps = freezeCalls(
+      result.picked.map((p) => p.call),
+      new Map(),
+      draft.settings,
+    );
+    this.appendSteps(steps);
+  }
+
+  openAddCalls(): void {
+    this.addCallsOpen.set(true);
+  }
+
+  appendSteps(steps: readonly Step[]): void {
+    this.state.update((draft) => ({ ...draft, steps: [...draft.steps, ...steps] }));
   }
 
   setTab(tab: ReliveTab): void {

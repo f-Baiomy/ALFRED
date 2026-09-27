@@ -1,0 +1,43 @@
+@if (open()) {
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card wide" (click)="$event.stopPropagation()">
+      <h2>Add calls to this cycle</h2>
+      <p class="dialog-sub">Calls are copied into the cycle - the recording itself is never modified.</p>
+
+      <div class="rl-row" style="margin-bottom: 10px">
+        <select (change)="selectSessionCycle($any($event.target).value)">
+          <option value="">Choose a session cycle…</option>
+          @for (sc of sessionCycles.cycles(); track sc.id) {
+            <option [value]="sc.id">{{ sc.name }}</option>
+          }
+        </select>
+        <span class="rl-spacer"></span>
+        <button class="rl-btn rl-sm" (click)="pickFromAnywhere()">📌 Pick from anywhere…</button>
+      </div>
+
+      @if (tree().length) {
+        <div style="max-height: 360px; overflow: auto">
+          @for (node of tree(); track node.call.id) {
+            <div class="rl-row" style="padding: 6px 8px">
+              <input type="checkbox" [checked]="isChecked(node.call.id)" (change)="toggleRoot(node.call.id)" />
+              <span class="rl-dir rl-in">↙</span>
+              <span class="rl-lbl">
+                <span class="rl-t">{{ node.call.method }} {{ node.call.url }}</span>
+                @if (node.children.length) {
+                  <span class="rl-u">{{ node.children.length }} outbound child call(s) included automatically</span>
+                }
+              </span>
+            </div>
+          }
+        </div>
+      } @else if (selectedSessionCycleId()) {
+        <div class="rl-faint">No calls in this session cycle.</div>
+      }
+
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="close()">Cancel</button>
+        <button type="button" class="dialog-btn" [disabled]="!checkedRootIds().size" (click)="confirm()">Add {{ checkedRootIds().size || '' }} call(s)</button>
+      </div>
+    </div>
+  </div>
+}

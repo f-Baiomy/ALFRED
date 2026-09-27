@@ -210,7 +210,7 @@ below ends with the test that proves it.
   - **Folding:** collapse/expand per inbound row.
   - **Validation list:** above the tree, the findings list and the external-systems banner (mock `stepsPanel()` top).
   - **Test:** `relive-step-tree.component.spec.ts`: reorder moves children with their parent; the mode buttons change `modeOf(step.callRule)`.
-- [ ] T026 [US1] Add calls to a cycle. Create `FE/components/relive-add-calls/relive-add-calls-dialog.component.{ts,html}`, copying mock.html `openAdd()` / `confirmAdd()`.
+- [X] T026 [US1] Add calls to a cycle. Create `FE/components/relive-add-calls/relive-add-calls-dialog.component.{ts,html}`, copying mock.html `openAdd()` / `confirmAdd()`.
   - **List:** the calls of a chosen session cycle, as inbound calls with their children shown indented (children follow their parent automatically).
   - **"📌 Pick from anywhere…":** uses the existing `CallPickerService` (`FE/core/services/call-picker.service.ts`) exactly as other features do. Find usages with `codegraph explore "CallPickerService pick"`, and match mock `openPicker()` / `donePicking()`.
   - **Freezing:** chosen calls are frozen with `freezeCalls` after fetching each call's detail through the existing calls API, and appended to the draft.
