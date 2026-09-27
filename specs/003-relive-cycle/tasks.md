@@ -312,7 +312,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Request tab:** editable. Edits are saved as a `SET_REQUEST_BODY` action ("saved as 'Replace the request body' in the call rule"). On blur of a REPLAY child's request, if the "request differs" choice was never made for that step, open T038 (mock `askIfEdited`).
   - **Response tab:** edits the enabled mock's (or replace's) status, headers and body (mock `drawerBody` response branch). It says "Your edits stay even if you switch to LIVE and back."
   - **Test:** `relive-step-drawer.component.spec.ts`.
-- [ ] T038 [US2] "When the request differs" dialog: `FE/components/relive-request-differs-dialog/…`. It copies mock.html `openChanged()`, `CHG`, `setChanged()`, `confirmCallLive()`.
+- [X] T038 [US2] "When the request differs" dialog: `FE/components/relive-request-differs-dialog/…`. It copies mock.html `openChanged()`, `CHG`, `setChanged()`, `confirmCallLive()`.
   - **Choices:** four cards: Mock a failure (default, with an editable status), Ask me, Replay recording anyway, Call live ⚠.
   - **Call live:** opens the danger confirmation, whose button stays disabled until "I understand … will be contacted" is ticked.
   - **Parent banner:** add mock `editedParentBanner()` to an inbound step whose request was edited: set all REPLAY children at once; "Call live" asks for confirmation first.

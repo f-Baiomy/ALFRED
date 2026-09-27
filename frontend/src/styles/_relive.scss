@@ -210,6 +210,10 @@
   }
 }
 
+.rl-rulecard.rl-current {
+  border-color: var(--border-strong);
+  background: rgba(139, 92, 246, 0.18);
+}
 .rl-rulecard {
   display: flex;
   align-items: center;

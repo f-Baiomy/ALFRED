@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
 import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/relive-step-drawer.component';
+import { ReliveRequestDiffersDialogComponent } from '../../components/relive-request-differs-dialog/relive-request-differs-dialog.component';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -26,7 +27,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 @Component({
   selector: 'app-relive-cycle',
   standalone: true,
-  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent, ReliveStepDrawerComponent, RuleEditorComponent],
+  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent, ReliveStepDrawerComponent, RuleEditorComponent, ReliveRequestDiffersDialogComponent],
   providers: [ReliveCycleEditorState],
   templateUrl: './relive-cycle.component.html',
 })
@@ -94,10 +95,18 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.ruleDialog.open('CALL', stepKey, null);
   }
 
-  /** T038 (request-differs dialog) isn't built yet - opening the call rule editor directly is the
-   *  interim way to change the request-differs condition. */
+  readonly requestDiffersStepKey = signal<string | null>(null);
+  readonly requestDiffersStep = computed(() => {
+    const key = this.requestDiffersStepKey();
+    return key ? (this.state.draft()?.steps.find((s) => s.key === key) ?? null) : null;
+  });
+
   openRequestDiffers(stepKey: string): void {
-    this.openCallRule(stepKey);
+    this.requestDiffersStepKey.set(stepKey);
+  }
+
+  closeRequestDiffers(): void {
+    this.requestDiffersStepKey.set(null);
   }
 
   orderLabelFor(step: Step): string | null {

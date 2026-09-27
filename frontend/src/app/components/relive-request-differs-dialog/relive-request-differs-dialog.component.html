@@ -1,0 +1,47 @@
+@if (open() && step(); as step) {
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card" style="width: 560px" (click)="$event.stopPropagation()">
+      @if (!confirmingLive()) {
+        <h2>When {{ step.label }}'s request differs from the recording</h2>
+        <p class="dialog-sub" style="margin: 4px 0 10px">
+          @if (reason()) {
+            {{ reason() }}
+          }
+          Compared <b>after your edits</b>, ignoring noise. Written into the call rule as a Condition.
+        </p>
+        @for (choice of choices; track choice.value) {
+          <button
+            class="rl-rulecard"
+            style="width: 100%; text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 2px"
+            [class.rl-current]="current() === choice.value"
+            (click)="choose(choice.value)"
+          >
+            <span class="rl-row" style="width: 100%">
+              <b [style.color]="choice.danger ? '#fed7aa' : null">{{ choice.label }}</b>
+              <span class="rl-spacer"></span>
+              @if (current() === choice.value) {
+                <span class="rl-pill rl-p-cycle">current</span>
+              }
+            </span>
+            <span class="rl-dim">{{ choice.detail }}</span>
+          </button>
+        }
+      } @else {
+        <h2 style="color: #fed7aa">⚠ Call the real supplier?</h2>
+        <p class="dialog-sub" style="margin: 6px 0 10px">
+          Whenever the request to <b>{{ step.label }}</b> differs from the recording - including because of your own edits - it will be sent to the <b>real supplier</b>. That can create real bookings, charges or side effects.
+        </p>
+        <div class="rl-ext-banner">It will be listed in every pre-run LIVE summary and needs confirmation before each run.</div>
+        <label class="rl-row" style="font-size: 12.5px; margin-top: 10px">
+          <input type="checkbox" [checked]="liveConfirmChecked()" (change)="liveConfirmChecked.set($any($event.target).checked)" />
+          I understand the real supplier will be contacted
+        </label>
+        <div class="rl-row" style="margin-top: 12px">
+          <span class="rl-spacer"></span>
+          <button class="rl-btn" (click)="back()">Back</button>
+          <button class="rl-btn rl-danger" [disabled]="!liveConfirmChecked()" (click)="confirmLive()">Yes, call live</button>
+        </div>
+      }
+    </div>
+  </div>
+}

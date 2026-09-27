@@ -120,6 +120,13 @@
       (closed)="ruleDialog.close()"
     />
   }
+
+  <app-relive-request-differs-dialog
+    [open]="!!requestDiffersStep()"
+    [step]="requestDiffersStep()"
+    (stepChange)="updateStep($event)"
+    (closed)="closeRequestDiffers()"
+  />
 } @else {
   <div class="rl-page rl-faint">Loading…</div>
 }
