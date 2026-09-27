@@ -3,6 +3,9 @@
 <div class="dialog rule-editor" role="dialog" aria-label="Edit interception rule">
   <div class="dialog-head">
     <h2>{{ isNew() ? 'New interception rule' : 'Edit rule' }}</h2>
+    @if (scope !== 'GLOBAL') {
+      <span class="rl-pill" [class]="scope === 'CALL' ? 'rl-p-replay' : 'rl-p-cycle'">{{ scope === 'CALL' ? 'this call' : scope === 'CYCLE' ? 'CYCLE rule' : 'UNEXPECTED calls' }}</span>
+    }
     <button type="button" class="icon-btn" aria-label="Close" (click)="cancel()">×</button>
   </div>
 

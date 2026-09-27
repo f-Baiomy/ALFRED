@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { defaultCallRule } from '../../shared/utils/relive-call-rule';
+import { checkpointOf, defaultCallRule, modeOf } from '../../shared/utils/relive-call-rule';
 import { FrozenCall, ReliveSettings, Step } from '../../shared/utils/relive-types';
 import { ReliveStepDrawerComponent } from './relive-step-drawer.component';
 
@@ -84,5 +84,40 @@ describe('ReliveStepDrawerComponent', () => {
     fixture.componentInstance.closed.subscribe(closedSpy);
     fixture.nativeElement.querySelector('.icon-btn').click();
     expect(closedSpy).toHaveBeenCalled();
+  });
+
+  it('a mode button changes modeOf(step.callRule) and emits the updated step', () => {
+    let emitted: Step | null = null;
+    fixture.componentInstance.stepChange.subscribe((s: Step) => (emitted = s));
+
+    fixture.componentInstance.setMode('LIVE');
+
+    expect(modeOf(emitted!.callRule)).toBe('LIVE');
+  });
+
+  it('toggling a pause adds/removes a checkpoint on the call rule', () => {
+    let emitted: Step | null = null;
+    fixture.componentInstance.stepChange.subscribe((s: Step) => (emitted = s));
+
+    fixture.componentInstance.togglePause('before');
+    expect(checkpointOf(emitted!.callRule).before).toBeTrue();
+
+    fixture.componentRef.setInput('step', emitted!);
+    fixture.componentInstance.togglePause('before');
+    expect(checkpointOf(emitted!.callRule).before).toBeFalse();
+  });
+
+  it('shows the call rule preview with the default REPLAY mock and a request-differs button', () => {
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('Call rule');
+    expect(text).toContain('Mock response');
+    expect(text).toContain('When the request differs: Mock a failure');
+  });
+
+  it('opening the call rule emits the step key', () => {
+    const openSpy = jasmine.createSpy('open');
+    fixture.componentInstance.openCallRule.subscribe(openSpy);
+    fixture.componentInstance.requestOpenCallRule();
+    expect(openSpy).toHaveBeenCalledWith('c-supA');
   });
 });

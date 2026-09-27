@@ -78,10 +78,13 @@
           @if (selectedStep(); as step) {
             <app-relive-step-drawer
               [step]="step"
+              [orderLabel]="orderLabelFor(step)"
               (stepChange)="updateStep($event)"
               (closed)="selectStep(step.key)"
               (resetRequested)="resetStep($event)"
               (duplicateRequested)="duplicateStep($event)"
+              (openCallRule)="openCallRule($event)"
+              (openRequestDiffers)="openRequestDiffers($event)"
             />
           }
         </div>
@@ -108,6 +111,15 @@
     (closed)="addCallsOpen.set(false)"
     (added)="appendSteps($event)"
   />
+
+  @if (ruleDialog.request(); as req) {
+    <app-rule-editor
+      [scope]="req.scope"
+      [snapshot]="ruleEditorSnapshot()"
+      [target]="ruleEditorTarget"
+      (closed)="ruleDialog.close()"
+    />
+  }
 } @else {
   <div class="rl-page rl-faint">Loading…</div>
 }

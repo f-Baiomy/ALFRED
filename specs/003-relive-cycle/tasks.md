@@ -305,7 +305,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
 
 ### Frontend
 
-- [ ] T037 [US2] Call rule section of the step drawer, in `FE/components/relive-step-drawer/`. It copies mock.html `modeButtons()`, `callRuleSection()`, `actLine()`, `hostCard()`, `setCp()`, `configTab()`.
+- [X] T037 [US2] Call rule section of the step drawer, in `FE/components/relive-step-drawer/`. It copies mock.html `modeButtons()`, `callRuleSection()`, `actLine()`, `hostCard()`, `setCp()`, `configTab()`.
   - **Mode:** the Execution mode segment: 3 buttons for children, LIVE / REPLAY for inbound.
   - **Call rule preview:** Match line (method + host + path + `#n in Parent` + a `custom` / `endpoint + order` pill); "1 Request - before it leaves ALFRED" with each action's summary line, off actions dimmed with an "off" pill; the "The host" card, whose 3 variants are exactly the mock's texts; "2 Response - after the host answers".
   - **Buttons:** "Open call rule…" (T039), "＋ / − Pause before", "＋ / − Pause after", "When the request differs: X…" (T038), "Reset call rule…" (T028's confirm).
@@ -317,7 +317,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Call live:** opens the danger confirmation, whose button stays disabled until "I understand … will be contacted" is ticked.
   - **Parent banner:** add mock `editedParentBanner()` to an inbound step whose request was edited: set all REPLAY children at once; "Call live" asks for confirmation first.
   - **Test:** Call live can't be chosen without ticking the confirmation.
-- [ ] T039 [US2] Reuse the real rule editor (research D14, FR-029a/b).
+- [X] T039 [US2] Reuse the real rule editor (research D14, FR-029a/b).
   - **Save target:** in `FE/components/rule-editor/rule-editor.component.ts`, add an injection token `RULE_EDITOR_TARGET` (new file `FE/components/rule-editor/rule-editor-target.ts`). Its interface is `{ save(draft: InterceptionRuleDraft, ruleId: string|null): Observable<InterceptionRule|InterceptionRuleDraft|null> }`, and the default provider saves through `InterceptionStateService.createRule/updateRule` (today's behaviour). Replace the direct calls inside `save()` (line ~2060) with the target.
   - **Scope:** add `@Input() scope: 'GLOBAL'|'CYCLE'|'CALL'|'UNEXPECTED' = 'GLOBAL'`.
     - `CALL`: the Match section shows the step's match (editable) and "#n in Parent". The pipeline shows "The host" card between Request and Response (the `hostCard` equivalent). A warning banner appears when saving would make the call reach the host (mock `renderRuleEditor` ext-banner).

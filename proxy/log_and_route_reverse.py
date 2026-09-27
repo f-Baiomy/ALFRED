@@ -42,6 +42,7 @@ from mitmproxy import ctx, http
 
 import breakpoints
 import interception
+import relive
 import ws_messages
 
 BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
@@ -166,12 +167,21 @@ class RouteAndLog:
         # call log ever observes these headers - see interception.take_resend_headers.
         resend_of, resend_edits = interception.take_resend_headers(flow, BACKEND_ADDRESSES)
 
+        # Relive (research D2/D4): an inbound step of an active run - see relive.apply_inbound.
+        relive_verdict, relive_info = await relive.apply_inbound(flow, name, BACKEND_ADDRESSES, ENGINE)
+
         # Interception is independent of the per-project LOGGING toggle: turning a project's
         # recording off means "don't write this down", not "stop applying the rules I configured".
         # It also runs before the call is logged, so what is recorded is what was actually
         # forwarded upstream.
-        verdict = await ENGINE.apply_request(flow, name)
+        if relive_verdict is not None:
+            verdict = relive_verdict
+        else:
+            verdict = await ENGINE.apply_request(flow, name)
         flow.metadata['interception'] = verdict
+        if relive_info:
+            flow.metadata['relive'] = relive_info
+        reached_upstream = not bool(verdict.terminal)
 
         if not WEBHOOK_URL or not _toggle.enabled(name):
             await self._carry_out(flow, verdict, None, name)
@@ -218,6 +228,9 @@ class RouteAndLog:
             call_log['resend_of'] = resend_of
         if resend_edits is not None:
             call_log['resend_edits'] = resend_edits
+        if relive_info:
+            call_log['relive'] = relive_info
+            call_log['reachedUpstream'] = reached_upstream
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
         await self._carry_out(flow, verdict, call_id, name)
@@ -255,10 +268,26 @@ class RouteAndLog:
             await self._fail(flow, verdict.failure)
             return
 
-        if verdict.pause and verdict.pause.get('phase') == 'request' and call_id:
-            decision = await breakpoints.wait_for_decision(
-                flow, 'request', call_id, verdict.pause, 'inbound', service_name)
-            await self._record_decision(flow, verdict, 'request', decision)
+        if verdict.pause and verdict.pause.get('phase') == 'request':
+            relive_meta = verdict.pause.get('relive')
+            if call_id:
+                decision = await breakpoints.wait_for_decision(
+                    flow, 'request', call_id, verdict.pause, 'inbound', service_name)
+            else:
+                decision = {'action': 'abort' if verdict.pause.get('onTimeout') == 'abort' else 'release',
+                            'reason': 'no-webhook'}
+            if relive_meta and relive_meta.get('at') == 'CHANGED' and decision.get('reason'):
+                # See log_and_route.py's identical guard (T033): no explicit human decision on a
+                # Relive "request differs" pause must NEVER resolve to forwarding.
+                payload = relive.failure_payload(relive_meta)
+                body = json.dumps(payload).encode('utf-8')
+                flow.response = http.Response.make(502, body, {'content-type': 'application/json'})
+                verdict.terminal = 'MOCK_RESPONSE'
+                verdict.mock = {'status': 502, 'headers': {'content-type': 'application/json'},
+                                 'body_bytes': body}
+                return
+            if call_id:
+                await self._record_decision(flow, verdict, 'request', decision)
 
     async def _fail(self, flow, failure):
         """Carries out a SIMULATE_FAILURE verdict.
@@ -316,7 +345,8 @@ class RouteAndLog:
         verdict = flow.metadata.get('interception') or interception.Verdict()
         service_name = flow.metadata.get('service_name')
 
-        response_verdict = await ENGINE.apply_response(flow, service_name)
+        response_verdict = await ENGINE.apply_response(
+            flow, service_name, extra_rulesets=flow.metadata.get('relive_rulesets'))
         # See log_and_route.py: state, not one field - copying `applied` alone dropped every
         # response-phase snapshot.
         verdict.adopt(response_verdict)

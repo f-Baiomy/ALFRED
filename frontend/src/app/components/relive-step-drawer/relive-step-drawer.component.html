@@ -37,9 +37,83 @@
           </div>
           <div class="rl-row" style="margin-top: 8px">
             <button class="rl-btn rl-sm" (click)="requestDuplicate()">Duplicate</button>
-            <button class="rl-btn rl-sm" (click)="requestReset()">Reset call rule</button>
           </div>
         </div>
+
+        <div class="rl-sect">
+          <h3>Execution mode</h3>
+          @if (step().parentKey) {
+            <span class="rl-seg rl-mode">
+              <button [class.rl-on]="mode() === 'REPLAY'" [class.rl-replay]="mode() === 'REPLAY'" (click)="setMode('REPLAY')">REPLAY - ALFRED answers</button>
+              <button [class.rl-on]="mode() === 'LIVE'" [class.rl-live]="mode() === 'LIVE'" (click)="setMode('LIVE')">LIVE - real supplier ⚠</button>
+              <button [class.rl-on]="mode() === 'LIVE_MOCKED'" [class.rl-live]="mode() === 'LIVE_MOCKED'" (click)="setMode('LIVE_MOCKED')">LIVE, reply mocked ⚠</button>
+            </span>
+          } @else {
+            <span class="rl-seg rl-mode">
+              <button [class.rl-on]="mode() === 'LIVE'" [class.rl-live]="mode() === 'LIVE'">LIVE - sent to the app</button>
+              <button [class.rl-on]="mode() === 'REPLAY'" [class.rl-replay]="mode() === 'REPLAY'" (click)="setMode('REPLAY')">REPLAY - ALFRED answers</button>
+            </span>
+          }
+        </div>
+
+        <div class="rl-sect">
+          <h3>Call rule</h3>
+          <p class="rl-hint" style="margin-bottom: 6px">One ALFRED interception rule for this call - the buttons above only edit it. Change anything here with every action ALFRED has.</p>
+          @if (step().parentKey && orderLabel()) {
+            <div class="rl-re-act"><span class="rl-faint" style="width: 52px">Match</span><span class="rl-mono" style="flex: 1; font-size: 11.5px">{{ orderLabel() }}</span></div>
+          }
+          <div class="rl-re-col" style="margin: 6px 0">
+            <h4>1 Request - before it leaves ALFRED</h4>
+            @for (line of requestActions(); track $index) {
+              <div class="rl-re-act" [style.opacity]="line.on ? 1 : 0.45">
+                <span style="flex: 1"><b>{{ line.title }}</b>@if (!line.on) {<span class="rl-pill rl-p-wait">off</span>}
+                  @if (line.detail) {<div class="rl-faint" style="font-size: 11.5px; margin-top: 2px" [innerHTML]="line.detail"></div>}
+                </span>
+              </div>
+            } @empty {
+              <div class="rl-faint" style="font-size: 12px">Nothing - forwarded as it arrived.</div>
+            }
+          </div>
+          @if (step().parentKey) {
+            <div class="rl-re-col" style="min-height: 0; border-style: dashed">
+              <b>{{ host().icon }} {{ host().title }}</b> <span class="rl-dim">- {{ host().detail }}</span>
+            </div>
+          }
+          <div class="rl-re-col" style="margin-top: 6px">
+            <h4>2 Response - after the host answers</h4>
+            @for (line of responseActions(); track $index) {
+              <div class="rl-re-act" [style.opacity]="line.on ? 1 : 0.45">
+                <span style="flex: 1"><b>{{ line.title }}</b>@if (!line.on) {<span class="rl-pill rl-p-wait">off</span>}
+                  @if (line.detail) {<div class="rl-faint" style="font-size: 11.5px; margin-top: 2px" [innerHTML]="line.detail"></div>}
+                </span>
+              </div>
+            } @empty {
+              <div class="rl-faint" style="font-size: 12px">Nothing - the caller gets exactly what the host sent.</div>
+            }
+          </div>
+          <div class="rl-row" style="margin-top: 8px; flex-wrap: wrap">
+            <button class="rl-btn rl-sm rl-primary" (click)="requestOpenCallRule()">Open call rule…</button>
+            <button class="rl-btn rl-sm" (click)="togglePause('before')">{{ checkpoint().before ? '− ' : '＋ ' }}Pause before</button>
+            <button class="rl-btn rl-sm" (click)="togglePause('after')">{{ checkpoint().after ? '− ' : '＋ ' }}Pause after</button>
+            @if (step().parentKey && mode() === 'REPLAY') {
+              <button class="rl-btn rl-sm" (click)="requestOpenRequestDiffers()">When the request differs: {{ requestDiffersLabel() }}…</button>
+            }
+            <span class="rl-spacer"></span>
+            <button class="rl-btn rl-sm rl-danger" (click)="requestReset()">Reset call rule…</button>
+          </div>
+        </div>
+
+        @if (step().parentKey && mode() === 'REPLAY') {
+          <div class="rl-sect">
+            <h3>If ALFRED can't tell the call is yours</h3>
+            <div class="rl-choice">
+              <button [class.rl-on]="step().unattributed === 'BLOCK'" (click)="setUnattributed('BLOCK')">Block (default)</button>
+              <button [class.rl-on]="step().unattributed === 'REPLAY_ANYWAY'" (click)="setUnattributed('REPLAY_ANYWAY')">Replay anyway</button>
+              <button [class.rl-on]="step().unattributed === 'SEND_REAL'" (click)="setUnattributed('SEND_REAL')">Send to real system</button>
+            </div>
+            <p class="rl-hint" style="margin-top: 4px">Happens when the app doesn't pass ALFRED's tag on to this call and another request for it is in flight at the same time.</p>
+          </div>
+        }
       }
       @case ('request') {
         <div class="rl-sect">

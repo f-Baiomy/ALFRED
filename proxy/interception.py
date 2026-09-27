@@ -1547,6 +1547,10 @@ class _RulesCache:
 SUBJECTS = {
     'REQUEST_HEADER', 'REQUEST_BODY', 'REQUEST_JSON_FIELD', 'QUERY_PARAM', 'URL', 'METHOD',
     'RESPONSE_STATUS', 'RESPONSE_HEADER', 'RESPONSE_BODY', 'RESPONSE_JSON_FIELD',
+    # Relive (research D15/D17): "does the live request match its frozen recording". Evaluated
+    # entirely differently from every other subject - see Condition._recorded_call_holds - so it
+    # is excluded from the generic value-based paths below wherever they would otherwise apply.
+    'RECORDED_CALL',
 }
 
 OPERATORS = {
@@ -1642,7 +1646,8 @@ class Condition:
     """
 
     __slots__ = ('subject', 'name', 'operator', 'value', 'case_sensitive', 'pattern', 'number',
-                 'paths', 'all_paths', 'items', 'list_values')
+                 'paths', 'all_paths', 'items', 'list_values', 'answer_id', 'ignore_paths',
+                 'compare_headers')
 
     def __init__(self, raw):
         raw = raw or {}
@@ -1652,6 +1657,14 @@ class Condition:
         value = raw.get('value')
         self.value = None if value is None else str(value)
         self.case_sensitive = raw.get('caseSensitive') is True
+
+        # MATCHES_RECORDED_CALL (research D15/D17, FR-014d): `recordedStepKey` is the cycle's own
+        # definition-time reference; RunSnapshotBuilder (backend, T035) replaces it with an
+        # `answerId` before this ever reaches the proxy, so the proxy only ever reads answerId.
+        self.answer_id = str(raw.get('answerId') or '').strip() or None
+        self.ignore_paths = tuple(
+            str(p).strip() for p in (raw.get('ignore') or []) if str(p).strip())
+        self.compare_headers = raw.get('headers') is True
         # A JSON field condition can test several fields (name first, then `paths`), ANY (default)
         # or ALL of them, and a list's items ANY / ALL / NONE. `items` absent is the reading from
         # before it existed: a list is compared as its JSON text, as one value.
@@ -1678,6 +1691,8 @@ class Condition:
     def valid(self):
         if self.subject not in SUBJECTS or self.operator not in OPERATORS:
             return False
+        if self.subject == 'RECORDED_CALL':
+            return self.operator == 'MATCHES' and bool(self.answer_id)
         json_only = self.operator in ('TYPE_IS', 'IS_EMPTY') or self.operator in _WHOLE_FIELD
         return self.subject in _JSON_SUBJECTS or not json_only
 
@@ -1724,9 +1739,60 @@ class Condition:
             # runs because a typo was ignored is worse than one that never runs.
             return False
 
+        if self.subject == 'RECORDED_CALL':
+            return self._recorded_call_holds(flow)
         if self._json_mode():
             return self._json_holds(flow)
         return self.holds_values(self.values(flow))
+
+    def _recorded_call_holds(self, flow):
+        """MATCHES_RECORDED_CALL (research D15/D17, FR-014d): compares the live request, exactly
+        as it stands at this point in the pipeline, against its frozen recording.
+
+        Safety invariant (FR-014d, tested explicitly): anything that stops the comparison from
+        completing cleanly - no answer store configured for this call, a missing or unreadable
+        answer file, a stored entry that isn't a recorded request - reads as "differs", never as
+        a match. A false negative merely re-asks or blocks (safe); a false positive would replay a
+        request the recording never actually made (not safe).
+        """
+        metadata = getattr(flow, 'metadata', None)
+        directory = metadata.get('_interception_answer_dir') if isinstance(metadata, dict) else None
+        if not directory:
+            return False
+        recorded = _load_recorded_request(directory, self.answer_id)
+        if not recorded or recorded.get('kind') not in (None, 'RECORDED_REQUEST'):
+            return False
+        try:
+            return self._recorded_call_matches(flow.request, recorded)
+        except Exception:
+            # Never let a malformed recording or an unexpected request shape turn "we could not
+            # tell" into "it matches" - see the safety invariant above.
+            return False
+
+    def _recorded_call_matches(self, request, recorded):
+        if (request.method or '').upper() != (recorded.get('method') or '').upper():
+            return False
+        if (request.path or '').partition('?')[0] != (recorded.get('path') or ''):
+            return False
+        try:
+            live_query = dict(getattr(request, 'query', None) or {})
+        except Exception:
+            live_query = {}
+        recorded_query_raw = recorded.get('query') or ''
+        recorded_query = dict(
+            pair.partition('=')[::2] for pair in recorded_query_raw.split('&') if pair)
+        if live_query != recorded_query:
+            return False
+        live_body = _body(request) or ''
+        recorded_body = recorded.get('body') or ''
+        if not _bodies_match(live_body, recorded_body, self.ignore_paths):
+            return False
+        if self.compare_headers:
+            live_headers = _strip_ignored_headers(dict(request.headers), self.ignore_paths)
+            recorded_headers = _strip_ignored_headers(recorded.get('headers') or {}, self.ignore_paths)
+            if live_headers != recorded_headers:
+                return False
+        return True
 
     def _json_holds(self, flow):
         """Every field in `paths`, each tested on its own, combined ANY (default) or ALL."""
@@ -1899,6 +1965,99 @@ def _forget(*messages):
     for message in messages:
         if message is not None:
             _memo.pop(id(message), None)
+
+
+# ---------------------------------------------------------------------------------------------
+# MATCHES_RECORDED_CALL support (research D15/D17, FR-014d): reading a REPLAY child's frozen
+# recorded request, and comparing a live request against it with the cycle's `ignore` paths
+# removed first. Kept beside the answer machinery above rather than in relive.py: it is a
+# Condition subject like any other, usable from an ordinary global rule too (D17).
+# ---------------------------------------------------------------------------------------------
+
+_RECORDED_REQUEST_CACHE = {}  # (directory, answerId) -> (mtime, dict|None)
+
+
+def _load_recorded_request(directory, answer_id):
+    """The recorded request `{kind, method, path, query, headers, body}` an answerId points at, or
+    None on anything that stops this being a clean read: a bad id, no file, a corrupt meta - see
+    Condition._recorded_call_holds for why None must always mean "differs", never "matches".
+
+    Read synchronously, unlike _AnswerCache.load: this is a REQUEST body (what the recording
+    itself sent), not a response, and is never the multi-megabyte media a stored response answer
+    can be - see contracts/proxy-snapshot.md's "Recorded request file" note. mtime-checked exactly
+    like _AnswerCache, so a republished run snapshot is picked up without re-reading a call that
+    hasn't changed.
+    """
+    answer_id = str(answer_id or '')
+    if not ANSWER_ID.fullmatch(answer_id):
+        return None
+    meta_path = os.path.join(directory, answer_id + '.meta.json')
+    try:
+        mtime = os.path.getmtime(meta_path)
+    except OSError:
+        _RECORDED_REQUEST_CACHE.pop((directory, answer_id), None)
+        return None
+    cache_key = (directory, answer_id)
+    cached = _RECORDED_REQUEST_CACHE.get(cache_key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    try:
+        with open(meta_path, 'r', encoding='utf-8') as f:
+            meta = json.load(f)
+        if not isinstance(meta, dict):
+            raise ValueError('meta is not an object')
+        try:
+            with open(os.path.join(directory, answer_id + '.body'), 'r', encoding='utf-8') as f:
+                body = f.read()
+        except OSError:
+            body = ''
+        recorded = {
+            'kind': meta.get('kind'),
+            'method': meta.get('method'),
+            'path': meta.get('path'),
+            'query': meta.get('query'),
+            'headers': meta.get('headers') if isinstance(meta.get('headers'), dict) else {},
+            'body': body,
+        }
+    except (OSError, ValueError):
+        _RECORDED_REQUEST_CACHE[cache_key] = (mtime, None)
+        return None
+    _RECORDED_REQUEST_CACHE[cache_key] = (mtime, recorded)
+    return recorded
+
+
+def _strip_body_paths(text, paths):
+    """`text` with each of `paths` (dotted JSON field paths, optionally prefixed "body.") removed -
+    used on both the live and recorded body before comparing, so an ignored/noise field can never
+    cause a false "differs". Text that isn't JSON, or a path that isn't found, is left alone."""
+    if not paths or not text:
+        return text
+    result = text
+    for path in paths:
+        field = path[5:] if path.startswith('body.') else path
+        if not field:
+            continue
+        try:
+            updated = remove_json_field(result, field)
+        except Exception:
+            updated = None
+        if updated is not None:
+            result = updated
+    return result
+
+
+def _bodies_match(live_text, recorded_text, ignore_paths):
+    live = _strip_body_paths(live_text, ignore_paths)
+    recorded = _strip_body_paths(recorded_text, ignore_paths)
+    if _body_kind(live) == 'json' and _body_kind(recorded) == 'json':
+        return _squash_json(live) == _squash_json(recorded)
+    return live == recorded
+
+
+def _strip_ignored_headers(headers, ignore_paths):
+    """`headers` (case-folded) with any `headers.<name>` ignore path removed from both sides."""
+    drop = {p[8:].strip().lower() for p in ignore_paths if p.startswith('headers.')}
+    return {k.lower(): v for k, v in (headers or {}).items() if k.lower() not in drop}
 
 
 def _json_field(message, path):
@@ -2584,9 +2743,40 @@ class InterceptionEngine:
         self._nth_generation = None
         # Beside the snapshot, wherever that is - the backend publishes both into one directory.
         self._answers = _AnswerCache(os.path.join(os.path.dirname(os.path.abspath(rules_file or RULES_FILE)), 'answers'))
+        # Relive (research D3/D17): a run's answers live in their own per-run directory
+        # (relive/answers/<runId>/), never this one. Built lazily, one _AnswerCache per directory
+        # ever asked for - see _answer_cache_for - so a deployment that never runs Relive pays
+        # nothing beyond this empty dict.
+        self._answer_caches = {}
 
     def enabled(self):
         return not self._cache.current().inert
+
+    def global_ruleset(self):
+        """The currently published global RuleSet - exposed so relive.py can filter it (NONE/ALL/
+        SELECTED, research D4) into a run's GLOBAL tier without reaching into a private attribute."""
+        return self._cache.current()
+
+    @property
+    def answers_dir(self):
+        """Where global stored answers live - relive.py's default GLOBAL-tier answer directory."""
+        return self._answers._dir
+
+    def _answer_cache_for(self, flow):
+        """The _AnswerCache a stored-answer action should read from for this call: the engine's
+        own (global) one, unless the tier currently being evaluated set a different directory in
+        flow.metadata (a Relive run's own relive/answers/<runId>/ - see relive.rulesets_for and
+        Condition._recorded_call_holds, which reads the same key). Untouched calls - the whole of
+        today's behaviour - never see any directory but the global one."""
+        metadata = getattr(flow, 'metadata', None)
+        directory = metadata.get('_interception_answer_dir') if isinstance(metadata, dict) else None
+        if not directory or directory == self._answers._dir:
+            return self._answers
+        cache = self._answer_caches.get(directory)
+        if cache is None:
+            cache = _AnswerCache(directory)
+            self._answer_caches[directory] = cache
+        return cache
 
     def _variable_lookup(self, flow, ruleset):
         """A rule's variable tests read the freshest value first: this call's own GLOBAL captures,
@@ -2656,51 +2846,103 @@ class InterceptionEngine:
             return remembered[1]
         return self._matching(flow, service_name, ruleset)
 
-    async def apply_request(self, flow, service_name=None):
+    async def apply_request(self, flow, service_name=None, extra_rulesets=None):
         try:
-            return await self._apply_request_phase(flow, service_name)
+            return await self._apply_request_phase(flow, service_name, extra_rulesets)
         finally:
             _forget(flow.request, getattr(flow, 'response', None))
 
-    async def _apply_request_phase(self, flow, service_name=None):
+    async def _apply_request_phase(self, flow, service_name=None, extra_rulesets=None):
         """Applies every matching rule's request-phase actions, mutating the flow in place.
         Returns a Verdict describing what the addon still has to do.
 
         Async because a regex find/replace awaits a worker process (see regex_worker.py). Every
         other action is still a synchronous mutation; only the dispatch chain awaits, so an
-        action that does not need the event loop costs nothing extra."""
+        action that does not need the event loop costs nothing extra.
+
+        `extra_rulesets` (Relive, research D4/FR-028a): an ordered iterable of
+        (tierName, RuleSet, answersDir) - typically [('STEP', ...), ('CYCLE', ...), ('GLOBAL',
+        ...)], built by relive.rulesets_for. When given, it REPLACES the ordinary published
+        ruleset for this call entirely (the GLOBAL tier already carries whichever global rules
+        the run opted into - see relive._build_global_ruleset), and every tier's rules apply in
+        order, each with its own stopProcessing/priority semantics but never stopping a LATER
+        tier. With None (every call that isn't attributed to a Relive run), behaviour is
+        byte-for-byte what it was before this parameter existed.
+        """
         verdict = Verdict()
-        ruleset = self._cache.current()
         flow.metadata['_interception_locals'] = {}
-        flow.metadata['_interception_local_ruleset'] = ruleset
-        flow.metadata['_interception_local_generation'] = self._cache.rules_generation
-        verdict.sensitive = ruleset.sensitive
-        verdict.self_targets = ruleset.self_targets
-        matching = self._matching(flow, service_name, ruleset)
-        if isinstance(getattr(flow, 'metadata', None), dict):
-            flow.metadata[MATCHED_KEY] = (ruleset, tuple(matching))
-        if matching:
-            # Once, up front, for the whole phase - see Verdict.observe_request. A call no rule
-            # matches never reaches this line and so never pays for a snapshot.
-            verdict.observe_request(flow)
-        for rule in matching:
-            for action in rule.actions:
-                kind = action.get('type')
-                if kind not in REQUEST_ACTIONS:
-                    if not _known_action(kind):
-                        # Recorded once, in the request phase, which every matched call runs.
-                        # A newer rules file than this proxy understands must say so in the log.
-                        verdict.skip(rule, kind, f'unknown action {kind}')
-                    continue
-                try:
-                    await self._apply_request_action(flow, rule, action, kind, verdict)
-                except Exception as e:
-                    print(f"[interception] rule {rule.name!r} action {kind} failed, skipping: {e}")
-                    continue
-                if verdict.terminal:
-                    return verdict
-                if verdict.pause and verdict.pause['phase'] == 'request':
-                    return verdict
+        # Default answer directory for MATCHES_RECORDED_CALL / stored-answer actions - a tiered
+        # pass below overrides this per tier before evaluating that tier's rules.
+        flow.metadata['_interception_answer_dir'] = self._answers._dir
+
+        if extra_rulesets is None:
+            ruleset = self._cache.current()
+            flow.metadata['_interception_local_ruleset'] = ruleset
+            flow.metadata['_interception_local_generation'] = self._cache.rules_generation
+            verdict.sensitive = ruleset.sensitive
+            verdict.self_targets = ruleset.self_targets
+            matching = self._matching(flow, service_name, ruleset)
+            if isinstance(getattr(flow, 'metadata', None), dict):
+                flow.metadata[MATCHED_KEY] = (ruleset, tuple(matching))
+            if matching:
+                # Once, up front, for the whole phase - see Verdict.observe_request. A call no
+                # rule matches never reaches this line and so never pays for a snapshot.
+                verdict.observe_request(flow)
+            for rule in matching:
+                for action in rule.actions:
+                    kind = action.get('type')
+                    if kind not in REQUEST_ACTIONS:
+                        if not _known_action(kind):
+                            # Recorded once, in the request phase, which every matched call runs.
+                            # A newer rules file than this proxy understands must say so.
+                            verdict.skip(rule, kind, f'unknown action {kind}')
+                        continue
+                    try:
+                        await self._apply_request_action(flow, rule, action, kind, verdict)
+                    except Exception as e:
+                        print(f"[interception] rule {rule.name!r} action {kind} failed, skipping: {e}")
+                        continue
+                    if verdict.terminal:
+                        return verdict
+                    if verdict.pause and verdict.pause['phase'] == 'request':
+                        return verdict
+            return verdict
+
+        return await self._apply_request_phase_tiered(flow, service_name, extra_rulesets, verdict)
+
+    async def _apply_request_phase_tiered(self, flow, service_name, extra_rulesets, verdict):
+        tiers_matched = []
+        observed = False
+        metadata = getattr(flow, 'metadata', None)
+        for tier_name, tier_ruleset, answers_dir in extra_rulesets:
+            flow.metadata['_interception_answer_dir'] = answers_dir or self._answers._dir
+            flow.metadata['_interception_local_ruleset'] = tier_ruleset
+            matching = self._matching(flow, service_name, tier_ruleset)
+            tiers_matched.append((tier_ruleset, tuple(matching)))
+            if tier_name == 'GLOBAL':
+                verdict.sensitive = tier_ruleset.sensitive
+                verdict.self_targets = tier_ruleset.self_targets
+            if matching and not observed:
+                verdict.observe_request(flow)
+                observed = True
+            for rule in matching:
+                for action in rule.actions:
+                    kind = action.get('type')
+                    if kind not in REQUEST_ACTIONS:
+                        if not _known_action(kind):
+                            verdict.skip(rule, kind, f'unknown action {kind}')
+                        continue
+                    try:
+                        await self._apply_request_action(flow, rule, action, kind, verdict)
+                    except Exception as e:
+                        print(f"[interception] rule {rule.name!r} action {kind} failed, skipping: {e}")
+                        continue
+                    if verdict.terminal or (verdict.pause and verdict.pause['phase'] == 'request'):
+                        if isinstance(metadata, dict):
+                            flow.metadata[MATCHED_KEY] = ('TIERED', tuple(tiers_matched))
+                        return verdict
+        if isinstance(metadata, dict):
+            flow.metadata[MATCHED_KEY] = ('TIERED', tuple(tiers_matched))
         return verdict
 
     async def _apply_request_action(self, flow, rule, action, kind, verdict):
@@ -2914,7 +3156,7 @@ class InterceptionEngine:
             if verdict.must_reach_host:
                 verdict.record(rule, kind, 'skipped - an earlier rule requires this call to reach the host')
                 return
-            loaded, reason = await self._answers.load(action.get('answerId'))
+            loaded, reason = await self._answer_cache_for(flow).load(action.get('answerId'))
             if loaded is None:
                 # The call goes on to the host: a missing answer must not become an invented one.
                 verdict.skip(rule, kind, reason)
@@ -2934,7 +3176,7 @@ class InterceptionEngine:
             if verdict.must_reach_host:
                 verdict.record(rule, kind, 'skipped - an earlier rule requires this call to reach the host')
                 return
-            loaded, reason = await self._answers.load(action.get('answerId'))
+            loaded, reason = await self._answer_cache_for(flow).load(action.get('answerId'))
             if loaded is None:
                 # The call goes on to the host: a missing answer must not become an invented one.
                 verdict.skip(rule, kind, reason)
@@ -3024,41 +3266,89 @@ class InterceptionEngine:
             if verdict.terminal or verdict.pause:
                 return
 
-    async def apply_response(self, flow, service_name=None):
+    async def apply_response(self, flow, service_name=None, extra_rulesets=None):
         try:
-            return await self._apply_response_phase(flow, service_name)
+            return await self._apply_response_phase(flow, service_name, extra_rulesets)
         finally:
             _forget(flow.request, getattr(flow, 'response', None))
 
-    async def _apply_response_phase(self, flow, service_name=None):
+    async def _apply_response_phase(self, flow, service_name=None, extra_rulesets=None):
+        """See _apply_request_phase for `extra_rulesets`. A later tier's response actions still
+        apply to an answer an earlier tier already mocked (FR-028a) - nothing here stops at the
+        first tier that produced a response, only at an explicit pause."""
         verdict = Verdict()
         if flow.response is None:
             return verdict
-        ruleset = self._cache.current()
-        # Keyed on the rules generation, not RuleSet identity: our own request-phase GLOBAL
-        # capture rewrites variables.json, which reloads the RuleSet before this response runs.
-        generation = self._cache.rules_generation
-        if flow.metadata.get('_interception_local_generation') != generation:
-            flow.metadata['_interception_locals'] = {}
-        flow.metadata['_interception_local_generation'] = generation
-        flow.metadata['_interception_local_ruleset'] = ruleset
-        verdict.sensitive = ruleset.sensitive
-        matching = self._matched_for_response(flow, service_name, ruleset)
-        if matching:
-            verdict.observe_response(flow)
-        for rule in matching:
-            for action in rule.actions:
-                kind = action.get('type')
-                if kind not in RESPONSE_ACTIONS:
-                    continue
-                try:
-                    await self._apply_response_action(flow, rule, action, kind, verdict)
-                except Exception as e:
-                    print(f"[interception] rule {rule.name!r} action {kind} failed, skipping: {e}")
-                    continue
-                if verdict.pause:
-                    return verdict
+        flow.metadata['_interception_answer_dir'] = self._answers._dir
+
+        if extra_rulesets is None:
+            ruleset = self._cache.current()
+            # Keyed on the rules generation, not RuleSet identity: our own request-phase GLOBAL
+            # capture rewrites variables.json, which reloads the RuleSet before this response runs.
+            generation = self._cache.rules_generation
+            if flow.metadata.get('_interception_local_generation') != generation:
+                flow.metadata['_interception_locals'] = {}
+            flow.metadata['_interception_local_generation'] = generation
+            flow.metadata['_interception_local_ruleset'] = ruleset
+            verdict.sensitive = ruleset.sensitive
+            matching = self._matched_for_response(flow, service_name, ruleset)
+            if matching:
+                verdict.observe_response(flow)
+            for rule in matching:
+                for action in rule.actions:
+                    kind = action.get('type')
+                    if kind not in RESPONSE_ACTIONS:
+                        continue
+                    try:
+                        await self._apply_response_action(flow, rule, action, kind, verdict)
+                    except Exception as e:
+                        print(f"[interception] rule {rule.name!r} action {kind} failed, skipping: {e}")
+                        continue
+                    if verdict.pause:
+                        return verdict
+            return verdict
+
+        tiers = self._matched_for_response_tiers(flow, service_name, extra_rulesets)
+        observed = False
+        for index, (tier_ruleset, matching) in enumerate(tiers):
+            tier_name, _, answers_dir = extra_rulesets[index] if index < len(extra_rulesets) else (None, None, None)
+            flow.metadata['_interception_answer_dir'] = answers_dir or self._answers._dir
+            flow.metadata['_interception_local_ruleset'] = tier_ruleset
+            if tier_name == 'GLOBAL':
+                verdict.sensitive = tier_ruleset.sensitive
+            if matching and not observed:
+                verdict.observe_response(flow)
+                observed = True
+            for rule in matching:
+                for action in rule.actions:
+                    kind = action.get('type')
+                    if kind not in RESPONSE_ACTIONS:
+                        continue
+                    try:
+                        await self._apply_response_action(flow, rule, action, kind, verdict)
+                    except Exception as e:
+                        print(f"[interception] rule {rule.name!r} action {kind} failed, skipping: {e}")
+                        continue
+                    if verdict.pause:
+                        return verdict
         return verdict
+
+    def _matched_for_response_tiers(self, flow, service_name, extra_rulesets):
+        """Tiered counterpart of _matched_for_response: reuses the request phase's per-tier
+        matches when they were decided against these same RuleSets, and re-matches only the tiers
+        that were republished since (or all of them, on the fallback path of a call the request
+        phase never saw - e.g. a websocket upgrade)."""
+        remembered = getattr(flow, 'metadata', {}).get(MATCHED_KEY)
+        if remembered is not None and remembered[0] == 'TIERED':
+            remembered_tiers = remembered[1]
+            if len(remembered_tiers) == len(extra_rulesets) and all(
+                    remembered_tiers[i][0] is extra_rulesets[i][1] for i in range(len(extra_rulesets))):
+                return remembered_tiers
+        out = []
+        for tier_name, tier_ruleset, answers_dir in extra_rulesets:
+            flow.metadata['_interception_answer_dir'] = answers_dir or self._answers._dir
+            out.append((tier_ruleset, tuple(self._matching(flow, service_name, tier_ruleset))))
+        return tuple(out)
 
     async def _apply_response_action(self, flow, rule, action, kind, verdict):
         response = flow.response
@@ -3200,7 +3490,7 @@ class InterceptionEngine:
             return
 
         if kind == 'REPLACE_WITH_RECORDED_RESPONSE':
-            loaded, reason = await self._answers.load(action.get('answerId'))
+            loaded, reason = await self._answer_cache_for(flow).load(action.get('answerId'))
             if loaded is None:
                 verdict.skip(rule, kind, reason)
                 return

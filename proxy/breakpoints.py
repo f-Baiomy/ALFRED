@@ -160,6 +160,12 @@ def snapshot(flow, phase, call_id, pause, source, service_name):
             'body': _text(request),
         },
     }
+    # Only present for a Relive call rule's pause (research D15/D17, T033) - e.g. the "request
+    # differs" ASK branch, tagged {runId, stepKey, at:'CHANGED'} by relive.py before the pause
+    # ever reaches here. Absent for every other pause, exactly like resend_of/relive on a logged
+    # call.
+    if pause.get('relive'):
+        data['relive'] = pause['relive']
     if phase == 'response' and flow.response is not None:
         data['response'] = {
             'status': flow.response.status_code,

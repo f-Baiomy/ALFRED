@@ -110,6 +110,7 @@ import { MultiSelectPickerComponent } from '../multi-select-picker/multi-select-
 import { RuleActionCardComponent } from '../rule-action-card/rule-action-card.component';
 import { HelpPopoverComponent } from '../help-popover/help-popover.component';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
+import { RULE_EDITOR_TARGET, RuleEditorTarget, defaultRuleEditorTarget } from './rule-editor-target';
 import { InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
 import {
   FAILURE_HELP,
@@ -432,7 +433,20 @@ export class RuleEditorComponent implements OnInit {
   /** The call this rule was made from - saved with it, shown as "Made from…", never matched on. */
   readonly sourceCall = signal<SourceCallRef | null>(null);
 
+  /**
+   * GLOBAL is Interception's own rules (today's only caller); CYCLE/CALL/UNEXPECTED are Relive's
+   * (research D14) - a cycle-wide rule, one call's own rule, or an unexpected-call rule. Only the
+   * Match section's presentation and a couple of hint strings vary by scope; saving, actions,
+   * conditions and every other part of the form are identical in all four.
+   */
+  @Input() scope: 'GLOBAL' | 'CYCLE' | 'CALL' | 'UNEXPECTED' = 'GLOBAL';
+  /** Overrides the injected `RULE_EDITOR_TARGET` when set - lets a host that opens many editors
+   *  from one place (Relive's `ReliveRuleDialogService`) supply a fresh target per open() without
+   *  a static provider for each one. */
+  @Input() target: RuleEditorTarget | null = null;
+
   readonly state = inject(InterceptionStateService);
+  private readonly editorTarget = inject(RULE_EDITOR_TARGET, { optional: true });
   private readonly projectsApi = inject(InternalLoggingApiService);
 
   readonly methods = METHODS;
@@ -2060,10 +2074,10 @@ export class RuleEditorComponent implements OnInit {
   save(): void {
     const draft = this.buildDraft();
     const ruleId = this.rule?.id ?? this.snapshot?.ruleId ?? null;
-    const saved = ruleId ? this.state.updateRule(ruleId, draft) : this.state.createRule(draft);
-    saved.subscribe((result) => {
-      // Null means the backend rejected it - `problems` is already populated and the form stays
-      // open with every problem listed at once.
+    const target = this.target ?? this.editorTarget ?? defaultRuleEditorTarget(this.state);
+    target.save(draft, ruleId).subscribe((result) => {
+      // Null means the backend (or the host) rejected it - `problems` is already populated and
+      // the form stays open with every problem listed at once.
       if (result) this.closed.emit();
     });
   }

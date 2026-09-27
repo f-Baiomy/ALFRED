@@ -65,6 +65,7 @@ from mitmproxy import ctx, http
 
 import breakpoints
 import interception
+import relive
 import ws_messages
 
 # Max characters to log per body. 0 (the default) means no truncation -
@@ -168,12 +169,29 @@ class RouteAndLog:
         # call log ever observes these headers - see interception.take_resend_headers.
         resend_of, resend_edits = interception.take_resend_headers(flow, BACKEND_ADDRESSES)
 
+        # Relive (research D2/D4): decide whether this call belongs to an active run BEFORE the
+        # ordinary engine call - a run's own STEP/CYCLE/GLOBAL tiers replace the plain global-only
+        # pass entirely (relive_verdict is None for anything Relive has no opinion on, including
+        # every call in a deployment that has never used the feature - see relive.apply_outbound).
+        relive_verdict, relive_info = await relive.apply_outbound(
+            flow, service_name, BACKEND_ADDRESSES, ENGINE)
+
         # Interception runs BEFORE the call is logged, so what gets recorded is what was actually
         # sent upstream rather than what the client originally wrote - the log has to agree with
         # the traffic. It also runs regardless of WEBHOOK_URL: a deployment with no backend still
         # proxies, and a rule the user configured must still apply.
-        verdict = await ENGINE.apply_request(flow, service_name)
+        if relive_verdict is not None:
+            verdict = relive_verdict
+        else:
+            verdict = await ENGINE.apply_request(flow, service_name)
         flow.metadata['interception'] = verdict
+        if relive_info:
+            flow.metadata['relive'] = relive_info
+        # reachedUpstream (research D18): whether this call, as decided so far, is actually going
+        # to leave ALFRED - a best-effort read at prepare time, exactly like resend_of below;
+        # nothing terminal means it is proceeding to the real host (or is about to be paused,
+        # which itself defaults to never forwarding - see _decide).
+        reached_upstream = not bool(verdict.terminal)
 
         if not WEBHOOK_URL:
             await self._carry_out(flow, verdict, None, service_name)
@@ -229,6 +247,13 @@ class RouteAndLog:
             call_log['resend_of'] = resend_of
         if resend_edits is not None:
             call_log['resend_edits'] = resend_edits
+        # Only present for a call Relive attributed or blocked (FR-051/D18) - see
+        # relive.apply_outbound. A best-effort read, exactly like resend_of above: whether this
+        # call reaches upstream can still change below (e.g. a pause that ends up mocked), but a
+        # decision already made not to forward (verdict.terminal set) never reverses into one.
+        if relive_info:
+            call_log['relive'] = relive_info
+            call_log['reachedUpstream'] = reached_upstream
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
         await self._carry_out(flow, verdict, call_id, service_name)
@@ -274,10 +299,35 @@ class RouteAndLog:
             await self._fail(flow, verdict.failure)
             return
 
-        if verdict.pause and verdict.pause.get('phase') == 'request' and call_id:
-            decision = await breakpoints.wait_for_decision(
-                flow, 'request', call_id, verdict.pause, 'outbound', service_name)
-            await self._record_decision(flow, verdict, 'request', decision)
+        if verdict.pause and verdict.pause.get('phase') == 'request':
+            relive_meta = verdict.pause.get('relive')
+            if call_id:
+                decision = await breakpoints.wait_for_decision(
+                    flow, 'request', call_id, verdict.pause, 'outbound', service_name)
+            else:
+                # No webhook configured: nobody could ever have been shown this call, so there is
+                # no human decision to wait for - the same "backend unreachable" reading
+                # breakpoints.wait_for_decision itself falls back to.
+                decision = {'action': 'abort' if verdict.pause.get('onTimeout') == 'abort' else 'release',
+                            'reason': 'no-webhook'}
+            if relive_meta and relive_meta.get('at') == 'CHANGED' and decision.get('reason'):
+                # T033, the single most safety-critical line in this feature: nobody made an
+                # explicit choice on a Relive "request differs" pause (a timeout, a dropped
+                # connection, or no webhook at all) - see decision['reason'], set only when
+                # nobody decided. The rule's own onTimeout ('release' by default) would otherwise
+                # forward this request to the real supplier with no human ever having agreed to
+                # it - see interception.apply_decision, which a bare 'release' leaves untouched.
+                # This must resolve to the failure mock and NEVER to forwarding, under any
+                # circumstance.
+                payload = relive.failure_payload(relive_meta)
+                body = json.dumps(payload).encode('utf-8')
+                flow.response = http.Response.make(502, body, {'content-type': 'application/json'})
+                verdict.terminal = 'MOCK_RESPONSE'
+                verdict.mock = {'status': 502, 'headers': {'content-type': 'application/json'},
+                                 'body_bytes': body}
+                return
+            if call_id:
+                await self._record_decision(flow, verdict, 'request', decision)
 
     async def _fail(self, flow, failure):
         """Carries out a SIMULATE_FAILURE verdict.
@@ -346,8 +396,11 @@ class RouteAndLog:
         verdict = flow.metadata.get('interception') or interception.Verdict()
 
         # Response-phase rules apply whether or not this call is being logged - same reasoning as
-        # the request side.
-        response_verdict = await ENGINE.apply_response(flow, flow.metadata.get('service_name'))
+        # the request side. extra_rulesets carries over the SAME tiers the request phase matched
+        # against (relive.apply_outbound stashed them), so a later tier's response action still
+        # applies to an answer an earlier tier already mocked (FR-028a).
+        response_verdict = await ENGINE.apply_response(
+            flow, flow.metadata.get('service_name'), extra_rulesets=flow.metadata.get('relive_rulesets'))
         # State, not one field: adopt carries the pre-action snapshot across too, which copying
         # `applied` alone silently dropped - so no response action has ever produced a
         # before/after. See Verdict.adopt.
