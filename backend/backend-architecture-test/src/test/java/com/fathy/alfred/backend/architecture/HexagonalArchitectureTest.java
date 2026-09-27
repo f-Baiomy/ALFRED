@@ -71,7 +71,7 @@ class HexagonalArchitectureTest {
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
                         "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -87,7 +87,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -98,7 +98,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.export..", "..backend.sessioncycles..",
                         "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -116,7 +116,7 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.profiles..",
                         "..backend.settings..", "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -130,7 +130,7 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "..backend.comments..", "..backend.export..", "..backend.sessioncycles..",
                         "..backend.profiles..", "..backend.settings..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -144,7 +144,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.settings..", "..backend.internalcalls..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -159,7 +159,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.internalcalls..",
                         "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -174,7 +174,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.internalcalls..", "..backend.calloverlap..",
-                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -191,7 +191,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.resend..", "..backend.scenarios..")
+                        "..backend.resend..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -207,7 +207,7 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.scenarios..")
+                        "..backend.interception..", "..backend.scenarios..", "..backend.relive..")
                 .check(classes);
     }
 
@@ -222,7 +222,23 @@ class HexagonalArchitectureTest {
                         "..backend.calls..", "..backend.comments..", "..backend.export..",
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
-                        "..backend.interception..", "..backend.resend..")
+                        "..backend.interception..", "..backend.resend..", "..backend.relive..")
+                .check(classes);
+    }
+
+    // relive is the newest slice (specs/003-relive-cycle): it never depends on any other slice
+    // directly, including backend-interception even though a call rule IS an interception rule
+    // document - that document stays an opaque JsonNode here (domain.model.CycleRule), validated
+    // and rendered only through backend-app bridges (relivebridge), so this slice can construct,
+    // store and publish rule documents without ever calling into backend-interception's code.
+    @Test
+    void reliveSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.relive..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
                 .check(classes);
     }
 }

@@ -118,15 +118,15 @@ below ends with the test that proves it.
   - **Endpoints:** exactly the "Cycles" table of `contracts/rest-api.md`: `GET` list, `GET /{id}`, `POST` (plus `?transient=true`), `PUT /{id}` reading header `If-Match` and optional `?reason=`, `POST /{id}/duplicate`, `DELETE /{id}`, `POST /{id}/validate` (a stub returning `[]` until T045), `GET /{id}/versions`, `POST /{id}/versions/{version}/restore`.
   - **DTOs:** `@Valid` on every DTO; `@Size` on lists.
   - **Test:** `BRT/adapter/in/web/ReliveCyclesControllerTest.java` (`@WebMvcTest`) - happy paths, 400 on an invalid name, 409 on a stale `If-Match`, the list payload has no `recording` bodies.
-- [ ] T014 [P] Create `BR/adapter/out/websocket/ReliveWebSocketConfig.java`, `ReliveEventsWebSocketHandler.java` and `WebSocketReliveNotificationAdapter.java` by copying `backend-scenarios/.../adapter/out/websocket/*`.
+- [X] T014 [P] Create `BR/adapter/out/websocket/ReliveWebSocketConfig.java`, `ReliveEventsWebSocketHandler.java` and `WebSocketReliveNotificationAdapter.java` by copying `backend-scenarios/.../adapter/out/websocket/*`.
   - **Path:** `/ws/relive`.
   - **Events** (JSON strings): `{"type":"relive-changed"}`, `{"type":"run-changed","cycleId","runId"}`, `{"type":"run-call",...}`.
   - **Leases:** the handler also receives `{"type":"lease","runId"}` messages and forwards them to `RunLeaseRegistry` (T047). Keep the registry interface-only here, as a `LeaseListener` port.
-- [ ] T015 [P] Create the bridges in `APP/relivebridge/`. Look at `APP/interceptionbridge/RecordedCallLookupAdapter.java` for the bridge style.
+- [X] T015 [P] Create the bridges in `APP/relivebridge/`. Look at `APP/interceptionbridge/RecordedCallLookupAdapter.java` for the bridge style.
   - **`RuleValidationAdapter`** implements `RuleValidationPort`: it deserialises the `JsonNode` into interception's `InterceptionRule` (via the same Jackson mapping the interception controller uses) and returns `RuleValidator.validate(rule)`.
   - **`GlobalRulesLookupAdapter`** implements `GlobalRulesLookupPort` by calling interception's list-rules use case (find it with `codegraph explore "ListRulesUseCase InterceptionRulesService"`).
   - **Test:** `backend/backend-app/src/test/java/com/fathy/alfred/backend/relivebridge/RuleValidationAdapterTest.java`: a valid `MOCK_RESPONSE` rule gives no errors; an unknown action type gives an error.
-- [ ] T016 Add an ArchUnit rule to `backend/backend-architecture-test/src/test/java/com/fathy/alfred/backend/architecture/HexagonalArchitectureTest.java`, named `reliveSliceMustNotDependOnOtherSlices()`.
+- [X] T016 Add an ArchUnit rule to `backend/backend-architecture-test/src/test/java/com/fathy/alfred/backend/architecture/HexagonalArchitectureTest.java`, named `reliveSliceMustNotDependOnOtherSlices()`.
   - **Rule:** `..backend.relive..` may not depend on calls, comments, export, sessioncycles, profiles, settings, internalcalls, calloverlap, redactions, interception, resend or scenarios.
   - **Other slices' rules:** add `"..backend.relive.."` to the package lists of every other slice's rule (see lines 74-220; each rule lists the forbidden packages).
   - **Run:** `mvn -pl backend-architecture-test -am test`.
