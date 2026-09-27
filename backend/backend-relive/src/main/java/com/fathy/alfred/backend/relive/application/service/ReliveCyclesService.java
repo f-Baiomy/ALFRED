@@ -107,11 +107,12 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
     }
 
     @Override
-    public ReliveCycle duplicate(String id) {
+    public ReliveCycle duplicate(String id, String name) {
         ReliveCycle existing = cycleStore.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Cycle " + id + " does not exist"));
         String now = Instant.now().toString();
-        ReliveCycle copy = new ReliveCycle(UUID.randomUUID().toString(), existing.name() + " (copy)",
+        String copyName = (name == null || name.isBlank()) ? existing.name() + " (copy)" : name;
+        ReliveCycle copy = new ReliveCycle(UUID.randomUUID().toString(), copyName,
                 existing.description(), existing.steps(), existing.variables(), existing.cycleRules(),
                 existing.globalRules(), existing.settings(), existing.noise(), existing.unexpectedCalls(),
                 now, now, false, null);

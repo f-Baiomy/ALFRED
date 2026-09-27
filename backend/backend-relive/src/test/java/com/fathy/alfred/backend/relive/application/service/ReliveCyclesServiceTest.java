@@ -159,7 +159,7 @@ class ReliveCyclesServiceTest {
     @Test
     void duplicateGetsANewIdAndCopySuffix() {
         ReliveCycle saved = service.create(bareCycle("orig"));
-        ReliveCycle copy = service.duplicate(saved.id());
+        ReliveCycle copy = service.duplicate(saved.id(), null);
         assertThat(copy.id()).isNotEqualTo(saved.id());
         assertThat(copy.name()).isEqualTo("orig (copy)");
     }

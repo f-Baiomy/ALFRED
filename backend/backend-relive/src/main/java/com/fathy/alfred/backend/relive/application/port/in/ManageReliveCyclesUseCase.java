@@ -21,7 +21,8 @@ public interface ManageReliveCyclesUseCase {
     /** @throws StaleCycleException when {@code ifMatch} doesn't match the stored {@code updatedAt}. */
     ReliveCycle update(String id, ReliveCycle cycle, String ifMatch, String reason);
 
-    ReliveCycle duplicate(String id);
+    /** {@code name} overrides the default "<original name> (copy)" when given. */
+    ReliveCycle duplicate(String id, String name);
 
     void delete(String id);
 }

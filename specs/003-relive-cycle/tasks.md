@@ -114,7 +114,7 @@ below ends with the test that proves it.
   - **Delete:** refuses with 409 while a RUNNING run exists (ask `ReliveRunStorePort`).
   - **Notify:** call `cycleChanged()` after every write.
   - **Test:** `BRT/application/service/ReliveCyclesServiceTest.java` with in-memory fake ports - each rule above, one test each.
-- [ ] T013 Create the REST controller `BR/adapter/in/web/ReliveCyclesController.java` (`@RequestMapping("/relive-cycles")`) with DTOs in `adapter/in/web/dto/`.
+- [X] T013 Create the REST controller `BR/adapter/in/web/ReliveCyclesController.java` (`@RequestMapping("/relive-cycles")`) with DTOs in `adapter/in/web/dto/`.
   - **Endpoints:** exactly the "Cycles" table of `contracts/rest-api.md`: `GET` list, `GET /{id}`, `POST` (plus `?transient=true`), `PUT /{id}` reading header `If-Match` and optional `?reason=`, `POST /{id}/duplicate`, `DELETE /{id}`, `POST /{id}/validate` (a stub returning `[]` until T045), `GET /{id}/versions`, `POST /{id}/versions/{version}/restore`.
   - **DTOs:** `@Valid` on every DTO; `@Size` on lists.
   - **Test:** `BRT/adapter/in/web/ReliveCyclesControllerTest.java` (`@WebMvcTest`) - happy paths, 400 on an invalid name, 409 on a stale `If-Match`, the list payload has no `recording` bodies.
