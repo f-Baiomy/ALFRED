@@ -99,8 +99,11 @@ services:
       # The DIRECTORY, not the file. backend publishes the snapshot by writing a temp file beside
       # it and moving it into place, which is what stops a proxy ever reading a half-written rule
       # set - and a single-file bind mount cannot survive that, since the move swaps the inode the
-      # mount is pinned to and updates would silently stop arriving.
-      - ./proxy/interception:/home/mitmproxy/interception:ro
+      # mount is pinned to and updates would silently stop arriving. Read-WRITE (not ro like the
+      # scripts above) for one reason only: a GLOBAL capture promotes its value into
+      # variables.json, atomically via temp-file-plus-rename in _save_global. Nothing else in
+      # this directory is ever written by the proxy.
+      - ./proxy/interception:/home/mitmproxy/interception:rw
       - ./proxy/forward-proxy-entrypoint.sh:/home/mitmproxy/forward-proxy-entrypoint.sh:ro
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
     working_dir: /home/mitmproxy
@@ -184,7 +187,8 @@ services:
       - ./proxy/ws_messages.py:/home/mitmproxy/ws_messages.py:ro
       - ./proxy/breakpoints.py:/home/mitmproxy/breakpoints.py:ro
       # See the forward proxy's identical mount for why this is the directory and not the file.
-      - ./proxy/interception:/home/mitmproxy/interception:ro
+      # Read-write like its twin: GLOBAL captures promote into variables.json from either direction.
+      - ./proxy/interception:/home/mitmproxy/interception:rw
       - ./proxy/reverse-proxy-entrypoint.sh:/home/mitmproxy/reverse-proxy-entrypoint.sh:ro
       - ./proxy/reverse-proxy-enabled.flag:/home/mitmproxy/reverse-proxy-enabled.flag
       - ./proxy/certs:/home/mitmproxy/.mitmproxy

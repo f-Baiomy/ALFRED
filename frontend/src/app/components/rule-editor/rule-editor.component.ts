@@ -1747,6 +1747,9 @@ export class RuleEditorComponent implements OnInit {
     const add = (action: RuleAction) => {
       if (action.enabled === false || !action.name) return;
       if (action.type === 'CAPTURE_REQUEST_VARIABLE' || (phase === 'response' && action.type === 'CAPTURE_RESPONSE_VARIABLE')) {
+        // Dual visibility: a GLOBAL capture stays usable as {{this.name}} in its own
+        // rule (the engine keeps it in the rule-local values), while {{name}} serves
+        // later calls - so both scopes are offered here.
         names.add(action.name);
       }
     };
@@ -1769,6 +1772,10 @@ export class RuleEditorComponent implements OnInit {
   readonly captureMissingOptions: readonly SelectOption[] = [
     { value: 'SKIP', label: 'Skip dependent actions' },
     { value: 'FALLBACK', label: 'Use fallback value' },
+  ];
+  readonly captureScopeOptions: readonly SelectOption[] = [
+    { value: 'LOCAL', label: 'Local — {{this.name}} in this rule' },
+    { value: 'GLOBAL', label: 'Global — {{this.name}} here, {{name}} everywhere' },
   ];
 
   isStatus(type: ActionType): boolean {
@@ -2147,7 +2154,7 @@ function defaultsFor(type: ActionType): RuleAction {
       return { type, path: '', value: null };
     case 'CAPTURE_REQUEST_VARIABLE':
     case 'CAPTURE_RESPONSE_VARIABLE':
-      return { type, name: '', path: '', captureSource: 'JSON_FIELD', missingBehavior: 'SKIP' };
+      return { type, name: '', path: '', captureSource: 'JSON_FIELD', missingBehavior: 'SKIP', scope: 'LOCAL' };
     case 'SET_RESPONSE_STATUS':
       return { type, status: 500 };
     case 'SET_RESPONSE_BODY':

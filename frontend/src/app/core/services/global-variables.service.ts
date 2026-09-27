@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { AppConfigService } from './app-config.service';
 import { VARIABLE_NAME, VARIABLE_TOKEN } from '../../shared/utils/variable-tokens';
+import { reconnectingSocket } from '../state/reconnecting-socket';
 
 export interface GlobalVariable { readonly name: string; readonly value: string; }
 export interface GlobalVariablesState {
@@ -24,6 +25,8 @@ export class GlobalVariablesService {
   private pending: GlobalVariablesState | null = null;
   private inFlight = false;
   private revision = 0;
+  private watched = false;
+  private pendingRefresh = false;
   private readonly sortedEntries = computed(() => Object.entries(this.state().variables)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => ({ name, value })));
@@ -39,9 +42,35 @@ export class GlobalVariablesService {
         this.loaded.set(true);
         this.loading.set(false);
         this.error.set('');
+        if (this.pendingRefresh) { this.pendingRefresh = false; this.refresh(); }
       },
       error: () => { this.loading.set(false); this.error.set('Could not load global variables.'); },
     });
+  }
+
+  /**
+   * Re-fetch unconditionally. A promotion from a proxy GLOBAL capture (or another client's
+   * edit) arrives as a /ws/variables nudge while this panel sits open - without this, only
+   * a page reload would ever show it, since load() runs once. Deferred past an in-flight
+   * load or save rather than racing it; the deferred flag is consumed when that finishes.
+   */
+  refresh(): void {
+    if (this.loading() || this.saving()) { this.pendingRefresh = true; return; }
+    this.loaded.set(false);
+    this.load();
+  }
+
+  /**
+   * One subscription for the app's lifetime (the service is root-provided): every
+   * variables-changed nudge refetches. Safe for in-progress drawer edits - a refetch only
+   * swaps rows whose text actually changed, so a textarea you are typing in keeps its
+   * uncommitted content; only a genuine same-row conflict resolves to the freshest text.
+   */
+  watchForChanges(): void {
+    if (this.watched || !this.http) { this.watched = true; return; }
+    this.watched = true;
+    reconnectingSocket<unknown>(`${this.config.backendUrl.replace(/^http/, 'ws')}/ws/variables`)
+      .subscribe(() => this.refresh());
   }
 
   entries(): GlobalVariable[] {
@@ -68,7 +97,10 @@ export class GlobalVariablesService {
         this.inFlight = false;
         this.error.set('');
         if (this.pending) this.flush();
-        else this.saving.set(false);
+        else {
+          this.saving.set(false);
+          if (this.pendingRefresh) { this.pendingRefresh = false; this.refresh(); }
+        }
       },
       error: () => {
         this.inFlight = false;

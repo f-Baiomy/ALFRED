@@ -1332,6 +1332,39 @@ The call record states the source and variable name but never records the captur
 backend rejects references before their capture or in an earlier phase, and `this.` is reserved
 from global variable names.
 
+### Capture scope: local vs global
+
+A capture's Scope decides what happens to the value beyond the capturing rule. `LOCAL`
+(the default) keeps it rule-local as described above. `GLOBAL` additionally writes it
+into the shared `variables.json` store, overwriting any existing value, so later calls
+- and other rules - can use it as a bare `{{name}}`.
+
+Inside the capturing call both spellings work once the capture has run: `{{this.name}}`
+reads the live rule-local value, and `{{name}}` resolves from a per-call overlay of
+promoted values, then the file, then its fallbacks. Two consequences worth knowing:
+
+- A name some rule captures globally is never baked into rule text at load time,
+  because baking would freeze the pre-call value for the whole call. If that call never
+  runs the capture, the bare spelling falls back to the file value (or its fallback),
+  exactly as if it had been baked.
+- A disabled capture - or a disabled rule - reserves nothing: it can never run, so its
+  name bakes normally.
+
+Whole-token matches keep their JSON type in every layer; the persisted file copy is
+always text (the backend store is strings-only), while a same-rule overlay keeps raw types.
+
+### The panel updates live - no reload
+
+A GLOBAL capture also nudges open dashboards: the proxy POSTs the promoted name to
+`POST /settings/variables/promoted`, the backend merges it (server-side, so a concurrent
+UI edit cannot silently drop it the way a proxy-side read-modify-write could) and
+broadcasts `{"type":"variables-changed"}` on `/ws/variables`. The Global variables panel
+subscribes with the same reconnecting socket every other list uses and refetches - deferred
+past an in-flight load or save rather than racing it, and safe for half-typed drawer edits
+because a refetch only swaps rows whose text actually changed. The notify is fire-and-forget
+on a worker thread: if the backend is down, traffic is unaffected and the panel converges
+on its next load via the file, which the SQLite store absorbs on every read.
+
 ## Safety
 
 - **Off by default.** A feature that can change live traffic is never on because nobody said

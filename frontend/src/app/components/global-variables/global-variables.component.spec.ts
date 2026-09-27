@@ -9,7 +9,7 @@ describe('GlobalVariablesComponent input highlighting', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [{ provide: GlobalVariablesService, useValue: { load: jasmine.createSpy('load'), upsert: jasmine.createSpy('upsert') } }],
+      providers: [{ provide: GlobalVariablesService, useValue: { load: jasmine.createSpy('load'), upsert: jasmine.createSpy('upsert'), watchForChanges: jasmine.createSpy('watchForChanges'), refresh: jasmine.createSpy('refresh') } }],
     });
     component = TestBed.runInInjectionContext(() => new GlobalVariablesComponent());
     input = document.createElement('input');
@@ -80,13 +80,24 @@ describe('GlobalVariablesComponent input highlighting', () => {
     expect(component.autocompleteMatches()).toEqual([{ name: 'this.supplier', value: 'Rule variable' }]);
     card.remove();
   });
+
+  it('refetches when opened so promotions show without a page reload', () => {
+    const variables = TestBed.inject(GlobalVariablesService) as unknown as { refresh: jasmine.Spy };
+    expect(component.open()).toBeFalse();
+    component.toggleOpen();
+    expect(component.open()).toBeTrue();
+    expect(variables.refresh).toHaveBeenCalledTimes(1);
+    component.toggleOpen();
+    expect(component.open()).toBeFalse();
+    expect(variables.refresh).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('GlobalVariablesComponent rendered input highlight', () => {
   it('keeps the native glyphs visible and paints only a token background', () => {
     TestBed.configureTestingModule({
       imports: [GlobalVariablesComponent],
-      providers: [{ provide: GlobalVariablesService, useValue: { load: jasmine.createSpy('load') } }],
+      providers: [{ provide: GlobalVariablesService, useValue: { load: jasmine.createSpy('load'), watchForChanges: jasmine.createSpy('watchForChanges'), refresh: jasmine.createSpy('refresh') } }],
     });
     const fixture = TestBed.createComponent(GlobalVariablesComponent);
     fixture.detectChanges();
@@ -147,6 +158,8 @@ describe('GlobalVariablesComponent the value card only opens over the variable',
           useValue: {
             load: jasmine.createSpy('load'),
             upsert: jasmine.createSpy('upsert'),
+            watchForChanges: jasmine.createSpy('watchForChanges'),
+            refresh: jasmine.createSpy('refresh'),
             // The card's own template reads the stored value, so a test that really renders it needs this.
             state: () => ({ variables: { code: '394' } }),
           },
@@ -247,6 +260,8 @@ describe('GlobalVariablesComponent inserting a variable into a body editor', () 
           provide: GlobalVariablesService,
           useValue: {
             load: jasmine.createSpy('load'),
+            watchForChanges: jasmine.createSpy('watchForChanges'),
+            refresh: jasmine.createSpy('refresh'),
             entries: () => [{ name: 'code', value: '394' }],
             state: () => ({ variables: { code: '394' }, fallbacks: {} }),
           },

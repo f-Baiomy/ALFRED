@@ -368,13 +368,23 @@
             <span>If missing</span>
             <app-select-picker [options]="editor.captureMissingOptions" [value]="step.action.missingBehavior ?? 'SKIP'" (valueChange)="editor.patchAt(step.path, { missingBehavior: $any($event) })" />
           </div>
+          <div class="inline-field">
+            <span>Scope</span>
+            <app-select-picker [options]="editor.captureScopeOptions" [value]="step.action.scope ?? 'LOCAL'" (valueChange)="editor.patchAt(step.path, { scope: $any($event) })" />
+          </div>
           @if (step.action.missingBehavior === 'FALLBACK') {
             <label class="inline-field grow">
               <span>Fallback (JSON or text)</span>
               <input type="text" [value]="editor.valueText(step.action)" (input)="editor.onValue(step.path, $event, true)" placeholder="null" />
             </label>
           }
-          <small class="muted span-all">Use later as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code>. Each call and rule has its own value.</small>
+          <small class="muted span-all">
+            @if (step.action.scope === 'GLOBAL') {
+              Shared — use as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code> or <code>{{ '{{' + (step.action.name || 'name') + '}}' }}</code> later in this rule; as <code>{{ '{{' + (step.action.name || 'name') + '}}' }}</code> in later calls. Overwrites any existing value.
+            } @else {
+              Kept local — use later as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code>. Each call and rule has its own value.
+            }
+          </small>
         }
 
         @if (editor.isJsonPathOnly(step.action.type)) {

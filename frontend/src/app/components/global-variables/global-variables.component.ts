@@ -8,7 +8,7 @@ import { insertToken, suggestionRange, tokenNames, tokenParts, VARIABLE_NAME } f
   standalone: true,
   imports: [FormsModule],
   template: `
-    <button class="variables-launch" type="button" (click)="open.set(!open())" [attr.aria-expanded]="open()" title="Global variables">{{ open() ? '×' : '{{…}}' }}</button>
+    <button class="variables-launch" type="button" (click)="toggleOpen()" [attr.aria-expanded]="open()" title="Global variables">{{ open() ? '×' : '{{…}}' }}</button>
     @if (open()) {
       <div class="variables-backdrop" (click)="open.set(false)"></div>
       <aside class="variables-drawer" aria-label="Global variables">
@@ -113,6 +113,7 @@ export class GlobalVariablesComponent {
   private hoverCloseTimer?: ReturnType<typeof setTimeout>;
   constructor() {
     this.variables.load();
+    this.variables.watchForChanges();
     const onScroll = () => this.highlightLayoutVersion.update((value) => value + 1);
     document.addEventListener('scroll', onScroll, true);
     this.destroyRef.onDestroy(() => {
@@ -285,6 +286,12 @@ export class GlobalVariablesComponent {
     this.selectedDomRange = null;
   }
   validName(): boolean { return VARIABLE_NAME.test(this.editName().trim()) && !this.editName().trim().startsWith('this.'); }
+  /** Opening always refetches - a proxy GLOBAL promotion (or another tab) may have changed the store since the last load, and load() alone runs once per app lifetime. */
+  toggleOpen(): void {
+    const next = !this.open();
+    this.open.set(next);
+    if (next) this.variables.refresh();
+  }
   createOrUpdate(): void { if (!this.validName()) return; this.variables.upsert(this.editName().trim(), this.editValue()); this.editing.set(false); }
   deleteVariable(name: string): void { this.deleting.set(name); this.deleteMode.set('keep'); this.customReplacement.set(''); }
   confirmDelete(): void {

@@ -310,6 +310,8 @@ export interface RuleAction {
   readonly createIfMissing?: boolean | null;
   readonly captureSource?: 'JSON_FIELD' | 'HEADER' | 'COOKIE' | null;
   readonly missingBehavior?: 'SKIP' | 'FALLBACK' | null;
+  /** CAPTURE_*_VARIABLE: GLOBAL also writes the value into the shared variables store (overwriting any existing value); both scopes stay usable as {{this.name}} later in the rule. */
+  readonly scope?: 'GLOBAL' | 'LOCAL' | null;
   readonly status?: number | null;
   readonly headers?: Readonly<Record<string, string>> | null;
   readonly body?: string | null;
@@ -856,8 +858,11 @@ export function describeAction(action: RuleAction): string {
     case 'SET_RESPONSE_JSON_FIELD':
       return `Set ${action.path} = ${JSON.stringify(action.value)}${action.createIfMissing ? ' (add if missing)' : ''}`;
     case 'CAPTURE_REQUEST_VARIABLE':
-    case 'CAPTURE_RESPONSE_VARIABLE':
-      return `Capture ${action.captureSource?.toLowerCase() ?? 'field'} ${action.path ?? ''} as {{this.${action.name ?? ''}}}`;
+    case 'CAPTURE_RESPONSE_VARIABLE': {
+      const scope = action.scope;
+      const token = scope === 'GLOBAL' ? `{{${action.name ?? ''}}} (global, also {{this.${action.name ?? ''}}} here)` : `{{this.${action.name ?? ''}}}`;
+      return `Capture ${action.captureSource?.toLowerCase() ?? 'field'} ${action.path ?? ''} as ${token}`;
+    }
     case 'SET_RESPONSE_STATUS':
       return `${label} ${action.status}`;
     case 'MOCK_RESPONSE':

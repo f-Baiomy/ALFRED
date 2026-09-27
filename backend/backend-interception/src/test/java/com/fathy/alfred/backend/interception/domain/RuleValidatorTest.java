@@ -637,6 +637,38 @@ class RuleValidatorTest {
                 .anyMatch(problem -> problem.contains("this.result") && problem.contains("must be captured earlier"));
     }
 
+    @Test
+    void capturesAcceptAndRejectScope() {
+        // LOCAL (or absent) scope is valid.
+        assertThat(problemsOf(Map.of("type", "CAPTURE_REQUEST_VARIABLE", "name", "x",
+                "captureSource", "JSON_FIELD", "path", "p", "scope", "LOCAL"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "CAPTURE_REQUEST_VARIABLE", "name", "x",
+                "captureSource", "JSON_FIELD", "path", "p"))).isEmpty();
+        // Explicit GLOBAL is valid and must not start with this.
+        assertThat(problemsOf(Map.of("type", "CAPTURE_REQUEST_VARIABLE", "name", "x",
+                "captureSource", "JSON_FIELD", "path", "p", "scope", "GLOBAL"))).isEmpty();
+        assertThat(problemsOf(Map.of("type", "CAPTURE_REQUEST_VARIABLE", "name", "this.x",
+                "captureSource", "JSON_FIELD", "path", "p", "scope", "GLOBAL")))
+                .anyMatch(p -> p.contains("may not start with this"));
+        // An invalid scope is rejected.
+        assertThat(problemsOf(Map.of("type", "CAPTURE_REQUEST_VARIABLE", "name", "x",
+                "captureSource", "JSON_FIELD", "path", "p", "scope", "PEER")))
+                .anyMatch(p -> p.contains("scope must be GLOBAL, LOCAL"));
+    }
+
+    @Test
+    void aGlobalCaptureSatisfiesALaterLocalReferenceInTheSameRule() {
+        // Dual visibility: the engine keeps a GLOBAL capture in the rule-local values,
+        // so {{this.x}} after it must validate clean - this is the reported save failure.
+        RuleAction capture = action(Map.of("type", "CAPTURE_REQUEST_VARIABLE", "name", "message",
+                "captureSource", "JSON_FIELD", "path", "message", "scope", "GLOBAL"));
+        RuleAction use = action(Map.of("type", "SET_REQUEST_HEADER", "name", "X-Message",
+                "value", "{{this.message}}"));
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), capture, use))).isEmpty();
+        assertThat(RuleValidator.validate(rule(RuleMatch.empty(), use, capture)))
+                .anyMatch(p -> p.contains("must be captured earlier"));
+    }
+
     // ---- actions added for mitmproxy parity -------------------------------------------------
     // Built from the JSON shape the editor sends, rather than a 29-argument constructor: that is
     // how these actions actually arrive, and it keeps each test about the one field it is testing.

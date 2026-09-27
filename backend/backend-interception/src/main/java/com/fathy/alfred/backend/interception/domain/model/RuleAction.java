@@ -97,7 +97,9 @@ public record RuleAction(
         /** CAPTURE_*_VARIABLE: JSON_FIELD, HEADER or COOKIE. */
         String captureSource,
         /** CAPTURE_*_VARIABLE: SKIP or FALLBACK (whose value may be JSON null). */
-        String missingBehavior) {
+        String missingBehavior,
+        /** CAPTURE_*_VARIABLE: GLOBAL also writes the captured value into the shared variables store (overwriting any existing value); both scopes stay usable as {{this.name}} later in the rule. */
+        String scope) {
 
     public RuleAction {
         headers = headers == null ? null : Map.copyOf(headers);
@@ -115,8 +117,8 @@ public record RuleAction(
                       String onTimeout, String failure, List<ConditionBranch> branches,
                       List<RuleAction> otherwise, Boolean enabled) {
         this(type, durationMs, name, value, path, status, headers, body, timeoutSeconds, onTimeout, failure,
-                branches, otherwise, enabled, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null);
+                branches, otherwise, enabled, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -134,6 +136,7 @@ public record RuleAction(
 
     public static RuleAction of(ActionType type) {
         return new RuleAction(type, null, null, null, null, null, null, null, null, null, null, null, null, true);
+
     }
 
     public boolean isEnabled() {
@@ -155,3 +158,4 @@ public record RuleAction(
         return all;
     }
 }
+

@@ -114,7 +114,7 @@
                         class="br-row"
                         cdkDrag
                         [cdkDragData]="{ kind: 'call', draft: d }"
-                        [class.on]="mode() === 'call' && selected()?.key === d.key"
+                        [class.on]="mode() === 'call' && selected() !== null && selected()!.key === d.key"
                         [class.off]="!d.include"
                         (click)="select(d)"
                       >
@@ -144,7 +144,7 @@
                     class="br-row"
                     cdkDrag
                     [cdkDragData]="{ kind: 'call', draft: d }"
-                    [class.on]="mode() === 'call' && selected()?.key === d.key"
+                    [class.on]="mode() === 'call' && selected() !== null && selected()!.key === d.key"
                     [class.off]="!d.include"
                     (click)="select(d)"
                   >

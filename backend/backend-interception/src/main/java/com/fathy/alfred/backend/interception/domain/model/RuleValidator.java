@@ -173,6 +173,10 @@ public final class RuleValidator {
             }
             if (action.type() == ActionType.CAPTURE_REQUEST_VARIABLE
                     || action.type() == ActionType.CAPTURE_RESPONSE_VARIABLE) {
+                // Dual visibility: a GLOBAL capture lands in the rule-local values too
+                // (proxy/interception.py's _capture_rule_variable), so {{this.name}} works
+                // in the capturing rule while {{name}} serves later calls. Excluding GLOBAL
+                // here would reject rules the engine runs fine.
                 available.add(action.name());
             }
         }
@@ -319,6 +323,12 @@ public final class RuleValidator {
                 }
                 if (action.missingBehavior() != null && !List.of("SKIP", "FALLBACK").contains(action.missingBehavior())) {
                     problems.add("Captured variable missing behavior must be SKIP or FALLBACK.");
+                }
+                if (action.scope() != null && !List.of("GLOBAL", "LOCAL").contains(action.scope())) {
+                    problems.add("Captured variable scope must be GLOBAL, LOCAL, or absent.");
+                }
+                if ("GLOBAL".equals(action.scope()) && action.name() != null && action.name().startsWith("this.")) {
+                    problems.add("A global variable name may not start with this.");
                 }
                 if (action.path() == null || action.path().isBlank()) {
                     problems.add("Captured variable needs a source field path or name.");

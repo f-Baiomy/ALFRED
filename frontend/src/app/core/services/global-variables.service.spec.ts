@@ -54,4 +54,25 @@ describe('GlobalVariablesService', () => {
     expect(service.state().variables['name']).toBe('value');
     expect(service.error()).toBe('');
   });
+
+  it('refresh() refetches even after a load', () => {
+    service.load();
+    http.expectOne('http://backend/settings/variables').flush({ variables: { name: 'one' }, fallbacks: {} });
+    service.refresh();
+    http.expectOne('http://backend/settings/variables').flush({ variables: { name: 'two' }, fallbacks: {} });
+    expect(service.state().variables['name']).toBe('two');
+  });
+
+  it('refresh() during a save waits for the save, then refetches', () => {
+    service.load();
+    http.expectOne('http://backend/settings/variables').flush({ variables: {}, fallbacks: {} });
+    service.upsert('name', 'mine');
+    const put = http.expectOne('http://backend/settings/variables');
+    service.refresh();
+    expect(service.loading()).toBe(false);
+    put.flush({ variables: { name: 'mine' }, fallbacks: {} });
+    http.expectOne('http://backend/settings/variables').flush({ variables: { name: 'mine', promoted: 'new' }, fallbacks: {} });
+    expect(service.state().variables['promoted']).toBe('new');
+    expect(service.state().variables['name']).toBe('mine');
+  });
 });

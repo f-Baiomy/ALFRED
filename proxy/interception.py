@@ -9,7 +9,8 @@ matching and mutation logic that must agree byte-for-byte or a rule means two di
 depending on which way the traffic was going.
 
 Nothing in here talks to the network except the breakpoint path (see BreakpointClient, which the
-addons own). Rules are read from a JSON snapshot the backend writes - the same
+addons own) and one fire-and-forget background POST per GLOBAL promotion (see _notify_promotion,
+which only ever sits on a worker thread). Rules are read from a JSON snapshot the backend writes - the same
 cache-validated-by-mtime idiom log_and_route_reverse.py's _ToggleState already uses for the
 per-project logging flag, and for the same reasons: no request ever costs a database query or a
 backend round trip, rules keep working while the backend is down or restarting, and a change is
@@ -33,10 +34,13 @@ import email.utils
 import json
 from http.cookies import SimpleCookie
 import os
+import queue
 import re
 import socket
+import threading
 import time
 import urllib.parse
+import urllib.request
 from http import HTTPStatus
 
 import regex_worker
@@ -47,6 +51,56 @@ import regex_worker
 RULES_FILE = os.environ.get('INTERCEPTION_RULES_FILE', '/home/mitmproxy/interception-rules.json')
 VARIABLES_FILE = os.environ.get('INTERCEPTION_VARIABLES_FILE', '/home/mitmproxy/interception/variables.json')
 VARIABLE_TOKEN = re.compile(r'\{\{([A-Za-z][A-Za-z0-9_.-]*)\}\}')
+
+# Where a GLOBAL promotion is reported so open dashboards refetch: POST
+# {PROMOTE_URL} {"name": ...}. The backend merges the value itself (from the file this
+# process just wrote) and broadcasts on /ws/variables. One shared background queue+thread
+# for both addons, the same shape as log_and_route.py's webhook worker and for the same
+# reason: a notification must never sit on traffic's thread, and its failure must never
+# affect proxying - only liveness of the variables panel, which still converges on its
+# next load via the file. Unset (tests, bare imports) means notify silently no-ops.
+_PROMOTE_URL = (os.environ.get('INTERCEPTION_API_URL', '').rstrip('/')
+                + '/settings/variables/promoted') if os.environ.get('INTERCEPTION_API_URL') else ''
+_NOTIFY_TIMEOUT_SECONDS = 3
+_notify_queue: queue.Queue = queue.Queue()
+
+
+def _post_promotion(item):
+    name, text = item
+    try:
+        request = urllib.request.Request(
+            _PROMOTE_URL,
+            data=json.dumps({'name': name, 'value': text}).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        urllib.request.urlopen(request, timeout=_NOTIFY_TIMEOUT_SECONDS)
+    except Exception as e:
+        print(f"[interception] promotion notify failed for {name!r}: {e}")
+
+
+def _notify_worker():
+    while True:
+        _post_promotion(_notify_queue.get())
+
+
+if _PROMOTE_URL:
+    threading.Thread(target=_notify_worker, daemon=True).start()
+
+
+def _notify_promotion(name, value):
+    """Enqueue a dashboard refresh nudge for a promoted variable. Never blocks, never raises.
+
+    The text form is sent (mirroring what _save_global persisted - the backend store is
+    strings-only), so the backend merges without depending on file timing.
+    """
+    if not _PROMOTE_URL:
+        return
+    try:
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        _notify_queue.put_nowait((name, text))
+    except Exception as e:
+        print(f"[interception] promotion notify queue full for {name!r}: {e}")
 
 # A delay is the one action that can hold a connection open for an unbounded time by accident -
 # a typo of 600000 instead of 6000 is ten minutes of a held socket. Rules are validated
@@ -987,10 +1041,11 @@ class RuleSet:
     """The parsed snapshot. `enabled` is the master switch - one flag that turns the whole feature
     off without touching a single rule, which is what the UI's "Turn all off" writes."""
 
-    __slots__ = ('enabled', 'rules', 'error', 'sensitive', 'self_targets', 'limits')
+    __slots__ = ('enabled', 'rules', 'error', 'sensitive', 'self_targets', 'limits',
+                 'variables', 'fallbacks')
 
     def __init__(self, enabled=False, rules=None, error=None, sensitive=None, self_targets=None,
-                 limits=None):
+                 limits=None, variables=None, fallbacks=None):
         self.enabled = enabled
         self.rules = rules or []
         self.error = error
@@ -1000,6 +1055,11 @@ class RuleSet:
         self.sensitive = frozenset(sensitive) if sensitive else frozenset(SENSITIVE_HEADERS)
         self.self_targets = frozenset(self_targets or ())
         self.limits = limits or {}
+        # The file's shared variables, kept so runtime rendering can resolve a bare {{name}}
+        # that load-time baking deliberately left literal (see _resolve_variable_tokens'
+        # skip set): fresh capture first, these second, fallbacks third.
+        self.variables = variables if isinstance(variables, dict) else {}
+        self.fallbacks = fallbacks if isinstance(fallbacks, dict) else {}
 
     @property
     def inert(self):
@@ -1119,14 +1179,31 @@ def refresh_dates(response, recorded_at):
         response.timestamp_start = started
 
 
-def _resolve_variable_tokens(value, variables, fallbacks, seen=frozenset(), depth=0):
-    """Resolve variable references in an authored rule snapshot before compiling its rules."""
+def _resolve_variable_tokens(value, variables, fallbacks, seen=frozenset(), depth=0,
+                            skip=frozenset()):
+    """Resolve variable references in an authored rule snapshot before compiling its rules.
+
+    `skip` holds names a GLOBAL capture will promote at runtime: baking those now would
+    freeze the pre-call value into the text, and no runtime layer could un-bake it, so a
+    recaptured name would read stale for the rest of the call. Skipped tokens stay literal
+    and resolve at runtime instead (fresh capture first, file value as fallback).
+    """
     if isinstance(value, dict):
-        return {key: _resolve_variable_tokens(item, variables, fallbacks, seen, depth) for key, item in value.items()}
+        return {key: _resolve_variable_tokens(item, variables, fallbacks, seen, depth, skip) for key, item in value.items()}
     if isinstance(value, list):
-        return [_resolve_variable_tokens(item, variables, fallbacks, seen, depth) for item in value]
+        return [_resolve_variable_tokens(item, variables, fallbacks, seen, depth, skip) for item in value]
     if not isinstance(value, str) or depth >= 20:
         return value
+    whole = VARIABLE_TOKEN.fullmatch(value)
+    if whole is not None:
+        name = whole.group(1)
+        if (name not in seen and not name.startswith('this.') and name not in skip
+                and variables.get(name, fallbacks.get(name)) is not None
+                and not isinstance(variables.get(name, fallbacks.get(name)), str)):
+            # A whole-token file value that is not a string (only proxy-promoted scalars
+            # end up here - the backend stores strings): keep its JSON type instead of
+            # leaving a token that could never resolve.
+            return variables.get(name, fallbacks.get(name))
 
     def replace(match):
         name = match.group(1)
@@ -1134,12 +1211,34 @@ def _resolve_variable_tokens(value, variables, fallbacks, seen=frozenset(), dept
             return match.group(0)
         if name.startswith('this.'):
             return match.group(0)
-        replacement = variables.get(name, fallbacks.get(name))
-        if not isinstance(replacement, str):
+        if name in skip:
             return match.group(0)
-        return _resolve_variable_tokens(replacement, variables, fallbacks, seen | {name}, depth + 1)
+        replacement = variables.get(name, fallbacks.get(name))
+        if replacement is None:
+            return match.group(0)
+        if not isinstance(replacement, str):
+            return json.dumps(replacement, ensure_ascii=False)
+        return _resolve_variable_tokens(replacement, variables, fallbacks, seen | {name}, depth + 1, skip)
 
     return VARIABLE_TOKEN.sub(replace, value)
+
+
+def _globally_captured_names(node, into):
+    """Names a GLOBAL capture will promote at runtime, walked with _prepare_actions' drop
+    semantics: an `enabled: false` action - or rule - takes its whole subtree with it, so a
+    capture that can never run must not reserve its name from baking."""
+    if isinstance(node, list):
+        for item in node:
+            _globally_captured_names(item, into)
+    elif isinstance(node, dict):
+        if node.get('enabled') is False:
+            return
+        if (node.get('type') in ('CAPTURE_REQUEST_VARIABLE', 'CAPTURE_RESPONSE_VARIABLE')
+                and node.get('scope') == 'GLOBAL'
+                and isinstance(node.get('name'), str) and node['name']):
+            into.add(node['name'])
+        for value in node.values():
+            _globally_captured_names(value, into)
 
 
 class _MissingLocal(Exception):
@@ -1147,36 +1246,58 @@ class _MissingLocal(Exception):
         self.name = name
 
 
-def _render_local(value, values):
-    """Render only rule-local tokens, preserving JSON types for a whole-token value."""
+def _render_local(value, values, promoted=None, variables=None, fallbacks=None):
+    """Render variable tokens at runtime.
+
+    `values` is the rule-local dict ({{this.name}}). A bare {{name}} resolves from the
+    first layer that has it: the flow's GLOBAL-capture overlay (freshest), then the
+    file's shared variables, then its fallbacks. Anything absent from all three stays
+    literal. Whole-token matches keep their JSON type; embedded matches stringify.
+    """
     if isinstance(value, dict):
-        return {key: _render_local(item, values) for key, item in value.items()}
+        return {key: _render_local(item, values, promoted, variables, fallbacks) for key, item in value.items()}
     if isinstance(value, list):
-        return [_render_local(item, values) for item in value]
+        return [_render_local(item, values, promoted, variables, fallbacks) for item in value]
     if not isinstance(value, str):
         return value
+
+    def _bare(token):
+        for layer in (promoted, variables, fallbacks):
+            if isinstance(layer, dict) and layer.get(token) is not None:
+                return layer[token]
+        return None
+
     whole = VARIABLE_TOKEN.fullmatch(value)
-    if whole and whole.group(1).startswith('this.'):
-        name = whole.group(1)[5:]
-        if name not in values:
-            raise _MissingLocal(name)
-        return values[name]
+    if whole:
+        token = whole.group(1)
+        if token.startswith('this.'):
+            name = token[5:]
+            if name not in values:
+                raise _MissingLocal(name)
+            return values[name]
+        resolved = _bare(token)
+        if resolved is not None:
+            return resolved
+        return value
 
     def replace(match):
         token = match.group(1)
-        if not token.startswith('this.'):
-            return match.group(0)
-        name = token[5:]
-        if name not in values:
-            raise _MissingLocal(name)
-        result = values[name]
-        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+        if token.startswith('this.'):
+            name = token[5:]
+            if name not in values:
+                raise _MissingLocal(name)
+            result = values[name]
+            return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+        resolved = _bare(token)
+        if resolved is not None:
+            return resolved if isinstance(resolved, str) else json.dumps(resolved, ensure_ascii=False)
+        return match.group(0)
 
     return VARIABLE_TOKEN.sub(replace, value)
 
 
-def _render_local_action(action, values):
-    rendered = {key: _render_local(value, values) if not key.startswith('__') and key not in ('type', 'branches', 'otherwise')
+def _render_local_action(action, values, promoted=None, variables=None, fallbacks=None):
+    rendered = {key: _render_local(value, values, promoted, variables, fallbacks) if not key.startswith('__') and key not in ('type', 'branches', 'otherwise')
                 else value for key, value in action.items()}
     rendered['__local_value_used'] = '{{this.' in str(action.get('value', ''))
     if rendered.get('pattern') != action.get('pattern') or rendered.get('replacement') != action.get('replacement'):
@@ -1194,6 +1315,10 @@ class _RulesCache:
         self._variables_path = variables_path or VARIABLES_FILE
         self._mtimes = None
         self._ruleset = EMPTY_RULESET
+
+    @property
+    def variables_path(self) -> str:
+        return self._variables_path
 
     def current(self):
         try:
@@ -1240,7 +1365,10 @@ class _RulesCache:
             variables = {}
         if not isinstance(fallbacks, dict):
             fallbacks = {}
-        raw['rules'] = _resolve_variable_tokens(raw.get('rules') or [], variables, fallbacks)
+        skip = set()
+        _globally_captured_names(raw.get('rules'), skip)
+        raw['rules'] = _resolve_variable_tokens(raw.get('rules') or [], variables, fallbacks,
+                                                skip=frozenset(skip))
 
         enabled = raw.get('enabled', False) is True
         limits = raw.get('limits') if isinstance(raw.get('limits'), dict) else {}
@@ -1264,7 +1392,7 @@ class _RulesCache:
         sensitive = [str(n).strip().lower() for n in (raw.get('sensitiveHeaders') or []) if str(n).strip()]
         self_targets = [str(n).strip().lower() for n in (raw.get('selfTargets') or []) if str(n).strip()]
         return RuleSet(enabled=enabled, rules=rules, sensitive=sensitive, self_targets=self_targets,
-                       limits=limits)
+                       limits=limits, variables=variables, fallbacks=fallbacks)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1677,7 +1805,43 @@ def _capture_value(flow, action, phase):
     return False, None
 
 
-def _capture_rule_variable(flow, rule, action, kind, verdict, values, phase):
+def _save_global(name: str, value: object, variables_path: str) -> bool:
+    """Persist a captured value into the shared variables store (variables.json).
+    Returns whether the value landed - the caller nudges dashboards only on success."""
+    if not isinstance(name, str) or not name.isidentifier() or name.startswith('this.'):
+        return False
+    try:
+        with open(variables_path, 'r', encoding='utf-8') as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = {'variables': {}, 'fallbacks': {}}
+    variables = state.get('variables', {})
+    if not isinstance(variables, dict):
+        variables = {}
+    if isinstance(value, str):
+        variables[name] = value
+    else:
+        # The backend's variable store is strings-only (GlobalVariablesService rejects
+        # anything else, which would 500 the whole panel): a captured number or boolean
+        # is stored as its JSON text. Same-rule reuse still sees the raw value through
+        # the flow overlay; only the persisted copy is text.
+        variables[name] = json.dumps(value, ensure_ascii=False)
+    state['variables'] = variables
+    try:
+        tmp = variables_path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, variables_path)
+        return True
+    except OSError as e:
+        # Never break traffic over a promotion, but never swallow it either: a silent
+        # pass here once hid a read-only mount for a whole session (the capture fired,
+        # the rule worked, and variables.json simply never changed).
+        print(f"[interception] GLOBAL capture of {name!r} not persisted to {variables_path}: {e}")
+        return False
+
+
+def _capture_rule_variable(flow, rule, action, kind, verdict, values, phase, rules_cache=None):
     found, value = _capture_value(flow, action, phase)
     fallback = not found and action.get('missingBehavior') == 'FALLBACK'
     if fallback:
@@ -1686,6 +1850,13 @@ def _capture_rule_variable(flow, rule, action, kind, verdict, values, phase):
     name = action['name']
     if found:
         values[name] = value
+        if action.get('scope') == 'GLOBAL' and rules_cache is not None:
+            if _save_global(name, value, rules_cache.variables_path):
+                _notify_promotion(name, value)
+            # Flow-scoped overlay so later actions in this call resolve {{name}} too -
+            # load-time baking cannot see a value captured after the rules were loaded.
+            # Survives the request->response phase; never leaves this flow's metadata.
+            flow.metadata.setdefault('_interception_promoted', {})[name] = value
         detail = (f'this.{name} used fallback (source missing)' if fallback else
                   f"this.{name} captured from {action['captureSource']} {action['path']}")
         verdict.record(rule, kind, detail)
@@ -2217,11 +2388,11 @@ MATCHED_KEY = 'interception_matched'
 class InterceptionEngine:
     """Stateless apart from the rules cache - one instance per addon process."""
 
-    def __init__(self, source, rules_file=None):
+    def __init__(self, source, rules_file=None, variables_path=None):
         # 'outbound' for log_and_route.py, 'inbound' for log_and_route_reverse.py. Fixed per
         # process, since a given mitmproxy addon only ever sees one direction.
         self.source = source
-        self._cache = _RulesCache(rules_file)
+        self._cache = _RulesCache(rules_file, variables_path)
         # Beside the snapshot, wherever that is - the backend publishes both into one directory.
         self._answers = _AnswerCache(os.path.join(os.path.dirname(os.path.abspath(rules_file or RULES_FILE)), 'answers'))
 
@@ -2316,13 +2487,16 @@ class InterceptionEngine:
 
         values = flow.metadata.setdefault('_interception_locals', {}).setdefault(rule.id, {})
         try:
-            action = _render_local_action(action, values)
+            ruleset = flow.metadata.get('_interception_local_ruleset')
+            action = _render_local_action(action, values, flow.metadata.get('_interception_promoted'),
+                                          ruleset.variables if ruleset is not None else None,
+                                          ruleset.fallbacks if ruleset is not None else None)
         except _MissingLocal as missing:
             verdict.skip(rule, kind, f'rule variable this.{missing.name} was not captured')
             return
 
         if kind == 'CAPTURE_REQUEST_VARIABLE':
-            _capture_rule_variable(flow, rule, action, kind, verdict, values, 'request')
+            _capture_rule_variable(flow, rule, action, kind, verdict, values, 'request', self._cache)
             return
 
         if kind == 'DELAY_REQUEST':
@@ -2633,6 +2807,7 @@ class InterceptionEngine:
         ruleset = self._cache.current()
         if flow.metadata.get('_interception_local_ruleset') is not ruleset:
             flow.metadata['_interception_locals'] = {}
+        flow.metadata['_interception_local_ruleset'] = ruleset
         verdict.sensitive = ruleset.sensitive
         matching = self._matched_for_response(flow, service_name, ruleset)
         if matching:
@@ -2661,13 +2836,16 @@ class InterceptionEngine:
 
         values = flow.metadata.setdefault('_interception_locals', {}).setdefault(rule.id, {})
         try:
-            action = _render_local_action(action, values)
+            ruleset = flow.metadata.get('_interception_local_ruleset')
+            action = _render_local_action(action, values, flow.metadata.get('_interception_promoted'),
+                                          ruleset.variables if ruleset is not None else None,
+                                          ruleset.fallbacks if ruleset is not None else None)
         except _MissingLocal as missing:
             verdict.skip(rule, kind, f'rule variable this.{missing.name} was not captured')
             return
 
         if kind == 'CAPTURE_RESPONSE_VARIABLE':
-            _capture_rule_variable(flow, rule, action, kind, verdict, values, 'response')
+            _capture_rule_variable(flow, rule, action, kind, verdict, values, 'response', self._cache)
             return
 
         if kind == 'DELAY_RESPONSE':
