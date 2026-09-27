@@ -5,6 +5,7 @@ import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCal
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
 import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/relive-step-drawer.component';
 import { ReliveRequestDiffersDialogComponent } from '../../components/relive-request-differs-dialog/relive-request-differs-dialog.component';
+import { ReliveExternalNoticeComponent } from '../../components/relive-external-notice/relive-external-notice.component';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -27,7 +28,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 @Component({
   selector: 'app-relive-cycle',
   standalone: true,
-  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent, ReliveStepDrawerComponent, RuleEditorComponent, ReliveRequestDiffersDialogComponent],
+  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent, ReliveStepDrawerComponent, RuleEditorComponent, ReliveRequestDiffersDialogComponent, ReliveExternalNoticeComponent],
   providers: [ReliveCycleEditorState],
   templateUrl: './relive-cycle.component.html',
 })

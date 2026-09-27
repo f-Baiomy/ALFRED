@@ -325,7 +325,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Relive host:** Relive opens the editor through a new `FE/pages/relive-cycle/relive-rule-dialog.service.ts`, modelled on `RuleDialogService`, that provides a `RULE_EDITOR_TARGET` writing into the cycle draft. "Pick from anywhere" parking must return to `/relive/:id` (`goToCall` flow).
   - **Existing tests:** the rule-editor specs must stay green.
   - **Test:** a new spec with a stubbed `actionTypes()` catalog containing an unknown future type proves it is offered and saved in `CALL` scope (the guard test in D14).
-- [ ] T040 [US2] External-reach watcher (FR-015a). In the editor state (T024), add an `effect` that computes `externalReach(draft)` after each change, diffs it against the previous value with `newlyReaching`, and pushes a notice.
+- [X] T040 [US2] External-reach watcher (FR-015a). In the editor state (T024), add an `effect` that computes `externalReach(draft)` after each change, diffs it against the previous value with `newlyReaching`, and pushes a notice.
   - **Notice:** a new small component `FE/components/relive-external-notice/…` stacked bottom-left, copying mock `notifyExternal()`. It reads "**Label** can now contact the real **host** - reason." with ↶ Undo (restores the draft snapshot taken before the edit) and "That's intended".
   - **No setup noise:** loading, resetting, or a rebuild's apply must not notify - pass a `quiet` flag.
   - **Test:** turning off a mock notifies; Undo restores; an internal host doesn't notify.

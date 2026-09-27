@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { AppConfigService } from '../../core/services/app-config.service';
-import { defaultCallRule, modeOf } from '../../shared/utils/relive-call-rule';
+import { applyMode, defaultCallRule, modeOf } from '../../shared/utils/relive-call-rule';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
 import { CycleRule, FrozenCall, GlobalRulesSelection, ReliveCycle, ReliveSettings, Step, UnexpectedCallsPolicy } from '../../shared/utils/relive-types';
 
@@ -206,5 +206,86 @@ describe('ReliveCycleEditorState', () => {
     const req = http.expectOne('http://backend/relive-cycles/c-1/duplicate');
     expect(req.request.method).toBe('POST');
     req.flush(cycle({ id: 'c-2', name: 'Book flow (copy)' }));
+  });
+
+  describe('external-reach watcher (FR-015a)', () => {
+    it('loading the cycle does not raise a notice even if it already has a LIVE child', () => {
+      const child = makeStep('c-supA', 's-search');
+      const liveChild = { ...child, callRule: applyMode(child.callRule, 'LIVE', recording) };
+      state.load('c-1');
+      http.expectOne('http://backend/relive-cycles/c-1').flush(cycle({ steps: [makeStep('s-search', null), liveChild] }));
+      TestBed.flushEffects();
+
+      expect(state.notices().length).toBe(0);
+    });
+
+    it('turning a REPLAY child off (to LIVE) raises a notice', () => {
+      const child = makeStep('c-supA', 's-search');
+      state.load('c-1');
+      http.expectOne('http://backend/relive-cycles/c-1').flush(cycle({ steps: [makeStep('s-search', null), child] }));
+      TestBed.flushEffects();
+
+      state.update((draft) => ({
+        ...draft,
+        steps: draft.steps.map((s) => (s.key === 'c-supA' ? { ...s, callRule: applyMode(s.callRule, 'LIVE', recording) } : s)),
+      }));
+      TestBed.flushEffects();
+
+      expect(state.notices().length).toBe(1);
+      expect(state.notices()[0].items[0].host).toBe('api.supplier-a.com');
+    });
+
+    it('undoNotice() restores the draft to before the change and clears the notice, quietly', () => {
+      const child = makeStep('c-supA', 's-search');
+      state.load('c-1');
+      http.expectOne('http://backend/relive-cycles/c-1').flush(cycle({ steps: [makeStep('s-search', null), child] }));
+      TestBed.flushEffects();
+
+      state.update((draft) => ({
+        ...draft,
+        steps: draft.steps.map((s) => (s.key === 'c-supA' ? { ...s, callRule: applyMode(s.callRule, 'LIVE', recording) } : s)),
+      }));
+      TestBed.flushEffects();
+      const noticeId = state.notices()[0].id;
+
+      state.undoNotice(noticeId);
+      TestBed.flushEffects();
+
+      expect(state.notices().length).toBe(0);
+      const restored = state.draft()!.steps.find((s) => s.key === 'c-supA')!;
+      expect(modeOf(restored.callRule)).toBe('REPLAY');
+    });
+
+    it('a step on an internal host never raises a notice', () => {
+      const internalRecording: FrozenCall = { ...recording, url: 'https://svc.internal.local/x' };
+      const child = makeStep('c-supA', 's-search');
+      const internalChild = { ...child, recording: internalRecording, callRule: defaultCallRule({ key: 'c-supA', parentKey: 's-search', label: 'x', recording: internalRecording }, { ...settings, internalHosts: ['internal.local'] }) };
+      state.load('c-1');
+      http.expectOne('http://backend/relive-cycles/c-1').flush(
+        cycle({ steps: [makeStep('s-search', null), internalChild], settings: { ...settings, internalHosts: ['internal.local'] } }),
+      );
+      TestBed.flushEffects();
+
+      state.update((draft) => ({
+        ...draft,
+        steps: draft.steps.map((s) => (s.key === 'c-supA' ? { ...s, callRule: applyMode(s.callRule, 'LIVE', internalRecording) } : s)),
+      }));
+      TestBed.flushEffects();
+
+      expect(state.notices().length).toBe(0);
+    });
+
+    it('resetStep() does not raise a notice even when it turns a step back to REPLAY', () => {
+      const child = makeStep('c-supA', 's-search');
+      const liveChild = { ...child, callRule: applyMode(child.callRule, 'LIVE', recording) };
+      state.load('c-1');
+      http.expectOne('http://backend/relive-cycles/c-1').flush(cycle({ steps: [makeStep('s-search', null), liveChild] }));
+      TestBed.flushEffects();
+
+      state.resetStep('c-supA');
+      TestBed.flushEffects();
+
+      expect(state.notices().length).toBe(0);
+    });
   });
 });

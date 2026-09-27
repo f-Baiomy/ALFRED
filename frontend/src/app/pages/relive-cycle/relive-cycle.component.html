@@ -127,6 +127,8 @@
     (stepChange)="updateStep($event)"
     (closed)="closeRequestDiffers()"
   />
+
+  <app-relive-external-notice [notices]="state.notices()" (undo)="state.undoNotice($event)" (dismiss)="state.dismissNotice($event)" />
 } @else {
   <div class="rl-page rl-faint">Loading…</div>
 }
