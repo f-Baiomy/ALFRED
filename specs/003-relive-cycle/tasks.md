@@ -399,7 +399,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Startup:** every RUNNING run from before the restart becomes INTERRUPTED, and its snapshot file (if still in
     `relive/`) is republished as STOPPING and removed 30 s later.
   - **Test:** with a controllable clock/executor.
-- [ ] T048 [US3] Create `BR/adapter/in/web/ReliveRunsController.java`, covering the "Runs" table of `contracts/rest-api.md` (runs, attempts, variables, stop, finish, hold, resume, definition, save-edits, compare).
+- [X] T048 [US3] Create `BR/adapter/in/web/ReliveRunsController.java`, covering the "Runs" table of `contracts/rest-api.md` (runs, attempts, variables, stop, finish, hold, resume, definition, save-edits, compare).
   - **Test:** `ReliveRunsControllerTest.java`, including the 422 on blocking findings and `limit` clamped to 100.
 - [X] T049 [US3] Resend carries the run.
   - **Where:** `backend/backend-resend/.../domain/model/ResendRequest.java` + `adapter/in/web/dto/ResendRequestDto.java` gain an optional `relive: {runId, stepKey}`.
