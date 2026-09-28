@@ -17,12 +17,49 @@
     <div class="rl-rulecard">
       <span class="rl-pill rl-p-cycle">CYCLE</span>
       <b>{{ ruleName(rule) }}</b>
+      @if (rule.copiedFrom) {
+        <span class="rl-faint" style="font-size: 11px">copied from "{{ rule.copiedFrom.name }}"</span>
+      }
       <span class="rl-spacer"></span>
       <button class="rl-btn rl-sm" (click)="openCycleRule.emit($index + '')">Edit</button>
       <button class="icon-btn" (click)="removeCycleRule($index)">✕</button>
     </div>
   } @empty {
     <div class="rl-faint">No cycle rules yet.</div>
+  }
+</div>
+
+@if (overlapWarnings().length) {
+  <div class="rl-sect">
+    <div class="rl-ext-banner" style="flex-direction: column; align-items: flex-start">
+      @for (w of overlapWarnings(); track $index) {
+        <div>⚠ {{ w.message }}</div>
+      }
+    </div>
+  </div>
+}
+
+<div class="rl-sect">
+  <h3>Global rules</h3>
+  <p class="rl-hint" style="margin-bottom: 6px">Whether ALFRED's existing global rules participate in this cycle's runs, and in what order (CYCLE rules always take priority - research D4).</p>
+  <div class="rl-choice" style="margin-bottom: 8px">
+    <button [class.rl-on]="cycle().globalRules.mode === 'NONE'" (click)="setGlobalRulesMode('NONE')">No global rules</button>
+    <button [class.rl-on]="cycle().globalRules.mode === 'ALL'" (click)="setGlobalRulesMode('ALL')">All global rules</button>
+    <button [class.rl-on]="cycle().globalRules.mode === 'SELECTED'" (click)="setGlobalRulesMode('SELECTED')">Selected global rules</button>
+  </div>
+  @for (rule of globalRules(); track rule.id) {
+    <div class="rl-rulecard">
+      @if (cycle().globalRules.mode === 'SELECTED') {
+        <input type="checkbox" [checked]="cycle().globalRules.selectedIds.includes(rule.id)" (change)="toggleSelectedGlobalRule(rule.id)" />
+      }
+      <span class="rl-pill rl-p-global">GLOBAL</span>
+      <b>{{ rule.name || '(unnamed rule)' }}</b>
+      <span class="rl-pill" [class]="globalRuleApplies(rule) ? 'rl-p-ok' : 'rl-p-wait'">{{ globalRuleApplies(rule) ? 'applies' : 'ignored' }} in this cycle</span>
+      <span class="rl-spacer"></span>
+      <button class="rl-btn rl-sm" (click)="copyGlobalRuleIntoCycle(rule)">Copy into cycle</button>
+    </div>
+  } @empty {
+    <div class="rl-faint">No global rules exist yet.</div>
   }
 </div>
 

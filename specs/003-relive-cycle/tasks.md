@@ -529,7 +529,7 @@ differences**.
 
 **Goal**: FR-025-029b. **Independent test**: US6 scenarios; walkthrough **3 Rules**.
 
-- [ ] T067 [US6] Rules tab `FE/components/relive-rules-panel/…`, copying mock `rulesPanel()`, `copyRule()`.
+- [X] T067 [US6] Rules tab `FE/components/relive-rules-panel/…`, copying mock `rulesPanel()`, `copyRule()`.
   - **CYCLE rules:** a list with Edit (T039 editor, `CYCLE` scope) and ✕, plus "＋ New cycle rule".
   - **GLOBAL rules:** a segment No global rules / All / Selected, the global rules list (from `InterceptionStateService`) with checkboxes in Selected mode, and "applies / ignored in this cycle".
   - **"Copy into cycle":** clones the rule into `cycleRules` with `copiedFrom {ruleId, name, copiedAt}`.

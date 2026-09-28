@@ -1,8 +1,17 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { InterceptionRule } from '../../core/models/interception.model';
+import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { defaultCallRule, isModified, modeOf } from '../../shared/utils/relive-call-rule';
 import { FrozenCall, GlobalRulesSelection, ReliveCycle, ReliveSettings, Step, UnexpectedCallsPolicy } from '../../shared/utils/relive-types';
 import { ReliveRulesTabComponent } from './relive-rules-tab.component';
+
+function globalRule(overrides: Partial<InterceptionRule> = {}): InterceptionRule {
+  return { id: 'g-1', name: 'Currency → AED', enabled: true, priority: 0, stopProcessing: true, match: {}, actions: [], ...overrides };
+}
 
 const recording: FrozenCall = {
   method: 'GET',
@@ -65,9 +74,18 @@ function cycle(overrides: Partial<ReliveCycle> = {}): ReliveCycle {
 
 describe('ReliveRulesTabComponent', () => {
   let fixture: ComponentFixture<ReliveRulesTabComponent>;
+  const globalRulesSignal = signal<InterceptionRule[]>([]);
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [ReliveRulesTabComponent] });
+    globalRulesSignal.set([]);
+    TestBed.configureTestingModule({
+      imports: [ReliveRulesTabComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: InterceptionStateService, useValue: { rules: globalRulesSignal } },
+      ],
+    });
     fixture = TestBed.createComponent(ReliveRulesTabComponent);
   });
 
@@ -107,5 +125,61 @@ describe('ReliveRulesTabComponent', () => {
     fixture.componentInstance.setUnexpectedPolicy('SEND_REAL');
 
     expect(emitted!.unexpectedCalls.policy).toBe('SEND_REAL');
+  });
+
+  describe('T067: global rules', () => {
+    it('copying a global rule creates an independent CYCLE-tier rule, tagged with copiedFrom', () => {
+      globalRulesSignal.set([globalRule()]);
+      fixture.componentRef.setInput('cycle', cycle());
+      fixture.detectChanges();
+
+      let emitted: ReliveCycle | null = null;
+      fixture.componentInstance.cycleChange.subscribe((c: ReliveCycle) => (emitted = c));
+      fixture.componentInstance.copyGlobalRuleIntoCycle(globalRulesSignal()[0]);
+
+      expect(emitted!.cycleRules.length).toBe(1);
+      const copy = emitted!.cycleRules[0];
+      expect(copy.name).toBe('Currency → AED');
+      expect(copy.copiedFrom).toEqual(jasmine.objectContaining({ ruleId: 'g-1', name: 'Currency → AED' }));
+
+      // Editing the copy must never touch the original global rule.
+      const editedCopy = { ...copy, name: 'Currency → AED (cycle copy)' };
+      expect(globalRulesSignal()[0].name).toBe('Currency → AED');
+      expect(editedCopy.name).not.toBe(globalRulesSignal()[0].name);
+    });
+
+    it('globalRuleApplies reflects NONE/ALL/SELECTED', () => {
+      const rule = globalRule();
+      globalRulesSignal.set([rule]);
+      fixture.componentRef.setInput('cycle', cycle({ globalRules: { mode: 'NONE', selectedIds: [] } }));
+      fixture.detectChanges();
+      expect(fixture.componentInstance.globalRuleApplies(rule)).toBeFalse();
+
+      fixture.componentRef.setInput('cycle', cycle({ globalRules: { mode: 'ALL', selectedIds: [] } }));
+      fixture.detectChanges();
+      expect(fixture.componentInstance.globalRuleApplies(rule)).toBeTrue();
+
+      fixture.componentRef.setInput('cycle', cycle({ globalRules: { mode: 'SELECTED', selectedIds: ['g-1'] } }));
+      fixture.detectChanges();
+      expect(fixture.componentInstance.globalRuleApplies(rule)).toBeTrue();
+
+      fixture.componentRef.setInput('cycle', cycle({ globalRules: { mode: 'SELECTED', selectedIds: [] } }));
+      fixture.detectChanges();
+      expect(fixture.componentInstance.globalRuleApplies(rule)).toBeFalse();
+    });
+
+    it('toggleSelectedGlobalRule adds and removes the id', () => {
+      fixture.componentRef.setInput('cycle', cycle({ globalRules: { mode: 'SELECTED', selectedIds: [] } }));
+      fixture.detectChanges();
+      let emitted: ReliveCycle | null = null;
+      fixture.componentInstance.cycleChange.subscribe((c: ReliveCycle) => (emitted = c));
+
+      fixture.componentInstance.toggleSelectedGlobalRule('g-1');
+      expect(emitted!.globalRules.selectedIds).toEqual(['g-1']);
+
+      fixture.componentRef.setInput('cycle', emitted!);
+      fixture.componentInstance.toggleSelectedGlobalRule('g-1');
+      expect(emitted!.globalRules.selectedIds).toEqual([]);
+    });
   });
 });
