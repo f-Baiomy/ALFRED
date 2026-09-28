@@ -173,7 +173,7 @@ export interface RuleApplied {
   readonly ruleId: string;
   readonly name: string;
   readonly tier: 'STEP' | 'CYCLE' | 'GLOBAL';
-  readonly actions: readonly string[];
+  readonly actions?: readonly string[];
 }
 
 export interface UnexpectedCallEntry {

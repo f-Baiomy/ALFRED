@@ -265,7 +265,11 @@ describe('ReliveRunService', () => {
       of<ResendResult>({ newCallId: 'new-login', status: 200, durationMs: 50, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }),
     );
     callsApi.getDetail.and.returnValue(
-      of<CallDetail>({ request: { headers: {}, body: '' }, response: { status: 200, headers: {}, body: '{"flights":12}' } }),
+      of<CallDetail>({
+        request: { headers: {}, body: '' },
+        response: { status: 200, headers: {}, body: '{"flights":12}' },
+        relive: { runId: 'run-1', stepKey: 'supplier-a', ruleIds: [{ tier: 'STEP', ruleId: 'r-1', ruleName: 'Mock supplier A' }] },
+      }),
     );
 
     const startPromise = service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
@@ -279,6 +283,30 @@ describe('ReliveRunService', () => {
     expect(service.results()['supplier-a'].mode).toBe('REPLAY');
     expect(service.results()['supplier-a'].attribution).toBe('INFLIGHT');
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'COMPLETED');
+  });
+
+  it('T068: maps the logged call\'s relive.ruleIds into the step result\'s rulesApplied', async () => {
+    const steps = [inboundStep(), childStep()];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(
+      of<ResendResult>({ newCallId: 'new-login', status: 200, durationMs: 50, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }),
+    );
+    callsApi.getDetail.and.returnValue(
+      of<CallDetail>({
+        request: { headers: {}, body: '' },
+        response: { status: 200, headers: {}, body: '{"flights":12}' },
+        relive: { runId: 'run-1', stepKey: 'supplier-a', ruleIds: [{ tier: 'CYCLE', ruleId: 'r-2', ruleName: 'Cycle-scoped delay' }] },
+      }),
+    );
+
+    const startPromise = service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+    events$.next({ type: 'run-call', runId: 'run-1', stepKey: 'supplier-a', callId: 'call-a', direction: 'outbound', attribution: 'INFLIGHT', state: 'COMPLETED' });
+    await startPromise;
+
+    expect(service.results()['supplier-a'].rulesApplied).toEqual([{ ruleId: 'r-2', name: 'Cycle-scoped delay', tier: 'CYCLE' }]);
   });
 
   it('settles an enabled child that never receives a run-call event as NOT_CALLED', async () => {

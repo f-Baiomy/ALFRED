@@ -14,7 +14,8 @@ class CallDetailPartTest {
 
     private static final CallDetail FULL = new CallDetail(
             new RequestData(Map.of("accept", "application/json"), "{\"req\":1}"),
-            new ResponseData(200, Map.of("content-type", "application/json"), "{\"res\":2}")
+            new ResponseData(200, Map.of("content-type", "application/json"), "{\"res\":2}"),
+            null
     );
 
     @Test
@@ -63,7 +64,7 @@ class CallDetailPartTest {
 
     @Test
     void aPartOfAHalfThatWasNeverRecordedIsNullRatherThanAFailure() {
-        CallDetail requestOnly = new CallDetail(new RequestData(Map.of(), ""), null);
+        CallDetail requestOnly = new CallDetail(new RequestData(Map.of(), ""), null, null);
 
         assertThat(requestOnly.part("response-body").response()).isNull();
         assertThat(requestOnly.part("response-headers").response()).isNull();

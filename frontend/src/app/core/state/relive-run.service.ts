@@ -30,7 +30,7 @@ import { resolveDynamicTokens } from '../../shared/utils/dynamic-tokens';
 import { checkpointOf, modeOf } from '../../shared/utils/relive-call-rule';
 import { RawDifference, classify } from '../../shared/utils/relive-noise';
 import { ActualCallOutcome, outcomeOf } from '../../shared/utils/relive-outcome';
-import { DifferenceEntry, NoiseRule, ReliveCycle, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
+import { DifferenceEntry, NoiseRule, ReliveCycle, RuleApplied, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 import { DraftResult } from '../../shared/utils/resend-draft';
 import { extractValues, substituteTokens } from '../../shared/utils/resend-draft-chain';
 import { diffJsonBodies, evaluate } from '../../shared/utils/scenario-assertions';
@@ -719,10 +719,12 @@ export class ReliveRunService {
     const source: CallEndpointSource = event.direction === 'inbound' ? 'internal' : 'external';
     let response: ResendResponseSnapshot | null = null;
     let actualRequest: { readonly headers: Readonly<Record<string, string>>; readonly body: string | null } | null = null;
+    let rulesApplied: RuleApplied[] = [];
     try {
       const detail = await firstValueFrom(this.callsApi.getDetail(event.callId, source));
       response = detail.response ? { status: detail.response.status, headers: detail.response.headers ?? {}, body: detail.response.body ?? null } : null;
       actualRequest = detail.request ? { headers: detail.request.headers ?? {}, body: detail.request.body ?? null } : null;
+      rulesApplied = (detail.relive?.ruleIds ?? []).map((r) => ({ ruleId: r.ruleId, name: r.ruleName, tier: r.tier }));
     } catch {
       response = null;
     }
@@ -756,7 +758,7 @@ export class ReliveRunService {
       actualRequest,
       actualResponse: response,
       differences,
-      rulesApplied: [],
+      rulesApplied,
       variablesUsed,
       variablesProduced,
       assertions: assertionResults,

@@ -1,10 +1,14 @@
 package com.fathy.alfred.backend.internalcalls.domain.model;
 
-/** The part of a CallRecord a list view omits - full request/response headers and bodies, fetched only once a call is actually expanded. */
-public record CallDetail(RequestData request, ResponseData response) {
+import com.fasterxml.jackson.databind.JsonNode;
+
+/** The part of a CallRecord a list view omits - full request/response headers and bodies, fetched only once a call is actually expanded.
+ *  {@code relive} is carried through unread (opaque JsonNode, T068) so the Relive drawer's "Rules & variables" tab can read {@code ruleIds}
+ *  without this slice needing to know backend-relive's shape. */
+public record CallDetail(RequestData request, ResponseData response, JsonNode relive) {
 
     public static CallDetail of(CallRecord call) {
-        return new CallDetail(call.request(), call.response());
+        return new CallDetail(call.request(), call.response(), call.relive());
     }
 
     /**
@@ -24,10 +28,10 @@ public record CallDetail(RequestData request, ResponseData response) {
             return this;
         }
         return switch (part) {
-            case "request-headers" -> new CallDetail(request == null ? null : new RequestData(request.headers(), null), null);
-            case "request-body" -> new CallDetail(request == null ? null : new RequestData(null, request.body()), null);
-            case "response-headers" -> new CallDetail(null, response == null ? null : new ResponseData(response.status(), response.headers(), null));
-            case "response-body" -> new CallDetail(null, response == null ? null : new ResponseData(response.status(), null, response.body()));
+            case "request-headers" -> new CallDetail(request == null ? null : new RequestData(request.headers(), null), null, relive);
+            case "request-body" -> new CallDetail(request == null ? null : new RequestData(null, request.body()), null, relive);
+            case "response-headers" -> new CallDetail(null, response == null ? null : new ResponseData(response.status(), response.headers(), null), relive);
+            case "response-body" -> new CallDetail(null, response == null ? null : new ResponseData(response.status(), null, response.body()), relive);
             default -> this;
         };
     }

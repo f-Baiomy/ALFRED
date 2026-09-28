@@ -535,7 +535,7 @@ differences**.
   - **"Copy into cycle":** clones the rule into `cycleRules` with `copiedFrom {ruleId, name, copiedAt}`.
   - **Also on this tab:** the RULE_OVERLAP warning, and the T042 unexpected-calls section.
   - **Test:** copy creates an independent rule; editing the copy doesn't touch the global rule.
-- [ ] T068 [US6] Per-step "rules applied" (FR-028): the proxy's logged `relive.ruleIds` plus the tier are shown in the drawer's "Rules & variables" tab in order. Add `ruleIds` and tiers to the logged-call `relive` field in `proxy/relive.py` (T032).
+- [X] T068 [US6] Per-step "rules applied" (FR-028): the proxy's logged `relive.ruleIds` plus the tier are shown in the drawer's "Rules & variables" tab in order. Add `ruleIds` and tiers to the logged-call `relive` field in `proxy/relive.py` (T032).
 
 ---
 

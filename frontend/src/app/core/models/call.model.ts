@@ -118,6 +118,9 @@ export type CallDetailPart = 'request-headers' | 'request-body' | 'response-head
 export interface CallDetail {
   readonly request?: HttpMessageData;
   readonly response?: CallResponse;
+  /** The relive attribution the proxy attached to this call (T068), including which rule matched at
+   *  each tier. Absent for a call Relive never touched. */
+  readonly relive?: ReliveCallTag | null;
 }
 
 /** GET /calls and GET /session-cycles/{id}/calls' per-item wire shape - a CallRecord without request/response headers/bodies, with status flattened rather than nested. See shared/utils/call-utils.ts's toCallRecord(). */
@@ -154,6 +157,10 @@ export interface ReliveCallTag {
   readonly stepKey: string | null;
   readonly cycleName?: string | null;
   readonly ambiguousRunIds?: readonly string[] | null;
+  /** Which rule matched at each tier while this call was in flight (T068, FR-028), in tier order -
+   *  see proxy/relive.py's `_rule_applications`. Request-phase only, and only present when Relive
+   *  attributed the call to a step whose call rule pipeline actually ran. */
+  readonly ruleIds?: readonly { readonly tier: 'STEP' | 'CYCLE' | 'GLOBAL'; readonly ruleId: string; readonly ruleName: string }[];
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle
