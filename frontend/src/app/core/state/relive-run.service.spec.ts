@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { Subject, of } from 'rxjs';
 import { CallDetail } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
@@ -648,4 +648,28 @@ describe('ReliveRunService', () => {
       expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'COMPLETED');
     });
   });
+
+  it('T080: SC-005 - a run-call event updates results() well within 1s, with no timer/polling involved', fakeAsync(() => {
+    const steps = [inboundStep(), logoutStep()];
+    const run1 = { ...runOf(steps), driver: 'GUIDED' as const };
+    reliveApi.startRun.and.returnValue(of(run1));
+    callsApi.getDetail.and.returnValue(
+      of<CallDetail>({ request: { headers: {}, body: '' }, response: { status: 200, headers: {}, body: '{}' } }),
+    );
+
+    service.start(cycleOf(steps), { driver: 'GUIDED', unattributedChoices: {} });
+    tick();
+    expect(service.results()['login'].state).toBe('PENDING');
+
+    const before = Date.now();
+    events$.next({
+      type: 'run-call', runId: 'run-1', stepKey: '', callId: 'call-1',
+      direction: 'inbound', attribution: 'GUIDED', state: 'COMPLETED', method: 'POST', url: 'https://app.local/login',
+    });
+    tick();
+    const elapsedMs = Date.now() - before;
+
+    expect(service.results()['login'].state).toBe('COMPLETED');
+    expect(elapsedMs).toBeLessThan(1000);
+  }));
 });

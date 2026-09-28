@@ -95,3 +95,35 @@ describe('ReliveStepTreeComponent', () => {
     expect(rows.length).toBe(2); // "Book" + "Supplier C"
   });
 });
+
+describe('T080: SC-009 - a 200-step cycle stays usable', () => {
+  /** 40 inbound steps x (1 + 4 children) = 200 steps total. */
+  function bigSteps(): Step[] {
+    const steps: Step[] = [];
+    for (let i = 0; i < 40; i++) {
+      const parent = `in-${i}`;
+      steps.push(makeStep(parent, null, `Inbound ${i}`));
+      for (let c = 0; c < 4; c++) steps.push(makeStep(`${parent}-c${c}`, parent, `Supplier ${i}.${c}`));
+    }
+    return steps;
+  }
+
+  it('renders all 200 steps within budget', () => {
+    const steps = bigSteps();
+    expect(steps.length).toBe(200);
+
+    const fixture = TestBed.createComponent(ReliveStepTreeComponent);
+    fixture.componentRef.setInput('steps', steps);
+    fixture.componentRef.setInput('settings', settings);
+
+    const started = performance.now();
+    fixture.detectChanges();
+    const elapsedMs = performance.now() - started;
+
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.rl-step');
+    expect(rows.length).toBe(200);
+    // Generous budget for a headless CI browser - this is a smoke check against a regression that
+    // makes the tree scale badly (e.g. an accidental O(n^2) per-row lookup), not a strict benchmark.
+    expect(elapsedMs).toBeLessThan(2000);
+  });
+});
