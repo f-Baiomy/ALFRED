@@ -41,6 +41,7 @@ import { evaluate } from '../../shared/utils/scenario-assertions';
 const CHILD_EVENTS_GRACE_MS = 500;
 
 type RunCallEvent = ReliveSocketEvent & { readonly type: 'run-call' };
+type RunHold = NonNullable<Run['hold']>;
 
 interface SubstitutedRequest {
   readonly method: string;
@@ -72,14 +73,16 @@ function substituteStepRequest(step: Step, vars: Readonly<Record<string, string>
   };
 }
 
+function varRefsOf(step: Step): string[] {
+  const text = `${step.recording.url} ${Object.values(step.recording.requestHeaders).join(' ')} ${step.recording.requestBody ?? ''}`;
+  return [...new Set([...text.matchAll(PLAIN_VAR_TOKEN)].map((m) => m[1]))];
+}
+
 /** Variable names this step's recorded request actually references, with their current value - for `StepResult.variablesUsed`. */
 function usedVarsOf(step: Step, vars: Readonly<Record<string, string>>): readonly { readonly name: string; readonly value: string }[] {
-  const text = `${step.recording.url} ${Object.values(step.recording.requestHeaders).join(' ')} ${step.recording.requestBody ?? ''}`;
-  const found = new Set<string>();
-  for (const match of text.matchAll(PLAIN_VAR_TOKEN)) {
-    if (match[1] in vars) found.add(match[1]);
-  }
-  return [...found].map((name) => ({ name, value: vars[name] }));
+  return varRefsOf(step)
+    .filter((name) => name in vars)
+    .map((name) => ({ name, value: vars[name] }));
 }
 
 function topSteps(steps: readonly Step[]): Step[] {
@@ -87,6 +90,28 @@ function topSteps(steps: readonly Step[]): Step[] {
 }
 function childSteps(steps: readonly Step[], parentKey: string): Step[] {
   return steps.filter((s) => s.parentKey === parentKey);
+}
+
+interface Dependent {
+  readonly step: Step;
+  readonly needs: readonly string[];
+}
+
+/**
+ * Later top-level steps, not yet run, whose recorded request references a variable only `step`'s
+ * own `extract` rules produce and which has no value yet - i.e. `step` failing before it could
+ * extract left them with nothing to send (FR-034c, mock's `dependents`/`PRODUCES`).
+ */
+function dependentsOf(step: Step, topOrder: readonly Step[], results: Readonly<Record<string, StepResult>>, vars: Readonly<Record<string, string>>): Dependent[] {
+  const produced = step.extract.map((e) => e.as);
+  const lost = produced.filter((name) => !(name in vars));
+  if (!lost.length) return [];
+  const fromIndex = topOrder.findIndex((s) => s.key === step.key);
+  return topOrder
+    .slice(fromIndex + 1)
+    .filter((s) => s.enabled && results[s.key]?.state === 'PENDING')
+    .map((s) => ({ step: s, needs: varRefsOf(s).filter((name) => lost.includes(name)) }))
+    .filter((d) => d.needs.length > 0);
 }
 
 function emptyResult(runId: string, stepKey: string, state: StepState): StepResult {
@@ -128,6 +153,8 @@ export class ReliveRunService {
   readonly results = signal<Readonly<Record<string, StepResult>>>({});
   readonly variables = signal<Readonly<Record<string, string>>>({});
   readonly status = signal<RunStatus | null>(null);
+  /** Set while the run is holding at a failed/differing step (FR-034), null otherwise. */
+  readonly hold = signal<RunHold | null>(null);
 
   readonly progress = computed(() => {
     const values = Object.values(this.results());
@@ -137,6 +164,8 @@ export class ReliveRunService {
   });
 
   private steps: readonly Step[] = [];
+  private topOrder: readonly Step[] = [];
+  private topIdx = 0;
   private stopped = false;
   private eventsSub: Subscription | null = null;
 
@@ -168,6 +197,7 @@ export class ReliveRunService {
     const run = this.run();
     if (!run || this.stopped) return;
     this.stopped = true;
+    this.hold.set(null);
     this.eventsSub?.unsubscribe();
     this.eventsSub = null;
 
@@ -185,16 +215,65 @@ export class ReliveRunService {
     this.socket.releaseLease(run.id);
   }
 
-  private async runLoop(): Promise<void> {
-    for (const step of topSteps(this.steps)) {
-      if (this.stopped) break;
-      if (!step.enabled) continue; // already seeded SKIPPED
-      await this.runInboundStep(step);
-    }
-    if (!this.stopped) await this.finish();
+  /** "Continue with the next calls" (mock `haltContinue`): skips whatever the held step's failure
+   *  left with nothing to send, clears the hold and resumes. */
+  async continueRun(): Promise<void> {
+    const held = this.hold();
+    const run = this.run();
+    if (!held || !run) return;
+    const step = this.stepByKey(held.stepKey);
+    if (step) this.skipDependents(step);
+    await this.clearHold(run);
+    this.topIdx++;
+    await this.runLoop();
   }
 
-  private async runInboundStep(step: Step): Promise<void> {
+  /** Re-runs the held step from scratch, one attempt higher (mock `haltRetry`). Only meaningful for
+   *  a held top-level step - a held child is re-triggered by re-running its parent instead. */
+  async retryStep(): Promise<void> {
+    const held = this.hold();
+    const run = this.run();
+    if (!held || !run) return;
+    const step = this.stepByKey(held.stepKey);
+    if (!step) return;
+    const attempt = (this.results()[step.key]?.attempt ?? 0) + 1;
+    await this.clearHold(run);
+    await this.runInboundStep(step, attempt);
+    if (this.stopped || this.hold()) return;
+    this.topIdx++;
+    await this.runLoop();
+  }
+
+  /** Ends the run here (mock `haltEnd`): cancels whatever never ran and finishes. */
+  async endRun(): Promise<void> {
+    const run = this.run();
+    if (!this.hold() || !run) return;
+    await this.clearHold(run);
+    const cancelled: Record<string, StepResult> = { ...this.results() };
+    for (const [key, result] of Object.entries(cancelled)) {
+      if (['PENDING', 'WAITING'].includes(result.state)) cancelled[key] = { ...result, state: 'CANCELLED' };
+    }
+    this.results.set(cancelled);
+    await this.finish();
+  }
+
+  private async runLoop(): Promise<void> {
+    this.topOrder = topSteps(this.steps);
+    while (this.topIdx < this.topOrder.length) {
+      if (this.stopped) return;
+      const step = this.topOrder[this.topIdx];
+      if (!step.enabled || this.results()[step.key]?.state === 'SKIPPED') {
+        this.topIdx++; // disabled, or SKIPPED already by skipDependents (a missing extracted value)
+        continue;
+      }
+      await this.runInboundStep(step);
+      if (this.stopped || this.hold()) return; // held: continueRun/retryStep/endRun resumes or ends
+      this.topIdx++;
+    }
+    await this.finish();
+  }
+
+  private async runInboundStep(step: Step, attempt = 1): Promise<void> {
     const run = this.run();
     if (!run) return;
     this.setResult(step.key, (r) => ({ ...r, state: 'RUNNING' }));
@@ -229,7 +308,8 @@ export class ReliveRunService {
     this.eventsSub.unsubscribe();
     this.eventsSub = null;
 
-    await this.settleResult(run, step, this.buildOwnResult(step, substituted, resendResult, error, startedAt));
+    const own = this.buildOwnResult(step, substituted, resendResult, error, startedAt, attempt);
+    await this.settleResult(run, step, own);
 
     for (const kid of kids) {
       const event = collected.get(kid.key);
@@ -239,9 +319,66 @@ export class ReliveRunService {
       }
       await this.settleResult(run, kid, await this.buildChildResult(kid, event));
     }
+
+    await this.applyFailurePolicy(run, step, own);
   }
 
-  private buildOwnResult(step: Step, substituted: SubstitutedRequest, resendResult: ResendResult | null, error: string | null, startedAt: number): StepResult {
+  /** FR-034/034c: holds the run at a failed or differing step per the cycle's own settings, else
+   *  (on failure only) skips whatever that step's missing extraction leaves with nothing to send -
+   *  "keep going" is the same skip, just without waiting for a decision first. */
+  private async applyFailurePolicy(run: Run, step: Step, result: StepResult): Promise<void> {
+    const settings = run.definition.settings;
+    if (result.state === 'FAILED' && !step.optional) {
+      if (settings.onFailure === 'HOLD') return this.enterHold(run, step.key, 'FAILED');
+      this.skipDependents(step);
+      return;
+    }
+    if (result.state === 'COMPLETED_WITH_DIFFERENCES' && settings.onDifferences === 'HOLD') {
+      await this.enterHold(run, step.key, 'DIFFERENCES');
+    }
+  }
+
+  private skipDependents(step: Step): void {
+    const deps = dependentsOf(step, this.topOrder, this.results(), this.variables());
+    for (const dep of deps) {
+      this.setResult(dep.step.key, (r) => ({
+        ...r,
+        state: 'SKIPPED',
+        error: `Skipped - needs {{${dep.needs.join('}}, {{')}}}, which ${step.label} did not produce`,
+      }));
+      for (const kid of childSteps(this.steps, dep.step.key)) {
+        this.setResult(kid.key, (r) => ({ ...r, state: 'NOT_CALLED' }));
+      }
+    }
+  }
+
+  private async enterHold(run: Run, stepKey: string, reason: 'FAILED' | 'DIFFERENCES'): Promise<void> {
+    const held: RunHold = { stepKey, reason, since: new Date().toISOString() };
+    this.hold.set(held);
+    const updated = await firstValueFrom(this.api.setHold(run.cycleId, run.id, { stepKey, reason }));
+    this.run.set(updated);
+    this.status.set(updated.status);
+  }
+
+  private async clearHold(run: Run): Promise<void> {
+    this.hold.set(null);
+    const updated = await firstValueFrom(this.api.setHold(run.cycleId, run.id, null));
+    this.run.set(updated);
+    this.status.set(updated.status);
+  }
+
+  private stepByKey(key: string): Step | undefined {
+    return this.steps.find((s) => s.key === key);
+  }
+
+  private buildOwnResult(
+    step: Step,
+    substituted: SubstitutedRequest,
+    resendResult: ResendResult | null,
+    error: string | null,
+    startedAt: number,
+    attempt: number,
+  ): StepResult {
     const finishedAt = Date.now();
     const response = resendResult?.response ?? null;
     const actual: ActualCallOutcome = {
@@ -252,7 +389,7 @@ export class ReliveRunService {
     };
     const draftResult: DraftResult = {
       key: step.key,
-      attempt: 1,
+      attempt,
       status: response?.status ?? null,
       durationMs: resendResult?.durationMs ?? null,
       newCallId: resendResult?.newCallId ?? null,
@@ -266,7 +403,7 @@ export class ReliveRunService {
     return {
       runId: this.run()!.id,
       stepKey: step.key,
-      attempt: 1,
+      attempt,
       state: outcome,
       mode: modeOf(step.callRule) === 'REPLAY' ? 'REPLAY' : 'LIVE',
       attribution: 'HEADER',

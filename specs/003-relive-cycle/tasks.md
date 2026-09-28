@@ -437,7 +437,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Progress:** `done/total`, elapsed time, and per-step and total durations as signals.
   - **stop:** remaining steps CANCELLED; the backend unpublishes.
   - **Test:** `relive-run.service.spec.ts` with fake API / socket: happy path; a child never called; stop.
-- [ ] T053 [US3] Hold on failure / differences (FR-034, 034c; D13), in `relive-run.service.ts`. It copies mock `afterSettle`, `dependents`, `skipDependents`, `haltBox`, `haltRetry`, `haltEdit`, `haltContinue`, `haltEnd`, `PRODUCES` logic.
+- [X] T053 [US3] Hold on failure / differences (FR-034, 034c; D13), in `relive-run.service.ts`. It copies mock `afterSettle`, `dependents`, `skipDependents`, `haltBox`, `haltRetry`, `haltEdit`, `haltContinue`, `haltEnd`, `PRODUCES` logic.
   - **Holding:** `settings.onFailure` / `onDifferences` decide whether to hold; `PUT …/hold`.
   - **Dependent steps:** later steps whose `{{refs}}` include a variable only the failed step extracts, and which has no value, are listed. On Continue they are SKIPPED with `skipReason:'MISSING_VARIABLE'` and an error text like "Skipped - needs {{bookingId}}, which Book did not produce".
   - **"Keep going":** takes the same path without waiting.

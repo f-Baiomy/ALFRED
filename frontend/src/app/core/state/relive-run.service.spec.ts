@@ -4,7 +4,7 @@ import { CallDetail } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
 import { ReliveApiService } from '../services/relive-api.service';
 import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socket.service';
-import { ResendApiService, ResendResult } from '../services/resend-api.service';
+import { ResendApiService, ResendRequest, ResendResult } from '../services/resend-api.service';
 import { CycleRule, ReliveCycle, Run, Step } from '../../shared/utils/relive-types';
 import { ReliveRunService } from './relive-run.service';
 
@@ -73,6 +73,96 @@ function childStep(): Step {
   };
 }
 
+function bookStep(): Step {
+  return {
+    key: 'book',
+    parentKey: null,
+    label: 'Book',
+    enabled: true,
+    optional: false,
+    direction: 'inbound',
+    serviceName: null,
+    callRule: rule(),
+    unattributed: 'BLOCK',
+    recording: {
+      method: 'POST',
+      url: 'https://app.local/book',
+      requestHeaders: {},
+      requestBody: '{}',
+      status: 201,
+      responseHeaders: {},
+      responseBody: '{}',
+      timestamp: 't',
+      durationMs: 10,
+      source: 'inbound',
+    },
+    source: { callId: 'orig-book', cycleId: 'cy-1', direction: 'inbound' },
+    extract: [{ from: 'JSON', path: 'bookingId', as: 'bookingId', missing: 'SKIP' }],
+    assertions: [],
+    noise: [],
+  };
+}
+
+function bookingDetailsStep(): Step {
+  return {
+    key: 'booking-details',
+    parentKey: null,
+    label: 'Booking details',
+    enabled: true,
+    optional: false,
+    direction: 'inbound',
+    serviceName: null,
+    callRule: rule(),
+    unattributed: 'BLOCK',
+    recording: {
+      method: 'GET',
+      url: 'https://app.local/booking/{{bookingId}}',
+      requestHeaders: {},
+      requestBody: null,
+      status: 200,
+      responseHeaders: {},
+      responseBody: '{}',
+      timestamp: 't',
+      durationMs: 10,
+      source: 'inbound',
+    },
+    source: { callId: 'orig-bd', cycleId: 'cy-1', direction: 'inbound' },
+    extract: [],
+    assertions: [],
+    noise: [],
+  };
+}
+
+function logoutStep(): Step {
+  return {
+    key: 'logout',
+    parentKey: null,
+    label: 'Logout',
+    enabled: true,
+    optional: false,
+    direction: 'inbound',
+    serviceName: null,
+    callRule: rule(),
+    unattributed: 'BLOCK',
+    recording: {
+      method: 'POST',
+      url: 'https://app.local/logout',
+      requestHeaders: {},
+      requestBody: '',
+      status: 200,
+      responseHeaders: {},
+      responseBody: '{}',
+      timestamp: 't',
+      durationMs: 10,
+      source: 'inbound',
+    },
+    source: { callId: 'orig-logout', cycleId: 'cy-1', direction: 'inbound' },
+    extract: [],
+    assertions: [],
+    noise: [],
+  };
+}
+
 function cycleOf(steps: readonly Step[]): ReliveCycle {
   return {
     id: 'cy-1',
@@ -114,7 +204,7 @@ describe('ReliveRunService', () => {
   let service: ReliveRunService;
 
   beforeEach(() => {
-    reliveApi = jasmine.createSpyObj('ReliveApiService', ['startRun', 'putStepAttempt', 'setVariable', 'stopRun', 'finishRun']);
+    reliveApi = jasmine.createSpyObj('ReliveApiService', ['startRun', 'putStepAttempt', 'setVariable', 'stopRun', 'finishRun', 'setHold']);
     resendApi = jasmine.createSpyObj('ResendApiService', ['resend']);
     callsApi = jasmine.createSpyObj('CallsApiService', ['getDetail']);
     events$ = new Subject<ReliveSocketEvent>();
@@ -187,5 +277,34 @@ describe('ReliveRunService', () => {
     expect(service.results()['login'].state).toBe('CANCELLED');
     expect(reliveApi.stopRun).toHaveBeenCalledWith('cy-1', 'run-1');
     void startPromise;
+  });
+
+  it('T053: Book fails and holds; Continue skips the dependent step, siblings still run, final status FAILED', async () => {
+    const steps = [bookStep(), bookingDetailsStep(), logoutStep()];
+    const run1 = runOf(steps); // definition.settings.onFailure defaults to 'HOLD'
+    reliveApi.startRun.and.returnValue(of(run1));
+    reliveApi.setHold.and.returnValue(of({ ...run1, status: 'RUNNING' }));
+    reliveApi.finishRun.and.returnValue(of({ ...run1, status: 'FAILED' }));
+    resendApi.resend.and.callFake((req: ResendRequest) =>
+      of<ResendResult>(
+        req.callId === 'orig-book'
+          ? { newCallId: 'new-book', status: 500, durationMs: 5, sessionValuesUsed: [], response: { status: 500, headers: {}, body: '{"error":"failed"}' } }
+          : { newCallId: `new-${req.callId}`, status: 200, durationMs: 5, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } },
+      ),
+    );
+
+    await service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+    expect(service.hold()).toEqual(jasmine.objectContaining({ stepKey: 'book', reason: 'FAILED' }));
+    expect(service.results()['book'].state).toBe('FAILED');
+    expect(service.results()['booking-details'].state).toBe('PENDING');
+
+    await service.continueRun();
+
+    expect(service.hold()).toBeNull();
+    expect(service.results()['booking-details'].state).toBe('SKIPPED');
+    expect(service.results()['booking-details'].error).toContain('{{bookingId}}');
+    expect(service.results()['logout'].state).toBe('COMPLETED');
+    expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'FAILED');
   });
 });
