@@ -17,6 +17,7 @@ import { BulkActionsBarComponent } from '../../components/bulk-actions-bar/bulk-
 import { CallListComponent } from '../../components/call-list/call-list.component';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 import { CopyToCyclesDialogComponent } from '../../components/copy-to-cycles-dialog/copy-to-cycles-dialog.component';
+import { ReliveSelectionDialogComponent } from '../../components/relive-selection-dialog/relive-selection-dialog.component';
 import { EditCycleDialogComponent } from '../../components/edit-cycle-dialog/edit-cycle-dialog.component';
 import { ExportDialogComponent } from '../../components/export-dialog/export-dialog.component';
 import { HeaderComponent } from '../../components/header/header.component';
@@ -51,7 +52,7 @@ import { findCallRow, pointAtCall } from '../../shared/utils/call-reveal';
 @Component({
   selector: 'app-session-cycle-detail',
   standalone: true,
-  imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent, ScenarioCycleChainPanelComponent],
+  imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ReliveSelectionDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent, ScenarioCycleChainPanelComponent],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },

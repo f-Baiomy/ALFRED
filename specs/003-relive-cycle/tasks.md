@@ -551,7 +551,7 @@ differences**.
   - **Preview:** added / updated / re-linked / removed, and what happens to each step's settings.
   - **Apply:** `PUT ?reason=…`.
   - **Undo:** a toast with Undo calls `versions/{v}/restore`.
-- [ ] T071 [US6b] "Relive ▾" menu on selections. Add it to `FE/components/bulk-actions-bar/` and `FE/components/call-actions/` (the ⋯ menu), copying mock `openLiveCalls()`, `reliveAction()`, `applyReplace()`.
+- [X] T071 [US6b] "Relive ▾" menu on selections. Add it to `FE/components/bulk-actions-bar/` and `FE/components/call-actions/` (the ⋯ menu), copying mock `openLiveCalls()`, `reliveAction()`, `applyReplace()`.
   - **Menu items:**
     - Add to cycle… (pick a cycle);
     - New cycle from selection;

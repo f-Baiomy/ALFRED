@@ -6,6 +6,7 @@ import { StatsBarComponent } from '../../components/stats-bar/stats-bar.componen
 import { CallListComponent } from '../../components/call-list/call-list.component';
 import { ExportDialogComponent } from '../../components/export-dialog/export-dialog.component';
 import { CopyToCyclesDialogComponent } from '../../components/copy-to-cycles-dialog/copy-to-cycles-dialog.component';
+import { ReliveSelectionDialogComponent } from '../../components/relive-selection-dialog/relive-selection-dialog.component';
 import { BulkActionsBarComponent } from '../../components/bulk-actions-bar/bulk-actions-bar.component';
 import { CallsStateService } from '../../core/state/calls-state.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
@@ -13,7 +14,7 @@ import { CallFocusService } from '../../core/services/call-focus.service';
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [HeaderComponent, StatsBarComponent, CallListComponent, ExportDialogComponent, CopyToCyclesDialogComponent, BulkActionsBarComponent],
+  imports: [HeaderComponent, StatsBarComponent, CallListComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ReliveSelectionDialogComponent, BulkActionsBarComponent],
   templateUrl: './dashboard.component.html',
 })
 export class DashboardComponent {

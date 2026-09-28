@@ -1,11 +1,13 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
 import { of } from 'rxjs';
 import { AppConfigService } from '../../core/services/app-config.service';
 import { BULK_SELECTION_STATE, BulkSelectionState, CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { CallRecord } from '../../core/models/call.model';
 import { BulkResendDialogService } from '../../core/services/bulk-resend-dialog.service';
+import { ReliveSelectionDialogService } from '../../core/services/relive-selection-dialog.service';
 import { BulkActionsBarComponent } from './bulk-actions-bar.component';
 
 const BACKEND = 'http://backend.test:5000';
@@ -38,6 +40,7 @@ describe('BulkActionsBarComponent - resend selected', () => {
           provide: CALL_LIST_CONTROLS_STATE,
           useValue: { getCallDetail: () => of({}), getCallOverlaps: () => of([]) },
         },
+        { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
       ],
     });
     http = TestBed.inject(HttpTestingController);
@@ -57,5 +60,14 @@ describe('BulkActionsBarComponent - resend selected', () => {
     expect(bulk.drafts().every((d) => d.ref.cycleId === null)).toBeTrue();
     expect(component.resendLoading()).toBeFalse();
     http.expectNone(`${BACKEND}/resend`);
+  });
+
+  it('T071: reliveAddToCycle() hydrates the selection and opens the Relive cycle picker in ADD mode', () => {
+    component.reliveAddToCycle();
+
+    const picker = TestBed.inject(ReliveSelectionDialogService);
+    expect(picker.state()?.mode).toBe('ADD');
+    expect(picker.state()?.calls.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
+    expect(component.reliveLoading()).toBeFalse();
   });
 });

@@ -11,6 +11,7 @@ import { ResendDialogService } from '../../core/services/resend-dialog.service';
 import { RuleDraftService } from '../../core/services/rule-draft.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
+import { ReliveQuickActionsService } from '../../core/services/relive-quick-actions.service';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { PickCallButtonComponent } from '../pick-call-button/pick-call-button.component';
 import { CALL_ORIGIN } from '../../core/state/call-origin.token';
@@ -50,6 +51,7 @@ export class CallActionsComponent {
   private readonly ruleDraft = inject(RuleDraftService);
   private readonly router = inject(Router);
   private readonly origin = inject(CALL_ORIGIN, { optional: true });
+  private readonly reliveActions = inject(ReliveQuickActionsService);
 
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
@@ -57,6 +59,7 @@ export class CallActionsComponent {
   readonly exportLoading = signal(false);
   readonly downloadLoading = signal(false);
   readonly resendLoading = signal(false);
+  readonly reliveLoading = signal(false);
 
   readonly isPinned = computed(() => this.pinService.isPinned(this.call()));
 
@@ -132,6 +135,33 @@ export class CallActionsComponent {
   useAsAnswer(): void {
     this.ruleDraft.start(this.call());
     this.router.navigate(['/interception']);
+  }
+
+  /** All four "Relive ▾" actions (T071) treat this one call as a one-item selection - same
+   *  hydrate-first rule every other export/resend action here already follows. */
+  private withHydrated(action: (calls: readonly CallRecord[]) => void): void {
+    if (this.reliveLoading()) return;
+    this.reliveLoading.set(true);
+    this.hydrated(this.call()).subscribe((call) => {
+      this.reliveLoading.set(false);
+      action([call]);
+    });
+  }
+
+  reliveAddToCycle(): void {
+    this.withHydrated((calls) => this.reliveActions.addToCycle(calls));
+  }
+
+  reliveNewCycle(): void {
+    this.withHydrated((calls) => this.reliveActions.newCycleFromSelection(calls));
+  }
+
+  reliveNow(): void {
+    this.withHydrated((calls) => this.reliveActions.reliveNow(calls));
+  }
+
+  reliveReplaceSteps(): void {
+    this.withHydrated((calls) => this.reliveActions.replaceStepsOfCycle(calls));
   }
 
   private fetchComments(call: CallRecord) {

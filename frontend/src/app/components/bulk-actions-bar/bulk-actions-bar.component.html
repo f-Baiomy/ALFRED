@@ -33,6 +33,12 @@
           {{ curlLoading() ? 'Loading...' : 'Export as cURL' }}
         </button>
       </app-action-menu>
+      <app-action-menu label="Relive ▾">
+        <button type="button" class="filter-option-item" [disabled]="reliveLoading()" (click)="reliveAddToCycle()">Add to cycle…</button>
+        <button type="button" class="filter-option-item" [disabled]="reliveLoading()" (click)="reliveNewCycle()">New cycle from selection</button>
+        <button type="button" class="filter-option-item" [disabled]="reliveLoading()" (click)="reliveNow()">⚡ Relive now</button>
+        <button type="button" class="filter-option-item" [disabled]="reliveLoading()" (click)="reliveReplaceSteps()">Replace steps of cycle…</button>
+      </app-action-menu>
     }
   </div>
 </div>

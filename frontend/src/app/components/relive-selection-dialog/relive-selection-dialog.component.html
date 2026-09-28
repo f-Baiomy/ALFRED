@@ -1,0 +1,58 @@
+@if (request(); as req) {
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card wide" (click)="$event.stopPropagation()">
+      <h2>{{ req.mode === 'ADD' ? 'Add to cycle' : 'Replace steps of cycle' }}</h2>
+      <p class="dialog-sub">
+        {{ req.calls.length }} call{{ req.calls.length === 1 ? '' : 's' }} selected.
+        @if (req.mode === 'REPLACE') {
+          Its variables and rules stay - step configuration is carried over wherever a step matches (endpoint + order).
+        }
+      </p>
+
+      @if (resultMessage(); as msg) {
+        <div class="rl-ext-banner">
+          {{ msg }}
+          @if (undoVersion() !== null) {
+            <button class="rl-link" style="margin-left: 8px" (click)="undo()">Undo</button>
+          }
+        </div>
+        <div class="rl-row" style="margin-top: 12px">
+          <span class="rl-spacer"></span>
+          <button class="rl-btn" (click)="close()">Close</button>
+        </div>
+      } @else {
+        @if (!pickedCycle()) {
+          <div style="max-height: 320px; overflow: auto">
+            @for (cycle of cyclesState.cycles(); track cycle.id) {
+              <button class="rl-rulecard" style="width: 100%; text-align: left" (click)="pick(cycle)">
+                <b>{{ cycle.name }}</b>
+                <span class="rl-spacer"></span>
+                <span class="rl-faint">{{ cycle.description }}</span>
+              </button>
+            } @empty {
+              <div class="rl-faint">No Relive cycles yet.</div>
+            }
+          </div>
+        } @else {
+          @if (req.mode === 'REPLACE' && preview(); as p) {
+            @for (row of p.rows; track $index) {
+              <div class="rl-rulecard">
+                <span class="rl-pill" [class]="pillClass(row.kind)">{{ row.kind }}</span>
+                <b>{{ row.label }}</b>
+                <span class="rl-dim" style="font-size: 12.5px">{{ row.detail }}</span>
+                <span class="rl-spacer"></span>
+                <span class="rl-faint" style="font-size: 11.5px">{{ row.config }}</span>
+              </div>
+            }
+          }
+          <div class="rl-row" style="margin-top: 12px">
+            <button class="rl-link" (click)="pickedCycle.set(null); preview.set(null)">← choose a different cycle</button>
+            <span class="rl-spacer"></span>
+            <button class="rl-btn" (click)="close()">Cancel</button>
+            <button class="rl-btn rl-primary" [disabled]="applying()" (click)="apply()">{{ req.mode === 'ADD' ? 'Add to cycle' : 'Replace steps' }}</button>
+          </div>
+        }
+      }
+    </div>
+  </div>
+}

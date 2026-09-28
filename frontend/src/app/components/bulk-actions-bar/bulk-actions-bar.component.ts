@@ -12,6 +12,7 @@ import { CALL_ORIGIN } from '../../core/state/call-origin.token';
 import { CopyToCyclesDialogService } from '../../core/services/copy-to-cycles-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { ReliveQuickActionsService } from '../../core/services/relive-quick-actions.service';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { buildBulkCurlScript, bulkCurlFilename } from '../../shared/utils/curl-builder';
 import { downloadText } from '../../shared/utils/download';
@@ -48,6 +49,7 @@ export class BulkActionsBarComponent {
   private readonly commentsApi = inject(CommentsApiService);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly reliveActions = inject(ReliveQuickActionsService);
   private readonly origin = inject(CALL_ORIGIN, { optional: true });
   readonly state = inject(BULK_SELECTION_STATE);
   /** Non-null only where something binds CALL_REMOVAL_STATE (a session-cycle detail view) - drives whether "Remove selected" renders at all, same optional-injection shape CallCardComponent uses for its own per-call "Remove". */
@@ -59,6 +61,7 @@ export class BulkActionsBarComponent {
   readonly postmanLoading = signal(false);
   readonly duplicateLoading = signal(false);
   readonly resendLoading = signal(false);
+  readonly reliveLoading = signal(false);
 
   selectAll(): void {
     this.state.selectAll();
@@ -125,6 +128,34 @@ export class BulkActionsBarComponent {
       },
       error: () => this.resendLoading.set(false),
     });
+  }
+
+  /** All four "Relive ▾" actions (T071) need the full request/response, same as every export path -
+   *  a selected call may only be a summary (see CallRecord's doc comment). */
+  private withHydratedSelection(action: (calls: readonly CallRecord[]) => void): void {
+    const selected = this.state.selectedCalls();
+    if (selected.length === 0 || this.reliveLoading()) return;
+    this.reliveLoading.set(true);
+    this.hydrateAll(selected).subscribe((calls) => {
+      this.reliveLoading.set(false);
+      action(calls);
+    });
+  }
+
+  reliveAddToCycle(): void {
+    this.withHydratedSelection((calls) => this.reliveActions.addToCycle(calls));
+  }
+
+  reliveNewCycle(): void {
+    this.withHydratedSelection((calls) => this.reliveActions.newCycleFromSelection(calls));
+  }
+
+  reliveNow(): void {
+    this.withHydratedSelection((calls) => this.reliveActions.reliveNow(calls));
+  }
+
+  reliveReplaceSteps(): void {
+    this.withHydratedSelection((calls) => this.reliveActions.replaceStepsOfCycle(calls));
   }
 
   async removeSelected(): Promise<void> {
