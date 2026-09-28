@@ -392,7 +392,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **updateDefinition** (FR-044a): merge the changed steps not yet executed (409 if any has a result), then republish.
   - **Retention:** after finish, `pruneRuns`.
   - **Test:** `ReliveRunsServiceTest.java`, one test per bullet.
-- [ ] T047 [US3] Create `BR/application/service/RunLeaseRegistry.java` (D1).
+- [X] T047 [US3] Create `BR/application/service/RunLeaseRegistry.java` (D1).
   - **Tracking:** which WebSocket sessions hold which runId.
   - **Interrupt:** 15 s after the last holder goes, `ReliveRunsService.interrupt(runId)` sets INTERRUPTED and
     follows the same STOPPING drain as stop (T046); it never unpublishes at once. Use a `ScheduledExecutorService`; this is event-driven, not polling.

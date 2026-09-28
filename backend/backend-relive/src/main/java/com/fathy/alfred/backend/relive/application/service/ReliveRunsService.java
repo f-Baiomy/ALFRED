@@ -33,6 +33,7 @@ import com.fathy.alfred.backend.relive.domain.model.StepResult;
 import com.fathy.alfred.backend.relive.domain.model.StepState;
 import com.fathy.alfred.backend.relive.domain.model.ValidationFinding;
 import com.fathy.alfred.backend.relive.domain.model.VariableChange;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -90,7 +91,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     public ReliveRunsService(ReliveRunStorePort runStore, ReliveCycleStorePort cycleStore,
                               RunSnapshotPublisherPort publisher, ReliveNotificationPort notifications,
                               ValidateCycleUseCase validateCycle, RunSnapshotBuilder snapshotBuilder,
-                              LeaseQuery leaseQuery, ScheduledExecutorService scheduler) {
+                              @Lazy LeaseQuery leaseQuery, ScheduledExecutorService scheduler) {
         this.runStore = runStore;
         this.cycleStore = cycleStore;
         this.publisher = publisher;
