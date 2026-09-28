@@ -23,7 +23,7 @@
           <span class="rl-pill rl-p-global">
             GLOBAL rules: {{ draft.globalRules.mode === 'NONE' ? 'none' : draft.globalRules.mode === 'ALL' ? 'all' : draft.globalRules.selectedIds.length + ' selected' }}
           </span>
-          <span class="rl-pill rl-p-cycle">{{ draft.cycleRules.length }} CYCLE rule{{ draft.cycleRules.length === 1 ? '' : 's' }}</span>
+          <span class="rl-pill rl-p-cycle">{{ enabledCycleRuleCount() }}/{{ draft.cycleRules.length }} CYCLE rules enabled</span>
           <span class="rl-pill rl-p-wait">{{ draft.variables.length }} variables</span>
           <span class="rl-pill rl-p-wait">inbound: {{ draft.settings.inboundMode === 'LIVE' ? 'sent to app (LIVE)' : 'replayed by ALFRED (REPLAY)' }}</span>
         </div>

@@ -64,6 +64,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly api = inject(ReliveApiService);
   private readonly interceptionState = inject(InterceptionStateService);
   readonly state = inject(ReliveCycleEditorState);
+  readonly enabledCycleRuleCount = computed(() => this.state.draft()?.cycleRules.filter((rule) => rule.enabled !== false).length ?? 0);
   readonly runService = inject(ReliveRunService);
   readonly ruleDialog = inject(ReliveRuleDialogService);
   /** Provided to `<app-rule-editor>` via this component's own template - see the getter below.

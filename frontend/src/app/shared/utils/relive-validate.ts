@@ -52,6 +52,7 @@ export function validateCycle(cycle: ReliveCycle, existingGlobalRuleIds?: Readon
 
   const seenMatches = new Map<string, string>();
   for (const rule of cycle.cycleRules) {
+    if (rule.enabled === false) continue;
     const key = JSON.stringify(rule.match ?? {});
     const earlier = seenMatches.get(key);
     if (earlier !== undefined) {

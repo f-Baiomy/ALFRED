@@ -108,6 +108,10 @@ public class CycleValidator {
         List<CycleRule> rules = cycle.cycleRules() == null ? List.of() : cycle.cycleRules();
         Map<String, String> seenMatchToName = new HashMap<>();
         for (CycleRule rule : rules) {
+            if (rule.rule() != null && rule.rule().path("enabled").isBoolean()
+                    && !rule.rule().path("enabled").asBoolean()) {
+                continue;
+            }
             JsonNode match = rule.rule() == null ? null : rule.rule().get("match");
             if (match == null) {
                 continue;

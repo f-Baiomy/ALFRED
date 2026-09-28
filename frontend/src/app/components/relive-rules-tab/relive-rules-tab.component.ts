@@ -70,6 +70,15 @@ export class ReliveRulesTabComponent {
     this.cycleChange.emit({ ...cycle, cycleRules: cycle.cycleRules.filter((_, i) => i !== index) });
   }
 
+  toggleCycleRule(index: number): void {
+    const cycle = this.cycle();
+    this.cycleChange.emit({
+      ...cycle,
+      cycleRules: cycle.cycleRules.map((rule, i) =>
+        i === index ? { ...rule, enabled: rule.enabled === false } : rule),
+    });
+  }
+
   setGlobalRulesMode(mode: GlobalRulesMode): void {
     const cycle = this.cycle();
     this.cycleChange.emit({ ...cycle, globalRules: { ...cycle.globalRules, mode } });
@@ -97,7 +106,7 @@ export class ReliveRulesTabComponent {
     const cycle = this.cycle();
     const copy: CycleRule = {
       name: rule.name,
-      enabled: rule.enabled,
+      enabled: true,
       priority: rule.priority,
       stopProcessing: rule.stopProcessing,
       match: rule.match,

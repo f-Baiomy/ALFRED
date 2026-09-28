@@ -14,13 +14,18 @@
     <button class="rl-btn rl-sm" (click)="openCycleRule.emit(null)">＋ Add cycle rule</button>
   </div>
   @for (rule of cycle().cycleRules; track $index) {
-    <div class="rl-rulecard">
+    <div class="rl-rulecard" [class.rl-muted]="rule.enabled === false">
       <span class="rl-pill rl-p-cycle">CYCLE</span>
       <b>{{ ruleName(rule) }}</b>
+      <span class="rl-pill" [class]="rule.enabled === false ? 'rl-p-wait' : 'rl-p-ok'">{{ rule.enabled === false ? 'disabled' : 'enabled' }}</span>
+      @if (rule.match.source === 'inbound' || rule.match.source === 'outbound') {
+        <span class="rl-faint" style="font-size: 11px">{{ rule.match.source }} only</span>
+      }
       @if (rule.copiedFrom) {
         <span class="rl-faint" style="font-size: 11px">copied from "{{ rule.copiedFrom.name }}"</span>
       }
       <span class="rl-spacer"></span>
+      <button class="rl-btn rl-sm" [attr.aria-label]="(rule.enabled === false ? 'Enable ' : 'Disable ') + ruleName(rule)" (click)="toggleCycleRule($index)">{{ rule.enabled === false ? 'Enable' : 'Disable' }}</button>
       <button class="rl-btn rl-sm" (click)="openCycleRule.emit($index + '')">Edit</button>
       <button class="icon-btn" (click)="removeCycleRule($index)">✕</button>
     </div>

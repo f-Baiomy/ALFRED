@@ -488,6 +488,30 @@ class IsolationTest(unittest.TestCase):
 
 
 class InboundGuidedTest(unittest.TestCase):
+    def test_cycle_cookie_rule_runs_only_when_enabled_for_attributed_inbound_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            step = {'stepKey': 's1', 'direction': 'inbound', 'serviceName': 'odeysys',
+                    'children': [], 'callRule': {'match': {}, 'actions': []}}
+            rule = {'name': 'set sessionid', 'match': {'source': 'inbound',
+                    'serviceNames': ['odeysys'], 'pathContains': '/odeysysadmin'},
+                    'actions': [{'type': 'SET_REQUEST_COOKIE', 'name': 'sessionid',
+                                 'value': 'new-session', 'enabled': True}]}
+            write_run(tmp, 'run-off', projects=['odeysys'], steps=[step],
+                      cycleRules=[{**rule, 'enabled': False}])
+            write_run(tmp, 'run-on', projects=['odeysys'], steps=[step],
+                      cycleRules=[{**rule, 'enabled': True}])
+            engine = make_engine(tmp, source='inbound')
+            runs = relive.ReliveRuns(relive_dir(tmp))
+
+            for run_id, expected_cookie in [('run-off', None), ('run-on', 'sessionid=new-session')]:
+                flow = FakeFlow(request=FakeRequest(method='POST', host='localhost',
+                                path='/odeysysadmin/Booking2/flight-search/search',
+                                headers={'X-Alfred-Relive': run_id + '/s1'}))
+                verdict, info = run(relive.apply_inbound(flow, 'odeysys', (BACKEND_PEER[0],), engine, runs))
+                self.assertEqual(run_id, info['runId'])
+                self.assertEqual(expected_cookie, flow.request.headers.get('Cookie'))
+                self.assertEqual(run_id == 'run-on', any(r['tier'] == 'CYCLE' for r in info['ruleIds']))
+
     def test_guided_run_claims_untagged_inbound_call_for_its_sole_project(self):
         with tempfile.TemporaryDirectory() as tmp:
             step = {'stepKey': 's1', 'direction': 'inbound', 'serviceName': 'proj', 'children': [],

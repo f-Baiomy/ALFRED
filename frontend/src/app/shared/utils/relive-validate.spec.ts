@@ -101,6 +101,7 @@ describe('validateCycle', () => {
     const ruleB: CycleRule = { name: 'B', match: { host: 'x' }, actions: [] };
     const findings = validateCycle(cycle({ cycleRules: [ruleA, ruleB] }));
     expect(has(findings, 'RULE_OVERLAP')).toBeTrue();
+    expect(has(validateCycle(cycle({ cycleRules: [{ ...ruleA, enabled: false }, ruleB] })), 'RULE_OVERLAP')).toBeFalse();
   });
 
   it('LIVE_EXTERNAL for a child step that reaches a real host', () => {

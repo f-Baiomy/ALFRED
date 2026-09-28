@@ -136,6 +136,12 @@ class CycleValidatorTest {
                 new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "AUTOMATIC", List.of()), List.of(),
                 new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
         assertThat(has(validator.validate(cycle), "RULE_OVERLAP")).isTrue();
+        JsonNode disabledRule = objectMapper.readTree("{\"name\":\"A\",\"enabled\":false,\"match\":{\"host\":\"x\"},\"actions\":[]}");
+        ReliveCycle disabledCycle = new ReliveCycle("c-1", "x", null, List.of(),
+                List.of(), List.of(new CycleRule(disabledRule, null), new CycleRule(ruleB, null)),
+                new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "AUTOMATIC", List.of()), List.of(),
+                new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
+        assertThat(has(validator.validate(disabledCycle), "RULE_OVERLAP")).isFalse();
     }
 
     @Test

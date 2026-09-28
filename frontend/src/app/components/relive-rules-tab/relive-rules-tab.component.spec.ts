@@ -127,9 +127,29 @@ describe('ReliveRulesTabComponent', () => {
     expect(emitted!.unexpectedCalls.policy).toBe('SEND_REAL');
   });
 
+  it('shows and toggles a disabled cycle rule without removing its actions', () => {
+    const disabledRule = { name: 'set sessionid', enabled: false, match: { source: 'inbound' as const }, actions: [{ type: 'SET_REQUEST_COOKIE' as const, name: 'sessionid', value: 'test', enabled: true }] };
+    fixture.componentRef.setInput('cycle', cycle({ cycleRules: [disabledRule] }));
+    fixture.detectChanges();
+    let emitted: ReliveCycle | null = null;
+    fixture.componentInstance.cycleChange.subscribe((c: ReliveCycle) => (emitted = c));
+
+    expect(fixture.nativeElement.textContent).toContain('disabled');
+    expect(fixture.nativeElement.textContent).toContain('inbound only');
+    (fixture.nativeElement.querySelector('button[aria-label="Enable set sessionid"]') as HTMLButtonElement).click();
+    expect(emitted!.cycleRules[0].enabled).toBeTrue();
+    expect(emitted!.cycleRules[0].actions).toEqual(disabledRule.actions);
+
+    fixture.componentRef.setInput('cycle', emitted!);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('button[aria-label="Disable set sessionid"]') as HTMLButtonElement).click();
+    expect(emitted!.cycleRules[0].enabled).toBeFalse();
+    expect(emitted!.cycleRules).toHaveSize(1);
+  });
+
   describe('T067: global rules', () => {
     it('copying a global rule creates an independent CYCLE-tier rule, tagged with copiedFrom', () => {
-      globalRulesSignal.set([globalRule()]);
+      globalRulesSignal.set([globalRule({ enabled: false })]);
       fixture.componentRef.setInput('cycle', cycle());
       fixture.detectChanges();
 
@@ -140,6 +160,8 @@ describe('ReliveRulesTabComponent', () => {
       expect(emitted!.cycleRules.length).toBe(1);
       const copy = emitted!.cycleRules[0];
       expect(copy.name).toBe('Currency → AED');
+      expect(copy.enabled).toBeTrue();
+      expect(globalRulesSignal()[0].enabled).toBeFalse();
       expect(copy.copiedFrom).toEqual(jasmine.objectContaining({ ruleId: 'g-1', name: 'Currency → AED' }));
 
       // Editing the copy must never touch the original global rule.
