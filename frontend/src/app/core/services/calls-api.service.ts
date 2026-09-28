@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { AppConfigService } from './app-config.service';
 import { CallOverlapQuery, CallsPageResult, CallsQuery } from '../state/call-list-view';
-import { CallBaseline, CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallSummaryDto } from '../models/call.model';
+import { CallBaseline, CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallRecord, CallSummaryDto } from '../models/call.model';
 import { WsMessagesPage } from '../models/ws-message.model';
 import { toCallRecord } from '../../shared/utils/call-utils';
 
@@ -71,6 +71,13 @@ export class CallsApiService {
   getDetail(callId: string, source: CallEndpointSource = 'external', part?: CallDetailPart): Observable<CallDetail> {
     const options = part ? { params: new HttpParams().set('part', part) } : {};
     return this.http.get<CallDetail>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/detail`, options);
+  }
+
+  /** The list-row shape for one call known only by id - never returned by a list the caller already
+   *  rendered. Used by Relive's Live calls log (T074), which only stores `loggedCallId`, to build a
+   *  resend-/export-ready CallRecord by combining this with getDetail. */
+  getSummary(callId: string, source: CallEndpointSource = 'external'): Observable<CallRecord> {
+    return this.http.get<CallSummaryDto>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/summary`).pipe(map((dto) => toCallRecord(dto, source)));
   }
 
   /** A windowed list, fetched only once a call's WebSocket messages panel is actually opened - see WsMessagesComponent. `limit` is clamped 1..500 server-side. */

@@ -573,7 +573,7 @@ shows the run and its live call.
   - **Use-as-recording:** replaces the matched step's `recording` and its call rule's `MOCK_RESPONSE` data through the versioned update (reason `USE_LIVE_CALL`; add it to the reason enum).
   - **Size:** `totalBytes` is returned in a response header `X-Live-Calls-Bytes` on the list.
   - **Test:** a controller + service test; live calls survive run pruning.
-- [ ] T074 [US7] Live calls log, frontend, in the History tab. It copies mock `liveLogPanel()`, `useAsRecording()`, `applyRecording()`, `mockWith()`, `applyMockWith()`, `openLiveCompare()`, `delLive()`.
+- [X] T074 [US7] Live calls log, frontend, in the History tab. It copies mock `liveLogPanel()`, `useAsRecording()`, `applyRecording()`, `mockWith()`, `applyMockWith()`, `openLiveCompare()`, `delLive()`.
   - **Table:** when + run, call, why it went live, status + ms.
   - **Actions:**
     - Use as recording (red/green preview, Undo);

@@ -179,6 +179,20 @@ export function applyMode(rule: CycleRule, mode: StepMode, recording: FrozenCall
   return withActions(rule, reinsertOwned(rule, { ...owned, mock, replace }));
 }
 
+/**
+ * "Mock with it" (T074, mock.html's `applyMockWith`): overwrites a step's REPLAY mock with a live
+ * call's actual status/body, switching the step to REPLAY first if it wasn't already (creating the
+ * mock from `recording` the same way `applyMode` does) - so the next run answers with what really
+ * came back instead of the original recording.
+ */
+export function setMockResponse(rule: CycleRule, recording: FrozenCall, status: number, body: string): CycleRule {
+  const replayed = applyMode(rule, 'REPLAY', recording);
+  const mock = findMock(replayed);
+  if (!mock) return replayed;
+  const updated = { ...mock, status, body };
+  return withActions(replayed, replayed.actions.map((a) => (a === mock ? updated : a)));
+}
+
 export function modeOf(rule: InterceptionRuleDraft): StepMode {
   const mock = findMock(rule);
   if (mock && mock.enabled !== false) return 'REPLAY';

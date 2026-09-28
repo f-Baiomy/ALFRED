@@ -1,10 +1,20 @@
-import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { catchError, forkJoin, map, of } from 'rxjs';
+import { Comment } from '../../core/models/comment.model';
 import { CallInterception, OriginalHttp } from '../../core/models/interception.model';
+import { CallEndpointSource, CallRecord } from '../../core/models/call.model';
+import { CallsApiService } from '../../core/services/calls-api.service';
+import { CommentsApiService } from '../../core/services/comments-api.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { ExportApiService } from '../../core/services/export-api.service';
+import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { ReliveApiService } from '../../core/services/relive-api.service';
+import { ResendDialogService } from '../../core/services/resend-dialog.service';
+import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
 import { maskRelive } from '../../shared/utils/relive-mask';
-import { CycleVariable, LiveCall, Step } from '../../shared/utils/relive-types';
+import { setMockResponse } from '../../shared/utils/relive-call-rule';
+import { CycleRule, CycleVariable, LiveCall, Step } from '../../shared/utils/relive-types';
 
 /** Above this many bytes stored, the Live calls log shows a size warning with bulk delete
  *  (FR-015c) - `alfred.relive.live-calls.warn-bytes`, no settings endpoint exposes it yet, so this
@@ -25,23 +35,35 @@ function toOriginalHttp(value: unknown): OriginalHttp | null {
 /**
  * The Live calls log (FR-015b/c, T074; mock.html `liveLogPanel()`), in the History tab: every call
  * that actually reached a real system while a run was active, with "Use as recording" (updates the
- * matched step, versioned + undoable, T073) and "Compare" (reuses `InterceptionPanelComponent`,
- * same as the Compare tab, D16). "Mock with it", Resend and Export are left for a later pass - each
- * needs its own picker/wiring beyond this table.
+ * matched step, versioned + undoable, T073), "Mock with it" (writes the live answer into any step's
+ * REPLAY mock, mock.html `applyMockWith` - a draft edit, so it's emitted for the host to apply and
+ * Save), "Compare" (reuses `InterceptionPanelComponent`, same as the Compare tab, D16), Resend
+ * (existing `ResendDialogService`) and Export ▾ (existing `ExportDialogService`) - both need the
+ * live call's full CallRecord, which this component only knows by `loggedCallId`, so they resolve it
+ * with `CallsApiService.getSummary` + `getDetail` first (T074's own gap-closing addition).
  */
 @Component({
   selector: 'app-relive-live-calls',
   standalone: true,
-  imports: [InterceptionPanelComponent],
+  imports: [InterceptionPanelComponent, ActionMenuComponent],
   templateUrl: './relive-live-calls.component.html',
 })
 export class ReliveLiveCallsComponent implements OnInit {
   private readonly api = inject(ReliveApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly callsApi = inject(CallsApiService);
+  private readonly resendDialog = inject(ResendDialogService);
+  private readonly exportDialog = inject(ExportDialogService);
+  private readonly exportApi = inject(ExportApiService);
+  private readonly commentsApi = inject(CommentsApiService);
 
   readonly cycleId = input.required<string>();
   readonly steps = input<readonly Step[]>([]);
   readonly variables = input<readonly CycleVariable[]>([]);
+
+  /** The host (relive-history → relive-cycle) owns the draft; this component only computes the new
+   *  call rule and hands it over, the same way `applyMode` never saves anything itself. */
+  readonly mockWith = output<{ readonly stepKey: string; readonly callRule: CycleRule }>();
 
   readonly calls = signal<readonly LiveCall[]>([]);
   readonly totalBytes = signal(0);
@@ -53,6 +75,10 @@ export class ReliveLiveCallsComponent implements OnInit {
   readonly recordingTarget = signal<{ readonly call: LiveCall; readonly preview: CallInterception } | null>(null);
   readonly undo = signal<{ readonly version: number } | null>(null);
   private undoTimer?: ReturnType<typeof setTimeout>;
+
+  /** "Mock with it" (mock.html `mockWith`): the live call being applied, while the user is picking
+   *  which step's mock it should overwrite. */
+  readonly mockWithTarget = signal<LiveCall | null>(null);
 
   readonly overWarnSize = computed(() => this.totalBytes() > WARN_BYTES);
 
@@ -176,6 +202,63 @@ export class ReliveLiveCallsComponent implements OnInit {
     );
     if (!confirmed) return;
     this.api.deleteLiveCall(this.cycleId(), call.id).subscribe(() => this.load());
+  }
+
+  /** A step's own direction tells us which slice logged the underlying call - a live call with no
+   *  matching step (e.g. UNEXPECTED) falls back to 'external', the overwhelmingly common case for
+   *  this table (outbound children). */
+  private sourceOf(call: LiveCall): CallEndpointSource {
+    return this.stepOf(call.stepKey)?.direction === 'inbound' ? 'internal' : 'external';
+  }
+
+  /** Resolves a live call's `loggedCallId` into a full CallRecord (list-row fields + request/response),
+   *  since the Live calls log only ever stored the id, never a summary. */
+  private hydratedCall(call: LiveCall) {
+    if (!call.loggedCallId) return null;
+    const source = this.sourceOf(call);
+    return forkJoin({
+      summary: this.callsApi.getSummary(call.loggedCallId, source),
+      detail: this.callsApi.getDetail(call.loggedCallId, source),
+    }).pipe(map(({ summary, detail }) => ({ ...summary, source, ...detail }) as CallRecord));
+  }
+
+  openResend(call: LiveCall): void {
+    this.hydratedCall(call)?.subscribe((record) => this.resendDialog.open(record, this.cycleId()));
+  }
+
+  exportCall(call: LiveCall, format: 'markdown' | 'html' | 'json'): void {
+    this.hydratedCall(call)?.subscribe((record) => {
+      forkJoin({
+        metadata: this.exportApi.fetchMetadata(record).pipe(catchError(() => of(null))),
+        comments: this.commentsApi.listForCall(record.id).pipe(catchError(() => of<Comment[]>([]))),
+      }).subscribe(({ metadata, comments }) => {
+        this.exportDialog.open([record], metadata, new Map([[record.id, comments]]), format);
+      });
+    });
+  }
+
+  /** Steps a live call could be mocked into - any enabled child with a recording (mock.html only
+   *  offers steps that have their own Mock response to overwrite). */
+  mockableSteps(): readonly Step[] {
+    return this.steps().filter((s) => s.parentKey && s.enabled && s.recording);
+  }
+
+  openMockWith(call: LiveCall): void {
+    this.mockWithTarget.set(call);
+  }
+
+  cancelMockWith(): void {
+    this.mockWithTarget.set(null);
+  }
+
+  applyMockWith(stepKey: string): void {
+    const call = this.mockWithTarget();
+    const step = this.steps().find((s) => s.key === stepKey);
+    if (!call || !step) return;
+    const responseBody = typeof (call.response as { body?: unknown } | null)?.body === 'string' ? ((call.response as { body: string }).body) : JSON.stringify(call.response ?? '');
+    const callRule = setMockResponse(step.callRule, step.recording, call.status, responseBody);
+    this.mockWith.emit({ stepKey, callRule });
+    this.mockWithTarget.set(null);
   }
 
   async deleteAll(): Promise<void> {

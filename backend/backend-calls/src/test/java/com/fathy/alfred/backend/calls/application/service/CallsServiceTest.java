@@ -174,6 +174,18 @@ class CallsServiceTest {
     }
 
     @Test
+    void getSummaryDelegatesToFindById() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallRecord found = call("https://example.com/api/x");
+        when(port.findById("id-https://example.com/api/x")).thenReturn(Optional.of(found));
+        CallsService service = serviceWith(port);
+
+        assertThat(service.getSummary("id-https://example.com/api/x")).isPresent();
+        assertThat(service.getSummary("id-https://example.com/api/x").get().url()).isEqualTo("https://example.com/api/x");
+        assertThat(service.getSummary("missing")).isEmpty();
+    }
+
+    @Test
     void receiveNewCallSavesThenFansOutToObserversThenBroadcastsWithTheirIds() {
         CallLogPort port = mock(CallLogPort.class);
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);

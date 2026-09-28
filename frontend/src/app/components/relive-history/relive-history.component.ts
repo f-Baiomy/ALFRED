@@ -4,7 +4,7 @@ import { ReliveApiService } from '../../core/services/relive-api.service';
 import { downloadText } from '../../shared/utils/download';
 import { reliveRunToScenarioRun } from '../../shared/utils/relive-run-compare-adapter';
 import { buildHtmlRunReport, buildJsonRunReport, buildMarkdownRunReport, rowsFor } from '../../shared/utils/relive-run-export';
-import { CycleVariable, Run, Step, StepResult } from '../../shared/utils/relive-types';
+import { CycleRule, CycleVariable, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { ScenarioRun } from '../../shared/utils/scenario-types';
 import { ScenarioRunCompareComponent } from '../scenario-run-compare/scenario-run-compare.component';
 import { ReliveLiveCallsComponent } from '../relive-live-calls/relive-live-calls.component';
@@ -40,6 +40,9 @@ export class ReliveHistoryComponent implements OnInit {
   readonly steps = input<readonly Step[]>([]);
   readonly variables = input<readonly CycleVariable[]>([]);
   readonly openRun = output<string>();
+  /** "Mock with it" (T074) - forwarded straight from `ReliveLiveCallsComponent`; this component owns
+   *  no cycle draft of its own, so the cycle page applies it. */
+  readonly mockWith = output<{ readonly stepKey: string; readonly callRule: CycleRule }>();
 
   readonly runs = signal<readonly Run[]>([]);
   readonly compareRuns = signal<readonly ScenarioRun[] | null>(null);

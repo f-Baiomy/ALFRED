@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { CallsApiService } from './calls-api.service';
 import { AppConfigService } from './app-config.service';
 import { CallsQuery } from '../state/call-list-view';
+import { CallRecord } from '../models/call.model';
 
 const QUERY: CallsQuery = {
   search: '',
@@ -69,5 +70,20 @@ describe('CallsApiService', () => {
     service.getDetail('call-1', 'internal').subscribe();
     const req = httpMock.expectOne(`${backendUrl}/internal-calls/call-1/detail`);
     req.flush({});
+  });
+
+  it('T074: getSummary defaults to GET /calls/{id}/summary and maps the DTO to a CallRecord', () => {
+    let result: CallRecord | undefined;
+    service.getSummary('call-1').subscribe((r) => (result = r));
+    const req = httpMock.expectOne(`${backendUrl}/calls/call-1/summary`);
+    expect(req.request.method).toBe('GET');
+    req.flush({ id: 'call-1', original_url: 'https://x', url: 'https://x', method: 'GET', timestamp: 't', duration_ms: 10, status: 200 });
+    expect(result?.method).toBe('GET');
+  });
+
+  it('getSummary with source "internal" hits GET /internal-calls/{id}/summary', () => {
+    service.getSummary('call-1', 'internal').subscribe();
+    const req = httpMock.expectOne(`${backendUrl}/internal-calls/call-1/summary`);
+    req.flush({ id: 'call-1', original_url: 'https://x', url: 'https://x', method: 'GET', timestamp: 't', duration_ms: 10, status: 200 });
   });
 });

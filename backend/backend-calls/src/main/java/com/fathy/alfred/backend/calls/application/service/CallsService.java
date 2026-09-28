@@ -86,6 +86,11 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
         return callLogPort.findById(callId).map(CallDetail::of);
     }
 
+    @Override
+    public Optional<CallSummary> getSummary(String callId) {
+        return callLogPort.findById(callId).map(CallSummary::of);
+    }
+
     /** Delegates to the port - each storage type answers this the way it can (indexed aggregate vs in-memory scan). */
     @Override
     public CallBaseline getBaseline(String url) {

@@ -149,7 +149,7 @@
         }
       }
       @case ('history') {
-        <app-relive-history [cycleId]="draft.id" [steps]="draft.steps" [variables]="draft.variables" (openRun)="openHistoryRun($event)" />
+        <app-relive-history [cycleId]="draft.id" [steps]="draft.steps" [variables]="draft.variables" (openRun)="openHistoryRun($event)" (mockWith)="applyMockWith($event)" />
       }
     }
   </div>

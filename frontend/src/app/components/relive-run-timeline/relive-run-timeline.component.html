@@ -12,6 +12,10 @@
     }
   </div>
 
+  @if (savedLiveCount() > 0) {
+    <div class="rl-ext-banner">💾 {{ savedLiveCount() }} call{{ savedLiveCount() === 1 ? '' : 's' }} reached a real system - saved in full in History → Live calls.</div>
+  }
+
   @if (nextGuidedStep(); as next) {
     <div class="rl-ext-banner">
       Guided - waiting for the next call in your browser: <b>{{ next.label }}</b>.
@@ -97,6 +101,9 @@
           <span class="rl-pill" [class]="row.result.mode === 'LIVE' ? 'rl-p-live' : 'rl-p-replay'">
             {{ row.result.mode === 'LIVE' ? 'LIVE · contacted host' : 'REPLAY' }}
           </span>
+        }
+        @if (wasSavedLive(row.result)) {
+          <span class="rl-pill rl-p-live" title="Saved in full in History → Live calls">💾 saved</span>
         }
         @if (isGlobalRule(row)) {
           <span class="rl-pill rl-p-global">GLOBAL RULE</span>

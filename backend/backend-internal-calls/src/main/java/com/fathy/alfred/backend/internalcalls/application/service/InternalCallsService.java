@@ -92,6 +92,11 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
         return callLogPort.findById(callId).map(CallDetail::of);
     }
 
+    @Override
+    public Optional<CallSummary> getSummary(String callId) {
+        return callLogPort.findById(callId).map(CallSummary::of);
+    }
+
     /** Delegates straight to the port - see {@link GetCallsInRangeUseCase}'s doc for what this is for. */
     @Override
     public List<CallRecord> getCallsInRange(Instant from, Instant to, String search, String sessionId,

@@ -217,6 +217,15 @@ export class ReliveRunTimelineComponent {
     return row.result.differences.filter((d) => d.kind === 'UNEXPECTED').length;
   }
 
+  /** A LIVE child that got an actual response really contacted the real system, and the backend's
+   *  own observer (T050) saves that answer into the Live calls log - mock.html's `res.savedLive`,
+   *  the "💾 saved" badge (T074). */
+  wasSavedLive(result: StepResult): boolean {
+    return result.mode === 'LIVE' && result.actualResponse != null;
+  }
+
+  readonly savedLiveCount = computed(() => Object.values(this.results()).filter((r) => this.wasSavedLive(r)).length);
+
   /** Whether the run has already ended (a failed row's row-actions only show once it's not still running). */
   isEnded(): boolean {
     const status = this.run()?.status;

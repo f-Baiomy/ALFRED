@@ -20,8 +20,15 @@
       <span class="rl-pill rl-p-mod">{{ call.reason }}</span>
       <span class="rl-dim" style="font-size: 12.5px">{{ call.status }} · {{ call.durationMs }}ms</span>
       <span class="rl-spacer"></span>
-      <button class="rl-btn rl-sm" (click)="openCompare(call)">Compare</button>
       <button class="rl-btn rl-sm" (click)="openUseAsRecording(call)">Use as recording</button>
+      <button class="rl-btn rl-sm" (click)="openMockWith(call)">Mock with it</button>
+      <button class="rl-btn rl-sm" (click)="openCompare(call)">Compare</button>
+      <button class="rl-btn rl-sm" (click)="openResend(call)">Resend</button>
+      <app-action-menu label="Export ▾">
+        <button type="button" class="filter-option-item" (click)="exportCall(call, 'markdown')">Export report...</button>
+        <button type="button" class="filter-option-item" (click)="exportCall(call, 'json')">Export as JSON</button>
+        <button type="button" class="filter-option-item" (click)="exportCall(call, 'html')">Export as HTML</button>
+      </app-action-menu>
       <button class="icon-btn" (click)="remove(call)">✕</button>
 
       @if (comparingId() === call.id && compareData(); as interception) {
@@ -55,6 +62,30 @@
         <span class="rl-spacer"></span>
         <button class="rl-btn" (click)="cancelUseAsRecording()">Cancel</button>
         <button class="rl-btn rl-primary" (click)="confirmUseAsRecording()">Use as recording</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (mockWithTarget(); as target) {
+  <div class="dialog-backdrop" (click)="cancelMockWith()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <h2>Mock with this call's answer</h2>
+      <p class="dialog-sub">Pick which step's Mock response should be overwritten with what {{ stepLabel(target) }} actually got back.</p>
+      @for (step of mockableSteps(); track step.key) {
+        <button class="rl-rulecard" style="width: 100%; text-align: left" (click)="applyMockWith(step.key)">
+          <b>{{ step.label }}</b>
+          <span class="rl-dim">{{ step.recording.url }}</span>
+          <span class="rl-spacer"></span>
+          <span class="rl-dim">its call rule's Mock response</span>
+        </button>
+      }
+      @if (!mockableSteps().length) {
+        <div class="rl-empty">No enabled step has a recording to mock.</div>
+      }
+      <div class="rl-row" style="margin-top: 12px">
+        <span class="rl-spacer"></span>
+        <button class="rl-btn" (click)="cancelMockWith()">Cancel</button>
       </div>
     </div>
   </div>

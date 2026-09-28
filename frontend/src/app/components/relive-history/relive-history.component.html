@@ -34,4 +34,4 @@
   </div>
 }
 
-<app-relive-live-calls [cycleId]="cycleId()" [steps]="steps()" [variables]="variables()" />
+<app-relive-live-calls [cycleId]="cycleId()" [steps]="steps()" [variables]="variables()" (mockWith)="mockWith.emit($event)" />

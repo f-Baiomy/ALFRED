@@ -1,9 +1,12 @@
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
+import { AppConfigService } from '../../core/services/app-config.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { ReliveApiService } from '../../core/services/relive-api.service';
+import { ResendDialogService } from '../../core/services/resend-dialog.service';
 import { defaultCallRule } from '../../shared/utils/relive-call-rule';
 import { FrozenCall, LiveCall, ReliveSettings, Step } from '../../shared/utils/relive-types';
 import { ReliveLiveCallsComponent } from './relive-live-calls.component';
@@ -142,6 +145,55 @@ describe('ReliveLiveCallsComponent', () => {
 
     expect(deleteSpy).toHaveBeenCalledWith('c-1', 'l-1');
     expect(listSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('T074: "Mock with it" writes the live answer into the picked step\'s mock and emits it for the host to apply', () => {
+    fixture.detectChanges();
+    let emitted: { stepKey: string; callRule: unknown } | undefined;
+    fixture.componentInstance.mockWith.subscribe((e) => (emitted = e));
+
+    fixture.componentInstance.openMockWith(liveCall());
+    expect(fixture.componentInstance.mockableSteps().map((s) => s.key)).toEqual(['s-supA']);
+    fixture.componentInstance.applyMockWith('s-supA');
+
+    expect(fixture.componentInstance.mockWithTarget()).toBeNull();
+    expect(emitted?.stepKey).toBe('s-supA');
+    const actions = (emitted!.callRule as { actions: { type: string; status?: number; body?: string }[] }).actions;
+    const mock = actions.find((a) => a.type === 'MOCK_RESPONSE');
+    expect(mock?.status).toBe(500);
+    expect(mock?.body).toBe('{"error":"boom"}');
+  });
+
+  it('T074: Resend hydrates the logged call via getSummary + getDetail and opens the resend dialog', () => {
+    const resendDialog = TestBed.inject(ResendDialogService);
+    const openSpy = spyOn(resendDialog, 'open');
+    const backendUrl = TestBed.inject(AppConfigService).backendUrl;
+
+    fixture.detectChanges();
+    fixture.componentInstance.openResend(liveCall());
+
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne(`${backendUrl}/calls/call-9/summary`).flush({ id: 'call-9', original_url: 'https://api.supplier-a.com/v2/search', url: 'https://api.supplier-a.com/v2/search', method: 'POST', timestamp: 't', duration_ms: 5, status: 500 });
+    http.expectOne(`${backendUrl}/calls/call-9/detail`).flush({ request: { headers: {}, body: '{}' }, response: { status: 500, headers: {}, body: '{"error":"boom"}' } });
+
+    expect(openSpy).toHaveBeenCalledWith(jasmine.objectContaining({ id: 'call-9', method: 'POST' }), 'c-1');
+  });
+
+  it('T074: Export ▾ hydrates the logged call, then opens the export dialog with the requested format', () => {
+    const exportDialog = TestBed.inject(ExportDialogService);
+    const openSpy = spyOn(exportDialog, 'open');
+    const backendUrl = TestBed.inject(AppConfigService).backendUrl;
+
+    fixture.detectChanges();
+    fixture.componentInstance.exportCall(liveCall(), 'json');
+
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne(`${backendUrl}/calls/call-9/summary`).flush({ id: 'call-9', original_url: 'https://api.supplier-a.com/v2/search', url: 'https://api.supplier-a.com/v2/search', method: 'POST', timestamp: 't', duration_ms: 5, status: 500 });
+    http.expectOne(`${backendUrl}/calls/call-9/detail`).flush({ request: { headers: {}, body: '{}' }, response: { status: 500, headers: {}, body: '{"error":"boom"}' } });
+    http.expectOne(`${backendUrl}/calls/export-metadata`).flush({});
+    http.expectOne((r) => r.url === `${backendUrl}/comments`).flush([]);
+
+    expect(openSpy).toHaveBeenCalledWith([jasmine.objectContaining({ id: 'call-9' })], jasmine.anything(), jasmine.anything(), 'json');
   });
 
   describe('T063: masking', () => {

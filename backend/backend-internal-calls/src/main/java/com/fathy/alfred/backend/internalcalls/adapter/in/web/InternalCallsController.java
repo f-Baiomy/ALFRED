@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCas
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetWsMessagesUseCase;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallDetail;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsPage;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.internalcalls.domain.model.WsMessagesPage;
@@ -58,6 +59,14 @@ public class InternalCallsController {
     public ResponseEntity<CallDetail> getDetail(@PathVariable String id, @RequestParam(required = false) String part) {
         return getCallDetailUseCase.getDetail(id)
                 .map(detail -> detail.part(part))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Mirrors GET /calls/{id}/summary - see backend-calls' CallsController. */
+    @GetMapping("/internal-calls/{id}/summary")
+    public ResponseEntity<CallSummary> getSummary(@PathVariable String id) {
+        return getCallDetailUseCase.getSummary(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

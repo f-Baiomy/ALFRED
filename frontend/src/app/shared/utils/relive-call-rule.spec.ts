@@ -8,6 +8,7 @@ import {
   onRequestChangedOf,
   reachesHost,
   setCheckpoint,
+  setMockResponse,
   setOnRequestChanged,
 } from './relive-call-rule';
 import { CycleRule, FrozenCall, ReliveSettings, Step } from './relive-types';
@@ -115,6 +116,20 @@ describe('relive-call-rule: applyMode', () => {
 
     rule = applyMode(rule, 'LIVE', recording);
     expect(rule.actions.some((a) => a.type === 'SET_REQUEST_HEADER' && a.name === 'X-Debug')).toBeTrue();
+  });
+});
+
+describe('relive-call-rule: setMockResponse (T074 "Mock with it")', () => {
+  it('overwrites the mock status/body and switches LIVE back to REPLAY', () => {
+    let rule = defaultCallRule(child, settingsLive);
+    rule = applyMode(rule, 'LIVE', recording);
+
+    rule = setMockResponse(rule, recording, 500, '{"error":"boom"}');
+
+    expect(modeOf(rule)).toBe('REPLAY');
+    const mock = rule.actions.find((a) => a.type === 'MOCK_RESPONSE');
+    expect(mock?.status).toBe(500);
+    expect(mock?.body).toBe('{"error":"boom"}');
   });
 });
 

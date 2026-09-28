@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetWsMessagesUseCase;
 import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
+import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.CallsPage;
 import com.fathy.alfred.backend.calls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.calls.domain.model.WsMessagesPage;
@@ -69,6 +70,16 @@ public class CallsController {
     public ResponseEntity<CallDetail> getDetail(@PathVariable String id, @RequestParam(required = false) String part) {
         return getCallDetailUseCase.getDetail(id)
                 .map(detail -> detail.part(part))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** The list-row shape for one call known only by id - e.g. Relive's Live calls log (T074), which
+     *  only stores a {@code loggedCallId} and needs a resend-/export-ready summary (method, url,
+     *  status, timestamp) it never had from a list fetch. */
+    @GetMapping("/calls/{id}/summary")
+    public ResponseEntity<CallSummary> getSummary(@PathVariable String id) {
+        return getCallDetailUseCase.getSummary(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

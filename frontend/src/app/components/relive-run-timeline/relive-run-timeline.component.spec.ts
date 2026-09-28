@@ -109,6 +109,27 @@ describe('ReliveRunTimelineComponent', () => {
     expect(text).toContain('60 s total');
   });
 
+  it('T074: shows the "saved" badge and banner for a LIVE child that got an actual response', () => {
+    const login = makeStep('login', null);
+    const supplierA = makeStep('supplier-a', 'login');
+    const results = {
+      login: result('login', 'COMPLETED'),
+      'supplier-a': result('supplier-a', 'COMPLETED', { mode: 'LIVE', actualResponse: { status: 200, headers: {}, body: '{}' } }),
+    };
+
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', [login, supplierA]);
+    fixture.componentRef.setInput('results', results);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.wasSavedLive(results['supplier-a'])).toBeTrue();
+    expect(fixture.componentInstance.wasSavedLive(results['login'])).toBeFalse();
+    expect(fixture.componentInstance.savedLiveCount()).toBe(1);
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('💾 saved');
+    expect(text).toContain('1 call reached a real system');
+  });
+
   it('shows the hold box for a FAILED hold and emits continueRun/retryHeld/endRun', () => {
     fixture.componentRef.setInput('run', run({ hold: { stepKey: 'book', reason: 'FAILED', since: '2026-09-27T10:00:30Z' } }));
     fixture.componentRef.setInput('steps', [makeStep('book', null)]);

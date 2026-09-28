@@ -21,7 +21,7 @@ import { InterceptionStateService } from '../../core/state/interception-state.se
 import { ReliveRunService } from '../../core/state/relive-run.service';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { externalReach } from '../../shared/utils/relive-external-reach';
-import { CycleVariable, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
+import { CycleRule, CycleVariable, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
 import { ReliveRuleDialogService } from './relive-rule-dialog.service';
@@ -279,6 +279,15 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     for (const v of run.seedVariables) vars[v.name] = v.value;
     for (const entry of run.variableTimeline) vars[entry.name] = entry.value;
     return vars;
+  }
+
+  /** "Mock with it" (T074): a draft edit like any other in the Steps tab - applied to `state`'s
+   *  draft, left dirty for the user to Save (mock.html's `applyMockWith` behaves the same way). */
+  applyMockWith(event: { readonly stepKey: string; readonly callRule: CycleRule }): void {
+    this.state.update((draft) => ({
+      ...draft,
+      steps: draft.steps.map((s) => (s.key === event.stepKey ? { ...s, callRule: event.callRule } : s)),
+    }));
   }
 
   openHistoryRun(runId: string): void {
