@@ -486,7 +486,7 @@ completes; failure hold / continue works.
 **Goal**: FR-038-043, 014g, 041a-c; research D16. **Independent test**: US4 scenarios; walkthrough **6 Inspect
 differences**.
 
-- [ ] T059 [P] [US4] Create `FE/shared/utils/relive-noise.ts`.
+- [X] T059 [P] [US4] Create `FE/shared/utils/relive-noise.ts`.
   - **Auto detectors:** ids, tokens, timestamps (ISO/epoch), Date / ETag / trace headers, values equal to a variable that was extracted or substituted (these are EXPECTED, not noise).
   - **User rules:** step and cycle `NoiseRule`s; `count:true` overrides an auto decision.
   - **`classify(diffs, ctx)`** tags each difference `EXPECTED | NOISE_AUTO | NOISE_USER | UNEXPECTED` with a `cause` (a rule name, variable, or detector).
