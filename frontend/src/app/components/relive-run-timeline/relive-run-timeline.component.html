@@ -12,6 +12,30 @@
     }
   </div>
 
+  @if (pause(); as p) {
+    @if (pausedRow(); as row) {
+      <div class="rl-pausebox">
+        <h3>⏸ Paused {{ p.at === 'BEFORE' ? 'before' : 'after' }} <b>{{ row.step.label }}</b></h3>
+        <div class="rl-dim" style="font-size: 12.5px">
+          {{
+            p.at === 'BEFORE'
+              ? 'Nothing has been sent yet. Check the request below, then continue.'
+              : 'Attempt ' + row.result.attempt + ' completed (' + (row.result.durationMs ?? '-') + ' ms). Replay it as often as you like, then continue.'
+          }}
+        </div>
+        <pre style="max-height: 110px; margin-top: 6px">{{ pausePreview() }}</pre>
+        <div class="rl-row" style="margin-top: 8px; flex-wrap: wrap">
+          <button class="rl-btn rl-sm rl-primary" (click)="checkpointContinue.emit()">▶ Continue</button>
+          @if (p.at === 'AFTER') {
+            <button class="rl-btn rl-sm" (click)="checkpointReplay.emit()">↻ Replay</button>
+          }
+          <button class="rl-btn rl-sm" (click)="checkpointSkip.emit()">Skip</button>
+          <button class="rl-btn rl-sm rl-danger" (click)="stopRun.emit()">■ Stop run</button>
+        </div>
+      </div>
+    }
+  }
+
   @if (changedPauses().length) {
     <div class="rl-pausebox">
       <h3>⏸ {{ changedPauses().length }} call{{ changedPauses().length === 1 ? '' : 's' }} held - the request changed from the recording</h3>

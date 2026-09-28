@@ -99,8 +99,15 @@ export class ReliveRunTimelineComponent {
    *  Calls inspector's job (its release/abort/edit paths are the ones with the actual safety
    *  guarantees), not reimplemented here; this only surfaces that they exist and links out. */
   readonly changedPauses = input<readonly PausedCall[]>([]);
+  /** An inbound step's own checkpoint, paused in the tab itself - not held in the proxy (research
+   *  D11; see `ReliveRunService.pause`/`resolveCheckpoint`). Null when nothing is paused this way. */
+  readonly pause = input<{ readonly stepKey: string; readonly at: 'BEFORE' | 'AFTER' } | null>(null);
 
   readonly openPausedCall = output<string>();
+  readonly checkpointContinue = output<void>();
+  readonly checkpointReplay = output<void>();
+  readonly checkpointSkip = output<void>();
+  readonly stopRun = output<void>();
 
   readonly selectStep = output<string>();
   readonly continueRun = output<void>();
@@ -129,6 +136,12 @@ export class ReliveRunTimelineComponent {
       { step: block.parent, result: results[block.parent.key] ?? emptyResult(), isChild: false },
       ...block.children.map((child) => ({ step: child, result: results[child.key] ?? emptyResult(), isChild: true })),
     ]);
+  });
+
+  readonly pausedRow = computed<TimelineRow | null>(() => {
+    const p = this.pause();
+    if (!p) return null;
+    return this.rows().find((r) => r.step.key === p.stepKey) ?? null;
   });
 
   readonly filteredRows = computed<readonly TimelineRow[]>(() => {
@@ -206,5 +219,17 @@ export class ReliveRunTimelineComponent {
 
   select(key: string): void {
     this.selectStep.emit(key);
+  }
+
+  pausePreview(): string {
+    const p = this.pause();
+    const row = this.pausedRow();
+    if (!p || !row) return '';
+    if (p.at === 'BEFORE') return row.step.recording.requestBody ?? '';
+    try {
+      return JSON.stringify(row.result.actualResponse, null, 2) ?? '';
+    } catch {
+      return String(row.result.actualResponse ?? '');
+    }
   }
 }

@@ -5,7 +5,7 @@ import { CallsApiService } from '../services/calls-api.service';
 import { ReliveApiService } from '../services/relive-api.service';
 import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socket.service';
 import { ResendApiService, ResendRequest, ResendResult } from '../services/resend-api.service';
-import { defaultCallRule } from '../../shared/utils/relive-call-rule';
+import { defaultCallRule, setCheckpoint } from '../../shared/utils/relive-call-rule';
 import { CycleRule, ReliveCycle, ReliveSettings, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { ReliveRunService } from './relive-run.service';
 
@@ -400,5 +400,80 @@ describe('ReliveRunService', () => {
 
     expect(service.unexpectedCalls().length).toBe(1);
     expect(service.unexpectedCalls()[0].callId).toBe('call-x');
+  });
+
+  it('T057: pauses before sending an inbound step with a "before" checkpoint, then sends on Continue', async () => {
+    const login = inboundStep({ callRule: setCheckpoint(inboundStep().callRule, 'before', true, 30) });
+    const steps = [login];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(
+      of<ResendResult>({ newCallId: 'new-login', status: 200, durationMs: 5, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }),
+    );
+
+    const startPromise = service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(service.pause()).toEqual({ stepKey: 'login', at: 'BEFORE' });
+    expect(service.results()['login'].state).toBe('PAUSED');
+    expect(resendApi.resend).not.toHaveBeenCalled();
+
+    service.resolveCheckpoint('CONTINUE');
+    await startPromise;
+
+    expect(service.pause()).toBeNull();
+    expect(resendApi.resend).toHaveBeenCalled();
+    expect(service.results()['login'].state).toBe('COMPLETED');
+  });
+
+  it('T057: Skip at the "before" checkpoint marks the step SKIPPED without ever sending it', async () => {
+    const login = inboundStep({ callRule: setCheckpoint(inboundStep().callRule, 'before', true, 30) });
+    const steps = [login];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+
+    const startPromise = service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    service.resolveCheckpoint('SKIP');
+    await startPromise;
+
+    expect(resendApi.resend).not.toHaveBeenCalled();
+    expect(service.results()['login'].state).toBe('SKIPPED');
+  });
+
+  it('T057: an "after" checkpoint holds the result; Replay re-sends at attempt 2, Continue then commits it', async () => {
+    const login = inboundStep({ callRule: setCheckpoint(inboundStep().callRule, 'after', true, 30) });
+    const steps = [login];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(
+      of<ResendResult>({ newCallId: 'new-login', status: 200, durationMs: 5, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }),
+    );
+
+    const startPromise = service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(service.pause()).toEqual({ stepKey: 'login', at: 'AFTER' });
+    expect(resendApi.resend).toHaveBeenCalledTimes(1);
+
+    service.resolveCheckpoint('REPLAY');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resendApi.resend).toHaveBeenCalledTimes(2);
+    expect(service.pause()).toEqual({ stepKey: 'login', at: 'AFTER' });
+
+    service.resolveCheckpoint('CONTINUE');
+    await startPromise;
+
+    expect(service.pause()).toBeNull();
+    expect(service.results()['login'].attempt).toBe(2);
+    expect(service.results()['login'].state).toBe('COMPLETED');
   });
 });

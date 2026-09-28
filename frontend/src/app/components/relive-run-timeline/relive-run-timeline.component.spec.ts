@@ -185,4 +185,45 @@ describe('ReliveRunTimelineComponent', () => {
     fixture.nativeElement.querySelector('.rl-pausebox button').click();
     expect(openSpy).toHaveBeenCalledWith('call-y');
   });
+
+  it('T058: shows the checkpoint pause box for a BEFORE pause (no Replay button) and emits decisions', () => {
+    const login = makeStep('login', null);
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', [login]);
+    fixture.componentRef.setInput('results', { login: result('login', 'PAUSED') });
+    fixture.componentRef.setInput('pause', { stepKey: 'login', at: 'BEFORE' });
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('Paused before');
+    expect(text).toContain('login');
+    expect(text).not.toContain('↻ Replay');
+
+    const continueSpy = jasmine.createSpy();
+    fixture.componentInstance.checkpointContinue.subscribe(continueSpy);
+    const buttons: HTMLButtonElement[] = Array.from(fixture.nativeElement.querySelectorAll('.rl-pausebox button'));
+    buttons.find((b) => b.textContent?.includes('Continue'))!.click();
+    expect(continueSpy).toHaveBeenCalled();
+  });
+
+  it('T058: shows Replay for an AFTER pause and emits checkpointReplay/checkpointSkip', () => {
+    const login = makeStep('login', null);
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', [login]);
+    fixture.componentRef.setInput('results', { login: result('login', 'PAUSED', { attempt: 1, durationMs: 120 }) });
+    fixture.componentRef.setInput('pause', { stepKey: 'login', at: 'AFTER' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Paused after');
+
+    const replaySpy = jasmine.createSpy();
+    const skipSpy = jasmine.createSpy();
+    fixture.componentInstance.checkpointReplay.subscribe(replaySpy);
+    fixture.componentInstance.checkpointSkip.subscribe(skipSpy);
+    const buttons: HTMLButtonElement[] = Array.from(fixture.nativeElement.querySelectorAll('.rl-pausebox button'));
+    buttons.find((b) => b.textContent?.includes('Replay'))!.click();
+    buttons.find((b) => b.textContent?.trim() === 'Skip')!.click();
+    expect(replaySpy).toHaveBeenCalled();
+    expect(skipSpy).toHaveBeenCalled();
+  });
 });

@@ -471,12 +471,12 @@ completes; failure hold / continue works.
 
 **Goal**: FR-035a-c; research D11. **Independent test**: US3b scenarios; mock walkthrough **5 Pause & replay**.
 
-- [ ] T057 [US3b] Checkpoints in the orchestrator, in `relive-run.service.ts`. Copy mock `pauseAt`, `pContinue`, `pReplay`, `pEditReplay`, `applyEditReplay`, `pSkip`.
+- [X] T057 [US3b] Checkpoints in the orchestrator, in `relive-run.service.ts`. Copy mock `pauseAt`, `pContinue`, `pReplay`, `pEditReplay`, `applyEditReplay`, `pSkip`.
   - **Inbound steps ALFRED sends:** "pause before" / "pause after" come from `checkpointOf(callRule)`. The pause is in the tab, before POST / after the result: nothing is held in the proxy.
   - **Outbound children:** the call rule's `PAUSE_REQUEST` / `PAUSE_RESPONSE` hold the call in the proxy through breakpoints. Show the pause box with a ring timer; decisions go through the existing breakpoint decision endpoint.
   - **Attempts:** Replay and Edit & replay create attempt n+1. Every attempt is kept (`PUT …/attempts/{n}`).
   - **Edits:** run-only unless "Also save these edits to the cycle" is ticked (`POST …/save-edits`).
-- [ ] T058 [US3b] Pause box UI in `relive-run-timeline`. It copies mock `pauseBox()` (non-CHANGED branches) and `updateRing()`: the attempts strip `#n ✓/✕/⚠ status ✎`, the request / response preview, and the button sets exactly as the mock builds them for held vs not-held and before vs after.
+- [X] T058 [US3b] Pause box UI in `relive-run-timeline`. It copies mock `pauseBox()` (non-CHANGED branches) and `updateRing()`: the attempts strip `#n ✓/✕/⚠ status ✎`, the request / response preview, and the button sets exactly as the mock builds them for held vs not-held and before vs after.
   - **Test:** a component spec.
 
 ---

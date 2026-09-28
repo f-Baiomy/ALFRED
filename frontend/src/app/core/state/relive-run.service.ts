@@ -27,7 +27,7 @@ import { ReliveApiService, StartRunRequest } from '../services/relive-api.servic
 import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socket.service';
 import { ResendApiService, ResendResponseSnapshot, ResendResult } from '../services/resend-api.service';
 import { resolveDynamicTokens } from '../../shared/utils/dynamic-tokens';
-import { modeOf } from '../../shared/utils/relive-call-rule';
+import { checkpointOf, modeOf } from '../../shared/utils/relive-call-rule';
 import { ActualCallOutcome, outcomeOf } from '../../shared/utils/relive-outcome';
 import { DifferenceEntry, ReliveCycle, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 import { DraftResult } from '../../shared/utils/resend-draft';
@@ -41,6 +41,7 @@ import { evaluate } from '../../shared/utils/scenario-assertions';
 const CHILD_EVENTS_GRACE_MS = 500;
 
 type RunCallEvent = ReliveSocketEvent & { readonly type: 'run-call' };
+type CheckpointDecision = 'CONTINUE' | 'REPLAY' | 'SKIP';
 type RunHold = NonNullable<Run['hold']>;
 
 export interface UnexpectedRunCall {
@@ -165,6 +166,12 @@ export class ReliveRunService {
    *  (`relive.attribution === 'UNEXPECTED'`, proxy/relive.py `_handle_unexpected`) - live for the
    *  whole run, not scoped to whichever inbound step happens to be sending right now. */
   readonly unexpectedCalls = signal<readonly UnexpectedRunCall[]>([]);
+  /** Set while an INBOUND step's own checkpoint (`checkpointOf(step.callRule)`, FR-035a-c) is
+   *  waiting on a decision - "nothing is held in the proxy" for these (research D11): the tab
+   *  itself is what's paused, before it sends the resend or before it commits the result. A
+   *  child's own PAUSE_REQUEST/PAUSE_RESPONSE is held in the proxy instead (T057's other half,
+   *  the existing Paused Calls flow - see `relive-run-timeline`'s `changedPauses`). */
+  readonly pause = signal<{ readonly stepKey: string; readonly at: 'BEFORE' | 'AFTER' } | null>(null);
 
   readonly progress = computed(() => {
     const values = Object.values(this.results());
@@ -179,6 +186,7 @@ export class ReliveRunService {
   private stopped = false;
   private eventsSub: Subscription | null = null;
   private runEventsSub: Subscription | null = null;
+  private pauseResolve: ((decision: CheckpointDecision) => void) | null = null;
 
   async start(cycle: ReliveCycle, request: StartRunRequest): Promise<void> {
     const run = await firstValueFrom(this.api.startRun(cycle.id, request));
@@ -222,10 +230,14 @@ export class ReliveRunService {
     this.eventsSub = null;
     this.runEventsSub?.unsubscribe();
     this.runEventsSub = null;
+    this.pause.set(null);
+    const pauseResolve = this.pauseResolve;
+    this.pauseResolve = null;
+    pauseResolve?.('SKIP'); // unblocks a checkpointed runInboundStep - it checks `stopped` right after
 
     const cancelled: Record<string, StepResult> = { ...this.results() };
     for (const [key, result] of Object.entries(cancelled)) {
-      if (['PENDING', 'WAITING', 'RUNNING'].includes(result.state)) {
+      if (['PENDING', 'WAITING', 'RUNNING', 'PAUSED'].includes(result.state)) {
         cancelled[key] = { ...result, state: 'CANCELLED' };
       }
     }
@@ -334,6 +346,24 @@ export class ReliveRunService {
     this.results.set(results);
   }
 
+  /** Answers the currently open inbound-step checkpoint (mock `pContinue`/`pReplay`/`pSkip`) - a
+   *  no-op when nothing is paused. */
+  resolveCheckpoint(decision: CheckpointDecision): void {
+    if (!this.pause()) return;
+    this.pause.set(null);
+    const resolve = this.pauseResolve;
+    this.pauseResolve = null;
+    resolve?.(decision);
+  }
+
+  private awaitCheckpoint(stepKey: string, at: 'BEFORE' | 'AFTER'): Promise<CheckpointDecision> {
+    this.pause.set({ stepKey, at });
+    this.setResult(stepKey, (r) => ({ ...r, state: 'PAUSED' }));
+    return new Promise((resolve) => {
+      this.pauseResolve = resolve;
+    });
+  }
+
   private async runLoop(): Promise<void> {
     this.topOrder = topSteps(this.steps);
     while (this.topIdx < this.topOrder.length) {
@@ -354,6 +384,15 @@ export class ReliveRunService {
     const run = this.run();
     if (!run) return;
     this.setResult(step.key, (r) => ({ ...r, state: 'RUNNING' }));
+
+    const checkpoint = checkpointOf(step.callRule);
+    if (checkpoint.before) {
+      const decision = await this.awaitCheckpoint(step.key, 'BEFORE');
+      if (this.stopped) return;
+      if (decision === 'SKIP') return this.skipStep(step);
+      this.setResult(step.key, (r) => ({ ...r, state: 'RUNNING' }));
+    }
+
     const kids = childSteps(this.steps, step.key).filter((c) => c.enabled);
     for (const kid of kids) this.setResult(kid.key, (r) => ({ ...r, state: 'WAITING' }));
 
@@ -390,6 +429,15 @@ export class ReliveRunService {
     this.eventsSub = null;
 
     const own = this.buildOwnResult(step, substituted, resendResult, error, startedAt, attempt);
+
+    if (checkpoint.after) {
+      this.setResult(step.key, () => own); // show the result while paused, same as mock's pauseBox
+      const decision = await this.awaitCheckpoint(step.key, 'AFTER');
+      if (this.stopped) return;
+      if (decision === 'REPLAY') return this.runInboundStep(step, attempt + 1);
+      if (decision === 'SKIP') return this.skipStep(step);
+    }
+
     await this.settleResult(run, step, own);
 
     for (const kid of kids) {
@@ -402,6 +450,15 @@ export class ReliveRunService {
     }
 
     await this.applyFailurePolicy(run, step, own);
+  }
+
+  /** Marks a step SKIPPED at the user's own request (a checkpoint's Skip, not a dependency skip -
+   *  see `skipDependents` for that one) and its children NOT_CALLED, same as mock `pSkip`. */
+  private skipStep(step: Step): void {
+    this.setResult(step.key, (r) => ({ ...r, state: 'SKIPPED' }));
+    for (const kid of childSteps(this.steps, step.key)) {
+      this.setResult(kid.key, (r) => ({ ...r, state: 'NOT_CALLED' }));
+    }
   }
 
   /** FR-034/034c: holds the run at a failed or differing step per the cycle's own settings, else
