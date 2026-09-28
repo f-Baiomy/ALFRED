@@ -566,7 +566,7 @@ differences**.
 **Goal**: FR-044-047, 015b-c; research D18. **Independent test**: US7 scenarios; after walkthrough 6, the History tab
 shows the run and its live call.
 
-- [ ] T072 [US7] History tab `FE/components/relive-history/…`, copying mock `historyPanel()`, `compare()`.
+- [X] T072 [US7] History tab `FE/components/relive-history/…`, copying mock `historyPanel()`, `compare()`.
   - **Runs table:** when, status pill, summary (including "continued past N"), duration, Open, and "Compare with newest".
   - **Compare:** reuses `ScenarioRunCompareComponent` (`FE/components/scenario-run-compare/`) via an adapter from StepResults to its input shape. If its input doesn't fit, add an input there rather than copying it.
 - [ ] T073 [US7] Live calls log, backend: `BR/adapter/in/web/LiveCallsController.java` (list / get / delete / use-as-recording, per `contracts/rest-api.md`).

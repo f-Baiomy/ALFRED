@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
@@ -9,14 +9,19 @@ import { ReliveExternalNoticeComponent } from '../../components/relive-external-
 import { ReliveRulesTabComponent } from '../../components/relive-rules-tab/relive-rules-tab.component';
 import { ReliveRerunSummaryComponent, ReliveStartRequest } from '../../components/relive-prerun-summary/relive-prerun-summary.component';
 import { ReliveRebuildDialogComponent } from '../../components/relive-rebuild-dialog/relive-rebuild-dialog.component';
+import { ReliveVariablesComponent } from '../../components/relive-variables/relive-variables.component';
+import { ReliveRunTimelineComponent } from '../../components/relive-run-timeline/relive-run-timeline.component';
+import { ReliveHistoryComponent } from '../../components/relive-history/relive-history.component';
 import { ReliveApiService } from '../../core/services/relive-api.service';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { InterceptionRuleDraft } from '../../core/models/interception.model';
+import { InterceptionStateService } from '../../core/state/interception-state.service';
+import { ReliveRunService } from '../../core/state/relive-run.service';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { externalReach } from '../../shared/utils/relive-external-reach';
-import { ReliveCycle, Step } from '../../shared/utils/relive-types';
+import { CycleVariable, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
 import { ReliveRuleDialogService } from './relive-rule-dialog.service';
@@ -43,16 +48,22 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
     ReliveRulesTabComponent,
     ReliveRerunSummaryComponent,
     ReliveRebuildDialogComponent,
+    ReliveVariablesComponent,
+    ReliveRunTimelineComponent,
+    ReliveHistoryComponent,
   ],
-  providers: [ReliveCycleEditorState],
+  providers: [ReliveCycleEditorState, ReliveRunService],
   templateUrl: './relive-cycle.component.html',
 })
 export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly picker = inject(CallPickerService);
   private readonly api = inject(ReliveApiService);
+  private readonly interceptionState = inject(InterceptionStateService);
   readonly state = inject(ReliveCycleEditorState);
+  readonly runService = inject(ReliveRunService);
   readonly ruleDialog = inject(ReliveRuleDialogService);
   /** Provided to `<app-rule-editor>` via this component's own template - see the getter below.
    *  A getter (not a field) so it always closes over the CURRENT draft/ruleDialog request. */
@@ -152,6 +163,17 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     return key ? (this.state.draft()?.steps.find((s) => s.key === key) ?? null) : null;
   });
 
+  /** Request-changed holds (T056) for THIS run only, out of the existing Paused Calls feed. */
+  readonly changedPauses = computed(() => {
+    const runId = this.runService.run()?.id;
+    if (!runId) return [];
+    return this.interceptionState.pausedCalls().filter((c) => c.relive?.runId === runId && c.relive?.at === 'CHANGED');
+  });
+
+  /** A past run opened from the History tab (T072) - shown read-only in the same timeline
+   *  component the live run uses, since it's pure input/output either way. */
+  readonly historyRun = signal<{ readonly run: Run; readonly results: Readonly<Record<string, StepResult>> } | null>(null);
+
   constructor() {
     const id = this.route.snapshot.paramMap.get('id');
     if (id) this.state.load(id);
@@ -222,6 +244,41 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.state.selectedStepKey.set(this.state.selectedStepKey() === key ? null : key);
   }
 
+  setVariables(variables: readonly CycleVariable[]): void {
+    this.state.update((draft) => ({ ...draft, variables }));
+  }
+
+  /** Row-actions on a paused call currently only surface that a request-changed hold exists - the
+   *  release/abort/edit decision itself is the existing Paused Calls inspector's job. */
+  openPausedCallInInterception(_callId: string): void {
+    this.router.navigate(['/interception']);
+  }
+
+  resumeFromStep(afterStepKey: string): void {
+    const cycle = this.state.saved();
+    const run = this.runService.run();
+    if (!cycle || !run) return;
+    this.runService.resume(cycle.id, run.id, afterStepKey);
+  }
+
+  openHistoryRun(runId: string): void {
+    const cycle = this.state.saved();
+    if (!cycle) return;
+    this.api.getRun(cycle.id, runId).subscribe((run) => {
+      const results: Record<string, StepResult> = {};
+      for (const r of run.stepResults) {
+        const existing = results[r.stepKey];
+        if (!existing || r.attempt > existing.attempt) results[r.stepKey] = r;
+      }
+      this.historyRun.set({ run, results });
+      this.setTab('run');
+    });
+  }
+
+  closeHistoryRun(): void {
+    this.historyRun.set(null);
+  }
+
   setName(name: string): void {
     this.state.update((draft) => ({ ...draft, name }));
   }
@@ -262,13 +319,12 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.prerunOpen.set(false);
   }
 
-  /** Actually starting a run and showing its live timeline is US3 (T046+) - this only calls the
-   *  already-built `POST .../runs` and drops the user on the (still-placeholder) Run tab, so the
-   *  pre-run check is fully wired ahead of the run engine landing. */
   startRun(request: ReliveStartRequest): void {
     const cycle = this.state.saved();
     if (!cycle) return;
-    this.api.startRun(cycle.id, { driver: request.driver, unattributedChoices: {} }).subscribe(() => this.setTab('run'));
+    this.historyRun.set(null);
+    this.runService.start(cycle, { driver: request.driver, unattributedChoices: {} });
+    this.setTab('run');
   }
 
   async canDeactivate(): Promise<boolean> {

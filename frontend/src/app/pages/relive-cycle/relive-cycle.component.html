@@ -90,7 +90,12 @@
         </div>
       }
       @case ('variables') {
-        <div class="rl-faint">Variables panel coming with US5.</div>
+        <app-relive-variables
+          [variables]="draft.variables"
+          [steps]="draft.steps"
+          [liveValues]="runService.run() ? runService.variables() : null"
+          (variablesChange)="setVariables($event)"
+        />
       }
       @case ('rules') {
         <app-relive-rules-tab
@@ -101,10 +106,39 @@
         />
       }
       @case ('run') {
-        <div class="rl-faint">Run view coming with US3.</div>
+        @if (historyRun(); as h) {
+          <div class="rl-row" style="margin-bottom: 8px">
+            <button class="rl-link" (click)="closeHistoryRun()">← back to the live run</button>
+          </div>
+          <app-relive-run-timeline [run]="h.run" [steps]="h.run.definition.steps" [results]="h.results" [variableDefs]="h.run.definition.variables" />
+        } @else if (runService.run(); as run) {
+          <app-relive-run-timeline
+            [run]="run"
+            [steps]="draft.steps"
+            [results]="runService.results()"
+            [variableDefs]="draft.variables"
+            [variables]="runService.variables()"
+            [selectedKey]="state.selectedStepKey()"
+            [unexpectedCalls]="runService.unexpectedCalls()"
+            [changedPauses]="changedPauses()"
+            [pause]="runService.pause()"
+            (selectStep)="selectStep($event)"
+            (continueRun)="runService.continueRun()"
+            (retryHeld)="runService.retryStep()"
+            (endRun)="runService.endRun()"
+            (resumeFromStep)="resumeFromStep($event)"
+            (stopRun)="runService.stop()"
+            (checkpointContinue)="runService.resolveCheckpoint('CONTINUE')"
+            (checkpointReplay)="runService.resolveCheckpoint('REPLAY')"
+            (checkpointSkip)="runService.resolveCheckpoint('SKIP')"
+            (openPausedCall)="openPausedCallInInterception($event)"
+          />
+        } @else {
+          <div class="rl-faint">Run this cycle to see its live execution timeline here.</div>
+        }
       }
       @case ('history') {
-        <div class="rl-faint">Run history and Live calls log coming with US3/US7.</div>
+        <app-relive-history [cycleId]="draft.id" (openRun)="openHistoryRun($event)" />
       }
     }
   </div>
