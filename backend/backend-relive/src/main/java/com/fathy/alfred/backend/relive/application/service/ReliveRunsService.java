@@ -77,7 +77,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         GetRunUseCase, SetRunVariableUseCase, ObserveRunCallUseCase {
 
     /** Mirrors CycleValidator.VARIABLE_TOKEN / frontend/src/app/shared/utils/variable-tokens.ts. */
-    private static final Pattern VARIABLE_TOKEN = Pattern.compile("\\{\\{([A-Za-z][A-Za-z0-9_.-]*)}}");
+    private static final Pattern VARIABLE_TOKEN = Pattern.compile("\\{\\{\\$\\.([A-Za-z][A-Za-z0-9_.-]*)}}");
 
     /** data-model.md "Run" retention: no alfred.relive.runs.* config property exists yet to bind
      *  to (grepped) - these are the documented defaults, literal like ReliveLimits until one is added. */
@@ -165,6 +165,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         if (isReferencedByARule(updated.definition(), name)) {
             publisher.publish(runId, snapshotBuilder.build(updated));
         }
+        notifications.runChanged(run.cycleId(), runId);
     }
 
     @Override

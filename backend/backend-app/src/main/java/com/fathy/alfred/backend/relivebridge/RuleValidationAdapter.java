@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.relivebridge;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleValidator;
 import com.fathy.alfred.backend.relive.application.port.out.RuleValidationPort;
@@ -31,7 +32,11 @@ public class RuleValidationAdapter implements RuleValidationPort {
             return List.of("rule document is missing");
         }
         try {
-            InterceptionRule rule = objectMapper.treeToValue(ruleDoc, InterceptionRule.class);
+            // The shared validator is intentionally GLOBAL/LOCAL only for ordinary rules.
+            // RELIVE has the same action shape as LOCAL, but can be published only by this bridge.
+            JsonNode validationDoc = ruleDoc.deepCopy();
+            normalizeReliveScopes(validationDoc);
+            InterceptionRule rule = objectMapper.treeToValue(validationDoc, InterceptionRule.class);
             List<String> problems = new ArrayList<>(RuleValidator.validate(rule));
             // Relive's generated replay rule deliberately lets a matching recorded request
             // fall through to the following MOCK_RESPONSE; its ELSE answers a mismatch.
@@ -44,6 +49,18 @@ public class RuleValidationAdapter implements RuleValidationPort {
             return problems;
         } catch (Exception e) {
             return List.of("rule document could not be parsed: " + e.getMessage());
+        }
+    }
+
+    private static void normalizeReliveScopes(JsonNode node) {
+        if (node.isObject()) {
+            ObjectNode object = (ObjectNode) node;
+            if ("RELIVE".equals(object.path("scope").asText())) {
+                object.put("scope", "LOCAL");
+            }
+            object.elements().forEachRemaining(RuleValidationAdapter::normalizeReliveScopes);
+        } else if (node.isArray()) {
+            node.elements().forEachRemaining(RuleValidationAdapter::normalizeReliveScopes);
         }
     }
 

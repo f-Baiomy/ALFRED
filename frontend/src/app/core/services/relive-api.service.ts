@@ -147,6 +147,12 @@ export class ReliveApiService {
     });
   }
 
+  getRunVariables(cycleId: string, runId: string): Observable<Record<string, string>> {
+    return this.http.get<Record<string, string>>(
+      `${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/variables`,
+    );
+  }
+
   stopRun(cycleId: string, runId: string): Observable<Run> {
     return this.http.post<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/stop`, {}).pipe(map(fromWireRun));
   }

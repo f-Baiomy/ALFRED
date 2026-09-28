@@ -41,6 +41,7 @@ with `PUT` - no separate endpoint.
 | `GET` | `/relive-cycles/{id}/runs/{runId}` | - | `Run` + `StepResult[]` (bodies and secret values in full, plus `secrets: string[]`; the frontend masks, see note) |
 | `PUT` | `/relive-cycles/{id}/runs/{runId}/steps/{stepKey}/attempts/{n}` | `StepResult` | 200 - the orchestrating tab writes results as they settle |
 | `POST` | `/relive-cycles/{id}/runs/{runId}/variables` | `{ name, value, stepKey }` | 204 - republishes the snapshot when the variable is used by a rule |
+| `GET` | `/relive-cycles/{id}/runs/{runId}/variables` | - | 200 - current run variable values, including definitions and timeline updates; used at step boundaries |
 | `POST` | `/relive-cycles/{id}/runs/{runId}/stop` | - | `Run` (`STOPPED`); unpublishes the snapshot |
 | `PUT` | `/relive-cycles/{id}/runs/{runId}/definition` | `{ definition, reason }` | `Run` - applies a mid-run edit to steps not yet run and republishes the proxy snapshot (FR-044a); 409 for a step already executed |
 | `PUT` | `/relive-cycles/{id}/runs/{runId}/hold` | `{ stepKey, reason } \| null` | `Run` - the orchestrating tab records a hold and its release (FR-034); logs `HELD` / `CONTINUED` |

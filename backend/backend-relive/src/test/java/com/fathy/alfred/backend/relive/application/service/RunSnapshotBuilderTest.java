@@ -14,6 +14,7 @@ import com.fathy.alfred.backend.relive.domain.model.RunStatus;
 import com.fathy.alfred.backend.relive.domain.model.Step;
 import com.fathy.alfred.backend.relive.domain.model.StepSource;
 import com.fathy.alfred.backend.relive.domain.model.UnexpectedCallsPolicy;
+import com.fathy.alfred.backend.relive.domain.model.VariableChange;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -107,6 +108,40 @@ class RunSnapshotBuilderTest {
 
         assertThat(snapshot.get("secrets")).extracting(JsonNode::asText).containsExactly("token");
         assertThat(snapshot.get("variables").get("token").asText()).isEqualTo("abc123");
+    }
+
+    @Test
+    void latestRunVariableValueOverridesTheCycleInitialValue() {
+        ReliveCycle cycle = cycleWithVariables(List.of(), List.of(new CycleVariable("token", "initial", false, null)));
+        Run current = new Run("r-1", cycle.id(), "AUTOMATIC", RunStatus.RUNNING, "t0", null, cycle, null,
+                List.of(), List.of(new VariableChange("token", "captured", "s-1", "t1")),
+                null, null, List.of(), List.of());
+
+        assertThat(builder.build(current).get("variables").get("token").asText()).isEqualTo("captured");
+    }
+
+    @Test
+    void inboundStepRuleIsPublishedSoItsResponseCaptureCanRun() throws Exception {
+        JsonNode captureRule = objectMapper.readTree("""
+                {"name":"capture session","enabled":true,"match":{},"actions":[
+                  {"type":"CAPTURE_RESPONSE_VARIABLE","enabled":true,"name":"session_id",
+                   "captureSource":"COOKIE","path":"JSESSIONID","scope":"RELIVE"}]}
+                """);
+        Step root = new Step("s-login", null, "login", true, false, "inbound", "odeysys",
+                new CycleRule(captureRule, null), "BLOCK",
+                recording("http://localhost/loginAction", "POST", "{}"),
+                new StepSource("s-login", null, "inbound"),
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+
+        JsonNode published = builder.build(run(cycleWithVariables(List.of(root),
+                List.of(new CycleVariable("session_id", "initial", false, null)))));
+
+        JsonNode stepRule = published.path("steps").get(0).path("callRule");
+        assertThat(stepRule.path("name").asText()).isEqualTo("capture session");
+        assertThat(stepRule.path("actions").get(0).path("scope").asText()).isEqualTo("RELIVE");
+        assertThat(stepRule.path("actions").get(0).path("name").asText()).isEqualTo("session_id");
+        assertThat(stepRule.path("actions").get(0).path("path").asText()).isEqualTo("JSESSIONID");
+        assertThat(published.path("variables").path("session_id").asText()).isEqualTo("initial");
     }
 
     @Test

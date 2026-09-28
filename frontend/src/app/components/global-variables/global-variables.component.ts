@@ -95,7 +95,7 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
       </aside>
     }
     @if (autocompleteControl() && autocompleteMatches().length) {
-      <aside class="variable-suggestions" [style.left.px]="autocompleteLeft()" [style.top.px]="autocompleteTop()" role="listbox" aria-label="Global variable suggestions">
+      <aside class="variable-suggestions" [style.left.px]="autocompleteLeft()" [style.top.px]="autocompleteTop()" role="listbox" aria-label="Variable suggestions">
         @for (entry of autocompleteMatches(); track entry.name; let i = $index) {
           <button type="button" role="option" [attr.aria-selected]="i === autocompleteIndex()" [class.active]="i === autocompleteIndex()" [class.unavailable]="!entry.available" [disabled]="!entry.available" (mousedown)="$event.preventDefault()" (click)="chooseVariable(entry.name)">
             <code>{{ '{{' + entry.name + '}}' }}</code><span>{{ entry.value }}</span>
@@ -660,10 +660,27 @@ export class GlobalVariablesComponent {
       .map((hint) => ({ name: `this.${hint.name}`, value: hint.available ? 'Rule variable' : (hint.reason || 'Not available here'), available: hint.available }))
       .filter((entry) => entry.name.toLowerCase().includes(query));
     if (query.startsWith('this.')) return locals;
+    const relive = this.reliveVariableHints(control)
+      .map((hint) => ({ name: `$.${hint.name}`, value: hint.secret ? '••••••••' : 'Relive variable', available: true }))
+      .filter((entry) => entry.name.toLowerCase().includes(query));
+    if (query.startsWith('$.') || query === '$') return relive;
     const globals = this.variables.entries()
       .filter((entry) => entry.name.toLowerCase().includes(query))
       .map((entry) => ({ name: entry.name, value: this.isMasked(entry.name) ? '••••••••' : entry.value, available: true }));
-    return [...locals, ...globals];
+    return [...locals, ...relive, ...globals];
+  }
+  private reliveVariableHints(control: HTMLInputElement | HTMLTextAreaElement | null): { name: string; secret: boolean }[] {
+    const attr = control?.closest('[data-relive-variables]')?.getAttribute('data-relive-variables');
+    if (!attr) return [];
+    try {
+      const parsed = JSON.parse(attr);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && typeof entry['name'] === 'string')
+        .map((entry) => ({ name: entry['name'] as string, secret: entry['secret'] === true }));
+    } catch {
+      return [];
+    }
   }
   private localVariableHints(control: HTMLInputElement | HTMLTextAreaElement | null): LocalVariableHint[] {
     const attr = control?.closest('[data-local-variables]')?.getAttribute('data-local-variables');

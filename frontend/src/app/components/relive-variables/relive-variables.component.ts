@@ -4,9 +4,14 @@ import { CycleVariable, Step } from '../../shared/utils/relive-types';
 
 export interface VariableRow {
   readonly variable: CycleVariable;
-  /** "defined", or "Step <label> → <path>" when some step's own extract rule produces this name. */
-  readonly source: string;
+  /** Extraction source when some step produces this name; otherwise absent. */
+  readonly source: string | null;
   readonly liveValue: string | undefined;
+}
+
+export interface CapturedVariableRow {
+  readonly name: string;
+  readonly value: string;
 }
 
 /**
@@ -24,6 +29,7 @@ export class ReliveVariablesComponent {
   readonly steps = input<readonly Step[]>([]);
   /** Present (even if empty) only while a run is actually live - absent, the live column is hidden entirely. */
   readonly liveValues = input<Readonly<Record<string, string>> | null>(null);
+  readonly capturedLabel = input('Captured in this run');
 
   readonly variablesChange = output<readonly CycleVariable[]>();
 
@@ -38,12 +44,21 @@ export class ReliveVariablesComponent {
     }));
   });
 
-  private sourceOf(name: string): string {
+  /** Run values can be captured without adding a cycle variable definition. Keep those visible. */
+  readonly capturedValues = computed<readonly CapturedVariableRow[]>(() => {
+    const defined = new Set(this.variables().map((variable) => variable.name));
+    return Object.entries(this.liveValues() ?? {})
+      .filter(([name]) => !defined.has(name))
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  private sourceOf(name: string): string | null {
     for (const step of this.steps()) {
       const rule = step.extract.find((e) => e.as === name);
       if (rule) return `${step.label} → ${rule.path}`;
     }
-    return 'defined';
+    return null;
   }
 
   isRevealed(name: string): boolean {
@@ -62,6 +77,11 @@ export class ReliveVariablesComponent {
     if (this.isRevealed(row.variable.name)) return row.liveValue;
     if (!row.variable.secret) return row.liveValue;
     return maskRelive(row.liveValue, [row.variable.name], { [row.variable.name]: row.liveValue });
+  }
+
+  maskedCapturedValue(row: CapturedVariableRow): string {
+    if (this.isRevealed(row.name)) return row.value;
+    return maskRelive(row.value, [row.name], { [row.name]: row.value });
   }
 
   add(): void {

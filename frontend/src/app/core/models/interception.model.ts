@@ -347,7 +347,7 @@ export interface RuleAction {
   readonly captureSource?: 'JSON_FIELD' | 'HEADER' | 'COOKIE' | null;
   readonly missingBehavior?: 'SKIP' | 'FALLBACK' | null;
   /** CAPTURE_*_VARIABLE: GLOBAL also writes the value into the shared variables store (overwriting any existing value); both scopes stay usable as {{this.name}} later in the rule. */
-  readonly scope?: 'GLOBAL' | 'LOCAL' | null;
+  readonly scope?: 'GLOBAL' | 'LOCAL' | 'RELIVE' | null;
   readonly status?: number | null;
   readonly headers?: Readonly<Record<string, string>> | null;
   readonly body?: string | null;

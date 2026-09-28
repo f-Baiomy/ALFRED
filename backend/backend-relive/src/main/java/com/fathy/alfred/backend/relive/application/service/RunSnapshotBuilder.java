@@ -96,6 +96,7 @@ public class RunSnapshotBuilder {
                 secrets.add(v.name());
             }
         });
+        run.variableTimeline().forEach(change -> variables.put(change.name(), change.value()));
         ObjectNode variablesNode = snapshot.putObject("variables");
         variables.forEach(variablesNode::put);
         ArrayNode secretsNode = snapshot.putArray("secrets");
@@ -112,6 +113,8 @@ public class RunSnapshotBuilder {
             stepNode.put("stepKey", top.key());
             stepNode.put("direction", top.direction());
             stepNode.put("serviceName", top.serviceName());
+            JsonNode topRule = top.callRule() == null ? null : top.callRule().rule();
+            stepNode.set("callRule", resolveRecordedCallConditions(run.id(), topRule, top));
             ArrayNode childrenNode = stepNode.putArray("children");
             Map<String, Integer> counters = ordinalCounters.computeIfAbsent(top.key(), k -> new LinkedHashMap<>());
             for (Step child : definition.steps()) {
@@ -153,7 +156,7 @@ public class RunSnapshotBuilder {
         JsonNode match = ruleDoc == null ? null : ruleDoc.get("match");
         node.set("match", hasCustomMatch(match) ? match : defaultMatch(child.recording()));
 
-        JsonNode resolvedRule = resolveRecordedCallConditions(runId, ruleDoc, child, counters);
+        JsonNode resolvedRule = resolveRecordedCallConditions(runId, ruleDoc, child);
         node.set("callRule", resolvedRule);
         node.put("unattributed", child.unattributed());
 
@@ -210,7 +213,7 @@ public class RunSnapshotBuilder {
      * (C3). Walks every {@code IF_REQUEST}/{@code IF_RESPONSE} action's {@code branches[].conditions}
      * recursively (conditions never nest inside conditions any deeper than one branch's own list).
      */
-    private JsonNode resolveRecordedCallConditions(String runId, JsonNode ruleDoc, Step owner, Map<String, Integer> counters) {
+    private JsonNode resolveRecordedCallConditions(String runId, JsonNode ruleDoc, Step owner) {
         if (ruleDoc == null || ruleDoc.isNull()) {
             return ruleDoc;
         }

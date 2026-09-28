@@ -1126,9 +1126,29 @@ describe('RuleEditorComponent', () => {
       expect(component.countLocalUses(component.actions()[0])).toBe(2);
     });
 
+    it('counts Relive references using {{$.name}}', () => {
+      openWith([
+        { type: 'CAPTURE_RESPONSE_VARIABLE', name: 'session_id', captureSource: 'COOKIE', path: 'JSESSIONID', scope: 'RELIVE' },
+        { type: 'SET_REQUEST_COOKIE', name: 'JSESSIONID', value: '{{$.session_id}}' },
+      ]);
+      expect(component.countLocalUses(component.actions()[0])).toBe(1);
+    });
+
     it('a LOCAL capture is never counted against other rules', () => {
       openWith([{ type: 'CAPTURE_REQUEST_VARIABLE', name: 'x', captureSource: 'HEADER', path: 'X-Source', scope: 'LOCAL' }]);
       expect(component.countOtherRuleUses(component.actions()[0])).toBe(0);
     });
+  });
+
+  it('offers Relive scope and suggests a variable while its rule is still being edited', () => {
+    component.scope = 'CYCLE';
+    component.reliveVariableHints = [{ name: 'bookingId', secret: false }];
+    open({ id: 'r1', name: 'Capture session', enabled: true, priority: 100, stopProcessing: false, match: {}, actions: [
+      { type: 'SET_REQUEST_VARIABLE', name: 'sessionId', value: 'abc', scope: 'RELIVE' },
+    ] });
+    expect(component.captureScopeOptions.map((option) => option.value)).toContain('RELIVE');
+    expect(JSON.parse(component.reliveVariableHintsJson())).toEqual([
+      { name: 'bookingId', secret: false }, { name: 'sessionId', secret: false },
+    ]);
   });
 });

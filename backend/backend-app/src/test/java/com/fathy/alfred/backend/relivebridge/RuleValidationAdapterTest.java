@@ -76,4 +76,15 @@ class RuleValidationAdapterTest {
     void missingRuleDocumentGivesAnError() {
         assertThat(adapter.validate(null)).containsExactly("rule document is missing");
     }
+
+    @Test
+    void reliveVariableScopeIsAcceptedWithoutChangingTheOriginalRule() throws Exception {
+        JsonNode rule = objectMapper.readTree("""
+                {"name":"capture session","match":{},"actions":[
+                  {"type":"SET_REQUEST_VARIABLE","name":"sessionId","value":"abc","scope":"RELIVE"}
+                ]}
+                """);
+        assertThat(adapter.validate(rule)).isEmpty();
+        assertThat(rule.path("actions").get(0).path("scope").asText()).isEqualTo("RELIVE");
+    }
 }

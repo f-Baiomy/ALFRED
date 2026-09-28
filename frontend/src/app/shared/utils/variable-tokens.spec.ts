@@ -23,4 +23,11 @@ describe('variable token editing', () => {
   it('offers no suggestion when there is no opening prefix', () => {
     expect(suggestionRange('plain text', 10)).toBeNull();
   });
+
+  it('recognizes and inserts Relive-scoped tokens', () => {
+    expect(tokenNames('global {{name}} and relive {{$.bookingId}}')).toEqual(['name', '$.bookingId']);
+    const range = suggestionRange('{{$.book', '{{$.book'.length);
+    expect(range?.query).toBe('$.book');
+    expect(insertToken('{{$.book', range!, '$.bookingId').value).toBe('{{$.bookingId}}');
+  });
 });

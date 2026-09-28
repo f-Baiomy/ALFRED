@@ -376,7 +376,7 @@ response; run it and verify step 2's actual request contains the new value, and 
 
 1. **Given** a cycle, **When** the user defines variables, **Then** they are visible only within that
    cycle and never affect global variables or other cycles.
-2. **Given** a variable, **When** it is referenced as `{{name}}` in a URL, query, header, body, configured
+2. **Given** a Relive variable, **When** it is referenced as `{{$.name}}` in a URL, query, header, body, configured
    response or cycle rule, **Then** it is replaced with its current value when that step executes.
 3. **Given** an extraction on a step, **When** that step completes, **Then** the extracted value becomes the
    variable's value for all later steps of that run.
@@ -386,7 +386,7 @@ response; run it and verify step 2's actual request contains the new value, and 
    validates or runs the cycle, **Then** it is reported as unresolved before any call is sent.
 6. **Given** an extraction whose path does not exist in the actual response, **When** the step completes,
    **Then** the step is flagged, the variable keeps no value, and later steps that need it are reported as
-   blocked rather than sending a literal `{{name}}`.
+   blocked rather than sending a literal `{{$.name}}`.
 7. **Given** a variable marked secret, **When** it is shown anywhere, **Then** its value is masked by
    default.
 
@@ -726,9 +726,14 @@ steps' variables are no longer available.
 **Variables and extraction**
 
 - **FR-019**: Each cycle MUST have its own variables, invisible to global variables and to other cycles.
-- **FR-020**: Variables MUST be usable as `{{name}}` in URL/path, query parameters, headers, request body,
-  configured responses and cycle rules. ALFRED's existing dynamic tokens (e.g. generated IDs and timestamps)
+- **FR-020**: Relive variables MUST be usable as `{{$.name}}` in URL/path, query parameters, headers, request body,
+  configured responses and cycle rules. Bare `{{name}}` MUST read the shared global store, while `{{this.name}}`
+  MUST retain its rule-local meaning. Relive variables MUST be suggested only in Relive editors. ALFRED's existing dynamic tokens (e.g. generated IDs and timestamps)
   MUST also work inside a cycle.
+- **FR-020a**: Set/Capture Variable actions in Relive call and cycle rules MUST offer a Relive scope.
+  Values produced in that scope MUST be available as `{{$.name}}` to later actions and calls in
+  the same run, recorded in the run variable timeline, isolated from the global variable store,
+  and suggested in Relive editors together with step extraction names.
 - **FR-021**: Users MUST be able to define extractions that take a value from a step's actual response (and,
   where useful, request) into a cycle variable for later steps, reusing ALFRED's existing extraction and
   path-picking behaviour.
@@ -740,7 +745,7 @@ steps' variables are no longer available.
   explicitly reveals it. Revealing MUST be per view, not a saved setting.
 - **FR-023**: While a run is active, the current value, source and last-change step of every variable MUST
   be visible.
-- **FR-024**: A step MUST NOT be sent with an unresolved `{{name}}` reference; it MUST be blocked and
+- **FR-024**: A step MUST NOT be sent with an unresolved `{{$.name}}` or `{{name}}` reference; it MUST be blocked and
   explained instead.
 
 **Rules and overrides**

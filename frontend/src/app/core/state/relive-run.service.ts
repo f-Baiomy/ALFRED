@@ -11,10 +11,8 @@
  * calls a child step itself. A child never called (the app skipped it, or the run never reached the
  * ordinal ALFRED expected) settles as NOT_CALLED once its parent's wait window closes.
  *
- * Variable substitution reuses `resend-draft-chain.ts`'s `{{this.name}}` value-fill machinery rather
- * than re-implementing token scanning: a Relive `{{name}}` reference is aliased to `{{this.name}}`
- * for every name the run currently has a value for (FR-020) before delegating to `substituteTokens`;
- * an unrecognised or not-yet-produced name is left literal (T066 turns that into a block later).
+ * Relive variables use `{{$.name}}`; bare `{{name}}` reads the global variable store. Rule-local
+ * `{{this.name}}` tokens still use the existing value-fill machinery.
  * `{{$...}}` dynamic tokens (`dynamic-tokens.ts`) are a separate namespace and resolved first.
  */
 import { HttpErrorResponse } from '@angular/common/http';
@@ -23,6 +21,7 @@ import { Subscription, filter, firstValueFrom } from 'rxjs';
 import { CallEndpointSource } from '../models/call.model';
 import { RuleAction } from '../models/interception.model';
 import { CallsApiService } from '../services/calls-api.service';
+import { GlobalVariablesService } from '../services/global-variables.service';
 import { ReliveApiService, StartRunRequest } from '../services/relive-api.service';
 import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socket.service';
 import { ResendApiService, ResendResponseSnapshot, ResendResult } from '../services/resend-api.service';
@@ -58,13 +57,15 @@ interface SubstitutedRequest {
   readonly body: string;
 }
 
-const PLAIN_VAR_TOKEN = /\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
+const PLAIN_VAR_TOKEN = /\{\{([A-Za-z][A-Za-z0-9_.-]*)\}\}/g;
+const RELIVE_VAR_TOKEN = /\{\{\$\.([A-Za-z][A-Za-z0-9_.-]*)\}\}/g;
 
-function substituteVars(text: string, vars: Readonly<Record<string, string>>): string {
+function substituteVars(text: string, vars: Readonly<Record<string, string>>, globals: Readonly<Record<string, string>>): string {
   if (!text) return text;
-  const withDynamic = resolveDynamicTokens(text, (name) => vars[name]);
-  const aliased = withDynamic.replace(PLAIN_VAR_TOKEN, (token, name: string) => (name in vars ? `{{this.${name}}}` : token));
-  return substituteTokens(aliased, vars).text;
+  const withDynamic = resolveDynamicTokens(text, (name) => name.startsWith('$.') ? vars[name.slice(2)] : globals[name]);
+  const withRelive = withDynamic.replace(RELIVE_VAR_TOKEN, (token, name: string) => vars[name] ?? token);
+  const withGlobal = withRelive.replace(PLAIN_VAR_TOKEN, (token, name: string) => name.startsWith('this.') ? token : globals[name] ?? token);
+  return substituteTokens(withGlobal, vars).text;
 }
 
 function effectiveRequestBody(step: Step): string {
@@ -72,24 +73,27 @@ function effectiveRequestBody(step: Step): string {
   return override?.body ?? step.recording.requestBody ?? '';
 }
 
-function substituteStepRequest(step: Step, vars: Readonly<Record<string, string>>): SubstitutedRequest {
+function substituteStepRequest(step: Step, vars: Readonly<Record<string, string>>, globals: Readonly<Record<string, string>>): SubstitutedRequest {
   return {
     method: step.recording.method,
-    url: substituteVars(step.recording.url, vars),
-    headers: Object.fromEntries(Object.entries(step.recording.requestHeaders).map(([name, value]) => [name, substituteVars(value, vars)])),
-    body: substituteVars(effectiveRequestBody(step), vars),
+    url: substituteVars(step.recording.url, vars, globals),
+    headers: Object.fromEntries(Object.entries(step.recording.requestHeaders).map(([name, value]) => [name, substituteVars(value, vars, globals)])),
+    body: substituteVars(effectiveRequestBody(step), vars, globals),
   };
 }
 
 function varRefsOf(step: Step): string[] {
   const text = `${step.recording.url} ${Object.values(step.recording.requestHeaders).join(' ')} ${step.recording.requestBody ?? ''}`;
-  return [...new Set([...text.matchAll(PLAIN_VAR_TOKEN)].map((m) => m[1]))];
+  return [...new Set([...text.matchAll(RELIVE_VAR_TOKEN)].map((m) => m[1]))];
 }
 
-/** FR-024: `{{name}}` references still literal after substitution - unknown or not-yet-produced. */
+/** References still literal after substitution - unknown or not-yet-produced. */
 function unresolvedNames(substituted: SubstitutedRequest): string[] {
   const text = `${substituted.url} ${Object.values(substituted.headers).join(' ')} ${substituted.body}`;
-  return [...new Set([...text.matchAll(PLAIN_VAR_TOKEN)].map((m) => m[1]))];
+  return [...new Set([
+    ...[...text.matchAll(RELIVE_VAR_TOKEN)].map((m) => `$.${m[1]}`),
+    ...[...text.matchAll(PLAIN_VAR_TOKEN)].map((m) => m[1]).filter((name) => !name.startsWith('this.')),
+  ])];
 }
 
 /** Variable names this step's recorded request actually references, with their current value - for `StepResult.variablesUsed`. */
@@ -222,6 +226,7 @@ export class ReliveRunService {
   private readonly socket = inject(ReliveSocketService);
   private readonly resendApi = inject(ResendApiService);
   private readonly callsApi = inject(CallsApiService);
+  private readonly globalVariables = inject(GlobalVariablesService);
 
   readonly run = signal<Run | null>(null);
   readonly results = signal<Readonly<Record<string, StepResult>>>({});
@@ -326,7 +331,10 @@ export class ReliveRunService {
       // A child of an already-matched inbound step - the proxy's own existing project/host
       // attribution (unchanged by this driver) already gave it a stepKey when it could.
       const step = event.stepKey ? this.stepByKey(event.stepKey) : undefined;
-      if (step) await this.settleResult(run, step, await this.buildChildResult(step, event));
+      if (step) {
+        await this.settleResult(run, step, await this.buildChildResult(step, event));
+        await this.refreshRunVariables(run);
+      }
       return;
     }
 
@@ -349,6 +357,7 @@ export class ReliveRunService {
     this.topIdx += matchIdx + 1;
     this.setResult(matched.key, (r) => ({ ...r, state: 'RUNNING' }));
     await this.settleResult(run, matched, await this.buildChildResult(matched, event));
+    await this.refreshRunVariables(run);
   }
 
   /** "End run" for the Guided driver (T077): unlike Automatic's `endRun()`, there's no hold to
@@ -553,7 +562,10 @@ export class ReliveRunService {
       .subscribe((e) => collected.set(e.stepKey, e));
 
     const vars = this.variables();
-    const substituted = substituteStepRequest(step, vars);
+    const substituted = substituteStepRequest(step, vars, {
+      ...this.globalVariables.state().fallbacks,
+      ...this.globalVariables.state().variables,
+    });
     const unresolved = unresolvedNames(substituted);
     const startedAt = Date.now();
     let resendResult: ResendResult | null = null;
@@ -597,6 +609,8 @@ export class ReliveRunService {
       await this.settleResult(run, kid, await this.buildChildResult(kid, event));
     }
 
+    await this.refreshRunVariables(run);
+
     await this.applyFailurePolicy(run, step, own);
   }
 
@@ -630,7 +644,7 @@ export class ReliveRunService {
       this.setResult(dep.step.key, (r) => ({
         ...r,
         state: 'SKIPPED',
-        error: `Skipped - needs {{${dep.needs.join('}}, {{')}}}, which ${step.label} did not produce`,
+        error: `Skipped - needs {{$.${dep.needs.join('}}, {{$.')}}}, which ${step.label} did not produce`,
       }));
       for (const kid of childSteps(this.steps, dep.step.key)) {
         this.setResult(kid.key, (r) => ({ ...r, state: 'NOT_CALLED' }));
@@ -784,6 +798,10 @@ export class ReliveRunService {
     for (const v of result.variablesProduced) {
       await firstValueFrom(this.api.setVariable(run.cycleId, run.id, v.name, v.value, step.key));
     }
+  }
+
+  private async refreshRunVariables(run: Run): Promise<void> {
+    this.variables.set(await firstValueFrom(this.api.getRunVariables(run.cycleId, run.id)));
   }
 
   private async finish(): Promise<void> {

@@ -9,8 +9,8 @@ matching and mutation logic that must agree byte-for-byte or a rule means two di
 depending on which way the traffic was going.
 
 Nothing in here talks to the network except the breakpoint path (see BreakpointClient, which the
-addons own) and one fire-and-forget background POST per GLOBAL promotion (see _notify_promotion,
-which only ever sits on a worker thread). Rules are read from a JSON snapshot the backend writes - the same
+addons own), GLOBAL promotion notifications, and Relive-scoped variable writes (performed on a
+worker thread before that call completes). Rules are read from a JSON snapshot the backend writes - the same
 cache-validated-by-mtime idiom log_and_route_reverse.py's _ToggleState already uses for the
 per-project logging flag, and for the same reasons: no request ever costs a database query or a
 backend round trip, rules keep working while the backend is down or restarting, and a change is
@@ -54,7 +54,7 @@ import regex_worker
 # rule, and must stay indistinguishable from "no rules".
 RULES_FILE = os.environ.get('INTERCEPTION_RULES_FILE', '/home/mitmproxy/interception-rules.json')
 VARIABLES_FILE = os.environ.get('INTERCEPTION_VARIABLES_FILE', '/home/mitmproxy/interception/variables.json')
-VARIABLE_TOKEN = re.compile(r'\{\{([A-Za-z][A-Za-z0-9_.-]*)\}\}')
+VARIABLE_TOKEN = re.compile(r'\{\{((?:\$\.)?[A-Za-z][A-Za-z0-9_.-]*)\}\}')
 
 # Where a GLOBAL promotion is reported so open dashboards refetch: POST
 # {PROMOTE_URL} {"name": ...}. The backend merges the value itself (from the file this
@@ -65,8 +65,10 @@ VARIABLE_TOKEN = re.compile(r'\{\{([A-Za-z][A-Za-z0-9_.-]*)\}\}')
 # next load via the file. Unset (tests, bare imports) means notify silently no-ops.
 _PROMOTE_URL = (os.environ.get('INTERCEPTION_API_URL', '').rstrip('/')
                 + '/settings/variables/promoted') if os.environ.get('INTERCEPTION_API_URL') else ''
+_RELIVE_API_URL = os.environ.get('INTERCEPTION_API_URL', '').rstrip('/')
 _NOTIFY_TIMEOUT_SECONDS = 3
 _notify_queue: queue.Queue = queue.Queue()
+_relive_overlays = {}  # runId -> name -> (snapshot mtime, text), until backend republishes
 
 
 def _rule_ref(rule):
@@ -95,6 +97,53 @@ def _notify_worker():
 
 if _PROMOTE_URL:
     threading.Thread(target=_notify_worker, daemon=True).start()
+
+
+def _post_relive_variable(item):
+    cycle_id, run_id, step_key, name, value = item
+    url = (_RELIVE_API_URL + '/relive-cycles/' + urllib.parse.quote(cycle_id, safe='')
+           + '/runs/' + urllib.parse.quote(run_id, safe='') + '/variables')
+    request = urllib.request.Request(
+        url, data=json.dumps({'name': name, 'value': value, 'stepKey': step_key}).encode('utf-8'),
+        headers={'Content-Type': 'application/json'}, method='POST')
+    with urllib.request.urlopen(request, timeout=_NOTIFY_TIMEOUT_SECONDS):
+        pass
+
+
+async def _flush_relive_promotions(flow, rule, kind, verdict):
+    for item in flow.metadata.pop('_relive_pending', []):
+        try:
+            # Wait for the sole system of record without blocking mitmproxy's event loop.
+            # The next call in the run can now read the new value from either proxy container.
+            await asyncio.to_thread(_post_relive_variable, item)
+        except Exception as e:
+            verdict.skip(rule, kind, f'Relive variable {item[3]} could not be saved: {e}')
+            print(f"[interception] Relive variable {item[3]!r} update failed for run {item[1]}: {e}")
+
+
+def _promote_relive(flow, name, value):
+    context = flow.metadata.get('_relive_context')
+    if not context or not _RELIVE_API_URL:
+        return False
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    token_name = '$.' + name
+    _relive_overlays.setdefault(context['runId'], {})[name] = (context.get('mtime'), text)
+    flow.metadata.setdefault('_interception_promoted', {})[token_name] = text
+    for tier, ruleset, _ in flow.metadata.get('relive_rulesets', ()):
+        if tier != 'GLOBAL':
+            ruleset.variables[token_name] = text
+    flow.metadata.setdefault('_relive_pending', []).append(
+        (context['cycleId'], context['runId'], context.get('stepKey'), name, text))
+    return True
+
+
+def relive_overlay(run_id, mtime):
+    return {name: value for name, (written_at, value) in _relive_overlays.get(run_id, {}).items()
+            if written_at == mtime}
+
+
+def clear_relive_overlay(run_id):
+    _relive_overlays.pop(run_id, None)
 
 
 def _notify_promotion(name, value, rule=None):
@@ -1226,7 +1275,7 @@ def _resolve_variable_tokens(value, variables, fallbacks, seen=frozenset(), dept
     whole = VARIABLE_TOKEN.fullmatch(value)
     if whole is not None:
         name = whole.group(1)
-        if (name not in seen and not name.startswith('this.') and name not in skip
+        if (name not in seen and not name.startswith(('this.', '$.')) and name not in skip
                 and variables.get(name, fallbacks.get(name)) is not None
                 and not isinstance(variables.get(name, fallbacks.get(name)), str)):
             # A whole-token file value that is not a string (only proxy-promoted scalars
@@ -1238,7 +1287,7 @@ def _resolve_variable_tokens(value, variables, fallbacks, seen=frozenset(), dept
         name = match.group(1)
         if name in seen:
             return match.group(0)
-        if name.startswith('this.'):
+        if name.startswith(('this.', '$.')):
             return match.group(0)
         if name in skip:
             return match.group(0)
@@ -2186,11 +2235,17 @@ def _capture_rule_variable(flow, rule, action, kind, verdict, values, phase, rul
             # load-time baking cannot see a value captured after the rules were loaded.
             # Survives the request->response phase; never leaves this flow's metadata.
             flow.metadata.setdefault('_interception_promoted', {})[name] = value
+        elif action.get('scope') == 'RELIVE':
+            if not _promote_relive(flow, name, value):
+                verdict.skip(rule, kind, 'Relive scope requires an active Relive run')
+                return
         detail = (f'this.{name} used fallback (source missing)' if fallback else
                   f"this.{name} captured from {action['captureSource']} {action['path']}")
         if action.get('scope') == 'GLOBAL':
             # Parsed by the call card into a link to the variable (contracts section 5).
             detail += ' -> {{' + name + '}}'
+        elif action.get('scope') == 'RELIVE':
+            detail += ' -> {{$.' + name + '}}'
         verdict.record(rule, kind, detail)
     else:
         values.pop(name, None)
@@ -2206,7 +2261,13 @@ def _set_rule_variable(flow, rule, action, kind, verdict, values, rules_cache=No
         if _save_global(name, value, rules_cache.variables_path, rule):
             _notify_promotion(name, value, rule)
         flow.metadata.setdefault('_interception_promoted', {})[name] = value
-    detail = f'this.{name} set' + (' -> {{' + name + '}}' if action.get('scope') == 'GLOBAL' else '')
+    elif action.get('scope') == 'RELIVE':
+        if not _promote_relive(flow, name, value):
+            verdict.skip(rule, kind, 'Relive scope requires an active Relive run')
+            return
+    suffix = (' -> {{' + name + '}}' if action.get('scope') == 'GLOBAL' else
+              ' -> {{$.' + name + '}}' if action.get('scope') == 'RELIVE' else '')
+    detail = f'this.{name} set' + suffix
     verdict.record(rule, kind, detail)
 
 
@@ -2965,10 +3026,12 @@ class InterceptionEngine:
 
         if kind == 'CAPTURE_REQUEST_VARIABLE':
             _capture_rule_variable(flow, rule, action, kind, verdict, values, 'request', self._cache)
+            await _flush_relive_promotions(flow, rule, kind, verdict)
             return
 
         if kind == 'SET_REQUEST_VARIABLE':
             _set_rule_variable(flow, rule, action, kind, verdict, values, self._cache)
+            await _flush_relive_promotions(flow, rule, kind, verdict)
             return
 
         if kind == 'DELAY_REQUEST':
@@ -3370,10 +3433,12 @@ class InterceptionEngine:
 
         if kind == 'CAPTURE_RESPONSE_VARIABLE':
             _capture_rule_variable(flow, rule, action, kind, verdict, values, 'response', self._cache)
+            await _flush_relive_promotions(flow, rule, kind, verdict)
             return
 
         if kind == 'SET_RESPONSE_VARIABLE':
             _set_rule_variable(flow, rule, action, kind, verdict, values, self._cache)
+            await _flush_relive_promotions(flow, rule, kind, verdict)
             return
 
         if kind == 'DELAY_RESPONSE':

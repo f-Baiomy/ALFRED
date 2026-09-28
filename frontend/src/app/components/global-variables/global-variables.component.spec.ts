@@ -122,6 +122,24 @@ describe('GlobalVariablesComponent input highlighting', () => {
     expect(names[0]).toBe('this.supplier');
   });
 
+  it('suggests Relive variables only inside the Relive editor', () => {
+    (component.variables as unknown as { entries: () => Array<{ name: string; value: string }> }).entries =
+      () => [{ name: 'globalOne', value: 'global' }];
+    component.autocompleteControl.set(input);
+    component.autocompleteQuery.set('$.');
+    expect(component.autocompleteMatches()).toEqual([]);
+
+    const reliveEditor = document.createElement('div');
+    reliveEditor.setAttribute('data-relive-variables', JSON.stringify([{ name: 'bookingId', secret: false }, { name: 'session', secret: true }]));
+    reliveEditor.append(input);
+    document.body.append(reliveEditor);
+    expect(component.autocompleteMatches().map((entry) => entry.name)).toEqual(['$.bookingId', '$.session']);
+    expect(component.autocompleteMatches()[1].value).toBe('••••••••');
+    component.autocompleteQuery.set('');
+    expect(component.autocompleteMatches().map((entry) => entry.name)).toContain('globalOne');
+    reliveEditor.remove();
+  });
+
   it('refetches when opened so promotions show without a page reload', () => {
     const variables = TestBed.inject(GlobalVariablesService) as unknown as { refresh: jasmine.Spy };
     expect(component.open()).toBeFalse();

@@ -143,7 +143,7 @@ class ReliveRunsServiceTest {
 
     @Test
     void setVariableRepublishesOnlyWhenReferencedByARule() {
-        JsonNode ruleUsingToken = objectMapper.createObjectNode().put("match", "{{token}}");
+        JsonNode ruleUsingToken = objectMapper.createObjectNode().put("match", "{{$.token}}");
         CycleRule cycleRule = new CycleRule(ruleUsingToken, null);
         ReliveCycle cycle = new ReliveCycle(null, "vars", null, List.of(), List.of(), List.of(cycleRule),
                 new GlobalRulesSelection("NONE", List.of()),

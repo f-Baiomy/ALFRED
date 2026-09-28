@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 public class CycleValidator {
 
     /** Mirrors frontend/src/app/shared/utils/variable-tokens.ts's VARIABLE_TOKEN exactly. */
-    private static final Pattern VARIABLE_TOKEN = Pattern.compile("\\{\\{([A-Za-z][A-Za-z0-9_.-]*)}}");
+    private static final Pattern VARIABLE_TOKEN = Pattern.compile("\\{\\{\\$\\.([A-Za-z][A-Za-z0-9_.-]*)}}");
 
     private final GlobalRulesLookupPort globalRulesLookup;
     private final ReliveRunStorePort runStore;
@@ -53,6 +53,20 @@ public class CycleValidator {
         Set<String> declaredVariables = new HashSet<>();
         if (cycle.variables() != null) {
             cycle.variables().forEach(v -> declaredVariables.add(v.name()));
+        }
+        for (Step step : steps) {
+            if (step.extract() != null && step.extract().isArray()) {
+                step.extract().forEach(extract -> {
+                    if (extract.path("as").isTextual()) declaredVariables.add(extract.path("as").asText());
+                });
+            }
+            if (step.callRule() != null) collectReliveDeclarations(step.callRule().rule(), declaredVariables);
+        }
+        if (cycle.cycleRules() != null) {
+            cycle.cycleRules().forEach(rule -> collectReliveDeclarations(rule.rule(), declaredVariables));
+        }
+        if (cycle.unexpectedCalls() != null && cycle.unexpectedCalls().rules() != null) {
+            cycle.unexpectedCalls().rules().forEach(rule -> collectReliveDeclarations(rule.rule(), declaredVariables));
         }
         Set<String> usedVariables = new HashSet<>();
         collectVariableUsages(cycle, usedVariables);
@@ -217,11 +231,25 @@ public class CycleValidator {
         }
     }
 
+    private void collectReliveDeclarations(JsonNode node, Set<String> into) {
+        if (node == null || node.isNull()) return;
+        if (node.isArray()) {
+            node.forEach(child -> collectReliveDeclarations(child, into));
+        } else if (node.isObject()) {
+            if ("RELIVE".equals(node.path("scope").asText())
+                    && node.path("name").isTextual()
+                    && node.path("name").asText().matches("[A-Za-z][A-Za-z0-9_]*")) {
+                into.add(node.path("name").asText());
+            }
+            node.elements().forEachRemaining(child -> collectReliveDeclarations(child, into));
+        }
+    }
+
     private void checkUnresolvedVariable(Set<String> declared, Set<String> used, List<ValidationFinding> findings) {
         for (String name : used) {
             if (!declared.contains(name)) {
                 findings.add(new ValidationFinding("WARN", "UNRESOLVED_VARIABLE", null,
-                        "{{" + name + "}} is used but never declared as a cycle variable."));
+                        "{{$." + name + "}} is used but never defined in this Relive cycle."));
             }
         }
     }

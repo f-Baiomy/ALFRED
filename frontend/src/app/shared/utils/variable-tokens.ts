@@ -1,6 +1,6 @@
 /** One grammar for authored tokens, suggestions and variable names. */
 export const VARIABLE_NAME = /^[A-Za-z][A-Za-z0-9_.-]*$/;
-export const VARIABLE_TOKEN = /\{\{([A-Za-z][A-Za-z0-9_.-]*)\}\}/g;
+export const VARIABLE_TOKEN = /\{\{((?:\$\.)?[A-Za-z][A-Za-z0-9_.-]*)\}\}/g;
 
 export interface TokenPart { readonly text: string; readonly token: boolean; }
 
@@ -22,7 +22,7 @@ export function tokenNames(value: string): string[] {
 }
 
 export function suggestionRange(value: string, caret: number): { start: number; end: number; query: string } | null {
-  const match = /\{\{([A-Za-z0-9_.-]*)$/.exec(value.slice(0, caret));
+  const match = /\{\{(\$?\.?[A-Za-z0-9_.-]*)$/.exec(value.slice(0, caret));
   return match ? { start: caret - match[0].length, end: caret, query: match[1] } : null;
 }
 

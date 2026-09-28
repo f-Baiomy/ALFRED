@@ -119,6 +119,14 @@ class CycleValidatorTest {
     }
 
     @Test
+    void reliveScopedActionDeclaresItsVariableForLaterRuleReferences() throws Exception {
+        Step step = step("s-1", null, recording("https://app.local/x"), ruleDoc(
+                "{\"type\":\"SET_REQUEST_VARIABLE\",\"name\":\"sessionId\",\"value\":\"abc\",\"scope\":\"RELIVE\"}",
+                "{\"type\":\"SET_REQUEST_HEADER\",\"name\":\"X-Session\",\"value\":\"{{$." + "sessionId}}\"}"));
+        assertThat(has(validator.validate(cycle(List.of(step))), "UNRESOLVED_VARIABLE")).isFalse();
+    }
+
+    @Test
     void selectedGlobalRuleThatNoLongerExistsWarns() throws Exception {
         ReliveCycle cycle = new ReliveCycle("c-1", "x", null, List.of(step("s-1", null, recording("https://app.local/x"), ruleDoc())),
                 List.of(), List.of(), new GlobalRulesSelection("SELECTED", List.of("r-gone")),
@@ -195,7 +203,7 @@ class CycleValidatorTest {
 
     @Test
     void unresolvedVariableIsUsedButNeverDeclared() throws Exception {
-        JsonNode rule = ruleDoc("{\"type\":\"SET_REQUEST_HEADER\",\"name\":\"X\",\"value\":\"{{token}}\",\"enabled\":true}");
+        JsonNode rule = ruleDoc("{\"type\":\"SET_REQUEST_HEADER\",\"name\":\"X\",\"value\":\"{{$.token}}\",\"enabled\":true}");
         Step step = step("s-1", null, recording("https://app.local/x"), rule);
         assertThat(has(validator.validate(cycle(List.of(step))), "UNRESOLVED_VARIABLE")).isTrue();
     }
@@ -212,7 +220,7 @@ class CycleValidatorTest {
     @Test
     void orderDependencyWhenAStepUsesAVariableOnlyALaterStepExtracts() throws Exception {
         JsonNode extractLater = objectMapper.readTree("[{\"from\":\"JSON\",\"path\":\"$.id\",\"as\":\"searchId\",\"missing\":\"SKIP\"}]");
-        JsonNode usesEarly = ruleDoc("{\"type\":\"SET_QUERY_PARAM\",\"name\":\"sid\",\"value\":\"{{searchId}}\",\"enabled\":true}");
+        JsonNode usesEarly = ruleDoc("{\"type\":\"SET_QUERY_PARAM\",\"name\":\"sid\",\"value\":\"{{$.searchId}}\",\"enabled\":true}");
 
         Step early = new Step("s-early", null, "early", true, false, "inbound", "odeysys",
                 new CycleRule(usesEarly, null), "BLOCK", recording("https://app.local/x"),

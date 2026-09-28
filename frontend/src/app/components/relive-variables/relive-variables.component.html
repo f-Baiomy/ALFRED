@@ -1,41 +1,67 @@
 <div class="rl-row" style="margin-bottom: 8px">
-  <span class="rl-faint" style="font-size: 11.5px">Cycle-scoped variables - reusable across calls as {{ '{{name}}' }}</span>
+  <span class="rl-faint" style="font-size: 11.5px">Relive variables - reusable across calls as {{ '{{$.name}}' }}</span>
   <span class="rl-spacer"></span>
   <button class="rl-btn rl-sm" (click)="add()">＋ Add variable</button>
 </div>
 
-@if (!variables().length) {
+@if (!variables().length && !capturedValues().length) {
   <div class="rl-faint" style="padding: 20px; text-align: center">No variables yet.</div>
 } @else {
   @for (row of rows(); track row.variable.name) {
-    <div class="rl-step" style="align-items: flex-start; flex-wrap: wrap; gap: 10px">
-      <div style="flex: 1; min-width: 160px">
+    <div class="rl-variable-row">
+      <div class="rl-variable-name">
+        <label class="rl-faint rl-variable-label">Variable name</label>
         <input class="rl-mono" [value]="row.variable.name" (change)="rename(row.variable.name, $any($event.target).value)" />
-        <div class="rl-faint" style="font-size: 11px; margin-top: 2px">{{ row.source }}</div>
-      </div>
-      <div style="flex: 2; min-width: 200px">
-        <input [value]="row.variable.value" (change)="update(row.variable.name, { value: $any($event.target).value })" placeholder="Initial value" />
-        @if (row.variable.note) {
-          <div class="rl-faint" style="font-size: 11px; margin-top: 2px">{{ row.variable.note }}</div>
+        @if (row.source) {
+          <div class="rl-faint rl-variable-note">{{ row.source }}</div>
         }
       </div>
-      <label class="rl-row" style="font-size: 12px">
-        <input type="checkbox" [checked]="row.variable.secret" (change)="update(row.variable.name, { secret: $any($event.target).checked })" />
-        secret
-      </label>
+      <div class="rl-variable-initial">
+        <label class="rl-faint rl-variable-label">Initial value <span>(used when a run starts)</span></label>
+        <input [value]="row.variable.value" (change)="update(row.variable.name, { value: $any($event.target).value })" placeholder="Initial value" />
+        @if (row.variable.note) {
+          <div class="rl-faint rl-variable-note">{{ row.variable.note }}</div>
+        }
+      </div>
+      <div class="rl-variable-secret">
+        <label class="rl-faint rl-variable-label">Secret</label>
+        <label class="rl-variable-secret-control">
+          <input type="checkbox" [checked]="row.variable.secret" (change)="update(row.variable.name, { secret: $any($event.target).checked })" />
+          <span>Mask value</span>
+        </label>
+      </div>
       @if (liveValues() !== null) {
-        <div style="flex: 2; min-width: 160px">
+        <div class="rl-variable-current">
+          <div class="rl-faint rl-variable-label">Current run value</div>
           @if (row.liveValue === undefined) {
-            <span class="rl-faint">not set yet</span>
+            <span class="rl-faint rl-variable-value">not set yet</span>
           } @else {
-            <span class="rl-mono">{{ maskedLiveValue(row) }}</span>
+            <span class="rl-mono rl-variable-value">{{ maskedLiveValue(row) }}</span>
             @if (row.variable.secret && !isRevealed(row.variable.name)) {
-              <a class="rl-link" style="font-size: 11px; margin-left: 6px" (click)="toggleReveal(row.variable.name)">reveal</a>
+              <button class="rl-link" (click)="toggleReveal(row.variable.name)">reveal</button>
             }
           }
         </div>
       }
-      <button class="icon-btn" title="Remove" (click)="remove(row.variable.name)">✕</button>
+      <button class="icon-btn rl-variable-remove" title="Remove" (click)="remove(row.variable.name)">✕</button>
     </div>
+  }
+
+  @if (capturedValues().length) {
+    <div class="rl-row" style="margin: 14px 0 8px">
+      <strong style="font-size: 12px">{{ capturedLabel() }}</strong>
+      <span class="rl-faint" style="font-size: 11px">Run-only values are available as {{ '{{$.name}}' }}.</span>
+    </div>
+    @for (row of capturedValues(); track row.name) {
+      <div class="rl-step" style="align-items: center; gap: 10px">
+        <code class="rl-mono" style="min-width: 150px">{{ row.name }}</code>
+        <code class="rl-mono" style="flex: 1">{{ maskedCapturedValue(row) }}</code>
+        @if (!isRevealed(row.name)) {
+          <button class="rl-btn rl-sm" (click)="toggleReveal(row.name)">Reveal</button>
+        } @else {
+          <button class="rl-btn rl-sm" (click)="toggleReveal(row.name)">Hide</button>
+        }
+      </div>
+    }
   }
 }

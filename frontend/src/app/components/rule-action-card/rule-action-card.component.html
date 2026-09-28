@@ -382,6 +382,8 @@
           <small class="muted span-all">
             @if (step.action.scope === 'GLOBAL') {
               Shared — use <code>{{ '{{' + (step.action.name || 'name') + '}}' }}</code> anywhere after this action. This overwrites the current global value.
+            } @else if (step.action.scope === 'RELIVE') {
+              Kept in this Relive run — use <code>{{ '{{$.' + (step.action.name || 'name') + '}}' }}</code> in later actions and calls.
             } @else {
               Kept in this call and rule — use <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code> in later actions.
             }
@@ -418,12 +420,14 @@
           <small class="muted span-all">
             @if (step.action.scope === 'GLOBAL') {
               Shared — use as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code> or <code>{{ '{{' + (step.action.name || 'name') + '}}' }}</code> later in this rule; as <code>{{ '{{' + (step.action.name || 'name') + '}}' }}</code> in later calls. Overwrites any existing value.
+            } @else if (step.action.scope === 'RELIVE') {
+              Kept in this Relive run — use <code>{{ '{{$.' + (step.action.name || 'name') + '}}' }}</code> in later actions and calls.
             } @else {
               Kept local — use later as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code>. Each call and rule has its own value.
             }
           </small>
           <small class="muted span-all capture-usage-hint">
-            Used later as <code>{{ '{{this.' + (step.action.name || 'name') + '}}' }}</code> in {{ editor.countLocalUses(step.action) }} action{{ editor.countLocalUses(step.action) === 1 ? '' : 's' }}.
+            Used later as <code>{{ step.action.scope === 'RELIVE' ? '{{$.' + (step.action.name || 'name') + '}}' : '{{this.' + (step.action.name || 'name') + '}}' }}</code> in {{ editor.countLocalUses(step.action) }} action{{ editor.countLocalUses(step.action) === 1 ? '' : 's' }}.
             @if (step.action.scope === 'GLOBAL') {
               As <code>{{ '{{' + (step.action.name || 'name') + '}}' }}</code> in {{ editor.countOtherRuleUses(step.action) }} other rule{{ editor.countOtherRuleUses(step.action) === 1 ? '' : 's' }}.
             }

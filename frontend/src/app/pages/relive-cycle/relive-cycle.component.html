@@ -1,5 +1,5 @@
 @if (state.draft(); as draft) {
-  <div class="rl-page">
+  <div class="rl-page" [attr.data-relive-variables]="reliveVariableHintsJson()">
     <div class="rl-row rl-cycle-head" style="align-items: flex-start">
       <div style="flex: 1">
         <a class="rl-link" routerLink="/relive">← Relive Cycles</a>
@@ -24,7 +24,7 @@
             GLOBAL rules: {{ draft.globalRules.mode === 'NONE' ? 'none' : draft.globalRules.mode === 'ALL' ? 'all' : draft.globalRules.selectedIds.length + ' selected' }}
           </span>
           <span class="rl-pill rl-p-cycle">{{ enabledCycleRuleCount() }}/{{ draft.cycleRules.length }} CYCLE rules enabled</span>
-          <span class="rl-pill rl-p-wait">{{ draft.variables.length }} variables</span>
+          <span class="rl-pill rl-p-wait">{{ displayedVariableCount() }} variable{{ displayedVariableCount() === 1 ? '' : 's' }}</span>
           <span class="rl-pill rl-p-wait">inbound: {{ draft.settings.inboundMode === 'LIVE' ? 'sent to app (LIVE)' : 'replayed by ALFRED (REPLAY)' }}</span>
         </div>
       </div>
@@ -56,7 +56,7 @@
 
     <div class="rl-tabs">
       <button [class.rl-on]="tab() === 'steps'" (click)="setTab('steps')">Steps <span class="rl-cnt">{{ draft.steps.length }}</span></button>
-      <button [class.rl-on]="tab() === 'variables'" (click)="setTab('variables')">Variables <span class="rl-cnt">{{ draft.variables.length }}</span></button>
+      <button [class.rl-on]="tab() === 'variables'" (click)="setTab('variables')">Variables <span class="rl-cnt">{{ displayedVariableCount() }}</span></button>
       <button [class.rl-on]="tab() === 'rules'" (click)="setTab('rules')">Rules <span class="rl-cnt">{{ draft.cycleRules.length }}</span></button>
       <button [class.rl-on]="tab() === 'run'" (click)="setTab('run')">Run</button>
       <button [class.rl-on]="tab() === 'history'" (click)="setTab('history')">History</button>
@@ -87,7 +87,8 @@
         <app-relive-variables
           [variables]="draft.variables"
           [steps]="draft.steps"
-          [liveValues]="runService.run() ? runService.variables() : null"
+          [liveValues]="runService.run() ? runService.variables() : lastRunVariables()"
+          [capturedLabel]="runService.run() ? 'Captured in this run' : 'Captured in latest run'"
           (variablesChange)="setVariables($event)"
         />
       }
@@ -175,6 +176,7 @@
   @if (ruleDialog.request(); as req) {
     <app-rule-editor
       [scope]="req.scope"
+      [reliveVariableHints]="reliveVariableHints()"
       [snapshot]="ruleEditorSnapshot()"
       [target]="ruleEditorTarget"
       (closed)="ruleDialog.close()"

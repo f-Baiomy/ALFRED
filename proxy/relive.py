@@ -143,6 +143,7 @@ class ReliveRuns:
                 self._inflight = projects if isinstance(projects, dict) else {}
 
     def _forget_ordinals(self, run_id):
+        interception.clear_relive_overlay(run_id)
         for key in [k for k in self._ordinals if k[0] == run_id]:
             del self._ordinals[key]
 
@@ -392,15 +393,22 @@ def match_child(flow, source, service_name, run, parent_step_key, runs, consume=
 _TIER_CACHE = {}  # runId -> (mtime, {'CYCLE': RuleSet, 'GLOBAL': RuleSet, 'steps': {stepKey: RuleSet}})
 
 
-def _build_ruleset(rule_docs, run):
+def _build_ruleset(rule_docs, run, engine):
     """A RuleSet built from plain rule documents (a snapshot child's `callRule`, or the run's
     `cycleRules`) - the SAME `interception.Rule`/`_prepare_actions` a published rules.json goes
     through, so every action, including one added after this feature shipped, just works (D17)."""
     limits = {}
+    base = engine.global_ruleset()
+    relive_variables = run.get('variables') if isinstance(run.get('variables'), dict) else {}
+    variables = {**base.variables, **{'$.' + name: value for name, value in relive_variables.items()},
+                 **{'$.' + name: value for name, value in interception.relive_overlay(run.get('runId'), run.get('_mtime')).items()}}
+    secrets = set(base.secrets) | {'$.' + name for name in (run.get('secrets') or [])}
     rules = []
     for doc in rule_docs:
         if not isinstance(doc, dict):
             continue
+        if secrets:
+            interception._mark_secret_actions(doc, secrets)
         try:
             rule = interception.Rule(doc, limits)
         except re.error:
@@ -408,9 +416,8 @@ def _build_ruleset(rule_docs, run):
         if rule.enabled and rule.actions:
             rules.append(rule)
     rules.sort(key=lambda r: r.priority)
-    secrets = run.get('secrets') or []
-    variables = run.get('variables') if isinstance(run.get('variables'), dict) else {}
-    return interception.RuleSet(enabled=True, rules=rules, variables=variables, secrets=secrets)
+    return interception.RuleSet(enabled=True, rules=rules, variables=variables,
+                                fallbacks=base.fallbacks, secrets=secrets)
 
 
 def _build_global_ruleset(engine, run):
@@ -436,6 +443,13 @@ def _relive_answers_dir(run_id, runs=None):
     return os.path.join(base_dir, 'answers', run_id)
 
 
+def _set_flow_context(flow, run, step_key):
+    flow.metadata['_relive_context'] = {
+        'cycleId': run.get('cycleId'), 'runId': run.get('runId'), 'stepKey': step_key,
+        'mtime': run.get('_mtime'),
+    }
+
+
 def rulesets_for(engine, run, step_entry, runs=None):
     """The (tierName, RuleSet, answersDir) triples for `engine.apply_request/apply_response`'s
     `extra_rulesets` - STEP (this step/child's own callRule), CYCLE (the run's cycleRules), GLOBAL
@@ -455,7 +469,7 @@ def rulesets_for(engine, run, step_entry, runs=None):
     bag = cached[1]
 
     if 'CYCLE' not in bag:
-        bag['CYCLE'] = _build_ruleset(run.get('cycleRules') or [], run)
+        bag['CYCLE'] = _build_ruleset(run.get('cycleRules') or [], run, engine)
     if 'GLOBAL' not in bag:
         bag['GLOBAL'] = _build_global_ruleset(engine, run)
 
@@ -463,7 +477,7 @@ def rulesets_for(engine, run, step_entry, runs=None):
     if step_key not in bag['steps']:
         call_rule = (step_entry or {}).get('callRule')
         docs = [call_rule] if isinstance(call_rule, dict) and call_rule else []
-        bag['steps'][step_key] = _build_ruleset(docs, run)
+        bag['steps'][step_key] = _build_ruleset(docs, run, engine)
 
     answers_dir = _relive_answers_dir(run_id, runs)
     global_answers_dir = engine.answers_dir
@@ -474,10 +488,10 @@ def rulesets_for(engine, run, step_entry, runs=None):
     ]
 
 
-def _build_unexpected_ruleset(run):
+def _build_unexpected_ruleset(run, engine):
     """unexpectedCalls.rules, first-match-wins (stopProcessing implied - FR-014f), as one tier."""
     docs = (run.get('unexpectedCalls') or {}).get('rules') or []
-    ruleset = _build_ruleset(docs, run)
+    ruleset = _build_ruleset(docs, run, engine)
     for rule in ruleset.rules:
         rule.stop_processing = True
     return ruleset
@@ -604,6 +618,7 @@ async def apply_outbound(flow, service_name, backend_addresses, engine, runs=Non
 
     rulesets = rulesets_for(engine, run, child, runs)
     flow.metadata['relive_rulesets'] = rulesets
+    _set_flow_context(flow, run, child.get('stepKey'))
     verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
     _guard_replay(verdict, child, run_id, child.get('stepKey'))
     _tag_changed_pause(verdict, run_id, child.get('stepKey'))
@@ -644,6 +659,7 @@ async def _handle_unattributed(flow, service_name, engine, runs):
         # very same REPLAY guard as an ordinary attributed call: no answer, no forward.
         rulesets = rulesets_for(engine, run, child, runs)
         flow.metadata['relive_rulesets'] = rulesets
+        _set_flow_context(flow, run, child.get('stepKey'))
         verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
         _guard_replay(verdict, child, run_id, child.get('stepKey'))
         _tag_changed_pause(verdict, run_id, child.get('stepKey'))
@@ -664,7 +680,7 @@ async def _handle_unexpected(flow, service_name, engine, run, runs):
         return None, info
 
     if policy == 'RULES':
-        unexpected_ruleset = _build_unexpected_ruleset(run)
+        unexpected_ruleset = _build_unexpected_ruleset(run, engine)
         answers_dir = _relive_answers_dir(run_id, runs)
         rulesets = [('STEP', unexpected_ruleset, answers_dir)]
         # Cycle/global rules still apply after, as in D4 - reuse the same cached CYCLE/GLOBAL
@@ -672,6 +688,7 @@ async def _handle_unexpected(flow, service_name, engine, run, runs):
         for tier_name, tier_ruleset, tier_dir in rulesets_for(engine, run, None, runs)[1:]:
             rulesets.append((tier_name, tier_ruleset, tier_dir))
         flow.metadata['relive_rulesets'] = rulesets
+        _set_flow_context(flow, run, None)
         verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
         if not verdict.terminal:
             fallback = (policy_block.get('fallback') or 'BLOCK').upper()
@@ -728,6 +745,7 @@ async def _apply_matched_step(flow, service_name, engine, run, step_key, attribu
 
     rulesets = rulesets_for(engine, run, step, runs)
     flow.metadata['relive_rulesets'] = rulesets
+    _set_flow_context(flow, run, step.get('stepKey'))
     verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
     _tag_changed_pause(verdict, run_id, step.get('stepKey'))
     info = {'runId': run_id, 'stepKey': step.get('stepKey'), 'attribution': attribution,

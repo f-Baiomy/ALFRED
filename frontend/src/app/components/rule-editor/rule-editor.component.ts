@@ -440,6 +440,17 @@ export class RuleEditorComponent implements OnInit {
    * conditions and every other part of the form are identical in all four.
    */
   @Input() scope: 'GLOBAL' | 'CYCLE' | 'CALL' | 'UNEXPECTED' = 'GLOBAL';
+  @Input() reliveVariableHints: readonly { name: string; secret: boolean }[] = [];
+  reliveVariableHintsJson(): string {
+    if (this.scope === 'GLOBAL') return '[]';
+    const names = new Map(this.reliveVariableHints.map((hint) => [hint.name, hint.secret]));
+    for (const action of this.flattenActions(this.actions())) {
+      if (action.scope === 'RELIVE' && action.name && /^[A-Za-z][A-Za-z0-9_]*$/.test(action.name)) {
+        names.set(action.name, names.get(action.name) ?? false);
+      }
+    }
+    return JSON.stringify([...names].map(([name, secret]) => ({ name, secret })));
+  }
   /** Overrides the injected `RULE_EDITOR_TARGET` when set - lets a host that opens many editors
    *  from one place (Relive's `ReliveRuleDialogService`) supply a fresh target per open() without
    *  a static provider for each one. */
@@ -1946,11 +1957,11 @@ export class RuleEditorComponent implements OnInit {
 
   readonly matchLocalVariablesJson = computed(() => JSON.stringify(this.matchLocalVariables()));
 
-  /** B1: "used later as {{this.x}} in N actions" - actions elsewhere in this rule whose text references it. */
+  /** Actions elsewhere in this rule that reference the variable using its selected scope. */
   countLocalUses(action: RuleAction): number {
     const name = action.name?.trim();
     if (!name) return 0;
-    const token = `{{this.${name}}}`;
+    const token = action.scope === 'RELIVE' ? `{{$.${name}}}` : `{{this.${name}}}`;
     return this.flattenActions(this.actions()).filter((a) => a !== action && JSON.stringify(a).includes(token)).length;
   }
 
@@ -1973,10 +1984,13 @@ export class RuleEditorComponent implements OnInit {
     { value: 'SKIP', label: 'Skip dependent actions' },
     { value: 'FALLBACK', label: 'Use fallback value' },
   ];
-  readonly captureScopeOptions: readonly SelectOption[] = [
-    { value: 'LOCAL', label: 'Local — {{this.name}} in this rule' },
-    { value: 'GLOBAL', label: 'Global — {{this.name}} here, {{name}} everywhere' },
-  ];
+  get captureScopeOptions(): readonly SelectOption[] {
+    return [
+      { value: 'LOCAL', label: 'Local — {{this.name}} in this rule' },
+      { value: 'GLOBAL', label: 'Global — {{this.name}} here, {{name}} everywhere' },
+      ...(this.scope === 'GLOBAL' ? [] : [{ value: 'RELIVE', label: 'Relive — {{$.name}} in this run' }]),
+    ];
+  }
 
   isStatus(type: ActionType): boolean {
     return type === 'SET_RESPONSE_STATUS';

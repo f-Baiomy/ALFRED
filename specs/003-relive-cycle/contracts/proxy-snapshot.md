@@ -47,7 +47,7 @@ loader in `interception.py`; the directory mtime is checked at most once per sec
 }
 ```
 
-> **Superseded by research D17:** each child now carries a single `callRule` (the rule document) instead of
+> **Superseded by research D17:** each inbound top-level step and each child now carries a single `callRule` (the rule document) instead of
 > `answerId` / `pause` / `onRequestChanged` / `rules`. REPLAY is its `MOCK_RESPONSE`, LIVE with a mocked reply is
 > its `REPLACE_RESPONSE`, pauses are `PAUSE_*` actions, and "request differs" is an `IF_REQUEST` with the new
 > `MATCHES_RECORDED_CALL` condition. `recordedRequest`/`ignore` stay, as that condition's input.
@@ -60,8 +60,9 @@ loader in `interception.py`; the directory mtime is checked at most once per sec
 > missing or unreadable, the condition evaluates to **"differs"**, so the request-differs branch (default: failure
 > mock) runs. It never counts as a match.
 
-- `match` / rule documents use the existing interception rule shape (`Match`, `Rule`); `{{name}}` is rendered with
-  `variables` before evaluation, as `_resolve_variable_tokens` does for `rules.json`.
+- `match` / rule documents use the existing interception rule shape (`Match`, `Rule`); `{{$.name}}` reads the run's
+  current `variables` at evaluation time, while bare `{{name}}` reads the shared global variable store and
+  `{{this.name}}` remains rule-local.
 - `answerId` points at a stored answer the backend writes under `relive/answers/<runId>/<answerId>.{meta.json,body}`,
   same format as `answers/`; the UUID guard (`ANSWER_ID`) applies.
 - Step `rules` and `cycleRules` are ordinary rule documents run through the **same** evaluator as `rules.json`

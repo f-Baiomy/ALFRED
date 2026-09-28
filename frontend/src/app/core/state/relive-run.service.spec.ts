@@ -1,7 +1,9 @@
 import { TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { Subject, of } from 'rxjs';
 import { CallDetail } from '../models/call.model';
 import { CallsApiService } from '../services/calls-api.service';
+import { GlobalVariablesService } from '../services/global-variables.service';
 import { ReliveApiService } from '../services/relive-api.service';
 import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socket.service';
 import { ResendApiService, ResendRequest, ResendResult } from '../services/resend-api.service';
@@ -122,7 +124,7 @@ function bookingDetailsStep(): Step {
     unattributed: 'BLOCK',
     recording: {
       method: 'GET',
-      url: 'https://app.local/booking/{{bookingId}}',
+      url: 'https://app.local/booking/{{$.bookingId}}',
       requestHeaders: {},
       requestBody: null,
       status: 200,
@@ -225,8 +227,10 @@ describe('ReliveRunService', () => {
   let callsApi: jasmine.SpyObj<CallsApiService>;
   let events$: Subject<ReliveSocketEvent>;
   let service: ReliveRunService;
+  const globalState = signal({ variables: {} as Record<string, string>, fallbacks: {} as Record<string, string> });
 
   beforeEach(() => {
+    globalState.set({ variables: {}, fallbacks: {} });
     reliveApi = jasmine.createSpyObj('ReliveApiService', [
       'startRun',
       'putStepAttempt',
@@ -236,6 +240,7 @@ describe('ReliveRunService', () => {
       'setHold',
       'resumeRun',
       'getRun',
+      'getRunVariables',
       'updateRunDefinition',
     ]);
     resendApi = jasmine.createSpyObj('ResendApiService', ['resend']);
@@ -251,10 +256,12 @@ describe('ReliveRunService', () => {
         { provide: ReliveApiService, useValue: reliveApi },
         { provide: ResendApiService, useValue: resendApi },
         { provide: CallsApiService, useValue: callsApi },
+        { provide: GlobalVariablesService, useValue: { state: globalState } },
         { provide: ReliveSocketService, useValue: { events$, holdLease: jasmine.createSpy(), releaseLease: jasmine.createSpy() } },
       ],
     });
     service = TestBed.inject(ReliveRunService);
+    reliveApi.getRunVariables.and.callFake(() => of({ ...service.variables() }));
   });
 
   it('resends a standalone outbound root through the outbound proxy', async () => {
@@ -374,7 +381,7 @@ describe('ReliveRunService', () => {
 
     expect(service.hold()).toBeNull();
     expect(service.results()['booking-details'].state).toBe('SKIPPED');
-    expect(service.results()['booking-details'].error).toContain('{{bookingId}}');
+    expect(service.results()['booking-details'].error).toContain('{{$.bookingId}}');
     expect(service.results()['logout'].state).toBe('COMPLETED');
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'FAILED');
   });
@@ -545,9 +552,9 @@ describe('ReliveRunService', () => {
     expect(service.results()['login'].state).toBe('COMPLETED_WITH_DIFFERENCES');
   });
 
-  it('T066: refuses to send a step with an unresolved {{name}} reference and marks it FAILED', async () => {
+  it('T066: refuses to send a step with an unresolved {{$.name}} reference and marks it FAILED', async () => {
     const login = inboundStep({
-      recording: { ...inboundStep().recording, requestBody: '{"booking":"{{bookingId}}"}' },
+      recording: { ...inboundStep().recording, requestBody: '{"booking":"{{$.bookingId}}"}' },
     });
     const steps = [login];
     const cycle = cycleOf(steps);
@@ -559,8 +566,24 @@ describe('ReliveRunService', () => {
 
     expect(resendApi.resend).not.toHaveBeenCalled();
     expect(service.results()['login'].state).toBe('FAILED');
-    expect(service.results()['login'].error).toBe('unresolved {{bookingId}}');
+    expect(service.results()['login'].error).toBe('unresolved {{$.bookingId}}');
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'FAILED');
+  });
+
+  it('resolves global and Relive variables from separate scopes before resending', async () => {
+    globalState.set({ variables: { globalId: 'G-1' }, fallbacks: {} });
+    const login = inboundStep({ recording: { ...inboundStep().recording,
+      requestBody: '{"global":"{{globalId}}","relive":"{{$.bookingId}}"}' } });
+    const cycle = { ...cycleOf([login]), variables: [{ name: 'bookingId', value: 'B-2', secret: false }] };
+    const run = { ...runOf([login]), definition: cycle };
+    reliveApi.startRun.and.returnValue(of(run));
+    reliveApi.finishRun.and.returnValue(of({ ...run, status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(of<ResendResult>({ newCallId: 'new-login', status: 200, durationMs: 1,
+      sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }));
+
+    await service.start(cycle, { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+    expect(resendApi.resend.calls.mostRecent().args[0].edits?.body).toBe('{"global":"G-1","relive":"B-2"}');
   });
 
   it('T075: "Run from here" carries earlier top-level steps over as NOT_CALLED and starts at fromStepKey', async () => {
@@ -584,7 +607,7 @@ describe('ReliveRunService', () => {
   it('T076: an optional step\'s failure is recorded but never holds or fails the run overall', async () => {
     const login = inboundStep({
       optional: true,
-      recording: { ...inboundStep().recording, requestBody: '{"booking":"{{bookingId}}"}' },
+      recording: { ...inboundStep().recording, requestBody: '{"booking":"{{$.bookingId}}"}' },
     });
     const steps = [login];
     const run1 = runOf(steps); // definition.settings.onFailure defaults to 'HOLD'

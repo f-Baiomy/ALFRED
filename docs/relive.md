@@ -47,6 +47,22 @@ toggles/creates exactly three actions and never touches anything else the user a
 for this feature but usable anywhere: `{ answerId, ignore: [...] }` compares the request against a
 recorded-request answer file byte for byte except the ignored paths/headers.
 
+## Variable scopes
+
+- `{{name}}` reads the shared global variable store, including its fallback value.
+- `{{this.name}}` reads a value set or captured earlier in the same rule and call.
+- `{{$.name}}` reads a variable defined in this Relive cycle or extracted during this run. Its
+  current value is published with the run snapshot and is unavailable outside Relive.
+
+Set Variable and Capture Variable actions in Relive call or cycle rules can choose **Relive**
+scope. For example, capture `sessionId` from a login response, then use `{{$.sessionId}}` in a
+later call of the same run. The action updates that run's variable timeline and does not change
+the global variable store. These action names and step extraction names appear in suggestions
+alongside variables from the Variables tab.
+
+The rule editor suggests Relive variables only while editing a Relive cycle. The Variables tab
+edits those definitions; the global variables drawer edits only shared variables.
+
 ## Attribution: how a call is known to belong to a run
 
 Decided entirely inside the mitmproxy addons, at request time, with no backend round trip

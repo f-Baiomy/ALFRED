@@ -118,7 +118,7 @@ describe('validateCycle', () => {
 
   it('UNRESOLVED_VARIABLE when a token is used but never declared', () => {
     const step = makeStep('s-1', null);
-    const withToken = { ...step, callRule: { ...step.callRule, actions: [...step.callRule.actions, { type: 'SET_REQUEST_HEADER' as const, name: 'X', value: '{{token}}', enabled: true }] } };
+    const withToken = { ...step, callRule: { ...step.callRule, actions: [...step.callRule.actions, { type: 'SET_REQUEST_HEADER' as const, name: 'X', value: '{{$.token}}', enabled: true }] } };
     const findings = validateCycle(cycle({ steps: [withToken] }));
     expect(has(findings, 'UNRESOLVED_VARIABLE')).toBeTrue();
   });
@@ -130,7 +130,7 @@ describe('validateCycle', () => {
 
   it('ORDER_DEPENDENCY when a step uses a variable only a later step extracts', () => {
     const early = makeStep('s-early', null);
-    const withToken = { ...early, callRule: { ...early.callRule, actions: [...early.callRule.actions, { type: 'SET_QUERY_PARAM' as const, name: 'sid', value: '{{searchId}}', enabled: true }] } };
+    const withToken = { ...early, callRule: { ...early.callRule, actions: [...early.callRule.actions, { type: 'SET_QUERY_PARAM' as const, name: 'sid', value: '{{$.searchId}}', enabled: true }] } };
     const later = makeStep('s-later', null, { extract: [{ from: 'JSON', path: '$.id', as: 'searchId', missing: 'SKIP' }] });
     const findings = validateCycle(cycle({ steps: [withToken, later] }));
     expect(has(findings, 'ORDER_DEPENDENCY')).toBeTrue();

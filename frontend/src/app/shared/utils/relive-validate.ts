@@ -6,6 +6,7 @@
  */
 import { reachesHost } from './relive-call-rule';
 import { tokenNames } from './variable-tokens';
+import { reliveVariableNames } from './relive-variable-names';
 import { CycleRule, ReliveCycle, Step, ValidationFinding, ValidationFindingCode } from './relive-types';
 
 function finding(severity: 'BLOCK' | 'WARN', code: ValidationFindingCode, stepKey: string | null, message: string): ValidationFinding {
@@ -15,7 +16,7 @@ function finding(severity: 'BLOCK' | 'WARN', code: ValidationFindingCode, stepKe
 function collectTokens(rule: CycleRule | null | undefined, into: Set<string>): void {
   if (!rule) return;
   const text = JSON.stringify(rule);
-  for (const name of tokenNames(text)) into.add(name);
+  for (const name of tokenNames(text)) if (name.startsWith('$.')) into.add(name.slice(2));
 }
 
 /** `existingGlobalRuleIds` is optional - omit it (or pass none loaded yet) to skip GLOBAL_RULE_GONE;
@@ -76,7 +77,7 @@ export function validateCycle(cycle: ReliveCycle, existingGlobalRuleIds?: Readon
     );
   }
 
-  const declared = new Set(cycle.variables.map((v) => v.name));
+  const declared = new Set(reliveVariableNames(cycle).keys());
   const used = new Set<string>();
   for (const step of steps) collectTokens(step.callRule, used);
   for (const rule of cycle.cycleRules) collectTokens(rule, used);
@@ -84,7 +85,7 @@ export function validateCycle(cycle: ReliveCycle, existingGlobalRuleIds?: Readon
 
   for (const name of used) {
     if (!declared.has(name)) {
-      findings.push(finding('WARN', 'UNRESOLVED_VARIABLE', null, `{{${name}}} is used but never declared as a cycle variable.`));
+      findings.push(finding('WARN', 'UNRESOLVED_VARIABLE', null, '{{$.' + name + '}} is used but never defined in this Relive cycle.'));
     }
   }
   for (const name of declared) {

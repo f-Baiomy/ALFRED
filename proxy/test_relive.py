@@ -14,6 +14,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import interception
 import log_and_route
@@ -372,6 +373,27 @@ class ReplayAnswerTest(unittest.TestCase):
 
 
 class TierEvaluationTest(unittest.TestCase):
+    def test_relive_scoped_set_is_available_to_later_actions_and_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            step = replay_step(mode='LIVE', extra_actions=[
+                {'type': 'SET_REQUEST_VARIABLE', 'name': 'sessionId', 'value': 'abc', 'scope': 'RELIVE'},
+                {'type': 'SET_REQUEST_HEADER', 'name': 'X-Session', 'value': '{{$.' + 'sessionId}}'},
+            ])
+            write_run(tmp, 'run-relive', steps=[step])
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            flow = outbound_flow(headers={'X-Alfred-Relive': 'run-relive/s-search'})
+            with patch.object(interception, '_RELIVE_API_URL', 'http://backend:5000'), \
+                    patch.object(interception, '_post_relive_variable') as persist:
+                run(relive.apply_outbound(flow, 'proj', (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual('abc', flow.request.headers.get('X-Session'))
+            persist.assert_called_once_with(('cycle-1', 'run-relive', 'c-supA', 'sessionId', 'abc'))
+            later = relive._build_ruleset([{'name': 'later', 'match': {}, 'actions': [
+                {'type': 'SET_REQUEST_HEADER', 'name': 'X-Later', 'value': '{{$.' + 'sessionId}}'},
+            ]}], runs.get('run-relive'), engine)
+            self.assertEqual('abc', later.variables['$.sessionId'])
+            interception.clear_relive_overlay('run-relive')
+
     def test_tier_order_step_before_cycle_before_global(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_rules(tmp, [
@@ -488,6 +510,32 @@ class IsolationTest(unittest.TestCase):
 
 
 class InboundGuidedTest(unittest.TestCase):
+    def test_inbound_step_captures_response_cookie_into_relive_run(self):
+        from mitmproxy import http
+
+        with tempfile.TemporaryDirectory() as tmp:
+            step = {'stepKey': 's-login', 'direction': 'inbound', 'serviceName': 'odeysys',
+                    'children': [], 'callRule': {'name': 'capture session', 'enabled': True,
+                    'match': {}, 'actions': [{'type': 'CAPTURE_RESPONSE_VARIABLE',
+                    'enabled': True, 'name': 'session_id', 'captureSource': 'COOKIE',
+                    'path': 'JSESSIONID', 'scope': 'RELIVE'}]}}
+            write_run(tmp, 'run-login', projects=['odeysys'], steps=[step],
+                      variables={'session_id': 'initial'})
+            engine = make_engine(tmp, source='inbound')
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            flow = FakeFlow(request=FakeRequest(method='POST', host='localhost',
+                            path='/odeysysadmin/Admin2/loginAction',
+                            headers={'X-Alfred-Relive': 'run-login/s-login'}))
+            with patch.object(interception, '_RELIVE_API_URL', 'http://backend:5000'), \
+                    patch.object(interception, '_post_relive_variable') as persist:
+                _, info = run(relive.apply_inbound(flow, 'odeysys', (BACKEND_PEER[0],), engine, runs))
+                flow.response = http.Response.make(200, b'', {'Set-Cookie': 'JSESSIONID=captured; Path=/; HttpOnly'})
+                run(engine.apply_response(flow, 'odeysys',
+                                          extra_rulesets=flow.metadata['relive_rulesets']))
+            self.assertEqual('s-login', info['stepKey'])
+            persist.assert_called_once_with(('cycle-1', 'run-login', 's-login', 'session_id', 'captured'))
+            interception.clear_relive_overlay('run-login')
+
     def test_cycle_cookie_rule_runs_only_when_enabled_for_attributed_inbound_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             step = {'stepKey': 's1', 'direction': 'inbound', 'serviceName': 'odeysys',
@@ -495,10 +543,15 @@ class InboundGuidedTest(unittest.TestCase):
             rule = {'name': 'set sessionid', 'match': {'source': 'inbound',
                     'serviceNames': ['odeysys'], 'pathContains': '/odeysysadmin'},
                     'actions': [{'type': 'SET_REQUEST_COOKIE', 'name': 'sessionid',
-                                 'value': 'new-session', 'enabled': True}]}
-            write_run(tmp, 'run-off', projects=['odeysys'], steps=[step],
+                                 'value': '{{$.sessionid}}', 'enabled': True},
+                                {'type': 'SET_REQUEST_HEADER', 'name': 'X-Global',
+                                 'value': '{{globalToken}}', 'enabled': True}]}
+            with open(os.path.join(tmp, 'variables.json'), 'w', encoding='utf-8') as f:
+                json.dump({'variables': {'globalToken': 'global-value'}}, f)
+            write_rules(tmp, [], enabled=True)
+            write_run(tmp, 'run-off', projects=['odeysys'], steps=[step], variables={'sessionid': 'new-session'},
                       cycleRules=[{**rule, 'enabled': False}])
-            write_run(tmp, 'run-on', projects=['odeysys'], steps=[step],
+            write_run(tmp, 'run-on', projects=['odeysys'], steps=[step], variables={'sessionid': 'new-session'},
                       cycleRules=[{**rule, 'enabled': True}])
             engine = make_engine(tmp, source='inbound')
             runs = relive.ReliveRuns(relive_dir(tmp))
@@ -510,6 +563,8 @@ class InboundGuidedTest(unittest.TestCase):
                 verdict, info = run(relive.apply_inbound(flow, 'odeysys', (BACKEND_PEER[0],), engine, runs))
                 self.assertEqual(run_id, info['runId'])
                 self.assertEqual(expected_cookie, flow.request.headers.get('Cookie'))
+                self.assertEqual('global-value' if run_id == 'run-on' else None,
+                                 flow.request.headers.get('X-Global'))
                 self.assertEqual(run_id == 'run-on', any(r['tier'] == 'CYCLE' for r in info['ruleIds']))
 
     def test_guided_run_claims_untagged_inbound_call_for_its_sole_project(self):

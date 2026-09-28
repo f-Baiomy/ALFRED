@@ -113,6 +113,17 @@ public class ReliveRunsController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /** Small boundary read so the next step sees variables captured by proxy rules. */
+    @GetMapping("/{id}/runs/{runId}/variables")
+    public ResponseEntity<Map<String, String>> variables(@PathVariable String id, @PathVariable String runId) {
+        return getRun.get(runId).map(detail -> {
+            Map<String, String> values = new LinkedHashMap<>();
+            detail.run().definition().variables().forEach(variable -> values.put(variable.name(), variable.value()));
+            detail.run().variableTimeline().forEach(change -> values.put(change.name(), change.value()));
+            return ResponseEntity.ok(values);
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     /** Every cycle variable flagged secret, by name (contracts/rest-api.md masking note) - the
      *  frontend is the one that actually masks values wherever it shows them. */
     private static List<String> secretsOf(Run run) {

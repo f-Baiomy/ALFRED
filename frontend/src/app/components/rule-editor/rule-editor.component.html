@@ -1,6 +1,6 @@
 <div class="dialog-backdrop" (click)="cancel()"></div>
 
-<div class="dialog rule-editor" role="dialog" aria-label="Edit interception rule">
+<div class="dialog rule-editor" role="dialog" aria-label="Edit interception rule" [attr.data-relive-variables]="reliveVariableHintsJson()">
   <div class="dialog-head">
     <h2>{{ isNew() ? 'New interception rule' : 'Edit rule' }}</h2>
     @if (scope !== 'GLOBAL') {

@@ -326,7 +326,7 @@ export class GlobalVariablesService {
   resolve(text: string): string {
     const state = this.state();
     const visit = (input: string, seen: ReadonlySet<string>, depth: number): string => input.replace(VARIABLE_TOKEN, (token, name: string) => {
-      if (name.startsWith('this.')) return token;
+      if (name.startsWith('this.') || name.startsWith('$.')) return token;
       if (depth >= 20) return token;
       if (seen.has(name)) return token;
       const value = Object.prototype.hasOwnProperty.call(state.variables, name) ? state.variables[name]

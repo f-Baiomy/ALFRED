@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Observable } from 'rxjs';
+import { Observable, catchError, of, switchMap } from 'rxjs';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
 import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/relive-step-drawer.component';
@@ -23,6 +23,7 @@ import { ReliveRunService } from '../../core/state/relive-run.service';
 import { externalReach } from '../../shared/utils/relive-external-reach';
 import { CycleRule, CycleVariable, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
+import { reliveVariableNames } from '../../shared/utils/relive-variable-names';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
 import { ReliveRuleDialogService } from './relive-rule-dialog.service';
 
@@ -64,8 +65,22 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly api = inject(ReliveApiService);
   private readonly interceptionState = inject(InterceptionStateService);
   readonly state = inject(ReliveCycleEditorState);
+  readonly reliveVariableHints = computed(() => {
+    const draft = this.state.draft();
+    return draft
+      ? [...reliveVariableNames(draft).entries()].map(([name, secret]) => ({ name, secret }))
+      : [];
+  });
+  readonly reliveVariableHintsJson = computed(() => JSON.stringify(this.reliveVariableHints()));
   readonly enabledCycleRuleCount = computed(() => this.state.draft()?.cycleRules.filter((rule) => rule.enabled !== false).length ?? 0);
   readonly runService = inject(ReliveRunService);
+  readonly lastRunVariables = signal<Readonly<Record<string, string>> | null>(null);
+  readonly displayedVariableCount = computed(() => {
+    const draft = this.state.draft();
+    if (!draft) return 0;
+    const runValues = this.runService.run() ? this.runService.variables() : this.lastRunVariables();
+    return new Set([...draft.variables.map((variable) => variable.name), ...Object.keys(runValues ?? {})]).size;
+  });
   readonly ruleDialog = inject(ReliveRuleDialogService);
   /** Provided to `<app-rule-editor>` via this component's own template - see the getter below.
    *  A getter (not a field) so it always closes over the CURRENT draft/ruleDialog request. */
@@ -180,7 +195,10 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   constructor() {
     const id = this.route.snapshot.paramMap.get('id');
-    if (id) this.state.load(id);
+    if (id) {
+      this.state.load(id);
+      this.restoreLatestRunVariables(id);
+    }
     effect(() => {
       const draft = this.state.draft();
       if (draft && this.picker.hasResult(RELIVE_ADD_CALLS_REQUESTER)) void this.handleReturnFromPicker(draft);
@@ -286,9 +304,19 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
    *  seed values plus every value the run's timeline recorded, latest wins. */
   finalVariablesOf(run: Run): Record<string, string> {
     const vars: Record<string, string> = {};
+    for (const v of run.definition.variables) vars[v.name] = v.value;
     for (const v of run.seedVariables) vars[v.name] = v.value;
     for (const entry of run.variableTimeline) vars[entry.name] = entry.value;
     return vars;
+  }
+
+  private restoreLatestRunVariables(cycleId: string): void {
+    this.api.listRuns(cycleId, 1).pipe(
+      switchMap((runs) => runs.length ? this.api.getRun(cycleId, runs[0].id) : of(null)),
+      catchError(() => of(null)),
+    ).subscribe((run) => {
+      if (run) this.lastRunVariables.set(this.finalVariablesOf(run));
+    });
   }
 
   /** "Mock with it" (T074): a draft edit like any other in the Steps tab - applied to `state`'s
