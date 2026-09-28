@@ -58,7 +58,7 @@ class ReliveCyclesControllerTest {
     @Test
     void listReturnsSummariesWithoutBodies() throws Exception {
         when(manageCycles.list()).thenReturn(List.of(
-                new ReliveCycleSummary("c-1", "Book flow", null, 3, 1, null, "t0", "t0", false)));
+                new ReliveCycleSummary("c-1", "Book flow", null, 3, 2, 1, 1, null, "t0", "t0", false)));
 
         mockMvc.perform(get("/relive-cycles"))
                 .andExpect(status().isOk())

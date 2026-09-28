@@ -89,7 +89,7 @@ describe('ReliveSelectionDialogComponent', () => {
   let getSpy: jasmine.Spy;
   let updateSpy: jasmine.Spy;
   const cyclesSignal = signal<readonly ReliveCycleSummary[]>([
-    { id: 'c-1', name: 'Book flow', description: null, updatedAt: '2026-09-27T10:00:00Z', isTransient: false, lastRun: null, stepCount: 1, liveCount: 0 },
+    { id: 'c-1', name: 'Book flow', description: null, updatedAt: '2026-09-27T10:00:00Z', isTransient: false, lastRun: null, stepCount: 1, childCount: 0, liveCount: 0, cycleRuleCount: 0 },
   ]);
 
   beforeEach(() => {

@@ -75,6 +75,23 @@ describe('ReliveStepTreeComponent', () => {
     expect(rows.length).toBe(5);
   });
 
+  it('shows the recorded method and path with the inbound live-app badge', () => {
+    const inbound: HTMLElement = fixture.nativeElement.querySelector('.rl-step:not(.rl-child)');
+    expect(inbound.querySelector('.rl-step-number')?.textContent?.trim()).toBe('1');
+    expect(inbound.querySelector('.rl-method')?.textContent?.trim()).toBe('POST');
+    expect(inbound.textContent).toContain('/v2/search');
+    expect(inbound.textContent).toContain('APP · LIVE');
+  });
+
+  it('offers an actionable add-calls link when the cycle is empty', () => {
+    fixture.componentRef.setInput('steps', []);
+    fixture.detectChanges();
+    const request = jasmine.createSpy('add calls');
+    fixture.componentInstance.addCallsRequested.subscribe(request);
+    (fixture.nativeElement.querySelector('.rl-link') as HTMLButtonElement).click();
+    expect(request).toHaveBeenCalled();
+  });
+
   it('a mode button changes modeOf(step.callRule) and emits the updated steps', (done) => {
     fixture.componentInstance.stepsChange.subscribe((updated: readonly Step[]) => {
       const supA = updated.find((s) => s.key === 'supA')!;

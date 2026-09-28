@@ -183,7 +183,8 @@ class ReliveCyclesServiceTest {
 
         @Override public List<ReliveCycleSummary> listSummaries() {
             return byId.values().stream().map(c -> new ReliveCycleSummary(c.id(), c.name(), c.description(),
-                    c.steps().size(), 0, c.lastRun(), c.createdAt(), c.updatedAt(), c.isTransient())).toList();
+                    c.steps().size(), (int) c.steps().stream().filter(s -> s.parentKey() != null).count(),
+                    0, c.cycleRules().size(), c.lastRun(), c.createdAt(), c.updatedAt(), c.isTransient())).toList();
         }
         @Override public Optional<ReliveCycle> findById(String id) { return Optional.ofNullable(byId.get(id)); }
         @Override public boolean existsById(String id) { return byId.containsKey(id); }

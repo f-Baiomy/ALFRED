@@ -18,6 +18,7 @@ COPY backend-profiles/pom.xml backend-profiles/pom.xml
 COPY backend-settings/pom.xml backend-settings/pom.xml
 COPY backend-interception/pom.xml backend-interception/pom.xml
 COPY backend-scenarios/pom.xml backend-scenarios/pom.xml
+COPY backend-relive/pom.xml backend-relive/pom.xml
 COPY backend-resend/pom.xml backend-resend/pom.xml
 COPY backend-app/pom.xml backend-app/pom.xml
 COPY backend-architecture-test/pom.xml backend-architecture-test/pom.xml

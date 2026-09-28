@@ -93,6 +93,7 @@ services:
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
       - ./proxy/interception.py:/home/mitmproxy/interception.py:ro
+      - ./proxy/relive.py:/home/mitmproxy/relive.py:ro
       - ./proxy/regex_worker.py:/home/mitmproxy/regex_worker.py:ro
       - ./proxy/ws_messages.py:/home/mitmproxy/ws_messages.py:ro
       - ./proxy/breakpoints.py:/home/mitmproxy/breakpoints.py:ro
@@ -183,6 +184,7 @@ services:
     volumes:
       - ./proxy/log_and_route_reverse.py:/home/mitmproxy/log_and_route_reverse.py:ro
       - ./proxy/interception.py:/home/mitmproxy/interception.py:ro
+      - ./proxy/relive.py:/home/mitmproxy/relive.py:ro
       - ./proxy/regex_worker.py:/home/mitmproxy/regex_worker.py:ro
       - ./proxy/ws_messages.py:/home/mitmproxy/ws_messages.py:ro
       - ./proxy/breakpoints.py:/home/mitmproxy/breakpoints.py:ro

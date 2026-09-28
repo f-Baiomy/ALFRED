@@ -45,6 +45,7 @@ export class ReliveStepTreeComponent {
 
   readonly stepsChange = output<readonly Step[]>();
   readonly select = output<string>();
+  readonly addCallsRequested = output<void>();
 
   readonly search = signal('');
   readonly folded = signal<ReadonlySet<string>>(new Set());
@@ -74,6 +75,15 @@ export class ReliveStepTreeComponent {
 
   onSelect(key: string): void {
     this.select.emit(key);
+  }
+
+  pathOf(step: Step): string {
+    try {
+      const url = new URL(step.recording.url);
+      return url.pathname + url.search;
+    } catch {
+      return step.recording.url;
+    }
   }
 
   modeOf(step: Step): StepMode {

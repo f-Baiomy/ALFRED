@@ -1,29 +1,26 @@
-<div class="rl-row" style="margin-bottom: 8px">
-  <input class="rl-search" placeholder="Search steps…" [value]="search()" (input)="onSearch($any($event.target).value)" />
-  <span class="rl-spacer"></span>
-  <span class="rl-faint" style="font-size: 11.5px">Drag ⋮⋮ to reorder · click a step to configure it</span>
-</div>
-
 @if (!steps().length) {
-  <div class="rl-faint" style="padding: 30px; text-align: center">No steps yet. Add calls from a recording.</div>
+  <div class="rl-faint" style="padding: 30px; text-align: center">No steps yet. <button class="rl-link" (click)="addCallsRequested.emit()">Add calls from a recording</button></div>
 } @else {
   <div cdkDropList (cdkDropListDropped)="onBlockDropped($event)">
-    @for (block of blocks(); track block.parent.key) {
+    @for (block of blocks(); track block.parent.key; let stepNumber = $index) {
       <div cdkDrag [cdkDragData]="block">
         <div
           class="rl-step"
           [class.rl-child]="false"
+          [class.rl-sel]="selectedKey() === block.parent.key"
           [style.opacity]="block.parent.enabled ? 1 : 0.5"
           (click)="onSelect(block.parent.key)"
         >
           <span class="rl-grip" title="Drag to reorder">⋮⋮</span>
+          <span class="rl-step-number">{{ stepNumber + 1 }}</span>
           @if (block.children.length) {
             <button class="icon-btn" (click)="toggleFold(block.parent.key, $event)">{{ isFolded(block.parent.key) ? '▸' : '▾' }}</button>
           }
           <span class="rl-dir rl-in" title="Inbound">↙</span>
+          <span class="rl-method">{{ block.parent.recording.method }}</span>
           <span class="rl-lbl">
             <span class="rl-t">{{ block.parent.label }}</span>
-            <span class="rl-u rl-mono">{{ block.parent.serviceName }}</span>
+            <span class="rl-u rl-mono">{{ block.parent.serviceName }} {{ pathOf(block.parent) }}</span>
           </span>
           @if (block.parent.optional) {
             <span class="rl-pill rl-p-wait">optional</span>
@@ -34,6 +31,7 @@
           @if (block.children.length) {
             <span class="rl-pill rl-p-wait" title="Outbound calls it makes">{{ block.children.length }} ↗</span>
           }
+          <span class="rl-pill rl-p-wait" title="Sent to the real application by ALFRED">APP · LIVE</span>
           <button class="icon-btn" title="{{ block.parent.enabled ? 'Disable' : 'Enable' }}" (click)="toggleEnabled(block.parent, $event)">
             {{ block.parent.enabled ? '◉' : '○' }}
           </button>
@@ -43,11 +41,12 @@
 
         @if (!isFolded(block.parent.key)) {
           @for (child of block.children; track child.key) {
-            <div class="rl-step rl-child" [style.opacity]="child.enabled ? 1 : 0.5" (click)="onSelect(child.key)">
+            <div class="rl-step rl-child" [class.rl-sel]="selectedKey() === child.key" [style.opacity]="child.enabled ? 1 : 0.5" (click)="onSelect(child.key)">
               <span class="rl-dir rl-out" title="Outbound">↗</span>
+              <span class="rl-method">{{ child.recording.method }}</span>
               <span class="rl-lbl">
                 <span class="rl-t">{{ child.label }}</span>
-                <span class="rl-u rl-mono">{{ child.serviceName }}</span>
+                <span class="rl-u rl-mono">{{ child.serviceName }} {{ pathOf(child) }}</span>
               </span>
               @if (hasCheckpoint(child)) {
                 <span class="rl-pill rl-p-pause" title="Has a checkpoint">⏸</span>

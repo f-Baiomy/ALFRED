@@ -29,7 +29,7 @@ describe('ReliveListComponent', () => {
 
     // The state service's constructor already issued the initial list() call.
     http.expectOne('http://backend/relive-cycles').flush([
-      { id: 'c-1', name: 'Book flow', description: 'A full booking', stepCount: 4, liveCount: 1, lastRun: null, createdAt: null, updatedAt: null, isTransient: false },
+      { id: 'c-1', name: 'Book flow', description: 'A full booking', stepCount: 4, childCount: 3, liveCount: 1, cycleRuleCount: 1, lastRun: null, createdAt: null, updatedAt: null, isTransient: false },
     ]);
     fixture.detectChanges();
   });
@@ -40,6 +40,26 @@ describe('ReliveListComponent', () => {
     const names = fixture.nativeElement.querySelectorAll('h2');
     expect(names.length).toBe(1);
     expect(names[0].textContent).toContain('Book flow');
+  });
+
+  it('shows the step hierarchy, live state, and cycle rule count', () => {
+    const card: HTMLElement = fixture.nativeElement.querySelector('.rl-cyc');
+    expect(card.textContent).toContain('1 step · 3 children');
+    expect(card.textContent).toContain('1 LIVE external');
+    expect(card.textContent).toContain('1 cycle rule');
+  });
+
+  it('keeps multiple cycles in separate cards and shows the replay state', () => {
+    fixture.componentInstance.state.load();
+    http.expectOne('http://backend/relive-cycles').flush([
+      { id: 'c-1', name: 'Book flow', stepCount: 4, childCount: 3, liveCount: 1, cycleRuleCount: 1, lastRun: null, isTransient: false },
+      { id: 'c-2', name: 'Hotel search', stepCount: 4, childCount: 0, liveCount: 0, cycleRuleCount: 0, lastRun: null, isTransient: false },
+    ]);
+    fixture.detectChanges();
+    const cards: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.rl-cyc');
+    expect(cards.length).toBe(2);
+    expect(cards[1].textContent).toContain('all REPLAY');
+    expect(cards[1].textContent).toContain('0 cycle rules');
   });
 
   it('asks for confirmation before deleting, and only calls DELETE once confirmed', () => {

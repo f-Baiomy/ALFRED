@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.internalcalls.application.port.out.NewInternalCallObserverPort;
 import com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -24,7 +25,9 @@ public class ReliveCallObserverAdapter implements NewCallObserverPort, NewIntern
     private final ObserveRunCallUseCase observeRunCall;
     private final ObjectMapper objectMapper;
 
-    public ReliveCallObserverAdapter(ObserveRunCallUseCase observeRunCall, ObjectMapper objectMapper) {
+    // The call service builds its observer list during startup; Relive can resolve the use case
+    // when the first call arrives, after the interception and call-store bridges have initialized.
+    public ReliveCallObserverAdapter(@Lazy ObserveRunCallUseCase observeRunCall, ObjectMapper objectMapper) {
         this.observeRunCall = observeRunCall;
         this.objectMapper = objectMapper;
     }

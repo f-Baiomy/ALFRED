@@ -654,3 +654,10 @@ as the code they cover.
 Per the owner's token budget: implement **in the main session, one task at a time**. At most one subagent at a time,
 only for a large self-contained task (e.g. T029-T034 proxy stream), and its prompt must name the files and forbid
 whole-file reads of `styles.scss` / `interception.py`.
+
+## Phase 14: Convergence
+
+- [X] T083 Restore the Relive visual primitives in `frontend/src/styles/_relive.scss` per T005 and the approved `mock.html` (partial). Reset browser defaults for Relive tab and segmented-control buttons, and style Relive inputs/selects/textareas with the mock's font, background, border, focus, and spacing. Match the mock's gradient card surface and verify rendered controls in the real app instead of relying on class names alone.
+- [X] T084 Bring `frontend/src/app/pages/relive-cycle/relive-cycle.component.html` and its Relive styles into the `cycleView()` layout per T024 (partial). Wrap Steps, Variables, Rules, Run, and History content in the mock's padded `card panel` shell, retain the 430px drawer layout when selected, and show the inbound handling summary pill. Check the desktop editor and narrower widths against the mock.
+- [X] T085 Align the Steps panel and rows with `stepsPanel()` and `stepRow()` in the approved mock per T025 (partial). Put Add calls, search, hint, and Reset to recording in one wrapping toolbar; make the empty-state Add calls text an actionable link; restore the inbound step number, method badge, and APP · LIVE pill (plus the recorded service/path line) while preserving existing drag, selection, and mode behavior. Verify both empty and populated cycles in the rendered app.
+- [X] T086 Match cycle-card content and proportions in `frontend/src/app/pages/relive/relive-list.component.html` to `listView()` per T023 (partial). Show the step/child count, LIVE or all-REPLAY state, and cycle-rule count using the mock's pill hierarchy; place duplicate/delete actions without turning each card into a separate button-heavy panel. Check cards with one and multiple cycles against the approved mock.

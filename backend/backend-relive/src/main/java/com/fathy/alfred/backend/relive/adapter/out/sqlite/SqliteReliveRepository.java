@@ -65,12 +65,31 @@ public class SqliteReliveRepository {
                   definition_json TEXT NOT NULL,
                   is_transient INTEGER NOT NULL DEFAULT 0,
                   step_count INTEGER NOT NULL DEFAULT 0,
+                  child_count INTEGER NOT NULL DEFAULT 0,
                   live_count INTEGER NOT NULL DEFAULT 0,
+                  cycle_rule_count INTEGER NOT NULL DEFAULT 0,
                   last_run_json TEXT,
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 )
                 """);
+        // Existing databases predate the list's child/rule badges. Backfill once from the
+        // stored definition; normal list requests still read summary columns only.
+        var columns = jdbcTemplate.queryForList("PRAGMA table_info(relive_cycles)").stream()
+                .map(row -> (String) row.get("name")).toList();
+        if (!columns.contains("child_count")) {
+            jdbcTemplate.execute("ALTER TABLE relive_cycles ADD COLUMN child_count INTEGER NOT NULL DEFAULT 0");
+            jdbcTemplate.execute("""
+                    UPDATE relive_cycles SET child_count = (
+                      SELECT COUNT(*) FROM json_each(relive_cycles.definition_json, '$.steps')
+                      WHERE json_extract(value, '$.parentKey') IS NOT NULL
+                    )
+                    """);
+        }
+        if (!columns.contains("cycle_rule_count")) {
+            jdbcTemplate.execute("ALTER TABLE relive_cycles ADD COLUMN cycle_rule_count INTEGER NOT NULL DEFAULT 0");
+            jdbcTemplate.execute("UPDATE relive_cycles SET cycle_rule_count = COALESCE(json_array_length(definition_json, '$.cycleRules'), 0)");
+        }
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS relive_cycle_versions (
                   cycle_id TEXT NOT NULL,

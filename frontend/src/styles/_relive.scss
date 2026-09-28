@@ -92,7 +92,19 @@
     background: rgba(139, 92, 246, 0.07);
   }
   &.rl-child {
-    margin-left: 26px;
+    margin-left: 34px;
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: -18px;
+      top: -6px;
+      bottom: 50%;
+      width: 12px;
+      border-left: 2px solid rgba(56, 189, 248, 0.45);
+      border-bottom: 2px solid rgba(56, 189, 248, 0.45);
+      border-bottom-left-radius: 6px;
+    }
   }
   &.rl-sel {
     border-color: var(--purple);
@@ -174,6 +186,10 @@
   gap: 2px;
 
   button {
+    font: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
     padding: 3px 9px;
     border-radius: 6px;
     font-size: 11.5px;
@@ -494,6 +510,31 @@
   max-width: 1320px;
   margin: 0 auto;
   padding: 18px 24px 60px;
+
+  :where(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+    font: inherit;
+    color: var(--text);
+    background: var(--card-inner);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 6px 9px;
+    outline: none;
+
+    &:focus {
+      border-color: var(--purple);
+    }
+  }
+
+  .rl-name-input,
+  .rl-description-input {
+    background: transparent;
+    border-color: transparent;
+    padding: 2px 6px;
+  }
+
+  .rl-name-input {
+    font: 700 19px Montserrat, 'Segoe UI', sans-serif;
+  }
 }
 .rl-row {
   display: flex;
@@ -570,6 +611,14 @@
   color: var(--purple-light);
   font-size: 12px;
   cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+
+  &:is(button) {
+    font: inherit;
+    color: var(--purple-light);
+  }
 
   &:hover {
     text-decoration: underline;
@@ -624,6 +673,10 @@
   margin: 14px 0 12px;
 
   button {
+    font: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
     padding: 8px 12px;
     color: var(--text-dim);
     font-weight: 600;
@@ -665,7 +718,8 @@
 }
 .rl-lbl {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   flex: 1;
   min-width: 0;
 }
@@ -715,6 +769,101 @@
 
   &.rl-nodrawer {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.rl-cycle-head {
+  flex-wrap: wrap;
+
+  > div:first-child {
+    min-width: 0;
+  }
+}
+
+.rl-cycle-header-actions {
+  padding-top: 22px;
+}
+
+.rl-page .rl-description-input {
+  width: min(620px, 100%);
+}
+
+.rl-panel {
+  min-width: 0;
+  padding: 12px;
+}
+
+.rl-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.rl-step-number {
+  color: var(--text-faint);
+  width: 18px;
+  text-align: right;
+  font-size: 11px;
+  flex: none;
+}
+
+.rl-method {
+  font: 700 10px Consolas, monospace;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--purple-light);
+  background: rgba(139, 92, 246, 0.18);
+  flex: none;
+}
+
+.rl-cycle-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  align-items: center;
+  font-size: 11px;
+
+  button {
+    font: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+
+  .rl-danger {
+    color: var(--red);
+  }
+}
+
+@media (max-width: 900px) {
+  .rl-cycle-head {
+    display: block;
+  }
+
+  .rl-cycle-header-actions {
+    flex-wrap: wrap;
+    padding-top: 8px;
+  }
+
+  .rl-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rl-drawer {
+    position: static;
+    max-height: none;
+  }
+
+  .rl-page .rl-name-input,
+  .rl-page .rl-description-input {
+    min-width: 0;
+    width: 100%;
   }
 }
 

@@ -22,6 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -65,6 +66,17 @@ class SqliteReliveStoreAdaptersTest {
                 "2026-09-27T10:00:00Z", "2026-09-27T10:00:00Z", isTransient, null);
     }
 
+    private ReliveCycle cycleWithChildAndRule(String id) {
+        ReliveCycle base = newCycle(id, false);
+        var parent = base.steps().get(0);
+        var child = new com.fathy.alfred.backend.relive.domain.model.Step(
+                "s-child", parent.key(), "Supplier A", true, false, "outbound", "Supplier A", parent.callRule(),
+                "BLOCK", parent.recording(), parent.source(), parent.extract(), parent.assertions(), List.of());
+        return new ReliveCycle(base.id(), base.name(), base.description(), List.of(parent, child),
+                base.variables(), List.of(parent.callRule()), base.globalRules(), base.settings(), base.noise(),
+                base.unexpectedCalls(), base.createdAt(), base.updatedAt(), base.isTransient(), base.lastRun());
+    }
+
     @Test
     void roundTripsACycle() {
         ReliveCycle saved = cycleStore.save(newCycle("c-1", false));
@@ -79,11 +91,54 @@ class SqliteReliveStoreAdaptersTest {
 
     @Test
     void listDoesNotReadBodies() {
-        cycleStore.save(newCycle("c-1", false));
+        cycleStore.save(cycleWithChildAndRule("c-1"));
         List<ReliveCycleSummary> summaries = cycleStore.listSummaries();
         assertThat(summaries).hasSize(1);
-        assertThat(summaries.get(0).stepCount()).isEqualTo(1);
+        assertThat(summaries.get(0).stepCount()).isEqualTo(2);
+        assertThat(summaries.get(0).childCount()).isEqualTo(1);
+        assertThat(summaries.get(0).cycleRuleCount()).isEqualTo(1);
         assertThat(summaries.get(0).name()).isEqualTo("Book flow");
+    }
+
+    @Test
+    void existingDatabaseBackfillsListBadges(@TempDir Path tempDir) throws Exception {
+        Path legacyFile = tempDir.resolve("legacy-relive.db");
+        ReliveCycle existing = cycleWithChildAndRule("old-cycle");
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + legacyFile)) {
+            connection.createStatement().execute("""
+                    CREATE TABLE relive_cycles (
+                      id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, definition_json TEXT NOT NULL,
+                      is_transient INTEGER NOT NULL DEFAULT 0, step_count INTEGER NOT NULL DEFAULT 0,
+                      live_count INTEGER NOT NULL DEFAULT 0, last_run_json TEXT,
+                      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                    )
+                    """);
+            try (var insert = connection.prepareStatement("""
+                    INSERT INTO relive_cycles
+                    (id, name, description, definition_json, step_count, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """)) {
+                insert.setString(1, existing.id());
+                insert.setString(2, existing.name());
+                insert.setString(3, existing.description());
+                insert.setString(4, objectMapper.writeValueAsString(existing));
+                insert.setInt(5, existing.steps().size());
+                insert.setString(6, existing.createdAt());
+                insert.setString(7, existing.updatedAt());
+                insert.executeUpdate();
+            }
+        }
+
+        var upgraded = new SqliteReliveRepository();
+        ReflectionTestUtils.setField(upgraded, "dbFile", legacyFile.toString());
+        upgraded.init();
+        try {
+            ReliveCycleSummary summary = new SqliteReliveCycleStoreAdapter(upgraded, objectMapper).listSummaries().get(0);
+            assertThat(summary.childCount()).isEqualTo(1);
+            assertThat(summary.cycleRuleCount()).isEqualTo(1);
+        } finally {
+            upgraded.close();
+        }
     }
 
     @Test

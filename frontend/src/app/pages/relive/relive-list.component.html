@@ -21,17 +21,21 @@
             <div class="rl-dim" style="margin: 4px 0 8px">{{ cycle.description }}</div>
           }
           <div class="rl-row" style="flex-wrap: wrap; gap: 6px">
-            <span class="rl-pill rl-p-wait">{{ cycle.stepCount }} steps</span>
+            <span class="rl-pill rl-p-wait">{{ cycle.stepCount - cycle.childCount }} step{{ cycle.stepCount - cycle.childCount === 1 ? '' : 's' }} · {{ cycle.childCount }} children</span>
             @if (cycle.liveCount) {
               <span class="rl-pill rl-p-live">⚠ {{ cycle.liveCount }} LIVE external</span>
+            } @else {
+              <span class="rl-pill rl-p-replay">all REPLAY</span>
             }
-            @if (cycle.updatedAt) {
-              <span class="rl-pill rl-p-wait">updated {{ cycle.updatedAt | date: 'short' }}</span>
-            }
+            <span class="rl-pill rl-p-cycle">{{ cycle.cycleRuleCount }} cycle rule{{ cycle.cycleRuleCount === 1 ? '' : 's' }}</span>
           </div>
-          <div class="rl-row" style="margin-top: 10px; justify-content: flex-end; gap: 6px">
-            <button class="rl-btn rl-sm" (click)="duplicate(cycle, $event)">Duplicate</button>
-            <button class="rl-btn rl-sm rl-danger" (click)="delete(cycle, $event)">Delete</button>
+          <div class="rl-cycle-actions">
+            @if (cycle.updatedAt) {
+              <span class="rl-faint">updated {{ cycle.updatedAt | date: 'short' }}</span>
+            }
+            <span class="rl-spacer"></span>
+            <button class="rl-link" (click)="duplicate(cycle, $event)">Duplicate</button>
+            <button class="rl-link rl-danger" (click)="delete(cycle, $event)">Delete</button>
           </div>
         </div>
       }

@@ -37,7 +37,7 @@ public class SqliteReliveCycleStoreAdapter implements ReliveCycleStorePort {
     @Override
     public List<ReliveCycleSummary> listSummaries() {
         return jdbc.query("""
-                SELECT id, name, description, step_count, live_count, last_run_json, created_at, updated_at, is_transient
+                SELECT id, name, description, step_count, child_count, live_count, cycle_rule_count, last_run_json, created_at, updated_at, is_transient
                 FROM relive_cycles ORDER BY rowid DESC
                 """, SUMMARY_ROW_MAPPER);
     }
@@ -57,16 +57,19 @@ public class SqliteReliveCycleStoreAdapter implements ReliveCycleStorePort {
     @Override
     public ReliveCycle save(ReliveCycle cycle) {
         jdbc.update("""
-                        INSERT INTO relive_cycles (id, name, description, definition_json, is_transient, step_count, live_count, last_run_json, created_at, updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?)
+                        INSERT INTO relive_cycles (id, name, description, definition_json, is_transient, step_count, child_count, live_count, cycle_rule_count, last_run_json, created_at, updated_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
                             definition_json = excluded.definition_json, is_transient = excluded.is_transient,
-                            step_count = excluded.step_count, live_count = excluded.live_count,
+                            step_count = excluded.step_count, child_count = excluded.child_count,
+                            live_count = excluded.live_count, cycle_rule_count = excluded.cycle_rule_count,
                             last_run_json = excluded.last_run_json, updated_at = excluded.updated_at
                         """,
                 cycle.id(), cycle.name(), cycle.description(), writeJson(cycle), cycle.isTransient() ? 1 : 0,
                 cycle.steps() == null ? 0 : cycle.steps().size(),
-                countLiveChildren(cycle), writeJson(cycle.lastRun()), cycle.createdAt(), cycle.updatedAt());
+                cycle.steps() == null ? 0 : (int) cycle.steps().stream().filter(s -> s.parentKey() != null).count(),
+                countLiveChildren(cycle), cycle.cycleRules() == null ? 0 : cycle.cycleRules().size(),
+                writeJson(cycle.lastRun()), cycle.createdAt(), cycle.updatedAt());
         return findById(cycle.id()).orElseThrow(() -> new IllegalStateException("Cycle " + cycle.id() + " vanished immediately after being saved"));
     }
 
@@ -157,7 +160,7 @@ public class SqliteReliveCycleStoreAdapter implements ReliveCycleStorePort {
 
     private final RowMapper<ReliveCycleSummary> SUMMARY_ROW_MAPPER = (rs, rowNum) -> new ReliveCycleSummary(
             rs.getString("id"), rs.getString("name"), rs.getString("description"),
-            rs.getInt("step_count"), rs.getInt("live_count"),
+            rs.getInt("step_count"), rs.getInt("child_count"), rs.getInt("live_count"), rs.getInt("cycle_rule_count"),
             readJson(rs.getString("last_run_json"), RunSummary.class),
             rs.getString("created_at"), rs.getString("updated_at"), rs.getInt("is_transient") != 0);
 }

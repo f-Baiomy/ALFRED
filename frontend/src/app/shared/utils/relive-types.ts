@@ -130,7 +130,9 @@ export interface ReliveCycleSummary {
   readonly name: string;
   readonly description?: string | null;
   readonly stepCount: number;
+  readonly childCount: number;
   readonly liveCount: number;
+  readonly cycleRuleCount: number;
   readonly lastRun?: RunSummary | null;
   readonly createdAt?: string | null;
   readonly updatedAt?: string | null;
