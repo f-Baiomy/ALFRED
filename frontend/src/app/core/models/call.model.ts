@@ -102,6 +102,8 @@ export interface CallRecord {
   readonly wsMessages?: readonly WsMessage[];
   /** Which backend endpoint this call was fetched from - stamped client-side in toCallRecord(), never part of the wire shape. Undefined only for a CapturedCall's wrapped CallRecord (session-cycles never captures 'internal' calls, so it's always implicitly 'external' there). Needed so getCallDetail() knows whether to fetch GET /calls/{id}/detail or GET /internal-calls/{id}/detail once a call from a merged 'both' list is expanded. */
   readonly source?: CallEndpointSource;
+  /** Present only for a call Relive attributed or blocked - see ReliveCallTag. */
+  readonly relive?: ReliveCallTag | null;
 }
 
 /**
@@ -139,6 +141,19 @@ export interface CallSummaryDto {
   readonly interception?: CallInterception | null;
   readonly resend_of?: string | null;
   readonly resend_edits?: Record<string, unknown> | null;
+  /** Present only for a call Relive attributed or blocked - see CallRecord.relive. */
+  readonly relive?: ReliveCallTag | null;
+}
+
+/** Set by the proxy addons when a call was attributed to (or blocked as ambiguous for) an active
+ *  Relive run (research D1-D4, FR-051) - trusted like resend_of/interception, never
+ *  client-supplied. `ambiguousRunIds` is set instead of `runId`/`stepKey` for a call more than one
+ *  active run could have claimed (FR-050a). */
+export interface ReliveCallTag {
+  readonly runId: string;
+  readonly stepKey: string | null;
+  readonly cycleName?: string | null;
+  readonly ambiguousRunIds?: readonly string[] | null;
 }
 
 /** 'custom' is a manually drag-and-drop-ordered arrangement - only ever reachable on a session-cycle

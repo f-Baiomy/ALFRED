@@ -103,6 +103,22 @@ export class CallCardComponent {
   readonly interception = computed(() => this.call().interception ?? null);
   readonly interceptionLogGroups = computed<readonly InterceptionLogGroup[]>(() => buildInterceptionLogGroups(this.interception()));
 
+  /** Relive badge (FR-051) - reads straight off the call, like `interception` above; no separate
+   *  input, so Live Calls and the session-cycle capture view need no extra wiring. */
+  readonly relive = computed(() => this.call().relive ?? null);
+  readonly reliveBadgeText = computed(() => {
+    const relive = this.relive();
+    if (!relive) return null;
+    if (relive.ambiguousRunIds?.length) return `Claimed by ${relive.ambiguousRunIds.length} runs`;
+    return relive.cycleName ? `Relive · ${relive.cycleName}` : 'Relive';
+  });
+  readonly reliveBadgeTitle = computed(() => {
+    const relive = this.relive();
+    if (!relive) return '';
+    if (relive.ambiguousRunIds?.length) return `Blocked - claimed by runs ${relive.ambiguousRunIds.join(', ')}`;
+    return `Run ${relive.runId}${relive.stepKey ? ` · step ${relive.stepKey}` : ''}`;
+  });
+
   private readonly globalVariables = inject(GlobalVariablesService, { optional: true });
 
   /**

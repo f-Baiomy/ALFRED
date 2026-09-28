@@ -224,6 +224,9 @@
             (click)="toggleInterceptionLog($event)"
           >{{ interceptedByHand() ? '✎ edited' : '⚡ intercepted' }} · {{ intercepted.applied.length }}</button>
         }
+        @if (reliveBadgeText(); as badge) {
+          <span class="rl-pill" [class]="relive()?.ambiguousRunIds?.length ? 'rl-p-fail' : 'rl-p-cycle'" [title]="reliveBadgeTitle()">{{ badge }}</span>
+        }
         <button type="button" class="action-btn rule-from-call-btn" title="Make an interception rule from this call - opens here, match filled from it" (click)="ruleFromCall($event)">⚡+ Rule</button>
         <app-call-actions [call]="call()" />
         @if (removalState) {

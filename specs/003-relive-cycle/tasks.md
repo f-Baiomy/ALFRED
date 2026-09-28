@@ -412,14 +412,14 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - adds a `LiveCall` when `reachedUpstream` is true (used by US7's log, D18).
   - **Logged-call field:** add the `relive` + `reachedUpstream` fields to backend-calls and backend-internal-calls `CallRecord` (optional, trusted like `resend_of` - explore how `resend_of` flows from webhook DTO to record).
   - **Test:** `ReliveCallObserverAdapterTest`, plus a service test for inflight add/remove.
-- [ ] T050a [US3] Relive badge on logged calls (FR-051). `FE/components/call-card/call-card.component.ts` gains
+- [X] T050a [US3] Relive badge on logged calls (FR-051). `FE/components/call-card/call-card.component.ts` gains
   an optional input carrying the call's `relive` field (set by T050/T032, `{runId, stepKey}` or `{ambiguousRunIds}`);
   when present, render a small badge "Relive · <cycle name>" (tooltip: run id, step). Wire the input from
   `call-list.component.ts` (Live Calls) and the session-cycle capture view, both of which already render
   `call-card` per call - no new lookup, just pass the field through if the call record has it.
   - **Test:** `call-card.component.spec.ts`: badge shown only when `relive` is set; the ambiguous case shows
     "Claimed by 2 runs" instead of a cycle name.
-- [ ] T051 [US3] Create `FE/shared/utils/relive-outcome.ts`: `outcomeOf(result, recording, assertionsResult, noise): 'COMPLETED'|'COMPLETED_WITH_DIFFERENCES'|'FAILED'`, following FR-034a exactly.
+- [X] T051 [US3] Create `FE/shared/utils/relive-outcome.ts`: `outcomeOf(result, recording, assertionsResult, noise): 'COMPLETED'|'COMPLETED_WITH_DIFFERENCES'|'FAILED'`, following FR-034a exactly.
   - **FAILED** on: transport error, timeout, no answer, 5xx, a status-class change, or a failed assertion.
   - **DIFFERENCES** on at least one UNEXPECTED difference.
   - **Test:** `relive-outcome.spec.ts`, with the clarification's example table (Price 450 → 455 is yellow; 201 → 500 is red).

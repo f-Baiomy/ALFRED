@@ -40,6 +40,7 @@ export function toCallRecord(dto: CallSummaryDto, source?: CallEndpointSource): 
     interception: dto.interception,
     resendOf: dto.resend_of,
     resendEdits: dto.resend_edits,
+    relive: dto.relive,
     source,
   };
 }

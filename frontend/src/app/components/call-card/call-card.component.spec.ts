@@ -668,4 +668,21 @@ describe('CallCardComponent', () => {
       expect(getComputedStyle(panel).userSelect).toBe('text');
     });
   });
+
+  describe('Relive badge (FR-051)', () => {
+    it('is absent for a call with no relive tag', () => {
+      const fixture = createCard(makeCall());
+      expect(fixture.componentInstance.reliveBadgeText()).toBeNull();
+    });
+
+    it('shows "Relive · <cycle name>" for an attributed call', () => {
+      const fixture = createCard(makeCall({ relive: { runId: 'r-1', stepKey: 's-search', cycleName: 'Book flow' } }));
+      expect(fixture.componentInstance.reliveBadgeText()).toBe('Relive · Book flow');
+    });
+
+    it('shows "Claimed by N runs" for an ambiguous call instead of a cycle name', () => {
+      const fixture = createCard(makeCall({ relive: { runId: 'r-1', stepKey: null, ambiguousRunIds: ['r-1', 'r-2'] } }));
+      expect(fixture.componentInstance.reliveBadgeText()).toBe('Claimed by 2 runs');
+    });
+  });
 });
