@@ -3,7 +3,7 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { checkpointOf, defaultCallRule, modeOf } from '../../shared/utils/relive-call-rule';
-import { FrozenCall, ReliveSettings, Step } from '../../shared/utils/relive-types';
+import { FrozenCall, ReliveSettings, Step, StepResult } from '../../shared/utils/relive-types';
 import { ReliveStepDrawerComponent } from './relive-step-drawer.component';
 
 const recording: FrozenCall = {
@@ -134,5 +134,70 @@ describe('ReliveStepDrawerComponent', () => {
     fixture.componentInstance.stepChange.subscribe((s: Step) => (emitted = s));
     fixture.componentInstance.setUnattributed('SEND_REAL');
     expect(emitted!.unattributed).toBe('SEND_REAL');
+  });
+
+  describe('T061: run mode', () => {
+    function makeResult(overrides: Partial<StepResult> = {}): StepResult {
+      return {
+        runId: 'run-1',
+        stepKey: 'c-supA',
+        attempt: 1,
+        state: 'COMPLETED_WITH_DIFFERENCES',
+        mode: 'REPLAY',
+        attribution: 'INFLIGHT',
+        actualResponse: { status: 200, headers: {}, body: '{"results":11}' },
+        differences: [
+          { part: 'body', path: 'body.results', recorded: '12', actual: '11', kind: 'UNEXPECTED', cause: null },
+          { part: 'body', path: 'body.traceId', recorded: 'a', actual: 'b', kind: 'NOISE_AUTO', cause: 'trace id' },
+        ],
+        rulesApplied: [{ ruleId: 'r1', name: 'Currency → AED', tier: 'GLOBAL', actions: ['response body rewritten'] }],
+        variablesUsed: [{ name: 'searchId', value: 'S-1' }],
+        variablesProduced: [],
+        durationMs: 12,
+        error: null,
+        unexpectedCalls: [],
+        pauses: [],
+        ...overrides,
+      };
+    }
+
+    it('defaults to the Overview tab and shows the run tab bar once a result is set', () => {
+      fixture.componentRef.setInput('result', makeResult());
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Overview');
+      expect(text).toContain('Rules & variables');
+      expect(text).not.toContain('Configure');
+      expect(fixture.componentInstance.tab()).toBe('overview');
+      expect(text).toContain('COMPLETED_WITH_DIFFERENCES');
+      expect(text).toContain('1 unexpected');
+      expect(text).toContain('1 noise');
+    });
+
+    it('shows the tier pill and variables on the Rules & variables tab', () => {
+      fixture.componentRef.setInput('result', makeResult());
+      fixture.componentInstance.setTab('rules');
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('GLOBAL');
+      expect(text).toContain('Currency → AED');
+      expect(text).toContain('searchId');
+    });
+
+    it('filters the run log to this step key', () => {
+      fixture.componentRef.setInput('result', makeResult());
+      fixture.componentRef.setInput('runLog', [
+        { at: '2026-09-27T10:00:00Z', stepKey: 'c-supA', kind: 'MATCHED', message: 'matched endpoint+order #1' },
+        { at: '2026-09-27T10:00:01Z', stepKey: 'other', kind: 'MATCHED', message: 'not this step' },
+      ]);
+      fixture.componentInstance.setTab('log');
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('matched endpoint+order #1');
+      expect(text).not.toContain('not this step');
+    });
   });
 });

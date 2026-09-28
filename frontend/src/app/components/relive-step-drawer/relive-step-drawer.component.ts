@@ -3,9 +3,23 @@ import { CallFocus, CallFocusService } from '../../core/services/call-focus.serv
 import { RuleAction } from '../../core/models/interception.model';
 import { applyMode, checkpointOf, modeOf, onRequestChangedOf, setCheckpoint } from '../../shared/utils/relive-call-rule';
 import { ActionLine, HostCardInfo, describeAction, hostCard } from '../../shared/utils/relive-call-rule-describe';
-import { OnRequestChanged, Step, StepMode } from '../../shared/utils/relive-types';
+import { LogEntry, OnRequestChanged, Step, StepMode, StepResult } from '../../shared/utils/relive-types';
 
-type DrawerTab = 'configure' | 'request' | 'response' | 'extract';
+type DrawerTab = 'configure' | 'request' | 'response' | 'extract' | 'overview' | 'effective' | 'actual' | 'rules' | 'log';
+
+function bodyOf(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && 'body' in (value as Record<string, unknown>)) {
+    const body = (value as { body?: unknown }).body;
+    return typeof body === 'string' ? body : JSON.stringify(body ?? '', null, 2);
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
 
 /**
  * The step drawer's Configure tab (FR-006, FR-010a; mock.html `drawer()`/`configTab()`/
@@ -34,7 +48,16 @@ export class ReliveStepDrawerComponent {
   readonly openCallRule = output<string>();
   readonly openRequestDiffers = output<string>();
 
-  readonly tab = signal<DrawerTab>('configure');
+  /** Set once a run has settled this step - switches the drawer into T061's run tabs. */
+  readonly result = input<StepResult | null>(null);
+  /** The run's own log, filtered to this step's key by the caller (or passed unfiltered - `log()`
+   *  filters again defensively). */
+  readonly runLog = input<readonly LogEntry[]>([]);
+
+  private readonly explicitTab = signal<DrawerTab | null>(null);
+  readonly tab = computed<DrawerTab>(() => this.explicitTab() ?? (this.result() ? 'overview' : 'configure'));
+
+  readonly log = computed(() => this.runLog().filter((e) => e.stepKey === this.step().key));
 
   readonly mode = computed(() => modeOf(this.step().callRule));
   readonly checkpoint = computed(() => checkpointOf(this.step().callRule));
@@ -44,7 +67,32 @@ export class ReliveStepDrawerComponent {
   readonly host = computed<HostCardInfo>(() => hostCard(this.step().callRule.actions, this.step().serviceName || 'the app'));
 
   setTab(tab: DrawerTab): void {
-    this.tab.set(tab);
+    this.explicitTab.set(tab);
+  }
+
+  bodyOf(value: unknown): string {
+    return bodyOf(value);
+  }
+
+  statusOf(result: StepResult): number | null {
+    const response = result.actualResponse;
+    if (response && typeof response === 'object' && 'status' in response) {
+      const status = (response as { status?: unknown }).status;
+      return typeof status === 'number' ? status : null;
+    }
+    return null;
+  }
+
+  unexpectedCount(result: StepResult): number {
+    return result.differences.filter((d) => d.kind === 'UNEXPECTED').length;
+  }
+
+  expectedCount(result: StepResult): number {
+    return result.differences.filter((d) => d.kind === 'EXPECTED').length;
+  }
+
+  noiseCount(result: StepResult): number {
+    return result.differences.filter((d) => d.kind === 'NOISE_AUTO' || d.kind === 'NOISE_USER').length;
   }
 
   setLabel(label: string): void {

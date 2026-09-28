@@ -10,10 +10,19 @@
   </div>
 
   <div class="rl-tabs" style="margin: 10px 14px 0">
-    <button [class.rl-on]="tab() === 'configure'" (click)="setTab('configure')">Configure</button>
-    <button [class.rl-on]="tab() === 'request'" (click)="setTab('request')">Request</button>
-    <button [class.rl-on]="tab() === 'response'" (click)="setTab('response')">Response</button>
-    <button [class.rl-on]="tab() === 'extract'" (click)="setTab('extract')">Extract & assert</button>
+    @if (result(); as res) {
+      <button [class.rl-on]="tab() === 'overview'" (click)="setTab('overview')">Overview</button>
+      <button [class.rl-on]="tab() === 'request'" (click)="setTab('request')">Original</button>
+      <button [class.rl-on]="tab() === 'effective'" (click)="setTab('effective')">Effective</button>
+      <button [class.rl-on]="tab() === 'actual'" (click)="setTab('actual')">Actual</button>
+      <button [class.rl-on]="tab() === 'rules'" (click)="setTab('rules')">Rules & variables</button>
+      <button [class.rl-on]="tab() === 'log'" (click)="setTab('log')">Log</button>
+    } @else {
+      <button [class.rl-on]="tab() === 'configure'" (click)="setTab('configure')">Configure</button>
+      <button [class.rl-on]="tab() === 'request'" (click)="setTab('request')">Request</button>
+      <button [class.rl-on]="tab() === 'response'" (click)="setTab('response')">Response</button>
+      <button [class.rl-on]="tab() === 'extract'" (click)="setTab('extract')">Extract & assert</button>
+    }
   </div>
 
   <div style="padding: 0 14px 14px">
@@ -120,6 +129,12 @@
           <h3>Recorded request (reference)</h3>
           <pre>{{ step().recording.requestBody || '(empty)' }}</pre>
         </div>
+        @if (result()) {
+          <div class="rl-sect">
+            <h3>Recorded response · {{ step().recording.status }}</h3>
+            <pre>{{ step().recording.responseBody || '(empty)' }}</pre>
+          </div>
+        }
       }
       @case ('response') {
         <div class="rl-sect">
@@ -129,6 +144,108 @@
       }
       @case ('extract') {
         <div class="rl-faint">Coming with US5.</div>
+      }
+      @case ('overview') {
+        @if (result(); as res) {
+          <div class="rl-sect">
+            <div class="rl-kv">
+              <span class="rl-dim">State</span><span>{{ res.state }}</span>
+              <span class="rl-dim">Mode</span><span>{{ res.mode }} · {{ res.attribution }}</span>
+              <span class="rl-dim">Status</span><span>{{ statusOf(res) ?? '-' }} <span class="rl-faint">(recorded {{ step().recording.status }})</span></span>
+              <span class="rl-dim">Duration</span><span>{{ res.durationMs ?? '-' }} ms <span class="rl-faint">(recorded {{ step().recording.durationMs }} ms)</span></span>
+              @if (res.error) {
+                <span class="rl-dim">Error</span><span>{{ res.error }}</span>
+              }
+              <span class="rl-dim">Attempt</span><span>{{ res.attempt }}</span>
+              @if (checkpoint().before || checkpoint().after) {
+                <span class="rl-dim">Checkpoints</span>
+                <span>{{ checkpoint().before ? 'before ' : '' }}{{ checkpoint().after ? 'after' : '' }}</span>
+              }
+            </div>
+          </div>
+          @if (res.differences.length) {
+            <div class="rl-sect">
+              <h3>Differences</h3>
+              <div class="rl-row" style="gap: 6px">
+                @if (unexpectedCount(res)) {
+                  <span class="rl-pill rl-p-diff">{{ unexpectedCount(res) }} unexpected</span>
+                }
+                @if (expectedCount(res)) {
+                  <span class="rl-pill rl-p-cycle">{{ expectedCount(res) }} expected</span>
+                }
+                @if (noiseCount(res)) {
+                  <span class="rl-pill rl-p-wait">{{ noiseCount(res) }} noise</span>
+                }
+              </div>
+            </div>
+          }
+          <div class="rl-sect">
+            <h3>Quick look</h3>
+            <pre>{{ bodyOf(res.actualResponse) || '(no response)' }}</pre>
+          </div>
+        }
+      }
+      @case ('effective') {
+        @if (result(); as res) {
+          <div class="rl-sect">
+            <h3>Effective request</h3>
+            <pre>{{ bodyOf(res.effectiveRequest) || '(same as recorded)' }}</pre>
+          </div>
+        }
+      }
+      @case ('actual') {
+        @if (result(); as res) {
+          <div class="rl-sect">
+            <h3>Actual request</h3>
+            <pre>{{ bodyOf(res.actualRequest) || '(none)' }}</pre>
+          </div>
+          <div class="rl-sect">
+            <h3>Actual response</h3>
+            <pre>{{ bodyOf(res.actualResponse) || '(none)' }}</pre>
+          </div>
+        }
+      }
+      @case ('rules') {
+        @if (result(); as res) {
+          <div class="rl-sect">
+            <h3>Rules applied</h3>
+            @for (rule of res.rulesApplied; track rule.ruleId) {
+              <div class="rl-row" style="padding: 3px 0">
+                <span class="rl-pill" [class]="rule.tier === 'GLOBAL' ? 'rl-p-global' : rule.tier === 'CYCLE' ? 'rl-p-cycle' : 'rl-p-wait'">{{ rule.tier }}</span>
+                <span>{{ rule.name }}</span>
+              </div>
+            } @empty {
+              <div class="rl-faint">None.</div>
+            }
+          </div>
+          <div class="rl-sect">
+            <h3>Variables used</h3>
+            @for (v of res.variablesUsed; track v.name) {
+              <div class="rl-row" style="padding: 2px 0"><span class="rl-mono">{{ '{{' + v.name + '}}' }}</span><span>{{ v.value }}</span></div>
+            } @empty {
+              <div class="rl-faint">None.</div>
+            }
+          </div>
+          <div class="rl-sect">
+            <h3>Variables produced</h3>
+            @for (v of res.variablesProduced; track v.name) {
+              <div class="rl-row" style="padding: 2px 0"><span class="rl-mono">{{ '{{' + v.name + '}}' }}</span><span>{{ v.value }}</span></div>
+            } @empty {
+              <div class="rl-faint">None.</div>
+            }
+          </div>
+        }
+      }
+      @case ('log') {
+        <div class="rl-sect">
+          @for (entry of log(); track $index) {
+            <div class="rl-row" style="padding: 2px 0; font-size: 12px">
+              <span class="rl-faint">{{ entry.at }}</span><span class="rl-mono">{{ entry.kind }}</span><span>{{ entry.message }}</span>
+            </div>
+          } @empty {
+            <div class="rl-faint">Nothing logged for this step.</div>
+          }
+        </div>
       }
     }
   </div>

@@ -492,7 +492,7 @@ differences**.
   - **`classify(diffs, ctx)`** tags each difference `EXPECTED | NOISE_AUTO | NOISE_USER | UNEXPECTED` with a `cause` (a rule name, variable, or detector).
   - **Test:** `relive-noise.spec.ts`, including the mock's Supplier B example: 2 unexpected, 1 expected (the GLOBAL rule), 1 noise (traceId).
 - [X] T060 [US4] Compute differences in the orchestrator: for each settled step, build recorded vs actual with `buildHttpDiff` (`FE/shared/utils/interception-diff.ts`), flatten the JSON body paths, then `classify` (T059). Store the result in `StepResult.differences`.
-- [ ] T061 [US4] Run-mode step drawer tabs, in `relive-step-drawer`. They copy mock `drawer()` run tabs and `runOverview()`:
+- [X] T061 [US4] Run-mode step drawer tabs, in `relive-step-drawer`. They copy mock `drawer()` run tabs and `runOverview()`:
   - **Configure:** state, mode, attribution, status vs recorded, duration vs recorded, error, attempts, checkpoints, the differences summary pills with "inspect →", and a quick look.
   - **Original / Effective** (variables highlighted, as `highlightVars`) / **Actual**.
   - **Rules & variables:** tier pills STEP / CYCLE / GLOBAL, in order.
