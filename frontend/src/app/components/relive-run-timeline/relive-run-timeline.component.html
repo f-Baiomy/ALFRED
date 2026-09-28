@@ -111,7 +111,9 @@
             @if (!row.isChild && hasLaterRunnableStep(row.step.key)) {
               <button class="rl-btn rl-sm rl-primary" (click)="resumeFromStep.emit(row.step.key)" title="Same run, same variables">▶ Continue with the rest</button>
             }
-            <button class="rl-btn rl-sm" (click)="runFromStep.emit(row.step.key)">Run from here</button>
+            @if (canRunFromStep(row.step.key); as check) {
+              <button class="rl-btn rl-sm" [disabled]="!check.ok" [title]="check.reason" (click)="runFromStep.emit(row.step.key)">Run from here</button>
+            }
           </span>
         }
         <span class="rl-pill" [class]="statePill(row.result.state)[0]">{{ statePill(row.result.state)[1] }}</span>

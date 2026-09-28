@@ -110,7 +110,14 @@
           <div class="rl-row" style="margin-bottom: 8px">
             <button class="rl-link" (click)="closeHistoryRun()">← back to the live run</button>
           </div>
-          <app-relive-run-timeline [run]="h.run" [steps]="h.run.definition.steps" [results]="h.results" [variableDefs]="h.run.definition.variables" />
+          <app-relive-run-timeline
+            [run]="h.run"
+            [steps]="h.run.definition.steps"
+            [results]="h.results"
+            [variableDefs]="h.run.definition.variables"
+            [variables]="finalVariablesOf(h.run)"
+            (runFromStep)="runFromHere($event, h.run)"
+          />
         } @else if (runService.run(); as run) {
           <app-relive-run-timeline
             [run]="run"
@@ -127,6 +134,7 @@
             (retryHeld)="runService.retryStep()"
             (endRun)="runService.endRun()"
             (resumeFromStep)="resumeFromStep($event)"
+            (runFromStep)="runFromHere($event, run)"
             (stopRun)="runService.stop()"
             (checkpointContinue)="runService.resolveCheckpoint('CONTINUE')"
             (checkpointReplay)="runService.resolveCheckpoint('REPLAY')"

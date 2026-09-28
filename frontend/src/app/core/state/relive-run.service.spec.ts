@@ -524,4 +524,40 @@ describe('ReliveRunService', () => {
     expect(service.results()['login'].error).toBe('unresolved {{bookingId}}');
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'FAILED');
   });
+
+  it('T075: "Run from here" carries earlier top-level steps over as NOT_CALLED and starts at fromStepKey', async () => {
+    const login = inboundStep();
+    const logout = logoutStep();
+    const steps = [login, logout];
+    const run1 = { ...runOf(steps), fromStepKey: 'logout' };
+    reliveApi.startRun.and.returnValue(of(run1));
+    reliveApi.finishRun.and.returnValue(of({ ...run1, status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(
+      of<ResendResult>({ newCallId: 'new-logout', status: 200, durationMs: 20, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }),
+    );
+
+    await service.start(cycleOf(steps), { driver: 'AUTOMATIC', fromStepKey: 'logout', seedFromRunId: 'run-0', unattributedChoices: {} });
+
+    expect(service.results()['login'].state).toBe('NOT_CALLED');
+    expect(service.results()['logout'].state).toBe('COMPLETED');
+    expect(resendApi.resend).toHaveBeenCalledTimes(1);
+  });
+
+  it('T076: an optional step\'s failure is recorded but never holds or fails the run overall', async () => {
+    const login = inboundStep({
+      optional: true,
+      recording: { ...inboundStep().recording, requestBody: '{"booking":"{{bookingId}}"}' },
+    });
+    const steps = [login];
+    const run1 = runOf(steps); // definition.settings.onFailure defaults to 'HOLD'
+    reliveApi.startRun.and.returnValue(of(run1));
+    reliveApi.finishRun.and.returnValue(of({ ...run1, status: 'COMPLETED' }));
+
+    await service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+    expect(resendApi.resend).not.toHaveBeenCalled();
+    expect(service.results()['login'].state).toBe('FAILED');
+    expect(reliveApi.setHold).not.toHaveBeenCalled();
+    expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'COMPLETED');
+  });
 });

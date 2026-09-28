@@ -57,6 +57,15 @@ const RUN_TITLE: Readonly<Record<Run['status'], readonly [string, string]>> = {
   INTERRUPTED: ['rl-p-wait', '■ interrupted'],
 };
 
+const PLAIN_VAR_TOKEN = /\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
+
+/** Every `{{name}}` a step's call rule actions reference - the only place a step's request/response
+ *  overrides live (its frozen `recording` never contains one). */
+function variableTokensIn(step: Step): string[] {
+  const text = JSON.stringify(step.callRule.actions ?? []);
+  return [...new Set([...text.matchAll(PLAIN_VAR_TOKEN)].map((m) => m[1]))];
+}
+
 function emptyResult(): StepResult {
   return {
     runId: '',
@@ -208,6 +217,19 @@ export class ReliveRunTimelineComponent {
     const index = rows.findIndex((r) => r.step.key === stepKey);
     if (index < 0) return false;
     return rows.slice(index + 1).some((r) => !r.isChild && r.step.enabled && ['CANCELLED', 'PENDING'].includes(r.result.state));
+  }
+
+  /** "Run from here" (T075, US8 scenario 2): refuses when this step needs a `{{variable}}` its
+   *  call rule references that neither the cycle defines nor an earlier step of this run actually
+   *  produced a value for - a fresh run seeded from this one would just fail on it immediately. */
+  canRunFromStep(stepKey: string): { readonly ok: boolean; readonly reason: string } {
+    const step = this.rows().find((r) => r.step.key === stepKey)?.step;
+    if (!step) return { ok: false, reason: '' };
+    const defined = new Set(this.variableDefs().map((v) => v.name));
+    const available = this.variables();
+    const needed = variableTokensIn(step);
+    const missing = needed.find((name) => !defined.has(name) && !available[name]);
+    return missing ? { ok: false, reason: `Needs {{${missing}}}, which isn't available from the earlier steps.` } : { ok: true, reason: '' };
   }
 
   isRevealed(name: string): boolean {

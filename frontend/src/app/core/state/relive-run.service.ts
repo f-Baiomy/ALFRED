@@ -246,9 +246,19 @@ export class ReliveRunService {
     this.status.set(run.status);
     this.unexpectedCalls.set([]);
 
+    // "Run from here" (T075, FR-036): every step of an earlier top-level step is shown as carried
+    // over rather than executed - the run starts fresh at `fromStepKey`, seeded with that run's
+    // variables (already copied server-side into `seedVariables` via `seedFromRunId`).
+    const topOrder = topSteps(this.steps);
+    const fromIdx = run.fromStepKey ? topOrder.findIndex((s) => s.key === run.fromStepKey) : -1;
+    this.topIdx = fromIdx < 0 ? 0 : fromIdx;
+    const carriedOverTopKeys = new Set(topOrder.slice(0, this.topIdx).map((s) => s.key));
+
     const initialResults: Record<string, StepResult> = {};
     for (const step of this.steps) {
-      initialResults[step.key] = emptyResult(run.id, step.key, step.enabled ? 'PENDING' : 'SKIPPED');
+      const topKey = step.parentKey ?? step.key;
+      const state: StepState = carriedOverTopKeys.has(topKey) ? 'NOT_CALLED' : step.enabled ? 'PENDING' : 'SKIPPED';
+      initialResults[step.key] = emptyResult(run.id, step.key, state);
     }
     this.results.set(initialResults);
 
@@ -690,7 +700,11 @@ export class ReliveRunService {
   private async finish(): Promise<void> {
     const run = this.run();
     if (!run) return;
-    const states = Object.values(this.results()).map((r) => r.state);
+    // An optional step's failure is recorded but never counts toward the run's own outcome (T076,
+    // US8 scenario 3) - only a required step's FAILED/differences state can make the run FAILED or
+    // COMPLETED_WITH_DIFFERENCES overall.
+    const results = this.results();
+    const states = this.steps.filter((s) => !s.optional).map((s) => results[s.key]?.state);
     const status: RunStatus = states.includes('FAILED')
       ? 'FAILED'
       : states.includes('COMPLETED_WITH_DIFFERENCES')

@@ -261,6 +261,26 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.runService.resume(cycle.id, run.id, afterStepKey);
   }
 
+  /** "Run from here" (T075): a NEW run, seeded from whichever run's row it was clicked on (the
+   *  live one, or a past one opened from History) - never the run currently on screen unless
+   *  that's the same one. */
+  runFromHere(stepKey: string, seedFromRun: Run): void {
+    const cycle = this.state.saved();
+    if (!cycle) return;
+    this.historyRun.set(null);
+    this.runService.start(cycle, { driver: 'AUTOMATIC', fromStepKey: stepKey, seedFromRunId: seedFromRun.id, unattributedChoices: {} });
+    this.setTab('run');
+  }
+
+  /** The historical run's own variables, for the read-only timeline's "Run from here" check -
+   *  seed values plus every value the run's timeline recorded, latest wins. */
+  finalVariablesOf(run: Run): Record<string, string> {
+    const vars: Record<string, string> = {};
+    for (const v of run.seedVariables) vars[v.name] = v.value;
+    for (const entry of run.variableTimeline) vars[entry.name] = entry.value;
+    return vars;
+  }
+
   openHistoryRun(runId: string): void {
     const cycle = this.state.saved();
     if (!cycle) return;

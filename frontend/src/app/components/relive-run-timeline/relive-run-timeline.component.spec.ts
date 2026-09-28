@@ -226,4 +226,35 @@ describe('ReliveRunTimelineComponent', () => {
     expect(replaySpy).toHaveBeenCalled();
     expect(skipSpy).toHaveBeenCalled();
   });
+
+  describe('T075: canRunFromStep', () => {
+    function bookStepNeeding(name: string): Step {
+      return makeStep('book', null, {
+        callRule: { name: 'book', enabled: true, priority: 0, stopProcessing: true, match: {}, actions: [{ type: 'SET_REQUEST_HEADER', name: 'X', value: `{{${name}}}`, enabled: true }] },
+      });
+    }
+
+    it('refuses when a needed variable is neither defined nor available yet', () => {
+      const book = bookStepNeeding('bookingId');
+      fixture.componentRef.setInput('run', run());
+      fixture.componentRef.setInput('steps', [book]);
+      fixture.componentRef.setInput('results', { book: result('book', 'PENDING') });
+      fixture.detectChanges();
+
+      const check = fixture.componentInstance.canRunFromStep('book');
+      expect(check.ok).toBeFalse();
+      expect(check.reason).toContain('bookingId');
+    });
+
+    it('allows it once the variable is available (defined, or produced by an earlier step)', () => {
+      const book = bookStepNeeding('bookingId');
+      fixture.componentRef.setInput('run', run());
+      fixture.componentRef.setInput('steps', [book]);
+      fixture.componentRef.setInput('results', { book: result('book', 'PENDING') });
+      fixture.componentRef.setInput('variables', { bookingId: 'B-1' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.canRunFromStep('book').ok).toBeTrue();
+    });
+  });
 });
