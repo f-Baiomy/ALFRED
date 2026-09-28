@@ -60,6 +60,7 @@ export class CallActionsComponent {
   readonly downloadLoading = signal(false);
   readonly resendLoading = signal(false);
   readonly reliveLoading = signal(false);
+  readonly reliveError = signal<string | null>(null);
 
   readonly isPinned = computed(() => this.pinService.isPinned(this.call()));
 
@@ -141,10 +142,17 @@ export class CallActionsComponent {
    *  hydrate-first rule every other export/resend action here already follows. */
   private withHydrated(action: (calls: readonly CallRecord[]) => void): void {
     if (this.reliveLoading()) return;
+    this.reliveError.set(null);
     this.reliveLoading.set(true);
-    this.hydrated(this.call()).subscribe((call) => {
-      this.reliveLoading.set(false);
-      action([call]);
+    this.hydrated(this.call()).subscribe({
+      next: (call) => {
+        this.reliveLoading.set(false);
+        action([call]);
+      },
+      error: () => {
+        this.reliveLoading.set(false);
+        this.reliveError.set('Could not load this call. Try again.');
+      },
     });
   }
 
@@ -153,7 +161,8 @@ export class CallActionsComponent {
   }
 
   reliveNewCycle(): void {
-    this.withHydrated((calls) => this.reliveActions.newCycleFromSelection(calls));
+    this.withHydrated((calls) => this.reliveActions.newCycleFromSelection(calls,
+      () => this.reliveError.set('Could not create a Relive cycle from this call. Try again.')));
   }
 
   reliveNow(): void {

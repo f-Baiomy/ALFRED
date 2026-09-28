@@ -210,14 +210,20 @@ public class SessionCyclesService implements
     /** Filters/sorts/paginates via whichever CapturedCallsStorePort adapter is active (CallListSupport for the file adapter, SQL for the SQLite adapter) - same delegation shape as CallsService.getCalls. */
     @Override
     public Optional<CapturedCallsPage> listCalls(String cycleId, CallsQuery query) {
+        return listCalls(cycleId, query, false);
+    }
+
+    @Override
+    public Optional<CapturedCallsPage> listCalls(String cycleId, CallsQuery query, boolean paged) {
         return metadataStore.findById(cycleId).map(cycle -> {
             int clampedOffset = Math.max(0, query.offset());
+            boolean effectivePagination = paged || paginationEnabled;
             // Disabled pagination means "everything up to maxLimit in one response" - see
             // CallsService.getCalls for why query.limit() must not be used here in that case.
-            int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
+            int clampedLimit = effectivePagination ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
             CallListSupport.Page<CapturedCallSummary> page = capturedCallsStore.query(
-                    cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
+                    cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, effectivePagination,
                     query.sessionId(), query.operationId(), query.requestId());
             return new CapturedCallsPage(page.items(), page.total());
         });

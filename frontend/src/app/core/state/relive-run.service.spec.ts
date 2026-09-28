@@ -257,6 +257,16 @@ describe('ReliveRunService', () => {
     service = TestBed.inject(ReliveRunService);
   });
 
+  it('resends a standalone outbound root through the outbound proxy', async () => {
+    const supplier = { ...childStep(), parentKey: null, callRule: defaultCallRule({ ...childStep(), parentKey: null }, cycleSettings) };
+    const steps = [supplier];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(of<ResendResult>({ newCallId: 'replay-out', status: 200, durationMs: 1, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{"flights":12}' } }));
+    await service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+    expect(resendApi.resend).toHaveBeenCalledWith(jasmine.objectContaining({ direction: 'outbound', callId: 'orig-a', cycleId: 'cy-1' }));
+  });
+
   it('happy path: runs the inbound step, then settles its child from a run-call event', async () => {
     const steps = [inboundStep(), childStep()];
     reliveApi.startRun.and.returnValue(of(runOf(steps)));

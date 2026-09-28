@@ -541,6 +541,63 @@
   align-items: center;
   gap: 8px;
 }
+
+.relive-add-dialog {
+  min-width: 0;
+  overflow-x: hidden;
+
+  .relive-add-source-row {
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+
+  .relive-add-source-row select {
+    flex: 1 1 260px;
+    width: auto;
+    min-width: 0;
+  }
+
+  .relive-add-source-row .rl-spacer {
+    display: none;
+  }
+
+  .relive-add-selection-actions {
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+
+  .relive-add-call-list {
+    max-height: 360px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .relive-add-root {
+    min-width: 0;
+    padding: 6px 8px;
+  }
+
+  .relive-add-root .rl-lbl {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .relive-add-root .rl-t,
+  .relive-add-root .rl-u {
+    display: block;
+    max-width: 100%;
+  }
+
+  .relive-add-child {
+    min-width: 0;
+    padding: 3px 8px 3px 38px;
+  }
+
+  .relive-add-child-url {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
 .rl-spacer {
   flex: 1;
 }

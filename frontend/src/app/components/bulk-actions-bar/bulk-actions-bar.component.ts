@@ -62,6 +62,7 @@ export class BulkActionsBarComponent {
   readonly duplicateLoading = signal(false);
   readonly resendLoading = signal(false);
   readonly reliveLoading = signal(false);
+  readonly reliveError = signal<string | null>(null);
 
   selectAll(): void {
     this.state.selectAll();
@@ -135,10 +136,17 @@ export class BulkActionsBarComponent {
   private withHydratedSelection(action: (calls: readonly CallRecord[]) => void): void {
     const selected = this.state.selectedCalls();
     if (selected.length === 0 || this.reliveLoading()) return;
+    this.reliveError.set(null);
     this.reliveLoading.set(true);
-    this.hydrateAll(selected).subscribe((calls) => {
-      this.reliveLoading.set(false);
-      action(calls);
+    this.hydrateAll(selected).subscribe({
+      next: (calls) => {
+        this.reliveLoading.set(false);
+        action(calls);
+      },
+      error: () => {
+        this.reliveLoading.set(false);
+        this.reliveError.set('Could not load the selected calls. Try again.');
+      },
     });
   }
 
@@ -147,7 +155,8 @@ export class BulkActionsBarComponent {
   }
 
   reliveNewCycle(): void {
-    this.withHydratedSelection((calls) => this.reliveActions.newCycleFromSelection(calls));
+    this.withHydratedSelection((calls) => this.reliveActions.newCycleFromSelection(calls,
+      () => this.reliveError.set('Could not create a Relive cycle from the selected calls. Try again.')));
   }
 
   reliveNow(): void {

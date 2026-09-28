@@ -1,10 +1,10 @@
 @if (open()) {
   <div class="dialog-backdrop" (click)="close()">
-    <div class="dialog-card wide" (click)="$event.stopPropagation()">
+    <div class="dialog-card wide relive-add-dialog" (click)="$event.stopPropagation()">
       <h2>Add calls to this cycle</h2>
       <p class="dialog-sub">Calls are copied into the cycle - the recording itself is never modified.</p>
 
-      <div class="rl-row" style="margin-bottom: 10px">
+      <div class="rl-row relive-add-source-row">
         <select (change)="selectSessionCycle($any($event.target).value)">
           <option value="">Choose a session cycle…</option>
           @for (sc of sessionCycles.cycles(); track sc.id) {
@@ -15,10 +15,18 @@
         <button class="rl-btn rl-sm" (click)="pickFromAnywhere()">📌 Pick from anywhere…</button>
       </div>
 
-      @if (tree().length) {
-        <div style="max-height: 360px; overflow: auto">
+      @if (loading()) {
+        <div class="rl-faint">Loading calls…</div>
+      } @else if (tree().length) {
+        <div class="rl-row relive-add-selection-actions">
+          <span class="rl-dim">{{ checkedRootIds().size }} of {{ tree().length }} calls selected</span>
+          <span class="rl-spacer"></span>
+          <button type="button" class="rl-link" (click)="selectAll()">Select all</button>
+          <button type="button" class="rl-link" (click)="deselectAll()">Deselect all</button>
+        </div>
+        <div class="relive-add-call-list">
           @for (node of tree(); track node.call.id) {
-            <div class="rl-row" style="padding: 6px 8px">
+            <div class="rl-row relive-add-root">
               <input type="checkbox" [checked]="isChecked(node.call.id)" (change)="toggleRoot(node.call.id)" />
               <span class="rl-dir rl-in">↙</span>
               <span class="rl-lbl">
@@ -28,15 +36,23 @@
                 }
               </span>
             </div>
+            @for (child of node.children; track child.call.id) {
+              <div class="rl-row rl-dim relive-add-child">
+                <span class="rl-dir">↗</span>
+                <span class="relive-add-child-url">{{ child.call.method }} {{ child.call.url }}</span>
+              </div>
+            }
           }
         </div>
       } @else if (selectedSessionCycleId()) {
-        <div class="rl-faint">No calls in this session cycle.</div>
+        <div class="rl-faint">No inbound calls in this session cycle.</div>
       }
+
+      @if (error()) { <div class="rl-ext-banner" role="alert">{{ error() }}</div> }
 
       <div class="dialog-actions">
         <button type="button" class="dialog-btn secondary" (click)="close()">Cancel</button>
-        <button type="button" class="dialog-btn" [disabled]="!checkedRootIds().size" (click)="confirm()">Add {{ checkedRootIds().size || '' }} call(s)</button>
+        <button type="button" class="dialog-btn" [disabled]="!checkedRootIds().size || adding() || loading()" (click)="confirm()">{{ adding() ? 'Adding…' : 'Add ' + (checkedRootIds().size || '') + ' call(s)' }}</button>
       </div>
     </div>
   </div>

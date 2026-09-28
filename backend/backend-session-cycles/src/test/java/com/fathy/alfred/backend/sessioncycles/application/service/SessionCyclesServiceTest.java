@@ -272,6 +272,21 @@ class SessionCyclesServiceTest {
     }
 
     @Test
+    void explicitPagingAdvancesEvenWhenDefaultPaginationIsDisabled() throws ReflectiveOperationException {
+        Field paginationEnabledField = SessionCyclesService.class.getDeclaredField("paginationEnabled");
+        paginationEnabledField.setAccessible(true);
+        paginationEnabledField.setBoolean(service, false);
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(capturedCallsStore.query("c1", "", "", "oldest", 400, 200, true, "", "", ""))
+                .thenReturn(new CallListSupport.Page<>(List.of(), 601));
+
+        var result = service.listCalls("c1", new CallsQuery("", "", "oldest", 400, 200), true);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().total()).isEqualTo(601);
+    }
+
+    @Test
     void getDetailReturnsEmptyWhenTheCycleDoesNotExist() {
         when(metadataStore.findById("missing")).thenReturn(Optional.empty());
 

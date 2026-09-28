@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { AppConfigService } from './app-config.service';
 import { ReliveApiService, ReliveWriteRequest } from './relive-api.service';
-import { GlobalRulesSelection, ReliveSettings, UnexpectedCallsPolicy } from '../../shared/utils/relive-types';
+import { CycleRule, GlobalRulesSelection, ReliveSettings, Step, UnexpectedCallsPolicy } from '../../shared/utils/relive-types';
 
 const settings: ReliveSettings = { inboundMode: 'LIVE', onFailure: 'HOLD', onDifferences: 'CONTINUE', defaultDriver: 'AUTOMATIC', internalHosts: [] };
 const globalRules: GlobalRulesSelection = { mode: 'NONE', selectedIds: [] };
@@ -50,6 +50,26 @@ describe('ReliveApiService', () => {
     const req = http.expectOne('http://backend/relive-cycles?transient=true');
     expect(req.request.method).toBe('POST');
     req.flush({});
+  });
+
+  it('wraps rules for the backend and unwraps them for the editor', () => {
+    const rule: CycleRule = { name: 'replay', match: {}, actions: [], copiedFrom: { ruleId: 'r-1', name: 'source', copiedAt: '2026-01-01' } };
+    const step: Step = {
+      key: 's-1', parentKey: null, label: 'POST /search', enabled: true, optional: false, direction: 'inbound',
+      callRule: rule, unattributed: 'BLOCK',
+      recording: { method: 'POST', url: 'http://app/search', requestHeaders: {}, status: 200, responseHeaders: {}, timestamp: '2026-01-01', durationMs: 1, source: 'inbound' },
+      source: { callId: 'call-1', cycleId: 'sc-1', direction: 'inbound' }, extract: [], assertions: [], noise: [],
+    };
+    let createdRule: CycleRule | undefined;
+    service.create({ ...cycle, steps: [step], cycleRules: [rule], unexpectedCalls: { ...unexpectedCalls, rules: [rule] } })
+      .subscribe((created) => createdRule = created.steps[0].callRule);
+    const req = http.expectOne('http://backend/relive-cycles');
+    expect(req.request.body.steps[0].callRule).toEqual({ rule: { name: 'replay', match: {}, actions: [] }, copiedFrom: rule.copiedFrom });
+    expect(req.request.body.cycleRules[0].rule.name).toBe('replay');
+    expect(req.request.body.unexpectedCalls.rules[0].rule.name).toBe('replay');
+    req.flush({ ...cycle, id: 'c-1', steps: [{ ...step, callRule: req.request.body.steps[0].callRule }], cycleRules: req.request.body.cycleRules,
+      unexpectedCalls: req.request.body.unexpectedCalls });
+    expect(createdRule).toEqual(rule);
   });
 
   it('update() sets If-Match and, with a reason, appends ?reason=', () => {

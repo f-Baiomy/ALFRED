@@ -299,7 +299,9 @@ describe('ReliveCycleEditorState', () => {
 
       const req = http.expectOne('http://backend/relive-cycles/c-1?reason=REBUILD_REFRESH');
       expect(req.request.headers.get('If-Match')).toBe('2026-09-27T10:00:00Z');
-      expect(req.request.body.steps).toEqual(newSteps);
+      expect(req.request.body.steps).toEqual(newSteps.map((step) => ({
+        ...step, callRule: { rule: step.callRule, copiedFrom: null },
+      })));
       const updated = cycle({ steps: newSteps, updatedAt: '2026-09-27T11:00:00Z' });
       req.flush(updated);
 

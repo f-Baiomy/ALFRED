@@ -70,4 +70,22 @@ describe('BulkActionsBarComponent - resend selected', () => {
     expect(picker.state()?.calls.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
     expect(component.reliveLoading()).toBeFalse();
   });
+
+  it('creates a Relive cycle from selected calls and navigates to it', () => {
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    component.reliveNewCycle();
+    const req = http.expectOne(`${BACKEND}/relive-cycles`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body.steps.length).toBe(3);
+    expect(req.request.body.steps[0].callRule.rule.actions).toEqual(jasmine.any(Array));
+    req.flush({ id: 'relive-1', steps: [], cycleRules: [], unexpectedCalls: { policy: 'BLOCK', rules: [], fallback: 'BLOCK' } });
+    expect(navigate).toHaveBeenCalledWith(['/relive', 'relive-1']);
+  });
+
+  it('shows a recoverable error when cycle creation fails', () => {
+    component.reliveNewCycle();
+    http.expectOne(`${BACKEND}/relive-cycles`).flush({ message: 'invalid' }, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain('Could not create a Relive cycle');
+  });
 });

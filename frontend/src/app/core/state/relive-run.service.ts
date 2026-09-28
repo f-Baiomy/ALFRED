@@ -561,7 +561,7 @@ export class ReliveRunService {
     try {
       if (!unresolved.length) resendResult = await firstValueFrom(
         this.resendApi.resend({
-          direction: 'inbound',
+          direction: step.source.direction,
           callId: step.source.callId,
           cycleId: step.source.cycleId,
           edits: { method: substituted.method, url: substituted.url, headers: substituted.headers, body: substituted.body },

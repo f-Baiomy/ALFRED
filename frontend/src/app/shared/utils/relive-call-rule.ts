@@ -133,7 +133,8 @@ function liveOtherwise(): RuleAction[] {
 /**
  * The rule a freshly frozen step gets (FR-006, FR-010a). A child (`step.parentKey` set) gets a
  * REPLAY pipeline that fails closed when the request differs: `[IF_REQUEST(FAIL), MOCK_RESPONSE]`.
- * An inbound step gets an empty pipeline (runs the real application), unless the cycle's
+ * A standalone outbound root gets the same safe REPLAY pipeline. An inbound step gets an
+ * empty pipeline (runs the real application), unless the cycle's
  * `settings.inboundMode` is `REPLAY`, in which case it gets a plain `MOCK_RESPONSE` too (no
  * request-differs condition - an inbound call has no "recording" to differ from in the same sense).
  */
@@ -146,7 +147,7 @@ export function defaultCallRule(step: Pick<Step, 'key' | 'parentKey' | 'label' |
     match: {},
     actions: [],
   };
-  if (step.parentKey) {
+  if (step.parentKey || step.recording.source === 'outbound') {
     const cond = conditionAction(step.key, failOtherwise());
     return withActions(base, [cond, mockAction('MOCK_RESPONSE', step.recording)]);
   }

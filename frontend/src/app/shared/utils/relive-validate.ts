@@ -38,8 +38,8 @@ export function validateCycle(cycle: ReliveCycle, existingGlobalRuleIds?: Readon
     seenKeys.add(step.key);
   }
 
-  if (steps.length && !steps.some((s) => s.enabled)) {
-    findings.push(finding('BLOCK', 'NOTHING_TO_RUN', null, 'Every step is disabled - there is nothing for this run to do.'));
+  if (!steps.some((s) => s.enabled)) {
+    findings.push(finding('BLOCK', 'NOTHING_TO_RUN', null, steps.length ? 'Every step is disabled - there is nothing for this run to do.' : 'Add calls before starting a run.'));
   }
 
   if (existingGlobalRuleIds && cycle.globalRules.mode === 'SELECTED') {

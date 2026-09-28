@@ -53,6 +53,13 @@ describe('relive-call-rule: defaultCallRule', () => {
     expect(onRequestChangedOf(rule)).toBe('FAIL');
   });
 
+  it('replays a standalone outbound root without contacting the supplier', () => {
+    const rule = defaultCallRule({ ...child, parentKey: null }, settingsLive);
+    expect(modeOf(rule)).toBe('REPLAY');
+    expect(reachesHost(rule).reaches).toBeFalse();
+    expect(rule.actions.find((action) => action.type === 'MOCK_RESPONSE')?.body).toBe(recording.responseBody);
+  });
+
   it('gives an inbound step an empty pipeline when inboundMode is LIVE', () => {
     const rule = defaultCallRule(inbound, settingsLive);
     expect(rule.actions).toEqual([]);

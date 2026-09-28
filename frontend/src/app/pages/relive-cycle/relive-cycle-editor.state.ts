@@ -39,6 +39,7 @@ export class ReliveCycleEditorState {
   readonly selectedStepKey = signal<string | null>(null);
   readonly conflict = signal<ReliveCycle | null>(null);
   readonly saving = signal(false);
+  readonly saveError = signal<string | null>(null);
   readonly notices = signal<readonly ExternalNotice[]>([]);
 
   /** The last draft the watcher effect saw, and what it could reach - "previous" for the next
@@ -97,24 +98,32 @@ export class ReliveCycleEditorState {
   }
 
   save(reason?: string): void {
+    void this.saveAsync(reason).catch(() => undefined);
+  }
+
+  saveAsync(reason?: string): Promise<ReliveCycle> {
     const saved = this.saved();
     const draft = this.draft();
-    if (!saved || !draft || this.saving()) return;
+    if (!saved || !draft || this.saving()) return Promise.reject(new Error('Cycle is not ready to save.'));
     this.saving.set(true);
-    this.api.update(saved.id, toWritable(draft), saved.updatedAt ?? '', reason).subscribe({
-      next: (updated) => {
-        this.saved.set(updated);
-        this.quietOnce = true;
-        this.draft.set(updated);
-        this.conflict.set(null);
-        this.saving.set(false);
-      },
-      error: (err) => {
-        this.saving.set(false);
-        if (err?.status === 409) {
-          this.api.get(saved.id).subscribe((latest) => this.conflict.set(latest));
-        }
-      },
+    this.saveError.set(null);
+    return new Promise((resolve, reject) => {
+      this.api.update(saved.id, toWritable(draft), saved.updatedAt ?? '', reason).subscribe({
+        next: (updated) => {
+          this.saved.set(updated);
+          this.quietOnce = true;
+          this.draft.set(updated);
+          this.conflict.set(null);
+          this.saving.set(false);
+          resolve(updated);
+        },
+        error: (err) => {
+          this.saving.set(false);
+          this.saveError.set(err?.status === 409 ? 'Cycle changed elsewhere. Resolve the conflict before running.' : 'Could not save this cycle. Try again.');
+          if (err?.status === 409) this.api.get(saved.id).subscribe((latest) => this.conflict.set(latest));
+          reject(err);
+        },
+      });
     });
   }
 

@@ -1,28 +1,55 @@
 import { DatePipe } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
+import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
+import { CallPickerService } from '../../core/services/call-picker.service';
+import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ReliveApiService } from '../../core/services/relive-api.service';
 import { ReliveCyclesStateService } from '../../core/state/relive-cycles-state.service';
-import { ReliveCycleSummary } from '../../shared/utils/relive-types';
+import { ReliveCycleSummary, ReliveSettings, Step } from '../../shared/utils/relive-types';
 
 /**
- * The Relive Cycles list page (FR-001-009; mock.html `listView()`). "New cycle" is a placeholder
- * until T026 wires the add-calls dialog in front of it - for now it creates an empty cycle and
- * opens it directly, same as opening any existing one with no steps yet.
+ * The Relive Cycles list page (FR-001-009; mock.html `listView()`).
  */
 @Component({
   selector: 'app-relive-list',
   standalone: true,
-  imports: [DatePipe, RouterLink, ConfirmDialogComponent],
+  imports: [DatePipe, RouterLink, ConfirmDialogComponent, ReliveAddCallsDialogComponent],
   templateUrl: './relive-list.component.html',
 })
 export class ReliveListComponent {
   private readonly api = inject(ReliveApiService);
   private readonly router = inject(Router);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly picker = inject(CallPickerService);
+  private readonly source = inject(ReliveCallSourceService);
   readonly state = inject(ReliveCyclesStateService);
+  readonly newCycleOpen = signal(false);
+  readonly creating = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly settings: ReliveSettings = { inboundMode: 'LIVE', onFailure: 'HOLD', onDifferences: 'CONTINUE', defaultDriver: 'AUTOMATIC', internalHosts: [] };
+
+  constructor() {
+    queueMicrotask(() => void this.handlePickerReturn());
+  }
+
+  private async handlePickerReturn(): Promise<void> {
+    const result = this.picker.peekResult(RELIVE_ADD_CALLS_REQUESTER);
+    if (!result || (result.resume as ReliveAddCallsResume | null)?.cycleId !== null) return;
+    if (!result.picked.length) {
+      this.picker.takeResult(RELIVE_ADD_CALLS_REQUESTER);
+      return;
+    }
+    try {
+      const steps = await this.source.freezePicked(result.picked, this.settings);
+      this.picker.takeResult(RELIVE_ADD_CALLS_REQUESTER);
+      this.createFromSteps(steps);
+    } catch {
+      this.error.set('Could not load the picked calls. Reload this page to retry.');
+    }
+  }
 
   lastRunPillClass(cycle: ReliveCycleSummary): string {
     const status = cycle.lastRun ? this.lastRunStatus(cycle) : null;
@@ -51,21 +78,36 @@ export class ReliveListComponent {
   }
 
   newCycle(): void {
+    this.error.set(null);
+    this.newCycleOpen.set(true);
+  }
+
+  createFromSteps(steps: readonly Step[]): void {
+    if (!steps.length || this.creating()) return;
+    this.creating.set(true);
     this.api
       .create({
         name: 'New cycle',
         description: null,
-        steps: [],
+        steps,
         variables: [],
         cycleRules: [],
         globalRules: { mode: 'NONE', selectedIds: [] },
-        settings: { inboundMode: 'LIVE', onFailure: 'HOLD', onDifferences: 'CONTINUE', defaultDriver: 'AUTOMATIC', internalHosts: [] },
+        settings: this.settings,
         noise: [],
         unexpectedCalls: { policy: 'BLOCK', rules: [], fallback: 'BLOCK' },
       })
-      .subscribe((created) => {
-        this.state.load();
-        this.router.navigate(['/relive', created.id]);
+      .subscribe({
+        next: (created) => {
+          this.creating.set(false);
+          this.newCycleOpen.set(false);
+          this.state.load();
+          this.router.navigate(['/relive', created.id]);
+        },
+        error: () => {
+          this.creating.set(false);
+          this.error.set('Could not create the cycle. Try again.');
+        },
       });
   }
 

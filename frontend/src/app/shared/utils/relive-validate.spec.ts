@@ -82,6 +82,12 @@ describe('validateCycle', () => {
     expect(has(findings, 'NOTHING_TO_RUN')).toBeTrue();
   });
 
+  it('blocks an empty cycle before a run starts', () => {
+    const finding = validateCycle(cycle()).find((entry) => entry.code === 'NOTHING_TO_RUN');
+    expect(finding?.severity).toBe('BLOCK');
+    expect(finding?.message).toContain('Add calls');
+  });
+
   it('GLOBAL_RULE_GONE when a selected global rule no longer exists', () => {
     const findings = validateCycle(
       cycle({ steps: [makeStep('s-1', null)], globalRules: { mode: 'SELECTED', selectedIds: ['r-gone'] } }),

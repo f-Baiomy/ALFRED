@@ -35,6 +35,9 @@
         <button class="rl-btn rl-primary" (click)="openPrerun()">▶ Run</button>
       </div>
     </div>
+    @if (state.saveError() || actionError()) {
+      <div class="rl-ext-banner" role="alert">{{ actionError() || state.saveError() }}</div>
+    }
 
     @if (draft.transient) {
       <div class="rl-ext-banner" style="background: rgba(139, 92, 246, 0.12); border-color: var(--border-strong); color: var(--purple-light)">

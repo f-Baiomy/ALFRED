@@ -52,6 +52,9 @@ class ReliveCyclesServiceTest {
             if (doc != null && doc.has("badAction")) {
                 return List.of("unknown action type: bogus");
             }
+            if (doc != null && doc.path("actions").isArray() && doc.path("actions").isEmpty()) {
+                return List.of("A rule needs at least one action.");
+            }
             return List.of();
         };
         ReliveNotificationPort notifications = new ReliveNotificationPort() {
@@ -101,6 +104,19 @@ class ReliveCyclesServiceTest {
         Step orphanChild = stepWithKey("c-1", "missing-parent", "outbound");
         ReliveCycle cycle = withSteps(bareCycle("orphan"), List.of(orphanChild));
         assertThatThrownBy(() -> service.create(cycle)).isInstanceOf(CycleValidationException.class);
+    }
+
+    @Test
+    void acceptsEmptyInboundPassThroughRuleButRejectsEmptyOutboundRule() {
+        var emptyPipeline = objectMapper.createObjectNode();
+        emptyPipeline.putArray("actions");
+        Step inbound = withRule(stepWithKey("inbound", null, "inbound"), emptyPipeline);
+        Step outbound = withRule(stepWithKey("outbound", null, "outbound"), emptyPipeline);
+
+        assertThat(service.create(withSteps(bareCycle("inbound"), List.of(inbound))).steps()).containsExactly(inbound);
+        assertThatThrownBy(() -> service.create(withSteps(bareCycle("outbound"), List.of(outbound))))
+                .isInstanceOf(CycleValidationException.class)
+                .hasMessageContaining("at least one action");
     }
 
     @Test
@@ -168,6 +184,12 @@ class ReliveCyclesServiceTest {
         return new Step(key, parentKey, "label", true, false, direction, "svc",
                 new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
                 objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+    }
+
+    private Step withRule(Step step, JsonNode rule) {
+        return new Step(step.key(), step.parentKey(), step.label(), step.enabled(), step.optional(),
+                step.direction(), step.serviceName(), new CycleRule(rule, null), step.unattributed(),
+                step.recording(), step.source(), step.extract(), step.assertions(), step.noise());
     }
 
     private ReliveCycle withSteps(ReliveCycle base, List<Step> steps) {

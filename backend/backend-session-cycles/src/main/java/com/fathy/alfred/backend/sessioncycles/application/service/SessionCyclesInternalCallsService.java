@@ -6,7 +6,7 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CopyInternalCallsToCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInternalCallDetailUseCase;
-import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListPagedCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
@@ -42,7 +42,7 @@ import java.util.Set;
  */
 @Service
 public class SessionCyclesInternalCallsService implements
-        ListCapturedInternalCallsUseCase,
+        ListPagedCapturedInternalCallsUseCase,
         GetCapturedInternalCallDetailUseCase,
         RemoveCapturedInternalCallUseCase,
         RemoveCapturedInternalCallsUseCase,
@@ -69,14 +69,20 @@ public class SessionCyclesInternalCallsService implements
     /** Mirrors SessionCyclesService.listCalls exactly, delegating to CapturedInternalCallsStorePort instead. */
     @Override
     public Optional<CapturedInternalCallsPage> listCalls(String cycleId, CallsQuery query) {
+        return listCalls(cycleId, query, false);
+    }
+
+    @Override
+    public Optional<CapturedInternalCallsPage> listCalls(String cycleId, CallsQuery query, boolean paged) {
         return metadataStore.findById(cycleId).map(cycle -> {
             int clampedOffset = Math.max(0, query.offset());
+            boolean effectivePagination = paged || paginationEnabled;
             // Disabled pagination means "everything up to maxLimit in one response" - see
             // CallsService.getCalls for why query.limit() must not be used here in that case.
-            int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
+            int clampedLimit = effectivePagination ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
             CallListSupport.Page<CapturedInternalCallSummary> page = capturedInternalCallsStore.query(
-                    cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
+                    cycleId, query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, effectivePagination,
                     query.sessionId(), query.operationId(), query.requestId(), query.serviceNames());
             return new CapturedInternalCallsPage(page.items(), page.total());
         });

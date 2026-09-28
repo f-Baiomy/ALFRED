@@ -7,6 +7,7 @@
     <span class="rl-spacer"></span>
     <button class="rl-btn rl-primary" (click)="newCycle()">＋ New cycle</button>
   </div>
+  @if (error()) { <div class="rl-ext-banner" role="alert">{{ error() }}</div> }
 
   @if (state.cycles().length) {
     <div class="rl-cycles">
@@ -46,3 +47,10 @@
 </div>
 
 <app-confirm-dialog />
+<app-relive-add-calls-dialog
+  [open]="newCycleOpen()"
+  [cycleId]="null"
+  [settings]="settings"
+  (closed)="newCycleOpen.set(false)"
+  (added)="createFromSteps($event)"
+/>

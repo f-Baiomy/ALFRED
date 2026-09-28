@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.relive.application.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fathy.alfred.backend.relive.application.port.in.CycleInUseException;
 import com.fathy.alfred.backend.relive.application.port.in.CycleValidationException;
 import com.fathy.alfred.backend.relive.application.port.in.ManageCycleVersionsUseCase;
@@ -207,7 +208,15 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
         }
         for (Step step : steps) {
             if (step.callRule() != null && step.callRule().rule() != null) {
-                problems.addAll(ruleValidation.validate(step.callRule().rule()));
+                JsonNode actions = step.callRule().rule().path("actions");
+                // A LIVE inbound step intentionally has no proxy actions: it passes through to
+                // the application. Global interception rules require an action, but this one
+                // valid Relive call-rule shape does not.
+                boolean inboundPassThrough = "inbound".equals(step.direction())
+                        && actions.isArray() && actions.isEmpty();
+                if (!inboundPassThrough) {
+                    problems.addAll(ruleValidation.validate(step.callRule().rule()));
+                }
             }
         }
         if (cycle.unexpectedCalls() != null && cycle.unexpectedCalls().rules() != null) {

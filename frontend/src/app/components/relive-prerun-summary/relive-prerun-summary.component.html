@@ -2,6 +2,7 @@
   <div class="dialog-backdrop" (click)="close()">
     <div class="dialog-card" style="width: 640px; max-height: 86vh; overflow: auto" (click)="$event.stopPropagation()">
       <h2>Ready to run "{{ cycle.name }}"?</h2>
+      <p class="rl-hint">Any unsaved cycle edits will be saved before this run starts.</p>
 
       <div class="rl-sect">
         <h3>Driver</h3>

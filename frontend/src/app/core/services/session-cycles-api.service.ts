@@ -83,7 +83,7 @@ export class SessionCyclesApiService {
   }
 
   /** `serviceNames` (internal only - ignored for 'external') narrows the result to just those named projects (plus "unknown"), server-side - see the Sources bar/SessionCycleDetailStateService.selectedSources. Omitted/empty means no filter, every project. */
-  listCalls(id: string, query: CallsQuery, source: CallEndpointSource = 'external', serviceNames?: readonly string[]): Observable<CapturedCallsPageResult> {
+  listCalls(id: string, query: CallsQuery, source: CallEndpointSource = 'external', serviceNames?: readonly string[], paged = false): Observable<CapturedCallsPageResult> {
     let params = new HttpParams()
       .set('search', query.search)
       .set('supplier', query.supplier)
@@ -93,6 +93,7 @@ export class SessionCyclesApiService {
       .set('sessionId', query.sessionId)
       .set('operationId', query.operationId)
       .set('requestId', query.requestId);
+    if (paged) params = params.set('paged', true);
     if (source === 'internal' && serviceNames?.length) {
       params = params.set('serviceNames', serviceNames.join(','));
     }

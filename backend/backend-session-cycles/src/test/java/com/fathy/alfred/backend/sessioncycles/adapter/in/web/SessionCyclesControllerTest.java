@@ -13,7 +13,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInt
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
-import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListPagedCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCycleSpacersUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.MoveCycleSpacerUseCase;
@@ -91,7 +91,7 @@ class SessionCyclesControllerTest {
     @MockBean
     private CopyCallsToCycleUseCase copyCallsToCycleUseCase;
     @MockBean
-    private ListCapturedInternalCallsUseCase listCapturedInternalCallsUseCase;
+    private ListPagedCapturedInternalCallsUseCase listCapturedInternalCallsUseCase;
     @MockBean
     private GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase;
     @MockBean
@@ -220,16 +220,26 @@ class SessionCyclesControllerTest {
 
     @Test
     void listCallsReturnsNotFoundWhenTheCycleDoesNotExist() throws Exception {
-        when(listCapturedCallsUseCase.listCalls(eq("missing"), any())).thenReturn(Optional.empty());
+        when(listCapturedCallsUseCase.listCalls(eq("missing"), any(), eq(false))).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/session-cycles/missing/calls")).andExpect(status().isNotFound());
     }
 
     @Test
     void listCallsReturnsTheCapturedCalls() throws Exception {
-        when(listCapturedCallsUseCase.listCalls(eq("c1"), any())).thenReturn(Optional.of(new CapturedCallsPage(List.of(), 0)));
+        when(listCapturedCallsUseCase.listCalls(eq("c1"), any(), eq(false))).thenReturn(Optional.of(new CapturedCallsPage(List.of(), 0)));
 
         mockMvc.perform(get("/session-cycles/c1/calls")).andExpect(status().isOk());
+    }
+
+    @Test
+    void listCallsAllowsExplicitPaging() throws Exception {
+        when(listCapturedCallsUseCase.listCalls(eq("c1"), any(), eq(true))).thenReturn(Optional.of(new CapturedCallsPage(List.of(), 601)));
+
+        mockMvc.perform(get("/session-cycles/c1/calls").param("paged", "true").param("offset", "400").param("limit", "200"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(601));
+        verify(listCapturedCallsUseCase).listCalls(eq("c1"), org.mockito.ArgumentMatchers.argThat(query -> query.offset() == 400 && query.limit() == 200), eq(true));
     }
 
     @Test
@@ -407,16 +417,26 @@ class SessionCyclesControllerTest {
 
     @Test
     void listInternalCallsReturnsNotFoundWhenTheCycleDoesNotExist() throws Exception {
-        when(listCapturedInternalCallsUseCase.listCalls(eq("missing"), any())).thenReturn(Optional.empty());
+        when(listCapturedInternalCallsUseCase.listCalls(eq("missing"), any(), eq(false))).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/session-cycles/missing/internal-calls")).andExpect(status().isNotFound());
     }
 
     @Test
     void listInternalCallsReturnsTheCapturedCalls() throws Exception {
-        when(listCapturedInternalCallsUseCase.listCalls(eq("c1"), any())).thenReturn(Optional.of(new CapturedInternalCallsPage(List.of(), 0)));
+        when(listCapturedInternalCallsUseCase.listCalls(eq("c1"), any(), eq(false))).thenReturn(Optional.of(new CapturedInternalCallsPage(List.of(), 0)));
 
         mockMvc.perform(get("/session-cycles/c1/internal-calls")).andExpect(status().isOk());
+    }
+
+    @Test
+    void listInternalCallsAllowsExplicitPaging() throws Exception {
+        when(listCapturedInternalCallsUseCase.listCalls(eq("c1"), any(), eq(true))).thenReturn(Optional.of(new CapturedInternalCallsPage(List.of(), 601)));
+
+        mockMvc.perform(get("/session-cycles/c1/internal-calls").param("paged", "true").param("offset", "400").param("limit", "200"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(601));
+        verify(listCapturedInternalCallsUseCase).listCalls(eq("c1"), org.mockito.ArgumentMatchers.argThat(query -> query.offset() == 400 && query.limit() == 200), eq(true));
     }
 
     @Test

@@ -126,6 +126,11 @@ export class CallPickerService {
     return requester in this.state().results;
   }
 
+  /** Read without consuming while an async requester fetches full call details. */
+  peekResult(requester: string): PickResult | null {
+    return this.state().results[requester] ?? null;
+  }
+
   /** Handed over once: a second call, or a later visit, gets null. */
   takeResult(requester: string): PickResult | null {
     const result = this.state().results[requester] ?? null;

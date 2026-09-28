@@ -22,7 +22,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.GetCapturedInt
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCallOverlapsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
-import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListPagedCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCycleSpacersUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.MoveCycleSpacerUseCase;
@@ -81,7 +81,7 @@ public class SessionCyclesController {
     private final RemoveCapturedCallsUseCase removeCapturedCallsUseCase;
     private final ClearCapturedCallsUseCase clearCapturedCallsUseCase;
     private final CopyCallsToCycleUseCase copyCallsToCycleUseCase;
-    private final ListCapturedInternalCallsUseCase listCapturedInternalCallsUseCase;
+    private final ListPagedCapturedInternalCallsUseCase listCapturedInternalCallsUseCase;
     private final GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase;
     private final RemoveCapturedInternalCallUseCase removeCapturedInternalCallUseCase;
     private final RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase;
@@ -107,7 +107,7 @@ public class SessionCyclesController {
             RemoveCapturedCallsUseCase removeCapturedCallsUseCase,
             ClearCapturedCallsUseCase clearCapturedCallsUseCase,
             CopyCallsToCycleUseCase copyCallsToCycleUseCase,
-            ListCapturedInternalCallsUseCase listCapturedInternalCallsUseCase,
+            ListPagedCapturedInternalCallsUseCase listCapturedInternalCallsUseCase,
             GetCapturedInternalCallDetailUseCase getCapturedInternalCallDetailUseCase,
             RemoveCapturedInternalCallUseCase removeCapturedInternalCallUseCase,
             RemoveCapturedInternalCallsUseCase removeCapturedInternalCallsUseCase,
@@ -205,9 +205,10 @@ public class SessionCyclesController {
             @RequestParam(defaultValue = "10") int limit,
             @RequestParam(defaultValue = "") String sessionId,
             @RequestParam(defaultValue = "") String operationId,
-            @RequestParam(defaultValue = "") String requestId
+            @RequestParam(defaultValue = "") String requestId,
+            @RequestParam(defaultValue = "false") boolean paged
     ) {
-        return listCapturedCallsUseCase.listCalls(id, new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId))
+        return listCapturedCallsUseCase.listCalls(id, new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId), paged)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -267,10 +268,11 @@ public class SessionCyclesController {
             @RequestParam(defaultValue = "") String sessionId,
             @RequestParam(defaultValue = "") String operationId,
             @RequestParam(defaultValue = "") String requestId,
-            @RequestParam(defaultValue = "") String serviceNames
+            @RequestParam(defaultValue = "") String serviceNames,
+            @RequestParam(defaultValue = "false") boolean paged
     ) {
         return listCapturedInternalCallsUseCase.listCalls(id, new com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery(
-                        search, supplier, sort, offset, limit, sessionId, operationId, requestId, serviceNames))
+                        search, supplier, sort, offset, limit, sessionId, operationId, requestId, serviceNames), paged)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

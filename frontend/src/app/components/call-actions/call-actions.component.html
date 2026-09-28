@@ -44,3 +44,4 @@
     <button type="button" class="filter-option-item" [disabled]="reliveLoading()" (click)="reliveReplaceSteps()">Replace steps of cycle…</button>
   </app-action-menu>
 </div>
+@if (reliveError()) { <div class="rl-ext-banner" role="alert">{{ reliveError() }}</div> }

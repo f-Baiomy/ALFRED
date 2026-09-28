@@ -110,6 +110,15 @@ class CycleValidatorTest {
     }
 
     @Test
+    void emptyCycleCannotStart() {
+        List<ValidationFinding> findings = validator.validate(cycle(List.of()));
+        assertThat(findings).anySatisfy(finding -> {
+            assertThat(finding.code()).isEqualTo("NOTHING_TO_RUN");
+            assertThat(finding.severity()).isEqualTo("BLOCK");
+        });
+    }
+
+    @Test
     void selectedGlobalRuleThatNoLongerExistsWarns() throws Exception {
         ReliveCycle cycle = new ReliveCycle("c-1", "x", null, List.of(step("s-1", null, recording("https://app.local/x"), ruleDoc())),
                 List.of(), List.of(), new GlobalRulesSelection("SELECTED", List.of("r-gone")),

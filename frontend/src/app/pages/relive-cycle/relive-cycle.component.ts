@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
@@ -15,11 +15,11 @@ import { ReliveHistoryComponent } from '../../components/relive-history/relive-h
 import { ReliveApiService } from '../../core/services/relive-api.service';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
+import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { InterceptionRuleDraft } from '../../core/models/interception.model';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { ReliveRunService } from '../../core/state/relive-run.service';
-import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { externalReach } from '../../shared/utils/relive-external-reach';
 import { CycleRule, CycleVariable, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
@@ -60,6 +60,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly router = inject(Router);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly picker = inject(CallPickerService);
+  private readonly callSource = inject(ReliveCallSourceService);
   private readonly api = inject(ReliveApiService);
   private readonly interceptionState = inject(InterceptionStateService);
   readonly state = inject(ReliveCycleEditorState);
@@ -173,28 +174,36 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   /** A past run opened from the History tab (T072) - shown read-only in the same timeline
    *  component the live run uses, since it's pure input/output either way. */
   readonly historyRun = signal<{ readonly run: Run; readonly results: Readonly<Record<string, StepResult>> } | null>(null);
+  readonly actionError = signal<string | null>(null);
+  private handlingPicker = false;
 
   constructor() {
     const id = this.route.snapshot.paramMap.get('id');
     if (id) this.state.load(id);
-    this.handleReturnFromPicker();
+    effect(() => {
+      const draft = this.state.draft();
+      if (draft && this.picker.hasResult(RELIVE_ADD_CALLS_REQUESTER)) void this.handleReturnFromPicker(draft);
+    });
   }
 
   /** After "Pick from anywhere" sends the user off to pick and back (research: the pick bar
    *  pattern) - append whatever they picked, the same way "Add calls" does directly. */
-  private handleReturnFromPicker(): void {
-    if (!this.picker.hasResult(RELIVE_ADD_CALLS_REQUESTER)) return;
-    const result = this.picker.takeResult(RELIVE_ADD_CALLS_REQUESTER);
-    if (!result || !result.picked.length) return;
-    const resume = result.resume as ReliveAddCallsResume;
-    const draft = this.state.draft();
-    if (!draft || draft.id !== resume.cycleId) return;
-    const steps = freezeCalls(
-      result.picked.map((p) => p.call),
-      new Map(),
-      draft.settings,
-    );
-    this.appendSteps(steps);
+  private async handleReturnFromPicker(draft: ReliveCycle): Promise<void> {
+    if (this.handlingPicker) return;
+    const result = this.picker.peekResult(RELIVE_ADD_CALLS_REQUESTER);
+    if (!result || (result.resume as ReliveAddCallsResume | null)?.cycleId !== draft.id) return;
+    this.handlingPicker = true;
+    try {
+      if (result.picked.length) {
+        const steps = await this.callSource.freezePicked(result.picked, draft.settings);
+        this.appendSteps(steps);
+      }
+      this.picker.takeResult(RELIVE_ADD_CALLS_REQUESTER);
+    } catch {
+      this.actionError.set('Could not load the picked calls. Reload this page to retry.');
+    } finally {
+      this.handlingPicker = false;
+    }
   }
 
   openAddCalls(): void {
@@ -341,6 +350,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   readonly prerunOpen = signal(false);
 
   openPrerun(): void {
+    this.actionError.set(null);
     this.prerunOpen.set(true);
   }
 
@@ -348,12 +358,19 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.prerunOpen.set(false);
   }
 
-  startRun(request: ReliveStartRequest): void {
-    const cycle = this.state.saved();
-    if (!cycle) return;
-    this.historyRun.set(null);
-    this.runService.start(cycle, { driver: request.driver, unattributedChoices: {} });
-    this.setTab('run');
+  async startRun(request: ReliveStartRequest): Promise<void> {
+    this.actionError.set(null);
+    try {
+      const cycle = this.state.dirty() ? await this.state.saveAsync() : this.state.saved();
+      if (!cycle) throw new Error('Cycle has not loaded yet.');
+      if (!cycle.steps.some((step) => step.enabled)) throw new Error('Add calls before starting a run.');
+      this.historyRun.set(null);
+      const running = this.runService.start(cycle, { driver: request.driver, unattributedChoices: {} });
+      this.setTab('run');
+      await running;
+    } catch (error: any) {
+      this.actionError.set(this.state.saveError() ?? error?.error?.message ?? error?.message ?? 'Could not start the run. Check the cycle and try again.');
+    }
   }
 
   async canDeactivate(): Promise<boolean> {

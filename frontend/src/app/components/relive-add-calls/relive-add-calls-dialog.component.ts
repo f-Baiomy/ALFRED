@@ -1,9 +1,7 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
-import { Router } from '@angular/router';
 import { CallRecord } from '../../core/models/call.model';
 import { CallPickerService } from '../../core/services/call-picker.service';
-import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
-import { CallsQuery } from '../../core/state/call-list-view';
+import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { buildCallTree } from '../../shared/utils/call-tree';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
@@ -14,7 +12,7 @@ export const RELIVE_ADD_CALLS_REQUESTER = 'relive-add-calls';
 
 /** Carried through the picker so the cycle page can re-append after the user comes back. */
 export interface ReliveAddCallsResume {
-  readonly cycleId: string;
+  readonly cycleId: string | null;
 }
 
 /**
@@ -28,13 +26,12 @@ export interface ReliveAddCallsResume {
   templateUrl: './relive-add-calls-dialog.component.html',
 })
 export class ReliveAddCallsDialogComponent {
-  private readonly sessionCyclesApi = inject(SessionCyclesApiService);
+  private readonly source = inject(ReliveCallSourceService);
   private readonly picker = inject(CallPickerService);
-  private readonly router = inject(Router);
   readonly sessionCycles = inject(SessionCyclesStateService);
 
   readonly open = input.required<boolean>();
-  readonly cycleId = input.required<string>();
+  readonly cycleId = input.required<string | null>();
   readonly settings = input.required<ReliveSettings>();
 
   readonly closed = output<void>();
@@ -43,18 +40,33 @@ export class ReliveAddCallsDialogComponent {
   readonly selectedSessionCycleId = signal<string | null>(null);
   readonly calls = signal<readonly CallRecord[]>([]);
   readonly checkedRootIds = signal<ReadonlySet<string>>(new Set());
+  readonly loading = signal(false);
+  readonly adding = signal(false);
+  readonly error = signal<string | null>(null);
 
-  readonly tree = computed(() => buildCallTree(this.calls()));
+  readonly tree = computed(() => buildCallTree(this.calls()).filter((node) => node.call.source === 'internal'));
 
-  selectSessionCycle(id: string): void {
+  async selectSessionCycle(id: string): Promise<void> {
     this.selectedSessionCycleId.set(id || null);
     this.checkedRootIds.set(new Set());
+    this.calls.set([]);
     if (!id) {
       this.calls.set([]);
       return;
     }
-    const query: CallsQuery = { search: '', supplier: '', sort: 'newest', offset: 0, limit: 500, sessionId: '', operationId: '', requestId: '' };
-    this.sessionCyclesApi.listCalls(id, query).subscribe((page) => this.calls.set(page.calls.map((c) => c.call)));
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const calls = await this.source.loadCycle(id);
+      if (this.selectedSessionCycleId() === id) {
+        this.calls.set(calls);
+        this.selectAll();
+      }
+    } catch {
+      this.error.set('Could not load this recording. Try again.');
+    } finally {
+      this.loading.set(false);
+    }
   }
 
   toggleRoot(id: string): void {
@@ -68,26 +80,43 @@ export class ReliveAddCallsDialogComponent {
     return this.checkedRootIds().has(id);
   }
 
+  selectAll(): void {
+    this.checkedRootIds.set(new Set(this.tree().map((node) => node.call.id)));
+  }
+
+  deselectAll(): void {
+    this.checkedRootIds.set(new Set());
+  }
+
   pickFromAnywhere(): void {
     this.picker.start({
       requester: RELIVE_ADD_CALLS_REQUESTER,
       title: 'Calls to add to this Relive cycle',
       mode: 'multi',
-      returnUrl: `/relive/${this.cycleId()}`,
-      returnLabel: 'the cycle',
+      returnUrl: this.cycleId() ? `/relive/${this.cycleId()}` : '/relive',
+      returnLabel: this.cycleId() ? 'the cycle' : 'new cycle',
       resume: { cycleId: this.cycleId() } satisfies ReliveAddCallsResume,
     });
     this.closed.emit();
   }
 
-  confirm(): void {
+  async confirm(): Promise<void> {
+    if (this.adding() || !this.selectedSessionCycleId()) return;
     const roots = this.tree().filter((node) => this.checkedRootIds().has(node.call.id));
-    const chosen = roots.flatMap((node) => [node.call, ...node.children.map((c) => c.call)]);
-    // Every call from `listCalls` already carries its full request/response - no separate detail
-    // fetch needed (see relive-freeze.ts's doc on `details`).
-    const steps = freezeCalls(chosen, new Map(), this.settings(), this.selectedSessionCycleId());
-    this.added.emit(steps);
-    this.close();
+    const flatten = (node: (typeof roots)[number]): CallRecord[] => [node.call, ...node.children.flatMap(flatten)];
+    const chosen = roots.flatMap(flatten);
+    this.adding.set(true);
+    this.error.set(null);
+    try {
+      const hydrated = await this.source.hydrate(chosen, this.selectedSessionCycleId());
+      const steps = freezeCalls(hydrated, new Map(), this.settings(), this.selectedSessionCycleId());
+      this.added.emit(steps);
+      this.close();
+    } catch {
+      this.error.set('Could not load full call details. Selection kept; try again.');
+    } finally {
+      this.adding.set(false);
+    }
   }
 
   close(): void {

@@ -84,8 +84,9 @@ public class CycleValidator {
 
     private void checkNothingToRun(List<Step> steps, List<ValidationFinding> findings) {
         boolean anyEnabled = steps.stream().anyMatch(Step::enabled);
-        if (!steps.isEmpty() && !anyEnabled) {
-            findings.add(new ValidationFinding("BLOCK", "NOTHING_TO_RUN", null, "Every step is disabled - there is nothing for this run to do."));
+        if (!anyEnabled) {
+            findings.add(new ValidationFinding("BLOCK", "NOTHING_TO_RUN", null,
+                    steps.isEmpty() ? "Add calls before starting a run." : "Every step is disabled - there is nothing for this run to do."));
         }
     }
 

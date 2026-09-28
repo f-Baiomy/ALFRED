@@ -1,10 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { AppConfigService } from '../../core/services/app-config.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ReliveListComponent } from './relive-list.component';
+import { Step } from '../../shared/utils/relive-types';
+import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 
 describe('ReliveListComponent', () => {
   let fixture: ComponentFixture<ReliveListComponent>;
@@ -19,6 +21,7 @@ describe('ReliveListComponent', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         { provide: AppConfigService, useValue: { backendUrl: 'http://backend' } },
+        { provide: SessionCyclesStateService, useValue: { cycles: () => [] } },
       ],
     }).compileComponents();
 
@@ -80,5 +83,35 @@ describe('ReliveListComponent', () => {
 
     http.expectNone('http://backend/relive-cycles/c-1');
     expect().nothing();
+  });
+
+  it('opens call selection without creating an empty cycle, and cancel leaves nothing', () => {
+    const newButton: HTMLButtonElement = fixture.nativeElement.querySelector('.rl-primary');
+    newButton.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.newCycleOpen()).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain('Add calls to this cycle');
+    http.expectNone((request) => request.method === 'POST' && request.url === 'http://backend/relive-cycles');
+    const cancel: HTMLButtonElement = fixture.nativeElement.querySelector('.dialog-btn.secondary');
+    cancel.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.newCycleOpen()).toBeFalse();
+    http.expectNone((request) => request.method === 'POST' && request.url === 'http://backend/relive-cycles');
+  });
+
+  it('creates the new cycle with the selected steps', () => {
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    const step: Step = {
+      key: 'selected-step', parentKey: null, label: 'POST /search', enabled: true, optional: false, direction: 'inbound',
+      callRule: { name: 'replay', match: {}, actions: [] }, unattributed: 'BLOCK',
+      recording: { method: 'POST', url: 'http://app/search', requestHeaders: {}, status: 200, responseHeaders: {}, timestamp: '2026-01-01', durationMs: 1, source: 'inbound' },
+      source: { callId: 'call-1', cycleId: 'sc-1', direction: 'inbound' }, extract: [], assertions: [], noise: [],
+    };
+    fixture.componentInstance.createFromSteps([step]);
+    const request = http.expectOne('http://backend/relive-cycles');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body.steps[0].callRule).toEqual({ rule: step.callRule, copiedFrom: null });
+    request.flush({ id: 'new-cycle' });
+    http.expectOne('http://backend/relive-cycles').flush([]);
   });
 });

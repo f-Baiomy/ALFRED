@@ -43,10 +43,13 @@ export class ReliveQuickActionsService {
   }
 
   /** "New cycle from selection": creates a saved cycle from the picked calls and opens it. */
-  newCycleFromSelection(calls: readonly CallRecord[]): void {
+  newCycleFromSelection(calls: readonly CallRecord[], onError?: () => void): void {
     const steps = freezeCalls(calls, new Map(), DEFAULT_SETTINGS, null);
     const name = `New cycle from ${calls.length} call${calls.length === 1 ? '' : 's'}`;
-    this.api.create(baseCycle(name, null, steps)).subscribe((created) => this.router.navigate(['/relive', created.id]));
+    this.api.create(baseCycle(name, null, steps)).subscribe({
+      next: (created) => void this.router.navigate(['/relive', created.id]),
+      error: () => onError?.(),
+    });
   }
 
   /** "⚡ Relive now": a transient (not saved) cycle, run immediately - every supplier call REPLAY
