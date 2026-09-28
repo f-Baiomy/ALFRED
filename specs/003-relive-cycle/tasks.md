@@ -613,7 +613,7 @@ walkthrough 4.
 - [X] T078 [P] Write `docs/relive.md`: what it is, the call-rule model, attribution, tiers, the snapshot, the live-call log, and troubleshooting. Add a one-paragraph pointer in `CLAUDE.md` and `AGENTS.md` ("Relive Cycles" under the project map); the evaluation tiers in `docs/interception.md`; the `MATCHES_RECORDED_CALL` condition in `docs/interception.md`; and `backend-relive` in the slice list of `docs/architecture.md`.
 - [X] T079 [P] Exports: the run export (.md/.json/.html) reuses `FE/shared/utils/scenario-run-export.ts`'s approach and the existing builders. **Never truncate**: add a guard test like the existing no-truncation tests (`codegraph explore "no truncation guard test"`).
 - [X] T080 Performance check: SC-009 (a 200-step cycle stays usable). Generate 200 steps in a spec and assert that the step tree renders within budget with `@for` + `track step.key`. SC-005: timeline updates within 1 s of a `run-call` event (fake timers).
-- [ ] T081 Run the full suites once: backend `mvn -B test` (Docker, JDK 21), frontend `npm test` and `npm run build`, proxy `python -m pytest -q`. Fix regressions.
+- [X] T081 Run the full suites once: backend `mvn -B test` (Docker, JDK 21), frontend `npm test` and `npm run build`, proxy `python -m pytest -q`. Fix regressions.
 - [ ] T082 Manual end-to-end with quickstart.md, following the steps below. Record the results in `specs/003-relive-cycle/checklists/requirements.md`.
   1. `docker compose up -d --build backend proxy reverse-proxy frontend`, then `docker compose restart app-gateway`.
   2. Run quickstart.md.

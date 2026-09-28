@@ -118,32 +118,34 @@
             [variables]="finalVariablesOf(h.run)"
             (runFromStep)="runFromHere($event, h.run)"
           />
-        } @else if (runService.run(); as run) {
-          <app-relive-run-timeline
-            [run]="run"
-            [steps]="draft.steps"
-            [results]="runService.results()"
-            [variableDefs]="draft.variables"
-            [variables]="runService.variables()"
-            [selectedKey]="state.selectedStepKey()"
-            [unexpectedCalls]="runService.unexpectedCalls()"
-            [changedPauses]="changedPauses()"
-            [pause]="runService.pause()"
-            (selectStep)="selectStep($event)"
-            (continueRun)="runService.continueRun()"
-            (retryHeld)="runService.retryStep()"
-            (endRun)="runService.endRun()"
-            (endGuidedRun)="runService.endGuidedRun()"
-            (resumeFromStep)="resumeFromStep($event)"
-            (runFromStep)="runFromHere($event, run)"
-            (stopRun)="runService.stop()"
-            (checkpointContinue)="runService.resolveCheckpoint('CONTINUE')"
-            (checkpointReplay)="runService.resolveCheckpoint('REPLAY')"
-            (checkpointSkip)="runService.resolveCheckpoint('SKIP')"
-            (openPausedCall)="openPausedCallInInterception($event)"
-          />
         } @else {
-          <div class="rl-faint">Run this cycle to see its live execution timeline here.</div>
+          @if (runService.run(); as run) {
+            <app-relive-run-timeline
+              [run]="run"
+              [steps]="draft.steps"
+              [results]="runService.results()"
+              [variableDefs]="draft.variables"
+              [variables]="runService.variables()"
+              [selectedKey]="state.selectedStepKey()"
+              [unexpectedCalls]="runService.unexpectedCalls()"
+              [changedPauses]="changedPauses()"
+              [pause]="runService.pause()"
+              (selectStep)="selectStep($event)"
+              (continueRun)="runService.continueRun()"
+              (retryHeld)="runService.retryStep()"
+              (endRun)="runService.endRun()"
+              (endGuidedRun)="runService.endGuidedRun()"
+              (resumeFromStep)="resumeFromStep($event)"
+              (runFromStep)="runFromHere($event, run)"
+              (stopRun)="runService.stop()"
+              (checkpointContinue)="runService.resolveCheckpoint('CONTINUE')"
+              (checkpointReplay)="runService.resolveCheckpoint('REPLAY')"
+              (checkpointSkip)="runService.resolveCheckpoint('SKIP')"
+              (openPausedCall)="openPausedCallInInterception($event)"
+            />
+          } @else {
+            <div class="rl-faint">Run this cycle to see its live execution timeline here.</div>
+          }
         }
       }
       @case ('history') {
