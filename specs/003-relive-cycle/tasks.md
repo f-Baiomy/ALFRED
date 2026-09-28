@@ -361,7 +361,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
 **Goal**: FR-030-034d, 044a; research D1, D13. **Independent test**: US3 scenarios 1-7 + 6a-6c; mock walkthroughs
 **4 Run** and **10 Continue after a failure**.
 
-- [ ] T046 [US3] Create `BR/application/port/in/` `StartRunUseCase`, `RecordStepResultUseCase`, `StopRunUseCase`, `FinishRunUseCase`, `HoldRunUseCase`, `ResumeRunUseCase`, `UpdateRunDefinitionUseCase`, `ListRunsUseCase`, `GetRunUseCase`, `SetRunVariableUseCase`, and implement them in `BR/application/service/ReliveRunsService.java`.
+- [X] T046 [US3] Create `BR/application/port/in/` `StartRunUseCase`, `RecordStepResultUseCase`, `StopRunUseCase`, `FinishRunUseCase`, `HoldRunUseCase`, `ResumeRunUseCase`, `UpdateRunDefinitionUseCase`, `ListRunsUseCase`, `GetRunUseCase`, `SetRunVariableUseCase`, and implement them in `BR/application/service/ReliveRunsService.java`.
   - **start:**
     1. Validate (422 on BLOCK findings).
     2. Snapshot the definition into the run.

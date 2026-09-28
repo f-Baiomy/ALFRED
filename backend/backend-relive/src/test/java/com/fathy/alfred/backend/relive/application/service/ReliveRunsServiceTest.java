@@ -1,0 +1,411 @@
+package com.fathy.alfred.backend.relive.application.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fathy.alfred.backend.relive.application.port.in.RunBlockedException;
+import com.fathy.alfred.backend.relive.application.port.in.RunDefinitionConflictException;
+import com.fathy.alfred.backend.relive.application.port.in.RunLeaseHeldException;
+import com.fathy.alfred.backend.relive.application.port.in.RunNotResumableException;
+import com.fathy.alfred.backend.relive.application.port.in.StartRunCommand;
+import com.fathy.alfred.backend.relive.application.port.in.ValidateCycleUseCase;
+import com.fathy.alfred.backend.relive.application.port.out.LeaseQuery;
+import com.fathy.alfred.backend.relive.application.port.out.ReliveCycleStorePort;
+import com.fathy.alfred.backend.relive.application.port.out.ReliveNotificationPort;
+import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
+import com.fathy.alfred.backend.relive.application.port.out.RunSnapshotPublisherPort;
+import com.fathy.alfred.backend.relive.domain.model.CycleRule;
+import com.fathy.alfred.backend.relive.domain.model.CycleVersion;
+import com.fathy.alfred.backend.relive.domain.model.GlobalRulesSelection;
+import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
+import com.fathy.alfred.backend.relive.domain.model.ReliveCycleSummary;
+import com.fathy.alfred.backend.relive.domain.model.ReliveSettings;
+import com.fathy.alfred.backend.relive.domain.model.Run;
+import com.fathy.alfred.backend.relive.domain.model.RunStatus;
+import com.fathy.alfred.backend.relive.domain.model.Step;
+import com.fathy.alfred.backend.relive.domain.model.StepResult;
+import com.fathy.alfred.backend.relive.domain.model.StepState;
+import com.fathy.alfred.backend.relive.domain.model.UnexpectedCallsPolicy;
+import com.fathy.alfred.backend.relive.domain.model.ValidationFinding;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Delayed;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class ReliveRunsServiceTest {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private FakeCycleStore cycleStore;
+    private FakeRunStore runStore;
+    private FakePublisher publisher;
+    private FakeNotifications notifications;
+    private FakeValidator validator;
+    private FakeLeaseQuery leaseQuery;
+    private FakeScheduler scheduler;
+    private ReliveRunsService service;
+
+    @BeforeEach
+    void setUp() {
+        cycleStore = new FakeCycleStore();
+        runStore = new FakeRunStore();
+        publisher = new FakePublisher();
+        notifications = new FakeNotifications();
+        validator = new FakeValidator();
+        leaseQuery = new FakeLeaseQuery();
+        scheduler = new FakeScheduler();
+        RunSnapshotBuilder snapshotBuilder = new RunSnapshotBuilder(publisher, objectMapper);
+        service = new ReliveRunsService(runStore, cycleStore, publisher, notifications, validator,
+                snapshotBuilder, leaseQuery, scheduler);
+    }
+
+    private ReliveCycle bareCycle(String name, boolean isTransient) {
+        return new ReliveCycle(null, name, null, List.of(), List.of(), List.of(),
+                new GlobalRulesSelection("NONE", List.of()),
+                new ReliveSettings("LIVE", "HOLD", "CONTINUE", "AUTOMATIC", List.of()),
+                List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"),
+                "t0", "t0", isTransient, null);
+    }
+
+    private Step step(String key, boolean inbound) {
+        return new Step(key, null, "label", true, false, inbound ? "inbound" : "outbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+    }
+
+    private ReliveCycle withSteps(ReliveCycle base, List<Step> steps) {
+        return new ReliveCycle(base.id(), base.name(), base.description(), steps, base.variables(),
+                base.cycleRules(), base.globalRules(), base.settings(), base.noise(), base.unexpectedCalls(),
+                base.createdAt(), base.updatedAt(), base.isTransient(), base.lastRun());
+    }
+
+    private String save(ReliveCycle cycle) {
+        ReliveCycle toSave = cycle.id() == null
+                ? new ReliveCycle(java.util.UUID.randomUUID().toString(), cycle.name(), cycle.description(),
+                        cycle.steps(), cycle.variables(), cycle.cycleRules(), cycle.globalRules(), cycle.settings(),
+                        cycle.noise(), cycle.unexpectedCalls(), cycle.createdAt(), cycle.updatedAt(),
+                        cycle.isTransient(), cycle.lastRun())
+                : cycle;
+        cycleStore.save(toSave);
+        return toSave.id();
+    }
+
+    @Test
+    void startThrowsWhenValidationBlocks() {
+        String cycleId = save(bareCycle("blocked", false));
+        validator.findings = List.of(new ValidationFinding("BLOCK", "MISSING_RECORDING", "s-1", "no recording"));
+
+        assertThatThrownBy(() -> service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of())))
+                .isInstanceOf(RunBlockedException.class);
+        assertThat(publisher.published).isEmpty();
+    }
+
+    @Test
+    void startPublishesSnapshotAndNotifies() {
+        String cycleId = save(bareCycle("ok", false));
+
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        assertThat(run.status()).isEqualTo(RunStatus.RUNNING);
+        assertThat(publisher.published).containsKey(run.id());
+        assertThat(publisher.published.get(run.id()).get("state").asText()).isEqualTo("RUNNING");
+        assertThat(notifications.runChangedCount).isEqualTo(1);
+    }
+
+    @Test
+    void recordStepResultRecomputesSummary() {
+        String cycleId = save(withSteps(bareCycle("steps", false), List.of(step("s-1", true))));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        service.recordStepResult(run.id(), stepResult(run.id(), "s-1", 1, StepState.COMPLETED));
+
+        Run updated = runStore.findById(run.id()).orElseThrow();
+        assertThat(updated.summary().completed()).isEqualTo(1);
+        assertThat(updated.summary().total()).isEqualTo(1);
+    }
+
+    @Test
+    void setVariableRepublishesOnlyWhenReferencedByARule() {
+        JsonNode ruleUsingToken = objectMapper.createObjectNode().put("match", "{{token}}");
+        CycleRule cycleRule = new CycleRule(ruleUsingToken, null);
+        ReliveCycle cycle = new ReliveCycle(null, "vars", null, List.of(), List.of(), List.of(cycleRule),
+                new GlobalRulesSelection("NONE", List.of()),
+                new ReliveSettings("LIVE", "HOLD", "CONTINUE", "AUTOMATIC", List.of()),
+                List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
+        String cycleId = save(cycle);
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        publisher.published.clear();
+
+        service.setVariable(run.id(), "unused", "v1", null);
+        assertThat(publisher.published).isEmpty();
+
+        service.setVariable(run.id(), "token", "v2", null);
+        assertThat(publisher.published).containsKey(run.id());
+    }
+
+    @Test
+    void stopKeepsSnapshotAsStoppingUntilDrainOrTimeout() {
+        String cycleId = save(bareCycle("stoppable", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        service.stop(run.id());
+
+        assertThat(publisher.unpublished).doesNotContain(run.id());
+        assertThat(publisher.published.get(run.id()).get("state").asText()).isEqualTo("STOPPING");
+        assertThat(scheduler.tasks).hasSize(1);
+    }
+
+    @Test
+    void stopSnapshotIsRemovedOnSimulatedDrain() {
+        String cycleId = save(bareCycle("stoppable", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.stop(run.id());
+
+        service.onInflightDrained(run.id());
+
+        assertThat(publisher.unpublished).contains(run.id());
+        assertThat(scheduler.tasks.get(0).cancelled).isTrue();
+    }
+
+    @Test
+    void stopSnapshotIsRemovedAfterSimulatedTimeoutWithNoDrain() {
+        String cycleId = save(bareCycle("stoppable", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.stop(run.id());
+
+        scheduler.tasks.get(0).runnable.run();
+
+        assertThat(publisher.unpublished).contains(run.id());
+    }
+
+    @Test
+    void finishDeletesAnUnsavedTransientCycleAndItsRun() {
+        String cycleId = save(bareCycle("quick run", true));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        service.finish(run.id(), RunStatus.COMPLETED);
+
+        assertThat(cycleStore.findById(cycleId)).isEmpty();
+        assertThat(runStore.findById(run.id())).isEmpty();
+    }
+
+    @Test
+    void finishKeepsACycleSavedMidRun() {
+        String cycleId = save(bareCycle("was quick", true));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        ReliveCycle stored = cycleStore.findById(cycleId).orElseThrow();
+        cycleStore.save(new ReliveCycle(stored.id(), stored.name(), stored.description(), stored.steps(),
+                stored.variables(), stored.cycleRules(), stored.globalRules(), stored.settings(), stored.noise(),
+                stored.unexpectedCalls(), stored.createdAt(), stored.updatedAt(), false, stored.lastRun()));
+
+        service.finish(run.id(), RunStatus.COMPLETED);
+
+        assertThat(cycleStore.findById(cycleId)).isPresent();
+        assertThat(runStore.findById(run.id())).isPresent();
+    }
+
+    @Test
+    void holdSetsHoldAndLogsThenClearsAndLogsContinued() {
+        String cycleId = save(bareCycle("holdable", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        Run held = service.hold(run.id(), "s-1", "FAILED");
+        assertThat(held.hold()).isNotNull();
+        assertThat(held.log()).anyMatch(l -> "HELD".equals(l.kind()));
+
+        Run continued = service.hold(run.id(), "s-1", null);
+        assertThat(continued.hold()).isNull();
+        assertThat(continued.log()).anyMatch(l -> "CONTINUED".equals(l.kind()));
+    }
+
+    @Test
+    void resumeOnlyWorksFromAnEndedStatus() {
+        String cycleId = save(bareCycle("running", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        assertThatThrownBy(() -> service.resume(run.id(), null)).isInstanceOf(RunNotResumableException.class);
+    }
+
+    @Test
+    void resumeRejectsWhileAnotherTabHoldsTheLease() {
+        String cycleId = save(bareCycle("stopped", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.stop(run.id());
+        leaseQuery.active = true;
+
+        assertThatThrownBy(() -> service.resume(run.id(), null)).isInstanceOf(RunLeaseHeldException.class);
+    }
+
+    @Test
+    void resumeReactivatesTheRun() {
+        String cycleId = save(bareCycle("stopped", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.stop(run.id());
+
+        Run resumed = service.resume(run.id(), "s-2");
+
+        assertThat(resumed.status()).isEqualTo(RunStatus.RUNNING);
+        assertThat(resumed.resumed()).hasSize(1);
+        assertThat(publisher.published.get(run.id()).get("state").asText()).isEqualTo("RUNNING");
+    }
+
+    @Test
+    void updateDefinitionMergesOnlyUnexecutedSteps() {
+        String cycleId = save(withSteps(bareCycle("defs", false), List.of(step("s-1", true), step("s-2", true))));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.recordStepResult(run.id(), stepResult(run.id(), "s-1", 1, StepState.COMPLETED));
+
+        Step changedS2 = new Step("s-2", null, "changed label", true, false, "inbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+        ReliveCycle newDefinition = withSteps(cycleStore.findById(cycleId).orElseThrow(), List.of(step("s-1", true), changedS2));
+
+        Run updated = service.updateDefinition(run.id(), newDefinition, "tweak");
+
+        assertThat(updated.definition().steps().stream().filter(s -> s.key().equals("s-2")).findFirst().orElseThrow().label())
+                .isEqualTo("changed label");
+    }
+
+    @Test
+    void updateDefinitionRejectsChangingAStepThatAlreadyHasAResult() {
+        String cycleId = save(withSteps(bareCycle("defs", false), List.of(step("s-1", true))));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.recordStepResult(run.id(), stepResult(run.id(), "s-1", 1, StepState.COMPLETED));
+
+        Step changedS1 = new Step("s-1", null, "changed", true, false, "inbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+        ReliveCycle newDefinition = withSteps(cycleStore.findById(cycleId).orElseThrow(), List.of(changedS1));
+
+        assertThatThrownBy(() -> service.updateDefinition(run.id(), newDefinition, null))
+                .isInstanceOf(RunDefinitionConflictException.class);
+    }
+
+    private StepResult stepResult(String runId, String stepKey, int attempt, StepState state) {
+        return new StepResult(runId, stepKey, attempt, state, "LIVE", "HEADER", null, null, null,
+                List.of(), List.of(), List.of(), List.of(), null, "t0", "t1", 5L, null, List.of(), null, List.of(), null);
+    }
+
+    static class FakeCycleStore implements ReliveCycleStorePort {
+        final Map<String, ReliveCycle> byId = new LinkedHashMap<>();
+        @Override public List<ReliveCycleSummary> listSummaries() { return List.of(); }
+        @Override public Optional<ReliveCycle> findById(String id) { return Optional.ofNullable(byId.get(id)); }
+        @Override public boolean existsById(String id) { return byId.containsKey(id); }
+        @Override public ReliveCycle save(ReliveCycle cycle) { byId.put(cycle.id(), cycle); return cycle; }
+        @Override public boolean deleteById(String id) { return byId.remove(id) != null; }
+        @Override public void saveVersion(CycleVersion version, int keep) { }
+        @Override public List<CycleVersion> listVersions(String cycleId) { return List.of(); }
+        @Override public Optional<CycleVersion> getVersion(String cycleId, int version) { return Optional.empty(); }
+        @Override public void pruneVersions(String cycleId, int keep) { }
+    }
+
+    static class FakeRunStore implements ReliveRunStorePort {
+        final Map<String, Run> byId = new LinkedHashMap<>();
+        final List<StepResult> stepResults = new ArrayList<>();
+        @Override public Run create(Run run) { byId.put(run.id(), run); return run; }
+        @Override public Optional<Run> findById(String runId) { return Optional.ofNullable(byId.get(runId)); }
+        @Override public List<Run> listByCycleId(String cycleId, int limit) {
+            return byId.values().stream().filter(r -> r.cycleId().equals(cycleId)).toList();
+        }
+        @Override public List<Run> findAllRunning() {
+            return byId.values().stream().filter(r -> r.status() == RunStatus.RUNNING).toList();
+        }
+        @Override public Run update(Run run) { byId.put(run.id(), run); return run; }
+        @Override public void putStepResult(StepResult result) {
+            stepResults.removeIf(r -> r.runId().equals(result.runId()) && r.stepKey().equals(result.stepKey()) && r.attempt() == result.attempt());
+            stepResults.add(result);
+        }
+        @Override public List<StepResult> listStepResults(String runId) {
+            return stepResults.stream().filter(r -> r.runId().equals(runId)).toList();
+        }
+        @Override public void pruneRuns(String cycleId, int keep, long maxBytes) { }
+        @Override public void deleteByCycleId(String cycleId) {
+            byId.values().removeIf(r -> r.cycleId().equals(cycleId));
+            stepResults.removeIf(r -> !byId.containsKey(r.runId()));
+        }
+    }
+
+    static class FakePublisher implements RunSnapshotPublisherPort {
+        final Map<String, JsonNode> published = new LinkedHashMap<>();
+        final List<String> unpublished = new ArrayList<>();
+        @Override public void publish(String runId, JsonNode snapshotJson) { published.put(runId, snapshotJson); }
+        @Override public void unpublish(String runId) { unpublished.add(runId); published.remove(runId); }
+        @Override public void publishInflight(JsonNode inflightJson) { }
+        @Override public void clearInflight() { }
+        @Override public void writeAnswer(String runId, String answerId, JsonNode meta, byte[] body) { }
+    }
+
+    static class FakeNotifications implements ReliveNotificationPort {
+        int runChangedCount;
+        @Override public void cycleChanged() { }
+        @Override public void runChanged(String cycleId, String runId) { runChangedCount++; }
+        @Override public void runCall(JsonNode eventJson) { }
+    }
+
+    static class FakeValidator implements ValidateCycleUseCase {
+        List<ValidationFinding> findings = List.of();
+        @Override public List<ValidationFinding> validate(String cycleId) { return findings; }
+    }
+
+    static class FakeLeaseQuery implements LeaseQuery {
+        boolean active;
+        @Override public boolean hasActiveLease(String runId) { return active; }
+    }
+
+    /** Captures every scheduled task instead of running it, so a test can invoke or cancel it deterministically. */
+    static class FakeScheduler implements ScheduledExecutorService {
+        final List<Task> tasks = new ArrayList<>();
+
+        static class Task {
+            final Runnable runnable;
+            final long delay;
+            boolean cancelled;
+            Task(Runnable runnable, long delay) { this.runnable = runnable; this.delay = delay; }
+        }
+
+        @Override
+        public ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit) {
+            Task task = new Task(command, delay);
+            tasks.add(task);
+            return new ScheduledFuture<Object>() {
+                @Override public long getDelay(TimeUnit unit) { return task.delay; }
+                @Override public int compareTo(Delayed o) { return 0; }
+                @Override public boolean cancel(boolean mayInterruptIfRunning) { task.cancelled = true; return true; }
+                @Override public boolean isCancelled() { return task.cancelled; }
+                @Override public boolean isDone() { return false; }
+                @Override public Object get() { return null; }
+                @Override public Object get(long timeout, TimeUnit unit) { return null; }
+            };
+        }
+
+        @Override public ScheduledFuture<?> scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit) { throw new UnsupportedOperationException(); }
+        @Override public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay, long delay, TimeUnit unit) { throw new UnsupportedOperationException(); }
+        @Override public <V> ScheduledFuture<V> schedule(Callable<V> callable, long delay, TimeUnit unit) { throw new UnsupportedOperationException(); }
+        @Override public void shutdown() { }
+        @Override public List<Runnable> shutdownNow() { return List.of(); }
+        @Override public boolean isShutdown() { return false; }
+        @Override public boolean isTerminated() { return false; }
+        @Override public boolean awaitTermination(long timeout, TimeUnit unit) { return true; }
+        @Override public <T> Future<T> submit(Callable<T> task) { throw new UnsupportedOperationException(); }
+        @Override public <T> Future<T> submit(Runnable task, T result) { throw new UnsupportedOperationException(); }
+        @Override public Future<?> submit(Runnable task) { throw new UnsupportedOperationException(); }
+        @Override public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks) { throw new UnsupportedOperationException(); }
+        @Override public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) { throw new UnsupportedOperationException(); }
+        @Override public <T> T invokeAny(Collection<? extends Callable<T>> tasks) { throw new UnsupportedOperationException(); }
+        @Override public <T> T invokeAny(Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) { throw new UnsupportedOperationException(); }
+        @Override public void execute(Runnable command) { throw new UnsupportedOperationException(); }
+    }
+}
