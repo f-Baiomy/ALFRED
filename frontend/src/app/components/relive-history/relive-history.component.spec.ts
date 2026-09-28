@@ -74,4 +74,23 @@ describe('ReliveHistoryComponent', () => {
     expect(compared!.map((r) => r.id)).toEqual(['r-1', 'r-2']);
     expect(compared![0].results!.draftResults[0].status).toBe(200);
   });
+
+  it('T079: exportRun() fetches the full run and downloads a report without throwing', () => {
+    fixture.detectChanges();
+    const step = {
+      key: 's-1', parentKey: null, label: 'Search', enabled: true, optional: false, direction: 'inbound' as const,
+      serviceName: 'odeysys', callRule: { name: 's-1', enabled: true, priority: 0, stopProcessing: true, match: {}, actions: [] },
+      unattributed: 'BLOCK' as const, recording: { method: 'GET', url: 'https://app.local/x', requestHeaders: {}, requestBody: null, status: 200, responseHeaders: {}, responseBody: '{}', timestamp: 't', durationMs: 10, sessionId: null, operationId: null, serviceName: 'odeysys', source: 'inbound' as const },
+      source: { callId: 's-1', cycleId: null, direction: 'inbound' as const }, extract: [], assertions: [], noise: [],
+    };
+    getRunSpy.and.returnValue(of({
+      ...run('r-1'),
+      definition: { steps: [step], variables: [] } as unknown as Run['definition'],
+      stepResults: [{ runId: 'r-1', stepKey: 's-1', attempt: 1, state: 'COMPLETED', mode: 'REPLAY', attribution: 'HEADER', differences: [], rulesApplied: [], variablesUsed: [], variablesProduced: [], unexpectedCalls: [], pauses: [], durationMs: 12, actualResponse: { status: 200, headers: {}, body: '{}' } }],
+      secrets: [],
+    }));
+
+    expect(() => fixture.componentInstance.exportRun(run('r-1'), 'markdown')).not.toThrow();
+    expect(getRunSpy).toHaveBeenCalledWith('c-1', 'r-1');
+  });
 });

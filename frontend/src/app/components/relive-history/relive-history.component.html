@@ -16,6 +16,11 @@
       @if (i > 0) {
         <button class="rl-btn rl-sm" [disabled]="comparing()" (click)="compareWithNewest(run)">Compare with newest</button>
       }
+      <app-action-menu label="Export">
+        <button type="button" class="filter-option-item" (click)="exportRun(run, 'markdown')">Export report...</button>
+        <button type="button" class="filter-option-item" (click)="exportRun(run, 'json')">Export as JSON</button>
+        <button type="button" class="filter-option-item" (click)="exportRun(run, 'html')">Export as HTML</button>
+      </app-action-menu>
     </div>
   }
 } @else {
