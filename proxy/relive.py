@@ -526,6 +526,25 @@ def _tag_changed_pause(verdict, run_id, step_key):
         verdict.pause['relive'] = {'runId': run_id, 'stepKey': step_key, 'at': 'CHANGED'}
 
 
+def _rule_applications(flow, rulesets):
+    """[{'tier': 'STEP'|'CYCLE'|'GLOBAL', 'ruleId': ..., 'ruleName': ...}, ...] in tier order
+    (FR-028/T068) - read straight from the engine's own per-tier matched-rules record
+    (`interception.MATCHED_KEY`, set by `_apply_request_phase_tiered`) rather than re-evaluating
+    anything: `rulesets` is the exact `(tier_name, ruleset, answers_dir)` list this call's
+    `apply_request` was given, in the same order the engine iterated it in, so zipping the two
+    together recovers which tier each matched rule came from. Request-phase only - a rule that only
+    ever changes the response is not reflected here."""
+    matched = (getattr(flow, 'metadata', None) or {}).get(interception.MATCHED_KEY)
+    if not matched or matched[0] != 'TIERED':
+        return []
+    tiers_matched = matched[1]
+    out = []
+    for (tier_name, _ruleset, _dir), (_tier_ruleset, matching) in zip(rulesets, tiers_matched):
+        for rule in matching:
+            out.append({'tier': tier_name, 'ruleId': rule.id, 'ruleName': rule.name})
+    return out
+
+
 def failure_payload(relive_meta):
     """The body for the 502 an unattended "request differs" pause resolves to - see
     force_failure_mock, called from the addon once `breakpoints.wait_for_decision` comes back
@@ -589,7 +608,7 @@ async def apply_outbound(flow, service_name, backend_addresses, engine, runs=Non
     _guard_replay(verdict, child, run_id, child.get('stepKey'))
     _tag_changed_pause(verdict, run_id, child.get('stepKey'))
     info = {'runId': run_id, 'stepKey': child.get('stepKey'), 'attribution': result.kind,
-            'choice': child.get('mode')}
+            'choice': child.get('mode'), 'ruleIds': _rule_applications(flow, rulesets)}
     return verdict, info
 
 
@@ -628,6 +647,7 @@ async def _handle_unattributed(flow, service_name, engine, runs):
         verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
         _guard_replay(verdict, child, run_id, child.get('stepKey'))
         _tag_changed_pause(verdict, run_id, child.get('stepKey'))
+        info['ruleIds'] = _rule_applications(flow, rulesets)
         return verdict, info
 
     # BLOCK (default)
@@ -707,5 +727,5 @@ async def _apply_matched_step(flow, service_name, engine, run, step_key, attribu
     verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
     _tag_changed_pause(verdict, run_id, step.get('stepKey'))
     info = {'runId': run_id, 'stepKey': step.get('stepKey'), 'attribution': attribution,
-            'choice': step.get('mode')}
+            'choice': step.get('mode'), 'ruleIds': _rule_applications(flow, rulesets)}
     return verdict, info

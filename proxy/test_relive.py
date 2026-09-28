@@ -406,6 +406,11 @@ class TierEvaluationTest(unittest.TestCase):
             global_index = next(i for i, a in enumerate(verdict.applied) if 'X-Tier' in (a.detail or ''))
             self.assertLess(step_index, cycle_index)
             self.assertLess(cycle_index, global_index)
+            # T068: info['ruleIds'] carries which tier each matched rule came from, in tier order.
+            tiers = [r['tier'] for r in info['ruleIds']]
+            self.assertEqual(['STEP', 'CYCLE', 'GLOBAL'], tiers)
+            self.assertEqual('cycle', next(r['ruleName'] for r in info['ruleIds'] if r['tier'] == 'CYCLE'))
+            self.assertEqual('global', next(r['ruleName'] for r in info['ruleIds'] if r['tier'] == 'GLOBAL'))
 
     def test_stop_processing_scoped_to_one_tier(self):
         with tempfile.TemporaryDirectory() as tmp:
