@@ -520,7 +520,7 @@ differences**.
   - **Extract:** "＋ Extract a value…" uses the existing `JsonPathInputComponent` (`FE/components/json-path-input/`) on the recorded response, producing `ExtractRule`s (same shape as Scenarios).
   - **Assertions:** use `ScenarioAssertionEditorComponent` (`FE/components/scenario-assertion-editor/`), which is reused, not copied.
   - **Evaluation:** assertions are evaluated in the orchestrator with `evaluate` from `FE/shared/utils/scenario-assertions.ts`.
-- [ ] T066 [US5] Unresolved-variable blocking (FR-024): the orchestrator refuses to send a step with an unresolved `{{name}}` and marks it FAILED with "unresolved {{name}}". Pre-run validation already reports it (T045).
+- [X] T066 [US5] Unresolved-variable blocking (FR-024): the orchestrator refuses to send a step with an unresolved `{{name}}` and marks it FAILED with "unresolved {{name}}". Pre-run validation already reports it (T045).
   - **Test:** in `relive-run.service.spec.ts`.
 
 ---

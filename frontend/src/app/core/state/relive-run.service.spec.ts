@@ -506,4 +506,22 @@ describe('ReliveRunService', () => {
     expect(differences.find((d) => d.path === 'body.traceId')?.kind).toBe('NOISE_AUTO');
     expect(service.results()['login'].state).toBe('COMPLETED_WITH_DIFFERENCES');
   });
+
+  it('T066: refuses to send a step with an unresolved {{name}} reference and marks it FAILED', async () => {
+    const login = inboundStep({
+      recording: { ...inboundStep().recording, requestBody: '{"booking":"{{bookingId}}"}' },
+    });
+    const steps = [login];
+    const cycle = cycleOf(steps);
+    const run1 = { ...runOf(steps), definition: { ...cycle, settings: { ...cycle.settings, onFailure: 'CONTINUE' as const } } };
+    reliveApi.startRun.and.returnValue(of(run1));
+    reliveApi.finishRun.and.returnValue(of({ ...run1, status: 'FAILED' }));
+
+    await service.start(cycle, { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+    expect(resendApi.resend).not.toHaveBeenCalled();
+    expect(service.results()['login'].state).toBe('FAILED');
+    expect(service.results()['login'].error).toBe('unresolved {{bookingId}}');
+    expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'FAILED');
+  });
 });

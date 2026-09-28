@@ -86,6 +86,12 @@ function varRefsOf(step: Step): string[] {
   return [...new Set([...text.matchAll(PLAIN_VAR_TOKEN)].map((m) => m[1]))];
 }
 
+/** FR-024: `{{name}}` references still literal after substitution - unknown or not-yet-produced. */
+function unresolvedNames(substituted: SubstitutedRequest): string[] {
+  const text = `${substituted.url} ${Object.values(substituted.headers).join(' ')} ${substituted.body}`;
+  return [...new Set([...text.matchAll(PLAIN_VAR_TOKEN)].map((m) => m[1]))];
+}
+
 /** Variable names this step's recorded request actually references, with their current value - for `StepResult.variablesUsed`. */
 function usedVarsOf(step: Step, vars: Readonly<Record<string, string>>): readonly { readonly name: string; readonly value: string }[] {
   return varRefsOf(step)
@@ -451,11 +457,12 @@ export class ReliveRunService {
 
     const vars = this.variables();
     const substituted = substituteStepRequest(step, vars);
+    const unresolved = unresolvedNames(substituted);
     const startedAt = Date.now();
     let resendResult: ResendResult | null = null;
-    let error: string | null = null;
+    let error: string | null = unresolved.length ? `unresolved {{${unresolved[0]}}}` : null;
     try {
-      resendResult = await firstValueFrom(
+      if (!unresolved.length) resendResult = await firstValueFrom(
         this.resendApi.resend({
           direction: 'inbound',
           callId: step.source.callId,
