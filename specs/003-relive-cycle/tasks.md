@@ -423,7 +423,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **FAILED** on: transport error, timeout, no answer, 5xx, a status-class change, or a failed assertion.
   - **DIFFERENCES** on at least one UNEXPECTED difference.
   - **Test:** `relive-outcome.spec.ts`, with the clarification's example table (Price 450 → 455 is yellow; 201 → 500 is red).
-- [ ] T052 [US3] Create `FE/core/state/relive-run.service.ts`, the Automatic orchestrator (component-provided on the cycle page). It follows mock.html `startRun`, `tick`, `runStep`, `afterSettle`, `finish`, `stopRun`.
+- [X] T052 [US3] Create `FE/core/state/relive-run.service.ts`, the Automatic orchestrator (component-provided on the cycle page). It follows mock.html `startRun`, `tick`, `runStep`, `afterSettle`, `finish`, `stopRun`.
   - **start:** `POST runs` and `holdLease`.
   - **Per inbound step, in order:**
     1. Substitute variables with `substituteDraft` / `substituteTokens` from `FE/shared/utils/resend-draft-chain.ts`, and `resolveDynamicTokens` from `dynamic-tokens.ts`.

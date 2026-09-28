@@ -21,6 +21,13 @@ export interface ResendRequest {
   readonly useCurrentSession?: boolean;
   /** One call's place in a multi-call resend - recorded on the new call so its card can say "2 of 4 in batch". */
   readonly batch?: ResendBatch | null;
+  /** Relive (research D2): tags the resend with `X-Alfred-Relive`/`X-Operation-Id` so the proxy attributes it, and any calls it triggers, to this run step. */
+  readonly relive?: ReliveResendTarget | null;
+}
+
+export interface ReliveResendTarget {
+  readonly runId: string;
+  readonly stepKey: string;
 }
 
 export interface ResendBatch {
@@ -65,6 +72,7 @@ export class ResendApiService {
       edits: request.edits ?? null,
       useCurrentSession: request.useCurrentSession ?? false,
       batch: request.batch ?? null,
+      relive: request.relive ?? null,
     });
   }
 }
