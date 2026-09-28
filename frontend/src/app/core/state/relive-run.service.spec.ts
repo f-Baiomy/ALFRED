@@ -5,7 +5,7 @@ import { CallsApiService } from '../services/calls-api.service';
 import { ReliveApiService } from '../services/relive-api.service';
 import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socket.service';
 import { ResendApiService, ResendRequest, ResendResult } from '../services/resend-api.service';
-import { CycleRule, ReliveCycle, Run, Step } from '../../shared/utils/relive-types';
+import { CycleRule, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { ReliveRunService } from './relive-run.service';
 
 function rule(): CycleRule {
@@ -163,6 +163,23 @@ function logoutStep(): Step {
   };
 }
 
+function baseStepResult(stepKey: string, state: StepResult['state']): StepResult {
+  return {
+    runId: 'run-1',
+    stepKey,
+    attempt: 1,
+    state,
+    mode: 'LIVE',
+    attribution: 'HEADER',
+    differences: [],
+    rulesApplied: [],
+    variablesUsed: [],
+    variablesProduced: [],
+    unexpectedCalls: [],
+    pauses: [],
+  };
+}
+
 function cycleOf(steps: readonly Step[]): ReliveCycle {
   return {
     id: 'cy-1',
@@ -204,7 +221,17 @@ describe('ReliveRunService', () => {
   let service: ReliveRunService;
 
   beforeEach(() => {
-    reliveApi = jasmine.createSpyObj('ReliveApiService', ['startRun', 'putStepAttempt', 'setVariable', 'stopRun', 'finishRun', 'setHold']);
+    reliveApi = jasmine.createSpyObj('ReliveApiService', [
+      'startRun',
+      'putStepAttempt',
+      'setVariable',
+      'stopRun',
+      'finishRun',
+      'setHold',
+      'resumeRun',
+      'getRun',
+      'updateRunDefinition',
+    ]);
     resendApi = jasmine.createSpyObj('ResendApiService', ['resend']);
     callsApi = jasmine.createSpyObj('CallsApiService', ['getDetail']);
     events$ = new Subject<ReliveSocketEvent>();
@@ -306,5 +333,48 @@ describe('ReliveRunService', () => {
     expect(service.results()['booking-details'].error).toContain('{{bookingId}}');
     expect(service.results()['logout'].state).toBe('COMPLETED');
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'FAILED');
+  });
+
+  it('T054: resume re-fetches the run, resets a cancelled step after the resume point to pending, and continues', async () => {
+    const steps = [bookStep(), logoutStep()];
+    const resumedRun: Run = { ...runOf(steps), status: 'RUNNING' };
+    reliveApi.resumeRun.and.returnValue(of(resumedRun));
+    reliveApi.getRun.and.returnValue(
+      of({
+        ...resumedRun,
+        stepResults: [baseStepResult('book', 'COMPLETED'), baseStepResult('logout', 'CANCELLED')],
+        secrets: [],
+      }),
+    );
+    resendApi.resend.and.returnValue(
+      of<ResendResult>({ newCallId: 'new-logout', status: 200, durationMs: 5, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }),
+    );
+    reliveApi.finishRun.and.returnValue(of({ ...resumedRun, status: 'COMPLETED' }));
+
+    await service.resume('cy-1', 'run-1', 'book');
+
+    expect(reliveApi.resumeRun).toHaveBeenCalledWith('cy-1', 'run-1', 'book');
+    expect(service.results()['book'].state).toBe('COMPLETED'); // not re-run - resume starts after it
+    expect(service.results()['logout'].state).toBe('COMPLETED'); // was CANCELLED, reset to PENDING, then actually ran
+    expect(reliveApi.finishRun).toHaveBeenCalled();
+  });
+
+  it('T054: applyDefinitionEdit PUTs the definition and adopts the run it returns', async () => {
+    const steps = [bookStep(), logoutStep()];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    resendApi.resend.and.returnValue(new Subject<ResendResult>()); // keep the run mid-flight while we edit
+    const startPromise = service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const edited = cycleOf([bookStep(), logoutStep()]);
+    const updatedRun: Run = { ...runOf(steps), definition: edited };
+    reliveApi.updateRunDefinition.and.returnValue(of(updatedRun));
+
+    await service.applyDefinitionEdit(edited, 'edited Logout header');
+
+    expect(reliveApi.updateRunDefinition).toHaveBeenCalledWith('cy-1', 'run-1', edited, 'edited Logout header');
+    expect(service.run()).toBe(updatedRun);
+    void startPromise;
   });
 });

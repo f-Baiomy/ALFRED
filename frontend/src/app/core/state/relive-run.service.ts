@@ -257,6 +257,61 @@ export class ReliveRunService {
     await this.finish();
   }
 
+  /** "Continue with the rest" on an ended run (mock `resumeRun`): re-fetches the run's full state
+   *  (so a fresh page visit resuming a past run has it), re-takes the lease and continues right
+   *  after `afterStepKey` - any step at or after that point left CANCELLED by an earlier stop goes
+   *  back to PENDING, same variables, same run id (FR-034d). */
+  async resume(cycleId: string, runId: string, afterStepKey: string): Promise<void> {
+    const resumed = await firstValueFrom(this.api.resumeRun(cycleId, runId, afterStepKey));
+    const full = await firstValueFrom(this.api.getRun(cycleId, runId));
+
+    this.steps = full.definition.steps;
+    this.stopped = false;
+    this.hold.set(null);
+    this.run.set(resumed);
+    this.status.set(resumed.status);
+
+    const results: Record<string, StepResult> = {};
+    for (const step of this.steps) results[step.key] = emptyResult(full.id, step.key, step.enabled ? 'PENDING' : 'SKIPPED');
+    for (const stepResult of full.stepResults) results[stepResult.stepKey] = stepResult;
+
+    this.topOrder = topSteps(this.steps);
+    const afterIdx = this.topOrder.findIndex((s) => s.key === afterStepKey);
+    this.topIdx = afterIdx + 1;
+    for (const step of this.topOrder.slice(this.topIdx)) {
+      for (const key of [step.key, ...childSteps(this.steps, step.key).map((c) => c.key)]) {
+        if (results[key]?.state === 'CANCELLED') results[key] = { ...results[key], state: 'PENDING' };
+      }
+    }
+    this.results.set(results);
+
+    const vars: Record<string, string> = {};
+    for (const entry of full.variableTimeline) vars[entry.name] = entry.value;
+    this.variables.set(vars);
+
+    this.socket.holdLease(full.id);
+    await this.runLoop();
+  }
+
+  /** Mid-run definition edit (FR-044a): the "apply to this run too" choice from the editor's dialog
+   *  (the dialog itself is UI, not this service's job). Steps already run are rejected server-side
+   *  (409) - this only ever affects steps this run hasn't reached yet. */
+  async applyDefinitionEdit(definition: ReliveCycle, reason: string): Promise<void> {
+    const run = this.run();
+    if (!run) return;
+    const updated = await firstValueFrom(this.api.updateRunDefinition(run.cycleId, run.id, definition, reason));
+    this.run.set(updated);
+    this.status.set(updated.status);
+    this.steps = updated.definition.steps;
+    this.topOrder = topSteps(this.steps);
+
+    const results = { ...this.results() };
+    for (const step of this.steps) {
+      if (!results[step.key]) results[step.key] = emptyResult(updated.id, step.key, step.enabled ? 'PENDING' : 'SKIPPED');
+    }
+    this.results.set(results);
+  }
+
   private async runLoop(): Promise<void> {
     this.topOrder = topSteps(this.steps);
     while (this.topIdx < this.topOrder.length) {

@@ -442,7 +442,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Dependent steps:** later steps whose `{{refs}}` include a variable only the failed step extracts, and which has no value, are listed. On Continue they are SKIPPED with `skipReason:'MISSING_VARIABLE'` and an error text like "Skipped - needs {{bookingId}}, which Book did not produce".
   - **"Keep going":** takes the same path without waiting.
   - **Test:** Book fails → Continue → Booking details is SKIPPED, while Profile and Logout run; the final status is FAILED ("continued past 1").
-- [ ] T054 [US3] Resume and mid-run edits.
+- [X] T054 [US3] Resume and mid-run edits.
   - **Resume:** "▶ Continue with the rest" on a failed step of an ended run (mock `resumeRun`, the run-row buttons in `runPanel`) calls `POST …/resume`, re-takes the lease and continues at the step after it.
   - **Mid-run edits** (FR-044a): while a run is RUNNING, any editor change asks "Apply to this run too, or only next runs?" (a small dialog). "This run" calls `PUT …/runs/{runId}/definition`.
   - **Test:** in `relive-run.service.spec.ts`.
