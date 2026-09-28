@@ -6,6 +6,8 @@ import com.fathy.alfred.backend.resend.adapter.in.web.dto.ResendRequestDto;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase;
 import com.fathy.alfred.backend.resend.application.port.in.ResendCallUseCase.ResendOutcome;
 import com.fathy.alfred.backend.resend.application.port.in.ResendResolutionException;
+import com.fathy.alfred.backend.resend.adapter.in.web.dto.ReliveResendTargetDto;
+import com.fathy.alfred.backend.resend.domain.model.ReliveResendTarget;
 import com.fathy.alfred.backend.resend.domain.model.ResendBatch;
 import com.fathy.alfred.backend.resend.domain.model.ResendEdits;
 import com.fathy.alfred.backend.resend.domain.model.ResendRequest;
@@ -49,7 +51,7 @@ public class ResendController {
         }
 
         ResendRequest request = new ResendRequest(body.direction(), body.callId(), blankToNull(body.cycleId()),
-                toDomain(body.edits()), body.useCurrentSession(), toDomain(body.batch()));
+                toDomain(body.edits()), body.useCurrentSession(), toDomain(body.batch()), toDomain(body.relive()));
         ResendOutcome outcome;
         try {
             outcome = resendCallUseCase.resend(request);
@@ -109,6 +111,10 @@ public class ResendController {
 
     private static ResendBatch toDomain(ResendBatchDto dto) {
         return dto == null ? null : new ResendBatch(dto.id(), dto.index(), dto.total());
+    }
+
+    private static ReliveResendTarget toDomain(ReliveResendTargetDto dto) {
+        return dto == null ? null : new ReliveResendTarget(dto.runId(), dto.stepKey());
     }
 
     private static ResendEdits toDomain(ResendEditsDto dto) {

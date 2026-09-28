@@ -12,5 +12,6 @@ public record ResendRequestDto(
         @Size(max = 200) String cycleId,
         @Valid ResendEditsDto edits,
         boolean useCurrentSession,
-        ResendBatchDto batch) {
+        ResendBatchDto batch,
+        @Valid ReliveResendTargetDto relive) {
 }

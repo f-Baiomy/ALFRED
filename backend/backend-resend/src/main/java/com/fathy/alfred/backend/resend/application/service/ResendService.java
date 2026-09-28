@@ -54,6 +54,10 @@ public class ResendService implements ResendCallUseCase {
     private static final java.util.regex.Pattern VARIABLE_TOKEN = java.util.regex.Pattern.compile("\\{\\{([A-Za-z][A-Za-z0-9_.-]*)\\}\\}");
     private static final String RESEND_OF_HEADER = "X-Alfred-Resend-Of";
     private static final String RESEND_EDITS_HEADER = "X-Alfred-Resend-Edits";
+    /** Relive (research D2): only added when request.relive() is set - trusted by the proxy the
+     *  same way take_resend_headers trusts these two, by peer address. */
+    private static final String RELIVE_HEADER = "X-Alfred-Relive";
+    private static final String OPERATION_ID_HEADER = "X-Operation-Id";
     private static final Set<String> SESSION_HEADER_NAMES = Set.of("cookie", "authorization");
     /** Matches the proxy's own resolution semantics and the frontend's GlobalVariablesService.resolve. */
     private static final int MAX_RESOLUTION_DEPTH = 20;
@@ -174,6 +178,10 @@ public class ResendService implements ResendCallUseCase {
         putHeaderIgnoreCase(headers, "X-Request-Id", newCallId);
         putHeaderIgnoreCase(headers, RESEND_OF_HEADER, original.id());
         putHeaderIgnoreCase(headers, RESEND_EDITS_HEADER, writeJson(editsSummary));
+        if (request.relive() != null) {
+            putHeaderIgnoreCase(headers, RELIVE_HEADER, request.relive().runId() + "/" + request.relive().stepKey());
+            putHeaderIgnoreCase(headers, OPERATION_ID_HEADER, "relive-" + request.relive().runId() + "-" + request.relive().stepKey());
+        }
 
         OutgoingCall outgoing = new OutgoingCall(
                 request.direction(), method, url, headers, body, hostOf(url, original.host()), original.serviceName());

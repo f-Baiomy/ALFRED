@@ -95,6 +95,22 @@ class ResendServiceTest {
     }
 
     @Test
+    void reliveHeadersAreAddedOnlyWhenRequestCarriesAReliveTarget() {
+        CapturingSender sender = new CapturingSender();
+        ResendService service = new ResendService(calls(ORIGINAL), new FixedSessionValues(List.of()), sender);
+
+        service.resend(new ResendRequest("outbound", "call-1", null, null, false, null,
+                new com.fathy.alfred.backend.resend.domain.model.ReliveResendTarget("run-1", "s-search")));
+
+        assertThat(sender.lastCall.headers()).containsEntry("X-Alfred-Relive", "run-1/s-search");
+        assertThat(sender.lastCall.headers()).containsEntry("X-Operation-Id", "relive-run-1-s-search");
+        // Nothing else changes when relive is absent.
+        sender.lastCall = null;
+        service.resend(new ResendRequest("outbound", "call-1", null, null, false));
+        assertThat(sender.lastCall.headers()).doesNotContainKey("X-Alfred-Relive");
+    }
+
+    @Test
     void useCurrentSessionSubstitutesTheNewestValueAndReportsNameAndSourceCall() {
         CapturingSender sender = new CapturingSender();
         SessionValueLookupPort lookup = new FixedSessionValues(List.of(

@@ -401,7 +401,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Test:** with a controllable clock/executor.
 - [ ] T048 [US3] Create `BR/adapter/in/web/ReliveRunsController.java`, covering the "Runs" table of `contracts/rest-api.md` (runs, attempts, variables, stop, finish, hold, resume, definition, save-edits, compare).
   - **Test:** `ReliveRunsControllerTest.java`, including the 422 on blocking findings and `limit` clamped to 100.
-- [ ] T049 [US3] Resend carries the run.
+- [X] T049 [US3] Resend carries the run.
   - **Where:** `backend/backend-resend/.../domain/model/ResendRequest.java` + `adapter/in/web/dto/ResendRequestDto.java` gain an optional `relive: {runId, stepKey}`.
   - **Headers:** `ResendService` (next to `RESEND_OF_HEADER`, line ~55) then adds `X-Alfred-Relive: <runId>/<stepKey>` and `X-Operation-Id: relive-<runId>-<stepKey>` (only when `relive` is present).
   - **Test:** `ResendServiceTest`: both headers added, nothing else changed.
