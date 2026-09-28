@@ -7,6 +7,8 @@ import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/r
 import { ReliveRequestDiffersDialogComponent } from '../../components/relive-request-differs-dialog/relive-request-differs-dialog.component';
 import { ReliveExternalNoticeComponent } from '../../components/relive-external-notice/relive-external-notice.component';
 import { ReliveRulesTabComponent } from '../../components/relive-rules-tab/relive-rules-tab.component';
+import { ReliveRerunSummaryComponent, ReliveStartRequest } from '../../components/relive-prerun-summary/relive-prerun-summary.component';
+import { ReliveApiService } from '../../core/services/relive-api.service';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -29,7 +31,17 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 @Component({
   selector: 'app-relive-cycle',
   standalone: true,
-  imports: [RouterLink, ReliveStepTreeComponent, ReliveAddCallsDialogComponent, ReliveStepDrawerComponent, RuleEditorComponent, ReliveRequestDiffersDialogComponent, ReliveExternalNoticeComponent, ReliveRulesTabComponent],
+  imports: [
+    RouterLink,
+    ReliveStepTreeComponent,
+    ReliveAddCallsDialogComponent,
+    ReliveStepDrawerComponent,
+    RuleEditorComponent,
+    ReliveRequestDiffersDialogComponent,
+    ReliveExternalNoticeComponent,
+    ReliveRulesTabComponent,
+    ReliveRerunSummaryComponent,
+  ],
   providers: [ReliveCycleEditorState],
   templateUrl: './relive-cycle.component.html',
 })
@@ -37,6 +49,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly route = inject(ActivatedRoute);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly picker = inject(CallPickerService);
+  private readonly api = inject(ReliveApiService);
   readonly state = inject(ReliveCycleEditorState);
   readonly ruleDialog = inject(ReliveRuleDialogService);
   /** Provided to `<app-rule-editor>` via this component's own template - see the getter below.
@@ -221,6 +234,25 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   duplicate(): void {
     this.state.duplicateCycle()?.subscribe();
+  }
+
+  readonly prerunOpen = signal(false);
+
+  openPrerun(): void {
+    this.prerunOpen.set(true);
+  }
+
+  closePrerun(): void {
+    this.prerunOpen.set(false);
+  }
+
+  /** Actually starting a run and showing its live timeline is US3 (T046+) - this only calls the
+   *  already-built `POST .../runs` and drops the user on the (still-placeholder) Run tab, so the
+   *  pre-run check is fully wired ahead of the run engine landing. */
+  startRun(request: ReliveStartRequest): void {
+    const cycle = this.state.saved();
+    if (!cycle) return;
+    this.api.startRun(cycle.id, { driver: request.driver, unattributedChoices: {} }).subscribe(() => this.setTab('run'));
   }
 
   async canDeactivate(): Promise<boolean> {

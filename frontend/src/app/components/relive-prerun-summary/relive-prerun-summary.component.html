@@ -1,0 +1,78 @@
+@if (open() && cycle(); as cycle) {
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card" style="width: 640px; max-height: 86vh; overflow: auto" (click)="$event.stopPropagation()">
+      <h2>Ready to run "{{ cycle.name }}"?</h2>
+
+      <div class="rl-sect">
+        <h3>Driver</h3>
+        <span class="rl-seg">
+          <button [class.rl-on]="driver() === 'AUTOMATIC'" (click)="setDriver('AUTOMATIC')">Automatic</button>
+          <button [class.rl-on]="driver() === 'GUIDED'" (click)="setDriver('GUIDED')">Guided</button>
+        </span>
+        <p class="rl-hint" style="margin-top: 4px">
+          {{ driver() === 'AUTOMATIC' ? 'ALFRED sends every step in order automatically.' : 'You trigger each inbound step yourself; ALFRED matches it to the right one as it arrives.' }}
+        </p>
+      </div>
+
+      @if (blockingFindings().length) {
+        <div class="rl-sect">
+          <div class="warnlist">
+            @for (f of blockingFindings(); track $index) {
+              <div class="blk">⛔ {{ f.message }} <a class="rl-link" (click)="requestFix(f.code, f.stepKey ?? null)">Define it</a></div>
+            }
+          </div>
+        </div>
+      }
+      @if (warningFindings().length) {
+        <div class="rl-sect">
+          <div class="warnlist">
+            @for (f of warningFindings(); track $index) {
+              <div class="wrn">⚠ {{ f.message }}</div>
+            }
+          </div>
+        </div>
+      }
+
+      @if (externalItems().length) {
+        <div class="rl-sect">
+          <h3>Can reach external systems ({{ externalItems().length }})</h3>
+          @for (item of externalItems(); track item.key) {
+            <div class="rl-ext-banner">⚠ <b>{{ item.label }}</b> → {{ item.host }} - {{ item.reason }}</div>
+          }
+        </div>
+      }
+
+      <div class="rl-sect">
+        <h3>When something goes wrong</h3>
+        <div class="rl-row" style="gap: 16px; flex-wrap: wrap">
+          <div>
+            <span class="rl-dim" style="font-size: 11.5px">On failure</span><br />
+            <span class="rl-choice">
+              <button [class.rl-on]="cycle.settings.onFailure === 'HOLD'" (click)="setOnFailure('HOLD')">Hold (default)</button>
+              <button [class.rl-on]="cycle.settings.onFailure === 'CONTINUE'" (click)="setOnFailure('CONTINUE')">Continue</button>
+            </span>
+          </div>
+          <div>
+            <span class="rl-dim" style="font-size: 11.5px">On differences</span><br />
+            <span class="rl-choice">
+              <button [class.rl-on]="cycle.settings.onDifferences === 'CONTINUE'" (click)="setOnDifferences('CONTINUE')">Continue (default)</button>
+              <button [class.rl-on]="cycle.settings.onDifferences === 'HOLD'" (click)="setOnDifferences('HOLD')">Hold</button>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      @if (externalItems().length) {
+        <label class="rl-row" style="font-size: 12.5px; margin-top: 6px">
+          <input type="checkbox" [checked]="liveConfirmed()" (change)="toggleLiveConfirmed($any($event.target).checked)" />
+          I understand {{ externalItems().length }} call{{ externalItems().length === 1 ? '' : 's' }} will contact real external systems
+        </label>
+      }
+
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn secondary" (click)="close()">Cancel</button>
+        <button type="button" class="dialog-btn" [disabled]="!canStart()" (click)="requestStart()">▶ Start</button>
+      </div>
+    </div>
+  </div>
+}

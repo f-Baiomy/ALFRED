@@ -31,7 +31,7 @@
         <button class="rl-btn" (click)="save()" [disabled]="!state.dirty() || state.saving()">Save</button>
         <button class="rl-btn" disabled title="Coming with the Rebuild flow (US6)">⟳ Rebuild</button>
         <button class="rl-btn" (click)="duplicate()">Duplicate</button>
-        <button class="rl-btn rl-primary" disabled title="Coming with Run (US3)">▶ Run</button>
+        <button class="rl-btn rl-primary" (click)="openPrerun()">▶ Run</button>
       </div>
     </div>
 
@@ -134,6 +134,8 @@
   />
 
   <app-relive-external-notice [notices]="state.notices()" (undo)="state.undoNotice($event)" (dismiss)="state.dismissNotice($event)" />
+
+  <app-relive-prerun-summary [open]="prerunOpen()" [cycle]="draft" (closed)="closePrerun()" (cycleChange)="setCycle($event)" (start)="startRun($event)" />
 } @else {
   <div class="rl-page rl-faint">Loading…</div>
 }

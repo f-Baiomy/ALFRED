@@ -337,7 +337,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Rules:** a list of UNEXPECTED rules edited with the T039 editor in `UNEXPECTED` scope, plus a fallback choice.
   - **Warning:** changing the policy to send-real triggers the T040 notice.
 - [X] T043 [US2] Attribution choice per REPLAY child (FR-049a): the "If ALFRED can't tell the call is yours" choice in the drawer (Block default / Replay anyway / Send to real system), with the mock's hint text.
-- [ ] T044 [US2] Pre-run dialog `FE/components/relive-prerun-summary/…`. It copies mock.html `openPrerun()`.
+- [X] T044 [US2] Pre-run dialog `FE/components/relive-prerun-summary/…`. It copies mock.html `openPrerun()`.
   - **Driver:** segment Automatic / Guided.
   - **Findings:** blocking findings with a "Define it" fix link.
   - **"May reach external systems":** children whose request-differs choice is LIVE, and a send-real unexpected policy.
