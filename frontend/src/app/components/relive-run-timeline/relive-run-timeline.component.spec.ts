@@ -154,4 +154,35 @@ describe('ReliveRunTimelineComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('abc');
   });
+
+  it('T056: shows the unexpected-calls card only when there is at least one', () => {
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', []);
+    fixture.componentRef.setInput('results', {});
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Unexpected outbound calls');
+
+    fixture.componentRef.setInput('unexpectedCalls', [{ callId: 'call-x', direction: 'outbound', at: '2026-09-27T10:00:00Z' }]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Unexpected outbound calls (1)');
+    expect(fixture.nativeElement.textContent).toContain('call-x');
+  });
+
+  it('T056: shows a request-changed pause banner and emits openPausedCall for it', () => {
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', []);
+    fixture.componentRef.setInput('results', {});
+    fixture.componentRef.setInput('changedPauses', [
+      { callId: 'call-y', phase: 'request', source: 'outbound', method: 'GET', url: 'https://api.supplier-a.com/fares', timeoutSeconds: 30, pausedAt: Date.now() },
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('held - the request changed');
+    expect(fixture.nativeElement.textContent).toContain('api.supplier-a.com/fares');
+
+    const openSpy = jasmine.createSpy();
+    fixture.componentInstance.openPausedCall.subscribe(openSpy);
+    fixture.nativeElement.querySelector('.rl-pausebox button').click();
+    expect(openSpy).toHaveBeenCalledWith('call-y');
+  });
 });

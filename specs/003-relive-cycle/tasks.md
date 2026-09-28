@@ -454,7 +454,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Variables panel:** masked secrets with a "reveal" link.
   - **Live updates:** within 1 s (SC-005), driven by signals.
   - **Test:** a component spec renders each state.
-- [ ] T056 [US3] Unexpected calls and request-changed in the run.
+- [X] T056 [US3] Unexpected calls and request-changed in the run.
   - **Unexpected calls:** under the timeline, the "Unexpected outbound calls (n) - matched no step" card (mock `runPanel` bottom), fed by `run-call` events with `unexpected=true`.
   - **Request-changed hold:** when a `PAUSE_REQUEST` with `relive.at==='CHANGED'` arrives (via the existing paused-calls feed - explore `PausedCallsComponent` / interception-state paused signal), show the CHANGED pause box (mock `pauseBox()` CHANGED branch).
     - **Timer:** ring timer.

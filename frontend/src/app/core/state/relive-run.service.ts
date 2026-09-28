@@ -43,6 +43,12 @@ const CHILD_EVENTS_GRACE_MS = 500;
 type RunCallEvent = ReliveSocketEvent & { readonly type: 'run-call' };
 type RunHold = NonNullable<Run['hold']>;
 
+export interface UnexpectedRunCall {
+  readonly callId: string;
+  readonly direction: 'inbound' | 'outbound';
+  readonly at: string;
+}
+
 interface SubstitutedRequest {
   readonly method: string;
   readonly url: string;
@@ -155,6 +161,10 @@ export class ReliveRunService {
   readonly status = signal<RunStatus | null>(null);
   /** Set while the run is holding at a failed/differing step (FR-034), null otherwise. */
   readonly hold = signal<RunHold | null>(null);
+  /** Outbound calls the proxy attributed to this run but that matched no recorded child step
+   *  (`relive.attribution === 'UNEXPECTED'`, proxy/relive.py `_handle_unexpected`) - live for the
+   *  whole run, not scoped to whichever inbound step happens to be sending right now. */
+  readonly unexpectedCalls = signal<readonly UnexpectedRunCall[]>([]);
 
   readonly progress = computed(() => {
     const values = Object.values(this.results());
@@ -168,6 +178,7 @@ export class ReliveRunService {
   private topIdx = 0;
   private stopped = false;
   private eventsSub: Subscription | null = null;
+  private runEventsSub: Subscription | null = null;
 
   async start(cycle: ReliveCycle, request: StartRunRequest): Promise<void> {
     const run = await firstValueFrom(this.api.startRun(cycle.id, request));
@@ -175,6 +186,7 @@ export class ReliveRunService {
     this.stopped = false;
     this.run.set(run);
     this.status.set(run.status);
+    this.unexpectedCalls.set([]);
 
     const initialResults: Record<string, StepResult> = {};
     for (const step of this.steps) {
@@ -186,6 +198,14 @@ export class ReliveRunService {
     for (const v of cycle.variables) vars[v.name] = v.value;
     for (const v of run.seedVariables) vars[v.name] = v.value;
     this.variables.set(vars);
+
+    this.runEventsSub?.unsubscribe();
+    this.runEventsSub = this.socket.events$
+      .pipe(filter((e): e is RunCallEvent => e.type === 'run-call' && e.runId === run.id && e.attribution === 'UNEXPECTED'))
+      .subscribe((e) => {
+        if (this.unexpectedCalls().some((u) => u.callId === e.callId)) return;
+        this.unexpectedCalls.set([...this.unexpectedCalls(), { callId: e.callId, direction: e.direction, at: new Date().toISOString() }]);
+      });
 
     this.socket.holdLease(run.id);
     if (request.driver !== 'AUTOMATIC') return; // GUIDED driver: T075-T077
@@ -200,6 +220,8 @@ export class ReliveRunService {
     this.hold.set(null);
     this.eventsSub?.unsubscribe();
     this.eventsSub = null;
+    this.runEventsSub?.unsubscribe();
+    this.runEventsSub = null;
 
     const cancelled: Record<string, StepResult> = { ...this.results() };
     for (const [key, result] of Object.entries(cancelled)) {
@@ -558,6 +580,8 @@ export class ReliveRunService {
     const finished = await firstValueFrom(this.api.finishRun(run.cycleId, run.id, status));
     this.run.set(finished);
     this.status.set(finished.status);
+    this.runEventsSub?.unsubscribe();
+    this.runEventsSub = null;
     this.socket.releaseLease(run.id);
   }
 

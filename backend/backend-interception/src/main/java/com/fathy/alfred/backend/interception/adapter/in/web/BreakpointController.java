@@ -62,7 +62,7 @@ public class BreakpointController {
         breakpoints.register(new PausedCall(
                 call.callId(), call.phase(), call.source(), call.serviceName(), call.ruleId(), call.ruleName(),
                 call.timeoutSeconds(), call.onTimeout(), call.method(), call.url(),
-                call.request(), call.response(), System.currentTimeMillis(), null));
+                call.request(), call.response(), System.currentTimeMillis(), null, call.relive()));
         return ResponseEntity.accepted().build();
     }
 

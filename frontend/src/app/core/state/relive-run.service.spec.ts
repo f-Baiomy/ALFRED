@@ -383,4 +383,22 @@ describe('ReliveRunService', () => {
     expect(service.run()).toBe(updatedRun);
     void startPromise;
   });
+
+  it('T056: collects an outbound call the proxy could not attribute to any step as unexpected, deduped by callId', async () => {
+    const steps = [inboundStep()];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(
+      of<ResendResult>({ newCallId: 'new-login', status: 200, durationMs: 5, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }),
+    );
+
+    const startPromise = service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+    await Promise.resolve();
+    events$.next({ type: 'run-call', runId: 'run-1', stepKey: '', callId: 'call-x', direction: 'outbound', attribution: 'UNEXPECTED', state: 'COMPLETED' });
+    events$.next({ type: 'run-call', runId: 'run-1', stepKey: '', callId: 'call-x', direction: 'outbound', attribution: 'UNEXPECTED', state: 'IN_PROGRESS' });
+    await startPromise;
+
+    expect(service.unexpectedCalls().length).toBe(1);
+    expect(service.unexpectedCalls()[0].callId).toBe('call-x');
+  });
 });

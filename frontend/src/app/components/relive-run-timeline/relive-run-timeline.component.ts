@@ -1,5 +1,7 @@
 import { DestroyRef, Component, computed, inject, input, output, signal } from '@angular/core';
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
+import { UnexpectedRunCall } from '../../core/state/relive-run.service';
+import { PausedCall } from '../../core/models/interception.model';
 import { CycleVariable, Run, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 
 type Filter = 'all' | 'running' | 'diff' | 'failed' | 'live' | 'replayed';
@@ -91,6 +93,14 @@ export class ReliveRunTimelineComponent {
   readonly variableDefs = input<readonly CycleVariable[]>([]);
   readonly variables = input<Readonly<Record<string, string>>>({});
   readonly selectedKey = input<string | null>(null);
+  readonly unexpectedCalls = input<readonly UnexpectedRunCall[]>([]);
+  /** Paused calls the host page already filtered to this run's own request-changed holds
+   *  (`relive.runId === run.id && relive.at === 'CHANGED'`) - deciding one is the existing Paused
+   *  Calls inspector's job (its release/abort/edit paths are the ones with the actual safety
+   *  guarantees), not reimplemented here; this only surfaces that they exist and links out. */
+  readonly changedPauses = input<readonly PausedCall[]>([]);
+
+  readonly openPausedCall = output<string>();
 
   readonly selectStep = output<string>();
   readonly continueRun = output<void>();

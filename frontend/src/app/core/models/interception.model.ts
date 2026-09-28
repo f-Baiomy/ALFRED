@@ -545,6 +545,10 @@ export interface PausedCall {
   /** Holding a caller, in flight upstream, or finished. Absent on a payload from an older proxy. */
   readonly stage?: PauseStage | null;
   readonly cycle?: PauseCycle | null;
+  /** Set only when a Relive run's REPLAY child paused this call (research D2) - `at: 'CHANGED'` is
+   *  the only value the proxy sends today (a request that differs from the recording, with
+   *  onRequestChanged ASK). Absent for every ordinary interception pause. */
+  readonly relive?: { readonly runId: string; readonly stepKey: string | null; readonly at: string } | null;
 }
 
 /**

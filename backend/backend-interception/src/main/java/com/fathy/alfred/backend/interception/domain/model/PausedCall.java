@@ -49,7 +49,11 @@ public record PausedCall(
         /** Holding a caller, in flight upstream, or done. Never null - see the compact constructor. */
         PauseStage stage,
         /** Everything about following this call past the half it was paused on. Never null. */
-        Cycle cycle) {
+        Cycle cycle,
+        /** Set only when the proxy paused this call for a Relive run (research D2/contracts/rest-api.md
+         *  "Held outbound calls"), e.g. a REPLAY child whose request differs and whose onRequestChanged
+         *  is ASK. Null for every ordinary interception pause. */
+        Relive relive) {
 
     public PausedCall {
         stage = stage == null ? PauseStage.HOLDING : stage;
@@ -61,11 +65,26 @@ public record PausedCall(
                       String ruleName, int timeoutSeconds, String onTimeout, String method, String url,
                       Http request, Http response, long pausedAt, Long heldAt) {
         this(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds, onTimeout, method, url,
-                request, response, pausedAt, heldAt, PauseStage.HOLDING, Cycle.notFollowed());
+                request, response, pausedAt, heldAt, PauseStage.HOLDING, Cycle.notFollowed(), null);
+    }
+
+    /** Same as the 14-argument constructor above, plus the Relive tag the proxy sent with this pause. */
+    public PausedCall(String callId, String phase, String source, String serviceName, String ruleId,
+                      String ruleName, int timeoutSeconds, String onTimeout, String method, String url,
+                      Http request, Http response, long pausedAt, Long heldAt, Relive relive) {
+        this(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds, onTimeout, method, url,
+                request, response, pausedAt, heldAt, PauseStage.HOLDING, Cycle.notFollowed(), relive);
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Http(Integer status, Map<String, String> headers, String body) {
+    }
+
+    /** `{runId, stepKey, at}` - proxy/relive.py sets `at: "CHANGED"` for a REPLAY child whose
+     *  request differs from the recording and whose onRequestChanged is ASK; `stepKey` is the
+     *  child step this call was attributed to. Reserved for future checkpoint pauses (T057). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Relive(String runId, String stepKey, String at) {
     }
 
     /**
@@ -126,7 +145,7 @@ public record PausedCall(
 
     public PausedCall heldNow(long now) {
         return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
-                onTimeout, method, url, request, response, pausedAt, now, stage, cycle);
+                onTimeout, method, url, request, response, pausedAt, now, stage, cycle, relive);
     }
 
     public PausedCall at(PauseStage next, Cycle cycle) {
@@ -134,13 +153,13 @@ public record PausedCall(
         // marker, and a stage with no countdown must not keep showing a held badge.
         return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
                 onTimeout, method, url, request, response, pausedAt,
-                next.holdsCaller() ? heldAt : null, next, cycle);
+                next.holdsCaller() ? heldAt : null, next, cycle, relive);
     }
 
     /** The response half arriving on a call that was followed, with the cycle carried across. */
     public PausedCall withResponse(Http response) {
         return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
-                onTimeout, method, url, request, response, pausedAt, heldAt, stage, cycle);
+                onTimeout, method, url, request, response, pausedAt, heldAt, stage, cycle, relive);
     }
 
     /**
@@ -162,6 +181,6 @@ public record PausedCall(
     public PausedCall summary() {
         Http responseSummary = response == null ? null : new Http(response.status(), null, null);
         return new PausedCall(callId, phase, source, serviceName, ruleId, ruleName, timeoutSeconds,
-                onTimeout, method, url, null, responseSummary, pausedAt, heldAt, stage, cycle);
+                onTimeout, method, url, null, responseSummary, pausedAt, heldAt, stage, cycle, relive);
     }
 }

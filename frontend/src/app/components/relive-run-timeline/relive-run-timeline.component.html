@@ -12,6 +12,22 @@
     }
   </div>
 
+  @if (changedPauses().length) {
+    <div class="rl-pausebox">
+      <h3>⏸ {{ changedPauses().length }} call{{ changedPauses().length === 1 ? '' : 's' }} held - the request changed from the recording</h3>
+      <div class="rl-dim" style="font-size: 12.5px">
+        odeysys's call differs from what was recorded and is waiting on a decision. No decision = mocked failure; the supplier is never contacted without your yes.
+      </div>
+      @for (call of changedPauses(); track call.callId) {
+        <div class="rl-row" style="margin-top: 6px">
+          <span class="rl-mono">{{ call.method }} {{ call.url }}</span>
+          <span class="rl-spacer"></span>
+          <button class="rl-btn rl-sm" (click)="openPausedCall.emit(call.callId)">Review in Paused calls →</button>
+        </div>
+      }
+    </div>
+  }
+
   @if (run()!.hold; as hold) {
     <div class="rl-haltbox" [class.rl-diff]="hold.reason === 'DIFFERENCES'">
       <h3>{{ hold.reason === 'FAILED' ? '✕' : '⚠' }} The run is holding</h3>
@@ -79,6 +95,22 @@
       </div>
     }
   </div>
+
+  @if (unexpectedCalls().length) {
+    <div class="rl-card" style="padding: 10px 12px; margin: 10px 0">
+      <h3 style="margin: 0 0 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint)">
+        Unexpected outbound calls ({{ unexpectedCalls().length }}) - matched no step
+      </h3>
+      @for (u of unexpectedCalls(); track u.callId) {
+        <div class="rl-row" style="padding: 3px 0">
+          <span class="rl-dir" [class.rl-out]="u.direction === 'outbound'" [class.rl-in]="u.direction === 'inbound'">{{ u.direction === 'outbound' ? '↗' : '↙' }}</span>
+          <span class="rl-mono">{{ u.callId }}</span>
+          <span class="rl-spacer"></span>
+          <span class="rl-pill rl-p-wait">no matching step</span>
+        </div>
+      }
+    </div>
+  }
 
   <div class="rl-card" style="padding: 10px 12px">
     <div class="rl-row">
