@@ -347,7 +347,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Failure policy:** the "When something goes wrong" policy section (mock `policySection()`, used by US3).
   - **Confirmation:** the LIVE checkbox "I understand N calls will contact real external systems"; Start stays disabled until it's ticked, and while blocking findings remain (FR-016/017).
   - **Test:** Start is disabled with LIVE calls until ticked, and with a BLOCK finding.
-- [ ] T045 [US2] Validation: `BR/application/service/CycleValidator.java` (backend, authoritative), mirrored by `FE/shared/utils/relive-validate.ts` for instant feedback.
+- [X] T045 [US2] Validation: `BR/application/service/CycleValidator.java` (backend, authoritative), mirrored by `FE/shared/utils/relive-validate.ts` for instant feedback.
   - **Codes:** UNRESOLVED_VARIABLE, MISSING_RECORDING, DUPLICATE_STEP, GLOBAL_RULE_GONE (via `GlobalRulesLookupPort`), RULE_OVERLAP, NOTHING_TO_RUN, MAY_BE_UNATTRIBUTED, LIVE_EXTERNAL, UNUSED_VARIABLE, ORDER_DEPENDENCY. Severities as in data-model.md. Variable references are found with the same regex as `FE/shared/utils/variable-tokens.ts` `VARIABLE_TOKEN`.
   - **Endpoint:** `POST /relive-cycles/{id}/validate` returns them.
   - **Tests:** `CycleValidatorTest.java` (one case per code) and `relive-validate.spec.ts`.
