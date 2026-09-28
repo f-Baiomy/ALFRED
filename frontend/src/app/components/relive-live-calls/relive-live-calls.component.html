@@ -1,0 +1,67 @@
+<div class="rl-row" style="margin-top: 18px">
+  <h2 style="margin: 0">Live calls log</h2>
+  <span class="rl-spacer"></span>
+  <span class="rl-hint">calls that actually reached a real system - kept until you delete them</span>
+</div>
+
+@if (overWarnSize()) {
+  <div class="rl-ext-banner">
+    ⚠ This log is over 200 MB.
+    <button class="rl-btn rl-sm" style="margin-left: 8px" [disabled]="deleting()" (click)="deleteAll()">Delete all</button>
+  </div>
+}
+
+@if (calls().length) {
+  @for (call of calls(); track call.id) {
+    <div class="rl-rulecard" style="flex-wrap: wrap">
+      <span class="rl-mono" style="font-size: 11.5px">{{ call.at }}</span>
+      <b>{{ stepLabel(call) }}</b>
+      <span class="rl-pill rl-p-mod">{{ call.reason }}</span>
+      <span class="rl-dim" style="font-size: 12.5px">{{ call.status }} · {{ call.durationMs }}ms</span>
+      <span class="rl-spacer"></span>
+      <button class="rl-btn rl-sm" (click)="openCompare(call)">Compare</button>
+      <button class="rl-btn rl-sm" (click)="openUseAsRecording(call)">Use as recording</button>
+      <button class="icon-btn" (click)="remove(call)">✕</button>
+
+      @if (comparingId() === call.id && compareData(); as interception) {
+        <div style="width: 100%; margin-top: 8px">
+          <app-interception-panel
+            [interception]="interception"
+            [phase]="'response'"
+            [embedded]="true"
+            [labels]="{ title: 'Recorded vs the live call', before: 'Recorded', after: 'Live call', legend: 'Red is what the recording had; green is what actually happened.' }"
+          />
+        </div>
+      }
+    </div>
+  }
+} @else {
+  <div class="rl-empty">No live calls yet.</div>
+}
+
+@if (recordingTarget(); as target) {
+  <div class="dialog-backdrop" (click)="cancelUseAsRecording()">
+    <div class="dialog-card wide" (click)="$event.stopPropagation()">
+      <h2>Use "{{ stepLabel(target.call) }}" as its recording?</h2>
+      <p class="dialog-sub">The step's recorded response is replaced with what the supplier actually returned - REPLAY answers with this from now on. Undo restores the previous version.</p>
+      <app-interception-panel
+        [interception]="target.preview"
+        [phase]="'response'"
+        [embedded]="true"
+        [labels]="{ title: 'Recorded vs the live call', before: 'Recorded (kept)', after: 'Live call (new)', legend: 'Red is the current recording; green is what will replace it.' }"
+      />
+      <div class="rl-row" style="margin-top: 12px">
+        <span class="rl-spacer"></span>
+        <button class="rl-btn" (click)="cancelUseAsRecording()">Cancel</button>
+        <button class="rl-btn rl-primary" (click)="confirmUseAsRecording()">Use as recording</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (undo(); as u) {
+  <div class="rl-toast">
+    Recording updated · previous version kept
+    <button class="rl-link" (click)="undoUseAsRecording()">Undo</button>
+  </div>
+}

@@ -75,11 +75,14 @@ describe('ReliveApiService', () => {
     req.flush({});
   });
 
-  it('listLiveCalls() GETs the live-calls sub-resource with a limit', () => {
-    service.listLiveCalls('c-1', 50).subscribe();
+  it('listLiveCalls() GETs the live-calls sub-resource with a limit, and reads the size header', () => {
+    let result: { calls: readonly unknown[]; totalBytes: number } | undefined;
+    service.listLiveCalls('c-1', 50).subscribe((r) => (result = r));
     const req = http.expectOne('http://backend/relive-cycles/c-1/live-calls?limit=50');
     expect(req.request.method).toBe('GET');
-    req.flush([]);
+    req.flush([{ id: 'l-1' }], { headers: { 'X-Live-Calls-Bytes': '12345' } });
+    expect(result!.calls.length).toBe(1);
+    expect(result!.totalBytes).toBe(12345);
   });
 
   it('useAsRecording() POSTs the target stepKey', () => {

@@ -2,9 +2,10 @@ import { Component, OnInit, inject, input, output, signal } from '@angular/core'
 import { forkJoin } from 'rxjs';
 import { ReliveApiService } from '../../core/services/relive-api.service';
 import { reliveRunToScenarioRun } from '../../shared/utils/relive-run-compare-adapter';
-import { Run } from '../../shared/utils/relive-types';
+import { CycleVariable, Run, Step } from '../../shared/utils/relive-types';
 import { ScenarioRun } from '../../shared/utils/scenario-types';
 import { ScenarioRunCompareComponent } from '../scenario-run-compare/scenario-run-compare.component';
+import { ReliveLiveCallsComponent } from '../relive-live-calls/relive-live-calls.component';
 
 const STATUS_PILL: Readonly<Record<Run['status'], readonly [string, string]>> = {
   RUNNING: ['rl-p-cycle', '● running'],
@@ -24,13 +25,15 @@ const STATUS_PILL: Readonly<Record<Run['status'], readonly [string, string]>> = 
 @Component({
   selector: 'app-relive-history',
   standalone: true,
-  imports: [ScenarioRunCompareComponent],
+  imports: [ScenarioRunCompareComponent, ReliveLiveCallsComponent],
   templateUrl: './relive-history.component.html',
 })
 export class ReliveHistoryComponent implements OnInit {
   private readonly api = inject(ReliveApiService);
 
   readonly cycleId = input.required<string>();
+  readonly steps = input<readonly Step[]>([]);
+  readonly variables = input<readonly CycleVariable[]>([]);
   readonly openRun = output<string>();
 
   readonly runs = signal<readonly Run[]>([]);

@@ -1,6 +1,7 @@
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { AppConfigService } from './app-config.service';
 import {
   CycleVersion,
@@ -141,8 +142,12 @@ export class ReliveApiService {
 
   // ---- Live calls ----
 
-  listLiveCalls(cycleId: string, limit = 100): Observable<LiveCall[]> {
-    return this.http.get<LiveCall[]>(`${this.base}/${encodeURIComponent(cycleId)}/live-calls?limit=${limit}`);
+  /** `totalBytes` is read off the `X-Live-Calls-Bytes` response header (contracts/rest-api.md,
+   *  FR-015c) - the size warning needs it without a separate request. */
+  listLiveCalls(cycleId: string, limit = 100): Observable<{ readonly calls: readonly LiveCall[]; readonly totalBytes: number }> {
+    return this.http
+      .get<LiveCall[]>(`${this.base}/${encodeURIComponent(cycleId)}/live-calls?limit=${limit}`, { observe: 'response' })
+      .pipe(map((res) => ({ calls: res.body ?? [], totalBytes: Number(res.headers.get('X-Live-Calls-Bytes') ?? 0) })));
   }
 
   getLiveCall(cycleId: string, liveId: string): Observable<LiveCall> {

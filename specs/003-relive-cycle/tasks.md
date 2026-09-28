@@ -569,7 +569,7 @@ shows the run and its live call.
 - [X] T072 [US7] History tab `FE/components/relive-history/…`, copying mock `historyPanel()`, `compare()`.
   - **Runs table:** when, status pill, summary (including "continued past N"), duration, Open, and "Compare with newest".
   - **Compare:** reuses `ScenarioRunCompareComponent` (`FE/components/scenario-run-compare/`) via an adapter from StepResults to its input shape. If its input doesn't fit, add an input there rather than copying it.
-- [ ] T073 [US7] Live calls log, backend: `BR/adapter/in/web/LiveCallsController.java` (list / get / delete / use-as-recording, per `contracts/rest-api.md`).
+- [X] T073 [US7] Live calls log, backend: `BR/adapter/in/web/LiveCallsController.java` (list / get / delete / use-as-recording, per `contracts/rest-api.md`).
   - **Use-as-recording:** replaces the matched step's `recording` and its call rule's `MOCK_RESPONSE` data through the versioned update (reason `USE_LIVE_CALL`; add it to the reason enum).
   - **Size:** `totalBytes` is returned in a response header `X-Live-Calls-Bytes` on the list.
   - **Test:** a controller + service test; live calls survive run pruning.

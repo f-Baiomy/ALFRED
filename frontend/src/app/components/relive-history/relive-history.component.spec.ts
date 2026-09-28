@@ -34,7 +34,11 @@ describe('ReliveHistoryComponent', () => {
     getRunSpy = jasmine.createSpy('getRun');
     TestBed.configureTestingModule({
       imports: [ReliveHistoryComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: ReliveApiService, useValue: { listRuns: listRunsSpy, getRun: getRunSpy } }],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: ReliveApiService, useValue: { listRuns: listRunsSpy, getRun: getRunSpy, listLiveCalls: () => of({ calls: [], totalBytes: 0 }) } },
+      ],
     });
     fixture = TestBed.createComponent(ReliveHistoryComponent);
     fixture.componentRef.setInput('cycleId', 'c-1');
