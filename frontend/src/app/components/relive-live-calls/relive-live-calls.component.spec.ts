@@ -143,4 +143,24 @@ describe('ReliveLiveCallsComponent', () => {
     expect(deleteSpy).toHaveBeenCalledWith('c-1', 'l-1');
     expect(listSpy).toHaveBeenCalledTimes(2);
   });
+
+  describe('T063: masking', () => {
+    beforeEach(() => {
+      fixture.componentRef.setInput('variables', [{ name: 'token', value: 'super-secret', secret: true }]);
+    });
+
+    it('masks a secret variable\'s value in the compare preview until "Reveal secrets" is clicked', () => {
+      getSpy.and.returnValue(of(liveCall({ response: { status: 500, headers: {}, body: '{"error":"super-secret rejected"}' } })));
+      fixture.detectChanges();
+
+      fixture.componentInstance.openCompare(liveCall());
+      expect(fixture.componentInstance.compareData()!.finalResponse!.body).not.toContain('super-secret');
+      expect(fixture.componentInstance.compareData()!.finalResponse!.body).toContain('•••');
+
+      fixture.componentInstance.toggleReveal();
+      fixture.componentInstance.comparingId.set(null);
+      fixture.componentInstance.openCompare(liveCall());
+      expect(fixture.componentInstance.compareData()!.finalResponse!.body).toContain('super-secret');
+    });
+  });
 });

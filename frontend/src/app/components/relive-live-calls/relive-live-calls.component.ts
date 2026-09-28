@@ -67,12 +67,25 @@ export class ReliveLiveCallsComponent implements OnInit {
     });
   }
 
+  /** A single view-wide "Reveal secrets" toggle (FR-022a) - never saved, resets whenever the
+   *  cycle/steps change (a different cycle's secrets are not this one's to reveal). */
+  readonly revealed = signal(false);
+
+  toggleReveal(): void {
+    this.revealed.set(!this.revealed());
+  }
+
   private secretNames(): readonly string[] {
     return this.variables().filter((v) => v.secret).map((v) => v.name);
   }
 
+  private secretValues(): Readonly<Record<string, string>> {
+    return Object.fromEntries(this.variables().filter((v) => v.secret).map((v) => [v.name, v.value]));
+  }
+
   private mask(text: string | null | undefined): string {
-    return text ? maskRelive(text, this.secretNames(), {}) : '';
+    if (!text) return '';
+    return this.revealed() ? text : maskRelive(text, this.secretNames(), this.secretValues());
   }
 
   private stepOf(stepKey: string | null | undefined): Step | undefined {
