@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.relive.adapter.in.web;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.FinishRunRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.HoldRunRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.ResumeRunRequestDto;
+import com.fathy.alfred.backend.relive.adapter.in.web.dto.RunDetailDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.SetRunVariableRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.StartRunRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.StepDto;
@@ -24,6 +25,7 @@ import com.fathy.alfred.backend.relive.application.port.in.SetRunVariableUseCase
 import com.fathy.alfred.backend.relive.application.port.in.StartRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.StopRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.UpdateRunDefinitionUseCase;
+import com.fathy.alfred.backend.relive.domain.model.CycleVariable;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
 import com.fathy.alfred.backend.relive.domain.model.ReliveLimits;
 import com.fathy.alfred.backend.relive.domain.model.Run;
@@ -104,8 +106,17 @@ public class ReliveRunsController {
     }
 
     @GetMapping("/{id}/runs/{runId}")
-    public ResponseEntity<GetRunUseCase.RunDetail> get(@PathVariable String id, @PathVariable String runId) {
-        return getRun.get(runId).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    public ResponseEntity<RunDetailDto> get(@PathVariable String id, @PathVariable String runId) {
+        return getRun.get(runId)
+                .map(detail -> new RunDetailDto(detail.run(), detail.stepResults(), secretsOf(detail.run())))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Every cycle variable flagged secret, by name (contracts/rest-api.md masking note) - the
+     *  frontend is the one that actually masks values wherever it shows them. */
+    private static List<String> secretsOf(Run run) {
+        return run.definition().variables().stream().filter(CycleVariable::secret).map(CycleVariable::name).toList();
     }
 
     @PutMapping("/{id}/runs/{runId}/steps/{stepKey}/attempts/{attempt}")

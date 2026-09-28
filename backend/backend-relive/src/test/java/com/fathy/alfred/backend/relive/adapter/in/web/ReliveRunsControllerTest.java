@@ -108,12 +108,15 @@ class ReliveRunsControllerTest {
     }
 
     @Test
-    void getReturnsRunDetail() throws Exception {
+    void getReturnsRunDetailFlattenedWithSecrets() throws Exception {
         when(getRun.get("r-1")).thenReturn(Optional.of(new GetRunUseCase.RunDetail(run("r-1", RunStatus.RUNNING), List.of())));
 
         mockMvc.perform(get("/relive-cycles/c-1/runs/r-1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.run.id").value("r-1"));
+                .andExpect(jsonPath("$.id").value("r-1"))
+                .andExpect(jsonPath("$.cycleId").value("c-1"))
+                .andExpect(jsonPath("$.stepResults").isArray())
+                .andExpect(jsonPath("$.secrets").isArray());
     }
 
     @Test
