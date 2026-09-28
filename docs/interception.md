@@ -927,6 +927,34 @@ project" are two independent intentions about the same request.
 Validation rejects contradictions up front: two terminal actions in one rule, a terminal action
 combined with a pause, or two pauses.
 
+### Evaluation tiers - a Relive run adds two more, ahead of the global list
+
+A request attributed to a Relive run (specs/003-relive-cycle) is evaluated in three tiers, in
+this order, each one **the existing rule-precedence semantics above applied independently**: all
+matching rules in a tier apply, ascending by `priority`, until one has `stopProcessing`.
+
+1. **STEP** - the matched child's own call rule (REPLAY's mock/replace/pause/condition, and any
+   call-scoped match-rule edit) - this is what actually decides LIVE vs. REPLAY for that call.
+2. **CYCLE** - the cycle's own rules, by their `priority`/order.
+3. **GLOBAL** - the participating global rules (none / all / selected, per the cycle's setting),
+   by their existing priority - same rules a request with no Relive attribution sees on its own.
+
+A REPLAY answer at tier 1 ends the request (no upstream), so tier 3's request edits can never
+reach a supplier the step replays. Traffic with no Relive attribution at all sees tier 3 only,
+unchanged. Each applied rule is recorded with its tier, shown in the step drawer's "Rules &
+variables" tab - see docs/relive.md.
+
+### `MATCHES_RECORDED_CALL` - an `IF_REQUEST` condition subject added for Relive
+
+`{ subject: 'MATCHES_RECORDED_CALL', answerId, ignore: [...] }` compares the (possibly
+edit-modified) request against a recorded-request answer file byte for byte, except the JSON
+paths/headers listed in `ignore`. It backs REPLAY's default call rule -
+`[request edits…] → IF_REQUEST(MATCHES_RECORDED_CALL, else: MOCK_RESPONSE 502 {error}) →
+MOCK_RESPONSE(recording)` - so "the request differs from what was recorded" (FR-014d) is an
+ordinary condition branch, not a Relive-specific code path. Available in the rule editor and
+evaluated in `interception.py` the same as any other condition subject; nothing about it is
+Relive-only except which call rules happen to use it. See docs/relive.md.
+
 ## Moving rules around — export, duplicate, import
 
 A rule is a piece of work: a match, a condition tree, a set of actions. It used to exist only

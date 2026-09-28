@@ -49,14 +49,15 @@ One module per feature. Maven module boundaries make an undeclared cross-slice i
 | `backend-settings` | Call-filter whitelist/blacklist/mode — which *outbound* calls get logged at all |
 | `backend-interception` | Traffic interception/fault-injection rules, the paused-call registry, and stored answers (recorded-call or uploaded-file, for the ANSWER_WITH_*/REPLACE_WITH_RECORDED_RESPONSE actions) |
 | `backend-resend` | Resends a previously-logged call (outbound or inbound, optionally edited) back through the appropriate mitmproxy service; a leaf slice reached only through `backend-app`'s `resendbridge` |
-| `backend-app` | Composition root: main class, `DatabaseStatsController`, migrations, `interceptionbridge`/`resendbridge` |
+| `backend-relive` | Relive Cycle: builds and runs a controlled replay workflow from recorded calls (LIVE/REPLAY per outbound child, cycle-scoped variables/rules, run history, Live calls log); a leaf slice reached only through `backend-app`'s `relivebridge` |
+| `backend-app` | Composition root: main class, `DatabaseStatsController`, migrations, `interceptionbridge`/`resendbridge`/`relivebridge` |
 | `backend-architecture-test` | Test-only, holds the ArchUnit suite |
 
-Isolation rules currently enforced: `calls`, `internal-calls`, `comments`, `profiles`, `settings`, `interception` and `resend` are each fully isolated from every other slice (including from each other). The only allowed edges are `export→calls`, `session-cycles→calls`, `session-cycles→internal-calls`. → `docs/architecture.md`
+Isolation rules currently enforced: `calls`, `internal-calls`, `comments`, `profiles`, `settings`, `interception`, `resend` and `relive` are each fully isolated from every other slice (including from each other). The only allowed edges are `export→calls`, `session-cycles→calls`, `session-cycles→internal-calls`. → `docs/architecture.md`
 
 ## Frontend routes (`frontend/src/app/`, standalone Angular + signals, no NgModules/NgRx)
 
-Five routes: Live Calls (`''`, with an outbound/inbound/both source filter), Session Cycles (`cycles`, `cycles/:id`), Profiles (`profiles`), Settings (`settings`), and `view` (pop-out JSON viewer, outside the tab layout). No separate "Internal Calls" tab — inbound traffic is a filter inside Live Calls, reusing the same components. → `docs/frontend-architecture.md`
+Live Calls (`''`, with an outbound/inbound/both source filter), Session Cycles (`cycles`, `cycles/:id`), Profiles (`profiles`), Settings (`settings`), Relive Cycles (`relive`, `relive/:id` — build and run a controlled replay workflow from recorded calls, see `docs/relive.md`), and `view` (pop-out JSON viewer, outside the tab layout). No separate "Internal Calls" tab — inbound traffic is a filter inside Live Calls, reusing the same components. → `docs/frontend-architecture.md`
 
 ## Commands
 
@@ -92,5 +93,6 @@ cd frontend && npm test && npm run build  # Karma/Jasmine; ng build
 - `docs/frontend-architecture.md` — frontend state, WebSocket-driven fetch-on-demand, component-sharing, Settings/source-filter
 - `docs/supplier-integrations.md` — both proxy addons, cert trust, host-side setup scripts, inbound/outbound toggles
 - `docs/testing.md` — test strategy per layer, ArchUnit enforcement, no-truncation guard tests
+- `docs/relive.md` — Relive Cycle: the call-rule model, attribution, evaluation tiers, the snapshot, run history, the Live calls log
 - `wildfly-proxy-toggle/README.md` — the outbound Attach-API tool in full
 - `README.md` — human-facing setup/usage walkthrough
