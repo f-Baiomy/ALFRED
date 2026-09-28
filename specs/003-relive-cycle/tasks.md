@@ -405,7 +405,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Where:** `backend/backend-resend/.../domain/model/ResendRequest.java` + `adapter/in/web/dto/ResendRequestDto.java` gain an optional `relive: {runId, stepKey}`.
   - **Headers:** `ResendService` (next to `RESEND_OF_HEADER`, line ~55) then adds `X-Alfred-Relive: <runId>/<stepKey>` and `X-Operation-Id: relive-<runId>-<stepKey>` (only when `relive` is present).
   - **Test:** `ResendServiceTest`: both headers added, nothing else changed.
-- [ ] T050 [US3] Observers and in-flight tracking, in `APP/relivebridge/ReliveCallObserverAdapter.java`. It implements `NewCallObserverPort` (backend-calls) and `NewInternalCallObserverPort` (backend-internal-calls). It forwards to a new `BR/application/port/in/ObserveRunCallUseCase` implemented by `ReliveRunsService`, which:
+- [X] T050 [US3] Observers and in-flight tracking, in `APP/relivebridge/ReliveCallObserverAdapter.java`. It implements `NewCallObserverPort` (backend-calls) and `NewInternalCallObserverPort` (backend-internal-calls). It forwards to a new `BR/application/port/in/ObserveRunCallUseCase` implemented by `ReliveRunsService`, which:
   - maintains `inflight.json` while any run is active (including STOPPING runs): on `onCallPrepared`, add the inbound call for its project; on `onCallCompleted`, remove it; `runId` is set when the call carried the relive header. When the last entry of a STOPPING run is removed, call `ReliveRunsService.onInflightDrained(runId)` (T046);
   - broadcasts `run-call` events for calls with a `relive` field;
   - for a call whose `relive.ambiguousRunIds` is set, appends an `AMBIGUOUS_BLOCKED` log entry to **each** of those runs (FR-050a) and broadcasts `runChanged` for each;

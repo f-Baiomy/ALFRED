@@ -9,6 +9,7 @@ import com.fathy.alfred.backend.relive.application.port.in.RunNotResumableExcept
 import com.fathy.alfred.backend.relive.application.port.in.StartRunCommand;
 import com.fathy.alfred.backend.relive.application.port.in.ValidateCycleUseCase;
 import com.fathy.alfred.backend.relive.application.port.out.LeaseQuery;
+import com.fathy.alfred.backend.relive.application.port.out.LiveCallStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveCycleStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveNotificationPort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
@@ -16,6 +17,7 @@ import com.fathy.alfred.backend.relive.application.port.out.RunSnapshotPublisher
 import com.fathy.alfred.backend.relive.domain.model.CycleRule;
 import com.fathy.alfred.backend.relive.domain.model.CycleVersion;
 import com.fathy.alfred.backend.relive.domain.model.GlobalRulesSelection;
+import com.fathy.alfred.backend.relive.domain.model.LiveCall;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycleSummary;
 import com.fathy.alfred.backend.relive.domain.model.ReliveSettings;
@@ -56,6 +58,7 @@ class ReliveRunsServiceTest {
     private FakeValidator validator;
     private FakeLeaseQuery leaseQuery;
     private FakeScheduler scheduler;
+    private FakeLiveCallStore liveCallStore;
     private ReliveRunsService service;
 
     @BeforeEach
@@ -67,9 +70,10 @@ class ReliveRunsServiceTest {
         validator = new FakeValidator();
         leaseQuery = new FakeLeaseQuery();
         scheduler = new FakeScheduler();
+        liveCallStore = new FakeLiveCallStore();
         RunSnapshotBuilder snapshotBuilder = new RunSnapshotBuilder(publisher, objectMapper);
         service = new ReliveRunsService(runStore, cycleStore, publisher, notifications, validator,
-                snapshotBuilder, leaseQuery, scheduler);
+                snapshotBuilder, leaseQuery, scheduler, liveCallStore);
     }
 
     private ReliveCycle bareCycle(String name, boolean isTransient) {
@@ -294,6 +298,65 @@ class ReliveRunsServiceTest {
                 .isInstanceOf(RunDefinitionConflictException.class);
     }
 
+    @Test
+    void outboundCallPreparedAddsAnInflightEntryAndBroadcasts() {
+        String cycleId = save(bareCycle("inflight", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        JsonNode relive = objectMapper.createObjectNode().put("runId", run.id()).put("stepKey", "s-1").put("attribution", "HEADER");
+        service.onOutboundCallPrepared(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+                "call-1", "odeysys", relive, false, null, null, null, null, null));
+
+        assertThat(publisher.inflightPublishedCount).isGreaterThan(0);
+        assertThat(notifications.runCallEvents).hasSize(1);
+        assertThat(notifications.runCallEvents.get(0).get("direction").asText()).isEqualTo("outbound");
+    }
+
+    @Test
+    void outboundCallCompletedRemovesInflightEntryAndDrainsAStoppingRun() {
+        String cycleId = save(bareCycle("drain", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        JsonNode relive = objectMapper.createObjectNode().put("runId", run.id()).put("stepKey", "s-1");
+        service.onOutboundCallPrepared(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+                "call-1", "odeysys", relive, false, null, null, null, null, null));
+        service.stop(run.id());
+        assertThat(publisher.unpublished).doesNotContain(run.id());
+
+        service.onOutboundCallCompleted(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+                "call-1", "odeysys", relive, false, null, null, null, null, null));
+
+        assertThat(publisher.unpublished).contains(run.id());
+    }
+
+    @Test
+    void ambiguousCallLogsAgainstEveryMatchedRun() {
+        String cycleId1 = save(bareCycle("a", false));
+        String cycleId2 = save(bareCycle("b", false));
+        Run runA = service.start(cycleId1, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        Run runB = service.start(cycleId2, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        JsonNode reliveWrapper = objectMapper.createObjectNode().set("ambiguousRunIds",
+                objectMapper.createArrayNode().add(runA.id()).add(runB.id()));
+        service.onOutboundCallCompleted(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+                "call-x", "odeysys", reliveWrapper, false, null, null, null, null, null));
+
+        assertThat(runStore.findById(runA.id()).orElseThrow().log()).anyMatch(l -> "AMBIGUOUS_BLOCKED".equals(l.kind()));
+        assertThat(runStore.findById(runB.id()).orElseThrow().log()).anyMatch(l -> "AMBIGUOUS_BLOCKED".equals(l.kind()));
+    }
+
+    @Test
+    void reachedUpstreamAddsALiveCall() {
+        String cycleId = save(bareCycle("livecall", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        JsonNode relive = objectMapper.createObjectNode().put("runId", run.id()).put("stepKey", "s-1");
+
+        service.onInboundCallCompleted(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+                "call-2", "odeysys", relive, true, null, null, 200, 5L, "t1"));
+
+        assertThat(liveCallStore.calls).hasSize(1);
+        assertThat(liveCallStore.calls.get(0).runId()).isEqualTo(run.id());
+    }
+
     private StepResult stepResult(String runId, String stepKey, int attempt, StepState state) {
         return new StepResult(runId, stepKey, attempt, state, "LIVE", "HEADER", null, null, null,
                 List.of(), List.of(), List.of(), List.of(), null, "t0", "t1", 5L, null, List.of(), null, List.of(), null);
@@ -341,18 +404,20 @@ class ReliveRunsServiceTest {
     static class FakePublisher implements RunSnapshotPublisherPort {
         final Map<String, JsonNode> published = new LinkedHashMap<>();
         final List<String> unpublished = new ArrayList<>();
+        int inflightPublishedCount;
         @Override public void publish(String runId, JsonNode snapshotJson) { published.put(runId, snapshotJson); }
         @Override public void unpublish(String runId) { unpublished.add(runId); published.remove(runId); }
-        @Override public void publishInflight(JsonNode inflightJson) { }
+        @Override public void publishInflight(JsonNode inflightJson) { inflightPublishedCount++; }
         @Override public void clearInflight() { }
         @Override public void writeAnswer(String runId, String answerId, JsonNode meta, byte[] body) { }
     }
 
     static class FakeNotifications implements ReliveNotificationPort {
         int runChangedCount;
+        final List<JsonNode> runCallEvents = new ArrayList<>();
         @Override public void cycleChanged() { }
         @Override public void runChanged(String cycleId, String runId) { runChangedCount++; }
-        @Override public void runCall(JsonNode eventJson) { }
+        @Override public void runCall(JsonNode eventJson) { runCallEvents.add(eventJson); }
     }
 
     static class FakeValidator implements ValidateCycleUseCase {
@@ -363,6 +428,19 @@ class ReliveRunsServiceTest {
     static class FakeLeaseQuery implements LeaseQuery {
         boolean active;
         @Override public boolean hasActiveLease(String runId) { return active; }
+    }
+
+    static class FakeLiveCallStore implements LiveCallStorePort {
+        final List<LiveCall> calls = new ArrayList<>();
+        @Override public LiveCall add(LiveCall call) { calls.add(call); return call; }
+        @Override public List<LiveCall> list(String cycleId, int limit) {
+            return calls.stream().filter(c -> c.cycleId().equals(cycleId)).toList();
+        }
+        @Override public Optional<LiveCall> findById(String id) {
+            return calls.stream().filter(c -> c.id().equals(id)).findFirst();
+        }
+        @Override public boolean deleteById(String id) { return calls.removeIf(c -> c.id().equals(id)); }
+        @Override public long totalBytes(String cycleId) { return 0L; }
     }
 
     /** Captures every scheduled task instead of running it, so a test can invoke or cancel it deterministically. */

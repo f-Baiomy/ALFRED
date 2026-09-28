@@ -12,5 +12,5 @@ public interface ReceiveCompletedCallUseCase {
      * @return true if a call with this id was prepared and is now updated; false if not (the
      * caller - the webhook controller - should respond 404).
      */
-    boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception);
+    boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception, Boolean reachedUpstream);
 }

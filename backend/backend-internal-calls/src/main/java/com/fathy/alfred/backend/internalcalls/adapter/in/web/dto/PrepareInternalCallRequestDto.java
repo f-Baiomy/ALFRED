@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.internalcalls.adapter.in.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fathy.alfred.backend.internalcalls.domain.model.RequestData;
 
 /**
@@ -26,6 +27,8 @@ public record PrepareInternalCallRequestDto(
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
         @JsonProperty("resend_of") String resendOf,
-        @JsonProperty("resend_edits") Object resendEdits
+        @JsonProperty("resend_edits") Object resendEdits,
+        /** Relive attribution ALFRED's own reverse-proxy addon computed for this inbound call at request time - see backend-calls' PrepareCallRequestDto's own doc. */
+        JsonNode relive
 ) {
 }

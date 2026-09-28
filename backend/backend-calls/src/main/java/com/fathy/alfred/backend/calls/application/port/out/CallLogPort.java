@@ -43,7 +43,7 @@ public interface CallLogPort {
      * false if not (already trimmed by retention, or never prepared - the caller should treat this
      * as a 404).
      */
-    boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception);
+    boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception, Boolean reachedUpstream);
 
     /** Completed calls to this exact url only - see CallBaseline for why the url is not normalised. */
     CallBaseline baselineFor(String url);

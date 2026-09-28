@@ -142,7 +142,7 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
                 partial.sessionId(), partial.operationId(), partial.serviceName(), null, null,
-                partial.resendOf(), partial.resendEdits());
+                partial.resendOf(), partial.resendEdits(), partial.relive(), null);
         if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {
             return Optional.empty();
         }
@@ -161,8 +161,8 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
      * updated.
      */
     @Override
-    public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
-        boolean updated = callLogPort.complete(id, response, error, durationMs, timing, interception);
+    public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception, Boolean reachedUpstream) {
+        boolean updated = callLogPort.complete(id, response, error, durationMs, timing, interception, reachedUpstream);
         if (!updated) {
             log.warn("Received a completion for unknown/already-trimmed call id {}", id);
             return false;

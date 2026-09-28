@@ -115,8 +115,8 @@ public class SqliteCallLogAdapter implements CallLogPort {
     }
 
     @Override
-    public boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
-        return repository.complete(id, response, error, durationMs, timing, interception);
+    public boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception, Boolean reachedUpstream) {
+        return repository.complete(id, response, error, durationMs, timing, interception, reachedUpstream);
     }
 
     @Override

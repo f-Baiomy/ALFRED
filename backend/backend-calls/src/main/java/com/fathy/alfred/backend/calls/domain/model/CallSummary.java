@@ -38,8 +38,20 @@ public record CallSummary(
         /** The id of the original call this one is a resend of, or null - see CallRecord.resendOf. */
         @JsonProperty("resend_of") String resendOf,
         /** Opaque JSON - see CallRecord.resendEdits for the shape. Rides on the SUMMARY for the same reason interception does: the resend chip shows on a collapsed card. */
-        @JsonProperty("resend_edits") Object resendEdits
+        @JsonProperty("resend_edits") Object resendEdits,
+        /** The call's relive attribution, or null - see CallRecord.relive. Rides on the SUMMARY so Relive's badge (T050a) shows on a collapsed card. */
+        JsonNode relive,
+        /** See CallRecord.reachedUpstream. */
+        @JsonProperty("reached_upstream") Boolean reachedUpstream
 ) {
+    /** Pre-relive shape. */
+    public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
+                        Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
+                        String sessionId, String operationId, String serviceName, CallTiming timing, CallInterception interception,
+                        String resendOf, Object resendEdits) {
+        this(id, originalUrl, url, method, timestamp, durationMs, status, error, supplierName, state, sessionId, operationId, serviceName, timing, interception, resendOf, resendEdits, null, null);
+    }
+
     /** Pre-resend shape. */
     public CallSummary(String id, String originalUrl, String url, String method, String timestamp,
                         Double durationMs, Integer status, String error, String supplierName, CallLifecycleStatus state,
@@ -86,7 +98,7 @@ public record CallSummary(
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception(), call.resendOf(), call.resendEdits());
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception(), call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream());
     }
 
     /**

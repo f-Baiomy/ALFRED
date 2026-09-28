@@ -13,6 +13,8 @@ public record CompleteInternalCallRequestDto(
         String error,
         @JsonProperty("duration_ms") Double durationMs,
         /** What an interception rule did, sent by the reverse proxy only when a rule touched the call. */
-        CallInterception interception
+        CallInterception interception,
+        /** Whether this call actually reached a real external system - only known once it settles. Drives Relive's Live-calls log (FR-015b). */
+        @JsonProperty("reached_upstream") Boolean reachedUpstream
 ) {
 }

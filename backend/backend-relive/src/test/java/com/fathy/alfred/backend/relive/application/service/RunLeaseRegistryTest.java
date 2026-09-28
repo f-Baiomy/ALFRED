@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.relive.application.port.in.ValidateCycleUseCase;
 import com.fathy.alfred.backend.relive.application.port.out.LeaseQuery;
+import com.fathy.alfred.backend.relive.application.port.out.LiveCallStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveCycleStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveNotificationPort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.RunSnapshotPublisherPort;
 import com.fathy.alfred.backend.relive.domain.model.CycleVersion;
 import com.fathy.alfred.backend.relive.domain.model.GlobalRulesSelection;
+import com.fathy.alfred.backend.relive.domain.model.LiveCall;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycleSummary;
 import com.fathy.alfred.backend.relive.domain.model.ReliveSettings;
@@ -59,8 +61,15 @@ class RunLeaseRegistryTest {
             @Override public void runCall(JsonNode eventJson) { }
         };
         LeaseQuery neverHeld = runId -> false;
+        LiveCallStorePort liveCallStore = new LiveCallStorePort() {
+            @Override public LiveCall add(LiveCall call) { return call; }
+            @Override public List<LiveCall> list(String cycleId, int limit) { return List.of(); }
+            @Override public Optional<LiveCall> findById(String id) { return Optional.empty(); }
+            @Override public boolean deleteById(String id) { return false; }
+            @Override public long totalBytes(String cycleId) { return 0L; }
+        };
         runsService = new ReliveRunsService(runStore, cycleStore, publisher, notifications, validator,
-                snapshotBuilder, neverHeld, scheduler);
+                snapshotBuilder, neverHeld, scheduler, liveCallStore);
         registry = new RunLeaseRegistry(runsService, runStore, scheduler);
     }
 

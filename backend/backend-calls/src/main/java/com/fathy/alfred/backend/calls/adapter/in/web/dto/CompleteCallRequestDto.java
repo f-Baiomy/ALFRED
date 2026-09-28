@@ -21,6 +21,8 @@ public record CompleteCallRequestDto(
         @JsonProperty("duration_ms") Double durationMs,
         CallTiming timing,
         /** Present only when an interception rule touched this call - see CallInterception. */
-        CallInterception interception
+        CallInterception interception,
+        /** Whether this call actually reached a real external system - only known once it settles (or fails to). Drives Relive's Live-calls log (FR-015b). */
+        @JsonProperty("reached_upstream") Boolean reachedUpstream
 ) {
 }

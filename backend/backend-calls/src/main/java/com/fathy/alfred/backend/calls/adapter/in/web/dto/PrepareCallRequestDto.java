@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.adapter.in.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 
 /**
@@ -18,6 +19,9 @@ import com.fathy.alfred.backend.calls.domain.model.RequestData;
  * {@code resendOf}/{@code resendEdits} are taken from the proxy's {@code X-Alfred-Resend-Of} and
  * {@code X-Alfred-Resend-Edits} request headers (see PX/interception.py's take_resend_headers) -
  * present only when this call was sent through Alfred's own resend feature.
+ * {@code relive} is the relive attribution ALFRED's own proxy addon computed for this call at
+ * request time (research D2.3/FR-050a) - present only while a relive run is active for this call's
+ * project; opaque to this DTO, forwarded verbatim into CallRecord.relive.
  */
 public record PrepareCallRequestDto(
         String id,
@@ -30,6 +34,7 @@ public record PrepareCallRequestDto(
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
         @JsonProperty("resend_of") String resendOf,
-        @JsonProperty("resend_edits") Object resendEdits
+        @JsonProperty("resend_edits") Object resendEdits,
+        JsonNode relive
 ) {
 }

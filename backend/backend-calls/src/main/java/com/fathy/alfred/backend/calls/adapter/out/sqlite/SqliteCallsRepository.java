@@ -106,7 +106,7 @@ public class SqliteCallsRepository {
     private int savesSinceLastSizeCheck;
 
     /** The outcome half of a two-phase call, awaiting write via {@link #completionWriter} - see {@link #complete}. */
-    private record PendingCompletion(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {}
+    private record PendingCompletion(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception, Boolean reachedUpstream) {}
 
     @PostConstruct
     void init() {
@@ -241,6 +241,7 @@ public class SqliteCallsRepository {
         addServiceNameColumnIfMissing();
         addTimingColumnsIfMissing();
         addResendColumnsIfMissing();
+        addReliveColumnsIfMissing();
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS call_request (
                   call_id TEXT PRIMARY KEY REFERENCES call_metadata(id) ON DELETE CASCADE,
@@ -378,6 +379,19 @@ public class SqliteCallsRepository {
         }
         if (!columns.contains("resend_edits")) {
             jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN resend_edits TEXT");
+        }
+    }
+
+    /** {@code relive_json} postdates every other column, added the same ALTER TABLE way. Known at
+     *  prepare time (like resend_of/resend_edits), so it's written by the initial INSERT.
+     *  {@code reached_upstream} is only known at completion, like interception. */
+    private void addReliveColumnsIfMissing() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_metadata)", (rs, rowNum) -> rs.getString("name"));
+        if (!columns.contains("relive_json")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN relive_json TEXT");
+        }
+        if (!columns.contains("reached_upstream")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN reached_upstream INTEGER");
         }
     }
 
@@ -520,8 +534,8 @@ public class SqliteCallsRepository {
     private static final String INSERT_METADATA_SQL = """
             INSERT INTO call_metadata (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
                                status, status_rank, supplier, supplier_name, error, haystack, status_state, request_haystack,
-                               session_id, operation_id, service_name, resend_of, resend_edits)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                               session_id, operation_id, service_name, resend_of, resend_edits, relive_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO call_request (call_id, headers, body) VALUES (?,?,?)";
@@ -567,6 +581,7 @@ public class SqliteCallsRepository {
         ps.setString(18, normalized.serviceName());
         ps.setString(19, normalized.resendOf());
         ps.setString(20, writeJson(normalized.resendEdits()));
+        ps.setString(21, writeJson(normalized.relive()));
     }
 
     /** Binds one call's request-table row - always inserted (headers/body null if there is no request data). */
@@ -589,7 +604,7 @@ public class SqliteCallsRepository {
             UPDATE call_metadata SET
               status = ?, status_rank = ?, error = ?, duration_ms = ?, status_state = ?,
               connect_ms = ?, tls_ms = ?, ttfb_ms = ?, download_ms = ?, reused_connection = ?,
-              interception = ?,
+              interception = ?, reached_upstream = ?,
               haystack = substr(COALESCE(request_haystack, '') || ' ' || ?, 1, ?)
             WHERE id = ?
             """;
@@ -597,12 +612,12 @@ public class SqliteCallsRepository {
     private static final String UPDATE_RESPONSE_SQL = "UPDATE call_response SET headers = ?, body = ? WHERE call_id = ?";
 
     /** Second half of two-phase logging - fills in a previously-{@link #save prepared} call's outcome. @return true if a row with this id existed to update. */
-    public boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
+    public boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception, Boolean reachedUpstream) {
         Integer existing = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM call_metadata WHERE id = ?", Integer.class, id);
         if (existing == null || existing == 0) {
             return false;
         }
-        completionWriter.submit(new PendingCompletion(id, response, error, durationMs, timing, interception));
+        completionWriter.submit(new PendingCompletion(id, response, error, durationMs, timing, interception, reachedUpstream));
         return true;
     }
 
@@ -642,10 +657,15 @@ public class SqliteCallsRepository {
         }
 
         ps.setString(11, writeInterception(pending.interception()));
+        if (pending.reachedUpstream() != null) {
+            ps.setInt(12, pending.reachedUpstream() ? 1 : 0);
+        } else {
+            ps.setNull(12, Types.INTEGER);
+        }
 
-        ps.setString(12, buildResponseHaystackFragment(response, error));
-        ps.setInt(13, MAX_HAYSTACK_LENGTH);
-        ps.setString(14, pending.id());
+        ps.setString(13, buildResponseHaystackFragment(response, error));
+        ps.setInt(14, MAX_HAYSTACK_LENGTH);
+        ps.setString(15, pending.id());
     }
 
     private static void setNullableDouble(PreparedStatement ps, int index, Double value) throws SQLException {
@@ -779,7 +799,7 @@ public class SqliteCallsRepository {
     private static final int MAX_OVERLAP_ROWS = 5000;
 
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception, resend_of, resend_edits FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception, resend_of, resend_edits, relive_json, reached_upstream FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -1011,7 +1031,7 @@ public class SqliteCallsRepository {
             SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id, cm.service_name,
                    cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
-                   cm.resend_of, cm.resend_edits,
+                   cm.resend_of, cm.resend_edits, cm.relive_json, cm.reached_upstream,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM call_metadata cm
@@ -1038,7 +1058,7 @@ public class SqliteCallsRepository {
                 SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                        cm.session_id, cm.operation_id, cm.service_name,
                        cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
-                       cm.resend_of, cm.resend_edits,
+                       cm.resend_of, cm.resend_edits, cm.relive_json, cm.reached_upstream,
                        cr.headers AS request_headers, cr.body AS request_body,
                        cp.headers AS response_headers, cp.body AS response_body
                 FROM call_metadata cm
@@ -1208,7 +1228,9 @@ public class SqliteCallsRepository {
                 timingOf(rs),
                 interceptionOf(rs),
                 rs.getString("resend_of"),
-                resendEditsOf(rs));
+                resendEditsOf(rs),
+                reliveOf(rs),
+                reachedUpstreamOf(rs));
     };
 
     /** Reads a row of the OLD (pre-split) single-table {@code calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. That legacy table predates service_name entirely (it predates even session_id/operation_id), so this always passes null for it rather than reading a column that was never added to {@code calls}. */
@@ -1307,7 +1329,9 @@ public class SqliteCallsRepository {
                 timingOf(rs),
                 interceptionOf(rs),
                 rs.getString("resend_of"),
-                resendEditsOf(rs));
+                resendEditsOf(rs),
+                reliveOf(rs),
+                reachedUpstreamOf(rs));
     };
 
     /**
@@ -1373,6 +1397,24 @@ public class SqliteCallsRepository {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             return null;
         }
+    }
+
+    /** Stored as JSON text, opaque to this repository - see CallRecord.relive. */
+    private static com.fasterxml.jackson.databind.JsonNode reliveOf(ResultSet rs) throws SQLException {
+        String json = rs.getString("relive_json");
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return INTERCEPTION_MAPPER.readTree(json);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private static Boolean reachedUpstreamOf(ResultSet rs) throws SQLException {
+        Object value = rs.getObject("reached_upstream");
+        return value == null ? null : rs.getInt("reached_upstream") != 0;
     }
 
     private static CallTiming timingOf(ResultSet rs) throws SQLException {

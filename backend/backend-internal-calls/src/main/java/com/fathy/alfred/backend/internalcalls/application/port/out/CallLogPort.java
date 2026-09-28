@@ -33,17 +33,23 @@ public interface CallLogPort {
      * @return true if a call with this id was found and updated, false if not (already trimmed by
      * retention, or never prepared - the caller should treat this as a 404).
      */
-    boolean complete(String id, ResponseData response, String error, Double durationMs);
+    default boolean complete(String id, ResponseData response, String error, Double durationMs) {
+        return complete(id, response, error, durationMs, null, null);
+    }
 
     /**
      * The same, carrying what an interception rule did to the call. A default that drops the
      * record, so a store that predates it (and every test fake) keeps working; the file adapter,
-     * this slice's only real store, overrides it.
+     * this slice's only real store, overrides the 6-arg shape below.
      */
     default boolean complete(String id, ResponseData response, String error, Double durationMs,
                              CallInterception interception) {
-        return complete(id, response, error, durationMs);
+        return complete(id, response, error, durationMs, interception, null);
     }
+
+    /** As above, plus whether the call actually reached a real external system - only known once it settles. Drives Relive's Live-calls log (FR-015b). */
+    boolean complete(String id, ResponseData response, String error, Double durationMs,
+                     CallInterception interception, Boolean reachedUpstream);
 
     /**
      * Filtered/searched/sorted/paginated call summaries, plus the total count matching before

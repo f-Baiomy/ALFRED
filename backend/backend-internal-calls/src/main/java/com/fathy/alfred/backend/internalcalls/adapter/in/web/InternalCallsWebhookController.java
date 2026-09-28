@@ -59,7 +59,7 @@ public class InternalCallsWebhookController {
         }
         CallRecord partial = new CallRecord(body.id(), body.originalUrl(), body.url(), body.method(), body.request(),
                 body.timestamp(), null, null, null, null, body.sessionId(), body.operationId(), body.serviceName(),
-                null, body.resendOf(), body.resendEdits());
+                null, body.resendOf(), body.resendEdits(), body.relive(), null);
         Optional<String> id = receivePreparedCallUseCase.receivePreparedCall(partial);
         return id.map(value -> ResponseEntity.ok(Map.of("id", value)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -76,7 +76,7 @@ public class InternalCallsWebhookController {
             return ResponseEntity.status(401).build();
         }
         boolean found = receiveCompletedCallUseCase.receiveCompletedCall(id, body.response(), body.error(), body.durationMs(),
-                body.interception());
+                body.interception(), body.reachedUpstream());
         return found ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 

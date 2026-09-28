@@ -198,15 +198,15 @@ class InternalCallsServiceTest {
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);
         CallRecord completed = new CallRecord("call-1", "https://wildfly-proxy/x", "https://wildfly/x", "GET", null, "t", 1.0, null, null);
         ResponseData response = new ResponseData(200, null, "{}");
-        when(port.complete("call-1", response, null, 42.0, null)).thenReturn(true);
+        when(port.complete("call-1", response, null, 42.0, null, null)).thenReturn(true);
         when(port.findById("call-1")).thenReturn(Optional.of(completed));
         InternalCallsService service = serviceWith(port, notificationPort);
 
-        boolean result = service.receiveCompletedCall("call-1", response, null, 42.0);
+        boolean result = service.receiveCompletedCall("call-1", response, null, 42.0, null, null);
 
         assertThat(result).isTrue();
         var order = inOrder(port, notificationPort);
-        order.verify(port).complete("call-1", response, null, 42.0, null);
+        order.verify(port).complete("call-1", response, null, 42.0, null, null);
         order.verify(port).findById("call-1");
         order.verify(notificationPort).notifyCallCompleted(completed, List.of());
     }
@@ -219,17 +219,17 @@ class InternalCallsServiceTest {
         NewInternalCallObserverPort observerB = mock(NewInternalCallObserverPort.class);
         CallRecord completed = new CallRecord("call-1", "https://wildfly-proxy/x", "https://wildfly/x", "GET", null, "t", 1.0, null, null);
         ResponseData response = new ResponseData(200, null, "{}");
-        when(port.complete("call-1", response, null, 42.0, null)).thenReturn(true);
+        when(port.complete("call-1", response, null, 42.0, null, null)).thenReturn(true);
         when(port.findById("call-1")).thenReturn(Optional.of(completed));
         when(observerA.onCallCompleted(completed)).thenReturn(List.of("cycle-1"));
         when(observerB.onCallCompleted(completed)).thenReturn(List.of("cycle-2"));
         InternalCallsService service = serviceWith(port, notificationPort, List.of(observerA, observerB));
 
-        boolean result = service.receiveCompletedCall("call-1", response, null, 42.0);
+        boolean result = service.receiveCompletedCall("call-1", response, null, 42.0, null, null);
 
         assertThat(result).isTrue();
         var order = inOrder(port, observerA, observerB, notificationPort);
-        order.verify(port).complete("call-1", response, null, 42.0, null);
+        order.verify(port).complete("call-1", response, null, 42.0, null, null);
         order.verify(observerA).onCallCompleted(completed);
         order.verify(observerB).onCallCompleted(completed);
         order.verify(notificationPort).notifyCallCompleted(completed, List.of("cycle-1", "cycle-2"));
@@ -240,10 +240,10 @@ class InternalCallsServiceTest {
         CallLogPort port = mock(CallLogPort.class);
         CallNotificationPort notificationPort = mock(CallNotificationPort.class);
         NewInternalCallObserverPort observer = mock(NewInternalCallObserverPort.class);
-        when(port.complete("missing", null, "timeout", null)).thenReturn(false);
+        when(port.complete("missing", null, "timeout", null, null, null)).thenReturn(false);
         InternalCallsService service = serviceWith(port, notificationPort, List.of(observer));
 
-        boolean result = service.receiveCompletedCall("missing", null, "timeout", null);
+        boolean result = service.receiveCompletedCall("missing", null, "timeout", null, null, null);
 
         assertThat(result).isFalse();
         verify(port, never()).findById(org.mockito.ArgumentMatchers.any());
@@ -259,12 +259,12 @@ class InternalCallsServiceTest {
         ResponseData response = new ResponseData(503, null, "{}");
         CallInterception interception = new CallInterception(
                 List.of(new CallInterception.Applied("r1", "Rule", "SET_RESPONSE_STATUS", "503")), null, null, null, null);
-        when(port.complete("call-1", response, null, 5.0, interception)).thenReturn(true);
+        when(port.complete("call-1", response, null, 5.0, interception, null)).thenReturn(true);
         when(port.findById("call-1")).thenReturn(Optional.empty());
 
-        boolean result = serviceWith(port, notificationPort).receiveCompletedCall("call-1", response, null, 5.0, interception);
+        boolean result = serviceWith(port, notificationPort).receiveCompletedCall("call-1", response, null, 5.0, interception, null);
 
         assertThat(result).isTrue();
-        verify(port).complete("call-1", response, null, 5.0, interception);
+        verify(port).complete("call-1", response, null, 5.0, interception, null);
     }
 }

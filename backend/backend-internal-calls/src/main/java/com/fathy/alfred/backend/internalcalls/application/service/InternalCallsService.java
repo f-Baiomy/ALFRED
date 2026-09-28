@@ -115,7 +115,7 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
                 partial.sessionId(), partial.operationId(), partial.serviceName(), null,
-                partial.resendOf(), partial.resendEdits());
+                partial.resendOf(), partial.resendEdits(), partial.relive(), null);
         callLogPort.prepare(prepared);
         notificationPort.notifyCallPrepared(prepared);
         return Optional.of(id);
@@ -130,8 +130,8 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
      */
     @Override
     public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs,
-                                        CallInterception interception) {
-        boolean updated = callLogPort.complete(id, response, error, durationMs, interception);
+                                        CallInterception interception, Boolean reachedUpstream) {
+        boolean updated = callLogPort.complete(id, response, error, durationMs, interception, reachedUpstream);
         if (!updated) {
             log.warn("Received a completion for unknown/already-trimmed internal call id {}", id);
             return false;

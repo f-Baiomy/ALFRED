@@ -275,13 +275,8 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
 
     /** Merges the outcome into the pending call (if this process is still the one that prepared it) and performs the one, single-shot disk write. */
     @Override
-    public boolean complete(String id, ResponseData response, String error, Double durationMs) {
-        return complete(id, response, error, durationMs, null);
-    }
-
-    @Override
     public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs,
-                                         CallInterception interception) {
+                                         CallInterception interception, Boolean reachedUpstream) {
         CallRecord partial = pendingById.remove(id);
         boolean wasPending = partial != null;
         boolean hasError = error != null && !error.isBlank();
@@ -292,14 +287,16 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
                 // there since SQLite is that slice's primary adapter, but this file adapter is
                 // this slice's *only* store, so losing session/operation id (or now serviceName)
                 // at completion time would silently break the session-id/operation-id/source
-                // filters for every completed call).
+                // filters for every completed call). relive is known at prepare time (research
+                // D2.3), so it comes from partial, not this completion payload.
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
                         partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName(),
-                        null, partial.resendOf(), partial.resendEdits())
+                        null, partial.resendOf(), partial.resendEdits(), partial.relive(), reachedUpstream)
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
-                // silently dropping it. serviceName unknown too in this narrow, accepted-gap case.
-                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null);
+                // silently dropping it. serviceName/relive unknown too in this narrow, accepted-gap case.
+                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null,
+                        null, null, null, null, reachedUpstream);
         save(resolved.withInterception(interception));
         return wasPending;
     }

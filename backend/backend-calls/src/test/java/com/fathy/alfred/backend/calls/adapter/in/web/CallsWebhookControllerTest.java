@@ -125,7 +125,7 @@ class CallsWebhookControllerTest {
 
     @Test
     void completeDelegatesWithTheIdFromThePathAndReturnsNoContentWhenFound() throws Exception {
-        when(receiveCompletedCallUseCase.receiveCompletedCall(eq("call-123"), any(), isNull(), any(), any(), any())).thenReturn(true);
+        when(receiveCompletedCallUseCase.receiveCompletedCall(eq("call-123"), any(), isNull(), any(), any(), any(), any())).thenReturn(true);
 
         mockMvc.perform(post("/calls/webhook/call-123/complete")
                         .header("X-Webhook-Secret", "correct-secret")
@@ -135,12 +135,12 @@ class CallsWebhookControllerTest {
                                 """))
                 .andExpect(status().isNoContent());
 
-        verify(receiveCompletedCallUseCase).receiveCompletedCall(eq("call-123"), any(), isNull(), eq(42.0), any(), any());
+        verify(receiveCompletedCallUseCase).receiveCompletedCall(eq("call-123"), any(), isNull(), eq(42.0), any(), any(), any());
     }
 
     @Test
     void completeReturnsNotFoundWhenTheUseCaseReportsNoMatchingCall() throws Exception {
-        when(receiveCompletedCallUseCase.receiveCompletedCall(eq("missing"), any(), any(), any(), any(), any())).thenReturn(false);
+        when(receiveCompletedCallUseCase.receiveCompletedCall(eq("missing"), any(), any(), any(), any(), any(), any())).thenReturn(false);
 
         mockMvc.perform(post("/calls/webhook/missing/complete")
                         .header("X-Webhook-Secret", "correct-secret")

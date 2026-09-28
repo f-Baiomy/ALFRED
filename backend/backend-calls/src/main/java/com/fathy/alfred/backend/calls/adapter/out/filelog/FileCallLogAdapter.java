@@ -181,7 +181,7 @@ public class FileCallLogAdapter implements CallLogPort {
 
     /** Merges the outcome into the pending call (if this process is still the one that prepared it) and performs the one, single-shot disk write - the same write save() always did. */
     @Override
-    public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
+    public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception, Boolean reachedUpstream) {
         CallRecord partial = pendingById.remove(id);
         boolean wasPending = partial != null;
         boolean hasError = error != null && !error.isBlank();
@@ -189,16 +189,19 @@ public class FileCallLogAdapter implements CallLogPort {
         CallRecord resolved = partial != null
                 // Uses the full canonical constructor (mirrors InternalCallsFileLogAdapter.complete's
                 // own handling of partial.serviceName()) so sessionId/operationId/serviceName/
-                // resendOf/resendEdits all survive completion rather than being silently dropped by
-                // a shorter constructor.
+                // resendOf/resendEdits/relive all survive completion rather than being silently
+                // dropped by a shorter constructor. relive is known at prepare time (research
+                // D2.3), so it comes from partial, not this completion payload.
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
                         partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(),
-                        partial.serviceName(), timing, interception, partial.resendOf(), partial.resendEdits())
+                        partial.serviceName(), timing, interception, partial.resendOf(), partial.resendEdits(),
+                        partial.relive(), reachedUpstream)
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
-                // silently dropping it. sessionId/operationId/serviceName/resend unknown too in this
-                // narrow, accepted-gap case.
-                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null, timing, interception);
+                // silently dropping it. sessionId/operationId/serviceName/resend/relive unknown too
+                // in this narrow, accepted-gap case.
+                : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null, timing, interception,
+                        null, null, null, reachedUpstream);
         save(resolved);
         return wasPending;
     }

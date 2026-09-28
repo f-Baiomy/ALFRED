@@ -12,10 +12,16 @@ public interface ReceiveCompletedCallUseCase {
      * caller - the webhook controller - should respond 404).
      */
     default boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs) {
-        return receiveCompletedCall(id, response, error, durationMs, null);
+        return receiveCompletedCall(id, response, error, durationMs, null, null);
     }
 
     /** @param interception what an interception rule did to the call, or null when none touched it. */
+    default boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs,
+                                         CallInterception interception) {
+        return receiveCompletedCall(id, response, error, durationMs, interception, null);
+    }
+
+    /** @param reachedUpstream whether this call actually reached a real external system - see CallLogPort.complete. */
     boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs,
-                                 CallInterception interception);
+                                 CallInterception interception, Boolean reachedUpstream);
 }

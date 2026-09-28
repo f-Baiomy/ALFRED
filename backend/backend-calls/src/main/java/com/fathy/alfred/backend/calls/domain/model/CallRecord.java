@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * Mirrors the JSON shape written by the proxy addon (proxy/log_and_route.py) and served by GET /calls.
@@ -56,8 +57,29 @@ public record CallRecord(
          * code), so it is carried as untyped JSON rather than backend-resend's ResendEdits type.
          * Never carries a secret's value, only header names.
          */
-        @JsonProperty("resend_edits") Object resendEdits
+        @JsonProperty("resend_edits") Object resendEdits,
+        /**
+         * The relive attribution the proxy attached to this call (research D2.3/FR-050a), or null
+         * when the call carries none - {@code {runId, stepKey, attribution, choice, ruleIds[]}}, or
+         * {@code {ambiguousRunIds:[...]}} when it matched more than one active run and was blocked.
+         * Opaque JsonNode on purpose (CLAUDE.md: slices may not share code) - backend-relive never
+         * sees this type, only backend-app's ReliveCallObserverAdapter reads it.
+         */
+        JsonNode relive,
+        /** Whether this call actually reached a real external system (vs. answered by a rule/mock) - null when unknown/not measured (a call logged before this field existed). Drives Relive's Live-calls log (FR-015b). */
+        @JsonProperty("reached_upstream") Boolean reachedUpstream
 ) {
+    /**
+     * Pre-relive shape - the newest fields, added the same backward-compatible way as resend
+     * before them. Null means no relive attribution/measurement, the overwhelmingly common case.
+     */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId, String serviceName, CallTiming timing, CallInterception interception,
+                       String resendOf, Object resendEdits) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, timing, interception, resendOf, resendEdits, null, null);
+    }
+
     /**
      * Pre-resend shape - the newest fields, added the same backward-compatible way as interception
      * before them. Null means this call is not a resend of anything, the overwhelmingly common case.
@@ -132,6 +154,6 @@ public record CallRecord(
         // timing, interception and the resend fields of any call normalized on its way into storage.
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
                 call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName(),
-                call.timing(), call.interception(), call.resendOf(), call.resendEdits());
+                call.timing(), call.interception(), call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream());
     }
 }

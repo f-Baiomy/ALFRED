@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.internalcalls.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * Mirrors the JSON shape written by the reverse proxy addon (proxy/log_and_route_reverse.py) and
@@ -58,8 +59,22 @@ public record CallRecord(
          * Opaque JSON - see backend-calls' own CallRecord.resendEdits for the shape this slice
          * deliberately does not know about (CLAUDE.md: slices may not share code).
          */
-        @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("resend_edits") Object resendEdits
+        @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("resend_edits") Object resendEdits,
+        /** The relive attribution the proxy attached to this call, or null - see backend-calls'
+         *  own CallRecord.relive for the shape this slice deliberately does not know about. */
+        @JsonInclude(JsonInclude.Include.NON_NULL) JsonNode relive,
+        /** Whether this call actually reached a real external system - see backend-calls' own CallRecord.reachedUpstream. */
+        @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("reached_upstream") Boolean reachedUpstream
 ) {
+    /** Pre-relive shape - every call site built before these fields existed gets null for both. */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId, String serviceName, CallInterception interception,
+                       String resendOf, Object resendEdits) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId,
+                operationId, serviceName, interception, resendOf, resendEdits, null, null);
+    }
+
     /** Pre-resend shape - every call site built before these fields existed gets null for both. */
     public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
                        String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
@@ -79,7 +94,8 @@ public record CallRecord(
     /** The same call carrying the interception record the completion webhook brought. */
     public CallRecord withInterception(CallInterception value) {
         return new CallRecord(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state,
-                sessionId, operationId, serviceName, value == null || value.isEmpty() ? null : value, resendOf, resendEdits);
+                sessionId, operationId, serviceName, value == null || value.isEmpty() ? null : value, resendOf, resendEdits,
+                relive, reachedUpstream);
     }
 
     /** Pre-service-name shape - kept so a call site built before that field existed doesn't need to touch a new required argument. serviceName is null (treated as "unknown" by every reader). */
@@ -118,6 +134,6 @@ public record CallRecord(
         CallLifecycleStatus derived = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
                 call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName(),
-                call.interception(), call.resendOf(), call.resendEdits());
+                call.interception(), call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream());
     }
 }
