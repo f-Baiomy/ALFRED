@@ -497,7 +497,7 @@ differences**.
   - **Original / Effective** (variables highlighted, as `highlightVars`) / **Actual**.
   - **Rules & variables:** tier pills STEP / CYCLE / GLOBAL, in order.
   - **Log.**
-- [ ] T062 [US4] Compare tab (D16): reuse `InterceptionPanelComponent` (`FE/components/interception-panel/`, inputs `interception`, `phase`, `embedded`, `labels`).
+- [X] T062 [US4] Compare tab (D16): reuse `InterceptionPanelComponent` (`FE/components/interception-panel/`, inputs `interception`, `phase`, `embedded`, `labels`).
   - **Inputs:** build a `CallInterception` from `step.recording` (before) and the StepResult's actual request / response (after), with `labels = {title:'Recorded vs this run', before:'Recorded', after:'This run', legend:'Red is what the recording had; green is what happened this run.'}`. Add Request / Response toggles.
   - **Step strip:** extract the 1-7 strip markup from `FE/components/resend-panel/resend-panel.component.html` into a presentational `FE/components/call-step-strip/call-step-strip.component.ts` that both resend-panel and Relive use. The resend-panel specs must stay green. The Relive strip is Recorded call → Your edits → Variables → Sent → Rules → Upstream / ALFRED answered → Response (mock `compareBox`).
   - **Below the compare:** "What ALFRED makes of it" - Unexpected, Expected (with the cause), and noise (collapsed), each with "Ignore this field" (mock `diffTab`, `ignoreField`, `doIgnore`: only for this step / for the whole cycle).

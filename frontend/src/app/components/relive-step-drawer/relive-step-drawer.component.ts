@@ -1,11 +1,24 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { CallFocus, CallFocusService } from '../../core/services/call-focus.service';
-import { RuleAction } from '../../core/models/interception.model';
+import { CallInterception, OriginalHttp, RuleAction } from '../../core/models/interception.model';
+import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
 import { applyMode, checkpointOf, modeOf, onRequestChangedOf, setCheckpoint } from '../../shared/utils/relive-call-rule';
 import { ActionLine, HostCardInfo, describeAction, hostCard } from '../../shared/utils/relive-call-rule-describe';
 import { LogEntry, OnRequestChanged, Step, StepMode, StepResult } from '../../shared/utils/relive-types';
 
-type DrawerTab = 'configure' | 'request' | 'response' | 'extract' | 'overview' | 'effective' | 'actual' | 'rules' | 'log';
+type DrawerTab = 'configure' | 'request' | 'response' | 'extract' | 'overview' | 'effective' | 'actual' | 'rules' | 'log' | 'compare';
+
+/** Reduces whatever shape a StepResult's actual request/response happens to carry down to what
+ *  InterceptionPanelComponent needs - present but non-numeric/non-string members are dropped. */
+function toOriginalHttp(value: unknown): OriginalHttp | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as { status?: unknown; headers?: unknown; body?: unknown };
+  return {
+    status: typeof v.status === 'number' ? v.status : null,
+    headers: (v.headers && typeof v.headers === 'object' ? (v.headers as Record<string, string>) : {}) as Readonly<Record<string, string>>,
+    body: typeof v.body === 'string' ? v.body : null,
+  };
+}
 
 function bodyOf(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -29,6 +42,7 @@ function bodyOf(value: unknown): string {
 @Component({
   selector: 'app-relive-step-drawer',
   standalone: true,
+  imports: [InterceptionPanelComponent],
   templateUrl: './relive-step-drawer.component.html',
 })
 export class ReliveStepDrawerComponent {
@@ -58,6 +72,26 @@ export class ReliveStepDrawerComponent {
   readonly tab = computed<DrawerTab>(() => this.explicitTab() ?? (this.result() ? 'overview' : 'configure'));
 
   readonly log = computed(() => this.runLog().filter((e) => e.stepKey === this.step().key));
+
+  /** T062 (research D16): recorded vs this run, built once so `InterceptionPanelComponent` can
+   *  reuse the exact diff/highlight machinery a rule-edited call already gets. */
+  readonly comparePhase = signal<'request' | 'response'>('response');
+  readonly compareInterception = computed<CallInterception | null>(() => {
+    const res = this.result();
+    if (!res) return null;
+    const rec = this.step().recording;
+    return {
+      applied: [],
+      originalRequest: { method: rec.method, url: rec.url, headers: rec.requestHeaders, body: rec.requestBody ?? '' },
+      originalResponse: { status: rec.status, headers: rec.responseHeaders, body: rec.responseBody ?? '' },
+      finalRequest: toOriginalHttp(res.actualRequest),
+      finalResponse: toOriginalHttp(res.actualResponse),
+    };
+  });
+
+  setComparePhase(phase: 'request' | 'response'): void {
+    this.comparePhase.set(phase);
+  }
 
   readonly mode = computed(() => modeOf(this.step().callRule));
   readonly checkpoint = computed(() => checkpointOf(this.step().callRule));

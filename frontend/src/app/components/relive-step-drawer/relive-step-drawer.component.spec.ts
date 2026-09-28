@@ -199,5 +199,26 @@ describe('ReliveStepDrawerComponent', () => {
       expect(text).toContain('matched endpoint+order #1');
       expect(text).not.toContain('not this step');
     });
+
+    it('T062: renders the Compare tab for a REPLAY step (recorded vs this run)', () => {
+      fixture.componentRef.setInput('result', makeResult({ mode: 'REPLAY', actualRequest: { headers: {}, body: '{"origin":"DXB"}' } }));
+      fixture.componentInstance.setTab('compare');
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Unexpected (1)');
+      expect(text).toContain('body.results');
+      expect(text).toContain('Ignored as noise (1)');
+    });
+
+    it('T062: renders the Compare tab for a LIVE step, toggling to the Request phase', () => {
+      fixture.componentRef.setInput('result', makeResult({ mode: 'LIVE' }));
+      fixture.componentInstance.setTab('compare');
+      fixture.componentInstance.setComparePhase('request');
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.comparePhase()).toBe('request');
+      expect(fixture.componentInstance.compareInterception()?.originalRequest?.body).toContain('DXB');
+    });
   });
 });

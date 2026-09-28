@@ -614,9 +614,11 @@ export class ReliveRunService {
   private async buildChildResult(step: Step, event: RunCallEvent): Promise<StepResult> {
     const source: CallEndpointSource = event.direction === 'inbound' ? 'internal' : 'external';
     let response: ResendResponseSnapshot | null = null;
+    let actualRequest: { readonly headers: Readonly<Record<string, string>>; readonly body: string | null } | null = null;
     try {
       const detail = await firstValueFrom(this.callsApi.getDetail(event.callId, source));
       response = detail.response ? { status: detail.response.status, headers: detail.response.headers ?? {}, body: detail.response.body ?? null } : null;
+      actualRequest = detail.request ? { headers: detail.request.headers ?? {}, body: detail.request.body ?? null } : null;
     } catch {
       response = null;
     }
@@ -647,6 +649,7 @@ export class ReliveRunService {
       // which `modeOf` already reads back from the same call rule the run was built from.
       mode: modeOf(step.callRule) === 'REPLAY' ? 'REPLAY' : 'LIVE',
       attribution: event.attribution as StepResult['attribution'],
+      actualRequest,
       actualResponse: response,
       differences,
       rulesApplied: [],

@@ -16,6 +16,7 @@
       <button [class.rl-on]="tab() === 'effective'" (click)="setTab('effective')">Effective</button>
       <button [class.rl-on]="tab() === 'actual'" (click)="setTab('actual')">Actual</button>
       <button [class.rl-on]="tab() === 'rules'" (click)="setTab('rules')">Rules & variables</button>
+      <button [class.rl-on]="tab() === 'compare'" (click)="setTab('compare')">Compare</button>
       <button [class.rl-on]="tab() === 'log'" (click)="setTab('log')">Log</button>
     } @else {
       <button [class.rl-on]="tab() === 'configure'" (click)="setTab('configure')">Configure</button>
@@ -234,6 +235,50 @@
               <div class="rl-faint">None.</div>
             }
           </div>
+        }
+      }
+      @case ('compare') {
+        @if (result(); as res) {
+          @if (compareInterception(); as interception) {
+            <div class="rl-seg" style="margin-bottom: 8px">
+              <button [class.rl-on]="comparePhase() === 'request'" (click)="setComparePhase('request')">Request</button>
+              <button [class.rl-on]="comparePhase() === 'response'" (click)="setComparePhase('response')">Response</button>
+            </div>
+            <app-interception-panel
+              [interception]="interception"
+              [phase]="comparePhase()"
+              [embedded]="true"
+              [labels]="{ title: 'Recorded vs this run', before: 'Recorded', after: 'This run', legend: 'Red is what the recording had; green is what happened this run.' }"
+            />
+          }
+          <div class="rl-sect" style="margin-top: 10px">
+            <h3>Unexpected ({{ unexpectedCount(res) }})</h3>
+            @for (d of res.differences; track d.path) {
+              @if (d.kind === 'UNEXPECTED') {
+                <div class="rl-drow"><span class="rl-mono">{{ d.path }}</span><span class="rl-old">{{ d.recorded }}</span><span class="rl-new">{{ d.actual }}</span><span></span></div>
+              }
+            } @empty {
+              <div class="rl-faint">None.</div>
+            }
+          </div>
+          <div class="rl-sect">
+            <h3>Expected ({{ expectedCount(res) }})</h3>
+            @for (d of res.differences; track d.path) {
+              @if (d.kind === 'EXPECTED') {
+                <div class="rl-drow"><span class="rl-mono">{{ d.path }}</span><span class="rl-old">{{ d.recorded }}</span><span class="rl-new">{{ d.actual }}</span><span class="rl-faint">{{ d.cause }}</span></div>
+              }
+            } @empty {
+              <div class="rl-faint">None.</div>
+            }
+          </div>
+          <details class="rl-drow" style="border: 0">
+            <summary>Ignored as noise ({{ noiseCount(res) }})</summary>
+            @for (d of res.differences; track d.path) {
+              @if (d.kind === 'NOISE_AUTO' || d.kind === 'NOISE_USER') {
+                <div class="rl-drow rl-noise"><span class="rl-mono">{{ d.path }}</span><span class="rl-old">{{ d.recorded }}</span><span class="rl-new">{{ d.actual }}</span><span class="rl-faint">{{ d.cause }}</span></div>
+              }
+            }
+          </details>
         }
       }
       @case ('log') {
