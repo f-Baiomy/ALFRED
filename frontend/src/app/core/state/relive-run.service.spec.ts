@@ -560,4 +560,92 @@ describe('ReliveRunService', () => {
     expect(reliveApi.setHold).not.toHaveBeenCalled();
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'COMPLETED');
   });
+
+  describe('T077: Guided driver', () => {
+    it('never sends anything itself - it only subscribes and waits', async () => {
+      const steps = [inboundStep(), logoutStep()];
+      const run1 = { ...runOf(steps), driver: 'GUIDED' as const };
+      reliveApi.startRun.and.returnValue(of(run1));
+
+      await service.start(cycleOf(steps), { driver: 'GUIDED', unattributedChoices: {} });
+
+      expect(resendApi.resend).not.toHaveBeenCalled();
+      expect(service.results()['login'].state).toBe('PENDING');
+    });
+
+    it('matches an inbound call to the next expected step, in order, and settles it', async () => {
+      const steps = [inboundStep(), logoutStep()];
+      const run1 = { ...runOf(steps), driver: 'GUIDED' as const };
+      reliveApi.startRun.and.returnValue(of(run1));
+      callsApi.getDetail.and.returnValue(
+        of<CallDetail>({ request: { headers: {}, body: '' }, response: { status: 200, headers: {}, body: '{}' } }),
+      );
+
+      await service.start(cycleOf(steps), { driver: 'GUIDED', unattributedChoices: {} });
+      events$.next({
+        type: 'run-call', runId: 'run-1', stepKey: '', callId: 'call-1',
+        direction: 'inbound', attribution: 'GUIDED', state: 'COMPLETED', method: 'POST', url: 'https://app.local/login',
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(service.results()['login'].state).toBe('COMPLETED');
+      expect(service.results()['login'].attribution).toBe('GUIDED');
+      expect(service.results()['logout'].state).toBe('PENDING');
+      expect(reliveApi.putStepAttempt).toHaveBeenCalled();
+    });
+
+    it('out of order: a call matching a later step marks the ones in between SKIPPED', async () => {
+      const steps = [inboundStep(), logoutStep()];
+      const run1 = { ...runOf(steps), driver: 'GUIDED' as const };
+      reliveApi.startRun.and.returnValue(of(run1));
+      callsApi.getDetail.and.returnValue(
+        of<CallDetail>({ request: { headers: {}, body: '' }, response: { status: 200, headers: {}, body: '{}' } }),
+      );
+
+      await service.start(cycleOf(steps), { driver: 'GUIDED', unattributedChoices: {} });
+      events$.next({
+        type: 'run-call', runId: 'run-1', stepKey: '', callId: 'call-2',
+        direction: 'inbound', attribution: 'GUIDED', state: 'COMPLETED', method: 'POST', url: 'https://app.local/logout',
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(service.results()['login'].state).toBe('SKIPPED');
+      expect(service.results()['logout'].state).toBe('COMPLETED');
+    });
+
+    it('no match: the call is recorded as unexpected', async () => {
+      const steps = [inboundStep()];
+      const run1 = { ...runOf(steps), driver: 'GUIDED' as const };
+      reliveApi.startRun.and.returnValue(of(run1));
+
+      await service.start(cycleOf(steps), { driver: 'GUIDED', unattributedChoices: {} });
+      events$.next({
+        type: 'run-call', runId: 'run-1', stepKey: '', callId: 'call-x',
+        direction: 'inbound', attribution: 'GUIDED', state: 'COMPLETED', method: 'GET', url: 'https://app.local/never-seen',
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(service.unexpectedCalls().map((u) => u.callId)).toEqual(['call-x']);
+      expect(callsApi.getDetail).not.toHaveBeenCalled();
+    });
+
+    it('endGuidedRun() marks whatever never matched as NOT_CALLED and finishes the run', async () => {
+      const steps = [inboundStep(), logoutStep()];
+      const run1 = { ...runOf(steps), driver: 'GUIDED' as const };
+      reliveApi.startRun.and.returnValue(of(run1));
+      reliveApi.finishRun.and.returnValue(of({ ...run1, status: 'COMPLETED' }));
+
+      await service.start(cycleOf(steps), { driver: 'GUIDED', unattributedChoices: {} });
+      await service.endGuidedRun();
+
+      expect(service.results()['login'].state).toBe('NOT_CALLED');
+      expect(service.results()['logout'].state).toBe('NOT_CALLED');
+      expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'COMPLETED');
+    });
+  });
 });

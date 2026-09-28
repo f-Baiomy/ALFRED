@@ -123,6 +123,9 @@ export class ReliveRunTimelineComponent {
   readonly continueRun = output<void>();
   readonly retryHeld = output<void>();
   readonly endRun = output<void>();
+  /** "End run" for the Guided driver (T077) - distinct from `endRun` above, which only ever fires
+   *  from a hold (there is none in Guided; the run just stops waiting for the next call). */
+  readonly endGuidedRun = output<void>();
   readonly resumeFromStep = output<string>();
   readonly runFromStep = output<string>();
   readonly retryFailedStep = output<string>();
@@ -177,6 +180,14 @@ export class ReliveRunTimelineComponent {
     const started = Date.parse(run.startedAt);
     const end = run.finishedAt ? Date.parse(run.finishedAt) : this.now();
     return Math.max(0, Math.round((end - started) / 1000));
+  });
+
+  /** The next expected top-level step a Guided run is waiting on (T077) - null once every one has
+   *  either settled or been marked SKIPPED/NOT_CALLED. */
+  readonly nextGuidedStep = computed<Step | null>(() => {
+    const run = this.run();
+    if (run?.driver !== 'GUIDED' || run.status !== 'RUNNING') return null;
+    return this.rows().find((r) => !r.isChild && r.result.state === 'PENDING')?.step ?? null;
   });
 
   readonly titlePill = computed<readonly [string, string]>(() => {

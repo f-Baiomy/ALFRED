@@ -151,6 +151,23 @@ function childSteps(steps: readonly Step[], parentKey: string): Step[] {
   return steps.filter((s) => s.parentKey === parentKey);
 }
 
+/** Method + host + pathname, ignoring query - the same signature `relive-match.ts`'s `pairSteps`
+ *  matches steps against each other with, applied here to one step's recording vs. one arrived
+ *  `run-call` event's own endpoint (T077's Guided matching). */
+function endpointSignatureOf(method: string, url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${method.toUpperCase()} ${parsed.host}${parsed.pathname}`;
+  } catch {
+    return `${method.toUpperCase()} ${url}`;
+  }
+}
+
+function endpointMatches(step: Step, event: RunCallEvent): boolean {
+  if (!event.method || !event.url) return false;
+  return endpointSignatureOf(step.recording.method, step.recording.url) === endpointSignatureOf(event.method, event.url);
+}
+
 interface Dependent {
   readonly step: Step;
   readonly needs: readonly string[];
@@ -234,6 +251,7 @@ export class ReliveRunService {
   private topOrder: readonly Step[] = [];
   private topIdx = 0;
   private stopped = false;
+  private guidedSub: Subscription | null = null;
   private eventsSub: Subscription | null = null;
   private runEventsSub: Subscription | null = null;
   private pauseResolve: ((decision: CheckpointDecision) => void) | null = null;
@@ -276,9 +294,76 @@ export class ReliveRunService {
       });
 
     this.socket.holdLease(run.id);
-    if (request.driver !== 'AUTOMATIC') return; // GUIDED driver: T075-T077
+    if (request.driver !== 'AUTOMATIC') {
+      this.startGuided(run);
+      return;
+    }
 
     await this.runLoop();
+  }
+
+  /**
+   * The Guided driver (T077, FR-030a-c): nothing here ever sends a call - the app is driven by
+   * hand in the real browser, and the reverse proxy attributes its inbound calls to this run
+   * whenever it's the sole active Guided run for the project (`proxy/relive.py`'s own
+   * `apply_inbound`, already built for research D2 - no proxy change needed). This only matches
+   * each arriving inbound call to the next expected top-level step by endpoint, in order.
+   */
+  private startGuided(run: Run): void {
+    this.topOrder = topSteps(this.steps);
+    this.guidedSub?.unsubscribe();
+    this.guidedSub = this.socket.events$
+      .pipe(filter((e): e is RunCallEvent => e.type === 'run-call' && e.runId === run.id && e.state === 'COMPLETED'))
+      .subscribe((e) => this.handleGuidedCall(e));
+  }
+
+  private async handleGuidedCall(event: RunCallEvent): Promise<void> {
+    if (this.stopped) return;
+    const run = this.run();
+    if (!run) return;
+
+    if (event.direction === 'outbound') {
+      // A child of an already-matched inbound step - the proxy's own existing project/host
+      // attribution (unchanged by this driver) already gave it a stepKey when it could.
+      const step = event.stepKey ? this.stepByKey(event.stepKey) : undefined;
+      if (step) await this.settleResult(run, step, await this.buildChildResult(step, event));
+      return;
+    }
+
+    const remaining = this.topOrder.slice(this.topIdx);
+    const matchIdx = remaining.findIndex((s) => endpointMatches(s, event));
+    if (matchIdx < 0) {
+      if (!this.unexpectedCalls().some((u) => u.callId === event.callId)) {
+        this.unexpectedCalls.set([...this.unexpectedCalls(), { callId: event.callId, direction: 'inbound', at: new Date().toISOString() }]);
+      }
+      return;
+    }
+
+    // Out of order (research/US8): a call matching a later step marks the ones in between SKIPPED.
+    for (const skipped of remaining.slice(0, matchIdx)) {
+      this.setResult(skipped.key, (r) => ({ ...r, state: 'SKIPPED' }));
+      for (const kid of childSteps(this.steps, skipped.key)) this.setResult(kid.key, (r) => ({ ...r, state: 'NOT_CALLED' }));
+    }
+
+    const matched = remaining[matchIdx];
+    this.topIdx += matchIdx + 1;
+    this.setResult(matched.key, (r) => ({ ...r, state: 'RUNNING' }));
+    await this.settleResult(run, matched, await this.buildChildResult(matched, event));
+  }
+
+  /** "End run" for the Guided driver (T077): unlike Automatic's `endRun()`, there's no hold to
+   *  clear - whatever hasn't matched a call yet just stops waiting. */
+  async endGuidedRun(): Promise<void> {
+    const run = this.run();
+    if (!run) return;
+    this.guidedSub?.unsubscribe();
+    this.guidedSub = null;
+    const results: Record<string, StepResult> = { ...this.results() };
+    for (const [key, r] of Object.entries(results)) {
+      if (r.state === 'PENDING' || r.state === 'WAITING') results[key] = { ...r, state: 'NOT_CALLED' };
+    }
+    this.results.set(results);
+    await this.finish();
   }
 
   async stop(): Promise<void> {
@@ -290,6 +375,8 @@ export class ReliveRunService {
     this.eventsSub = null;
     this.runEventsSub?.unsubscribe();
     this.runEventsSub = null;
+    this.guidedSub?.unsubscribe();
+    this.guidedSub = null;
     this.pause.set(null);
     const pauseResolve = this.pauseResolve;
     this.pauseResolve = null;

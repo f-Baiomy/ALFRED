@@ -494,14 +494,15 @@ class InboundGuidedTest(unittest.TestCase):
                     'callRule': {'match': {}, 'actions': [
                         {'type': 'SET_REQUEST_HEADER', 'name': 'X-Guided', 'value': 'yes'}]}}
             write_run(tmp, 'run-g', driver='GUIDED', projects=['proj'], steps=[step])
-            # A real Guided match needs the orchestrator to have already assigned the step key -
-            # apply_inbound with step_key None reports "nothing to enforce yet" (see docstring).
+            # Guided (T077): nothing enforces the call rule-wise (no step is matched yet - the
+            # frontend does that itself, by endpoint, once it sees this over /ws/relive), but the
+            # call IS still tagged as this run's own so the frontend has something to match.
             engine = make_engine(tmp, source='inbound')
             runs = relive.ReliveRuns(relive_dir(tmp))
             flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
             verdict, info = run(relive.apply_inbound(flow, 'proj', (BACKEND_PEER[0],), engine, runs))
             self.assertIsNone(verdict)
-            self.assertIsNone(info)
+            self.assertEqual({'runId': 'run-g', 'stepKey': None, 'attribution': 'GUIDED', 'choice': None}, info)
 
 
 class UnattendedTimeoutTest(unittest.TestCase):

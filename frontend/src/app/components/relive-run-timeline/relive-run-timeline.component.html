@@ -12,6 +12,14 @@
     }
   </div>
 
+  @if (nextGuidedStep(); as next) {
+    <div class="rl-ext-banner">
+      Guided - waiting for the next call in your browser: <b>{{ next.label }}</b>.
+      <span class="rl-spacer"></span>
+      <button class="rl-btn rl-sm" (click)="endGuidedRun.emit()">■ End run</button>
+    </div>
+  }
+
   @if (pause(); as p) {
     @if (pausedRow(); as row) {
       <div class="rl-pausebox">

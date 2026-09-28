@@ -718,9 +718,13 @@ async def _apply_matched_step(flow, service_name, engine, run, step_key, attribu
 
     step = _find_step(run, step_key) if step_key else None
     if step is None:
-        # A Guided run with nothing matched yet (step_key is None until the orchestrator assigns
-        # one): Relive has nothing to enforce on this call, so it passes through unmarked.
-        return None, None
+        if step_key:
+            # A stale/broken stepKey reference - nothing to enforce, nothing useful to log either.
+            return None, None
+        # Guided (research D2, T077): nothing matched yet - Relive has nothing to enforce on this
+        # call (it passes through unmarked, rule-wise), but it's still logged as this run's own so
+        # the frontend can match it to the next expected step itself, over `/ws/relive`.
+        return None, {'runId': run_id, 'stepKey': None, 'attribution': attribution, 'choice': None}
 
     rulesets = rulesets_for(engine, run, step, runs)
     flow.metadata['relive_rulesets'] = rulesets

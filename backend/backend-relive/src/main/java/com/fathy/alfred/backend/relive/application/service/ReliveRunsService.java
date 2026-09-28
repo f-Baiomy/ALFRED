@@ -407,6 +407,10 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         event.put("direction", direction);
         event.put("attribution", relive.path("attribution").asText(null));
         event.put("state", state);
+        // The Guided driver (T077) has no stepKey for an inbound call until the frontend matches
+        // it by endpoint - method/url are the only fields it needs for that.
+        event.put("method", call.method());
+        event.put("url", call.url());
         notifications.runCall(event);
     }
 

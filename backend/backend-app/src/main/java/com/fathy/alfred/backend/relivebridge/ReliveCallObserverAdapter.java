@@ -59,7 +59,7 @@ public class ReliveCallObserverAdapter implements NewCallObserverPort, NewIntern
         Long durationMs = call.durationMs() == null ? null : call.durationMs().longValue();
         return new ObserveRunCallUseCase.ObservedCall(call.id(), call.serviceName(), call.relive(),
                 Boolean.TRUE.equals(call.reachedUpstream()), toJson(call.request()), toJson(call.response()),
-                status, durationMs, call.timestamp());
+                status, durationMs, call.timestamp(), call.method(), call.url());
     }
 
     private ObserveRunCallUseCase.ObservedCall toObservedCall(com.fathy.alfred.backend.internalcalls.domain.model.CallRecord call) {
@@ -67,7 +67,7 @@ public class ReliveCallObserverAdapter implements NewCallObserverPort, NewIntern
         Long durationMs = call.durationMs() == null ? null : call.durationMs().longValue();
         return new ObserveRunCallUseCase.ObservedCall(call.id(), call.serviceName(), call.relive(),
                 Boolean.TRUE.equals(call.reachedUpstream()), toJson(call.request()), toJson(call.response()),
-                status, durationMs, call.timestamp());
+                status, durationMs, call.timestamp(), call.method(), call.url());
     }
 
     private JsonNode toJson(Object value) {

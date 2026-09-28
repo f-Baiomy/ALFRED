@@ -17,6 +17,10 @@ export type ReliveSocketEvent =
       readonly direction: 'outbound' | 'inbound';
       readonly attribution: string;
       readonly state: string;
+      /** The call's own endpoint (T077) - a Guided run has no stepKey for an inbound call until
+       *  the frontend matches it by this. */
+      readonly method?: string | null;
+      readonly url?: string | null;
     };
 
 /**
