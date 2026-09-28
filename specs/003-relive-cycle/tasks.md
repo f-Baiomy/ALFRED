@@ -516,7 +516,7 @@ differences**.
 
 - [X] T064 [US5] Variables tab `FE/components/relive-variables/…`, copying mock `varsPanel()`: name, initial value, secret toggle, source (defined / extracted · Step → path), note, and the live value column during a run (masked with "reveal").
   - **Test:** a component spec.
-- [ ] T065 [US5] Extract & assert tab in the drawer, copying mock `extractTab()`.
+- [X] T065 [US5] Extract & assert tab in the drawer, copying mock `extractTab()`.
   - **Extract:** "＋ Extract a value…" uses the existing `JsonPathInputComponent` (`FE/components/json-path-input/`) on the recorded response, producing `ExtractRule`s (same shape as Scenarios).
   - **Assertions:** use `ScenarioAssertionEditorComponent` (`FE/components/scenario-assertion-editor/`), which is reused, not copied.
   - **Evaluation:** assertions are evaluated in the orchestrator with `evaluate` from `FE/shared/utils/scenario-assertions.ts`.

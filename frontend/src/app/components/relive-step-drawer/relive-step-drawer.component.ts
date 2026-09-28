@@ -2,10 +2,14 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import { CallFocus, CallFocusService } from '../../core/services/call-focus.service';
 import { CallInterception, OriginalHttp, RuleAction } from '../../core/models/interception.model';
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
+import { JsonPathInputComponent } from '../json-path-input/json-path-input.component';
+import { ScenarioAssertionEditorComponent } from '../scenario-assertion-editor/scenario-assertion-editor.component';
 import { applyMode, checkpointOf, modeOf, onRequestChangedOf, setCheckpoint } from '../../shared/utils/relive-call-rule';
 import { ActionLine, HostCardInfo, describeAction, hostCard } from '../../shared/utils/relive-call-rule-describe';
+import { PathEntry, jsonPathIndex, parseJson } from '../../shared/utils/json-paths';
 import { maskRelive } from '../../shared/utils/relive-mask';
 import { LogEntry, OnRequestChanged, Step, StepMode, StepResult } from '../../shared/utils/relive-types';
+import { Assertion, ExtractRule } from '../../shared/utils/scenario-types';
 
 type DrawerTab = 'configure' | 'request' | 'response' | 'extract' | 'overview' | 'effective' | 'actual' | 'rules' | 'log' | 'compare';
 
@@ -43,7 +47,7 @@ function bodyOf(value: unknown): string {
 @Component({
   selector: 'app-relive-step-drawer',
   standalone: true,
-  imports: [InterceptionPanelComponent],
+  imports: [InterceptionPanelComponent, JsonPathInputComponent, ScenarioAssertionEditorComponent],
   templateUrl: './relive-step-drawer.component.html',
 })
 export class ReliveStepDrawerComponent {
@@ -108,6 +112,31 @@ export class ReliveStepDrawerComponent {
 
   setComparePhase(phase: 'request' | 'response'): void {
     this.comparePhase.set(phase);
+  }
+
+  /** T065: the recorded response's own JSON paths, for the "＋ Extract a value…" path input's
+   *  autocomplete - the same index `JsonPathInputComponent` already knows how to render. */
+  readonly extractIndex = computed<readonly PathEntry[] | null>(() => {
+    const doc = parseJson(this.step().recording.responseBody);
+    return doc === undefined ? null : jsonPathIndex(doc);
+  });
+
+  addExtractRule(): void {
+    const rule: ExtractRule = { from: 'JSON', path: '', as: '', missing: 'SKIP' };
+    this.stepChange.emit({ ...this.step(), extract: [...this.step().extract, rule] });
+  }
+
+  updateExtractRule(index: number, patch: Partial<ExtractRule>): void {
+    const extract = this.step().extract.map((r, i) => (i === index ? { ...r, ...patch } : r));
+    this.stepChange.emit({ ...this.step(), extract });
+  }
+
+  removeExtractRule(index: number): void {
+    this.stepChange.emit({ ...this.step(), extract: this.step().extract.filter((_, i) => i !== index) });
+  }
+
+  setAssertions(assertions: readonly Assertion[]): void {
+    this.stepChange.emit({ ...this.step(), assertions });
   }
 
   readonly mode = computed(() => modeOf(this.step().callRule));

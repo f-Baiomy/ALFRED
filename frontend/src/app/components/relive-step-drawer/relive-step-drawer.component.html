@@ -147,7 +147,39 @@
         </div>
       }
       @case ('extract') {
-        <div class="rl-faint">Coming with US5.</div>
+        <div class="rl-sect">
+          <h3>Extract values</h3>
+          @for (rule of step().extract; track $index) {
+            <div class="rl-row" style="margin-bottom: 6px; flex-wrap: wrap">
+              <select [value]="rule.from" (change)="updateExtractRule($index, { from: $any($event.target).value })">
+                <option value="JSON">JSON</option>
+                <option value="HEADER">Header</option>
+                <option value="COOKIE">Cookie</option>
+              </select>
+              @if (rule.from === 'JSON') {
+                <app-json-path-input [value]="rule.path" [index]="extractIndex()" (valueChange)="updateExtractRule($index, { path: $event })" />
+              } @else {
+                <input [value]="rule.path" (change)="updateExtractRule($index, { path: $any($event.target).value })" placeholder="header/cookie name" />
+              }
+              <span class="rl-dim">as</span>
+              <input class="rl-mono" [value]="rule.as" (change)="updateExtractRule($index, { as: $any($event.target).value })" placeholder="variableName" />
+              <select [value]="rule.missing" (change)="updateExtractRule($index, { missing: $any($event.target).value })">
+                <option value="SKIP">Skip if missing</option>
+                <option value="FALLBACK">Fallback if missing</option>
+              </select>
+              @if (rule.missing === 'FALLBACK') {
+                <input [value]="rule.fallback ?? ''" (change)="updateExtractRule($index, { fallback: $any($event.target).value })" placeholder="fallback value" />
+              }
+              <button class="icon-btn" title="Remove" (click)="removeExtractRule($index)">✕</button>
+            </div>
+          }
+          <button class="rl-btn rl-sm" (click)="addExtractRule()">＋ Extract a value…</button>
+        </div>
+
+        <div class="rl-sect">
+          <h3>Assertions</h3>
+          <app-scenario-assertion-editor [assertions]="step().assertions" (assertionsChange)="setAssertions($event)" />
+        </div>
       }
       @case ('overview') {
         @if (result(); as res) {

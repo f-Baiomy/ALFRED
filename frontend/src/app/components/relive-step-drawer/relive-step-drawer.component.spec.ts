@@ -136,6 +136,38 @@ describe('ReliveStepDrawerComponent', () => {
     expect(emitted!.unattributed).toBe('SEND_REAL');
   });
 
+  describe('T065: Extract & assert', () => {
+    it('addExtractRule appends a blank JSON rule; updateExtractRule patches it by index', () => {
+      let emitted: Step | null = null;
+      fixture.componentInstance.stepChange.subscribe((s: Step) => (emitted = s));
+
+      fixture.componentInstance.addExtractRule();
+      expect(emitted!.extract).toEqual([{ from: 'JSON', path: '', as: '', missing: 'SKIP' }]);
+
+      fixture.componentRef.setInput('step', emitted!);
+      fixture.componentInstance.updateExtractRule(0, { path: 'body.searchId', as: 'searchId' });
+      expect(emitted!.extract[0]).toEqual({ from: 'JSON', path: 'body.searchId', as: 'searchId', missing: 'SKIP' });
+    });
+
+    it('removeExtractRule drops the rule at that index', () => {
+      const withRule = { ...makeStep(), extract: [{ from: 'JSON' as const, path: 'a', as: 'x', missing: 'SKIP' as const }] };
+      fixture.componentRef.setInput('step', withRule);
+      let emitted: Step | null = null;
+      fixture.componentInstance.stepChange.subscribe((s: Step) => (emitted = s));
+
+      fixture.componentInstance.removeExtractRule(0);
+      expect(emitted!.extract).toEqual([]);
+    });
+
+    it('renders the assertion editor bound to the step\'s own assertions', () => {
+      const withAssertion = { ...makeStep(), assertions: [{ kind: 'STATUS' as const, operator: 'EQUALS' as const, value: '200' }] };
+      fixture.componentRef.setInput('step', withAssertion);
+      fixture.componentInstance.setTab('extract');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('app-scenario-assertion-editor')).toBeTruthy();
+    });
+  });
+
   describe('T061: run mode', () => {
     function makeResult(overrides: Partial<StepResult> = {}): StepResult {
       return {
