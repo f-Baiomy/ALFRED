@@ -335,9 +335,13 @@ export class ReliveRunService {
     const kids = childSteps(this.steps, step.key).filter((c) => c.enabled);
     for (const kid of kids) this.setResult(kid.key, (r) => ({ ...r, state: 'WAITING' }));
 
+    // `state` here is the proxy's own call lifecycle (IN_PROGRESS then COMPLETED, ReliveRunsService.
+    // broadcastRunCall) - only COMPLETED means the child has actually settled and has a logged call
+    // to fetch; an IN_PROGRESS sighting is dropped so a still-running LIVE child isn't mistaken for
+    // NOT_CALLED just because its own COMPLETED event hasn't arrived within the grace window yet.
     const collected = new Map<string, RunCallEvent>();
     this.eventsSub = this.socket.events$
-      .pipe(filter((e): e is RunCallEvent => e.type === 'run-call' && e.runId === run.id))
+      .pipe(filter((e): e is RunCallEvent => e.type === 'run-call' && e.runId === run.id && e.state === 'COMPLETED'))
       .subscribe((e) => collected.set(e.stepKey, e));
 
     const vars = this.variables();
@@ -507,7 +511,10 @@ export class ReliveRunService {
       stepKey: step.key,
       attempt: 1,
       state: outcome,
-      mode: event.state === 'LIVE' ? 'LIVE' : 'REPLAY',
+      // The event carries a lifecycle state, not the mode (see the events$ filter above) - the
+      // proxy's own "choice" for a matched child is its configured mode verbatim (proxy/relive.py),
+      // which `modeOf` already reads back from the same call rule the run was built from.
+      mode: modeOf(step.callRule) === 'REPLAY' ? 'REPLAY' : 'LIVE',
       attribution: event.attribution as StepResult['attribution'],
       actualResponse: response,
       differences: NO_DIFFERENCES,

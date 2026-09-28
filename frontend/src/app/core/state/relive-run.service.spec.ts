@@ -5,8 +5,11 @@ import { CallsApiService } from '../services/calls-api.service';
 import { ReliveApiService } from '../services/relive-api.service';
 import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socket.service';
 import { ResendApiService, ResendRequest, ResendResult } from '../services/resend-api.service';
-import { CycleRule, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
+import { defaultCallRule } from '../../shared/utils/relive-call-rule';
+import { CycleRule, ReliveCycle, ReliveSettings, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { ReliveRunService } from './relive-run.service';
+
+const cycleSettings: ReliveSettings = { inboundMode: 'LIVE', onFailure: 'HOLD', onDifferences: 'CONTINUE', defaultDriver: 'AUTOMATIC', internalHosts: [] };
 
 function rule(): CycleRule {
   return { name: 'r', enabled: true, priority: 0, stopProcessing: true, match: {}, actions: [] };
@@ -44,6 +47,18 @@ function inboundStep(overrides: Partial<Step> = {}): Step {
 }
 
 function childStep(): Step {
+  const recording = {
+    method: 'GET',
+    url: 'https://api.supplier-a.com/fares',
+    requestHeaders: {},
+    requestBody: null,
+    status: 200,
+    responseHeaders: {},
+    responseBody: '{}',
+    timestamp: 't',
+    durationMs: 10,
+    source: 'outbound' as const,
+  };
   return {
     key: 'supplier-a',
     parentKey: 'login',
@@ -52,20 +67,11 @@ function childStep(): Step {
     optional: false,
     direction: 'outbound',
     serviceName: null,
-    callRule: rule(),
+    // A child's default rule has a MOCK_RESPONSE action (REPLAY) - modeOf() reads mode off this,
+    // not off the run-call event (see relive-run.service.ts).
+    callRule: defaultCallRule({ key: 'supplier-a', parentKey: 'login', label: 'Supplier A', recording }, cycleSettings),
     unattributed: 'BLOCK',
-    recording: {
-      method: 'GET',
-      url: 'https://api.supplier-a.com/fares',
-      requestHeaders: {},
-      requestBody: null,
-      status: 200,
-      responseHeaders: {},
-      responseBody: '{}',
-      timestamp: 't',
-      durationMs: 10,
-      source: 'outbound',
-    },
+    recording,
     source: { callId: 'orig-a', cycleId: 'cy-1', direction: 'outbound' },
     extract: [],
     assertions: [],
@@ -265,7 +271,7 @@ describe('ReliveRunService', () => {
     const startPromise = service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
     await Promise.resolve();
     await Promise.resolve();
-    events$.next({ type: 'run-call', runId: 'run-1', stepKey: 'supplier-a', callId: 'call-a', direction: 'outbound', attribution: 'INFLIGHT', state: 'REPLAYED' });
+    events$.next({ type: 'run-call', runId: 'run-1', stepKey: 'supplier-a', callId: 'call-a', direction: 'outbound', attribution: 'INFLIGHT', state: 'COMPLETED' });
     await startPromise;
 
     expect(service.results()['login'].state).toBe('COMPLETED');
