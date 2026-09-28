@@ -272,6 +272,7 @@ export type ValidationFindingCode =
   | 'RULE_OVERLAP'
   | 'NOTHING_TO_RUN'
   | 'MAY_BE_UNATTRIBUTED'
+  | 'GUIDED_PROJECT_BUSY'
   | 'LIVE_EXTERNAL'
   | 'UNUSED_VARIABLE'
   | 'ORDER_DEPENDENCY';

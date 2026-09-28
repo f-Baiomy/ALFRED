@@ -3,30 +3,53 @@ package com.fathy.alfred.backend.relive.application.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.relive.application.port.out.GlobalRulesLookupPort;
+import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
 import com.fathy.alfred.backend.relive.domain.model.CycleRule;
 import com.fathy.alfred.backend.relive.domain.model.CycleVariable;
 import com.fathy.alfred.backend.relive.domain.model.FrozenCall;
 import com.fathy.alfred.backend.relive.domain.model.GlobalRulesSelection;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
 import com.fathy.alfred.backend.relive.domain.model.ReliveSettings;
+import com.fathy.alfred.backend.relive.domain.model.Run;
+import com.fathy.alfred.backend.relive.domain.model.RunStatus;
 import com.fathy.alfred.backend.relive.domain.model.Step;
+import com.fathy.alfred.backend.relive.domain.model.StepResult;
 import com.fathy.alfred.backend.relive.domain.model.StepSource;
 import com.fathy.alfred.backend.relive.domain.model.UnexpectedCallsPolicy;
 import com.fathy.alfred.backend.relive.domain.model.ValidationFinding;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CycleValidatorTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /** Mutable in-memory fake - only `findAllRunning` is ever exercised by CycleValidator; every
+     *  other method is unused by these tests but must exist to satisfy the port. */
+    private static final class FakeRunStore implements ReliveRunStorePort {
+        final List<Run> running = new ArrayList<>();
+        @Override public Run create(Run run) { throw new UnsupportedOperationException(); }
+        @Override public Optional<Run> findById(String runId) { return Optional.empty(); }
+        @Override public List<Run> listByCycleId(String cycleId, int limit) { return List.of(); }
+        @Override public List<Run> findAllRunning() { return running; }
+        @Override public Run update(Run run) { throw new UnsupportedOperationException(); }
+        @Override public void putStepResult(StepResult result) { }
+        @Override public List<StepResult> listStepResults(String runId) { return List.of(); }
+        @Override public void pruneRuns(String cycleId, int keep, long maxBytes) { }
+        @Override public void deleteByCycleId(String cycleId) { }
+    }
+
+    private final FakeRunStore runStore = new FakeRunStore();
     private final CycleValidator validator = new CycleValidator(new GlobalRulesLookupPort() {
         @Override public List<com.fathy.alfred.backend.relive.application.port.out.GlobalRuleRef> list() { return List.of(); }
         @Override public boolean exists(String id) { return "r-exists".equals(id); }
-    });
+    }, runStore);
 
     private FrozenCall recording(String url) {
         return new FrozenCall("POST", url, Collections.emptyMap(), "{}", 200, Collections.emptyMap(), "{}",
@@ -119,6 +142,40 @@ class CycleValidatorTest {
                 new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "GUIDED", List.of()),
                 List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
         assertThat(has(validator.validate(cycle), "MAY_BE_UNATTRIBUTED")).isTrue();
+    }
+
+    @Test
+    void guidedDriverBlocksWhenAnotherCycleAlreadyHasAGuidedRunForTheSameProject() {
+        Step inbound = new Step("s-1", null, "x", true, false, "inbound", "odeysys",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", recording("https://app.local/x"),
+                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+        ReliveCycle guidedCycle = new ReliveCycle("c-1", "x", null, List.of(inbound), List.of(), List.of(),
+                new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "GUIDED", List.of()),
+                List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
+
+        ReliveCycle busyCycleDefinition = new ReliveCycle("c-2", "other", null, List.of(inbound), List.of(), List.of(),
+                new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "GUIDED", List.of()),
+                List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
+        runStore.running.add(new Run("run-2", "c-2", "GUIDED", RunStatus.RUNNING, "t0", null, busyCycleDefinition,
+                null, List.of(), List.of(), null, null, List.of(), List.of()));
+
+        List<ValidationFinding> findings = validator.validate(guidedCycle);
+        assertThat(has(findings, "GUIDED_PROJECT_BUSY")).isTrue();
+        assertThat(findings.stream().filter(f -> f.code().equals("GUIDED_PROJECT_BUSY")).findFirst().get().severity()).isEqualTo("BLOCK");
+    }
+
+    @Test
+    void guidedDriverIsNotBusyWhenTheRunningGuidedRunIsItsOwn() {
+        Step inbound = new Step("s-1", null, "x", true, false, "inbound", "odeysys",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", recording("https://app.local/x"),
+                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+        ReliveCycle guidedCycle = new ReliveCycle("c-1", "x", null, List.of(inbound), List.of(), List.of(),
+                new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "GUIDED", List.of()),
+                List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
+        runStore.running.add(new Run("run-1", "c-1", "GUIDED", RunStatus.RUNNING, "t0", null, guidedCycle,
+                null, List.of(), List.of(), null, null, List.of(), List.of()));
+
+        assertThat(has(validator.validate(guidedCycle), "GUIDED_PROJECT_BUSY")).isFalse();
     }
 
     @Test

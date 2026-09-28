@@ -594,7 +594,7 @@ walkthrough 4.
 
 - [X] T075 [US8] Run from step: "Run from here" starts a new run with `fromStepKey` and `seedFromRunId`, and the backend copies the seed variables. Disable it with an explanation when an earlier step's output isn't available (spec US8 scenario 2).
 - [X] T076 [US8] Optional steps: a failed optional step never holds or fails the run. When a failure has happened earlier, optional steps are SKIPPED if the policy says so (spec FR on optional).
-- [ ] T077 [US8] Guided driver (FR-030a-c), in `relive-run.service.ts` and `proxy/relive.py`. It copies mock `guidedNext()`, `guidedArrive()`, and the guided banner in `runPanel`.
+- [X] T077 [US8] Guided driver (FR-030a-c), in `relive-run.service.ts` and `proxy/relive.py`. It copies mock `guidedNext()`, `guidedArrive()`, and the guided banner in `runPanel`.
   - **Snapshot:** `driver: GUIDED` plus `projects`.
   - **Attribution:** the reverse proxy attributes inbound calls of those projects to the guided run when it is the only guided run for that project; otherwise a validation finding `GUIDED_PROJECT_BUSY` (add it to T045).
   - **Matching:** the tab receives `run-call` events for inbound calls and matches them to the next expected step with `relive-match`.

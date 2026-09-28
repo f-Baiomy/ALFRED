@@ -56,6 +56,23 @@ public class RunSnapshotBuilder {
         this.objectMapper = objectMapper;
     }
 
+    /** Every distinct {@code serviceName} among a cycle's top-level and child steps - the same set
+     *  this builder writes to the snapshot's {@code projects} array, reused by {@link CycleValidator}
+     *  (T077's GUIDED_PROJECT_BUSY) to tell whether two cycles could ever contend for the same
+     *  inbound project without needing a run to exist first. */
+    public static Set<String> projectsOf(ReliveCycle cycle) {
+        Set<String> projects = new LinkedHashSet<>();
+        if (cycle.steps() == null) {
+            return projects;
+        }
+        for (Step step : cycle.steps()) {
+            if (step.serviceName() != null) {
+                projects.add(step.serviceName());
+            }
+        }
+        return projects;
+    }
+
     public ObjectNode build(Run run) {
         ReliveCycle definition = run.definition();
         ObjectNode snapshot = objectMapper.createObjectNode();

@@ -2,8 +2,10 @@ package com.fathy.alfred.backend.relive.application.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fathy.alfred.backend.relive.application.port.out.GlobalRulesLookupPort;
+import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
 import com.fathy.alfred.backend.relive.domain.model.CycleRule;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
+import com.fathy.alfred.backend.relive.domain.model.Run;
 import com.fathy.alfred.backend.relive.domain.model.Step;
 import com.fathy.alfred.backend.relive.domain.model.ValidationFinding;
 
@@ -28,9 +30,11 @@ public class CycleValidator {
     private static final Pattern VARIABLE_TOKEN = Pattern.compile("\\{\\{([A-Za-z][A-Za-z0-9_.-]*)}}");
 
     private final GlobalRulesLookupPort globalRulesLookup;
+    private final ReliveRunStorePort runStore;
 
-    public CycleValidator(GlobalRulesLookupPort globalRulesLookup) {
+    public CycleValidator(GlobalRulesLookupPort globalRulesLookup, ReliveRunStorePort runStore) {
         this.globalRulesLookup = globalRulesLookup;
+        this.runStore = runStore;
     }
 
     public List<ValidationFinding> validate(ReliveCycle cycle) {
@@ -44,6 +48,7 @@ public class CycleValidator {
         checkRuleOverlap(cycle, findings);
         checkLiveExternal(steps, findings);
         checkMayBeUnattributed(cycle, findings);
+        checkGuidedProjectBusy(cycle, findings);
 
         Set<String> declaredVariables = new HashSet<>();
         if (cycle.variables() != null) {
@@ -148,6 +153,32 @@ public class CycleValidator {
         if (cycle.settings() != null && "GUIDED".equals(cycle.settings().defaultDriver())) {
             findings.add(new ValidationFinding("WARN", "MAY_BE_UNATTRIBUTED", null,
                     "Guided runs attribute inbound calls by timing alone - a second call to the same project while this run is active may be misattributed."));
+        }
+    }
+
+    /** T077: a Guided run attributes an inbound call to itself only when it is the sole active
+     *  Guided run for that project (proxy/relive.py's own project-uniqueness rule, research D2). A
+     *  cycle whose own driver is GUIDED and whose projects overlap another cycle's already-RUNNING
+     *  Guided run would therefore have its calls misattributed the moment it started - this is a
+     *  BLOCK, not the timing-only WARN checkMayBeUnattributed gives every Guided cycle. */
+    private void checkGuidedProjectBusy(ReliveCycle cycle, List<ValidationFinding> findings) {
+        if (cycle.settings() == null || !"GUIDED".equals(cycle.settings().defaultDriver())) {
+            return;
+        }
+        Set<String> thisProjects = RunSnapshotBuilder.projectsOf(cycle);
+        if (thisProjects.isEmpty()) {
+            return;
+        }
+        for (Run run : runStore.findAllRunning()) {
+            if (run.cycleId().equals(cycle.id()) || !"GUIDED".equals(run.driver()) || run.definition() == null) {
+                continue;
+            }
+            Set<String> busyProjects = RunSnapshotBuilder.projectsOf(run.definition());
+            busyProjects.retainAll(thisProjects);
+            for (String project : busyProjects) {
+                findings.add(new ValidationFinding("BLOCK", "GUIDED_PROJECT_BUSY", null,
+                        "\"" + project + "\" already has a Guided run in progress (from another cycle) - inbound calls could be attributed to the wrong run."));
+            }
         }
     }
 
