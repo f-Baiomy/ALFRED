@@ -1,0 +1,102 @@
+@if (!run()) {
+  <div class="rl-faint" style="padding: 30px; text-align: center">No run yet.</div>
+} @else {
+  <div class="rl-row" style="margin-bottom: 10px">
+    <span class="rl-pill" [class]="titlePill()[0]">{{ titlePill()[1] }}</span>
+    <span class="rl-pill rl-p-wait">{{ run()!.driver === 'GUIDED' ? 'Guided' : 'Automatic' }}</span>
+    <div class="rl-progress"><i [style.width.%]="progressPct()"></i></div>
+    <b>{{ doneCount() }} / {{ countedCount() }}</b>
+    <span class="rl-dim">completed</span>
+    @if (run()!.status !== 'RUNNING') {
+      <span class="rl-dim">· {{ elapsedSeconds() }} s total</span>
+    }
+  </div>
+
+  @if (run()!.hold; as hold) {
+    <div class="rl-haltbox" [class.rl-diff]="hold.reason === 'DIFFERENCES'">
+      <h3>{{ hold.reason === 'FAILED' ? '✕' : '⚠' }} The run is holding</h3>
+      <div class="rl-dim" style="font-size: 12.5px">Nothing else is sent until you decide.</div>
+      <div class="rl-row" style="margin-top: 8px; flex-wrap: wrap">
+        <button class="rl-btn rl-sm" (click)="retryHeld.emit()">↻ Retry</button>
+        <button class="rl-btn rl-sm rl-primary" (click)="continueRun.emit()">▶ Continue with the next calls</button>
+        <button class="rl-btn rl-sm rl-danger" (click)="endRun.emit()">■ End run here</button>
+      </div>
+    </div>
+  }
+
+  <div class="rl-row" style="margin-bottom: 8px">
+    <div class="rl-filters">
+      <button [class.rl-on]="filter() === 'all'" (click)="setFilter('all')">All</button>
+      <button [class.rl-on]="filter() === 'running'" (click)="setFilter('running')">In progress</button>
+      <button [class.rl-on]="filter() === 'diff'" (click)="setFilter('diff')">Differences</button>
+      <button [class.rl-on]="filter() === 'failed'" (click)="setFilter('failed')">Failed</button>
+      <button [class.rl-on]="filter() === 'live'" (click)="setFilter('live')">LIVE</button>
+      <button [class.rl-on]="filter() === 'replayed'" (click)="setFilter('replayed')">REPLAY</button>
+    </div>
+  </div>
+
+  <div>
+    @for (row of filteredRows(); track row.step.key) {
+      <div class="rl-step" [class.rl-child]="row.isChild" [class.rl-sel]="selectedKey() === row.step.key" (click)="select(row.step.key)">
+        <span class="rl-st" [class]="stateIcon(row.result.state)[0]">{{ stateIcon(row.result.state)[1] }}</span>
+        <span class="rl-dir" [class.rl-in]="!row.isChild" [class.rl-out]="row.isChild">{{ row.isChild ? '↗' : '↙' }}</span>
+        <span class="rl-mono">{{ row.step.recording.method }}</span>
+        <span class="rl-lbl">
+          <span class="rl-t">{{ row.step.label }}</span>
+          <span class="rl-u rl-mono">{{ row.step.recording.url }}</span>
+        </span>
+        @if (row.isChild) {
+          <span class="rl-pill" [class]="row.result.mode === 'LIVE' ? 'rl-p-live' : 'rl-p-replay'">
+            {{ row.result.mode === 'LIVE' ? 'LIVE · contacted host' : 'REPLAY' }}
+          </span>
+        }
+        @if (isGlobalRule(row)) {
+          <span class="rl-pill rl-p-global">GLOBAL RULE</span>
+        }
+        @if (row.result.state === 'COMPLETED_WITH_DIFFERENCES') {
+          <span class="rl-pill rl-p-diff">⚠ {{ unexpectedDifferenceCount(row) }} difference{{ unexpectedDifferenceCount(row) === 1 ? '' : 's' }}</span>
+        }
+        @if (row.result.state === 'FAILED') {
+          <span class="rl-pill rl-p-fail" [title]="row.result.error ?? ''">✕ failed</span>
+        }
+        @if (row.result.attempt > 1) {
+          <span class="rl-pill rl-p-wait">attempt {{ row.result.attempt }}</span>
+        }
+        @if (row.result.state === 'SKIPPED' && row.result.error) {
+          <span class="rl-pill rl-p-wait" [title]="row.result.error">needs a missing value</span>
+        }
+        @if (row.result.state === 'FAILED' && isEnded()) {
+          <span (click)="$event.stopPropagation()">
+            <button class="rl-btn rl-sm" (click)="retryFailedStep.emit(row.step.key)">↻ Retry</button>
+            @if (!row.isChild && hasLaterRunnableStep(row.step.key)) {
+              <button class="rl-btn rl-sm rl-primary" (click)="resumeFromStep.emit(row.step.key)" title="Same run, same variables">▶ Continue with the rest</button>
+            }
+            <button class="rl-btn rl-sm" (click)="runFromStep.emit(row.step.key)">Run from here</button>
+          </span>
+        }
+        <span class="rl-pill" [class]="statePill(row.result.state)[0]">{{ statePill(row.result.state)[1] }}</span>
+        <span class="rl-dim">{{ row.result.durationMs ? row.result.durationMs + ' ms' : '' }}</span>
+      </div>
+    }
+  </div>
+
+  <div class="rl-card" style="padding: 10px 12px">
+    <div class="rl-row">
+      <h3 style="margin: 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint)">Variables in this run</h3>
+    </div>
+    @for (def of variableDefs(); track def.name) {
+      <div class="rl-row" style="padding: 2px 0">
+        <span class="rl-mono">{{ '{{' + def.name + '}}' }}</span>
+        @if (variables()[def.name] === undefined) {
+          <span class="rl-faint">not set yet</span>
+        } @else if (def.secret && !isRevealed(def.name)) {
+          <span class="rl-mono">•••••••• </span>
+          <a class="rl-link" (click)="reveal(def.name)">reveal</a>
+        } @else {
+          <span class="rl-mono">{{ variables()[def.name] }}</span>
+        }
+        <span class="rl-spacer"></span>
+      </div>
+    }
+  </div>
+}

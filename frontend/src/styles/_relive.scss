@@ -94,6 +94,10 @@
   &.rl-child {
     margin-left: 26px;
   }
+  &.rl-sel {
+    border-color: var(--purple);
+    background: rgba(139, 92, 246, 0.1);
+  }
 }
 
 // State circle in the run timeline (pending/waiting/running/ok/diff/fail/skip/cancel/notcalled).

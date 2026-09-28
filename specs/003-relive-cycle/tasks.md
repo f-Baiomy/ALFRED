@@ -446,7 +446,7 @@ exactly one call (SC-002). Mock walkthroughs **2**, **4**, **11**, **12**.
   - **Resume:** "▶ Continue with the rest" on a failed step of an ended run (mock `resumeRun`, the run-row buttons in `runPanel`) calls `POST …/resume`, re-takes the lease and continues at the step after it.
   - **Mid-run edits** (FR-044a): while a run is RUNNING, any editor change asks "Apply to this run too, or only next runs?" (a small dialog). "This run" calls `PUT …/runs/{runId}/definition`.
   - **Test:** in `relive-run.service.spec.ts`.
-- [ ] T055 [US3] Run view `FE/components/relive-run-timeline/…`. It copies mock.html `runPanel()`, `statePill()`, `stIcon()`, `haltBox()`, `policySection()`.
+- [X] T055 [US3] Run view `FE/components/relive-run-timeline/…`. It copies mock.html `runPanel()`, `statePill()`, `stIcon()`, `haltBox()`, `policySection()`.
   - **Header:** run title pill (running / holding - your call / completed / …), driver pill, progress bar `done / total completed`, total seconds.
   - **Boxes and banners:** the hold box (red for failures, amber for differences), the pause box (US3b), and the "N calls reached a real system - saved" banner (US7).
   - **Filters:** All / In progress / Differences / Failed / LIVE / REPLAY.
