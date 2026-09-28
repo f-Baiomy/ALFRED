@@ -8,6 +8,7 @@ import { ReliveRequestDiffersDialogComponent } from '../../components/relive-req
 import { ReliveExternalNoticeComponent } from '../../components/relive-external-notice/relive-external-notice.component';
 import { ReliveRulesTabComponent } from '../../components/relive-rules-tab/relive-rules-tab.component';
 import { ReliveRerunSummaryComponent, ReliveStartRequest } from '../../components/relive-prerun-summary/relive-prerun-summary.component';
+import { ReliveRebuildDialogComponent } from '../../components/relive-rebuild-dialog/relive-rebuild-dialog.component';
 import { ReliveApiService } from '../../core/services/relive-api.service';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
@@ -41,6 +42,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
     ReliveExternalNoticeComponent,
     ReliveRulesTabComponent,
     ReliveRerunSummaryComponent,
+    ReliveRebuildDialogComponent,
   ],
   providers: [ReliveCycleEditorState],
   templateUrl: './relive-cycle.component.html',
@@ -234,6 +236,20 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   duplicate(): void {
     this.state.duplicateCycle()?.subscribe();
+  }
+
+  readonly rebuildOpen = signal(false);
+
+  /** Rebuild (T070) persists straight to the SAVED cycle - a dirty draft would silently discard
+   *  local edits, so ask first rather than opening the dialog on top of them. */
+  async openRebuild(): Promise<void> {
+    if (this.state.dirty()) {
+      const confirmed = await this.confirmDialog.confirm('Rebuild replaces the saved cycle directly - save or discard your changes first. Discard them now?', 'Discard and continue');
+      if (!confirmed) return;
+      const saved = this.state.saved();
+      if (saved) this.state.update(() => saved);
+    }
+    this.rebuildOpen.set(true);
   }
 
   readonly prerunOpen = signal(false);

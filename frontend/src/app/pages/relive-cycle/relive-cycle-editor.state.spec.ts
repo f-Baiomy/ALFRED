@@ -288,4 +288,48 @@ describe('ReliveCycleEditorState', () => {
       expect(state.notices().length).toBe(0);
     });
   });
+
+  describe('T070: rebuild', () => {
+    it('persists the new steps with the given reason and re-syncs saved/draft', () => {
+      state.load('c-1');
+      http.expectOne('http://backend/relive-cycles/c-1').flush(cycle({ steps: [makeStep('s-search', null)] }));
+
+      const newSteps = [makeStep('s-search-2', null)];
+      state.rebuild(newSteps, 'REBUILD_REFRESH');
+
+      const req = http.expectOne('http://backend/relive-cycles/c-1?reason=REBUILD_REFRESH');
+      expect(req.request.headers.get('If-Match')).toBe('2026-09-27T10:00:00Z');
+      expect(req.request.body.steps).toEqual(newSteps);
+      const updated = cycle({ steps: newSteps, updatedAt: '2026-09-27T11:00:00Z' });
+      req.flush(updated);
+
+      expect(state.saved()).toEqual(updated);
+      expect(state.draft()).toEqual(updated);
+      expect(state.rebuilding()).toBeFalse();
+
+      http.expectOne('http://backend/relive-cycles/c-1/versions').flush([
+        { cycleId: 'c-1', version: 3, savedAt: '2026-09-27T10:59:00Z', reason: 'REBUILD_REFRESH', definition: cycle() },
+        { cycleId: 'c-1', version: 2, savedAt: '2026-09-27T09:00:00Z', reason: 'REPLACE_STEPS', definition: cycle() },
+      ]);
+      expect(state.rebuildUndo()).toEqual({ version: 3 });
+    });
+
+    it('undoRebuild() restores the snapshotted version and clears the offer', () => {
+      state.load('c-1');
+      http.expectOne('http://backend/relive-cycles/c-1').flush(cycle({ steps: [makeStep('s-search', null)] }));
+
+      state.rebuild([makeStep('s-search-2', null)], 'REBUILD_START_OVER');
+      http.expectOne('http://backend/relive-cycles/c-1?reason=REBUILD_START_OVER').flush(cycle({ updatedAt: '2026-09-27T11:00:00Z' }));
+      http.expectOne('http://backend/relive-cycles/c-1/versions').flush([{ cycleId: 'c-1', version: 5, savedAt: '2026-09-27T10:59:00Z', reason: 'REBUILD_START_OVER', definition: cycle() }]);
+      expect(state.rebuildUndo()).toEqual({ version: 5 });
+
+      state.undoRebuild();
+      expect(state.rebuildUndo()).toBeNull();
+      const restored = cycle({ steps: [makeStep('s-search', null)], updatedAt: '2026-09-27T09:59:00Z' });
+      http.expectOne('http://backend/relive-cycles/c-1/versions/5/restore').flush(restored);
+
+      expect(state.saved()).toEqual(restored);
+      expect(state.draft()).toEqual(restored);
+    });
+  });
 });

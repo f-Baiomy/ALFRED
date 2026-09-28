@@ -546,7 +546,7 @@ differences**.
 
 - [X] T069 [P] [US6b] Create `FE/shared/utils/relive-match.ts`: `pairSteps(oldSteps, newSteps)` returns `{matched:[old,new][], added, removed}` on endpoint + order within the same parent (the same key as the proxy's ordinal).
   - **Test:** `relive-match.spec.ts`.
-- [ ] T070 [US6b] Rebuild dialog `FE/components/relive-rebuild-dialog/…`, copying mock `openRebuild()`, `rebuildPreview()`, `applyRebuild()`, `undoRebuild()`.
+- [X] T070 [US6b] Rebuild dialog `FE/components/relive-rebuild-dialog/…`, copying mock `openRebuild()`, `rebuildPreview()`, `applyRebuild()`, `undoRebuild()`.
   - **Modes:** Refresh from sources / Rebuild from a new recording (pick a session cycle, or "run it once for real", which goes through the pre-run LIVE confirmation) / Start over, keep settings.
   - **Preview:** added / updated / re-linked / removed, and what happens to each step's settings.
   - **Apply:** `PUT ?reason=…`.

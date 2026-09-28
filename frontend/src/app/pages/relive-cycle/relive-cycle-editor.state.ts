@@ -3,7 +3,10 @@ import { Observable } from 'rxjs';
 import { ReliveApiService, ReliveWriteRequest } from '../../core/services/relive-api.service';
 import { defaultCallRule } from '../../shared/utils/relive-call-rule';
 import { ExternalReachEntry, externalReach, newlyReaching } from '../../shared/utils/relive-external-reach';
-import { ReliveCycle, Step } from '../../shared/utils/relive-types';
+import { CycleVersion, ReliveCycle, Step } from '../../shared/utils/relive-types';
+
+/** How long the "Rebuild applied · Undo" toast (T070) stays up before the offer expires. */
+const REBUILD_UNDO_MS = 8000;
 
 /** One "this can now reach a real system" notice (FR-015a) - `undoSnapshot` is the draft exactly
  *  as it was before the change that raised it, so Undo can restore it verbatim. */
@@ -189,5 +192,56 @@ export class ReliveCycleEditorState {
     const saved = this.saved();
     if (!saved) return null;
     return this.api.duplicate(saved.id);
+  }
+
+  // ---- T070: rebuild ----
+
+  readonly rebuilding = signal(false);
+  /** The version the pre-rebuild definition was snapshotted as - offered for 8s as "Undo". */
+  readonly rebuildUndo = signal<{ readonly version: number } | null>(null);
+  private rebuildUndoTimer?: ReturnType<typeof setTimeout>;
+
+  /** Replaces the SAVED cycle's steps with `newSteps` and persists immediately (bypassing the
+   *  draft), snapshotting the previous definition as a version tagged `reason` first - the rebuild
+   *  dialog's three modes (FR-US6b) and "Replace steps of cycle…" (T071) share this. Requires a
+   *  clean draft: the caller must confirm/discard local edits before calling this. */
+  rebuild(newSteps: readonly Step[], reason: CycleVersion['reason']): void {
+    const saved = this.saved();
+    if (!saved || this.saving() || this.rebuilding()) return;
+    this.rebuilding.set(true);
+    this.api.update(saved.id, toWritable({ ...saved, steps: newSteps }), saved.updatedAt ?? '', reason).subscribe({
+      next: (updated) => {
+        this.saved.set(updated);
+        this.quietOnce = true;
+        this.draft.set(updated);
+        this.rebuilding.set(false);
+        this.api.listVersions(saved.id).subscribe((versions) => {
+          const latest = versions.reduce((max, v) => (!max || v.version > max.version ? v : max), null as CycleVersion | null);
+          if (latest) this.pushRebuildUndo(latest.version);
+        });
+      },
+      error: () => this.rebuilding.set(false),
+    });
+  }
+
+  private pushRebuildUndo(version: number): void {
+    clearTimeout(this.rebuildUndoTimer);
+    this.rebuildUndo.set({ version });
+    this.rebuildUndoTimer = setTimeout(() => this.rebuildUndo.set(null), REBUILD_UNDO_MS);
+  }
+
+  /** "Undo" on the rebuild toast: restores the cycle to the version snapshotted just before the
+   *  rebuild was applied. */
+  undoRebuild(): void {
+    const saved = this.saved();
+    const undo = this.rebuildUndo();
+    if (!saved || !undo) return;
+    clearTimeout(this.rebuildUndoTimer);
+    this.rebuildUndo.set(null);
+    this.api.restoreVersion(saved.id, undo.version).subscribe((restored) => {
+      this.saved.set(restored);
+      this.quietOnce = true;
+      this.draft.set(restored);
+    });
   }
 }

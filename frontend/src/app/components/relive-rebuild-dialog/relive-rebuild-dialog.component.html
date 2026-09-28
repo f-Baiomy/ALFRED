@@ -1,0 +1,82 @@
+@if (open()) {
+  <div class="dialog-backdrop" (click)="close()">
+    <div class="dialog-card wide" (click)="$event.stopPropagation()">
+      @if (!preview()) {
+        <div class="rl-row">
+          <h2 style="margin: 0">Rebuild "{{ cycle().name }}"</h2>
+          <span class="rl-spacer"></span>
+          <button class="icon-btn" (click)="close()">✕</button>
+        </div>
+        <p class="rl-hint" style="margin: 4px 0 12px">
+          You'll see a preview first - nothing changes until you apply it, and you can undo it. Past runs are never touched.
+        </p>
+
+        <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%; margin-bottom: 8px" [disabled]="!refreshSourceCycleId()" (click)="chooseMode('REFRESH')">
+          <b>⟳ Refresh from sources</b>
+          <div class="rl-faint" style="font-size: 12.5px; margin-top: 3px">
+            @if (refreshSourceCycleId()) {
+              Re-read the session cycle these calls came from: pick up calls recorded since, re-link supplier calls under their parents, update the frozen copies. Your modes, variables, rules and checkpoints stay where the calls still match.
+            } @else {
+              Not available: this cycle's steps don't all come from a single session cycle.
+            }
+          </div>
+        </button>
+
+        <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%; margin-bottom: 8px" (click)="chooseMode('RECORDING')">
+          <b>◉ Rebuild from a new recording</b>
+          <div class="rl-faint" style="font-size: 12.5px; margin-top: 3px">
+            Pick a session cycle to use as the new baseline. Your configuration is carried over wherever a step matches.
+          </div>
+        </button>
+        @if (pickedSessionCycleId() === null) {
+          <div class="rl-sect" style="padding-left: 16px">
+            <select (change)="pickRecordingSource($any($event.target).value)">
+              <option value="">Choose a session cycle…</option>
+              @for (sc of sessionCycles.cycles(); track sc.id) {
+                <option [value]="sc.id">{{ sc.name }}</option>
+              }
+            </select>
+            <p class="rl-hint" style="margin-top: 6px">
+              "Run it once for real and capture" is not available yet - use the Guided driver or record a fresh session cycle first.
+            </p>
+          </div>
+        }
+
+        <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%" (click)="chooseMode('START_OVER')">
+          <b>↺ Start over, keep settings</b>
+          <div class="rl-faint" style="font-size: 12.5px; margin-top: 3px">
+            Rebuild the step list exactly as first added from the original recording. Step edits are dropped; variables, cycle rules and settings stay.
+          </div>
+        </button>
+      } @else {
+        <div class="rl-row">
+          <h2 style="margin: 0">
+            Preview -
+            @switch (preview()!.mode) {
+              @case ('REFRESH') { Refresh from sources }
+              @case ('RECORDING') { Rebuild from a new recording }
+              @case ('START_OVER') { Start over, keep settings }
+            }
+          </h2>
+          <span class="rl-spacer"></span>
+          <button class="icon-btn" (click)="close()">✕</button>
+        </div>
+        @for (row of preview()!.rows; track $index) {
+          <div class="rl-rulecard">
+            <span class="rl-pill" [class]="pillClass(row.kind)">{{ row.kind }}</span>
+            <b>{{ row.label }}</b>
+            <span class="rl-dim" style="font-size: 12.5px">{{ row.detail }}</span>
+            <span class="rl-spacer"></span>
+            <span class="rl-faint" style="font-size: 11.5px">{{ row.config }}</span>
+          </div>
+        }
+        <div class="rl-row" style="margin-top: 14px">
+          <button class="rl-btn" (click)="backToModes()">← other mode</button>
+          <span class="rl-spacer"></span>
+          <button class="rl-btn" (click)="close()">Cancel</button>
+          <button class="rl-btn rl-primary" (click)="apply()">Apply rebuild</button>
+        </div>
+      }
+    </div>
+  </div>
+}

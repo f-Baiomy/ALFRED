@@ -29,7 +29,7 @@
       </div>
       <div class="rl-row" style="padding-top: 22px">
         <button class="rl-btn" (click)="save()" [disabled]="!state.dirty() || state.saving()">Save</button>
-        <button class="rl-btn" disabled title="Coming with the Rebuild flow (US6)">⟳ Rebuild</button>
+        <button class="rl-btn" (click)="openRebuild()">⟳ Rebuild</button>
         <button class="rl-btn" (click)="duplicate()">Duplicate</button>
         <button class="rl-btn rl-primary" (click)="openPrerun()">▶ Run</button>
       </div>
@@ -136,6 +136,15 @@
   <app-relive-external-notice [notices]="state.notices()" (undo)="state.undoNotice($event)" (dismiss)="state.dismissNotice($event)" />
 
   <app-relive-prerun-summary [open]="prerunOpen()" [cycle]="draft" (closed)="closePrerun()" (cycleChange)="setCycle($event)" (start)="startRun($event)" />
+
+  <app-relive-rebuild-dialog [open]="rebuildOpen()" [cycle]="draft" (closed)="rebuildOpen.set(false)" (rebuild)="state.rebuild($event.steps, $event.reason)" />
+
+  @if (state.rebuildUndo(); as undo) {
+    <div class="rl-toast">
+      Rebuild applied · previous version kept
+      <button class="rl-link" (click)="state.undoRebuild()">Undo</button>
+    </div>
+  }
 } @else {
   <div class="rl-page rl-faint">Loading…</div>
 }
