@@ -514,7 +514,7 @@ differences**.
 
 **Goal**: FR-019-024. **Independent test**: US5 scenarios; the Variables tab of the mock (`varsPanel()`).
 
-- [ ] T064 [US5] Variables tab `FE/components/relive-variables/…`, copying mock `varsPanel()`: name, initial value, secret toggle, source (defined / extracted · Step → path), note, and the live value column during a run (masked with "reveal").
+- [X] T064 [US5] Variables tab `FE/components/relive-variables/…`, copying mock `varsPanel()`: name, initial value, secret toggle, source (defined / extracted · Step → path), note, and the live value column during a run (masked with "reveal").
   - **Test:** a component spec.
 - [ ] T065 [US5] Extract & assert tab in the drawer, copying mock `extractTab()`.
   - **Extract:** "＋ Extract a value…" uses the existing `JsonPathInputComponent` (`FE/components/json-path-input/`) on the recorded response, producing `ExtractRule`s (same shape as Scenarios).

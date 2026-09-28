@@ -1,0 +1,41 @@
+<div class="rl-row" style="margin-bottom: 8px">
+  <span class="rl-faint" style="font-size: 11.5px">Cycle-scoped variables - reusable across calls as {{ '{{name}}' }}</span>
+  <span class="rl-spacer"></span>
+  <button class="rl-btn rl-sm" (click)="add()">＋ Add variable</button>
+</div>
+
+@if (!variables().length) {
+  <div class="rl-faint" style="padding: 20px; text-align: center">No variables yet.</div>
+} @else {
+  @for (row of rows(); track row.variable.name) {
+    <div class="rl-step" style="align-items: flex-start; flex-wrap: wrap; gap: 10px">
+      <div style="flex: 1; min-width: 160px">
+        <input class="rl-mono" [value]="row.variable.name" (change)="rename(row.variable.name, $any($event.target).value)" />
+        <div class="rl-faint" style="font-size: 11px; margin-top: 2px">{{ row.source }}</div>
+      </div>
+      <div style="flex: 2; min-width: 200px">
+        <input [value]="row.variable.value" (change)="update(row.variable.name, { value: $any($event.target).value })" placeholder="Initial value" />
+        @if (row.variable.note) {
+          <div class="rl-faint" style="font-size: 11px; margin-top: 2px">{{ row.variable.note }}</div>
+        }
+      </div>
+      <label class="rl-row" style="font-size: 12px">
+        <input type="checkbox" [checked]="row.variable.secret" (change)="update(row.variable.name, { secret: $any($event.target).checked })" />
+        secret
+      </label>
+      @if (liveValues() !== null) {
+        <div style="flex: 2; min-width: 160px">
+          @if (row.liveValue === undefined) {
+            <span class="rl-faint">not set yet</span>
+          } @else {
+            <span class="rl-mono">{{ maskedLiveValue(row) }}</span>
+            @if (row.variable.secret && !isRevealed(row.variable.name)) {
+              <a class="rl-link" style="font-size: 11px; margin-left: 6px" (click)="toggleReveal(row.variable.name)">reveal</a>
+            }
+          }
+        </div>
+      }
+      <button class="icon-btn" title="Remove" (click)="remove(row.variable.name)">✕</button>
+    </div>
+  }
+}
