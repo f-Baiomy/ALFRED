@@ -28,11 +28,12 @@ import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socke
 import { ResendApiService, ResendResponseSnapshot, ResendResult } from '../services/resend-api.service';
 import { resolveDynamicTokens } from '../../shared/utils/dynamic-tokens';
 import { checkpointOf, modeOf } from '../../shared/utils/relive-call-rule';
+import { RawDifference, classify } from '../../shared/utils/relive-noise';
 import { ActualCallOutcome, outcomeOf } from '../../shared/utils/relive-outcome';
-import { DifferenceEntry, ReliveCycle, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
+import { DifferenceEntry, NoiseRule, ReliveCycle, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 import { DraftResult } from '../../shared/utils/resend-draft';
 import { extractValues, substituteTokens } from '../../shared/utils/resend-draft-chain';
-import { evaluate } from '../../shared/utils/scenario-assertions';
+import { diffJsonBodies, evaluate } from '../../shared/utils/scenario-assertions';
 
 /** How long to keep collecting `run-call` events after the inbound resend settles, before deciding
  *  a still-missing enabled child was never called - the reverse proxy handles a child's outbound
@@ -92,6 +93,51 @@ function usedVarsOf(step: Step, vars: Readonly<Record<string, string>>): readonl
     .map((name) => ({ name, value: vars[name] }));
 }
 
+/** This step's response extract rules, run once against its actual response (T060/FR-041a). */
+function extractedVars(response: ResendResponseSnapshot | null, rules: Step['extract']): readonly { readonly name: string; readonly value: string }[] {
+  if (!rules.length || !response) return [];
+  return Object.entries(extractValues(response, rules)).map(([name, value]) => ({ name, value }));
+}
+
+function headerDifferences(recorded: Readonly<Record<string, string>>, actual: Readonly<Record<string, string>> | null | undefined): RawDifference[] {
+  const a = new Map(Object.entries(recorded).map(([name, value]) => [name.toLowerCase(), value]));
+  const b = new Map(Object.entries(actual ?? {}).map(([name, value]) => [name.toLowerCase(), value]));
+  const out: RawDifference[] = [];
+  for (const name of new Set([...a.keys(), ...b.keys()])) {
+    const rec = a.get(name) ?? null;
+    const act = b.get(name) ?? null;
+    if (rec !== act) out.push({ part: 'header', path: name, recorded: rec, actual: act });
+  }
+  return out;
+}
+
+/** Recorded vs actual, as `classify` (T059) wants them: status, headers, and the response body
+ *  flattened to leaf JSON paths (`diffJsonBodies`, shared with the Scenarios comparison). */
+function rawDifferences(step: Step, response: ResendResponseSnapshot | null): RawDifference[] {
+  if (!response) return [];
+  const out: RawDifference[] = [];
+  if (response.status !== step.recording.status) {
+    out.push({ part: 'status', path: 'status', recorded: String(step.recording.status), actual: String(response.status) });
+  }
+  out.push(...headerDifferences(step.recording.responseHeaders, response.headers));
+  out.push(
+    ...diffJsonBodies(step.recording.responseBody, response.body).map(
+      (c): RawDifference => ({ part: 'body', path: `body.${c.path}`, recorded: c.before ?? null, actual: c.after ?? null }),
+    ),
+  );
+  return out;
+}
+
+function differencesOf(
+  step: Step,
+  response: ResendResponseSnapshot | null,
+  noiseRules: readonly NoiseRule[],
+  variablesUsed: readonly { readonly name: string; readonly value: string }[],
+  variablesProduced: readonly { readonly name: string; readonly value: string }[],
+): readonly DifferenceEntry[] {
+  return classify(rawDifferences(step, response), { noiseRules, expected: [], variablesUsed, variablesProduced });
+}
+
 function topSteps(steps: readonly Step[]): Step[] {
   return steps.filter((s) => !s.parentKey);
 }
@@ -146,8 +192,6 @@ function errorMessage(e: unknown): string {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-const NO_DIFFERENCES: readonly DifferenceEntry[] = [];
 
 @Injectable()
 export class ReliveRunService {
@@ -536,7 +580,11 @@ export class ReliveRunService {
       extracted: {},
     };
     const assertionResults = evaluate(step.assertions, draftResult);
-    const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, NO_DIFFERENCES);
+    const variablesUsed = usedVarsOf(step, this.variables());
+    const variablesProduced = extractedVars(response, step.extract);
+    const noiseRules = [...this.run()!.definition.noise, ...step.noise];
+    const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced);
+    const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, differences);
     const effective = { method: substituted.method, url: substituted.url, headers: substituted.headers, body: substituted.body };
     return {
       runId: this.run()!.id,
@@ -548,10 +596,10 @@ export class ReliveRunService {
       effectiveRequest: effective,
       actualRequest: effective,
       actualResponse: response,
-      differences: NO_DIFFERENCES,
+      differences,
       rulesApplied: [],
-      variablesUsed: usedVarsOf(step, this.variables()),
-      variablesProduced: [],
+      variablesUsed,
+      variablesProduced,
       assertions: assertionResults,
       startedAt: new Date(startedAt).toISOString(),
       finishedAt: new Date(finishedAt).toISOString(),
@@ -584,7 +632,11 @@ export class ReliveRunService {
     };
     const assertionResults = evaluate(step.assertions, draftResult);
     const actual: ActualCallOutcome = { transportError: false, timedOut: false, noAnswer: !response, status: response?.status ?? null };
-    const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, NO_DIFFERENCES);
+    const variablesUsed = usedVarsOf(step, this.variables());
+    const variablesProduced = extractedVars(response, step.extract);
+    const noiseRules = [...this.run()!.definition.noise, ...step.noise];
+    const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced);
+    const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, differences);
     return {
       runId: this.run()!.id,
       stepKey: step.key,
@@ -596,10 +648,10 @@ export class ReliveRunService {
       mode: modeOf(step.callRule) === 'REPLAY' ? 'REPLAY' : 'LIVE',
       attribution: event.attribution as StepResult['attribution'],
       actualResponse: response,
-      differences: NO_DIFFERENCES,
+      differences,
       rulesApplied: [],
-      variablesUsed: usedVarsOf(step, this.variables()),
-      variablesProduced: [],
+      variablesUsed,
+      variablesProduced,
       assertions: assertionResults,
       durationMs: null,
       error: null,
@@ -609,20 +661,20 @@ export class ReliveRunService {
     };
   }
 
+  /** Persists a settled result and applies whatever it extracted (T060 already computed both the
+   *  differences and `variablesProduced` - extraction happens once, at build time, so `classify`
+   *  sees this step's own newly-produced values, not just earlier steps'). */
   private async settleResult(run: Run, step: Step, result: StepResult): Promise<void> {
     this.setResult(step.key, () => result);
     await firstValueFrom(this.api.putStepAttempt(run.cycleId, run.id, step.key, result.attempt, result));
 
-    if (!step.extract.length || !result.actualResponse) return;
-    const extracted = extractValues(result.actualResponse as ResendResponseSnapshot, step.extract);
-    const names = Object.keys(extracted);
-    if (!names.length) return;
-    const vars = { ...this.variables(), ...extracted };
+    if (!result.variablesProduced.length) return;
+    const vars = { ...this.variables() };
+    for (const v of result.variablesProduced) vars[v.name] = v.value;
     this.variables.set(vars);
-    for (const name of names) {
-      await firstValueFrom(this.api.setVariable(run.cycleId, run.id, name, vars[name], step.key));
+    for (const v of result.variablesProduced) {
+      await firstValueFrom(this.api.setVariable(run.cycleId, run.id, v.name, v.value, step.key));
     }
-    this.setResult(step.key, (r) => ({ ...r, variablesProduced: names.map((name) => ({ name, value: vars[name] })) }));
   }
 
   private async finish(): Promise<void> {

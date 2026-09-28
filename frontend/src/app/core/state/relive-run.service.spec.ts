@@ -54,7 +54,7 @@ function childStep(): Step {
     requestBody: null,
     status: 200,
     responseHeaders: {},
-    responseBody: '{}',
+    responseBody: '{"flights":12}',
     timestamp: 't',
     durationMs: 10,
     source: 'outbound' as const,
@@ -475,5 +475,35 @@ describe('ReliveRunService', () => {
     expect(service.pause()).toBeNull();
     expect(service.results()['login'].attempt).toBe(2);
     expect(service.results()['login'].state).toBe('COMPLETED');
+  });
+
+  it('T060: computes differences (recorded vs actual) and reflects them in the step outcome', async () => {
+    const login = inboundStep({
+      recording: {
+        ...inboundStep().recording,
+        responseBody: '{"total":450,"traceId":"b-7c1e"}',
+      },
+    });
+    const steps = [login];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED_WITH_DIFFERENCES' }));
+    resendApi.resend.and.returnValue(
+      of<ResendResult>({
+        newCallId: 'new-login',
+        status: 200,
+        durationMs: 5,
+        sessionValuesUsed: [],
+        response: { status: 200, headers: {}, body: '{"total":455,"traceId":"b-99d0"}' },
+      }),
+    );
+
+    await service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+    const differences = service.results()['login'].differences;
+    expect(differences.find((d) => d.path === 'body.total')).toEqual(
+      jasmine.objectContaining({ kind: 'UNEXPECTED', recorded: '450', actual: '455' }),
+    );
+    expect(differences.find((d) => d.path === 'body.traceId')?.kind).toBe('NOISE_AUTO');
+    expect(service.results()['login'].state).toBe('COMPLETED_WITH_DIFFERENCES');
   });
 });

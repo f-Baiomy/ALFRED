@@ -214,7 +214,7 @@ export function diffRuns(runA: readonly DraftResult[], runB: readonly DraftResul
   });
 }
 
-function diffJsonBodies(before: string | null | undefined, after: string | null | undefined): FieldChange[] {
+export function diffJsonBodies(before: string | null | undefined, after: string | null | undefined): FieldChange[] {
   const docBefore = safeParse(before);
   const docAfter = safeParse(after);
   if (docBefore === undefined && docAfter === undefined) return [];
