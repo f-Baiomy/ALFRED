@@ -6,6 +6,9 @@
     @if (step().parentKey) {
       <span class="rl-pill" [class]="mode() === 'REPLAY' ? 'rl-p-replay' : 'rl-p-live'">{{ mode() }}</span>
     }
+    @if (secretNames().length) {
+      <a class="rl-link" style="font-size: 12px" (click)="toggleReveal()">{{ revealed() ? 'Hide secrets' : 'Reveal secrets' }}</a>
+    }
     <button class="icon-btn" (click)="close()">✕</button>
   </div>
 
@@ -128,19 +131,19 @@
       @case ('request') {
         <div class="rl-sect">
           <h3>Recorded request (reference)</h3>
-          <pre>{{ step().recording.requestBody || '(empty)' }}</pre>
+          <pre>{{ mask(step().recording.requestBody || '') || '(empty)' }}</pre>
         </div>
         @if (result()) {
           <div class="rl-sect">
             <h3>Recorded response · {{ step().recording.status }}</h3>
-            <pre>{{ step().recording.responseBody || '(empty)' }}</pre>
+            <pre>{{ mask(step().recording.responseBody || '') || '(empty)' }}</pre>
           </div>
         }
       }
       @case ('response') {
         <div class="rl-sect">
           <h3>Recorded response · {{ step().recording.status }}</h3>
-          <pre>{{ step().recording.responseBody || '(empty)' }}</pre>
+          <pre>{{ mask(step().recording.responseBody || '') || '(empty)' }}</pre>
         </div>
       }
       @case ('extract') {
@@ -182,7 +185,7 @@
           }
           <div class="rl-sect">
             <h3>Quick look</h3>
-            <pre>{{ bodyOf(res.actualResponse) || '(no response)' }}</pre>
+            <pre>{{ mask(bodyOf(res.actualResponse)) || '(no response)' }}</pre>
           </div>
         }
       }
@@ -190,7 +193,7 @@
         @if (result(); as res) {
           <div class="rl-sect">
             <h3>Effective request</h3>
-            <pre>{{ bodyOf(res.effectiveRequest) || '(same as recorded)' }}</pre>
+            <pre>{{ mask(bodyOf(res.effectiveRequest)) || '(same as recorded)' }}</pre>
           </div>
         }
       }
@@ -198,11 +201,11 @@
         @if (result(); as res) {
           <div class="rl-sect">
             <h3>Actual request</h3>
-            <pre>{{ bodyOf(res.actualRequest) || '(none)' }}</pre>
+            <pre>{{ mask(bodyOf(res.actualRequest)) || '(none)' }}</pre>
           </div>
           <div class="rl-sect">
             <h3>Actual response</h3>
-            <pre>{{ bodyOf(res.actualResponse) || '(none)' }}</pre>
+            <pre>{{ mask(bodyOf(res.actualResponse)) || '(none)' }}</pre>
           </div>
         }
       }
@@ -222,7 +225,7 @@
           <div class="rl-sect">
             <h3>Variables used</h3>
             @for (v of res.variablesUsed; track v.name) {
-              <div class="rl-row" style="padding: 2px 0"><span class="rl-mono">{{ '{{' + v.name + '}}' }}</span><span>{{ v.value }}</span></div>
+              <div class="rl-row" style="padding: 2px 0"><span class="rl-mono">{{ '{{' + v.name + '}}' }}</span><span>{{ mask(v.value) }}</span></div>
             } @empty {
               <div class="rl-faint">None.</div>
             }
@@ -230,7 +233,7 @@
           <div class="rl-sect">
             <h3>Variables produced</h3>
             @for (v of res.variablesProduced; track v.name) {
-              <div class="rl-row" style="padding: 2px 0"><span class="rl-mono">{{ '{{' + v.name + '}}' }}</span><span>{{ v.value }}</span></div>
+              <div class="rl-row" style="padding: 2px 0"><span class="rl-mono">{{ '{{' + v.name + '}}' }}</span><span>{{ mask(v.value) }}</span></div>
             } @empty {
               <div class="rl-faint">None.</div>
             }
@@ -285,7 +288,7 @@
         <div class="rl-sect">
           @for (entry of log(); track $index) {
             <div class="rl-row" style="padding: 2px 0; font-size: 12px">
-              <span class="rl-faint">{{ entry.at }}</span><span class="rl-mono">{{ entry.kind }}</span><span>{{ entry.message }}</span>
+              <span class="rl-faint">{{ entry.at }}</span><span class="rl-mono">{{ entry.kind }}</span><span>{{ mask(entry.message) }}</span>
             </div>
           } @empty {
             <div class="rl-faint">Nothing logged for this step.</div>

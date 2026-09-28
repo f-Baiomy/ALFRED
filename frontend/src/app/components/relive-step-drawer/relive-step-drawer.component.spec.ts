@@ -220,5 +220,28 @@ describe('ReliveStepDrawerComponent', () => {
       expect(fixture.componentInstance.comparePhase()).toBe('request');
       expect(fixture.componentInstance.compareInterception()?.originalRequest?.body).toContain('DXB');
     });
+
+    it('T063: masks a secret variable value on the Overview quick look until Reveal is clicked', () => {
+      fixture.componentRef.setInput(
+        'result',
+        makeResult({ actualResponse: { status: 200, headers: {}, body: '{"results":11,"token":"eyJhbGciOi9f2"}' } }),
+      );
+      fixture.componentRef.setInput('secretNames', ['token']);
+      fixture.componentRef.setInput('variableValues', { token: 'eyJhbGciOi9f2' });
+      fixture.detectChanges();
+
+      let text = fixture.nativeElement.textContent;
+      expect(text).toContain('Reveal secrets');
+      expect(text).not.toContain('eyJhbGciOi9f2');
+      expect(text).toContain('•••');
+
+      fixture.componentInstance.toggleReveal();
+      fixture.detectChanges();
+      text = fixture.nativeElement.textContent;
+      expect(text).toContain('eyJhbGciOi9f2');
+
+      fixture.componentInstance.close();
+      expect(fixture.componentInstance.revealed()).toBeFalse();
+    });
   });
 });

@@ -2,6 +2,7 @@ import { DestroyRef, Component, computed, inject, input, output, signal } from '
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
 import { PausedCall } from '../../core/models/interception.model';
+import { maskRelive } from '../../shared/utils/relive-mask';
 import { CycleVariable, Run, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 
 type Filter = 'all' | 'running' | 'diff' | 'failed' | 'live' | 'replayed';
@@ -225,11 +226,19 @@ export class ReliveRunTimelineComponent {
     const p = this.pause();
     const row = this.pausedRow();
     if (!p || !row) return '';
-    if (p.at === 'BEFORE') return row.step.recording.requestBody ?? '';
-    try {
-      return JSON.stringify(row.result.actualResponse, null, 2) ?? '';
-    } catch {
-      return String(row.result.actualResponse ?? '');
-    }
+    const text =
+      p.at === 'BEFORE'
+        ? (row.step.recording.requestBody ?? '')
+        : (() => {
+            try {
+              return JSON.stringify(row.result.actualResponse, null, 2) ?? '';
+            } catch {
+              return String(row.result.actualResponse ?? '');
+            }
+          })();
+    const secretNames = this.variableDefs()
+      .filter((v) => v.secret)
+      .map((v) => v.name);
+    return maskRelive(text, secretNames, this.variables());
   }
 }

@@ -4,6 +4,7 @@ import { CallInterception, OriginalHttp, RuleAction } from '../../core/models/in
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
 import { applyMode, checkpointOf, modeOf, onRequestChangedOf, setCheckpoint } from '../../shared/utils/relive-call-rule';
 import { ActionLine, HostCardInfo, describeAction, hostCard } from '../../shared/utils/relive-call-rule-describe';
+import { maskRelive } from '../../shared/utils/relive-mask';
 import { LogEntry, OnRequestChanged, Step, StepMode, StepResult } from '../../shared/utils/relive-types';
 
 type DrawerTab = 'configure' | 'request' | 'response' | 'extract' | 'overview' | 'effective' | 'actual' | 'rules' | 'log' | 'compare';
@@ -67,9 +68,16 @@ export class ReliveStepDrawerComponent {
   /** The run's own log, filtered to this step's key by the caller (or passed unfiltered - `log()`
    *  filters again defensively). */
   readonly runLog = input<readonly LogEntry[]>([]);
+  /** The cycle's own secret variable names and current values (FR-022a) - `mask()` replaces every
+   *  occurrence of one of these values with '•••', on top of the existing global redaction rules. */
+  readonly secretNames = input<readonly string[]>([]);
+  readonly variableValues = input<Readonly<Record<string, string>>>({});
 
   private readonly explicitTab = signal<DrawerTab | null>(null);
   readonly tab = computed<DrawerTab>(() => this.explicitTab() ?? (this.result() ? 'overview' : 'configure'));
+
+  /** Per-view reveal (FR-022): never saved, resets when the drawer closes. */
+  readonly revealed = signal(false);
 
   readonly log = computed(() => this.runLog().filter((e) => e.stepKey === this.step().key));
 
@@ -82,12 +90,21 @@ export class ReliveStepDrawerComponent {
     const rec = this.step().recording;
     return {
       applied: [],
-      originalRequest: { method: rec.method, url: rec.url, headers: rec.requestHeaders, body: rec.requestBody ?? '' },
-      originalResponse: { status: rec.status, headers: rec.responseHeaders, body: rec.responseBody ?? '' },
-      finalRequest: toOriginalHttp(res.actualRequest),
-      finalResponse: toOriginalHttp(res.actualResponse),
+      originalRequest: this.maskHttp({ method: rec.method, url: rec.url, headers: rec.requestHeaders, body: rec.requestBody ?? '' }),
+      originalResponse: this.maskHttp({ status: rec.status, headers: rec.responseHeaders, body: rec.responseBody ?? '' }),
+      finalRequest: this.maskHttp(toOriginalHttp(res.actualRequest)),
+      finalResponse: this.maskHttp(toOriginalHttp(res.actualResponse)),
     };
   });
+
+  private maskHttp(http: OriginalHttp | null): OriginalHttp | null {
+    if (!http) return null;
+    return {
+      ...http,
+      headers: Object.fromEntries(Object.entries(http.headers ?? {}).map(([name, value]) => [name, this.mask(value)])),
+      body: http.body ? this.mask(http.body) : http.body,
+    };
+  }
 
   setComparePhase(phase: 'request' | 'response'): void {
     this.comparePhase.set(phase);
@@ -184,7 +201,17 @@ export class ReliveStepDrawerComponent {
   }
 
   close(): void {
+    this.revealed.set(false);
     this.closed.emit();
+  }
+
+  toggleReveal(): void {
+    this.revealed.set(!this.revealed());
+  }
+
+  mask(text: string): string {
+    if (this.revealed()) return text;
+    return maskRelive(text, this.secretNames(), this.variableValues());
   }
 }
 
