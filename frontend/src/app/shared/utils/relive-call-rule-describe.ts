@@ -4,6 +4,7 @@
  * around it (T037) are what call into `relive-call-rule.ts`.
  */
 import { ACTION_LABELS, RuleAction } from '../../core/models/interception.model';
+import { RecordedCallPreview } from './recorded-call-match';
 
 export interface ActionLine {
   readonly title: string;
@@ -22,10 +23,22 @@ function isOurCondition(action: RuleAction): boolean {
   return branches.length === 1 && branches[0].conditions.length === 1 && branches[0].conditions[0].subject === 'RECORDED_CALL';
 }
 
-function conditionDetail(action: RuleAction): string {
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));
+}
+
+function matchPhrase(preview: RecordedCallPreview | null): string {
+  if (!preview) {
+    return 'matches the recorded call\'s <b>URL, method, headers</b> (not auto-generated) and <b>body</b> (JSON or SOAP; spacing ignored)';
+  }
+  const headers = preview.headerNames.length ? preview.headerNames.join(', ') : 'none';
+  return `matches <b>${escapeHtml(preview.method)} ${escapeHtml(preview.url)}</b>, headers <b>${escapeHtml(headers)}</b> (not auto-generated), and the body (${escapeHtml(preview.bodyNote)})`;
+}
+
+function conditionDetail(action: RuleAction, preview: RecordedCallPreview | null): string {
   const otherwise = action.otherwise ?? [];
   const first = otherwise[0];
-  const branchWord = 'if the request <b>as it is at this point</b> (after the edits above) <b>matches the recorded call</b> (ignoring noise) → continue';
+  const branchWord = `if the request <b>as it is at this point</b> (after the edits above) ${matchPhrase(preview)} → continue`;
   if (!first) {
     return `${branchWord} → otherwise → <b>replay the recording anyway</b>`;
   }
@@ -38,7 +51,7 @@ function conditionDetail(action: RuleAction): string {
   return `${branchWord} → otherwise → <b>Mock response ${first.status ?? 502} (failure) - host never contacted</b>`;
 }
 
-export function describeAction(action: RuleAction): ActionLine {
+export function describeAction(action: RuleAction, preview: RecordedCallPreview | null = null): ActionLine {
   const on = action.enabled !== false;
   const title = ACTION_LABELS[action.type] ?? action.type;
 
@@ -48,7 +61,7 @@ export function describeAction(action: RuleAction): ActionLine {
     return { title, detail, on };
   }
   if (isOurCondition(action)) {
-    return { title, detail: conditionDetail(action), on };
+    return { title, detail: conditionDetail(action, preview), on };
   }
   if (action.type === 'PAUSE_REQUEST' || action.type === 'PAUSE_RESPONSE') {
     return { title, detail: `hold up to ${action.timeoutSeconds ?? 30} s`, on };

@@ -12,6 +12,14 @@ import java.util.List;
  */
 public interface NewInternalCallObserverPort {
 
-    /** Fired only on completion (this slice has no two-phase capture concept) - a recording session-cycle decides fresh at this point whether to capture the call, exactly like backend-calls' file-mode adapter does. @return ids of every session-cycle that captured this call. */
+    /**
+     * Fired after the request is persisted but before the reverse proxy forwards it upstream.
+     * Implementations that only need a completed response can ignore this phase.
+     */
+    default void onCallPrepared(CallRecord call) {
+        // Completion-only observers retain their existing behaviour.
+    }
+
+    /** A recording session-cycle decides fresh on completion whether to capture the call. @return ids of every session-cycle that captured this call. */
     List<String> onCallCompleted(CallRecord call);
 }

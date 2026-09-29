@@ -48,6 +48,7 @@ import {
   isActionEnabled,
   isTerminalAction,
 } from '../../core/models/interception.model';
+import { RecordedCallPreview } from '../../shared/utils/recorded-call-match';
 import { GlobalVariablesService } from '../../core/services/global-variables.service';
 import { VARIABLE_NAME } from '../../shared/utils/variable-tokens';
 import { CallRuleDraft } from '../../core/services/rule-draft.service';
@@ -440,6 +441,8 @@ export class RuleEditorComponent implements OnInit {
    * conditions and every other part of the form are identical in all four.
    */
   @Input() scope: 'GLOBAL' | 'CYCLE' | 'CALL' | 'UNEXPECTED' = 'GLOBAL';
+  /** The step's frozen request, so a recorded-call condition shows URL, headers and body instead of a step id. */
+  @Input() recordedCallPreview: RecordedCallPreview | null = null;
   @Input() reliveVariableHints: readonly { name: string; secret: boolean }[] = [];
   reliveVariableHintsJson(): string {
     if (this.scope === 'GLOBAL') return '[]';
@@ -1225,6 +1228,9 @@ export class RuleEditorComponent implements OnInit {
 
   /** The operators this condition may use - JSON-only ones only on a JSON field, and none an item mode would contradict. */
   conditionOperatorOptions(condition: Condition): readonly SelectOption[] {
+    if (condition.subject === 'RECORDED_CALL') {
+      return [{ value: 'MATCHES', label: 'matches' }];
+    }
     const json = this.isJsonCondition(condition);
     const moded = json && (condition.items === 'ALL' || condition.items === 'NONE');
     return OPERATOR_OPTIONS.filter((o) => {
@@ -1605,6 +1611,16 @@ export class RuleEditorComponent implements OnInit {
 
   recordedCallCompareHeaders(condition: Condition): boolean {
     return condition.headers === true;
+  }
+
+  /** URL, stable header names, and body note for the condition row. */
+  recordedCallCriteria(): string {
+    const preview = this.recordedCallPreview;
+    if (!preview) {
+      return 'URL, method, headers that are not auto-generated, and the body (JSON or SOAP; spacing ignored)';
+    }
+    const headers = preview.headerNames.length ? preview.headerNames.join(', ') : 'none';
+    return `${preview.method} ${preview.url}\nheaders: ${headers}\nbody: ${preview.bodyNote}`;
   }
 
   setRecordedCallCompareHeaders(path: readonly number[], branchIndex: number, conditionIndex: number, compare: boolean): void {

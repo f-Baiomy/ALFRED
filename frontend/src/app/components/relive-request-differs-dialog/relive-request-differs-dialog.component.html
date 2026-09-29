@@ -7,7 +7,7 @@
           @if (reason()) {
             {{ reason() }}
           }
-          Compared <b>after your edits</b>, ignoring noise. Written into the call rule as a Condition.
+          Compared <b>after your edits</b>: URL, method, headers that are not auto-generated, and the body. JSON and SOAP match with or without spacing. Written into the call rule as a Condition.
         </p>
         @for (choice of choices; track choice.value) {
           <button

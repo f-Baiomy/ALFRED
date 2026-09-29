@@ -18,7 +18,10 @@ public interface ObserveRunCallUseCase {
     /** An outbound call settled - removes it from {@code inflight.json}, draining a STOPPING run if it was the last one. */
     void onOutboundCallCompleted(ObservedCall call);
 
-    /** An inbound call settled (backend-internal-calls has no two-phase capture concept). */
+    /** An inbound call was persisted before the reverse proxy forwards it to the application. */
+    void onInboundCallPrepared(ObservedCall call);
+
+    /** An inbound call settled. */
     void onInboundCallCompleted(ObservedCall call);
 
     /**

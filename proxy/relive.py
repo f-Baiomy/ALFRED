@@ -12,6 +12,7 @@ reach the real supplier without an explicit human "yes". When in doubt, this mod
 _guard_replay, _match_unattributed_all's STOPPING branch, and force_failure_mock.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -183,13 +184,46 @@ def _is_stopping(run):
     return (run.get('state') or '').upper() == 'STOPPING'
 
 
+def _walk_steps(steps):
+    for step in steps or []:
+        yield step
+        yield from _walk_steps(step.get('children'))
+
+
 def _find_step(run, step_key):
+    """A step anywhere in the tree. A child can itself be an inbound call with children."""
     if not step_key:
         return None
-    for step in run.get('steps') or []:
+    for step in _walk_steps(run.get('steps')):
         if step.get('stepKey') == step_key:
             return step
     return None
+
+
+def _parent_keys(run):
+    parents = {}
+
+    def walk(step, parent_key):
+        key = step.get('stepKey')
+        if key:
+            parents[key] = parent_key
+        for child in step.get('children') or []:
+            walk(child, key)
+
+    for step in run.get('steps') or []:
+        walk(step, None)
+    return parents
+
+
+def _is_under(parents, ancestor, key):
+    current = parents.get(key)
+    seen = set()
+    while current and current not in seen:
+        if current == ancestor:
+            return True
+        seen.add(current)
+        current = parents.get(current)
+    return False
 
 
 def _child_match_raw(child):
@@ -202,6 +236,23 @@ def _child_match_raw(child):
 def _match_signature(child):
     return json.dumps(_child_match_raw(child) or {}, sort_keys=True)
 
+
+def _is_replay_step(step_entry):
+    """A child answers from the recording.
+
+    A current snapshot has no mode field: an enabled MOCK_RESPONSE is the replay. An older
+    child (and the proxy tests) still set mode REPLAY and answer with ANSWER_WITH_FILE, which
+    has no MOCK_RESPONSE of its own. Either signal means a missing answer must block, never
+    fall through to the real host.
+    """
+    if not isinstance(step_entry, dict):
+        return False
+    if str(step_entry.get('mode') or '').upper() == 'REPLAY':
+        return True
+    rule = step_entry.get('callRule')
+    actions = rule.get('actions') if isinstance(rule, dict) else []
+    return any(isinstance(action, dict) and action.get('type') == 'MOCK_RESPONSE'
+               and action.get('enabled') is not False for action in (actions or []))
 
 def _request_host_path(flow):
     request = flow.request
@@ -258,7 +309,7 @@ def _runs_with_matching_outbound_child(flow, source, service_name, active_runs):
     request, host, path = _request_host_path(flow)
     ids = set()
     for run_id, run in active_runs.items():
-        for step in run.get('steps') or []:
+        for step in _walk_steps(run.get('steps')):
             for child in step.get('children') or []:
                 match_raw = _child_match_raw(child)
                 if not match_raw:
@@ -274,6 +325,48 @@ def _runs_with_matching_outbound_child(flow, source, service_name, active_runs):
                 continue
             break
     return ids
+
+
+def _inflight_entries(runs, service_name):
+    """In-flight calls that can own this request.
+
+    A project-specific listener uses that project's own entries. A call on the shared
+    listener has no project name, and an inbound child arrives on its own project, which
+    is not the project of the call that caused it. Either way the recorded tree is what
+    relates them: every in-flight step is a candidate, and the deepest one wins.
+    X-Operation-Id is not required — the application does not always forward it.
+    """
+    if service_name:
+        scoped = runs.inflight_for(service_name)
+        if scoped:
+            return scoped
+    else:
+        runs.refresh()
+    entries = []
+    for project_entries in (runs._inflight or {}).values():
+        if isinstance(project_entries, list):
+            entries.extend(entry for entry in project_entries if isinstance(entry, dict))
+    return entries
+
+
+def _deepest_inflight_entry(run, entries):
+    """The in-flight step that is not an ancestor of another in-flight step of this run.
+
+    odeysys containing core-service is one chain: the supplier call belongs to
+    core-service, the same way the frontend's call tree picks the innermost owner.
+    Two in-flight steps that do not contain each other are ambiguous.
+    """
+    parents = _parent_keys(run)
+    by_key = {}
+    for entry in entries:
+        key = entry.get('stepKey')
+        if key:
+            by_key[key] = entry
+    keys = list(by_key)
+    leaves = [key for key in keys if not any(_is_under(parents, key, other) for other in keys if other != key)]
+    if len(leaves) != 1:
+        return None
+    return by_key[leaves[0]]
 
 
 def attribute(flow, source, service_name, backend_addresses, runs=None):
@@ -298,19 +391,26 @@ def attribute(flow, source, service_name, backend_addresses, runs=None):
         # see ReliveRuns.refresh, which already made that cheap.
         return AttributionResult('UNATTRIBUTED')
 
-    entries = runs.inflight_for(service_name) if service_name else []
+    entries = _inflight_entries(runs, service_name)
     with_run = [e for e in entries if e.get('runId') in active]
     in_flight_run_ids = {e['runId'] for e in with_run}
 
+    if len(in_flight_run_ids) > 1:
+        return AttributionResult('AMBIGUOUS', ambiguous_run_ids=sorted(in_flight_run_ids))
+
+    if len(in_flight_run_ids) == 1:
+        # The supplier call belongs to the inbound that is in flight. Its outbound children
+        # are compared below; the rest of the cycle is not scanned.
+        run_id = next(iter(in_flight_run_ids))
+        run = active[run_id]
+        chosen = _deepest_inflight_entry(run, [e for e in with_run if e.get('runId') == run_id])
+        if chosen is None:
+            return AttributionResult('AMBIGUOUS', ambiguous_run_ids=[run_id])
+        return AttributionResult('INFLIGHT', run, chosen.get('stepKey'))
+
     matching_run_ids = _runs_with_matching_outbound_child(flow, source, service_name, active)
-
-    if len(in_flight_run_ids) > 1 or len(matching_run_ids) > 1:
-        ambiguous = sorted(in_flight_run_ids | matching_run_ids)
-        return AttributionResult('AMBIGUOUS', ambiguous_run_ids=ambiguous)
-
-    if len(with_run) == 1:
-        entry = with_run[0]
-        return AttributionResult('INFLIGHT', active[entry['runId']], entry.get('stepKey'))
+    if len(matching_run_ids) > 1:
+        return AttributionResult('AMBIGUOUS', ambiguous_run_ids=sorted(matching_run_ids))
 
     return AttributionResult('UNATTRIBUTED')
 
@@ -323,9 +423,9 @@ def _match_unattributed_all(flow, source, service_name, runs):
     request, host, path = _request_host_path(flow)
     found = []
     for run in runs.active_runs().values():
-        for step in run.get('steps') or []:
+        for step in _walk_steps(run.get('steps')):
             for child in step.get('children') or []:
-                if (child.get('mode') or '').upper() != 'REPLAY':
+                if not _is_replay_step(child):
                     continue
                 match_raw = _child_match_raw(child)
                 if not match_raw:
@@ -339,50 +439,205 @@ def _match_unattributed_all(flow, source, service_name, runs):
     return found
 
 
-def match_child(flow, source, service_name, run, parent_step_key, runs, consume=True):
-    """The run's child (of the step in flight) this outbound call matches, by endpoint + order
-    (research D3): among the children whose match tests hold, the one whose recorded `ordinal`
-    equals the Nth time (within this run, this parent step, this endpoint) a matching call has
-    arrived. None when no child matches at all, or every matching child's ordinal has already
-    been used up (an unexpected extra call - FR-014f).
+def _child_is_inbound(child):
+    direction = (child.get('direction') or '').lower()
+    if direction == 'inbound':
+        return True
+    if direction == 'outbound':
+        return False
+    source = ((_child_match_raw(child) or {}).get('source') or '').lower()
+    return source == 'inbound'
 
-    `consume=False` peeks (used while a run is STOPPING, so the ordinal counters used by later,
-    still-RUNNING calls aren't disturbed by a call that is about to be blocked outright).
+
+def _outbound_candidates(step):
+    """Outbound calls that belong to this inbound, and not to any other step in the cycle.
+
+    Direct outbound children, plus the outbound calls under a nested inbound (a supplier
+    behind an inbound child). A nested inbound is not itself a candidate: it is claimed on
+    the reverse proxy, and while it is the in-flight step its own children are the set.
+    """
+    found = []
+
+    def walk(node):
+        for child in node.get('children') or []:
+            if _child_is_inbound(child):
+                walk(child)
+            else:
+                found.append(child)
+                if child.get('children'):
+                    walk(child)
+
+    walk(step)
+    return found
+
+
+def _live_endpoint(request):
+    try:
+        query = getattr(request, 'query', None) or {}
+    except Exception:
+        query = {}
+    return interception.canonical_endpoint(
+        getattr(request, 'method', None),
+        getattr(request, 'scheme', None),
+        getattr(request, 'pretty_host', None) or getattr(request, 'host', None),
+        getattr(request, 'path', None),
+        query,
+    )
+
+
+def _child_endpoint(child):
+    """The recorded URL, or None when this child only has a loose path/host match."""
+    rec = child.get('recordedRequest') if isinstance(child.get('recordedRequest'), dict) else {}
+    path = rec.get('path') or ''
+    if not path:
+        return None
+    match = _child_match_raw(child) or {}
+    method = rec.get('method') or ((match.get('methods') or [None])[0])
+    host = rec.get('host') or ''
+    if not host:
+        raw_host = match.get('host') or ''
+        host = '' if '*' in raw_host else raw_host
+    return interception.canonical_endpoint(method, rec.get('scheme'), host, path, rec.get('query') or '')
+
+
+def _recorded_answer_id(child):
+    rule = child.get('callRule') if isinstance(child.get('callRule'), dict) else None
+    for action in (rule or {}).get('actions') or []:
+        if not isinstance(action, dict) or action.get('type') != 'IF_REQUEST':
+            continue
+        for branch in action.get('branches') or []:
+            for cond in (branch or {}).get('conditions') or []:
+                if str((cond or {}).get('subject') or '').upper() == 'RECORDED_CALL':
+                    answer_id = str((cond or {}).get('answerId') or '').strip()
+                    if answer_id:
+                        return answer_id
+    return None
+
+
+def _recorded_for_child(child, runs, run):
+    """The child's recorded request, indexed once. None when this child has no body on file
+    — the caller then keeps the host/path match and lets the call rule decide."""
+    answer_id = _recorded_answer_id(child)
+    if answer_id:
+        recorded = interception._load_recorded_request(_relive_answers_dir(run.get('runId'), runs), answer_id)
+        if recorded:
+            return recorded
+    rec = child.get('recordedRequest') if isinstance(child.get('recordedRequest'), dict) else None
+    if rec and ('body' in rec or 'headers' in rec):
+        cached = rec.get('body_canonical')
+        if cached is None:
+            interception.index_recorded_request(rec)
+        return rec
+    return None
+
+
+def _same_recorded_request(request, recorded, cache):
+    """Stable headers and canonical body. The live side is parsed once per request (`cache`)."""
+    if 'headers' not in cache:
+        cache['headers'] = interception.stable_header_items(getattr(request, 'headers', {}) or {})
+    recorded_headers = recorded.get('stable_headers')
+    if recorded_headers is None:
+        recorded_headers = interception.stable_header_items(recorded.get('headers') or {})
+    if cache['headers'] != recorded_headers:
+        return False
+    if 'body' not in cache:
+        cache['body'] = interception.canonical_body(interception._body(request) or '')
+    recorded_body = recorded.get('body_canonical')
+    if recorded_body is None:
+        recorded_body = interception.canonical_body(recorded.get('body') or '')
+    return cache['body'] == recorded_body
+
+
+def _fingerprint(recorded, endpoint):
+    token = recorded.get('_fp')
+    if token:
+        return token
+    digest = hashlib.sha256()
+    digest.update(repr(endpoint).encode('utf-8'))
+    digest.update(b'\0')
+    digest.update(repr(recorded.get('stable_headers')).encode('utf-8'))
+    digest.update(b'\0')
+    digest.update((recorded.get('body_canonical') or '').encode('utf-8'))
+    token = digest.hexdigest()
+    recorded['_fp'] = token
+    return token
+
+
+def _legacy_child_match(child, source, service_name, request, host, path):
+    match_raw = _child_match_raw(child)
+    if not match_raw:
+        return False
+    try:
+        return interception.Match(match_raw).matches(
+            source, service_name, request.method, host, path, request, None)
+    except Exception:
+        return False
+
+
+def _take_ordinal(by_signature, run_id, parent_step_key, runs, consume):
+    """The next unused child in a fingerprint group.
+
+    Children that share a fingerprint are the same call recorded more than once, so they are
+    taken in ordinal order. A child whose body differs is a different group and is not blocked
+    by a sibling's ordinal.
+    """
+    for signature, children in by_signature.items():
+        ordered = sorted(children, key=lambda child: child.get('ordinal') or 1)
+        key = (run_id, parent_step_key, signature)
+        used = runs._ordinals.get(key, 0)
+        if used < len(ordered):
+            if consume:
+                runs._ordinals[key] = used + 1
+            return ordered[used]
+    if by_signature and consume:
+        first_key = (run_id, parent_step_key, next(iter(by_signature)))
+        runs._ordinals[first_key] = runs._ordinals.get(first_key, 0) + 1
+    return None
+
+
+def match_child(flow, source, service_name, run, parent_step_key, runs, consume=True):
+    """The outbound child of the in-flight inbound this call matches.
+
+    Only that inbound's outbound children are considered — never every outbound call in the
+    cycle. A child that carries a recorded request matches on URL, method, the headers the
+    application set, and a canonical body (JSON or SOAP, whitespace and key order ignored).
+    The live body is parsed once. Each recorded body was canonicalized when its answer was
+    loaded, so the hot path is a string compare against that small set.
+
+    A child with no recorded request keeps the host/path match. `consume=False` peeks.
     """
     step = _find_step(run, parent_step_key)
     if step is None:
         return None
     request, host, path = _request_host_path(flow)
+    live_ep = _live_endpoint(request)
     run_id = run.get('runId')
-
+    cache = {}
     by_signature = {}
-    for child in step.get('children') or []:
-        match_raw = _child_match_raw(child)
-        if not match_raw:
-            continue
-        try:
-            if not interception.Match(match_raw).matches(
-                    source, service_name, request.method, host, path, request, None):
-                continue
-        except Exception:
-            continue
-        by_signature.setdefault(_match_signature(child), []).append(child)
+    endpoint_only = []
 
-    for signature, children in by_signature.items():
-        key = (run_id, parent_step_key, signature)
-        count = runs._ordinals.get(key, 0) + 1
-        for child in children:
-            if (child.get('ordinal') or 1) == count:
-                if consume:
-                    runs._ordinals[key] = count
-                return child
+    for child in _outbound_candidates(step):
+        recorded_ep = _child_endpoint(child)
+        if recorded_ep is None:
+            if _legacy_child_match(child, source, service_name, request, host, path):
+                by_signature.setdefault(_match_signature(child), []).append(child)
+            continue
+        if not interception.endpoints_match(live_ep, recorded_ep):
+            continue
+        recorded = _recorded_for_child(child, runs, run)
+        if recorded is not None and not _same_recorded_request(request, recorded, cache):
+            endpoint_only.append(child)
+            continue
+        signature = _fingerprint(recorded, recorded_ep) if recorded is not None else _match_signature(child)
+        by_signature.setdefault(signature, []).append(child)
 
-    if by_signature and consume:
-        # At least one endpoint group matched, but its ordinals are all spoken for - one call
-        # more than the recording had. Recorded against the first group so a LATER extra call
-        # doesn't reuse the same slot - see the module docstring's unexpected-call test.
-        first_key = (run_id, parent_step_key, next(iter(by_signature)))
-        runs._ordinals[first_key] = runs._ordinals.get(first_key, 0) + 1
+    chosen = _take_ordinal(by_signature, run_id, parent_step_key, runs, consume)
+    if chosen is not None:
+        return chosen
+    # Same URL as exactly one child, but the body or headers differ: hand it to that child's
+    # call rule, whose "request differs" branch answers instead of the real host.
+    if len(endpoint_only) == 1 and not by_signature:
+        return endpoint_only[0]
     return None
 
 
@@ -517,7 +772,7 @@ def _guard_replay(verdict, step_entry, run_id, step_key):
     ordinary rules, where "let the real call happen" is the safe reading. For a REPLAY step it is
     the opposite: nothing terminal after running its own call rule means its mock or its recorded
     answer could not be produced, so this is the point that turns "fell through" into "blocked"."""
-    if (step_entry.get('mode') or '').upper() != 'REPLAY':
+    if not _is_replay_step(step_entry):
         return
     if verdict.terminal:
         return

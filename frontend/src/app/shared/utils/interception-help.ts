@@ -668,9 +668,9 @@ export const SUBJECT_HELP: Readonly<Record<ConditionSubject, HelpEntry>> = {
   RECORDED_CALL: {
     title: 'Recorded call',
     code: 'RECORDED_CALL',
-    what: 'Relive only: true when the request at this point matches the step\'s own frozen recording, ignoring noise fields.',
+    what: 'Relive only: true when this request\'s URL, method, headers that are not auto-generated, and body match the step\'s frozen recording. JSON and SOAP match whether or not they are pretty-printed.',
     examples: [
-      { from: 'matches, ignoring body.requestTime', to: 'the app sent the same call it recorded, aside from a timestamp' },
+      { from: 'POST https://supplier/search + Content-Type + the body', to: 'the same call, compact or pretty-printed' },
     ],
     warning: 'Only meaningful inside a Relive call rule\'s request-differs condition.',
   },

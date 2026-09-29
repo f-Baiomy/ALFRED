@@ -26,6 +26,7 @@ import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
 import { reliveVariableNames } from '../../shared/utils/relive-variable-names';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
 import { ReliveRuleDialogService } from './relive-rule-dialog.service';
+import { recordedCallPreviewOf } from '../../shared/utils/recorded-call-match';
 
 type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
 
@@ -136,6 +137,15 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
       ruleDraft = req.targetKey !== null ? (draft.unexpectedCalls.rules[Number(req.targetKey)] ?? null) : null;
     }
     return { ruleId: null, draft: ruleDraft ?? { name: '', match: {}, actions: [] }, answerPath: [] };
+  });
+
+  /** The open call rule's frozen request, so the condition row shows URL, headers and body. */
+  readonly callRulePreview = computed(() => {
+    const req = this.ruleDialog.request();
+    const draft = this.state.draft();
+    if (!req || req.scope !== 'CALL' || !draft) return null;
+    const step = draft.steps.find((s) => s.key === req.targetKey);
+    return recordedCallPreviewOf(step?.recording);
   });
 
   openCallRule(stepKey: string): void {

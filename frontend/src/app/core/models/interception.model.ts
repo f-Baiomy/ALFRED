@@ -851,6 +851,9 @@ export function isConditionalAction(type: ActionType): boolean {
 
 /** "request header x-api-key does not exist" - the plain-language form, used in the editor and the log. */
 export function describeCondition(condition: Condition): string {
+  if (condition.subject === 'RECORDED_CALL') {
+    return 'Recorded call matches URL, method, stable headers and body';
+  }
   const subject = SUBJECT_LABELS[condition.subject] ?? condition.subject;
   const fields = [condition.name, ...(condition.paths ?? [])].filter((p): p is string => !!p);
   const joined = fields.length > 1 ? `${condition.pathsMode === 'ALL' ? 'all of' : 'any of'} ${fields.join(', ')}` : fields[0] ?? '';

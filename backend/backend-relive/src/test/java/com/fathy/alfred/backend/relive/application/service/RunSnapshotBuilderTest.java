@@ -99,6 +99,20 @@ class RunSnapshotBuilderTest {
     }
 
     @Test
+    void defaultChildMatchUsesAPythonCompatibleLiteralPathRegex() throws Exception {
+        Step root = child("s-search", null, recording("https://app.local/search", "POST", "{}"), objectMapper.createObjectNode());
+        Step outbound = child("c-supplier", "s-search",
+                recording("https://api.supplier.test/api/search.v1+next", "POST", "{}"),
+                objectMapper.createObjectNode());
+
+        JsonNode snapshot = builder.build(run(cycle(List.of(root, outbound), new GlobalRulesSelection("NONE", List.of()), List.of())));
+
+        String pathRegex = snapshot.path("steps").get(0).path("children").get(0).path("match").path("pathRegex").asText();
+        assertThat(pathRegex).isEqualTo("^/api/search\\.v1\\+next$");
+        assertThat(pathRegex).doesNotContain("\\Q", "\\E");
+    }
+
+    @Test
     void secretVariableNamesAreListed() throws Exception {
         Step root = child("s-search", null, recording("https://app.local/search", "POST", "{}"), objectMapper.createObjectNode());
         ReliveCycle cycle = cycleWithVariables(List.of(root),
@@ -172,6 +186,37 @@ class RunSnapshotBuilderTest {
         String answerId = condition.get("answerId").asText();
         assertThat(writtenAnswers).containsKey(answerId);
         assertThat(writtenAnswers.get(answerId)[1].asText()).isEqualTo("{\"origin\":\"DXB\"}");
+        JsonNode recorded = snapshot.get("steps").get(0).get("children").get(0).get("recordedRequest");
+        assertThat(recorded.get("host").asText()).isEqualTo("api.supplier-a.com");
+        assertThat(recorded.get("scheme").asText()).isEqualTo("https");
+        assertThat(recorded.get("path").asText()).isEqualTo("/v2/search");
+        assertThat(writtenAnswers.get(answerId)[0].get("host").asText()).isEqualTo("api.supplier-a.com");
+    }
+
+    @Test
+    void nestedInboundKeepsItsOwnOutboundChild() throws Exception {
+        Step root = child("s-search", null, recording("https://app.local/search", "POST", "{}"), objectMapper.createObjectNode());
+        FrozenCall innerCall = new FrozenCall("POST", "http://core.local/search", Map.of(), "{}", 200, Map.of(), "{}",
+                "2026-09-27T10:00:00Z", 300, null, null, "core", "inbound");
+        Step inner = new Step("s-core", "s-search", "core", true, false, "inbound", "core",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", innerCall,
+                new StepSource("s-core", null, "inbound"),
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+        Step supplier = child("c-supplier", "s-core",
+                recording("https://ndc.example/api/FlightSearch/Search", "POST", "{\"a\":1}"),
+                objectMapper.createObjectNode());
+
+        JsonNode snapshot = builder.build(run(cycle(List.of(root, inner, supplier), new GlobalRulesSelection("NONE", List.of()), List.of())));
+
+        JsonNode core = snapshot.get("steps").get(0).get("children").get(0);
+        assertThat(core.get("direction").asText()).isEqualTo("inbound");
+        assertThat(core.get("match").get("source").asText()).isEqualTo("inbound");
+        JsonNode outbound = core.get("children").get(0);
+        assertThat(outbound.get("stepKey").asText()).isEqualTo("c-supplier");
+        assertThat(outbound.get("direction").asText()).isEqualTo("outbound");
+        assertThat(outbound.get("recordedRequest").get("host").asText()).isEqualTo("ndc.example");
+        assertThat(outbound.get("recordedRequest").get("path").asText()).isEqualTo("/api/FlightSearch/Search");
+        assertThat(snapshot.get("projects")).extracting(JsonNode::asText).contains("core", "odeysys");
     }
 
     private ReliveCycle cycle(List<Step> steps, GlobalRulesSelection globalRules, List<CycleVariable> variables) {

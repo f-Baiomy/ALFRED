@@ -84,29 +84,33 @@ BACKEND_ADDRESSES = interception.resolve_backend_addresses()
 _webhook_queue = queue.Queue()
 
 
+def _send_webhook(phase, call_id, data):
+    if phase == 'prepare':
+        url = f'{WEBHOOK_URL}/prepare'
+    elif phase == 'ws-messages':
+        url = f'{WEBHOOK_URL}/{call_id}/ws-messages'
+    else:
+        url = f'{WEBHOOK_URL}/{call_id}/complete'
+    timeout = PREPARE_TIMEOUT_SECONDS if phase == 'prepare' else WEBHOOK_TIMEOUT_SECONDS
+    try:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json',
+                'X-Webhook-Secret': WEBHOOK_SECRET,
+            },
+            method='POST',
+        )
+        urllib.request.urlopen(request, timeout=timeout)
+    except Exception as e:
+        print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: {e}")
+
+
 def _webhook_worker():
     while True:
         phase, call_id, data = _webhook_queue.get()
-        if phase == 'prepare':
-            url = f'{WEBHOOK_URL}/prepare'
-        elif phase == 'ws-messages':
-            url = f'{WEBHOOK_URL}/{call_id}/ws-messages'
-        else:
-            url = f'{WEBHOOK_URL}/{call_id}/complete'
-        timeout = PREPARE_TIMEOUT_SECONDS if phase == 'prepare' else WEBHOOK_TIMEOUT_SECONDS
-        try:
-            request = urllib.request.Request(
-                url,
-                data=json.dumps(data).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'X-Webhook-Secret': WEBHOOK_SECRET,
-                },
-                method='POST',
-            )
-            urllib.request.urlopen(request, timeout=timeout)
-        except Exception as e:
-            print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: {e}")
+        _send_webhook(phase, call_id, data)
 
 
 if WEBHOOK_URL:
@@ -231,7 +235,13 @@ class RouteAndLog:
         if relive_info:
             call_log['relive'] = relive_info
             call_log['reachedUpstream'] = reached_upstream
-        _webhook_queue.put_nowait(('prepare', call_id, call_log))
+        if relive_info and reached_upstream:
+            # The application can issue a supplier call as soon as this inbound request arrives.
+            # Register the parent with Relive before forwarding so that child is replayed instead
+            # of escaping as an unattributed real call.
+            await asyncio.to_thread(_send_webhook, 'prepare', call_id, call_log)
+        else:
+            _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
         await self._carry_out(flow, verdict, call_id, name)
 

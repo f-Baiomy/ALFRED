@@ -177,6 +177,7 @@
     <app-rule-editor
       [scope]="req.scope"
       [reliveVariableHints]="reliveVariableHints()"
+      [recordedCallPreview]="callRulePreview()"
       [snapshot]="ruleEditorSnapshot()"
       [target]="ruleEditorTarget"
       (closed)="ruleDialog.close()"

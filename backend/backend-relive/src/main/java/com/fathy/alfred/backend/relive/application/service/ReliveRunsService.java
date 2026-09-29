@@ -357,10 +357,26 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     }
 
     @Override
+    public void onInboundCallPrepared(ObservedCall call) {
+        if (handleAmbiguousIfPresent(call)) {
+            return;
+        }
+        JsonNode relive = call.relive();
+        String runId = runIdOf(relive);
+        if (runId == null) {
+            return;
+        }
+        // The app may issue an outbound child immediately after receiving this request. Publish
+        // its parent context before the reverse proxy forwards the inbound call upstream.
+        addInflightEntry(call.serviceName(), call.callId(), runId, stepKeyOf(relive));
+    }
+
+    @Override
     public void onInboundCallCompleted(ObservedCall call) {
         if (handleAmbiguousIfPresent(call)) {
             return;
         }
+        removeInflightEntry(call.callId());
         JsonNode relive = call.relive();
         if (runIdOf(relive) == null) {
             return;

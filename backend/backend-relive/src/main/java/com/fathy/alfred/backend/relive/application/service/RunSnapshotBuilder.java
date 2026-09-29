@@ -117,15 +117,7 @@ public class RunSnapshotBuilder {
             stepNode.set("callRule", resolveRecordedCallConditions(run.id(), topRule, top));
             ArrayNode childrenNode = stepNode.putArray("children");
             Map<String, Integer> counters = ordinalCounters.computeIfAbsent(top.key(), k -> new LinkedHashMap<>());
-            for (Step child : definition.steps()) {
-                if (!top.key().equals(child.parentKey())) {
-                    continue;
-                }
-                if (child.serviceName() != null) {
-                    projects.add(child.serviceName());
-                }
-                childrenNode.add(buildChild(run.id(), child, counters));
-            }
+            appendChildren(childrenNode, top.key(), definition.steps(), run.id(), counters, projects);
         }
         ArrayNode projectsNode = snapshot.putArray("projects");
         projects.forEach(projectsNode::add);
@@ -144,9 +136,24 @@ public class RunSnapshotBuilder {
         return snapshot;
     }
 
-    private ObjectNode buildChild(String runId, Step child, Map<String, Integer> counters) {
+    private void appendChildren(ArrayNode childrenNode, String parentKey, List<Step> all, String runId,
+                                 Map<String, Integer> counters, Set<String> projects) {
+        for (Step child : all) {
+            if (!parentKey.equals(child.parentKey())) {
+                continue;
+            }
+            if (child.serviceName() != null) {
+                projects.add(child.serviceName());
+            }
+            childrenNode.add(buildChild(runId, child, counters, all, projects));
+        }
+    }
+
+    private ObjectNode buildChild(String runId, Step child, Map<String, Integer> counters, List<Step> all,
+                                   Set<String> projects) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("stepKey", child.key());
+        node.put("direction", child.direction());
 
         String matchKey = matchKeyOf(child.recording());
         int ordinal = counters.merge(matchKey, 1, Integer::sum);
@@ -164,10 +171,22 @@ public class RunSnapshotBuilder {
         FrozenCall recording = child.recording();
         recordedRequest.put("method", recording.method());
         URI uri = safeUri(recording.url());
-        recordedRequest.put("path", uri == null ? recording.url() : uri.getPath());
-        recordedRequest.put("query", uri == null || uri.getQuery() == null ? "" : uri.getQuery());
+        putUrl(recordedRequest, uri, recording.url());
 
+        ArrayNode nested = node.putArray("children");
+        appendChildren(nested, child.key(), all, runId, new LinkedHashMap<>(), projects);
         return node;
+    }
+
+    private static void putUrl(ObjectNode target, URI uri, String rawUrl) {
+        if (uri != null && uri.getScheme() != null) {
+            target.put("scheme", uri.getScheme());
+        }
+        if (uri != null && uri.getHost() != null) {
+            target.put("host", uri.getHost());
+        }
+        target.put("path", uri == null ? rawUrl : uri.getPath());
+        target.put("query", uri == null || uri.getQuery() == null ? "" : uri.getQuery());
     }
 
     private static boolean hasCustomMatch(JsonNode match) {
@@ -180,7 +199,8 @@ public class RunSnapshotBuilder {
 
     private ObjectNode defaultMatch(FrozenCall recording) {
         ObjectNode match = objectMapper.createObjectNode();
-        match.put("source", "outbound");
+        String source = recording.source() == null || recording.source().isBlank() ? "outbound" : recording.source();
+        match.put("source", source);
         ArrayNode methods = match.putArray("methods");
         methods.add(recording.method());
         URI uri = safeUri(recording.url());
@@ -188,8 +208,25 @@ public class RunSnapshotBuilder {
             match.put("host", uri.getHost());
         }
         String path = uri == null ? recording.url() : uri.getPath();
-        match.put("pathRegex", "^" + java.util.regex.Pattern.quote(path == null ? "" : path) + "$");
+        match.put("pathRegex", "^" + pythonRegexQuote(path == null ? "" : path) + "$");
         return match;
+    }
+
+    /**
+     * The snapshot is evaluated by the Python proxy, so its regex must use Python-compatible
+     * escaping. Java's {@code Pattern.quote} writes {@code \Q...\E}, which Python rejects and
+     * would make a replay child silently fail to match.
+     */
+    private static String pythonRegexQuote(String value) {
+        StringBuilder escaped = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
+            if ("\\\\.^$|?*+()[]{}".indexOf(character) >= 0) {
+                escaped.append('\\');
+            }
+            escaped.append(character);
+        }
+        return escaped.toString();
     }
 
     private static String matchKeyOf(FrozenCall recording) {
@@ -281,8 +318,7 @@ public class RunSnapshotBuilder {
         meta.put("kind", "RECORDED_REQUEST");
         meta.put("method", recording.method());
         URI uri = safeUri(recording.url());
-        meta.put("path", uri == null ? recording.url() : uri.getPath());
-        meta.put("query", uri == null || uri.getQuery() == null ? "" : uri.getQuery());
+        putUrl(meta, uri, recording.url());
         ObjectNode headers = meta.putObject("headers");
         recording.requestHeaders().forEach(headers::put);
         byte[] body = recording.requestBody() == null ? new byte[0] : recording.requestBody().getBytes(StandardCharsets.UTF_8);

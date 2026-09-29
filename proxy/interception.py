@@ -32,9 +32,11 @@ import base64
 import collections
 import datetime
 import email.utils
+import hashlib
 import json
 from http.cookies import SimpleCookie
 import os
+import xml.etree.ElementTree as ET
 import queue
 import random
 import re
@@ -527,13 +529,183 @@ _FIRST_CHAR = re.compile(r'\s*(\S)')
 def _body_kind(text):
     """'json' / 'xml' / None, by the first character that is not whitespace (found without
     copying the whole body, as lstrip() would)."""
-    found = _FIRST_CHAR.match(text)
+    found = _FIRST_CHAR.match(text or '')
     head = found.group(1) if found else ''
     if head in ('{', '['):
         return 'json'
     if head == '<':
         return 'xml'
     return None
+
+
+# Headers a client, proxy, or tracing library stamps on a call by itself. They are not part of
+# the request the application meant to send, so a replay does not require them to match.
+# Host is compared as part of the URL. Keep this list in step with
+# frontend recorded-call-match.ts GENERATED_REQUEST_HEADERS.
+GENERATED_REQUEST_HEADERS = frozenset({
+    'host', 'content-length', 'transfer-encoding', 'connection', 'keep-alive',
+    'proxy-connection', 'upgrade', 'te', 'trailer', 'date', 'accept-encoding',
+    'user-agent', 'cookie', 'via', 'forwarded',
+    'x-request-id', 'x-correlation-id', 'x-trace-id', 'x-operation-id',
+    'x-alfred-relive', 'request-id', 'request-context',
+    'traceparent', 'tracestate', 'x-amzn-trace-id', 'x-cloud-trace-context',
+    'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-port',
+})
+
+_CANONICAL_BODY_LIMIT = 2_000_000
+
+
+# Name fragments a client stamps fresh on every call (CorrelationId, traceparent, span id).
+# The same test the Relive diff classifier uses, so a header that is noise there is not a
+# reason to call the request different here. Client-Id and an API key do not match this.
+_TRACE_HEADER = re.compile(r'trace|correlation|request-?id|span-?id', re.IGNORECASE)
+
+
+def _generated_header(name):
+    folded = (name or '').lower()
+    return (folded in GENERATED_REQUEST_HEADERS or folded.startswith('x-b3-')
+            or folded.startswith('x-alfred-') or _TRACE_HEADER.search(folded) is not None)
+
+
+def stable_header_items(headers, ignore_names=()):
+    """(name, value) pairs that are part of the call, not stamped per request.
+
+    Names are lowercase. Values are stripped. Order does not matter: the result is sorted.
+    """
+    drop = {n.lower() for n in ignore_names}
+    items = []
+    try:
+        pairs = list(headers.items())
+    except Exception:
+        pairs = []
+    for key, value in pairs:
+        name = str(key).lower()
+        if _generated_header(name) or name in drop:
+            continue
+        items.append((name, '' if value is None else str(value).strip()))
+    items.sort()
+    return tuple(items)
+
+
+def canonical_query(query):
+    """Query as a sorted a=b&c=d string. A dict and the raw query string compare equal."""
+    if query is None:
+        return ''
+    if isinstance(query, str):
+        items = []
+        for pair in query.split('&'):
+            if not pair:
+                continue
+            name, _, value = pair.partition('=')
+            items.append((name, value))
+    else:
+        try:
+            pairs = list(query.items())
+        except Exception:
+            pairs = []
+        items = [(str(name), '' if value is None else str(value)) for name, value in pairs]
+    items.sort()
+    return '&'.join(f'{name}={value}' for name, value in items)
+
+
+def _path_only(path):
+    path = (path or '').partition('?')[0] or '/'
+    if not path.startswith('/'):
+        path = '/' + path
+    return path
+
+
+def _host_only(host):
+    host = (host or '').lower().rstrip('.')
+    if host.startswith('[') and ']' in host:
+        return host
+    return host.partition(':')[0]
+
+
+def canonical_endpoint(method, scheme, host, path, query):
+    """(method, scheme, host, path, query). Empty scheme or host means 'not recorded'."""
+    return (
+        (method or '').upper(),
+        (scheme or '').lower(),
+        _host_only(host),
+        _path_only(path),
+        canonical_query(query),
+    )
+
+
+def endpoints_match(live, recorded):
+    """Method, path and query must match. Host and scheme match when the recording has them."""
+    if live[0] != recorded[0] or live[3] != recorded[3] or live[4] != recorded[4]:
+        return False
+    if recorded[2] and live[2] != recorded[2]:
+        return False
+    if recorded[1] and live[1] and live[1] != recorded[1]:
+        return False
+    return True
+
+
+def _canonical_xml(text):
+    """SOAP/XML with insignificant whitespace and attribute order removed.
+
+    Prefixes collapse to the namespace URI ElementTree already stores, so soapenv vs soap
+    does not change the comparison. Element order stays: a SOAP sequence is part of the call.
+    A DOCTYPE is not parsed (entity expansion); the whitespace-only form is used instead.
+    """
+    if len(text) > _CANONICAL_BODY_LIMIT or '<!DOCTYPE' in text[:800].upper():
+        return _squash_xml(text).replace('\r\n', '\n').replace('\r', '\n')
+    try:
+        root = ET.fromstring(text.strip())
+    except ET.ParseError:
+        return _squash_xml(text).replace('\r\n', '\n').replace('\r', '\n')
+
+    def esc(value):
+        return (value.replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;'))
+
+    def render(el):
+        attrs = ''.join(f' {name}="{esc(value)}"' for name, value in sorted(el.attrib.items()))
+        text = (el.text or '').strip()
+        inner = text + ''.join(render(child) for child in list(el))
+        return f'<{el.tag}{attrs}>{inner}</{el.tag}>'
+
+    return render(root)
+
+
+def canonical_body(text):
+    """One form of a body so pretty-printing, key order, and SOAP indentation do not matter.
+
+    JSON is parsed and re-emitted with sorted keys and no insignificant whitespace. SOAP/XML
+    goes through _canonical_xml. Anything else is compared with line endings normalized.
+    A body that only looks like JSON or XML but does not parse falls back to the whitespace
+    squash, so a format change of a real document still matches and garbage does not.
+    """
+    text = text or ''
+    if len(text) > _CANONICAL_BODY_LIMIT:
+        kind = _body_kind(text)
+        if kind == 'json':
+            return _squash_json(text)
+        if kind == 'xml':
+            return _squash_xml(text).replace('\r\n', '\n').replace('\r', '\n')
+        return text.replace('\r\n', '\n').replace('\r', '\n')
+    kind = _body_kind(text)
+    if kind == 'json':
+        try:
+            return json.dumps(json.loads(text), sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+        except (ValueError, TypeError):
+            return _squash_json(text)
+    if kind == 'xml':
+        return _canonical_xml(text)
+    return text.replace('\r\n', '\n').replace('\r', '\n')
+
+
+def index_recorded_request(recorded):
+    """Cache the comparable form of a recorded request. Computed once per loaded answer."""
+    if not isinstance(recorded, dict):
+        return recorded
+    headers = recorded.get('headers') if isinstance(recorded.get('headers'), dict) else {}
+    recorded['headers'] = headers
+    recorded['stable_headers'] = stable_header_items(headers)
+    recorded['body_canonical'] = canonical_body(recorded.get('body') or '')
+    return recorded
 
 
 # Order in which a match's body tests run - see Match.body_tests.
@@ -1819,27 +1991,48 @@ class Condition:
             return False
 
     def _recorded_call_matches(self, request, recorded):
-        if (request.method or '').upper() != (recorded.get('method') or '').upper():
-            return False
-        if (request.path or '').partition('?')[0] != (recorded.get('path') or ''):
-            return False
+        """URL, method, the headers the application set, and the body.
+
+        Pretty-printed JSON and SOAP match their compact form, and JSON key order does not
+        matter. Headers a client or proxy generates per call (Content-Length, trace ids, …)
+        are not part of the comparison unless the condition asks for every header.
+        """
         try:
-            live_query = dict(getattr(request, 'query', None) or {})
+            live_query = getattr(request, 'query', None) or {}
         except Exception:
             live_query = {}
-        recorded_query_raw = recorded.get('query') or ''
-        recorded_query = dict(
-            pair.partition('=')[::2] for pair in recorded_query_raw.split('&') if pair)
-        if live_query != recorded_query:
+        live = canonical_endpoint(
+            getattr(request, 'method', None),
+            getattr(request, 'scheme', None),
+            getattr(request, 'pretty_host', None) or getattr(request, 'host', None),
+            getattr(request, 'path', None),
+            live_query,
+        )
+        recorded_ep = canonical_endpoint(
+            recorded.get('method'),
+            recorded.get('scheme'),
+            recorded.get('host'),
+            recorded.get('path'),
+            recorded.get('query') or '',
+        )
+        if not endpoints_match(live, recorded_ep):
             return False
-        live_body = _body(request) or ''
-        recorded_body = recorded.get('body') or ''
-        if not _bodies_match(live_body, recorded_body, self.ignore_paths):
+        if not _bodies_match(_body(request) or '', recorded.get('body') or '', self.ignore_paths,
+                             recorded.get('body_canonical')):
+            return False
+        ignore_names = [p[8:] for p in self.ignore_paths if p.startswith('headers.')]
+        live_headers = stable_header_items(getattr(request, 'headers', {}) or {}, ignore_names)
+        if ignore_names or recorded.get('stable_headers') is None:
+            recorded_headers = stable_header_items(recorded.get('headers') or {}, ignore_names)
+        else:
+            recorded_headers = recorded.get('stable_headers')
+        if live_headers != recorded_headers:
             return False
         if self.compare_headers:
-            live_headers = _strip_ignored_headers(dict(request.headers), self.ignore_paths)
-            recorded_headers = _strip_ignored_headers(recorded.get('headers') or {}, self.ignore_paths)
-            if live_headers != recorded_headers:
+            # Opt-in: also the generated headers, still minus any ignore path.
+            live_all = _strip_ignored_headers(dict(request.headers), self.ignore_paths)
+            recorded_all = _strip_ignored_headers(recorded.get('headers') or {}, self.ignore_paths)
+            if live_all != recorded_all:
                 return False
         return True
 
@@ -2060,14 +2253,16 @@ def _load_recorded_request(directory, answer_id):
                 body = f.read()
         except OSError:
             body = ''
-        recorded = {
+        recorded = index_recorded_request({
             'kind': meta.get('kind'),
             'method': meta.get('method'),
+            'scheme': meta.get('scheme'),
+            'host': meta.get('host'),
             'path': meta.get('path'),
             'query': meta.get('query'),
             'headers': meta.get('headers') if isinstance(meta.get('headers'), dict) else {},
             'body': body,
-        }
+        })
     except (OSError, ValueError):
         _RECORDED_REQUEST_CACHE[cache_key] = (mtime, None)
         return None
@@ -2095,11 +2290,19 @@ def _strip_body_paths(text, paths):
     return result
 
 
-def _bodies_match(live_text, recorded_text, ignore_paths):
-    live = _strip_body_paths(live_text, ignore_paths)
-    recorded = _strip_body_paths(recorded_text, ignore_paths)
-    if _body_kind(live) == 'json' and _body_kind(recorded) == 'json':
-        return _squash_json(live) == _squash_json(recorded)
+def _bodies_match(live_text, recorded_text, ignore_paths, recorded_canonical=None):
+    """True when both bodies are the same call, however they were formatted.
+
+    `recorded_canonical` is the cached form of the untouched recorded body. It is reused only
+    when nothing has to be stripped first — a noise path changes the text, so both sides are
+    canonicalized again.
+    """
+    if ignore_paths:
+        live = canonical_body(_strip_body_paths(live_text, ignore_paths))
+        recorded = canonical_body(_strip_body_paths(recorded_text, ignore_paths))
+        return live == recorded
+    live = canonical_body(live_text)
+    recorded = recorded_canonical if recorded_canonical is not None else canonical_body(recorded_text)
     return live == recorded
 
 

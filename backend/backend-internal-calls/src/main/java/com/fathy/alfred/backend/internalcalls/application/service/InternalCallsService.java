@@ -122,6 +122,7 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
                 partial.sessionId(), partial.operationId(), partial.serviceName(), null,
                 partial.resendOf(), partial.resendEdits(), partial.relive(), null);
         callLogPort.prepare(prepared);
+        observers.forEach(observer -> observer.onCallPrepared(prepared));
         notificationPort.notifyCallPrepared(prepared);
         return Optional.of(id);
     }

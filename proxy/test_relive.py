@@ -320,6 +320,22 @@ class UnexpectedCallsTest(unittest.TestCase):
             self.assertEqual(502, verdict2.mock['status'])
 
 
+class ReplayModeDerivationTest(unittest.TestCase):
+    def test_replay_child_without_a_serialized_mode_blocks_when_unattributed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            step = replay_step()
+            del step['children'][0]['mode']
+            write_run(tmp, 'run-a', steps=[step])
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+
+            verdict, info = run(relive.apply_outbound(outbound_flow(), 'proj', (BACKEND_PEER[0],), engine, runs))
+
+            self.assertEqual('MOCK_RESPONSE', verdict.terminal)
+            self.assertEqual(502, verdict.mock['status'])
+            self.assertEqual('UNATTRIBUTED', info['attribution'])
+
+
 class ReplayAnswerTest(unittest.TestCase):
     def test_missing_answer_file_blocks_never_forwards(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -639,6 +655,152 @@ class UnattendedTimeoutTest(unittest.TestCase):
 
             self.assertIsNotNone(flow.response)
             self.assertEqual(502, flow.response.status_code)
+
+
+ANSWER_RECORDED = '68907e1c-49d8-492d-a65f-dfb183a437e8'
+
+
+def write_recorded_request(tmpdir, run_id, answer_id, body, headers, method='POST', host='ndc.example',
+                           path='/api/FlightSearch/Search', scheme='https'):
+    directory = os.path.join(relive_dir(tmpdir), 'answers', run_id)
+    os.makedirs(directory, exist_ok=True)
+    meta = {
+        'kind': 'RECORDED_REQUEST', 'method': method, 'scheme': scheme, 'host': host,
+        'path': path, 'query': '', 'headers': headers,
+    }
+    with open(os.path.join(directory, answer_id + '.meta.json'), 'w', encoding='utf-8') as f:
+        json.dump(meta, f)
+    with open(os.path.join(directory, answer_id + '.body'), 'w', encoding='utf-8') as f:
+        f.write(body)
+
+
+def supplier_step(step_key, child_key, path, body, headers, mock_body='{"replayed":true}',
+                  host='ndc.example', answer_id=ANSWER_RECORDED, direction='outbound'):
+    recorded = {'method': 'POST', 'scheme': 'https', 'host': host, 'path': path, 'query': ''}
+    call_rule = {
+        'match': {},
+        'actions': [
+            {
+                'type': 'IF_REQUEST', 'enabled': True,
+                'branches': [{'conditions': [{
+                    'subject': 'RECORDED_CALL', 'operator': 'MATCHES', 'answerId': answer_id, 'ignore': [],
+                }], 'actions': []}],
+                'otherwise': [{'type': 'MOCK_RESPONSE', 'status': 502, 'headers': {}, 'body': '{"error":"differs"}'}],
+            },
+            {'type': 'MOCK_RESPONSE', 'enabled': True, 'status': 200, 'headers': {}, 'body': mock_body},
+        ],
+    }
+    child = {
+        'stepKey': child_key, 'direction': direction, 'ordinal': 1, 'unattributed': 'BLOCK',
+        'recordedRequest': recorded, 'match': {'source': 'outbound', 'host': host, 'methods': ['POST']},
+        'callRule': call_rule,
+    }
+    return {
+        'stepKey': step_key, 'direction': 'inbound', 'serviceName': 'odeysys', 'children': [child],
+    }
+
+
+class RecordedRequestMatchTest(unittest.TestCase):
+    def test_json_and_soap_ignore_formatting(self):
+        self.assertEqual(
+            interception.canonical_body('{\n  "b": 1,\n  "a": 2\n}'),
+            interception.canonical_body('{"a":2,"b":1}'),
+        )
+        self.assertNotEqual(interception.canonical_body('{"a":1}'), interception.canonical_body('{"a":2}'))
+        pretty = '<Env xmlns:s="urn:soap"><Body id="1" n="2">\n  <Search>DXB</Search>\n</Body></Env>'
+        compact = '<Env xmlns:s="urn:soap"><Body n="2" id="1"><Search>DXB</Search></Body></Env>'
+        self.assertEqual(interception.canonical_body(pretty), interception.canonical_body(compact))
+        self.assertNotEqual(
+            interception.canonical_body(compact),
+            interception.canonical_body('<Env xmlns:s="urn:soap"><Body id="1" n="2"><Search>CAI</Search></Body></Env>'),
+        )
+
+    def test_generated_headers_do_not_count(self):
+        recorded = {'Content-Type': 'application/json', 'X-Request-Id': 'old', 'Host': 'ndc.example',
+                    'CorrelationId': 'aaa', 'Client-Id': 'NDC-Core'}
+        live = {'Content-Type': 'application/json', 'X-Request-Id': 'new', 'Content-Length': '4',
+                'CorrelationId': 'bbb', 'Client-Id': 'NDC-Core'}
+        self.assertEqual(
+            interception.stable_header_items(recorded),
+            interception.stable_header_items(live),
+        )
+        live['Content-Type'] = 'text/xml'
+        self.assertNotEqual(
+            interception.stable_header_items(recorded),
+            interception.stable_header_items(live),
+        )
+
+    def test_inflight_without_a_project_name_uses_that_inbounds_child_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pretty = '{\n  "b": 2,\n  "a": 1\n}'
+            headers = {'Content-Type': 'application/json', 'X-Request-Id': 'recorded'}
+            parent = supplier_step('s-search', 'c-search', '/api/FlightSearch/Search', pretty, headers,
+                                   mock_body='{"supplier":"Galileo"}')
+            other = supplier_step('s-other', 'c-other', '/api/FlightSearch/UpSelling', '{"x":1}', headers,
+                                  mock_body='{"other":true}', answer_id='b49a067b-1111-4111-8111-111111111111')
+            write_recorded_request(tmp, 'run-a', ANSWER_RECORDED, pretty, headers)
+            write_recorded_request(tmp, 'run-a', 'b49a067b-1111-4111-8111-111111111111', '{"x":1}', headers,
+                                   path='/api/FlightSearch/UpSelling')
+            write_run(tmp, 'run-a', projects=['odeysys'], steps=[parent, other])
+            write_inflight(tmp, {'odeysys': [{'callId': 'in', 'runId': 'run-a', 'stepKey': 's-search'}]})
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+
+            attributed = relive.attribute(
+                outbound_flow(), 'outbound', None, (BACKEND_PEER[0],), runs)
+            self.assertEqual('INFLIGHT', attributed.kind)
+            self.assertEqual('s-search', attributed.step_key)
+
+            flow = FakeFlow(request=FakeRequest(
+                method='POST', host='ndc.example', path='/api/FlightSearch/Search',
+                text='{"a":1,"b":2}',
+                headers={'Content-Type': 'application/json', 'X-Request-Id': 'live', 'Host': 'ndc.example',
+                         'CorrelationId': 'changes-every-call'},
+            ))
+            verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual('MOCK_RESPONSE', verdict.terminal)
+            self.assertEqual(200, verdict.mock['status'])
+            self.assertEqual('{"supplier":"Galileo"}', verdict.mock['body'])
+            self.assertEqual('c-search', info['stepKey'])
+
+            other_flow = FakeFlow(request=FakeRequest(
+                method='POST', host='ndc.example', path='/api/FlightSearch/UpSelling',
+                text='{"x":1}', headers={'Content-Type': 'application/json'},
+            ))
+            verdict, info = run(relive.apply_outbound(other_flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual(502, verdict.mock['status'])
+            self.assertNotIn('other', verdict.mock['body'])
+
+    def test_nested_supplier_belongs_to_the_deepest_inflight_inbound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            headers = {'Content-Type': 'application/json'}
+            direct_answer = '11111111-1111-4111-8111-111111111111'
+            outer_child = supplier_step('unused', 'c-direct', '/direct', '{"d":1}', headers,
+                                        answer_id=direct_answer)['children'][0]
+            inner_child = supplier_step('unused', 'c-search', '/api/FlightSearch/Search', '{"a":1}', headers,
+                                        answer_id=ANSWER_RECORDED)['children'][0]
+            inner = {'stepKey': 's-core', 'direction': 'inbound', 'serviceName': 'core', 'children': [inner_child]}
+            outer = {'stepKey': 's-search', 'direction': 'inbound', 'serviceName': 'odeysys',
+                     'children': [outer_child, inner]}
+            write_recorded_request(tmp, 'run-a', direct_answer, '{"d":1}', headers, path='/direct')
+            write_recorded_request(tmp, 'run-a', ANSWER_RECORDED, '{"a":1}', headers)
+            write_run(tmp, 'run-a', steps=[outer])
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            runs.refresh(force=True)
+            run_doc = runs.get('run-a')
+
+            outer_only = FakeFlow(request=FakeRequest(
+                method='POST', host='ndc.example', path='/api/FlightSearch/Search', text='{"a":1}',
+                headers=headers,
+            ))
+            matched = relive.match_child(outer_only, 'outbound', None, run_doc, 's-search', runs)
+            self.assertEqual('c-search', matched['stepKey'])
+
+            direct = FakeFlow(request=FakeRequest(
+                method='POST', host='ndc.example', path='/direct', text='{"d":1}', headers=headers,
+            ))
+            self.assertEqual('c-direct', relive.match_child(direct, 'outbound', None, run_doc, 's-search', runs)['stepKey'])
+            self.assertIsNone(relive.match_child(direct, 'outbound', None, run_doc, 's-core', runs))
 
 
 if __name__ == '__main__':

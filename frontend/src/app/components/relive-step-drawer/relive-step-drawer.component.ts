@@ -6,6 +6,7 @@ import { JsonPathInputComponent } from '../json-path-input/json-path-input.compo
 import { ScenarioAssertionEditorComponent } from '../scenario-assertion-editor/scenario-assertion-editor.component';
 import { applyMode, checkpointOf, modeOf, onRequestChangedOf, setCheckpoint } from '../../shared/utils/relive-call-rule';
 import { ActionLine, HostCardInfo, describeAction, hostCard } from '../../shared/utils/relive-call-rule-describe';
+import { recordedCallPreviewOf } from '../../shared/utils/recorded-call-match';
 import { PathEntry, jsonPathIndex, parseJson } from '../../shared/utils/json-paths';
 import { maskRelive } from '../../shared/utils/relive-mask';
 import { LogEntry, OnRequestChanged, Step, StepMode, StepResult } from '../../shared/utils/relive-types';
@@ -142,8 +143,10 @@ export class ReliveStepDrawerComponent {
   readonly mode = computed(() => modeOf(this.step().callRule));
   readonly checkpoint = computed(() => checkpointOf(this.step().callRule));
   readonly onRequestChanged = computed(() => onRequestChangedOf(this.step().callRule));
-  readonly requestActions = computed<readonly ActionLine[]>(() => describeActions(this.step().callRule.actions, 'request'));
-  readonly responseActions = computed<readonly ActionLine[]>(() => describeActions(this.step().callRule.actions, 'response'));
+  readonly requestActions = computed<readonly ActionLine[]>(() =>
+    describeActions(this.step().callRule.actions, 'request', recordedCallPreviewOf(this.step().recording)));
+  readonly responseActions = computed<readonly ActionLine[]>(() =>
+    describeActions(this.step().callRule.actions, 'response', recordedCallPreviewOf(this.step().recording)));
   readonly host = computed<HostCardInfo>(() => hostCard(this.step().callRule.actions, this.step().serviceName || 'the app'));
 
   setTab(tab: DrawerTab): void {
@@ -244,10 +247,10 @@ export class ReliveStepDrawerComponent {
   }
 }
 
-function describeActions(actions: readonly RuleAction[], phase: 'request' | 'response'): ActionLine[] {
+function describeActions(actions: readonly RuleAction[], phase: 'request' | 'response', preview: ReturnType<typeof recordedCallPreviewOf>): ActionLine[] {
   // Response-phase types by name (mirrors actionPhase()'s name-based fallback in interception.model.ts,
   // good enough for a read-only preview - the authoritative phase comes from the server's action
   // catalog, used everywhere an action is actually added/removed).
   const isResponse = (type: string) => type.includes('RESPONSE') && type !== 'MOCK_RESPONSE';
-  return actions.filter((a) => (phase === 'response') === isResponse(a.type)).map(describeAction);
+  return actions.filter((a) => (phase === 'response') === isResponse(a.type)).map((action) => describeAction(action, preview));
 }

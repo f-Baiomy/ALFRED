@@ -12,7 +12,7 @@ import java.util.List;
 
 /**
  * Bridges the proxy webhook pipeline's own call observers (backend-calls' outbound, two-phase
- * NewCallObserverPort; backend-internal-calls' inbound, completion-only NewInternalCallObserverPort)
+ * NewCallObserverPort; backend-internal-calls' inbound, two-phase NewInternalCallObserverPort)
  * to Relive's run engine (T050). Lives in backend-app because backend-relive must not depend on
  * either calls slice directly (ArchUnit) - each slice's own {@code CallRecord} is translated into
  * {@link ObserveRunCallUseCase}'s slice-agnostic {@code ObservedCall} here, the one place all three
@@ -49,6 +49,11 @@ public class ReliveCallObserverAdapter implements NewCallObserverPort, NewIntern
     public List<String> onCallCompleted(com.fathy.alfred.backend.calls.domain.model.CallRecord call) {
         observeRunCall.onOutboundCallCompleted(toObservedCall(call));
         return List.of();
+    }
+
+    @Override
+    public void onCallPrepared(com.fathy.alfred.backend.internalcalls.domain.model.CallRecord call) {
+        observeRunCall.onInboundCallPrepared(toObservedCall(call));
     }
 
     @Override

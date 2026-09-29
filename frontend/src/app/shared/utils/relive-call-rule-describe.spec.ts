@@ -1,4 +1,5 @@
 import { describeAction, hostCard } from './relive-call-rule-describe';
+import { recordedCallPreviewOf } from './recorded-call-match';
 import { defaultCallRule, setOnRequestChanged } from './relive-call-rule';
 import { FrozenCall, ReliveSettings } from './relive-types';
 
@@ -41,7 +42,12 @@ describe('describeAction', () => {
   it('describes the FAIL condition else-branch', () => {
     const rule = defaultCallRule(child, settings);
     const cond = rule.actions.find((a) => a.type === 'IF_REQUEST')!;
-    expect(describeAction(cond).detail).toContain('Mock response 502');
+    const detail = describeAction(cond).detail ?? '';
+    expect(detail).toContain('Mock response 502');
+    expect(detail).toContain('URL, method, headers');
+    const withCall = describeAction(cond, recordedCallPreviewOf(recording))?.detail ?? '';
+    expect(withCall).toContain('POST https://api.supplier-a.com/v2/search');
+    expect(withCall).toContain('JSON');
   });
 
   it('describes the LIVE (SEND_TO_HOST) else-branch', () => {
