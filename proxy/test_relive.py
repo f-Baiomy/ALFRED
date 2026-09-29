@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -189,6 +190,37 @@ class OrdinalMatchingTest(unittest.TestCase):
             second = outbound_flow()
             child2 = relive.match_child(second, 'outbound', 'proj', run_doc, 's-search', runs, consume=True)
             self.assertIsNone(child2)
+
+    def test_new_inbound_execution_matches_the_child_again(self):
+        # Retry, checkpoint replay, and a resend publish a new inflight call id for the same
+        # parent step. The child slot from the previous execution must not stay spent. A second
+        # supplier call inside the new execution is still unexpected.
+        with tempfile.TemporaryDirectory() as tmp:
+            write_run(tmp, 'run-a', steps=[replay_step(ordinal=1)])
+            write_inflight(tmp, {'proj': [{'callId': 'inbound-1', 'runId': 'run-a', 'stepKey': 's-search'}]})
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+
+            first = outbound_flow()
+            verdict, info = run(relive.apply_outbound(first, 'proj', (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual('c-supA', info['stepKey'])
+            self.assertEqual(200, verdict.mock['status'])
+
+            second = outbound_flow()
+            verdict2, info2 = run(relive.apply_outbound(second, 'proj', (BACKEND_PEER[0],), engine, runs))
+            self.assertNotEqual('c-supA', (info2 or {}).get('stepKey'))
+            self.assertEqual(502, verdict2.mock['status'])
+
+            write_inflight(tmp, {'proj': [{'callId': 'inbound-2', 'runId': 'run-a', 'stepKey': 's-search'}]})
+            os.utime(os.path.join(relive_dir(tmp), 'inflight.json'), (time.time() + 5, time.time() + 5))
+            third = outbound_flow()
+            verdict3, info3 = run(relive.apply_outbound(third, 'proj', (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual('c-supA', info3['stepKey'])
+            self.assertEqual(200, verdict3.mock['status'])
+
+            fourth = outbound_flow()
+            _, info4 = run(relive.apply_outbound(fourth, 'proj', (BACKEND_PEER[0],), engine, runs))
+            self.assertNotEqual('c-supA', (info4 or {}).get('stepKey'))
 
 
 class StoppingTest(unittest.TestCase):

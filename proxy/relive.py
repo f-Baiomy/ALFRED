@@ -74,9 +74,12 @@ class ReliveRuns:
         self._file_mtimes = {}   # filename -> mtime, for every relive/*.json currently loaded
         self._runs = {}          # runId -> snapshot dict, RUNNING/STOPPING only
         self._inflight = {}      # project -> [{'callId','runId','stepKey'}, ...]
-        # Per-run, per-parent-step, per-endpoint-signature ordinal counters (research D3). Reset
-        # implicitly whenever a run's file is reloaded or removed - see refresh().
+        # Per-run, per-parent-step, per-endpoint-signature ordinal counters (research D3).
+        # One inbound execution owns them. A new in-flight call id for that step (Retry,
+        # checkpoint replay, a resend) starts them over; a second supplier call inside the
+        # same execution does not. The forward proxy sees the new execution only via inflight.json.
         self._ordinals = {}
+        self._ordinal_epoch = {}  # (run_id, parent_step_key) -> inflight callId
 
     def _stale(self):
         now = time.monotonic()
@@ -86,19 +89,25 @@ class ReliveRuns:
         return False
 
     def refresh(self, force=False):
-        if not force and not self._stale():
-            return
+        if force or self._stale():
+            self._refresh_run_files()
+        # Inflight changes on every inbound send. The run-file scan stays throttled; this stat
+        # does not, or a retry inside the throttle window still sees the previous execution.
+        self._reload_inflight_if_changed()
+
+    def _refresh_run_files(self):
         try:
             names = os.listdir(self._dir)
         except OSError:
             # No directory: Relive has never run here, or has just been cleaned up. Reset so a
             # directory that reappears later (a new run starting) is read fresh, not left showing
             # whatever the last successful listing saw.
-            if self._runs or self._inflight or self._file_mtimes:
+            if self._runs or self._inflight or self._file_mtimes or self._ordinals or self._ordinal_epoch:
                 self._runs = {}
                 self._inflight = {}
                 self._file_mtimes = {}
                 self._ordinals = {}
+                self._ordinal_epoch = {}
             return
 
         seen = set()
@@ -130,22 +139,30 @@ class ReliveRuns:
             self._runs.pop(run_id, None)
             self._forget_ordinals(run_id)
 
+    def _reload_inflight_if_changed(self):
         inflight_path = os.path.join(self._dir, 'inflight.json')
         try:
             mtime = os.path.getmtime(inflight_path)
         except OSError:
             self._inflight = {}
             self._file_mtimes.pop('inflight.json', None)
-        else:
-            if self._file_mtimes.get('inflight.json') != mtime:
-                self._file_mtimes['inflight.json'] = mtime
-                loaded = self._load_json(inflight_path) or {}
-                projects = loaded.get('projects') if isinstance(loaded, dict) else None
-                self._inflight = projects if isinstance(projects, dict) else {}
+            return
+        if self._file_mtimes.get('inflight.json') == mtime:
+            return
+        self._file_mtimes['inflight.json'] = mtime
+        loaded = self._load_json(inflight_path) or {}
+        projects = loaded.get('projects') if isinstance(loaded, dict) else None
+        self._inflight = projects if isinstance(projects, dict) else {}
 
     def _forget_ordinals(self, run_id):
         interception.clear_relive_overlay(run_id)
         for key in [k for k in self._ordinals if k[0] == run_id]:
+            del self._ordinals[key]
+        for key in [k for k in self._ordinal_epoch if k[0] == run_id]:
+            del self._ordinal_epoch[key]
+
+    def _forget_step_ordinals(self, run_id, parent_step_key):
+        for key in [k for k in self._ordinals if k[0] == run_id and k[1] == parent_step_key]:
             del self._ordinals[key]
 
     def _load_json(self, path):
@@ -595,6 +612,37 @@ def _take_ordinal(by_signature, run_id, parent_step_key, runs, consume):
     return None
 
 
+def _sync_ordinal_epoch(runs, run_id, parent_step_key):
+    """Start child ordinals over when this parent step is executing again.
+
+    Retry, an after-checkpoint replay, and a resend each publish a new inflight call id for the
+    same step key. The forward proxy never sees that inbound request; inflight.json is the shared
+    signal. A second supplier call that still belongs to the current call id keeps the spent slot
+    and stays unexpected.
+    """
+    if runs is None or not run_id or not parent_step_key:
+        return
+    runs._reload_inflight_if_changed()
+    call_id = None
+    for entries in (runs._inflight or {}).values():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get('runId') == run_id and entry.get('stepKey') == parent_step_key and entry.get('callId'):
+                call_id = entry.get('callId')
+    if not call_id:
+        return
+    epoch_key = (run_id, parent_step_key)
+    previous = runs._ordinal_epoch.get(epoch_key)
+    if previous == call_id:
+        return
+    runs._ordinal_epoch[epoch_key] = call_id
+    if previous is not None:
+        runs._forget_step_ordinals(run_id, parent_step_key)
+
+
 def match_child(flow, source, service_name, run, parent_step_key, runs, consume=True):
     """The outbound child of the in-flight inbound this call matches.
 
@@ -609,6 +657,7 @@ def match_child(flow, source, service_name, run, parent_step_key, runs, consume=
     step = _find_step(run, parent_step_key)
     if step is None:
         return None
+    _sync_ordinal_epoch(runs, run.get('runId'), parent_step_key)
     request, host, path = _request_host_path(flow)
     live_ep = _live_endpoint(request)
     run_id = run.get('runId')
