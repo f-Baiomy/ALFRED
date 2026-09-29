@@ -134,6 +134,7 @@
               [unexpectedCalls]="runService.unexpectedCalls()"
               [changedPauses]="changedPauses()"
               [pause]="runService.pause()"
+              [pinnedDecision]="true"
               (selectStep)="selectStep($event)"
               (continueRun)="runService.continueRun()"
               (retryHeld)="runService.retryStep()"

@@ -113,6 +113,9 @@ export class ReliveRunTimelineComponent {
   /** An inbound step's own checkpoint, paused in the tab itself - not held in the proxy (research
    *  D11; see `ReliveRunService.pause`/`resolveCheckpoint`). Null when nothing is paused this way. */
   readonly pause = input<{ readonly stepKey: string; readonly at: 'BEFORE' | 'AFTER' } | null>(null);
+  /** The live timeline wires Retry / Continue / End. A history snapshot does not, so it leaves this off
+   *  and keeps only the banner at the top. */
+  readonly pinnedDecision = input(false);
 
   readonly openPausedCall = output<string>();
   readonly checkpointContinue = output<void>();
@@ -187,6 +190,13 @@ export class ReliveRunTimelineComponent {
     return this.rows().find((r) => r.step.key === p.stepKey) ?? null;
   });
 
+  /** The step a running run is blocked on. Cleared once the hold or checkpoint is decided. */
+  readonly decisionKey = computed(() => {
+    const run = this.run();
+    if (run?.status === 'RUNNING' && run.hold?.stepKey) return run.hold.stepKey;
+    return this.pause()?.stepKey ?? null;
+  });
+
   readonly filteredRows = computed<readonly TimelineRow[]>(() => {
     const f = this.filter();
     if (f === 'all') return this.rows();
@@ -196,6 +206,24 @@ export class ReliveRunTimelineComponent {
     if (f === 'live') return this.rows().filter((r) => r.isChild && r.result.mode === 'LIVE');
     return this.rows().filter((r) => r.isChild && r.result.mode === 'REPLAY');
   });
+
+  /** Visible rows kept in parent + children blocks, so a decision can outline that whole call. */
+  readonly filteredGroups = computed(() => {
+    const groups: { key: string; rows: TimelineRow[] }[] = [];
+    for (const row of this.filteredRows()) {
+      const parentKey = row.step.parentKey;
+      const last = groups[groups.length - 1];
+      if (parentKey && last?.key === parentKey) last.rows.push(row);
+      else groups.push({ key: parentKey ?? row.step.key, rows: [row] });
+    }
+    return groups;
+  });
+
+  groupAwaiting(group: { readonly key: string; readonly rows: readonly TimelineRow[] }): boolean {
+    const key = this.decisionKey();
+    if (!key) return false;
+    return group.key === key || group.rows.some((row) => row.step.key === key);
+  }
 
   readonly doneCount = computed(() => this.rows().filter((r) => DONE_STATES.includes(r.result.state)).length);
   readonly countedCount = computed(() => this.rows().filter((r) => r.result.state !== 'SKIPPED').length);
@@ -229,6 +257,10 @@ export class ReliveRunTimelineComponent {
 
   setFilter(filter: Filter): void {
     this.filter.set(filter);
+  }
+
+  stepLabel(key: string): string {
+    return this.rows().find((row) => row.step.key === key)?.step.label ?? key;
   }
 
   stateIcon(state: StepState): readonly [string, string] {

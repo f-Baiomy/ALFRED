@@ -127,6 +127,53 @@ describe('ReliveRunTimelineComponent', () => {
     fixture.destroy();
   }));
 
+  it('outlines a held call together with its children until the decision is made', () => {
+    const search = makeStep('search', null);
+    const supplier = makeStep('supplier', 'search');
+    const next = makeStep('next', null);
+    fixture.componentRef.setInput('run', run({
+      hold: { stepKey: 'search', reason: 'DIFFERENCES', since: '2026-09-29T13:36:53Z' },
+    }));
+    fixture.componentRef.setInput('steps', [search, supplier, next]);
+    fixture.componentRef.setInput('results', {
+      search: result('search', 'COMPLETED_WITH_DIFFERENCES'),
+      supplier: result('supplier', 'NOT_CALLED'),
+      next: result('next', 'PENDING'),
+    });
+    fixture.detectChanges();
+
+    const outline = fixture.nativeElement.querySelector('.rl-awaiting') as HTMLElement;
+    expect(outline).not.toBeNull();
+    expect(outline.querySelector('[data-step-key="search"]')).not.toBeNull();
+    expect(outline.querySelector('[data-step-key="supplier"]')).not.toBeNull();
+    expect(outline.querySelector('[data-step-key="next"]')).toBeNull();
+
+    fixture.componentRef.setInput('run', run());
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rl-awaiting')).toBeNull();
+  });
+
+  it('outlines a checkpoint pause with its children, and drops it once the pause is gone', () => {
+    const login = makeStep('login', null);
+    const supplier = makeStep('supplier', 'login');
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', [login, supplier]);
+    fixture.componentRef.setInput('results', {
+      login: result('login', 'PAUSED'),
+      supplier: result('supplier', 'PENDING'),
+    });
+    fixture.componentRef.setInput('pause', { stepKey: 'login', at: 'BEFORE' });
+    fixture.detectChanges();
+
+    const outline = fixture.nativeElement.querySelector('.rl-awaiting') as HTMLElement;
+    expect(outline.querySelector('[data-step-key="login"]')).not.toBeNull();
+    expect(outline.querySelector('[data-step-key="supplier"]')).not.toBeNull();
+
+    fixture.componentRef.setInput('pause', null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rl-awaiting')).toBeNull();
+  });
+
   it('shows a placeholder when there is no run', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('No run yet');
@@ -183,6 +230,79 @@ describe('ReliveRunTimelineComponent', () => {
     const buttons: HTMLButtonElement[] = Array.from(fixture.nativeElement.querySelectorAll('.rl-haltbox button'));
     buttons.find((b) => b.textContent?.includes('Continue'))!.click();
     expect(continueSpy).toHaveBeenCalled();
+  });
+
+  it('keeps a hold decision on screen, naming the step, without hiding the banner', () => {
+    const search = makeStep('search', null, { label: 'flight-search' });
+    fixture.componentRef.setInput('pinnedDecision', true);
+    fixture.componentRef.setInput('run', run({ hold: { stepKey: 'search', reason: 'DIFFERENCES', since: '2026-09-27T10:00:30Z' } }));
+    fixture.componentRef.setInput('steps', [search]);
+    fixture.componentRef.setInput('results', { search: result('search', 'COMPLETED_WITH_DIFFERENCES') });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.rl-haltbox')).not.toBeNull();
+    const bar: HTMLElement = fixture.nativeElement.querySelector('.rl-decision');
+    expect(bar).not.toBeNull();
+    expect(bar.classList).toContain('rl-diff');
+    expect(bar.textContent).toContain('Holding on');
+    expect(bar.textContent).toContain('flight-search');
+    expect(bar.textContent).toContain('differences');
+
+    const continueSpy = jasmine.createSpy();
+    const retrySpy = jasmine.createSpy();
+    const endSpy = jasmine.createSpy();
+    fixture.componentInstance.continueRun.subscribe(continueSpy);
+    fixture.componentInstance.retryHeld.subscribe(retrySpy);
+    fixture.componentInstance.endRun.subscribe(endSpy);
+    const buttons: HTMLButtonElement[] = Array.from(bar.querySelectorAll('button'));
+    buttons.find((b) => b.textContent?.includes('Retry'))!.click();
+    buttons.find((b) => b.textContent?.includes('Continue'))!.click();
+    buttons.find((b) => b.textContent?.includes('End run'))!.click();
+    expect(retrySpy).toHaveBeenCalled();
+    expect(continueSpy).toHaveBeenCalled();
+    expect(endSpy).toHaveBeenCalled();
+  });
+
+  it('keeps a checkpoint pause on screen, and offers Replay only after the call', () => {
+    const login = makeStep('login', null, { label: 'loginAction' });
+    fixture.componentRef.setInput('pinnedDecision', true);
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', [login]);
+    fixture.componentRef.setInput('results', { login: result('login', 'PAUSED') });
+    fixture.componentRef.setInput('pause', { stepKey: 'login', at: 'BEFORE' });
+    fixture.detectChanges();
+
+    let bar: HTMLElement = fixture.nativeElement.querySelector('.rl-decision');
+    expect(bar.textContent).toContain('Paused before');
+    expect(bar.textContent).toContain('loginAction');
+    expect(bar.textContent).not.toContain('Replay');
+    const continueSpy = jasmine.createSpy();
+    fixture.componentInstance.checkpointContinue.subscribe(continueSpy);
+    (bar.querySelectorAll('button')[0] as HTMLButtonElement).click();
+    expect(continueSpy).toHaveBeenCalled();
+
+    fixture.componentRef.setInput('pause', { stepKey: 'login', at: 'AFTER' });
+    fixture.detectChanges();
+    bar = fixture.nativeElement.querySelector('.rl-decision');
+    expect(bar.textContent).toContain('Paused after');
+    const replaySpy = jasmine.createSpy();
+    const skipSpy = jasmine.createSpy();
+    fixture.componentInstance.checkpointReplay.subscribe(replaySpy);
+    fixture.componentInstance.checkpointSkip.subscribe(skipSpy);
+    const buttons: HTMLButtonElement[] = Array.from(bar.querySelectorAll('button'));
+    buttons.find((b) => b.textContent?.includes('Replay'))!.click();
+    buttons.find((b) => b.textContent?.trim() === 'Skip')!.click();
+    expect(replaySpy).toHaveBeenCalled();
+    expect(skipSpy).toHaveBeenCalled();
+  });
+
+  it('leaves the pinned bar off a history snapshot', () => {
+    fixture.componentRef.setInput('run', run({ hold: { stepKey: 'search', reason: 'FAILED', since: '2026-09-27T10:00:30Z' } }));
+    fixture.componentRef.setInput('steps', [makeStep('search', null)]);
+    fixture.componentRef.setInput('results', { search: result('search', 'FAILED') });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rl-decision')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.rl-haltbox')).not.toBeNull();
   });
 
   it('filters to only failed rows', () => {

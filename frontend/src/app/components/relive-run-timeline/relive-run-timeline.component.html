@@ -88,7 +88,9 @@
   </div>
 
   <div>
-    @for (row of filteredRows(); track row.step.key) {
+    @for (group of filteredGroups(); track group.rows[0].step.key) {
+      <div [class.rl-awaiting]="groupAwaiting(group)">
+      @for (row of group.rows; track row.step.key) {
       <div class="rl-step" [class.rl-child]="row.isChild" [class.rl-sel]="selectedKey() === row.step.key" [class.rl-here]="trackKey() === row.step.key" [attr.data-step-key]="row.step.key" (click)="select(row.step.key)">
         <span class="rl-st" [class]="stateIcon(row.result.state)[0]">{{ stateIcon(row.result.state)[1] }}</span>
         <span class="rl-dir" [class.rl-in]="!row.isChild" [class.rl-out]="row.isChild">{{ row.isChild ? '↗' : '↙' }}</span>
@@ -134,6 +136,8 @@
         <span class="rl-pill" [class]="statePill(row.result.state)[0]">{{ statePill(row.result.state)[1] }}</span>
         <span class="rl-dim">{{ row.result.durationMs ? row.result.durationMs + ' ms' : '' }}</span>
       </div>
+      }
+      </div>
     }
   </div>
 
@@ -172,4 +176,28 @@
       </div>
     }
   </div>
+
+  @if (pinnedDecision() && run()!.hold; as hold) {
+    <div class="rl-decision-spacer"></div>
+    <div class="rl-toast rl-decision" [class.rl-diff]="hold.reason === 'DIFFERENCES'" [class.rl-hold]="hold.reason === 'FAILED'" role="status">
+      <span class="rl-decision-text">
+        Holding on <b>{{ stepLabel(hold.stepKey) }}</b>
+        <span class="rl-dim">· {{ hold.reason === 'DIFFERENCES' ? 'differences' : 'failed' }}</span>
+      </span>
+      <button class="rl-btn rl-sm" (click)="retryHeld.emit()">↻ Retry</button>
+      <button class="rl-btn rl-sm rl-primary" (click)="continueRun.emit()">▶ Continue with the next calls</button>
+      <button class="rl-btn rl-sm rl-danger" (click)="endRun.emit()">■ End run here</button>
+    </div>
+  }
+  @if (pinnedDecision() && !run()!.hold && pausedRow(); as row) {
+    <div class="rl-decision-spacer"></div>
+    <div class="rl-toast rl-decision rl-pause" role="status">
+      <span class="rl-decision-text">Paused {{ pause()!.at === 'BEFORE' ? 'before' : 'after' }} <b>{{ row.step.label }}</b></span>
+      <button class="rl-btn rl-sm rl-primary" (click)="checkpointContinue.emit()">▶ Continue</button>
+      @if (pause()!.at === 'AFTER') {
+        <button class="rl-btn rl-sm" (click)="checkpointReplay.emit()">↻ Replay</button>
+      }
+      <button class="rl-btn rl-sm" (click)="checkpointSkip.emit()">Skip</button>
+    </div>
+  }
 }

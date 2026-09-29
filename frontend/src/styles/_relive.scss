@@ -116,6 +116,32 @@
   }
 }
 
+.rl-awaiting {
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 12px;
+  padding: 3px;
+  margin: 2px 0 6px;
+  animation: rl-await-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes rl-await-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.32);
+    border-color: rgba(56, 189, 248, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rl-awaiting {
+    animation: none;
+    border-color: rgba(56, 189, 248, 0.9);
+  }
+}
+
 .rl-variable-row {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) minmax(220px, 1.7fr) minmax(100px, 0.8fr) minmax(190px, 1.8fr) 30px;
@@ -806,6 +832,34 @@
 
   .rl-link {
     font-weight: 700;
+  }
+}
+.rl-decision-spacer {
+  height: 4.5rem;
+}
+.rl-toast.rl-decision {
+  max-width: min(760px, calc(100% - 2rem));
+  flex-wrap: wrap;
+  justify-content: flex-start;
+
+  .rl-decision-text {
+    flex: 1 1 12rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rl-btn {
+    flex: 0 0 auto;
+  }
+  &.rl-hold {
+    border-color: rgba(248, 113, 113, 0.55);
+  }
+  &.rl-diff {
+    border-color: rgba(251, 191, 36, 0.55);
+  }
+  &.rl-pause {
+    border-color: rgba(232, 121, 249, 0.55);
   }
 }
 .rl-dirty {
