@@ -1,7 +1,8 @@
 import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { Subject, of } from 'rxjs';
-import { CallDetail } from '../models/call.model';
+import { CallDetail, CallRecord } from '../models/call.model';
+import { CallsQuery } from '../state/call-list-view';
 import { CallsApiService } from '../services/calls-api.service';
 import { GlobalVariablesService } from '../services/global-variables.service';
 import { ReliveApiService } from '../services/relive-api.service';
@@ -244,7 +245,8 @@ describe('ReliveRunService', () => {
       'updateRunDefinition',
     ]);
     resendApi = jasmine.createSpyObj('ResendApiService', ['resend']);
-    callsApi = jasmine.createSpyObj('CallsApiService', ['getDetail']);
+    callsApi = jasmine.createSpyObj('CallsApiService', ['getDetail', 'getCalls']);
+    callsApi.getCalls.and.returnValue(of({ calls: [], total: 0 }));
     events$ = new Subject<ReliveSocketEvent>();
 
     reliveApi.putStepAttempt.and.returnValue(of(undefined));
@@ -262,6 +264,103 @@ describe('ReliveRunService', () => {
     });
     service = TestBed.inject(ReliveRunService);
     reliveApi.getRunVariables.and.callFake(() => of({ ...service.variables() }));
+  });
+
+  function loggedCall(id: string, state: 'IN_PROGRESS' | 'COMPLETED', stepKey: string, source: 'internal' | 'external'): CallRecord {
+    return {
+      id,
+      original_url: 'https://app.local/search',
+      url: 'https://app.local/search',
+      method: 'POST',
+      timestamp: '2026-09-29T14:00:00.000Z',
+      duration_ms: 20,
+      state,
+      response: state === 'COMPLETED' ? { status: 200 } : undefined,
+      operation_id: `relive-run-1-${stepKey}`,
+      relive: { runId: 'run-1', stepKey, attribution: 'INFLIGHT' } as CallRecord['relive'],
+      source,
+    };
+  }
+
+  it('reattaches a running cycle, settles the step already sent, and continues with the next one', async () => {
+    const supplier = { ...childStep(), parentKey: 'search' };
+    const search = inboundStep({ key: 'search', label: 'Search', source: { callId: 'orig-search', cycleId: 'cy-1', direction: 'inbound' } });
+    const steps = [inboundStep(), search, supplier, logoutStep()];
+    const full = {
+      ...runOf(steps),
+      stepResults: [baseStepResult('login', 'COMPLETED')],
+    };
+    callsApi.getCalls.and.callFake((query: CallsQuery, source?: string) => {
+      if (query.operationId === 'relive-run-1-search') return of({ calls: [loggedCall('replay-search', 'COMPLETED', 'search', 'internal')], total: 1 });
+      if (!query.operationId && source === 'external') return of({ calls: [loggedCall('replay-supplier', 'COMPLETED', 'supplier-a', 'external')], total: 1 });
+      return of({ calls: [], total: 0 });
+    });
+    callsApi.getDetail.and.callFake((id: string) => of<CallDetail>({
+      request: { headers: {}, body: '' },
+      response: { status: 200, headers: {}, body: id === 'replay-supplier' ? '{"flights":12}' : '{}' },
+    }));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(of<ResendResult>({ newCallId: 'replay-logout', status: 200, durationMs: 1, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }));
+
+    service.adopt(full);
+    expect(resendApi.resend).not.toHaveBeenCalled();
+    await service.continueAdopted();
+
+    expect(resendApi.resend).toHaveBeenCalledTimes(1);
+    expect(resendApi.resend).toHaveBeenCalledWith(jasmine.objectContaining({ callId: 'orig-logout' }));
+    expect(resendApi.resend).not.toHaveBeenCalledWith(jasmine.objectContaining({ callId: 'orig-search' }));
+    expect(service.results()['search'].state).toBe('COMPLETED');
+    expect(service.results()['search'].actualResponse).toEqual(jasmine.objectContaining({ status: 200 }));
+    expect(service.results()['supplier-a'].state).toBe('COMPLETED');
+    expect(service.results()['logout'].state).toBe('COMPLETED');
+    expect(reliveApi.putStepAttempt).toHaveBeenCalledWith('cy-1', 'run-1', 'logout', 1, jasmine.objectContaining({ state: 'RUNNING' }));
+  });
+
+  it('waits for an in-progress logged call instead of sending the step again', async () => {
+    const search = inboundStep({ key: 'search', label: 'Search', source: { callId: 'orig-search', cycleId: 'cy-1', direction: 'inbound' } });
+    const steps = [inboundStep(), search];
+    const full = { ...runOf(steps), stepResults: [baseStepResult('login', 'COMPLETED'), { ...baseStepResult('search', 'RUNNING'), startedAt: '2026-09-29T14:00:00.000Z' }] };
+    let polls = 0;
+    callsApi.getCalls.and.callFake((query: CallsQuery) => {
+      if (query.operationId !== 'relive-run-1-search') return of({ calls: [], total: 0 });
+      polls++;
+      return of({ calls: [loggedCall('replay-search', polls < 2 ? 'IN_PROGRESS' : 'COMPLETED', 'search', 'internal')], total: 1 });
+    });
+    callsApi.getDetail.and.returnValue(of<CallDetail>({ request: { headers: {}, body: '' }, response: { status: 200, headers: {}, body: '{}' } }));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+
+    service.adopt(full);
+    await service.continueAdopted();
+
+    expect(resendApi.resend).not.toHaveBeenCalled();
+    expect(polls).toBeGreaterThan(1);
+    expect(service.results()['search'].state).toBe('COMPLETED');
+    expect(service.results()['login'].state).toBe('COMPLETED');
+  });
+
+  it('adopts a running hold without sending the next call, then Continue starts at the following step', async () => {
+    const steps = [inboundStep(), inboundStep({ key: 'search', label: 'Search', source: { callId: 'orig-search', cycleId: 'cy-1', direction: 'inbound' } }), logoutStep()];
+    const held = {
+      ...runOf(steps),
+      hold: { stepKey: 'search', reason: 'FAILED' as const, since: 't' },
+      stepResults: [baseStepResult('login', 'COMPLETED'), baseStepResult('search', 'FAILED')],
+    };
+    service.adopt(held);
+    expect(service.hold()?.stepKey).toBe('search');
+    expect(service.results()['login'].state).toBe('COMPLETED');
+    expect(service.results()['search'].state).toBe('FAILED');
+    expect(service.results()['logout'].state).toBe('PENDING');
+    expect(resendApi.resend).not.toHaveBeenCalled();
+
+    service.adopt(held);
+    expect(resendApi.resend).not.toHaveBeenCalled();
+
+    reliveApi.setHold.and.returnValue(of({ ...runOf(steps), hold: null }));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(of<ResendResult>({ newCallId: 'replay-logout', status: 200, durationMs: 1, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }));
+    await service.continueRun();
+    expect(resendApi.resend).toHaveBeenCalledWith(jasmine.objectContaining({ callId: 'orig-logout' }));
+    expect(resendApi.resend).not.toHaveBeenCalledWith(jasmine.objectContaining({ callId: 'orig-search' }));
   });
 
   it('resends a standalone outbound root through the outbound proxy', async () => {
@@ -502,11 +601,13 @@ describe('ReliveRunService', () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
+    await Promise.resolve();
 
     expect(service.pause()).toEqual({ stepKey: 'login', at: 'AFTER' });
     expect(resendApi.resend).toHaveBeenCalledTimes(1);
 
     service.resolveCheckpoint('REPLAY');
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();

@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { of } from 'rxjs';
 import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { CallPickerService, PickResult } from '../../core/services/call-picker.service';
 import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
@@ -24,6 +25,7 @@ describe('ReliveCycleComponent picker and run', () => {
   let picker: any;
   let source: jasmine.SpyObj<ReliveCallSourceService>;
   let run: any;
+  let api: { listRuns: jasmine.Spy; getRun: jasmine.Spy };
 
   beforeEach(() => {
     draft = signal<ReliveCycle | null>(null);
@@ -43,7 +45,18 @@ describe('ReliveCycleComponent picker and run', () => {
     };
     source = jasmine.createSpyObj<ReliveCallSourceService>('ReliveCallSourceService', ['freezePicked']);
     source.freezePicked.and.resolveTo([step]);
-    run = { start: jasmine.createSpy('start').and.resolveTo(undefined), run: signal(null) };
+    run = {
+      start: jasmine.createSpy('start').and.resolveTo(undefined),
+      adopt: jasmine.createSpy('adopt'),
+      continueAdopted: jasmine.createSpy('continueAdopted'),
+      retain: jasmine.createSpy('retain'),
+      release: jasmine.createSpy('release'),
+      run: signal(null),
+    };
+    api = {
+      listRuns: jasmine.createSpy('listRuns').and.returnValue(of([])),
+      getRun: jasmine.createSpy('getRun').and.returnValue(of(null)),
+    };
     TestBed.configureTestingModule({
       imports: [ReliveCycleComponent],
       providers: [
@@ -52,7 +65,7 @@ describe('ReliveCycleComponent picker and run', () => {
         { provide: CallPickerService, useValue: picker },
         { provide: ReliveCallSourceService, useValue: source },
         { provide: ConfirmDialogService, useValue: {} },
-        { provide: ReliveApiService, useValue: {} },
+        { provide: ReliveApiService, useValue: api },
         { provide: InterceptionStateService, useValue: { pausedCalls: signal([]) } },
         { provide: ReliveRuleDialogService, useValue: { request: signal(null) } },
       ],
@@ -109,6 +122,116 @@ describe('ReliveCycleComponent picker and run', () => {
     await fixture.componentInstance.startRun({ driver: 'AUTOMATIC' });
     expect(state.saveAsync).toHaveBeenCalled();
     expect(run.start).toHaveBeenCalledWith(savedCycle, jasmine.objectContaining({ driver: 'AUTOMATIC' }));
+  });
+
+  function runningRun(id: string) {
+    return {
+      id,
+      status: 'RUNNING' as const,
+      definition: { variables: [] },
+      seedVariables: [],
+      variableTimeline: [],
+      stepResults: [],
+      hold: { stepKey: 'search', reason: 'FAILED' as const, since: 't' },
+    };
+  }
+
+  it('opens the run this page is driving instead of a frozen history snapshot', () => {
+    run.run.set({ id: 'r-live', status: 'RUNNING' });
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openHistoryRun('r-live');
+    expect(api.getRun).not.toHaveBeenCalled();
+    expect(run.adopt).not.toHaveBeenCalled();
+    expect(run.continueAdopted).toHaveBeenCalled();
+    expect(fixture.componentInstance.historyRun()).toBeNull();
+    expect(fixture.componentInstance.tab()).toBe('run');
+  });
+
+  it('reattaches a running run opened from history when this page is not driving it', () => {
+    const full = runningRun('r-1');
+    api.getRun.and.returnValue(of(full));
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openHistoryRun('r-1');
+    expect(run.adopt).toHaveBeenCalledWith(full);
+    expect(run.continueAdopted).toHaveBeenCalled();
+    expect(fixture.componentInstance.historyRun()).toBeNull();
+    expect(fixture.componentInstance.tab()).toBe('run');
+  });
+
+  it('stays on the live driver when history resolves after this page already reattached that run', () => {
+    const full = runningRun('r-1');
+    api.getRun.and.callFake(() => {
+      run.run.set({ id: 'r-1', status: 'RUNNING' });
+      return of(full);
+    });
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openHistoryRun('r-1');
+    expect(run.adopt).not.toHaveBeenCalled();
+    expect(run.continueAdopted).toHaveBeenCalled();
+    expect(fixture.componentInstance.historyRun()).toBeNull();
+    expect(fixture.componentInstance.tab()).toBe('run');
+  });
+
+  it('reattaches a running run opened from history over an older interrupted run', () => {
+    run.run.set({ id: 'r-old', status: 'INTERRUPTED' });
+    const full = runningRun('r-1');
+    api.getRun.and.returnValue(of(full));
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openHistoryRun('r-1');
+    expect(run.adopt).toHaveBeenCalledWith(full);
+    expect(run.continueAdopted).toHaveBeenCalled();
+    expect(fixture.componentInstance.historyRun()).toBeNull();
+  });
+
+  it('does not steal a different run this page is already driving', () => {
+    run.run.set({ id: 'r-other', status: 'RUNNING' });
+    const full = runningRun('r-1');
+    api.getRun.and.returnValue(of(full));
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openHistoryRun('r-1');
+    expect(run.adopt).not.toHaveBeenCalled();
+    expect(run.continueAdopted).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.historyRun()?.run.id).toBe('r-1');
+    expect(fixture.componentInstance.tab()).toBe('run');
+  });
+
+  it('keeps a finished run opened from history as a snapshot', () => {
+    const full = { ...runningRun('r-old'), status: 'INTERRUPTED' as const, hold: null };
+    api.getRun.and.returnValue(of(full));
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openHistoryRun('r-old');
+    expect(run.adopt).not.toHaveBeenCalled();
+    expect(run.continueAdopted).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.historyRun()?.run.id).toBe('r-old');
+  });
+
+  it('comes back to a running cycle and keeps following it', () => {
+    const full = runningRun('r-1');
+    api.listRuns.and.returnValue(of([{ id: 'r-1', status: 'RUNNING' }]));
+    api.getRun.and.returnValue(of(full));
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+    expect(run.retain).toHaveBeenCalledWith('r-1');
+    expect(run.adopt).toHaveBeenCalledWith(full);
+    expect(run.continueAdopted).toHaveBeenCalled();
+    expect(fixture.componentInstance.tab()).toBe('run');
+  });
+
+  it('still opens an interrupted run on the step where it stopped', () => {
+    const full = { ...runningRun('r-1'), status: 'INTERRUPTED' as const, hold: null };
+    api.listRuns.and.returnValue(of([{ id: 'r-1', status: 'INTERRUPTED' }]));
+    api.getRun.and.returnValue(of(full));
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+    expect(run.adopt).toHaveBeenCalledWith(full);
+    expect(run.continueAdopted).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.tab()).toBe('run');
   });
 
   it('shows a failed start and keeps the run idle', async () => {

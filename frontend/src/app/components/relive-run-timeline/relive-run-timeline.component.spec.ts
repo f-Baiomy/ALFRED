@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { defaultCallRule } from '../../shared/utils/relive-call-rule';
 import { FrozenCall, ReliveSettings, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { ReliveRunTimelineComponent } from './relive-run-timeline.component';
@@ -83,9 +83,49 @@ describe('ReliveRunTimelineComponent', () => {
   let fixture: ComponentFixture<ReliveRunTimelineComponent>;
 
   beforeEach(() => {
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = () => undefined;
+    }
+    spyOn(HTMLElement.prototype, 'scrollIntoView');
     TestBed.configureTestingModule({ imports: [ReliveRunTimelineComponent] });
     fixture = TestBed.createComponent(ReliveRunTimelineComponent);
   });
+
+  it('keeps a running timeline on the step it is holding, and scrolls that row into view', fakeAsync(() => {
+    const steps = [makeStep('login', null), makeStep('search', null), makeStep('next', null)];
+    fixture.componentRef.setInput('run', run({
+      hold: { stepKey: 'search', reason: 'FAILED', since: '2026-09-29T13:36:53Z' },
+    }));
+    fixture.componentRef.setInput('steps', steps);
+    fixture.componentRef.setInput('results', {
+      login: result('login', 'COMPLETED'),
+      search: result('search', 'FAILED'),
+    });
+    fixture.detectChanges();
+    tick(0);
+    expect(fixture.componentInstance.trackKey()).toBe('search');
+    const row = fixture.nativeElement.querySelector('[data-step-key="search"]') as HTMLElement;
+    expect(row.classList).toContain('rl-here');
+    expect(row.scrollIntoView).toHaveBeenCalled();
+    fixture.destroy();
+  }));
+
+  it('after a reload interrupts the run, tracks the first step that was cancelled', fakeAsync(() => {
+    const steps = [makeStep('login', null), makeStep('search', null)];
+    fixture.componentRef.setInput('run', run({ status: 'INTERRUPTED' }));
+    fixture.componentRef.setInput('steps', steps);
+    fixture.componentRef.setInput('results', {
+      login: result('login', 'COMPLETED'),
+      search: result('search', 'CANCELLED'),
+    });
+    fixture.detectChanges();
+    tick(0);
+    expect(fixture.componentInstance.trackKey()).toBe('search');
+    const row = fixture.nativeElement.querySelector('[data-step-key="search"]') as HTMLElement;
+    expect(row.classList).toContain('rl-here');
+    expect(row.scrollIntoView).toHaveBeenCalled();
+    fixture.destroy();
+  }));
 
   it('shows a placeholder when there is no run', () => {
     fixture.detectChanges();

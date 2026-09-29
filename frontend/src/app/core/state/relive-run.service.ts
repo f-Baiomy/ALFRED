@@ -18,7 +18,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Subscription, filter, firstValueFrom } from 'rxjs';
-import { CallEndpointSource } from '../models/call.model';
+import { CallEndpointSource, CallRecord } from '../models/call.model';
 import { RuleAction } from '../models/interception.model';
 import { CallsApiService } from '../services/calls-api.service';
 import { GlobalVariablesService } from '../services/global-variables.service';
@@ -29,6 +29,7 @@ import { resolveDynamicTokens } from '../../shared/utils/dynamic-tokens';
 import { checkpointOf, modeOf } from '../../shared/utils/relive-call-rule';
 import { RawDifference, classify } from '../../shared/utils/relive-noise';
 import { ActualCallOutcome, outcomeOf } from '../../shared/utils/relive-outcome';
+import type { CallsQuery } from '../state/call-list-view';
 import { DifferenceEntry, NoiseRule, ReliveCycle, RuleApplied, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 import { DraftResult } from '../../shared/utils/resend-draft';
 import { extractValues, substituteTokens } from '../../shared/utils/resend-draft-chain';
@@ -39,6 +40,11 @@ import { diffJsonBodies, evaluate } from '../../shared/utils/scenario-assertions
  *  call synchronously while the inbound request is in flight, so by the time the resend response
  *  comes back every child has already happened; this only covers the WS broadcast's own lag. */
 const CHILD_EVENTS_GRACE_MS = 500;
+/** How often a reattached page looks for the call a previous page already sent. */
+const DISPATCH_POLL_MS = 400;
+/** Proxy and browser clocks can disagree by a little. A call logged just after the dispatch
+ *  marker still belongs to that attempt; a retry's previous call is much older. */
+const DISPATCH_CLOCK_SKEW_MS = 2000;
 
 type RunCallEvent = ReliveSocketEvent & { readonly type: 'run-call' };
 type CheckpointDecision = 'CONTINUE' | 'REPLAY' | 'SKIP';
@@ -220,6 +226,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function callsQuery(operationId: string, limit: number): CallsQuery {
+  return { search: '', supplier: '', sort: 'newest', offset: 0, limit, sessionId: '', operationId, requestId: '' };
+}
+
 @Injectable()
 export class ReliveRunService {
   private readonly api = inject(ReliveApiService);
@@ -260,6 +270,10 @@ export class ReliveRunService {
   private eventsSub: Subscription | null = null;
   private runEventsSub: Subscription | null = null;
   private pauseResolve: ((decision: CheckpointDecision) => void) | null = null;
+  /** True once this instance is driving, so a second reattach cannot start another loop. */
+  private loopStarted = false;
+  /** The first step `runLoop` takes was already sent by the page a reload destroyed. */
+  private reattachFirstStep = false;
 
   async start(cycle: ReliveCycle, request: StartRunRequest): Promise<void> {
     const run = await firstValueFrom(this.api.startRun(cycle.id, request));
@@ -290,14 +304,10 @@ export class ReliveRunService {
     for (const v of run.seedVariables) vars[v.name] = v.value;
     this.variables.set(vars);
 
-    this.runEventsSub?.unsubscribe();
-    this.runEventsSub = this.socket.events$
-      .pipe(filter((e): e is RunCallEvent => e.type === 'run-call' && e.runId === run.id && e.attribution === 'UNEXPECTED'))
-      .subscribe((e) => {
-        if (this.unexpectedCalls().some((u) => u.callId === e.callId)) return;
-        this.unexpectedCalls.set([...this.unexpectedCalls(), { callId: e.callId, direction: e.direction, at: new Date().toISOString() }]);
-      });
+    this.watchUnexpected(run.id);
 
+    this.loopStarted = true;
+    this.reattachFirstStep = false;
     this.socket.holdLease(run.id);
     if (request.driver !== 'AUTOMATIC') {
       this.startGuided(run);
@@ -305,6 +315,26 @@ export class ReliveRunService {
     }
 
     await this.runLoop();
+  }
+
+  /** Re-send the lease before the run detail has loaded, so a reload cancels the 15s interrupt
+   *  instead of losing the run while `getRun` is still in flight. */
+  retain(runId: string): void {
+    this.socket.holdLease(runId);
+  }
+
+  release(runId: string): void {
+    this.socket.releaseLease(runId);
+  }
+
+  private watchUnexpected(runId: string): void {
+    this.runEventsSub?.unsubscribe();
+    this.runEventsSub = this.socket.events$
+      .pipe(filter((e): e is RunCallEvent => e.type === 'run-call' && e.runId === runId && e.attribution === 'UNEXPECTED'))
+      .subscribe((e) => {
+        if (this.unexpectedCalls().some((u) => u.callId === e.callId)) return;
+        this.unexpectedCalls.set([...this.unexpectedCalls(), { callId: e.callId, direction: e.direction, at: new Date().toISOString() }]);
+      });
   }
 
   /**
@@ -447,6 +477,64 @@ export class ReliveRunService {
     await this.finish();
   }
 
+  /** Rejoin a run this page is not driving (opened from History, or the cycle page was left and
+   *  opened again). Restores the settled steps and, when the run is waiting on the user, the hold.
+   *  An INTERRUPTED run is shown too — a reload drops the socket and the server ends the run 15s
+   *  later, and hiding that leaves the Run tab empty. A no-op when this service already drives
+   *  `full`, so a live cursor is never replaced by the last persisted snapshot. */
+  adopt(full: Run & { readonly stepResults: readonly StepResult[] }): void {
+    if (this.run()?.id === full.id && this.run()!.status === 'RUNNING') return;
+    if (full.status !== 'RUNNING' && full.status !== 'INTERRUPTED') return;
+    if (this.run()?.status === 'RUNNING') return;
+    this.loopStarted = false;
+    this.reattachFirstStep = false;
+    this.steps = full.definition.steps;
+    this.stopped = false;
+    this.run.set(full);
+    this.status.set(full.status);
+    this.hold.set(full.hold ?? null);
+    this.pause.set(null);
+
+    const results: Record<string, StepResult> = {};
+    for (const step of this.steps) results[step.key] = emptyResult(full.id, step.key, step.enabled ? 'PENDING' : 'SKIPPED');
+    for (const stepResult of full.stepResults) {
+      const existing = results[stepResult.stepKey];
+      if (!existing || stepResult.attempt >= existing.attempt) results[stepResult.stepKey] = stepResult;
+    }
+    this.results.set(results);
+
+    this.topOrder = topSteps(this.steps);
+    const cursorKey = full.hold?.stepKey ?? this.topOrder.find((step) => {
+      const state = results[step.key]?.state;
+      return step.enabled && (state === 'PENDING' || state === 'RUNNING' || state === 'WAITING' || state === 'PAUSED');
+    })?.key;
+    const idx = cursorKey ? this.topOrder.findIndex((step) => step.key === cursorKey) : -1;
+    this.topIdx = idx < 0 ? this.topOrder.length : idx;
+
+    const vars: Record<string, string> = {};
+    for (const variable of full.definition.variables) vars[variable.name] = variable.value;
+    for (const variable of full.seedVariables) vars[variable.name] = variable.value;
+    for (const entry of full.variableTimeline) vars[entry.name] = entry.value;
+    this.variables.set(vars);
+
+    if (full.status === 'RUNNING') this.socket.holdLease(full.id);
+  }
+
+  /** Keep a reattached RUNNING run moving. A step this page already finds in flight is settled
+   *  from the call the proxy logged, not sent again. A hold stays a hold. */
+  continueAdopted(): Promise<void> {
+    const run = this.run();
+    if (!run || run.status !== 'RUNNING' || this.stopped || this.hold() || this.loopStarted) return Promise.resolve();
+    this.loopStarted = true;
+    this.watchUnexpected(run.id);
+    if (run.driver !== 'AUTOMATIC') {
+      this.startGuided(run);
+      return Promise.resolve();
+    }
+    this.reattachFirstStep = true;
+    return this.runLoop();
+  }
+
   /** "Continue with the rest" on an ended run (mock `resumeRun`): re-fetches the run's full state
    *  (so a fresh page visit resuming a past run has it), re-takes the lease and continues right
    *  after `afterStepKey` - any step at or after that point left CANCELLED by an earlier stop goes
@@ -479,6 +567,8 @@ export class ReliveRunService {
     for (const entry of full.variableTimeline) vars[entry.name] = entry.value;
     this.variables.set(vars);
 
+    this.loopStarted = true;
+    this.reattachFirstStep = false;
     this.socket.holdLease(full.id);
     await this.runLoop();
   }
@@ -529,20 +619,27 @@ export class ReliveRunService {
         this.topIdx++; // disabled, or SKIPPED already by skipDependents (a missing extracted value)
         continue;
       }
-      await this.runInboundStep(step);
+      const recoverIfDispatched = this.reattachFirstStep;
+      this.reattachFirstStep = false;
+      await this.runInboundStep(step, 1, recoverIfDispatched);
       if (this.stopped || this.hold()) return; // held: continueRun/retryStep/endRun resumes or ends
       this.topIdx++;
     }
     await this.finish();
   }
 
-  private async runInboundStep(step: Step, attempt = 1): Promise<void> {
+  private async runInboundStep(step: Step, attempt = 1, recoverIfDispatched = false): Promise<void> {
     const run = this.run();
     if (!run) return;
+    const stored = this.results()[step.key];
+    const storedState = stored?.state;
+    const dispatchedAt = storedState === 'RUNNING' ? (stored?.startedAt ?? null) : null;
+    if (recoverIfDispatched && storedState === 'RUNNING' && (stored?.attempt ?? 0) > 0) attempt = stored.attempt;
+    const recover = recoverIfDispatched && await this.shouldRecover(step, storedState);
     this.setResult(step.key, (r) => ({ ...r, state: 'RUNNING' }));
 
     const checkpoint = checkpointOf(step.callRule);
-    if (checkpoint.before) {
+    if (checkpoint.before && !recover) {
       const decision = await this.awaitCheckpoint(step.key, 'BEFORE');
       if (this.stopped) return;
       if (decision === 'SKIP') return this.skipStep(step);
@@ -569,22 +666,40 @@ export class ReliveRunService {
     const unresolved = unresolvedNames(substituted);
     const startedAt = Date.now();
     let resendResult: ResendResult | null = null;
-    let error: string | null = unresolved.length ? `unresolved {{${unresolved[0]}}}` : null;
-    try {
-      if (!unresolved.length) resendResult = await firstValueFrom(
-        this.resendApi.resend({
-          direction: step.source.direction,
-          callId: step.source.callId,
-          cycleId: step.source.cycleId,
-          edits: { method: substituted.method, url: substituted.url, headers: substituted.headers, body: substituted.body },
-          relive: { runId: run.id, stepKey: step.key },
-        }),
-      );
-    } catch (e) {
-      error = errorMessage(e);
+    let error: string | null = !recover && unresolved.length ? `unresolved {{${unresolved[0]}}}` : null;
+    if (recover) {
+      const waited = await this.waitForLoggedCall(step, dispatchedAt);
+      if (this.stopped) {
+        this.eventsSub?.unsubscribe();
+        this.eventsSub = null;
+        return;
+      }
+      resendResult = waited.result;
+      error = waited.error;
+      await this.absorbLoggedChildren(run, kids, collected);
+    } else {
+      try {
+        if (!unresolved.length) {
+          // Stored before the supplier is contacted, so a reload can tell "already sent" from
+          // "not started yet" and will not post this step again.
+          await this.markDispatched(run, step, attempt);
+          resendResult = await firstValueFrom(
+            this.resendApi.resend({
+              direction: step.source.direction,
+              callId: step.source.callId,
+              cycleId: step.source.cycleId,
+              edits: { method: substituted.method, url: substituted.url, headers: substituted.headers, body: substituted.body },
+              relive: { runId: run.id, stepKey: step.key },
+            }),
+          );
+        }
+      } catch (e) {
+        error = errorMessage(e);
+      }
     }
 
     if (kids.length > 0) await sleep(CHILD_EVENTS_GRACE_MS);
+    if (recover) await this.absorbLoggedChildren(run, kids, collected);
     this.eventsSub.unsubscribe();
     this.eventsSub = null;
 
@@ -612,6 +727,113 @@ export class ReliveRunService {
     await this.refreshRunVariables(run);
 
     await this.applyFailurePolicy(run, step, own);
+  }
+
+  /** A reload's step was already posted when the server has a RUNNING attempt, or when the proxy
+   *  has already logged the resend. A step that is only PENDING and has no logged call was never sent. */
+  private async shouldRecover(step: Step, storedState: StepState | undefined): Promise<boolean> {
+    if (storedState === 'RUNNING') return true;
+    if (storedState !== 'PENDING' && storedState !== 'WAITING') return false;
+    return (await this.loggedCall(step, null)) != null;
+  }
+
+  /** Remember that this attempt is about to be sent, before `POST /resend` leaves the browser. */
+  private async markDispatched(run: Run, step: Step, attempt: number): Promise<void> {
+    const marked: StepResult = {
+      ...emptyResult(run.id, step.key, 'RUNNING'),
+      attempt,
+      startedAt: new Date().toISOString(),
+    };
+    this.setResult(step.key, () => marked);
+    await firstValueFrom(this.api.putStepAttempt(run.cycleId, run.id, step.key, attempt, marked));
+  }
+
+  /** The resend's operation id (`relive-{runId}-{stepKey}`), logged on the call the proxy saw. */
+  private async loggedCall(step: Step, startedAt: string | null): Promise<CallRecord | null> {
+    const run = this.run();
+    if (!run) return null;
+    const operationId = `relive-${run.id}-${step.key}`;
+    const page = await firstValueFrom(this.callsApi.getCalls(callsQuery(operationId, 5), this.endpointSource(step)));
+    const matches = page.calls.filter((call) => this.sameAttempt(call, startedAt));
+    return matches.find((call) => this.callFinished(call)) ?? matches[0] ?? null;
+  }
+
+  private async waitForLoggedCall(step: Step, startedAt: string | null): Promise<{ result: ResendResult | null; error: string | null }> {
+    for (;;) {
+      if (this.stopped) return { result: null, error: null };
+      try {
+        const call = await this.loggedCall(step, startedAt);
+        if (call && this.callFinished(call)) return await this.resendResultFrom(call, step);
+      } catch {
+        // A list blip while reattaching must not turn into a second send.
+      }
+      await sleep(DISPATCH_POLL_MS);
+    }
+  }
+
+  private async resendResultFrom(call: CallRecord, step: Step): Promise<{ result: ResendResult | null; error: string | null }> {
+    const detail = await firstValueFrom(this.callsApi.getDetail(call.id, this.endpointSource(step)));
+    if (call.error && !detail.response) return { result: null, error: call.error };
+    const response = detail.response
+      ? { status: detail.response.status, headers: detail.response.headers ?? {}, body: detail.response.body ?? null }
+      : null;
+    return {
+      result: {
+        newCallId: call.id,
+        status: response?.status ?? 0,
+        durationMs: call.duration_ms ?? 0,
+        sessionValuesUsed: [],
+        response,
+      },
+      error: response ? null : (call.error ?? 'no response'),
+    };
+  }
+
+  /** Children of a step this page did not send may already be logged. The websocket only carries
+   *  events that arrive after this page subscribed, so also read the recent call list. */
+  private async absorbLoggedChildren(run: Run, kids: readonly Step[], collected: Map<string, RunCallEvent>): Promise<void> {
+    if (!kids.length) return;
+    const wanted = new Set(kids.map((kid) => kid.key));
+    for (const source of ['external', 'internal'] as const) {
+      let page: { calls: readonly CallRecord[] };
+      try {
+        page = await firstValueFrom(this.callsApi.getCalls(callsQuery('', 100), source));
+      } catch {
+        continue;
+      }
+      for (const call of page.calls) {
+        const stepKey = call.relive?.stepKey;
+        if (!stepKey || call.relive?.runId !== run.id || !wanted.has(stepKey) || collected.has(stepKey)) continue;
+        if (!this.callFinished(call)) continue;
+        const attribution = (call.relive as { attribution?: string } | null | undefined)?.attribution ?? 'INFLIGHT';
+        collected.set(stepKey, {
+          type: 'run-call',
+          runId: run.id,
+          stepKey,
+          callId: call.id,
+          direction: source === 'internal' ? 'inbound' : 'outbound',
+          attribution,
+          state: 'COMPLETED',
+        });
+      }
+    }
+  }
+
+  private endpointSource(step: Step): CallEndpointSource {
+    return step.source.direction === 'outbound' ? 'external' : 'internal';
+  }
+
+  private sameAttempt(call: CallRecord, startedAt: string | null): boolean {
+    if (!startedAt || call.state === 'IN_PROGRESS') return true;
+    const callAt = Date.parse(call.timestamp);
+    const markedAt = Date.parse(startedAt);
+    if (Number.isNaN(callAt) || Number.isNaN(markedAt)) return true;
+    return callAt >= markedAt - DISPATCH_CLOCK_SKEW_MS;
+  }
+
+  private callFinished(call: CallRecord): boolean {
+    if (call.state === 'IN_PROGRESS') return false;
+    return call.state === 'COMPLETED' || call.state === 'ERROR' || !!call.error || call.response?.status != null;
   }
 
   /** Marks a step SKIPPED at the user's own request (a checkpoint's Skip, not a dependency skip -

@@ -1,6 +1,7 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Observable, catchError, of, switchMap } from 'rxjs';
+import { Observable, Subscription, catchError, firstValueFrom, interval, of, switchMap, takeWhile } from 'rxjs';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
 import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/relive-step-drawer.component';
@@ -58,6 +59,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
   templateUrl: './relive-cycle.component.html',
 })
 export class ReliveCycleComponent implements CanDeactivateRelive {
+  private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly confirmDialog = inject(ConfirmDialogService);
@@ -197,17 +199,27 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     return this.interceptionState.pausedCalls().filter((c) => c.relive?.runId === runId && c.relive?.at === 'CHANGED');
   });
 
-  /** A past run opened from the History tab (T072) - shown read-only in the same timeline
-   *  component the live run uses, since it's pure input/output either way. */
+  /** A past run opened from the History tab (T072), in the same timeline as a live run.
+   *  One that is still RUNNING can be stopped from this view. */
   readonly historyRun = signal<{ readonly run: Run; readonly results: Readonly<Record<string, StepResult>> } | null>(null);
+  readonly stopping = signal(false);
+  /** The run on screen when it is still going, otherwise the one this page is driving. */
+  readonly stoppableRun = computed(() => {
+    const opened = this.historyRun()?.run;
+    if (opened?.status === 'RUNNING') return opened;
+    const live = this.runService.run();
+    return live?.status === 'RUNNING' ? live : null;
+  });
   readonly actionError = signal<string | null>(null);
   private handlingPicker = false;
+  /** Refresh of a RUNNING run shown from History while this page is already driving a different one. */
+  private historyWatch: Subscription | null = null;
 
   constructor() {
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
       this.state.load(id);
-      this.restoreLatestRunVariables(id);
+      this.restoreLatestRun(id);
     }
     effect(() => {
       const draft = this.state.draft();
@@ -320,12 +332,36 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     return vars;
   }
 
-  private restoreLatestRunVariables(cycleId: string): void {
+  /** Latest run's variables, and the run itself when this page is not already driving it.
+   *  A reload destroys the in-browser driver and, 15s after the socket drops, the server marks
+   *  the run interrupted. Re-take the lease as soon as the list says it is still running, then
+   *  show that run and keep following it. A step already sent is settled from the logged call
+   *  instead of being sent again. If the interrupt already won, still open the Run tab on the
+   *  step where it stopped. */
+  private restoreLatestRun(cycleId: string): void {
     this.api.listRuns(cycleId, 1).pipe(
-      switchMap((runs) => runs.length ? this.api.getRun(cycleId, runs[0].id) : of(null)),
+      switchMap((runs) => {
+        const latest = runs[0];
+        if (!latest) return of(null);
+        if (latest.status === 'RUNNING') this.runService.retain(latest.id);
+        return this.api.getRun(cycleId, latest.id);
+      }),
       catchError(() => of(null)),
     ).subscribe((run) => {
-      if (run) this.lastRunVariables.set(this.finalVariablesOf(run));
+      if (!run) return;
+      this.lastRunVariables.set(this.finalVariablesOf(run));
+      if (this.runService.run()?.status === 'RUNNING' || this.historyRun()) return;
+      if (run.status === 'RUNNING') {
+        this.runService.adopt(run);
+        this.runService.continueAdopted();
+        this.setTab('run');
+        return;
+      }
+      this.runService.release(run.id);
+      if (run.status === 'INTERRUPTED') {
+        this.runService.adopt(run);
+        this.setTab('run');
+      }
     });
   }
 
@@ -338,21 +374,95 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     }));
   }
 
+  /** A past run opens as a snapshot. A run that is still going opens on the live driver:
+   *  the snapshot hides that driver and leaves the in-progress step on its last saved result.
+   *  continueAdopted settles a step already sent from the logged call and does not send it again.
+   *  A different run this page is actively driving is left alone. */
   openHistoryRun(runId: string): void {
     const cycle = this.state.saved();
     if (!cycle) return;
+    const driving = this.runService.run();
+    if (driving?.id === runId) {
+      this.attachLiveRun(driving.status === 'RUNNING');
+      return;
+    }
     this.api.getRun(cycle.id, runId).subscribe((run) => {
-      const results: Record<string, StepResult> = {};
-      for (const r of run.stepResults) {
-        const existing = results[r.stepKey];
-        if (!existing || r.attempt > existing.attempt) results[r.stepKey] = r;
+      if (run.status !== 'RUNNING') {
+        this.showHistorySnapshot(cycle.id, run);
+        return;
       }
-      this.historyRun.set({ run, results });
-      this.setTab('run');
+      const current = this.runService.run();
+      if (current?.status === 'RUNNING' && current.id !== run.id) {
+        this.showHistorySnapshot(cycle.id, run);
+        return;
+      }
+      if (!(current?.id === run.id && current.status === 'RUNNING')) this.runService.adopt(run);
+      this.attachLiveRun(true);
     });
   }
 
+  /** Drop the history snapshot and show the run this page is driving. `follow` resumes the loop
+   *  when it is not already going; a hold and an already-started loop stay as they are. */
+  private attachLiveRun(follow: boolean): void {
+    this.stopHistoryWatch();
+    this.historyRun.set(null);
+    this.setTab('run');
+    if (follow) this.runService.continueAdopted();
+  }
+
+  /** A history snapshot is one fetch, so a run that is still going keeps moving underneath it.
+   *  Follow that run until it settles. The run this page itself is driving is never shown this way. */
+  private showHistorySnapshot(cycleId: string, run: Run & { readonly stepResults: readonly StepResult[] }): void {
+    this.stopHistoryWatch();
+    this.historyRun.set({ run, results: latestResults(run.stepResults) });
+    this.setTab('run');
+    if (run.status !== 'RUNNING') return;
+    this.historyWatch = interval(1000).pipe(
+      switchMap(() => this.api.getRun(cycleId, run.id).pipe(catchError(() => of(null)))),
+      takeWhile((next) => next?.status === 'RUNNING', true),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((next) => {
+      if (!next || this.historyRun()?.run.id !== next.id) return;
+      this.historyRun.set({ run: next, results: latestResults(next.stepResults) });
+    });
+  }
+
+  private stopHistoryWatch(): void {
+    this.historyWatch?.unsubscribe();
+    this.historyWatch = null;
+  }
+
+  /** Stops the run opened from History, or the one this page is still driving. */
+  async stopDisplayedRun(): Promise<void> {
+    const shown = this.stoppableRun();
+    const cycle = this.state.saved();
+    if (!shown || !cycle || this.stopping()) return;
+    this.stopHistoryWatch();
+    this.stopping.set(true);
+    this.actionError.set(null);
+    try {
+      const live = this.runService.run();
+      if (live?.id === shown.id) {
+        await this.runService.stop();
+        const stopped = this.runService.run();
+        const opened = this.historyRun();
+        if (stopped && opened?.run.id === stopped.id) {
+          this.historyRun.set({ run: { ...opened.run, ...stopped }, results: { ...this.runService.results() } });
+        }
+        return;
+      }
+      await firstValueFrom(this.api.stopRun(cycle.id, shown.id));
+      const full = await firstValueFrom(this.api.getRun(cycle.id, shown.id));
+      this.historyRun.set({ run: full, results: latestResults(full.stepResults) });
+    } catch (error: any) {
+      this.actionError.set(error?.error?.error ?? error?.message ?? 'Could not stop the run.');
+    } finally {
+      this.stopping.set(false);
+    }
+  }
+
   closeHistoryRun(): void {
+    this.stopHistoryWatch();
     this.historyRun.set(null);
   }
 
@@ -403,6 +513,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
       const cycle = this.state.dirty() ? await this.state.saveAsync() : this.state.saved();
       if (!cycle) throw new Error('Cycle has not loaded yet.');
       if (!cycle.steps.some((step) => step.enabled)) throw new Error('Add calls before starting a run.');
+      this.stopHistoryWatch();
       this.historyRun.set(null);
       const running = this.runService.start(cycle, { driver: request.driver, unattributedChoices: {} });
       this.setTab('run');
@@ -416,6 +527,15 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     if (!this.state.dirty()) return true;
     return this.confirmDialog.confirm('Leave without saving your changes?', 'Leave');
   }
+}
+
+function latestResults(results: readonly StepResult[]): Record<string, StepResult> {
+  const latest: Record<string, StepResult> = {};
+  for (const result of results) {
+    const existing = latest[result.stepKey];
+    if (!existing || result.attempt > existing.attempt) latest[result.stepKey] = result;
+  }
+  return latest;
 }
 
 function hostOf(step: Step): string {

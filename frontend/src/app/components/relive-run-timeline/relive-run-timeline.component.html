@@ -89,7 +89,7 @@
 
   <div>
     @for (row of filteredRows(); track row.step.key) {
-      <div class="rl-step" [class.rl-child]="row.isChild" [class.rl-sel]="selectedKey() === row.step.key" (click)="select(row.step.key)">
+      <div class="rl-step" [class.rl-child]="row.isChild" [class.rl-sel]="selectedKey() === row.step.key" [class.rl-here]="trackKey() === row.step.key" [attr.data-step-key]="row.step.key" (click)="select(row.step.key)">
         <span class="rl-st" [class]="stateIcon(row.result.state)[0]">{{ stateIcon(row.result.state)[1] }}</span>
         <span class="rl-dir" [class.rl-in]="!row.isChild" [class.rl-out]="row.isChild">{{ row.isChild ? '↗' : '↙' }}</span>
         <span class="rl-mono">{{ row.step.recording.method }}</span>

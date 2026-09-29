@@ -32,7 +32,11 @@
         <button class="rl-btn" (click)="save()" [disabled]="!state.dirty() || state.saving()">Save</button>
         <button class="rl-btn" (click)="openRebuild()">⟳ Rebuild</button>
         <button class="rl-btn" (click)="duplicate()">Duplicate</button>
-        <button class="rl-btn rl-primary" (click)="openPrerun()">▶ Run</button>
+        @if (stoppableRun()) {
+          <button class="rl-btn rl-danger" (click)="stopDisplayedRun()" [disabled]="stopping()">■ Stop</button>
+        } @else {
+          <button class="rl-btn rl-primary" (click)="openPrerun()">▶ Run</button>
+        }
       </div>
     </div>
     @if (state.saveError() || actionError()) {
@@ -104,6 +108,10 @@
         @if (historyRun(); as h) {
           <div class="rl-row" style="margin-bottom: 8px">
             <button class="rl-link" (click)="closeHistoryRun()">← back to the live run</button>
+            @if (h.run.status === 'RUNNING') {
+              <span class="rl-spacer"></span>
+              <button class="rl-btn rl-sm rl-danger" (click)="stopDisplayedRun()" [disabled]="stopping()">■ Stop run</button>
+            }
           </div>
           <app-relive-run-timeline
             [run]="h.run"
@@ -112,6 +120,7 @@
             [variableDefs]="h.run.definition.variables"
             [variables]="finalVariablesOf(h.run)"
             (runFromStep)="runFromHere($event, h.run)"
+            (stopRun)="stopDisplayedRun()"
           />
         } @else {
           @if (runService.run(); as run) {

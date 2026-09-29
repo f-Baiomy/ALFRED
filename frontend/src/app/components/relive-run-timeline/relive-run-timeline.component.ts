@@ -1,4 +1,4 @@
-import { DestroyRef, Component, computed, inject, input, output, signal } from '@angular/core';
+import { DestroyRef, Component, ElementRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
 import { PausedCall } from '../../core/models/interception.model';
@@ -96,6 +96,7 @@ function emptyResult(): StepResult {
 })
 export class ReliveRunTimelineComponent {
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   readonly run = input<Run | null>(null);
   readonly steps = input<readonly Step[]>([]);
@@ -134,11 +135,40 @@ export class ReliveRunTimelineComponent {
   private readonly revealed = signal<ReadonlySet<string>>(new Set());
   private readonly now = signal(Date.now());
 
+  /** The step the timeline should keep in view. While the run is going: the hold, a checkpoint,
+   *  the row that is executing, or the next unsettled top-level step. After a reload interrupts
+   *  the run: the first step that was cancelled, which is where it stopped. */
+  readonly trackKey = computed(() => {
+    const run = this.run();
+    if (!run) return null;
+    const rows = this.rows();
+    if (run.status === 'INTERRUPTED' || run.status === 'STOPPED') {
+      return rows.find((row) => !row.isChild && row.result.state === 'CANCELLED')?.step.key
+        ?? [...rows].reverse().find((row) => row.result.state !== 'PENDING')?.step.key
+        ?? null;
+    }
+    if (run.status !== 'RUNNING') return null;
+    if (run.hold?.stepKey) return run.hold.stepKey;
+    const paused = this.pause()?.stepKey;
+    if (paused) return paused;
+    const active = rows.find((row) => RUNNING_STATES.includes(row.result.state) || row.result.state === 'PAUSED');
+    if (active) return active.step.key;
+    return rows.find((row) => !row.isChild && row.step.enabled && row.result.state === 'PENDING')?.step.key ?? null;
+  });
+
   constructor() {
     const id = setInterval(() => {
       if (this.run()?.status === 'RUNNING') this.now.set(Date.now());
     }, 500);
     this.destroyRef.onDestroy(() => clearInterval(id));
+    effect(() => {
+      const key = this.trackKey();
+      if (!key) return;
+      setTimeout(() => {
+        const row = this.host.nativeElement.querySelector(`[data-step-key="${CSS.escape(key)}"]`);
+        row?.scrollIntoView({ block: 'center' });
+      });
+    });
   }
 
   readonly blocks = computed(() => toBlocks(this.steps()));
