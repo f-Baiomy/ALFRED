@@ -38,10 +38,11 @@ public class RuleValidationAdapter implements RuleValidationPort {
             normalizeReliveScopes(validationDoc);
             InterceptionRule rule = objectMapper.treeToValue(validationDoc, InterceptionRule.class);
             List<String> problems = new ArrayList<>(RuleValidator.validate(rule));
-            // Relive's generated replay rule deliberately lets a matching recorded request
-            // fall through to the following MOCK_RESPONSE; its ELSE answers a mismatch.
-            // The generic validator sees the empty IF branch as useless, even though here
-            // it selects between those two terminal answers.
+            // A generated call rule's IF matches the recording and does nothing, so the
+            // request falls through: to the following MOCK_RESPONSE while replaying, or on
+            // to the real host once that mock is switched off (LIVE / LIVE, reply mocked).
+            // Its ELSE answers a mismatch. The generic validator sees the empty IF branch
+            // as useless, even though the branch is what chooses between those two paths.
             int fallthroughs = replayFallthroughs(ruleDoc);
             while (fallthroughs-- > 0) {
                 if (!problems.remove("An IF branch that does nothing when it matches has no effect - remove it.")) break;
@@ -79,13 +80,9 @@ public class RuleValidationAdapter implements RuleValidationPort {
                     || !conditions.isArray() || conditions.size() != 1
                     || !"RECORDED_CALL".equals(conditions.get(0).path("subject").asText())
                     || !action.path("otherwise").isArray() || action.path("otherwise").isEmpty()) continue;
-            for (int j = i + 1; j < actions.size(); j++) {
-                if ("MOCK_RESPONSE".equals(actions.get(j).path("type").asText())
-                        && actions.get(j).path("enabled").asBoolean(true)) {
-                    count++;
-                    break;
-                }
-            }
+            // The ELSE is the mismatch answer. The match path is the empty branch itself,
+            // whether or not a later MOCK_RESPONSE is still enabled.
+            count++;
         }
         return count;
     }

@@ -119,7 +119,10 @@ export class ReliveCycleEditorState {
         },
         error: (err) => {
           this.saving.set(false);
-          this.saveError.set(err?.status === 409 ? 'Cycle changed elsewhere. Resolve the conflict before running.' : 'Could not save this cycle. Try again.');
+          const serverMessage = typeof err?.error?.error === 'string' ? err.error.error : null;
+          this.saveError.set(err?.status === 409
+            ? 'Cycle changed elsewhere. Resolve the conflict before running.'
+            : serverMessage ?? 'Could not save this cycle. Try again.');
           if (err?.status === 409) this.api.get(saved.id).subscribe((latest) => this.conflict.set(latest));
           reject(err);
         },

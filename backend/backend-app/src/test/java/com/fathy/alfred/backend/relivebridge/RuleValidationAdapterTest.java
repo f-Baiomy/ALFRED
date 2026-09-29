@@ -54,6 +54,48 @@ class RuleValidationAdapterTest {
     }
 
     @Test
+    void recordedCallBranchStaysValidWhenTheReplayMockIsSwitchedOff() throws Exception {
+        JsonNode rule = objectMapper.readTree("""
+                {
+                  "name": "POST /supplier/search",
+                  "enabled": true,
+                  "priority": 0,
+                  "stopProcessing": true,
+                  "match": {},
+                  "actions": [
+                    { "type": "IF_REQUEST", "enabled": true,
+                      "branches": [{ "conditions": [{ "subject": "RECORDED_CALL", "operator": "MATCHES", "recordedStepKey": "step-1", "ignore": [] }], "actions": [] }],
+                      "otherwise": [{ "type": "MOCK_RESPONSE", "enabled": true, "status": 502, "headers": {}, "body": "different" }] },
+                    { "type": "MOCK_RESPONSE", "enabled": false, "status": 200, "headers": {}, "body": "recorded" }
+                  ]
+                }
+                """);
+
+        assertThat(adapter.validate(rule)).isEmpty();
+    }
+
+    @Test
+    void emptyIfBranchThatIsNotARecordedCallFallthroughIsStillRejected() throws Exception {
+        JsonNode rule = objectMapper.readTree("""
+                {
+                  "name": "POST /supplier/search",
+                  "enabled": true,
+                  "priority": 0,
+                  "stopProcessing": true,
+                  "match": {},
+                  "actions": [
+                    { "type": "IF_REQUEST", "enabled": true,
+                      "branches": [{ "conditions": [{ "subject": "METHOD", "operator": "EQUALS", "value": "POST" }], "actions": [] }],
+                      "otherwise": [{ "type": "MOCK_RESPONSE", "enabled": true, "status": 502, "headers": {}, "body": "different" }] }
+                  ]
+                }
+                """);
+
+        assertThat(adapter.validate(rule))
+                .contains("An IF branch that does nothing when it matches has no effect - remove it.");
+    }
+
+    @Test
     void unknownActionTypeGivesAnError() throws Exception {
         JsonNode rule = objectMapper.readTree("""
                 {
