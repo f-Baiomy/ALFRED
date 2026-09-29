@@ -1,4 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { defaultCallRule, modeOf } from '../../shared/utils/relive-call-rule';
 import { FrozenCall, ReliveSettings, Step } from '../../shared/utils/relive-types';
 import { ReliveStepTreeComponent, reorderTopLevel } from './relive-step-tree.component';
@@ -62,7 +65,10 @@ describe('ReliveStepTreeComponent', () => {
   let fixture: ComponentFixture<ReliveStepTreeComponent>;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [ReliveStepTreeComponent] });
+    TestBed.configureTestingModule({
+      imports: [ReliveStepTreeComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    });
     fixture = TestBed.createComponent(ReliveStepTreeComponent);
     fixture.componentRef.setInput('steps', fixtureSteps());
     fixture.componentRef.setInput('settings', settings);
@@ -103,6 +109,37 @@ describe('ReliveStepTreeComponent', () => {
     // supA's 3 buttons are REPLAY, LIVE, LIVE_MOCKED, in that order - the first child rendered.
     const liveButton = liveButtons.find((b) => b.textContent?.includes('LIVE ⚠'));
     liveButton!.click();
+  });
+
+  it('opens the logged call card under the selected step', () => {
+    fixture.componentRef.setInput('selectedKey', 'search');
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    const req = http.expectOne((call) => call.url.includes('/internal-calls/search/summary'));
+    req.flush({
+      id: 'search',
+      original_url: 'https://api.supplier-a.com/v2/search',
+      url: 'https://api.supplier-a.com/v2/search',
+      method: 'POST',
+      timestamp: '2026-09-27T10:00:00Z',
+      duration_ms: 100,
+      status: 200,
+      service_name: 'odeysys',
+      resend_of: 'bf7dc95e-1111-2222-3333-444444444444',
+      resend_edits: { headers: ['Cookie'], body: true },
+      interception: {
+        applied: [{ ruleName: 'set sessionid', action: 'SET_REQUEST_COOKIE', detail: 'JSESSIONID' }],
+        originalRequest: { method: 'POST', url: 'https://api.supplier-a.com/v2/search', headers: { Cookie: 'a' } },
+      },
+    });
+    fixture.detectChanges();
+    const detail = fixture.nativeElement.querySelector('.rl-step-detail') as HTMLElement;
+    expect(detail.querySelector('app-call-card')).not.toBeNull();
+    expect(detail.textContent).toContain('POST');
+    expect(detail.textContent).toContain('200');
+    expect(detail.textContent).toContain('Resent from a Live Calls call');
+    expect(detail.textContent).toContain('2 changes: 1 header · body');
+    expect(detail.textContent).toContain('Request was modified before sending');
   });
 
   it('search filters blocks by label', () => {

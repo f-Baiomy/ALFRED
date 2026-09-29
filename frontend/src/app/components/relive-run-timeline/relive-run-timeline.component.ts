@@ -1,8 +1,10 @@
 import { DestroyRef, Component, ElementRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
+import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.component';
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
 import { PausedCall } from '../../core/models/interception.model';
 import { maskRelive } from '../../shared/utils/relive-mask';
+import { displayedState, explainStep, formatReasonDetail, StepReason } from '../../shared/utils/relive-outcome';
 import { CycleVariable, Run, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 
 type Filter = 'all' | 'running' | 'diff' | 'failed' | 'live' | 'replayed';
@@ -92,6 +94,7 @@ function emptyResult(): StepResult {
 @Component({
   selector: 'app-relive-run-timeline',
   standalone: true,
+  imports: [ReliveStepCallComponent],
   templateUrl: './relive-run-timeline.component.html',
 })
 export class ReliveRunTimelineComponent {
@@ -135,6 +138,8 @@ export class ReliveRunTimelineComponent {
   readonly retryFailedStep = output<string>();
 
   readonly filter = signal<Filter>('all');
+  /** The row whose call card is open. The live run and a history snapshot share this timeline, so either click opens the same card. */
+  readonly detailKey = signal<string | null>(null);
   private readonly revealed = signal<ReadonlySet<string>>(new Set());
   private readonly now = signal(Date.now());
 
@@ -201,8 +206,8 @@ export class ReliveRunTimelineComponent {
     const f = this.filter();
     if (f === 'all') return this.rows();
     if (f === 'running') return this.rows().filter((r) => RUNNING_STATES.includes(r.result.state));
-    if (f === 'diff') return this.rows().filter((r) => r.result.state === 'COMPLETED_WITH_DIFFERENCES');
-    if (f === 'failed') return this.rows().filter((r) => r.result.state === 'FAILED');
+    if (f === 'diff') return this.rows().filter((r) => this.viewState(r) === 'COMPLETED_WITH_DIFFERENCES');
+    if (f === 'failed') return this.rows().filter((r) => this.viewState(r) === 'FAILED');
     if (f === 'live') return this.rows().filter((r) => r.isChild && r.result.mode === 'LIVE');
     return this.rows().filter((r) => r.isChild && r.result.mode === 'REPLAY');
   });
@@ -252,8 +257,15 @@ export class ReliveRunTimelineComponent {
     const run = this.run();
     if (!run) return ['rl-p-wait', ''];
     if (run.status === 'RUNNING' && run.hold) return ['rl-p-fail', '■ holding - your call'];
+    if (run.status === 'FAILED' && this.onlyDocumentMismatches()) return RUN_TITLE.COMPLETED_WITH_DIFFERENCES;
     return RUN_TITLE[run.status];
   });
+
+  /** A finished run whose every stored failure is a whole-document JSON mismatch. */
+  private onlyDocumentMismatches(): boolean {
+    const failed = this.rows().filter((row) => row.result.state === 'FAILED');
+    return failed.length > 0 && failed.every((row) => this.viewState(row) === 'COMPLETED_WITH_DIFFERENCES');
+  }
 
   setFilter(filter: Filter): void {
     this.filter.set(filter);
@@ -279,11 +291,45 @@ export class ReliveRunTimelineComponent {
     return row.result.differences.filter((d) => d.kind === 'UNEXPECTED').length;
   }
 
+  differenceLabel(row: TimelineRow): string {
+    const count = this.unexpectedDifferenceCount(row);
+    if (count <= 0) return 'differences';
+    return count === 1 ? '1 difference' : `${count} differences`;
+  }
+
+  /** Stored state, except a whole-document JSON mismatch saved as a failure, which shows as differences. */
+  viewState(row: TimelineRow): StepState {
+    return displayedState(row.result, row.step.recording.status);
+  }
+
   /** A LIVE child that got an actual response really contacted the real system, and the backend's
    *  own observer (T050) saves that answer into the Live calls log - mock.html's `res.savedLive`,
    *  the "💾 saved" badge (T074). */
   wasSavedLive(result: StepResult): boolean {
     return result.mode === 'LIVE' && result.actualResponse != null;
+  }
+
+  /** First line is the row; the opened step lists every line. Empty unless the step failed, was skipped, or was never sent. */
+  whyOf(row: TimelineRow): readonly StepReason[] {
+    const parent = row.step.parentKey ? this.rows().find((r) => r.step.key === row.step.parentKey) : undefined;
+    const state = this.viewState(row);
+    const shown = state === row.result.state ? row.result : { ...row.result, state };
+    return explainStep(shown, row.step.recording.status, parent ? this.viewState(parent) : null);
+  }
+
+  readonly reasonPopup = signal<StepReason | null>(null);
+
+  openReason(event: Event, reason: StepReason): void {
+    event.stopPropagation();
+    this.reasonPopup.set(reason);
+  }
+
+  closeReason(): void {
+    this.reasonPopup.set(null);
+  }
+
+  formatReason(detail: string): string {
+    return formatReasonDetail(detail);
   }
 
   readonly savedLiveCount = computed(() => Object.values(this.results()).filter((r) => this.wasSavedLive(r)).length);
@@ -323,6 +369,7 @@ export class ReliveRunTimelineComponent {
   }
 
   select(key: string): void {
+    this.detailKey.update((current) => (current === key ? null : key));
     this.selectStep.emit(key);
   }
 

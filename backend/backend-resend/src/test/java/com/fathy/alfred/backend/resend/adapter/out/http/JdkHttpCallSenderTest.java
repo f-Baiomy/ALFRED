@@ -6,12 +6,15 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.GZIPOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -119,6 +122,42 @@ class JdkHttpCallSenderTest {
         assertThat(sent.headers().get("set-cookie")).isEqualTo("a=1, b=2");
         assertThat(sent.headers()).doesNotContainKey("Content-Type").doesNotContainKey("Set-Cookie");
         assertThat(sent.body()).isEqualTo("{}");
+    }
+
+    @Test
+    void aGzipResponseIsInflatedBeforeItIsCompared() throws Exception {
+        byte[] plain = "{\"searchOffers\":{}}".getBytes(StandardCharsets.UTF_8);
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzip = new GZIPOutputStream(compressed)) {
+            gzip.write(plain);
+        }
+        byte[] gzipBytes = compressed.toByteArray();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            exchange.getResponseHeaders().add("Content-Encoding", "gzip");
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, gzipBytes.length);
+            exchange.getResponseBody().write(gzipBytes);
+            exchange.close();
+        });
+        server.start();
+        this.server = server;
+        int port = server.getAddress().getPort();
+
+        JdkHttpCallSender sender = new JdkHttpCallSender(Duration.ofSeconds(5), "proxy.invalid", 8080,
+                Map.of(), "127.0.0.1", Map.of("odeysys", port), null);
+        // Accept-Encoding on the copied browser request stops the JDK from inflating on its own.
+        OutgoingCall call = new OutgoingCall("inbound", "POST", "http://localhost:9001/search",
+                Map.of("Accept-Encoding", "gzip"), "{}", "localhost", "odeysys");
+
+        SendOutcome outcome = sender.send(call);
+
+        assertThat(outcome).isInstanceOf(SendOutcome.Sent.class);
+        SendOutcome.Sent sent = (SendOutcome.Sent) outcome;
+        assertThat(sent.status()).isEqualTo(200);
+        assertThat(sent.body()).isEqualTo("{\"searchOffers\":{}}");
+        assertThat(sent.headers()).containsEntry("content-encoding", "gzip");
     }
 
     @Test

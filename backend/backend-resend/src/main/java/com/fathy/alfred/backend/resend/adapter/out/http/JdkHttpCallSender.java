@@ -13,6 +13,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.zip.GZIPInputStream;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
@@ -168,12 +169,32 @@ public class JdkHttpCallSender implements CallSenderPort {
 
     private SendOutcome doSend(HttpClient client, HttpRequest request) throws IOException, InterruptedException {
         HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
-        byte[] body = response.body();
+        Map<String, String> headers = lowerCaseJoinedHeaders(response.headers().map());
+        // The browser request copies Accept-Encoding, so the JDK leaves a gzip body compressed.
+        // Recordings are already stored as the inflated text; grade and keep that same text.
+        byte[] body = inflateGzip(headers, response.body());
         int length = body == null ? 0 : (int) Math.min(body.length, maxAnswerBytes);
         // UTF-8 lossy: String's own decoder replaces malformed sequences rather than throwing,
         // which is exactly what a text passthrough of an arbitrary supplier body needs.
         String text = body == null ? "" : new String(body, 0, length, StandardCharsets.UTF_8);
-        return new SendOutcome.Sent(response.statusCode(), lowerCaseJoinedHeaders(response.headers().map()), text);
+        return new SendOutcome.Sent(response.statusCode(), headers, text);
+    }
+
+    /** Inflate a gzip answer. Any other encoding, or a body that is not gzip, is left as received. */
+    private static byte[] inflateGzip(Map<String, String> headers, byte[] body) {
+        if (body == null || body.length == 0) {
+            return body;
+        }
+        String encoding = headers.getOrDefault("content-encoding", "");
+        String first = encoding.toLowerCase(Locale.ROOT).split(",", 2)[0].trim();
+        if (!first.equals("gzip") && !first.equals("x-gzip")) {
+            return body;
+        }
+        try (GZIPInputStream in = new GZIPInputStream(new ByteArrayInputStream(body))) {
+            return in.readAllBytes();
+        } catch (IOException e) {
+            return body;
+        }
     }
 
     /**

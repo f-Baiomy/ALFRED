@@ -38,6 +38,11 @@
           <button class="icon-btn" title="Duplicate" (click)="duplicate(block.parent, $event)">⧉</button>
           <button class="icon-btn" title="Remove" (click)="remove(block.parent, $event)">✕</button>
         </div>
+        @if (selectedKey() === block.parent.key) {
+          <div class="rl-step-detail">
+            <app-relive-step-call [step]="block.parent" />
+          </div>
+        }
 
         @if (!isFolded(block.parent.key)) {
           @for (child of block.children; track child.key) {
@@ -61,6 +66,11 @@
               </span>
               <button class="icon-btn" title="Remove" (click)="remove(child, $event)">✕</button>
             </div>
+            @if (selectedKey() === child.key) {
+              <div class="rl-step-detail rl-child">
+                <app-relive-step-call [step]="child" />
+              </div>
+            }
           }
         }
       </div>

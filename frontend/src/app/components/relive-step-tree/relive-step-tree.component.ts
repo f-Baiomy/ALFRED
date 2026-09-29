@@ -1,5 +1,6 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { Component, computed, input, output, signal } from '@angular/core';
+import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.component';
 import { applyMode, checkpointOf, isModified, modeOf } from '../../shared/utils/relive-call-rule';
 import { ReliveSettings, Step, StepMode } from '../../shared/utils/relive-types';
 
@@ -35,7 +36,7 @@ export function reorderTopLevel(steps: readonly Step[], fromIndex: number, toInd
 @Component({
   selector: 'app-relive-step-tree',
   standalone: true,
-  imports: [CdkDropList, CdkDrag],
+  imports: [CdkDropList, CdkDrag, ReliveStepCallComponent],
   templateUrl: './relive-step-tree.component.html',
 })
 export class ReliveStepTreeComponent {
