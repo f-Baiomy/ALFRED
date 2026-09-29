@@ -383,4 +383,59 @@ class InternalCallsFileLogAdapterTest {
 
         assertThat(adapterFor(file).readAll().get(0).interception()).isNull();
     }
+
+    /**
+     * The raw log line is a second copy of the request and response bodies. Keeping both, for every
+     * retained call, filled the heap (measured: ~900MB of byte arrays against a 1GB heap) so recording
+     * a relive step failed while reading an unrelated column. The parsed call is the copy that stays.
+     */
+    @Test
+    void cacheKeepsTheParsedBodyWithoutTheRawLine() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        String body = "é" + "x".repeat(50_000);
+        Files.writeString(file, "{\"id\":\"c1\",\"url\":\"http://x/\",\"method\":\"GET\",\"state\":\"COMPLETED\","
+                + "\"response\":{\"status\":200,\"body\":\"" + body + "\"}}\n");
+
+        InternalCallsFileLogAdapter adapter = adapterFor(file, 10);
+        assertThat(adapter.readAll()).singleElement().extracting(call -> call.response().body()).isEqualTo(body);
+
+        List<?> cached = (List<?>) getField(adapter, "cachedLines");
+        assertThat(cached).hasSize(1);
+        assertThat(cached.get(0).getClass().getDeclaredFields())
+                .extracting(Field::getName)
+                .containsExactly("record");
+    }
+
+    /** Compaction must keep a retained line's bytes, not a re-serialization of it. */
+    @Test
+    void compactionCopiesRetainedLineBytesUnchanged() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        String distinctive = "{\"id\":\"keep-me\",\"url\":\"http://kept/\",\"method\":\"GET\",\"state\":\"COMPLETED\","
+                + "\"response\":{\"status\":200,\"body\":\"kept-body\"}}";
+        StringBuilder seeded = new StringBuilder();
+        for (int i = 1; i <= 52; i++) {
+            seeded.append("{\"id\":\"f").append(i).append("\"}\n");
+        }
+        seeded.append(distinctive).append('\n');
+        Files.writeString(file, seeded.toString());
+
+        // retention 3 -> compaction threshold is 3 + 50 = 53, so one more call rewrites the file.
+        InternalCallsFileLogAdapter adapter = adapterFor(file, 3);
+        adapter.prepare(prepared("newest"));
+        adapter.complete("newest", new ResponseData(200, null, "ok"), null, 1.0);
+
+        String rewritten = Files.readString(file);
+        assertThat(rewritten).contains(distinctive);
+        assertThat(rewritten).contains("{\"id\":\"f52\"}");
+        assertThat(rewritten).doesNotContain("\"f51\"");
+        assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly("f52", "keep-me", "newest");
+        assertThat(Files.list(tempDir).map(p -> p.getFileName().toString()).toList())
+                .containsExactly("internal-calls.log");
+    }
+
+    private static Object getField(InternalCallsFileLogAdapter adapter, String name) throws Exception {
+        Field field = InternalCallsFileLogAdapter.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(adapter);
+    }
 }

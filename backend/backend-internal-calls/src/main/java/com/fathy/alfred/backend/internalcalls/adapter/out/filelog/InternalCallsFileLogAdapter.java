@@ -16,9 +16,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -26,6 +31,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -126,12 +132,15 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
     }
 
     /**
-     * One line of the file together with its parsed form ({@code null} when that line failed to
-     * parse). Caching both keeps save able to rewrite the file from the original line text,
-     * preserving the existing behaviour exactly: a malformed line stays on disk and still counts
-     * toward the ring buffer's size, while {@link #readAll()} keeps skipping it.
+     * A retained call. {@code record} is null when the line did not parse; that line still occupies
+     * a slot in the ring, and {@link #readAll()} keeps skipping it.
+     *
+     * <p>The raw line is deliberately not kept here. It is a second copy of the same request and
+     * response bodies the record already holds, and with {@code retention-rows} in the thousands
+     * that copy alone filled the heap — a later read of any other multi-megabyte column then failed
+     * with OutOfMemoryError. Compaction copies the retained line bytes from the file instead.
      */
-    private record CachedLine(String text, CallRecord record) {}
+    private record CachedLine(CallRecord record) {}
 
     /** Null until the first read/write populates it. Replaced wholesale, never mutated in place. */
     private List<CachedLine> cachedLines;
@@ -203,7 +212,8 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             }
 
             List<CachedLine> retained = loadLines();
-            CachedLine added = new CachedLine(objectMapper.writeValueAsString(call), call);
+            String addedText = objectMapper.writeValueAsString(call);
+            CachedLine added = new CachedLine(call);
 
             // The cache always holds the retained VIEW (newest retentionRows), even while the file
             // on disk legitimately holds more - that gap is what the slack buys.
@@ -216,10 +226,10 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             }
 
             if (linesOnDisk + 1 > compactionThreshold()) {
-                writeAllLines(path, next);
-                linesOnDisk = next.size();
+                // Every entry but the one just added is already the file's newest lines.
+                linesOnDisk = writeCompacted(path, next.size() - 1, addedText);
             } else {
-                Files.writeString(path, added.text() + System.lineSeparator(),
+                Files.writeString(path, addedText + System.lineSeparator(),
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE);
                 linesOnDisk++;
             }
@@ -233,38 +243,112 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
     }
 
     /**
-     * Writes {@code lines} as the file's entire contents, STREAMED - one line at a time through a
-     * buffered writer, so the whole file never exists in memory as a String the way the old
-     * rewrite-per-call did. Used by compaction and by the id backfill, the only two paths that
-     * still legitimately rewrite everything.
+     * Replaces {@code path} with its newest {@code linesFromFile} non-empty lines, byte for byte,
+     * then appends {@code newCallJson} when it is non-null. Returns how many lines the file has
+     * afterwards.
      *
-     * <p>Written to a sibling temp file and moved into place, so a crash or a full disk mid-write
-     * leaves the previous file intact rather than a half-written one - a plain TRUNCATE_EXISTING
-     * write would destroy the existing calls before writing the replacement. Falls back to a
-     * non-atomic move on filesystems that can't do an atomic one.
+     * <p>Only the line offsets are held (a few bytes each). The line bodies stay on disk and are
+     * copied through a small buffer, so compaction does not pull the retained window into the heap
+     * a second time. A crash mid-write leaves the previous file intact.
      */
-    private void writeAllLines(Path path, List<CachedLine> lines) throws IOException {
+    private int writeCompacted(Path path, int linesFromFile, String newCallJson) throws IOException {
+        List<LineSpan> spans = lastNonEmptySpans(path, linesFromFile);
         Path temp = path.resolveSibling(path.getFileName() + ".compacting");
-        try (BufferedWriter writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
-            for (CachedLine line : lines) {
-                writer.write(line.text());
-                writer.newLine();
+        byte[] newline = System.lineSeparator().getBytes(StandardCharsets.UTF_8);
+        try (SeekableByteChannel src = Files.newByteChannel(path, StandardOpenOption.READ);
+             OutputStream out = Files.newOutputStream(temp, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            byte[] buf = new byte[8192];
+            for (LineSpan span : spans) {
+                src.position(span.start());
+                long left = span.length();
+                while (left > 0) {
+                    int n = src.read(ByteBuffer.wrap(buf, 0, (int) Math.min(buf.length, left)));
+                    if (n < 0) {
+                        break;
+                    }
+                    out.write(buf, 0, n);
+                    left -= n;
+                }
+                out.write(newline);
+            }
+            if (newCallJson != null) {
+                out.write(newCallJson.getBytes(StandardCharsets.UTF_8));
+                out.write(newline);
             }
         }
+        moveIntoPlace(temp, path);
+        return spans.size() + (newCallJson == null ? 0 : 1);
+    }
+
+    /** Byte range of one line's content, excluding its terminator. */
+    private record LineSpan(long start, int length) {}
+
+    /**
+     * Offsets of the last {@code keep} non-empty lines, oldest first. A line is empty when it has
+     * no byte above ASCII space, which is the log-file equivalent of {@code String.strip().isEmpty()}.
+     * The terminator ({@code \n} or {@code \r\n}) is not part of the range, matching {@code readLine}.
+     */
+    private static List<LineSpan> lastNonEmptySpans(Path path, int keep) throws IOException {
+        if (keep <= 0 || !Files.exists(path)) {
+            return List.of();
+        }
+        LineSpan[] ring = new LineSpan[keep];
+        int cursor = 0;
+        int filled = 0;
+        try (InputStream in = Files.newInputStream(path)) {
+            byte[] buf = new byte[8192];
+            long pos = 0;
+            long lineStart = 0;
+            boolean nonWhitespace = false;
+            int prev = -1;
+            int read;
+            while ((read = in.read(buf)) != -1) {
+                for (int i = 0; i < read; i++) {
+                    int b = buf[i] & 0xff;
+                    long at = pos + i;
+                    if (b == '\n') {
+                        long end = prev == '\r' ? at - 1 : at;
+                        if (nonWhitespace && end > lineStart) {
+                            ring[cursor] = new LineSpan(lineStart, (int) (end - lineStart));
+                            cursor = (cursor + 1) % keep;
+                            if (filled < keep) {
+                                filled++;
+                            }
+                        }
+                        lineStart = at + 1;
+                        nonWhitespace = false;
+                    } else if (b != '\r' && b > ' ') {
+                        nonWhitespace = true;
+                    }
+                    prev = b;
+                }
+                pos += read;
+            }
+            if (lineStart < pos) {
+                long end = prev == '\r' ? pos - 1 : pos;
+                if (nonWhitespace && end > lineStart) {
+                    ring[cursor] = new LineSpan(lineStart, (int) (end - lineStart));
+                    cursor = (cursor + 1) % keep;
+                    if (filled < keep) {
+                        filled++;
+                    }
+                }
+            }
+        }
+        List<LineSpan> spans = new ArrayList<>(filled);
+        int start = filled < keep ? 0 : cursor;
+        for (int i = 0; i < filled; i++) {
+            spans.add(ring[(start + i) % keep]);
+        }
+        return spans;
+    }
+
+    private static void moveIntoPlace(Path temp, Path path) throws IOException {
         try {
             Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException e) {
             Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING);
         }
-    }
-
-    /** The newest {@link #retentionRows} lines - what reads are allowed to see, regardless of how many the file is currently holding between compactions. */
-    private List<CachedLine> retainedTail(List<CachedLine> lines) {
-        if (lines.size() <= retentionRows) {
-            return lines;
-        }
-        return lines.subList(lines.size() - retentionRows, lines.size());
     }
 
     /** Holds the partial call in memory only - nothing is written to internal-calls.log until {@link #complete} - see the class-level doc on {@link #pendingById}. */
@@ -319,57 +403,90 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             return cachedLines;
         }
 
-        List<String> rawLines;
+        Scan scan;
         try {
-            rawLines = Files.readAllLines(path);
+            scan = scanFile(path);
+            if (scan.needsBackfill()) {
+                rewriteMissingIds(path);
+                scan = scanFile(path);
+            }
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read " + path, e);
         }
-
-        List<CachedLine> parsed = new ArrayList<>(rawLines.size());
-        boolean needsBackfill = false;
-        for (String rawLine : rawLines) {
-            String trimmed = rawLine.strip();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            CallRecord record = null;
-            try {
-                record = objectMapper.readValue(trimmed, CallRecord.class);
-                if (record.id() == null) {
-                    // Written before CallRecord had an id, or malformed upstream - backfilled once
-                    // here rather than left to regenerate a different id on every read.
-                    record = withGeneratedId(record);
-                    trimmed = objectMapper.writeValueAsString(record);
-                    needsBackfill = true;
-                }
-            } catch (IOException e) {
-                log.warn("Skipping malformed line in {}: {}", path, e.getMessage());
-            }
-            parsed.add(new CachedLine(trimmed, record));
-        }
-
-        if (needsBackfill) {
-            persistBackfilledLines(path, parsed);
-        } else {
-            // Every line the file holds, not just the retained view - this is what decides when the
-            // next save has to compact.
-            linesOnDisk = parsed.size();
-            rememberCache(path, retainedTail(parsed));
-        }
-        return cachedLines != null ? cachedLines : List.copyOf(retainedTail(parsed));
+        // Every non-empty line the file holds, not just the retained view - this is what decides
+        // when the next save has to compact.
+        linesOnDisk = scan.lineCount();
+        rememberCache(path, scan.retained());
+        return cachedLines != null ? cachedLines : List.copyOf(scan.retained());
     }
 
-    /** Rewrites the whole file with backfilled ids in place - the same streamed write compaction uses, just triggered by a read that found missing ids instead of by the file outgrowing its cap. */
-    private void persistBackfilledLines(Path path, List<CachedLine> lines) {
-        try {
-            writeAllLines(path, lines);
-            linesOnDisk = lines.size();
-            rememberCache(path, retainedTail(lines));
-        } catch (IOException e) {
-            invalidateCache();
-            log.error("Failed to persist backfilled ids to {}: {}", internalCallsFile, e.getMessage());
+    private record Scan(int lineCount, boolean needsBackfill, List<CachedLine> retained) {}
+
+    /**
+     * One pass over the file. The ring keeps only the newest {@link #retentionRows} parsed lines,
+     * and each of those drops the raw JSON as soon as it has been parsed, so a cold read of a
+     * file that is larger than the heap never has to hold both copies at once.
+     */
+    private Scan scanFile(Path path) throws IOException {
+        ArrayDeque<CachedLine> ring = new ArrayDeque<>();
+        int count = 0;
+        boolean needsBackfill = false;
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            String rawLine;
+            while ((rawLine = reader.readLine()) != null) {
+                String trimmed = rawLine.strip();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                count++;
+                CallRecord record = null;
+                try {
+                    record = objectMapper.readValue(trimmed, CallRecord.class);
+                    if (record.id() == null) {
+                        needsBackfill = true;
+                    }
+                } catch (IOException e) {
+                    log.warn("Skipping malformed line in {}: {}", path, e.getMessage());
+                }
+                ring.addLast(new CachedLine(record));
+                while (ring.size() > retentionRows) {
+                    ring.removeFirst();
+                }
+            }
         }
+        return new Scan(count, needsBackfill, new ArrayList<>(ring));
+    }
+
+    /**
+     * Rewrites the whole file so every line that parsed without an id gets one, one line at a time.
+     * Lines that already have an id are copied back unchanged. Same durability as compaction: a
+     * temp file is moved into place only after the rewrite finishes.
+     */
+    private void rewriteMissingIds(Path path) throws IOException {
+        Path temp = path.resolveSibling(path.getFileName() + ".compacting");
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
+             BufferedWriter writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8,
+                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            String rawLine;
+            while ((rawLine = reader.readLine()) != null) {
+                String trimmed = rawLine.strip();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                String written = rawLine;
+                try {
+                    CallRecord record = objectMapper.readValue(trimmed, CallRecord.class);
+                    if (record.id() == null) {
+                        written = objectMapper.writeValueAsString(withGeneratedId(record));
+                    }
+                } catch (IOException e) {
+                    log.warn("Skipping malformed line in {}: {}", path, e.getMessage());
+                }
+                writer.write(written);
+                writer.newLine();
+            }
+        }
+        moveIntoPlace(temp, path);
     }
 
     /**
