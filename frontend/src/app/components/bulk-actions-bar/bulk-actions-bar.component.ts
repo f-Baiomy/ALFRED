@@ -11,6 +11,8 @@ import { draftFrom } from '../../shared/utils/resend-draft';
 import { CALL_ORIGIN } from '../../core/state/call-origin.token';
 import { CopyToCyclesDialogService } from '../../core/services/copy-to-cycles-dialog.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
+import { CallsApiService } from '../../core/services/calls-api.service';
+import { interceptionBodiesLoaded } from '../../core/models/interception.model';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ReliveQuickActionsService } from '../../core/services/relive-quick-actions.service';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
@@ -48,6 +50,7 @@ export class BulkActionsBarComponent {
   private readonly copyToCyclesDialog = inject(CopyToCyclesDialogService);
   private readonly commentsApi = inject(CommentsApiService);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
+  private readonly callsApi = inject(CallsApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly reliveActions = inject(ReliveQuickActionsService);
   private readonly origin = inject(CALL_ORIGIN, { optional: true });
@@ -236,8 +239,18 @@ export class BulkActionsBarComponent {
 
   /** Always a real fetch per call, even if it was hydrated by an earlier bulk action this session - detail is never served from a cache. */
   private hydrateAll(calls: readonly CallRecord[]): Observable<CallRecord[]> {
-    const requests = calls.map((call) => this.controlsState.getCallDetail(call.id, call.source).pipe(map((detail) => ({ ...call, ...detail }))));
-    return forkJoin(requests);
+    return forkJoin(calls.map((call) => this.hydrateOne(call)));
+  }
+
+  private hydrateOne(call: CallRecord): Observable<CallRecord> {
+    const detail$ = this.controlsState.getCallDetail(call.id, call.source);
+    if (interceptionBodiesLoaded(call.interception)) {
+      return detail$.pipe(map((detail) => ({ ...call, ...detail })));
+    }
+    return forkJoin({
+      detail: detail$,
+      interception: this.callsApi.getInterception(call.id, call.source ?? 'external').pipe(catchError(() => of(call.interception ?? null))),
+    }).pipe(map(({ detail, interception }) => ({ ...call, ...detail, interception: interception ?? call.interception })));
   }
 
   private fetchAllComments(calls: readonly CallRecord[]): Observable<ReadonlyMap<string, readonly Comment[]>> {

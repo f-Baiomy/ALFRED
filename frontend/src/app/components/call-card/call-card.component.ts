@@ -21,7 +21,8 @@ import { InterceptionPanelComponent } from '../interception-panel/interception-p
 import { ResendPanelComponent } from '../resend-panel/resend-panel.component';
 import { resendSummaryOf } from '../../shared/utils/resend-summary';
 import { WsMessagesComponent } from '../ws-messages/ws-messages.component';
-import { OriginalHttp, wasEditedByHand } from '../../core/models/interception.model';
+import { CallInterception, OriginalHttp, interceptionBodiesLoaded, wasEditedByHand } from '../../core/models/interception.model';
+import { CallsApiService } from '../../core/services/calls-api.service';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { CallPickerService } from '../../core/services/call-picker.service';
@@ -101,6 +102,12 @@ export class CallCardComponent {
    * what you are looking at is not what your client actually sent.
    */
   readonly interception = computed(() => this.call().interception ?? null);
+  /** Replaces the list copy once snapshot bodies have been fetched. The badge keeps using {@link interception}. */
+  private readonly fetchedInterception = signal<CallInterception | null>(null);
+  readonly panelInterception = computed(() => this.fetchedInterception() ?? this.interception());
+  readonly bodiesPending = signal(false);
+  private interceptionBodiesRequested = false;
+  private readonly callsApi = inject(CallsApiService);
   readonly interceptionLogGroups = computed<readonly InterceptionLogGroup[]>(() => buildInterceptionLogGroups(this.interception()));
 
   /** Relive badge (FR-051) - reads straight off the call, like `interception` above; no separate
@@ -187,6 +194,23 @@ export class CallCardComponent {
     const parts: CallDetailPart[] =
       phase === 'request' ? ['request-headers', 'request-body'] : ['response-headers', 'response-body'];
     for (const part of parts) this.loadPart(part, 'user');
+    this.loadInterceptionBodies();
+  }
+
+  /** One fetch serves both halves. A summary that already carries bodies (a captured copy, a test) skips it. */
+  private loadInterceptionBodies(): void {
+    if (this.interceptionBodiesRequested) return;
+    const current = this.panelInterception();
+    if (!current || interceptionBodiesLoaded(current)) return;
+    this.interceptionBodiesRequested = true;
+    this.bodiesPending.set(true);
+    this.callsApi.getInterception(this.call().id, this.call().source ?? 'external').subscribe({
+      next: (full) => {
+        this.fetchedInterception.set(full);
+        this.bodiesPending.set(false);
+      },
+      error: () => this.bodiesPending.set(false),
+    });
   }
   readonly pinned = input<boolean>(false);
   /** True only when the parent CallListComponent has cdkDrag enabled on this card's host element

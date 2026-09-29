@@ -33,7 +33,7 @@ public record CallSummary(
         @JsonProperty("operation_id") String operationId,
         @JsonProperty("service_name") String serviceName,
         CallTiming timing,
-        /** Null unless an interception rule touched this call - rides on the SUMMARY so the badge shows on a collapsed card with no detail fetch, same reasoning as timing. */
+        /** Null unless an interception rule touched this call. The badge rides on the summary; the snapshot bodies do not (see {@link CallInterception#withoutBodies()}). */
         CallInterception interception,
         /** The id of the original call this one is a resend of, or null - see CallRecord.resendOf. */
         @JsonProperty("resend_of") String resendOf,
@@ -98,7 +98,8 @@ public record CallSummary(
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), call.interception(), call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream());
+        CallInterception interception = call.interception() == null ? null : call.interception().withoutBodies();
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.timing(), interception, call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream());
     }
 
     /**

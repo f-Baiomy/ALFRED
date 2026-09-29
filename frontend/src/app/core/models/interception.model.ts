@@ -675,6 +675,17 @@ export function hasBeforeAfter(interception: CallInterception | null | undefined
   );
 }
 
+/**
+ * The list summary keeps each snapshot's method, url, status and headers, and leaves `body` off.
+ * A body that is present (including `''`) was actually stored that way. Absent means the list
+ * omitted it, and the diff must fetch GET /calls/{id}/interception before drawing.
+ */
+export function interceptionBodiesLoaded(interception: CallInterception | null | undefined): boolean {
+  if (!interception) return true;
+  const snapshots = [interception.originalRequest, interception.originalResponse, interception.finalRequest, interception.finalResponse];
+  return snapshots.every((snapshot) => snapshot == null || typeof snapshot.body === 'string');
+}
+
 /** Metadata for the action picker, served by the backend so the list lives in one place. */
 export interface ActionTypeInfo {
   readonly type: ActionType;

@@ -90,4 +90,27 @@ public record CallInterception(
         return applied.isEmpty() && originalRequest == null && originalResponse == null
                 && finalRequest == null && finalResponse == null;
     }
+
+    /**
+     * The list and websocket copy. {@code applied} and the snapshot metadata (method, url, status,
+     * headers) stay, so a collapsed card can still say a rule touched the call. The bodies do not:
+     * they are the same request and response text the list view already refuses to ship, and on a
+     * page of flight-search calls they were the bulk of the payload. The stored record is unchanged.
+     * Open the diff and GET /calls/{id}/interception returns this same record with the bodies.
+     */
+    public CallInterception withoutBodies() {
+        return new CallInterception(
+                applied,
+                stripBody(originalRequest),
+                stripBody(originalResponse),
+                stripBody(finalRequest),
+                stripBody(finalResponse));
+    }
+
+    private static Http stripBody(Http http) {
+        if (http == null || http.body() == null) {
+            return http;
+        }
+        return new Http(http.status(), http.reason(), http.method(), http.url(), http.headers(), null);
+    }
 }

@@ -258,9 +258,10 @@
         <app-resend-panel [call]="call()" />
       }
 
-      @if (interception(); as intercepted) {
+      @if (panelInterception(); as intercepted) {
         <app-interception-panel
           [interception]="intercepted"
+          [bodiesPending]="bodiesPending()"
           phase="request"
           [current]="currentRequest()"
           (detailNeeded)="loadInterceptionDetail('request')"
@@ -298,9 +299,10 @@
         <div class="error-banner">&#9888; {{ call().error }}</div>
       }
 
-      @if (interception(); as intercepted) {
+      @if (panelInterception(); as intercepted) {
         <app-interception-panel
           [interception]="intercepted"
+          [bodiesPending]="bodiesPending()"
           phase="response"
           [current]="currentResponse()"
           (detailNeeded)="loadInterceptionDetail('response')"
@@ -388,15 +390,17 @@
 
     <!-- The single-card variant shows both halves in one card, so both panels sit here, request
          first - the order things actually happened in. -->
-    @if (interception(); as intercepted) {
+    @if (panelInterception(); as intercepted) {
       <app-interception-panel
         [interception]="intercepted"
+        [bodiesPending]="bodiesPending()"
         phase="request"
         [current]="currentRequest()"
         (detailNeeded)="loadInterceptionDetail('request')"
       />
       <app-interception-panel
         [interception]="intercepted"
+        [bodiesPending]="bodiesPending()"
         phase="response"
         [current]="currentResponse()"
         (detailNeeded)="loadInterceptionDetail('response')"

@@ -798,8 +798,14 @@ public class SqliteCallsRepository {
      */
     private static final int MAX_OVERLAP_ROWS = 5000;
 
+    /**
+     * {@code interception} is stored as one JSON document whose snapshot bodies are the request and
+     * response text this query exists to leave behind. {@code json_remove} drops those four body
+     * fields in SQLite so a page of calls does not materialize them in the JVM or on the wire.
+     * The row itself is unchanged; GET /calls/{id}/interception reads the full document.
+     */
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, interception, resend_of, resend_edits, relive_json, reached_upstream FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, json_remove(interception, '$.originalRequest.body', '$.originalResponse.body', '$.finalRequest.body', '$.finalResponse.body') AS interception, resend_of, resend_edits, relive_json, reached_upstream FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");

@@ -18,6 +18,17 @@ class CallListSupportTest {
     }
 
     @Test
+    void searchMatchesABodySubstringWithoutRequiringItInTheUrl() {
+        CallRecord call = new CallRecord("https://supplier.example/search", "https://supplier.example/search", "https://supplier.example/search", "POST",
+                new RequestData(null, "xx".repeat(20_000) + "NeedleToken" + "yy".repeat(20_000)),
+                "t", 1.0, new ResponseData(200, null, null), null);
+        var hit = CallListSupport.apply(List.of(call), Function.identity(), "needletoken", "", "newest", 0, 10, true);
+        var miss = CallListSupport.apply(List.of(call), Function.identity(), "not-in-this-call", "", "newest", 0, 10, true);
+        assertThat(hit.total()).isEqualTo(1);
+        assertThat(miss.total()).isEqualTo(0);
+    }
+
+    @Test
     void oldestIsTheSourceOrderUnchanged() {
         List<CallRecord> source = List.of(call("a", "t", 1.0, 200, null), call("b", "t", 1.0, 200, null));
         var page = CallListSupport.apply(source, Function.identity(), "", "", "oldest", 0, 10, true);

@@ -91,6 +91,11 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
         return callLogPort.findById(callId).map(CallSummary::of);
     }
 
+    @Override
+    public Optional<CallInterception> getInterception(String callId) {
+        return callLogPort.findById(callId).map(CallRecord::interception).filter(interception -> !interception.isEmpty());
+    }
+
     /** Delegates to the port - each storage type answers this the way it can (indexed aggregate vs in-memory scan). */
     @Override
     public CallBaseline getBaseline(String url) {

@@ -135,19 +135,24 @@ class SqliteCallsRepositoryTest {
         assertThat(summary.interception()).isNotNull();
         assertThat(summary.interception().applied()).hasSize(2);
         assertThat(summary.interception().applied().get(0).ruleName()).isEqualTo("Review orders");
-        // The whole point of keeping the upstream half: the caller got a 500, the supplier sent a
-        // 200, and a log that recorded only the first would be claiming the supplier failed.
+        // The list keeps enough to badge the card and to know which half changed. The bodies are
+        // the payload that made a page of these calls multi-megabyte, so they stay off the list.
         assertThat(summary.interception().originalResponse().status()).isEqualTo(200);
-        assertThat(summary.interception().originalResponse().body()).contains("CONFIRMED");
-        assertThat(summary.status()).isEqualTo(500);
-        // The request half matters just as much: without it a call whose body was rewritten reads
-        // as though the client sent the rewritten version.
-        assertThat(summary.interception().originalRequest().body()).contains("\"passengerCount\":1");
+        assertThat(summary.interception().originalResponse().body()).isNull();
+        assertThat(summary.interception().originalRequest().body()).isNull();
         assertThat(summary.interception().originalRequest().url()).endsWith("/order");
-        // The request half is logged BEFORE a request breakpoint can edit it, so the final state
-        // has to be carried here or a hand edit would diff as no change at all.
-        assertThat(summary.interception().finalRequest().body()).contains("\"passengerCount\":5");
+        assertThat(summary.interception().finalRequest().body()).isNull();
         assertThat(summary.interception().finalResponse().status()).isEqualTo(500);
+        assertThat(summary.status()).isEqualTo(500);
+
+        // The stored row still has both halves. The caller got a 500; the supplier sent a 200.
+        // A log that recorded only the first would be claiming the supplier failed. The request
+        // half is written before a breakpoint can edit it, so the final body has to be stored too.
+        CallInterception stored = repo.findById(id).orElseThrow().interception();
+        assertThat(stored.originalResponse().body()).contains("CONFIRMED");
+        assertThat(stored.originalRequest().body()).contains("\"passengerCount\":1");
+        assertThat(stored.finalRequest().body()).contains("\"passengerCount\":5");
+        assertThat(stored.finalResponse().status()).isEqualTo(500);
     }
 
     @Test

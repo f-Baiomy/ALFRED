@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCas
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetWsMessagesUseCase;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallDetail;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsPage;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
@@ -67,6 +68,14 @@ public class InternalCallsController {
     @GetMapping("/internal-calls/{id}/summary")
     public ResponseEntity<CallSummary> getSummary(@PathVariable String id) {
         return getCallDetailUseCase.getSummary(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Snapshot bodies omitted from the list. Fetched when a card's interception diff is opened, or an export needs them. */
+    @GetMapping("/internal-calls/{id}/interception")
+    public ResponseEntity<CallInterception> getInterception(@PathVariable String id) {
+        return getCallDetailUseCase.getInterception(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

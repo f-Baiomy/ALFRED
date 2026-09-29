@@ -4,6 +4,7 @@ import { Observable, map } from 'rxjs';
 import { AppConfigService } from './app-config.service';
 import { CallOverlapQuery, CallsPageResult, CallsQuery } from '../state/call-list-view';
 import { CallBaseline, CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallRecord, CallSummaryDto } from '../models/call.model';
+import { CallInterception } from '../models/interception.model';
 import { WsMessagesPage } from '../models/ws-message.model';
 import { toCallRecord } from '../../shared/utils/call-utils';
 
@@ -78,6 +79,11 @@ export class CallsApiService {
    *  resend-/export-ready CallRecord by combining this with getDetail. */
   getSummary(callId: string, source: CallEndpointSource = 'external'): Observable<CallRecord> {
     return this.http.get<CallSummaryDto>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/summary`).pipe(map((dto) => toCallRecord(dto, source)));
+  }
+
+  /** Snapshot bodies the list leaves off. 404 when the call has no interception record. */
+  getInterception(callId: string, source: CallEndpointSource = 'external'): Observable<CallInterception> {
+    return this.http.get<CallInterception>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/interception`);
   }
 
   /** A windowed list, fetched only once a call's WebSocket messages panel is actually opened - see WsMessagesComponent. `limit` is clamped 1..500 server-side. */

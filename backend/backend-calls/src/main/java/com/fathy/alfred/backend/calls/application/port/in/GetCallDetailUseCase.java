@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.calls.application.port.in;
 
 import com.fathy.alfred.backend.calls.domain.model.CallDetail;
+import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 
 import java.util.Optional;
@@ -14,4 +15,7 @@ public interface GetCallDetailUseCase {
      *  caller that never saw this call in a list (Relive's Live calls log, T074: it only stores
      *  {@code loggedCallId}) has no other way to get a resend- or export-ready CallRecord. */
     Optional<CallSummary> getSummary(String callId);
+
+    /** The stored interception, bodies included. The list summary omits them. Empty when this call has none. */
+    Optional<CallInterception> getInterception(String callId);
 }

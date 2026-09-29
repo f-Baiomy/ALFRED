@@ -85,4 +85,25 @@ public record CallInterception(
         return applied.isEmpty() && originalRequest == null && originalResponse == null
                 && finalRequest == null && finalResponse == null;
     }
+
+    /**
+     * The list and websocket copy. Same rule as backend-calls' CallInterception.withoutBodies:
+     * the stored line keeps every body, the summary does not. GET /internal-calls/{id}/interception
+     * returns them when a diff is opened.
+     */
+    public CallInterception withoutBodies() {
+        return new CallInterception(
+                applied,
+                stripBody(originalRequest),
+                stripBody(originalResponse),
+                stripBody(finalRequest),
+                stripBody(finalResponse));
+    }
+
+    private static Http stripBody(Http http) {
+        if (http == null || http.body() == null) {
+            return http;
+        }
+        return new Http(http.status(), http.reason(), http.method(), http.url(), http.headers(), null);
+    }
 }

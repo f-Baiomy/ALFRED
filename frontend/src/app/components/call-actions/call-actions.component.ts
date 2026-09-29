@@ -10,6 +10,8 @@ import { Router } from '@angular/router';
 import { ResendDialogService } from '../../core/services/resend-dialog.service';
 import { RuleDraftService } from '../../core/services/rule-draft.service';
 import { CommentsApiService } from '../../core/services/comments-api.service';
+import { CallsApiService } from '../../core/services/calls-api.service';
+import { interceptionBodiesLoaded } from '../../core/models/interception.model';
 import { CALL_LIST_CONTROLS_STATE } from '../../core/state/call-selection.tokens';
 import { ReliveQuickActionsService } from '../../core/services/relive-quick-actions.service';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
@@ -48,6 +50,7 @@ export class CallActionsComponent {
   private readonly commentsApi = inject(CommentsApiService);
   private readonly redactions = inject(RedactionsStore);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
+  private readonly callsApi = inject(CallsApiService);
   private readonly ruleDraft = inject(RuleDraftService);
   private readonly router = inject(Router);
   private readonly origin = inject(CALL_ORIGIN, { optional: true });
@@ -117,7 +120,14 @@ export class CallActionsComponent {
 
   /** Resolves to a fully-hydrated CallRecord (request/response headers+bodies present) - always a real fetch, even if this same call was hydrated by an earlier action, so detail is never served stale. */
   private hydrated(call: CallRecord): Observable<CallRecord> {
-    return this.controlsState.getCallDetail(call.id, call.source).pipe(map((detail) => ({ ...call, ...detail })));
+    const detail$ = this.controlsState.getCallDetail(call.id, call.source);
+    if (interceptionBodiesLoaded(call.interception)) {
+      return detail$.pipe(map((detail) => ({ ...call, ...detail })));
+    }
+    return forkJoin({
+      detail: detail$,
+      interception: this.callsApi.getInterception(call.id, call.source ?? 'external').pipe(catchError(() => of(call.interception ?? null))),
+    }).pipe(map(({ detail, interception }) => ({ ...call, ...detail, interception: interception ?? call.interception })));
   }
 
   openResend(): void {

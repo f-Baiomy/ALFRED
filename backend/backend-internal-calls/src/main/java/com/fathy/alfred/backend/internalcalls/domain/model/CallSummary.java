@@ -89,7 +89,8 @@ public record CallSummary(
     public static CallSummary of(CallRecord call) {
         Integer status = call.response() != null ? call.response().status() : null;
         CallRecord normalized = CallRecord.withDerivedStateIfMissing(call);
-        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), call.interception(), call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream());
+        CallInterception interception = call.interception() == null ? null : call.interception().withoutBodies();
+        return new CallSummary(call.id(), call.originalUrl(), call.url(), call.method(), call.timestamp(), call.durationMs(), status, call.error(), supplierNameOf(call), normalized.state(), call.sessionId(), call.operationId(), call.serviceName(), interception, call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream());
     }
 
     /**

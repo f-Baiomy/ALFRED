@@ -67,6 +67,12 @@ export class InterceptionPanelComponent {
   readonly current = input<OriginalHttp | null>(null);
 
   /**
+   * The list shipped this interception without snapshot bodies. Diffing before they arrive would
+   * draw every body as deleted. The card clears this once GET .../interception returns.
+   */
+  readonly bodiesPending = input(false);
+
+  /**
    * Asked for when the panel is first opened. The card fetches request/response detail per block,
    * lazily, so the "after" side of the diff is not in hand until something asks for it - and this
    * panel is the only thing that needs BOTH halves without the user opening either block.
@@ -148,13 +154,13 @@ export class InterceptionPanelComponent {
    * opened: a line diff of two large bodies is real work on the main thread.
    */
   private readonly computed = computed<HttpDiff | null>(() =>
-    this.expanded() ? buildHttpDiff(this.diffBase(), this.after()) : null
+    this.expanded() && !this.bodiesPending() ? buildHttpDiff(this.diffBase(), this.after()) : null
   );
 
   readonly diff = this.computed;
 
   /** The current side has not arrived yet - shown as loading rather than as an empty diff. */
-  readonly awaitingDetail = computed(() => this.expanded() && this.after() == null);
+  readonly awaitingDetail = computed(() => this.expanded() && (this.bodiesPending() || this.after() == null));
 
   readonly summary = computed(() => {
     if (this.synthetic()) return 'nothing was sent to the host';

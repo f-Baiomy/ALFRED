@@ -156,34 +156,65 @@ public final class CallListSupport {
         }
     }
 
-    /** Mirrors call-utils.ts's searchHaystack()/matchesSearch(): method, both URLs, status, error, and both headers+body, concatenated and lowercased. */
+    /**
+     * Same fields as the old concatenated haystack (method, both URLs, status, error, both
+     * headers and both bodies), matched case-insensitively per field. Building one lowercased
+     * copy of every retained body made a search over the inbound log take seconds and allocate
+     * hundreds of megabytes; a field that already contains the query returns immediately.
+     */
     private static boolean matchesSearch(CallRecord call, String query) {
         if (query.isEmpty()) {
             return true;
         }
-        StringBuilder haystack = new StringBuilder();
-        append(haystack, call.method());
-        append(haystack, call.originalUrl());
-        append(haystack, call.url());
+        if (containsIgnoreCase(call.method(), query)
+                || containsIgnoreCase(call.originalUrl(), query)
+                || containsIgnoreCase(call.url(), query)
+                || containsIgnoreCase(call.error(), query)) {
+            return true;
+        }
         if (call.response() != null) {
-            haystack.append(call.response().status()).append(' ');
-            if (call.response().headers() != null) {
-                haystack.append(call.response().headers()).append(' ');
+            if (containsIgnoreCase(String.valueOf(call.response().status()), query)) {
+                return true;
             }
-            append(haystack, call.response().body());
+            if (call.response().headers() != null && containsIgnoreCase(call.response().headers().toString(), query)) {
+                return true;
+            }
+            if (containsIgnoreCase(call.response().body(), query)) {
+                return true;
+            }
         }
-        append(haystack, call.error());
         if (call.request() != null) {
-            if (call.request().headers() != null) {
-                haystack.append(call.request().headers()).append(' ');
+            if (call.request().headers() != null && containsIgnoreCase(call.request().headers().toString(), query)) {
+                return true;
             }
-            append(haystack, call.request().body());
+            if (containsIgnoreCase(call.request().body(), query)) {
+                return true;
+            }
         }
-        return haystack.toString().toLowerCase(Locale.ROOT).contains(query);
+        return false;
     }
 
-    private static void append(StringBuilder sb, String value) {
-        sb.append(value == null ? "" : value).append(' ');
+    /** {@code query} is already lowercased. Scans in place so a multi-megabyte body is not copied. */
+    private static boolean containsIgnoreCase(String haystack, String query) {
+        if (haystack == null || haystack.isEmpty()) {
+            return false;
+        }
+        int qlen = query.length();
+        int max = haystack.length() - qlen;
+        if (max < 0) {
+            return false;
+        }
+        char first = query.charAt(0);
+        for (int i = 0; i <= max; i++) {
+            char c = haystack.charAt(i);
+            if (c != first && Character.toLowerCase(c) != first) {
+                continue;
+            }
+            if (haystack.regionMatches(true, i, query, 0, qlen)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Mirrors call-utils.ts's supplierOf(): the call's URL hostname, falling back to the raw URL/original URL. */

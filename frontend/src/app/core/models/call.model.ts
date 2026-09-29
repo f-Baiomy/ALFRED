@@ -83,10 +83,9 @@ export interface CallRecord {
    * What an interception rule did to this call, and both halves as they were BEFORE it did.
    * Absent on every call no rule touched, which is almost all of them.
    *
-   * Part of the SUMMARY, not the detail, for the same reason supplierName and timing are: a card
-   * has to be able to say "this is not what your client sent" without first being expanded.
-   * Otherwise you would have to open a call to discover that what you are reading is not what
-   * actually happened. See docs/interception.md.
+   * The badge rides on the summary so a card can say "this is not what your client sent" without
+   * being expanded. Snapshot bodies are left off the list (they are the bulk of a flight-search
+   * page) and loaded from GET /calls/{id}/interception when the diff is opened. See docs/interception.md.
    */
   readonly interception?: CallInterception | null;
   /** The id of the original call this one is a resend of, or undefined - see backend CallRecord.resendOf. */
