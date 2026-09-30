@@ -111,7 +111,7 @@
           <span class="rl-pill rl-p-global">GLOBAL RULE</span>
         }
         @if (viewState(row) === 'COMPLETED_WITH_DIFFERENCES') {
-          <span class="rl-pill rl-p-diff">⚠ {{ differenceLabel(row) }}</span>
+          <button type="button" class="rl-pill rl-p-diff" title="Show what changed" (click)="openDifferences($event, row)">⚠ {{ differenceLabel(row) }}</button>
         }
         @if (viewState(row) === 'FAILED') {
           <span class="rl-pill rl-p-fail" [title]="whyOf(row)[0]?.summary ?? ''">✕ failed</span>
@@ -133,11 +133,36 @@
             }
           </span>
         }
-        <span class="rl-pill" [class]="statePill(viewState(row))[0]">{{ statePill(viewState(row))[1] }}</span>
+        @if (viewState(row) === 'COMPLETED_WITH_DIFFERENCES') {
+          <button type="button" class="rl-pill rl-p-diff" title="Show what changed" (click)="openDifferences($event, row)">⚠ Differences</button>
+        } @else {
+          <span class="rl-pill" [class]="statePill(viewState(row))[0]">{{ statePill(viewState(row))[1] }}</span>
+        }
         <span class="rl-dim">{{ row.result.durationMs ? row.result.durationMs + ' ms' : '' }}</span>
       </div>
       @if (detailKey() === row.step.key) {
         <div class="rl-step-detail" [class.rl-child]="row.isChild">
+          @if (viewState(row) === 'COMPLETED_WITH_DIFFERENCES') {
+            @if (differenceView(row); as view) {
+              @if (view.note) {
+                <div class="rl-diff-note">{{ view.note }}</div>
+              }
+              @for (d of view.inline; track d.path) {
+                <div class="rl-drow">
+                  <span class="rl-mono">{{ d.path }}</span>
+                  <span class="rl-old">{{ formatDiffValue(d.recorded) }}</span>
+                  <span class="rl-new">{{ formatDiffValue(d.actual) }}</span>
+                  <span></span>
+                </div>
+              }
+              @if (!view.inline.length) {
+                <div class="rl-diff-note">
+                  Response differs from the recording.
+                  <button type="button" class="rl-link rl-diff-more" (click)="openDifferences($event, row)">Click to show</button>
+                </div>
+              }
+            }
+          }
           @if (whyOf(row); as reasons) {
             @if (reasons.length) {
               <ul class="rl-why-list" [class.rl-why-fail]="viewState(row) === 'FAILED'">
@@ -195,6 +220,48 @@
       </div>
     }
   </div>
+
+  @if (differencePopup(); as diff) {
+    <div class="rl-reason-overlay" (click)="closeDifferences()">
+      <div class="rl-reason-dialog rl-diff-dialog" role="dialog" aria-modal="true" aria-label="Differences" (click)="$event.stopPropagation()">
+        <div class="rl-row">
+          <b class="rl-reason-title">Differences · {{ diff.label }}</b>
+          <span class="rl-spacer"></span>
+          <button type="button" class="rl-btn rl-sm" (click)="closeDifferences()">Close</button>
+        </div>
+        @if (diff.headline) {
+          <div class="rl-diff-note">{{ diff.headline }}</div>
+        }
+        @if (diff.note) {
+          <div class="rl-diff-note">{{ diff.note }}</div>
+        }
+        @if (!diff.rows.length) {
+          <div class="rl-faint">No field in this response differs from the recording.</div>
+        } @else {
+          <div class="rl-diff-scroll">
+            @for (item of diff.rows; track $index) {
+              <div class="rl-diff-field">
+                <div class="rl-mono">{{ item.path }}</div>
+                <div class="rl-diff-pair">
+                  <div>
+                    <span class="rl-faint">Recorded</span>
+                    <pre class="rl-diff-value rl-old">{{ formatDiffValue(item.recorded) }}</pre>
+                  </div>
+                  <div>
+                    <span class="rl-faint">This run</span>
+                    <pre class="rl-diff-value rl-new">{{ formatDiffValue(item.actual) }}</pre>
+                  </div>
+                </div>
+              </div>
+            }
+            @if (diff.more) {
+              <div class="rl-faint">{{ diff.more }} more fields differ.</div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  }
 
   @if (reasonPopup(); as reason) {
     <div class="rl-reason-overlay" (click)="closeReason()">

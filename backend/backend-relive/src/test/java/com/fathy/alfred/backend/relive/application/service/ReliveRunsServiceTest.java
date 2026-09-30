@@ -14,7 +14,9 @@ import com.fathy.alfred.backend.relive.application.port.out.ReliveCycleStorePort
 import com.fathy.alfred.backend.relive.application.port.out.ReliveNotificationPort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.RunSnapshotPublisherPort;
+import com.fathy.alfred.backend.relive.domain.fingerprint.RequestFingerprint;
 import com.fathy.alfred.backend.relive.domain.model.CycleRule;
+import com.fathy.alfred.backend.relive.domain.model.FrozenCall;
 import com.fathy.alfred.backend.relive.domain.model.CycleVersion;
 import com.fathy.alfred.backend.relive.domain.model.GlobalRulesSelection;
 import com.fathy.alfred.backend.relive.domain.model.LiveCall;
@@ -87,7 +89,7 @@ class ReliveRunsServiceTest {
     private Step step(String key, boolean inbound) {
         return new Step(key, null, "label", true, false, inbound ? "inbound" : "outbound", "svc",
                 new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
-                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
     }
 
     private ReliveCycle withSteps(ReliveCycle base, List<Step> steps) {
@@ -274,13 +276,123 @@ class ReliveRunsServiceTest {
 
         Step changedS2 = new Step("s-2", null, "changed label", true, false, "inbound", "svc",
                 new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
-                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         ReliveCycle newDefinition = withSteps(cycleStore.findById(cycleId).orElseThrow(), List.of(step("s-1", true), changedS2));
 
         Run updated = service.updateDefinition(run.id(), newDefinition, "tweak");
 
         assertThat(updated.definition().steps().stream().filter(s -> s.key().equals("s-2")).findFirst().orElseThrow().label())
                 .isEqualTo("changed label");
+    }
+
+    @Test
+    void startingARunPersistsAMissingIndexOnceWithoutRehashing() {
+        FrozenCall recorded = new FrozenCall("POST", "https://api.supplier.com/search", Map.of(),
+                "{\"huge\":true}", 200, Map.of(), "{}", "t", 1, null, null, "svc", "outbound");
+        Step child = new Step("c-1", "s-in", "supplier", true, false, "outbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", recorded, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(),
+                "not-a-real-hash", RequestFingerprint.VERSION);
+        String cycleId = save(withSteps(bareCycle("stored", false), List.of(step("s-in", true), child)));
+
+        Run first = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        JsonNode parent = publisher.published.get(first.id()).path("steps").get(0);
+        JsonNode published = parent.path("children").get(0);
+        assertThat(published.path("fingerprint").asText()).isEqualTo("not-a-real-hash");
+        assertThat(published.path("fingerprintVersion").asText()).isEqualTo(RequestFingerprint.VERSION);
+        assertThat(published.path("enabled").asBoolean()).isTrue();
+        assertThat(parent.path("fingerprintIndex").path("not-a-real-hash").get(0).asText()).isEqualTo("c-1");
+        ReliveCycle indexed = cycleStore.findById(cycleId).orElseThrow();
+        assertThat(indexed.updatedAt()).isNotEqualTo("t0");
+        assertThat(indexed.fingerprintIndex().get("s-in").get("not-a-real-hash")).containsExactly("c-1");
+        assertThat(indexed.steps().get(1).fingerprint()).isEqualTo("not-a-real-hash");
+
+        Run second = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        assertThat(second.definition().steps().get(1).fingerprint()).isEqualTo("not-a-real-hash");
+        assertThat(cycleStore.findById(cycleId).orElseThrow().updatedAt()).isEqualTo(indexed.updatedAt());
+        assertThat(cycleStore.findById(cycleId).orElseThrow().fingerprintIndex()).isEqualTo(indexed.fingerprintIndex());
+    }
+
+    @Test
+    void resumeAttachesAMissingIndexWithoutRehashingOrRewritingTheCycle() {
+        FrozenCall recorded = new FrozenCall("POST", "https://api.supplier.com/search", Map.of(),
+                "{\"huge\":true}", 200, Map.of(), "{}", "t", 1, null, null, "svc", "outbound");
+        Step child = new Step("c-1", "s-in", "supplier", true, false, "outbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", recorded, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(),
+                "not-a-real-hash", RequestFingerprint.VERSION);
+        String cycleId = save(withSteps(bareCycle("stored", false), List.of(step("s-in", true), child)));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.stop(run.id());
+        String cycleUpdatedAt = cycleStore.findById(cycleId).orElseThrow().updatedAt();
+
+        Run stopped = runStore.byId.get(run.id());
+        ReliveCycle stripped = new ReliveCycle(
+                stopped.definition().id(), stopped.definition().name(), stopped.definition().description(),
+                stopped.definition().steps(), stopped.definition().variables(), stopped.definition().cycleRules(),
+                stopped.definition().globalRules(), stopped.definition().settings(), stopped.definition().noise(),
+                stopped.definition().unexpectedCalls(), stopped.definition().createdAt(), stopped.definition().updatedAt(),
+                stopped.definition().isTransient(), stopped.definition().lastRun(), null);
+        runStore.byId.put(stopped.id(), new Run(
+                stopped.id(), stopped.cycleId(), stopped.driver(), stopped.status(), stopped.startedAt(), stopped.finishedAt(),
+                stripped, stopped.fromStepKey(), stopped.seedVariables(), stopped.variableTimeline(), stopped.summary(),
+                stopped.hold(), stopped.resumed(), stopped.log()));
+
+        Run resumed = service.resume(run.id(), "s-in");
+        assertThat(resumed.definition().steps().get(1).fingerprint()).isEqualTo("not-a-real-hash");
+        assertThat(resumed.definition().fingerprintIndex().get("s-in").get("not-a-real-hash")).containsExactly("c-1");
+        assertThat(cycleStore.findById(cycleId).orElseThrow().updatedAt()).isEqualTo(cycleUpdatedAt);
+        assertThat(publisher.published.get(run.id()).path("steps").get(0).path("fingerprintIndex").path("not-a-real-hash").get(0).asText())
+                .isEqualTo("c-1");
+    }
+
+    @Test
+    void startingAnUnstampedCycleDoesNotFingerprint() {
+        FrozenCall recorded = new FrozenCall("POST", "https://api.supplier.com/search", Map.of(),
+                "{\"a\":1}", 200, Map.of(), "{}", "t", 1, null, null, "svc", "outbound");
+        Step child = new Step("c-1", "s-in", "supplier", true, false, "outbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", recorded, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
+        String cycleId = save(withSteps(bareCycle("unstamped", false), List.of(step("s-in", true), child)));
+
+        Run first = service.start(cycleId, new StartRunCommand("GUIDED", null, null, Map.of()));
+        assertThat(first.definition().steps().get(1).fingerprint()).isNull();
+        assertThat(first.definition().steps().get(1).fingerprintVersion()).isNull();
+        assertThat(cycleStore.findById(cycleId).orElseThrow().updatedAt()).isEqualTo("t0");
+        assertThat(publisher.published.get(first.id()).path("steps").get(0).path("fingerprintIndex").isMissingNode()).isTrue();
+        assertThat(publisher.published.get(first.id()).path("steps").get(0).path("children").get(0).has("fingerprint")).isFalse();
+
+        Run second = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        assertThat(second.definition().steps().get(1).fingerprint()).isNull();
+        assertThat(cycleStore.findById(cycleId).orElseThrow().updatedAt()).isEqualTo("t0");
+    }
+
+    @Test
+    void updateDefinitionKeepsTheStoredHashWhenTheClientOmitsIt() {
+        FrozenCall recorded = new FrozenCall("POST", "https://api.supplier.com/search", Map.of(),
+                "{\"a\":1}", 200, Map.of(), "{}", "t", 1, null, null, "svc", "outbound");
+        String hash = RequestFingerprint.of(recorded);
+        Step child = new Step("c-1", "s-in", "supplier", true, false, "outbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", recorded, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(),
+                hash, RequestFingerprint.VERSION);
+        String cycleId = save(withSteps(bareCycle("stamp", false), List.of(step("s-in", true), child)));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        Step stored = run.definition().steps().get(1);
+        assertThat(stored.fingerprint()).isEqualTo(hash);
+
+        Step omitted = new Step(stored.key(), stored.parentKey(), stored.label(), stored.enabled(), stored.optional(),
+                stored.direction(), stored.serviceName(), stored.callRule(), stored.unattributed(), stored.recording(),
+                stored.source(), stored.extract(), stored.assertions(), stored.noise(), null, null);
+        Run stamped = service.updateDefinition(run.id(),
+                withSteps(run.definition(), List.of(run.definition().steps().get(0), omitted)), null);
+        assertThat(stamped.definition().steps().get(1).fingerprint()).isEqualTo(hash);
+
+        service.recordStepResult(run.id(), stepResult(run.id(), "c-1", 1, StepState.COMPLETED));
+        Run kept = service.updateDefinition(run.id(),
+                withSteps(stamped.definition(), List.of(stamped.definition().steps().get(0), omitted)), null);
+        assertThat(kept.definition().steps().get(1).fingerprint()).isEqualTo(hash);
     }
 
     @Test
@@ -291,7 +403,7 @@ class ReliveRunsServiceTest {
 
         Step changedS1 = new Step("s-1", null, "changed", true, false, "inbound", "svc",
                 new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
-                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         ReliveCycle newDefinition = withSteps(cycleStore.findById(cycleId).orElseThrow(), List.of(changedS1));
 
         assertThatThrownBy(() -> service.updateDefinition(run.id(), newDefinition, null))

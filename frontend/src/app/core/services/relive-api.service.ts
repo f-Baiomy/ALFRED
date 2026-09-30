@@ -81,9 +81,21 @@ export class ReliveApiService {
     return this.http.get<ReliveCycle>(`${this.base}/${encodeURIComponent(id)}`).pipe(map(fromWireCycle));
   }
 
-  create(cycle: ReliveWriteRequest, asTransient = false): Observable<ReliveCycle> {
-    const url = asTransient ? `${this.base}?transient=true` : this.base;
+  create(cycle: ReliveWriteRequest, asTransient = false, deferFingerprint = false): Observable<ReliveCycle> {
+    const params: string[] = [];
+    if (asTransient) params.push('transient=true');
+    if (deferFingerprint) params.push('deferFingerprint=true');
+    const url = params.length ? `${this.base}?${params.join('&')}` : this.base;
     return this.http.post<ReliveCycle>(url, toWireCycle(cycle)).pipe(map(fromWireCycle));
+  }
+
+  /** Hashes outbound steps that were saved with {@code deferFingerprint}. A second call is cheap.
+   *  `rebuild` recomputes every outbound hash to the current algorithm. */
+  fingerprint(id: string, rebuild = false): Observable<ReliveCycle> {
+    const url = rebuild
+      ? `${this.base}/${encodeURIComponent(id)}/fingerprints?rebuild=true`
+      : `${this.base}/${encodeURIComponent(id)}/fingerprints`;
+    return this.http.post<ReliveCycle>(url, {}).pipe(map(fromWireCycle));
   }
 
   /** Sets `If-Match` to `ifMatch` (the cycle's last-read `updatedAt`) for optimistic concurrency;

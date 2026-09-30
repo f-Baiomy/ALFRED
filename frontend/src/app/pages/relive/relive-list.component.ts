@@ -6,7 +6,9 @@ import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCal
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
-import { ReliveApiService } from '../../core/services/relive-api.service';
+import { ReliveApiService, ReliveWriteRequest } from '../../core/services/relive-api.service';
+import { outboundAwaitingFingerprint } from '../../core/services/relive-fingerprint';
+import { ReliveFingerprintFlow } from '../../core/services/relive-fingerprint-flow.service';
 import { ReliveCyclesStateService } from '../../core/state/relive-cycles-state.service';
 import { ReliveCycleSummary, ReliveSettings, Step } from '../../shared/utils/relive-types';
 
@@ -21,6 +23,7 @@ import { ReliveCycleSummary, ReliveSettings, Step } from '../../shared/utils/rel
 })
 export class ReliveListComponent {
   private readonly api = inject(ReliveApiService);
+  private readonly fingerprints = inject(ReliveFingerprintFlow);
   private readonly router = inject(Router);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly picker = inject(CallPickerService);
@@ -85,30 +88,40 @@ export class ReliveListComponent {
   createFromSteps(steps: readonly Step[]): void {
     if (!steps.length || this.creating()) return;
     this.creating.set(true);
-    this.api
-      .create({
-        name: 'New cycle',
-        description: null,
-        steps,
-        variables: [],
-        cycleRules: [],
-        globalRules: { mode: 'NONE', selectedIds: [] },
-        settings: this.settings,
-        noise: [],
-        unexpectedCalls: { policy: 'BLOCK', rules: [], fallback: 'BLOCK' },
-      })
-      .subscribe({
+    this.newCycleOpen.set(false);
+    const request: ReliveWriteRequest = {
+      name: 'New cycle',
+      description: null,
+      steps,
+      variables: [],
+      cycleRules: [],
+      globalRules: { mode: 'NONE', selectedIds: [] },
+      settings: this.settings,
+      noise: [],
+      unexpectedCalls: { policy: 'BLOCK', rules: [], fallback: 'BLOCK' },
+    };
+    // No supplier steps: the create stays the fast POST the list already waits on.
+    if (outboundAwaitingFingerprint(steps) === 0) {
+      this.api.create(request).subscribe({
         next: (created) => {
           this.creating.set(false);
-          this.newCycleOpen.set(false);
           this.state.load();
-          this.router.navigate(['/relive', created.id]);
+          void this.router.navigate(['/relive', created.id]);
         },
         error: () => {
           this.creating.set(false);
           this.error.set('Could not create the cycle. Try again.');
         },
       });
+      return;
+    }
+    void this.fingerprints.createAndOpen(request).then(() => {
+      this.creating.set(false);
+      this.state.load();
+    }).catch(() => {
+      this.creating.set(false);
+      this.error.set('Could not create the cycle. Try again.');
+    });
   }
 
   duplicate(cycle: ReliveCycleSummary, event: Event): void {

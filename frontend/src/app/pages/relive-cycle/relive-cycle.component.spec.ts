@@ -25,7 +25,7 @@ describe('ReliveCycleComponent picker and run', () => {
   let picker: any;
   let source: jasmine.SpyObj<ReliveCallSourceService>;
   let run: any;
-  let api: { listRuns: jasmine.Spy; getRun: jasmine.Spy };
+  let api: { listRuns: jasmine.Spy; getRun: jasmine.Spy; fingerprint: jasmine.Spy };
 
   beforeEach(() => {
     draft = signal<ReliveCycle | null>(null);
@@ -56,6 +56,7 @@ describe('ReliveCycleComponent picker and run', () => {
     api = {
       listRuns: jasmine.createSpy('listRuns').and.returnValue(of([])),
       getRun: jasmine.createSpy('getRun').and.returnValue(of(null)),
+      fingerprint: jasmine.createSpy('fingerprint').and.returnValue(of({})),
     };
     TestBed.configureTestingModule({
       imports: [ReliveCycleComponent],
@@ -232,6 +233,52 @@ describe('ReliveCycleComponent picker and run', () => {
     expect(run.adopt).toHaveBeenCalledWith(full);
     expect(run.continueAdopted).not.toHaveBeenCalled();
     expect(fixture.componentInstance.tab()).toBe('run');
+  });
+
+  it('rebuilds fingerprints only when a stored version is not current', () => {
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    const stale = {
+      ...savedCycle,
+      steps: [{ key: 'c-1', direction: 'outbound', recording: { url: 'https://supplier/search' }, fingerprintVersion: 'SEMANTIC_V0' }],
+    } as unknown as ReliveCycle;
+    draft.set(stale);
+    saved.set(stale);
+    dirty.set(false);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.oldFingerprints()).toBe(1);
+    fixture.componentInstance.rebuildFingerprints();
+    expect(api.fingerprint).toHaveBeenCalledWith('c-1', true);
+    expect(state.load).toHaveBeenCalledWith('c-1');
+
+    api.fingerprint.calls.reset();
+    dirty.set(true);
+    fixture.componentInstance.rebuildFingerprints();
+    expect(api.fingerprint).not.toHaveBeenCalled();
+
+    draft.set({ ...stale, steps: [{ key: 'c-1', direction: 'outbound', recording: {}, fingerprintVersion: null }] } as unknown as ReliveCycle);
+    expect(fixture.componentInstance.oldFingerprints()).toBe(0);
+    expect(fixture.componentInstance.missingFingerprints()).toBe(1);
+  });
+
+  it('fingerprints supplier steps that have no hash, and not while the draft is dirty', () => {
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    const missing = {
+      ...savedCycle,
+      steps: [{ key: 'c-1', direction: 'outbound', recording: { url: 'https://supplier/search' }, fingerprintVersion: null }],
+    } as unknown as ReliveCycle;
+    draft.set(missing);
+    saved.set(missing);
+    dirty.set(false);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.missingFingerprints()).toBe(1);
+    fixture.componentInstance.stampFingerprints();
+    expect(api.fingerprint).toHaveBeenCalledWith('c-1');
+    expect(state.load).toHaveBeenCalledWith('c-1');
+
+    api.fingerprint.calls.reset();
+    dirty.set(true);
+    fixture.componentInstance.stampFingerprints();
+    expect(api.fingerprint).not.toHaveBeenCalled();
   });
 
   it('shows a failed start and keeps the run idle', async () => {

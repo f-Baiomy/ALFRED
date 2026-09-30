@@ -52,6 +52,21 @@ describe('ReliveApiService', () => {
     req.flush({});
   });
 
+  it('create() can defer fingerprinting, and fingerprint() posts the cycle id', () => {
+    service.create(cycle, true, true).subscribe();
+    const created = http.expectOne('http://backend/relive-cycles?transient=true&deferFingerprint=true');
+    expect(created.request.method).toBe('POST');
+    created.flush({});
+    service.fingerprint('c-1').subscribe();
+    const stamped = http.expectOne('http://backend/relive-cycles/c-1/fingerprints');
+    expect(stamped.request.method).toBe('POST');
+    stamped.flush({});
+    service.fingerprint('c-1', true).subscribe();
+    const rebuilt = http.expectOne('http://backend/relive-cycles/c-1/fingerprints?rebuild=true');
+    expect(rebuilt.request.method).toBe('POST');
+    rebuilt.flush({});
+  });
+
   it('wraps rules for the backend and unwraps them for the editor', () => {
     const rule: CycleRule = { name: 'replay', match: {}, actions: [], copiedFrom: { ruleId: 'r-1', name: 'source', copiedAt: '2026-01-01' } };
     const step: Step = {

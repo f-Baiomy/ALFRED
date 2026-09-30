@@ -1,4 +1,4 @@
-import { ActualCallOutcome, displayedState, explainStep, formatReasonDetail, outcomeOf, StepReason } from './relive-outcome';
+import { ActualCallOutcome, displayedState, explainStep, formatReasonDetail, outcomeOf, StepReason, wholeDocumentCheckNote } from './relive-outcome';
 import { AssertionResult } from './scenario-types';
 import { DifferenceEntry, StepResult, StepState } from './relive-types';
 
@@ -101,6 +101,8 @@ describe('displayedState', () => {
       assertions: [document],
       actualResponse: { status: 200, headers: {}, body: document.actual },
     }), 200)).toBe('COMPLETED_WITH_DIFFERENCES');
+    expect(wholeDocumentCheckNote([document])).toBe('A check expected the whole body to equal "200".');
+    expect(wholeDocumentCheckNote([])).toBeNull();
   });
 
   it('keeps a field assertion, a transport error, and an unreadable body as failures', () => {

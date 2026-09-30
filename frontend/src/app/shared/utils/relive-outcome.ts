@@ -169,6 +169,14 @@ function explainAssertion(failed: AssertionResult, gzip: boolean, status: number
   return brief(message || 'An assertion failed.');
 }
 
+/** One line for the difference popup. The document itself stays out of the row. */
+export function wholeDocumentCheckNote(assertions: unknown): string | null {
+  const failed = failedAssertions(assertions).filter(wholeDocumentMismatch);
+  if (!failed.length) return null;
+  const value = failed[0].assertion?.value ?? '';
+  return value ? `A check expected the whole body to equal "${value}".` : 'A check on the whole body did not pass.';
+}
+
 /** A JSON assertion with no path whose actual value is a whole document, not a field. */
 function wholeDocumentMismatch(result: AssertionResult): boolean {
   const assertion = result.assertion;

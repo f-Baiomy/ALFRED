@@ -49,6 +49,32 @@
       </div>
     }
 
+    @if (oldFingerprints() > 0) {
+      <div class="rl-ext-banner">
+        Fingerprint algorithm changed. Rebuild fingerprints so supplier calls use the current match.
+        @if (state.dirty()) {
+          Save the cycle first.
+        }
+        <span class="rl-spacer"></span>
+        <button class="rl-btn rl-sm" (click)="rebuildFingerprints()" [disabled]="state.dirty() || rebuildingFingerprints() || stampingFingerprints()">
+          Rebuild fingerprints
+        </button>
+      </div>
+    }
+
+    @if (missingFingerprints() > 0) {
+      <div class="rl-ext-banner">
+        Supplier steps have no fingerprint. Fingerprint them before a run. A run does not compute fingerprints.
+        @if (state.dirty()) {
+          Save the cycle first.
+        }
+        <span class="rl-spacer"></span>
+        <button class="rl-btn rl-sm" (click)="stampFingerprints()" [disabled]="state.dirty() || stampingFingerprints() || rebuildingFingerprints()">
+          Fingerprint supplier steps
+        </button>
+      </div>
+    }
+
     @if (state.conflict()) {
       <div class="rl-ext-banner">
         ⚠ This cycle changed elsewhere since you opened it.

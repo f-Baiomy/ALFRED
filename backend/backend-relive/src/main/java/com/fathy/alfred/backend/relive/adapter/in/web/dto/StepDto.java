@@ -25,17 +25,20 @@ public record StepDto(
         StepSource source,
         JsonNode extract,
         JsonNode assertions,
-        List<NoiseRule> noise
+        List<NoiseRule> noise,
+        String fingerprint,
+        String fingerprintVersion
 ) {
     public Step toDomain() {
         return new Step(key, parentKey, label, enabled, optional, direction, serviceName,
                 callRule.toDomain(), unattributed, recording, source, extract, assertions,
-                noise == null ? List.of() : noise);
+                noise == null ? List.of() : noise, fingerprint, fingerprintVersion);
     }
 
     public static StepDto from(Step step) {
         return new StepDto(step.key(), step.parentKey(), step.label(), step.enabled(), step.optional(),
                 step.direction(), step.serviceName(), CycleRuleDto.from(step.callRule()), step.unattributed(),
-                step.recording(), step.source(), step.extract(), step.assertions(), step.noise());
+                step.recording(), step.source(), step.extract(), step.assertions(), step.noise(),
+                step.fingerprint(), step.fingerprintVersion());
     }
 }

@@ -33,7 +33,8 @@ import type { CallsQuery } from '../state/call-list-view';
 import { DifferenceEntry, NoiseRule, ReliveCycle, RuleApplied, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 import { DraftResult } from '../../shared/utils/resend-draft';
 import { extractValues, substituteTokens } from '../../shared/utils/resend-draft-chain';
-import { diffJsonBodies, evaluate } from '../../shared/utils/scenario-assertions';
+import { finishedResponseDifference } from '../../shared/utils/relive-canonical-body';
+import { evaluate } from '../../shared/utils/scenario-assertions';
 
 /** How long to keep collecting `run-call` events after the inbound resend settles, before deciding
  *  a still-missing enabled child was never called - the reverse proxy handles a child's outbound
@@ -115,33 +116,23 @@ function extractedVars(response: ResendResponseSnapshot | null, rules: Step['ext
   return Object.entries(extractValues(response, rules)).map(([name, value]) => ({ name, value }));
 }
 
-function headerDifferences(recorded: Readonly<Record<string, string>>, actual: Readonly<Record<string, string>> | null | undefined): RawDifference[] {
-  const a = new Map(Object.entries(recorded).map(([name, value]) => [name.toLowerCase(), value]));
-  const b = new Map(Object.entries(actual ?? {}).map(([name, value]) => [name.toLowerCase(), value]));
-  const out: RawDifference[] = [];
-  for (const name of new Set([...a.keys(), ...b.keys()])) {
-    const rec = a.get(name) ?? null;
-    const act = b.get(name) ?? null;
-    if (rec !== act) out.push({ part: 'header', path: name, recorded: rec, actual: act });
-  }
-  return out;
-}
-
-/** Recorded vs actual, as `classify` (T059) wants them: status, headers, and the response body
- *  flattened to leaf JSON paths (`diffJsonBodies`, shared with the Scenarios comparison). */
-function rawDifferences(step: Step, response: ResendResponseSnapshot | null): RawDifference[] {
+/** One MATCH or one DIFFERENT for the completed response. Field assertions stay on `evaluate`.
+ *  This grade does not choose the supplier step. A noise-only body leaves no row. */
+function rawDifferences(
+  step: Step,
+  response: ResendResponseSnapshot | null,
+  noiseRules: readonly NoiseRule[],
+  variablesUsed: readonly { readonly name: string; readonly value: string }[],
+  variablesProduced: readonly { readonly name: string; readonly value: string }[],
+): RawDifference[] {
   if (!response) return [];
-  const out: RawDifference[] = [];
-  if (response.status !== step.recording.status) {
-    out.push({ part: 'status', path: 'status', recorded: String(step.recording.status), actual: String(response.status) });
-  }
-  out.push(...headerDifferences(step.recording.responseHeaders, response.headers));
-  out.push(
-    ...diffJsonBodies(step.recording.responseBody, response.body).map(
-      (c): RawDifference => ({ part: 'body', path: `body.${c.path}`, recorded: c.before ?? null, actual: c.after ?? null }),
-    ),
+  const verdict = finishedResponseDifference(
+    { status: step.recording.status, headers: step.recording.responseHeaders, body: step.recording.responseBody },
+    { status: response.status, headers: response.headers, body: response.body },
+    { noiseRules, variablesUsed, variablesProduced },
   );
-  return out;
+  if (!verdict) return [];
+  return [{ part: 'body', path: 'response', recorded: verdict.recorded, actual: verdict.actual }];
 }
 
 function differencesOf(
@@ -151,7 +142,10 @@ function differencesOf(
   variablesUsed: readonly { readonly name: string; readonly value: string }[],
   variablesProduced: readonly { readonly name: string; readonly value: string }[],
 ): readonly DifferenceEntry[] {
-  return classify(rawDifferences(step, response), { noiseRules, expected: [], variablesUsed, variablesProduced });
+  return classify(
+    rawDifferences(step, response, noiseRules, variablesUsed, variablesProduced),
+    { noiseRules, expected: [], variablesUsed, variablesProduced },
+  );
 }
 
 function topSteps(steps: readonly Step[]): Step[] {

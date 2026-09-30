@@ -48,7 +48,7 @@ class LiveCallsServiceTest {
 
     private Step step(JsonNode rule) {
         return new Step("s-supA", "s-search", "Supplier A", true, false, "outbound", "odeysys",
-                new CycleRule(rule, null), "BLOCK", recording(), new StepSource("call-1", null, "outbound"), null, null, List.of());
+                new CycleRule(rule, null), "BLOCK", recording(), new StepSource("call-1", null, "outbound"), null, null, List.of(), null, null);
     }
 
     private ReliveCycle cycle(Step step) {

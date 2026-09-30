@@ -9,6 +9,10 @@ import com.fasterxml.jackson.databind.JsonNode;
  * here (FR-010a/029b) - the frontend's {@code relive-call-rule.ts} and the proxy both derive
  * them the same way, from the one call rule, rather than from separate stored flags that could
  * drift out of sync with it.
+ *
+ * <p>{@code fingerprint} is the persisted SEMANTIC_V1 hash of an outbound step's request. It is
+ * written when the cycle is saved and reused by every later run. Null on an inbound step and on
+ * a cycle saved before fingerprints existed.
  */
 public record Step(
         String key,
@@ -24,6 +28,13 @@ public record Step(
         StepSource source,
         JsonNode extract,
         JsonNode assertions,
-        java.util.List<NoiseRule> noise
+        java.util.List<NoiseRule> noise,
+        String fingerprint,
+        String fingerprintVersion
 ) {
+    public Step withFingerprint(String fingerprint, String fingerprintVersion) {
+        return new Step(key, parentKey, label, enabled, optional, direction, serviceName,
+                callRule, unattributed, recording, source, extract, assertions, noise,
+                fingerprint, fingerprintVersion);
+    }
 }

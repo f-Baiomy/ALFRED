@@ -646,10 +646,14 @@ describe('ReliveRunService', () => {
     await service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
 
     const differences = service.results()['login'].differences;
-    expect(differences.find((d) => d.path === 'body.total')).toEqual(
-      jasmine.objectContaining({ kind: 'UNEXPECTED', recorded: '450', actual: '455' }),
-    );
-    expect(differences.find((d) => d.path === 'body.traceId')?.kind).toBe('NOISE_AUTO');
+    expect(differences).toEqual([
+      jasmine.objectContaining({
+        path: 'response',
+        kind: 'UNEXPECTED',
+        recorded: 'recorded response',
+        actual: 'different response',
+      }),
+    ]);
     expect(service.results()['login'].state).toBe('COMPLETED_WITH_DIFFERENCES');
   });
 

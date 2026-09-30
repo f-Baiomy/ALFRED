@@ -3238,6 +3238,10 @@ mark.hl.active {
   position: fixed;
   inset: 0;
   background: rgba(5, 7, 20, 0.55);
+
+  &.fingerprint-screen {
+    z-index: 140;
+  }
   // Heavy, so a dialog card (tinted, no blur of its own - see the frosted mixin) reads as
   // frosted glass over the page instead of showing the call list through it.
   backdrop-filter: blur(14px) saturate(1.3);

@@ -80,6 +80,7 @@ class ReliveRuns:
         # same execution does not. The forward proxy sees the new execution only via inflight.json.
         self._ordinals = {}
         self._ordinal_epoch = {}  # (run_id, parent_step_key) -> inflight callId
+        self._steps_by_run = {}   # runId -> {stepKey: step node}, built when the snapshot is loaded
 
     def _stale(self):
         now = time.monotonic()
@@ -102,12 +103,13 @@ class ReliveRuns:
             # No directory: Relive has never run here, or has just been cleaned up. Reset so a
             # directory that reappears later (a new run starting) is read fresh, not left showing
             # whatever the last successful listing saw.
-            if self._runs or self._inflight or self._file_mtimes or self._ordinals or self._ordinal_epoch:
+            if self._runs or self._inflight or self._file_mtimes or self._ordinals or self._ordinal_epoch or self._steps_by_run:
                 self._runs = {}
                 self._inflight = {}
                 self._file_mtimes = {}
                 self._ordinals = {}
                 self._ordinal_epoch = {}
+                self._steps_by_run = {}
             return
 
         seen = set()
@@ -127,16 +129,19 @@ class ReliveRuns:
             snapshot = self._load_json(path)
             if not isinstance(snapshot, dict) or snapshot.get('state') not in ACTIVE_STATES:
                 self._runs.pop(run_id, None)
+                self._steps_by_run.pop(run_id, None)
                 self._forget_ordinals(run_id)
                 continue
             snapshot.setdefault('runId', run_id)
             snapshot['_mtime'] = mtime
             self._runs[run_id] = snapshot
+            self._steps_by_run[run_id] = _step_index(snapshot)
 
         for stale_name in [n for n in self._file_mtimes if n != 'inflight.json' and n not in seen]:
             del self._file_mtimes[stale_name]
             run_id = stale_name[:-len('.json')]
             self._runs.pop(run_id, None)
+            self._steps_by_run.pop(run_id, None)
             self._forget_ordinals(run_id)
 
     def _reload_inflight_if_changed(self):
@@ -207,14 +212,46 @@ def _walk_steps(steps):
         yield from _walk_steps(step.get('children'))
 
 
-def _find_step(run, step_key):
+def _step_index(run):
+    """stepKey → node, including nested children. Built once when the snapshot is loaded."""
+    found = {}
+    for step in _walk_steps(run.get('steps') if isinstance(run, dict) else None):
+        if not isinstance(step, dict):
+            continue
+        key = step.get('stepKey')
+        if key and key not in found:
+            found[key] = step
+    return found
+
+
+def _steps_for(run, runs=None):
+    if not isinstance(run, dict):
+        return {}
+    if runs is not None:
+        cached = getattr(runs, '_steps_by_run', {}).get(run.get('runId'))
+        if isinstance(cached, dict):
+            return cached
+    cached = run.get('_steps_by_key')
+    if isinstance(cached, dict):
+        return cached
+    built = _step_index(run)
+    if runs is not None and run.get('runId'):
+        runs._steps_by_run[run.get('runId')] = built
+    else:
+        run['_steps_by_key'] = built
+    return built
+
+
+def _find_step(run, step_key, runs=None):
     """A step anywhere in the tree. A child can itself be an inbound call with children."""
     if not step_key:
         return None
-    for step in _walk_steps(run.get('steps')):
-        if step.get('stepKey') == step_key:
-            return step
-    return None
+    return _steps_for(run, runs).get(step_key)
+
+
+def _child_enabled(child):
+    """A snapshot written before enablement was published leaves the field off, and stays selectable."""
+    return isinstance(child, dict) and child.get('enabled') is not False
 
 
 def _parent_keys(run):
@@ -565,6 +602,46 @@ def _same_recorded_request(request, recorded, cache):
     return cache['body'] == recorded_body
 
 
+FINGERPRINT_VERSION = 'SEMANTIC_V1'
+
+
+def semantic_fingerprint_v1(endpoint, stable_headers, body_canonical):
+    """SHA-256 of a canonical request. The same bytes as Java RequestFingerprint.
+
+    endpoint is (method, scheme, host, path, query). stable_headers is sorted
+    (name, value) pairs. body_canonical is interception.canonical_body output.
+    Stored steps keep this hash. A replay run hashes only the live request.
+    """
+    digest = hashlib.sha256()
+    digest.update(b'SEMANTIC_V1')
+    digest.update(b'\0')
+    for item in endpoint:
+        digest.update((item or '').encode('utf-8'))
+        digest.update(b'\0')
+    digest.update(b'\0')
+    for name, value in stable_headers:
+        digest.update(name.encode('utf-8'))
+        digest.update(b'\0')
+        digest.update((value or '').encode('utf-8'))
+        digest.update(b'\0')
+    digest.update(b'\0')
+    digest.update((body_canonical or '').encode('utf-8'))
+    return digest.hexdigest()
+
+
+def _live_semantic_fingerprint(request, cache):
+    token = cache.get('semantic')
+    if token is not None:
+        return token
+    if 'headers' not in cache:
+        cache['headers'] = interception.stable_header_items(getattr(request, 'headers', {}) or {})
+    if 'body' not in cache:
+        cache['body'] = interception.canonical_body(interception._body(request) or '')
+    token = semantic_fingerprint_v1(_live_endpoint(request), cache['headers'], cache['body'])
+    cache['semantic'] = token
+    return token
+
+
 def _fingerprint(recorded, endpoint):
     token = recorded.get('_fp')
     if token:
@@ -612,6 +689,25 @@ def _take_ordinal(by_signature, run_id, parent_step_key, runs, consume):
     return None
 
 
+def _take_in_stored_order(children, run_id, parent_step_key, signature, runs, consume):
+    """The index lists keys in cycle order. That order is the order they are consumed.
+
+    Nested calls reset the snapshot ordinal at 1, so sorting by ordinal would disagree with
+    the stored list. The legacy scan still sorts; this path does not.
+    """
+    if not children:
+        return None
+    key = (run_id, parent_step_key, signature)
+    used = runs._ordinals.get(key, 0)
+    if used < len(children):
+        if consume:
+            runs._ordinals[key] = used + 1
+        return children[used]
+    if consume:
+        runs._ordinals[key] = used + 1
+    return None
+
+
 def _sync_ordinal_epoch(runs, run_id, parent_step_key):
     """Start child ordinals over when this parent step is executing again.
 
@@ -643,43 +739,50 @@ def _sync_ordinal_epoch(runs, run_id, parent_step_key):
         runs._forget_step_ordinals(run_id, parent_step_key)
 
 
-def match_child(flow, source, service_name, run, parent_step_key, runs, consume=True):
-    """The outbound child of the in-flight inbound this call matches.
+def _index_step_keys(value):
+    if not isinstance(value, list):
+        return []
+    return [key for key in value if key]
 
-    Only that inbound's outbound children are considered — never every outbound call in the
-    cycle. A child that carries a recorded request matches on URL, method, the headers the
-    application set, and a canonical body (JSON or SOAP, whitespace and key order ignored).
-    The live body is parsed once. Each recorded body was canonicalized when its answer was
-    loaded, so the hot path is a string compare against that small set.
 
-    A child with no recorded request keeps the host/path match. `consume=False` peeks.
-    """
-    step = _find_step(run, parent_step_key)
-    if step is None:
-        return None
-    _sync_ordinal_epoch(runs, run.get('runId'), parent_step_key)
-    request, host, path = _request_host_path(flow)
-    live_ep = _live_endpoint(request)
-    run_id = run.get('runId')
-    cache = {}
-    by_signature = {}
-    endpoint_only = []
+def _indexed_step_keys(index):
+    keys = set()
+    if not isinstance(index, dict):
+        return keys
+    for listed in index.values():
+        if isinstance(listed, list):
+            keys.update(key for key in listed if key)
+    return keys
 
-    for child in _outbound_candidates(step):
-        recorded_ep = _child_endpoint(child)
-        if recorded_ep is None:
-            if _legacy_child_match(child, source, service_name, request, host, path):
-                by_signature.setdefault(_match_signature(child), []).append(child)
-            continue
+
+def _consider_unindexed(child, source, service_name, request, host, path, live_ep, runs, run, cache,
+                        by_signature, endpoint_only):
+    """A child the index does not name. Semantic hashes compare as strings; everyone else may read the answer."""
+    recorded_ep = _child_endpoint(child)
+    stored_fp = child.get('fingerprint')
+    if child.get('fingerprintVersion') == FINGERPRINT_VERSION and stored_fp and recorded_ep is not None:
         if not interception.endpoints_match(live_ep, recorded_ep):
-            continue
-        recorded = _recorded_for_child(child, runs, run)
-        if recorded is not None and not _same_recorded_request(request, recorded, cache):
+            return
+        if stored_fp == _live_semantic_fingerprint(request, cache):
+            by_signature.setdefault(stored_fp, []).append(child)
+        else:
             endpoint_only.append(child)
-            continue
-        signature = _fingerprint(recorded, recorded_ep) if recorded is not None else _match_signature(child)
-        by_signature.setdefault(signature, []).append(child)
+        return
+    if recorded_ep is None:
+        if _legacy_child_match(child, source, service_name, request, host, path):
+            by_signature.setdefault(_match_signature(child), []).append(child)
+        return
+    if not interception.endpoints_match(live_ep, recorded_ep):
+        return
+    recorded = _recorded_for_child(child, runs, run)
+    if recorded is not None and not _same_recorded_request(request, recorded, cache):
+        endpoint_only.append(child)
+        return
+    signature = _fingerprint(recorded, recorded_ep) if recorded is not None else _match_signature(child)
+    by_signature.setdefault(signature, []).append(child)
 
+
+def _finish_scan(by_signature, endpoint_only, run_id, parent_step_key, runs, consume):
     chosen = _take_ordinal(by_signature, run_id, parent_step_key, runs, consume)
     if chosen is not None:
         return chosen
@@ -688,6 +791,75 @@ def match_child(flow, source, service_name, run, parent_step_key, runs, consume=
     if len(endpoint_only) == 1 and not by_signature:
         return endpoint_only[0]
     return None
+
+
+def match_child(flow, source, service_name, run, parent_step_key, runs, consume=True):
+    """The outbound child of the in-flight inbound this call matches.
+
+    Only that inbound's outbound children are considered — never every outbound call in the
+    cycle. A disabled child is never selected. A snapshot that omits `enabled` still is.
+
+    When the in-flight step carries fingerprintIndex, the live request is fingerprinted once
+    and that hash is looked up. A hit resolves only the keys stored for it, in that stored
+    order, and returns. It does not walk other hashes or children the index left out, and it
+    does not read their answer bodies. A miss may still attach the single same-URL indexed
+    child, then scan only the children the index does not name.
+
+    A snapshot with no index keeps the full scan, taken in ordinal order. `consume=False` peeks.
+    """
+    step = _find_step(run, parent_step_key, runs)
+    if step is None:
+        return None
+    _sync_ordinal_epoch(runs, run.get('runId'), parent_step_key)
+    request, host, path = _request_host_path(flow)
+    live_ep = _live_endpoint(request)
+    run_id = run.get('runId')
+    cache = {}
+    index = step.get('fingerprintIndex') if isinstance(step.get('fingerprintIndex'), dict) else None
+
+    if index is not None:
+        live_fp = _live_semantic_fingerprint(request, cache)
+        bucket = index.get(live_fp)
+        if isinstance(bucket, list) and _index_step_keys(bucket):
+            by_key = _steps_for(run, runs)
+            ordered = []
+            for step_key in _index_step_keys(bucket):
+                child = by_key.get(step_key)
+                if not _child_enabled(child):
+                    continue
+                recorded_ep = _child_endpoint(child)
+                if recorded_ep is not None and not interception.endpoints_match(live_ep, recorded_ep):
+                    continue
+                ordered.append(child)
+            return _take_in_stored_order(ordered, run_id, parent_step_key, live_fp, runs, consume)
+
+        by_key = _steps_for(run, runs)
+        indexed = _indexed_step_keys(index)
+        endpoint_only = []
+        for step_keys in index.values():
+            for step_key in _index_step_keys(step_keys):
+                child = by_key.get(step_key)
+                if not _child_enabled(child):
+                    continue
+                recorded_ep = _child_endpoint(child)
+                if recorded_ep is not None and interception.endpoints_match(live_ep, recorded_ep):
+                    endpoint_only.append(child)
+        by_signature = {}
+        for child in _outbound_candidates(step):
+            if not _child_enabled(child) or child.get('stepKey') in indexed:
+                continue
+            _consider_unindexed(child, source, service_name, request, host, path, live_ep, runs, run,
+                                cache, by_signature, endpoint_only)
+        return _finish_scan(by_signature, endpoint_only, run_id, parent_step_key, runs, consume)
+
+    by_signature = {}
+    endpoint_only = []
+    for child in _outbound_candidates(step):
+        if not _child_enabled(child):
+            continue
+        _consider_unindexed(child, source, service_name, request, host, path, live_ep, runs, run,
+                            cache, by_signature, endpoint_only)
+    return _finish_scan(by_signature, endpoint_only, run_id, parent_step_key, runs, consume)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1037,7 +1209,7 @@ async def _apply_matched_step(flow, service_name, engine, run, step_key, attribu
         return _blocked_verdict(502, {'error': 'Blocked by ALFRED Relive - run stopping', 'runId': run_id}), \
             {'runId': run_id, 'stepKey': step_key, 'attribution': attribution, 'choice': 'STOPPING'}
 
-    step = _find_step(run, step_key) if step_key else None
+    step = _find_step(run, step_key, runs) if step_key else None
     if step is None:
         if step_key:
             # A stale/broken stepKey reference - nothing to enforce, nothing useful to log either.

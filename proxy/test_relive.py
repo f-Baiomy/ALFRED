@@ -835,5 +835,202 @@ class RecordedRequestMatchTest(unittest.TestCase):
             self.assertIsNone(relive.match_child(direct, 'outbound', None, run_doc, 's-core', runs))
 
 
+def _semantic_fingerprint(body, headers=None):
+    headers = headers if headers is not None else {'Content-Type': 'application/json'}
+    endpoint = interception.canonical_endpoint(
+        'POST', 'https', 'ndc.example', '/api/FlightSearch/Search', '')
+    return relive.semantic_fingerprint_v1(
+        endpoint, interception.stable_header_items(headers), interception.canonical_body(body))
+
+
+def fingerprinted_child(key, body, ordinal=1):
+    return {
+        'stepKey': key, 'direction': 'outbound', 'ordinal': ordinal, 'unattributed': 'BLOCK',
+        'fingerprint': _semantic_fingerprint(body), 'fingerprintVersion': relive.FINGERPRINT_VERSION,
+        'recordedRequest': {
+            'method': 'POST', 'scheme': 'https', 'host': 'ndc.example',
+            'path': '/api/FlightSearch/Search', 'query': '',
+        },
+        'match': {'source': 'outbound', 'host': 'ndc.example', 'methods': ['POST']},
+        'callRule': {'match': {}, 'actions': []},
+    }
+
+
+def fingerprint_flow(body, path='/api/FlightSearch/Search'):
+    return FakeFlow(request=FakeRequest(
+        method='POST', host='ndc.example', path=path, text=body,
+        headers={'Content-Type': 'application/json', 'X-Request-Id': 'live-id', 'Cookie': 'a=b'},
+    ))
+
+
+class StoredFingerprintMatchTest(unittest.TestCase):
+    def _doc(self, tmp, children, fingerprint_index=None):
+        step = {
+            'stepKey': 's-search', 'direction': 'inbound', 'serviceName': 'odeysys',
+            'children': children,
+        }
+        if fingerprint_index is not None:
+            step['fingerprintIndex'] = fingerprint_index
+        write_run(tmp, 'run-a', steps=[step])
+        runs = relive.ReliveRuns(relive_dir(tmp))
+        runs.refresh(force=True)
+        return runs, runs.get('run-a')
+
+    def test_stored_fingerprint_matches_without_reading_the_recorded_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs, doc = self._doc(tmp, [fingerprinted_child('c-search', '{"b": 1, "a": 2}')])
+            with patch.object(relive, '_recorded_for_child', side_effect=AssertionError('stored body was read')):
+                matched = relive.match_child(
+                    fingerprint_flow('{"a":2,"b":1}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-search', matched['stepKey'])
+
+    def test_live_body_is_canonicalized_once_for_every_sibling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            children = [
+                fingerprinted_child('c-1', '{"a":1}', ordinal=1),
+                fingerprinted_child('c-2', '{"a":9}', ordinal=2),
+            ]
+            runs, doc = self._doc(tmp, children)
+            calls = {'n': 0}
+            real = interception.canonical_body
+
+            def counting(text):
+                calls['n'] += 1
+                return real(text)
+
+            with patch.object(interception, 'canonical_body', side_effect=counting):
+                matched = relive.match_child(
+                    fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-1', matched['stepKey'])
+            self.assertEqual(1, calls['n'])
+
+    def test_one_fingerprint_miss_still_returns_that_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs, doc = self._doc(tmp, [fingerprinted_child('c-search', '{"a":1}')])
+            with patch.object(relive, '_recorded_for_child', side_effect=AssertionError('stored body was read')):
+                matched = relive.match_child(
+                    fingerprint_flow('{"a":2}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-search', matched['stepKey'])
+
+    def test_two_fingerprint_misses_are_unexpected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs, doc = self._doc(tmp, [
+                fingerprinted_child('c-1', '{"a":1}', ordinal=1),
+                fingerprinted_child('c-2', '{"a":2}', ordinal=2),
+            ])
+            self.assertIsNone(relive.match_child(
+                fingerprint_flow('{"a":3}'), 'outbound', None, doc, 's-search', runs))
+
+    def test_same_fingerprint_is_taken_in_ordinal_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs, doc = self._doc(tmp, [
+                fingerprinted_child('c-2', '{"a":1}', ordinal=2),
+                fingerprinted_child('c-1', '{"a":1}', ordinal=1),
+            ])
+            first = relive.match_child(fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs)
+            second = relive.match_child(fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-1', first['stepKey'])
+            self.assertEqual('c-2', second['stepKey'])
+
+    def test_a_different_url_is_not_that_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs, doc = self._doc(tmp, [fingerprinted_child('c-search', '{"a":1}')])
+            self.assertIsNone(relive.match_child(
+                fingerprint_flow('{"a":1}', path='/other'), 'outbound', None, doc, 's-search', runs))
+
+    def test_fingerprint_index_resolves_without_scanning_the_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child = fingerprinted_child('c-search', '{"b": 1, "a": 2}')
+            child.pop('fingerprint', None)
+            child.pop('fingerprintVersion', None)
+            token = _semantic_fingerprint('{"b": 1, "a": 2}')
+            runs, doc = self._doc(tmp, [child], fingerprint_index={token: ['c-search']})
+            with patch.object(relive, '_recorded_for_child', side_effect=AssertionError('stored body was read')):
+                matched = relive.match_child(
+                    fingerprint_flow('{"a":2,"b":1}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-search', matched['stepKey'])
+
+    def test_index_miss_on_one_child_still_returns_that_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child = fingerprinted_child('c-search', '{"a":1}')
+            child.pop('fingerprint', None)
+            child.pop('fingerprintVersion', None)
+            runs, doc = self._doc(tmp, [child], fingerprint_index={_semantic_fingerprint('{"a":1}'): ['c-search']})
+            with patch.object(relive, '_recorded_for_child', side_effect=AssertionError('stored body was read')):
+                matched = relive.match_child(
+                    fingerprint_flow('{"a":2}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-search', matched['stepKey'])
+
+    def test_two_index_misses_are_unexpected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = fingerprinted_child('c-1', '{"a":1}', ordinal=1)
+            second = fingerprinted_child('c-2', '{"a":2}', ordinal=2)
+            for child in (first, second):
+                child.pop('fingerprint', None)
+                child.pop('fingerprintVersion', None)
+            runs, doc = self._doc(tmp, [first, second], fingerprint_index={
+                _semantic_fingerprint('{"a":1}'): ['c-1'],
+                _semantic_fingerprint('{"a":2}'): ['c-2'],
+            })
+            with patch.object(relive, '_recorded_for_child', side_effect=AssertionError('stored body was read')):
+                self.assertIsNone(relive.match_child(
+                    fingerprint_flow('{"a":3}'), 'outbound', None, doc, 's-search', runs))
+
+    def test_index_takes_the_same_hash_in_stored_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            later = fingerprinted_child('c-2', '{"a":1}', ordinal=2)
+            earlier = fingerprinted_child('c-1', '{"a":1}', ordinal=1)
+            token = _semantic_fingerprint('{"a":1}')
+            runs, doc = self._doc(tmp, [later, earlier], fingerprint_index={token: ['c-2', 'c-1']})
+            first = relive.match_child(fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs)
+            second = relive.match_child(fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-2', first['stepKey'])
+            self.assertEqual('c-1', second['stepKey'])
+
+    def test_hash_hit_does_not_select_a_disabled_child_or_another_bucket(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            disabled = fingerprinted_child('c-hit', '{"a":1}')
+            disabled['enabled'] = False
+            other = fingerprinted_child('c-other', '{"a":9}')
+            token = _semantic_fingerprint('{"a":1}')
+            other_token = _semantic_fingerprint('{"a":9}')
+            runs, doc = self._doc(tmp, [disabled, other], fingerprint_index={
+                token: ['c-hit'],
+                other_token: ['c-other'],
+            })
+            with patch.object(relive, '_recorded_for_child', side_effect=AssertionError('stored body was read')):
+                matched = relive.match_child(
+                    fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs)
+            self.assertIsNone(matched)
+
+    def test_disabled_child_is_not_selected_without_an_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child = fingerprinted_child('c-search', '{"a":1}')
+            child['enabled'] = False
+            runs, doc = self._doc(tmp, [child])
+            self.assertIsNone(relive.match_child(
+                fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs))
+
+    def test_a_missing_enabled_flag_stays_selectable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child = fingerprinted_child('c-search', '{"a":1}')
+            self.assertNotIn('enabled', child)
+            runs, doc = self._doc(tmp, [child])
+            matched = relive.match_child(
+                fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-search', matched['stepKey'])
+
+    def test_a_child_left_out_of_the_index_is_still_scanned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scanned = fingerprinted_child('c-search', '{"a":1}')
+            runs, doc = self._doc(tmp, [scanned], fingerprint_index={
+                _semantic_fingerprint('{"a":9}'): ['missing-key'],
+            })
+            with patch.object(relive, '_recorded_for_child', side_effect=AssertionError('stored body was read')):
+                matched = relive.match_child(
+                    fingerprint_flow('{"a":1}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-search', matched['stepKey'])
+
+
 if __name__ == '__main__':
     unittest.main()

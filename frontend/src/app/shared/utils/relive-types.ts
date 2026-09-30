@@ -92,6 +92,9 @@ export interface Step {
   readonly extract: readonly ExtractRule[];
   readonly assertions: readonly Assertion[];
   readonly noise: readonly NoiseRule[];
+  /** Persisted SEMANTIC_V1 hash of an outbound request. Absent until the cycle is saved. */
+  readonly fingerprint?: string | null;
+  readonly fingerprintVersion?: string | null;
 }
 
 export interface RunSummary {

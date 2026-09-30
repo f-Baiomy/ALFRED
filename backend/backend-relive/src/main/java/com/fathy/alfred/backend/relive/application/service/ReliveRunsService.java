@@ -131,6 +131,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         if (findings.stream().anyMatch(f -> "BLOCK".equals(f.severity()))) {
             throw new RunBlockedException(findings);
         }
+        cycle = persistIndexIfAbsent(cycle);
         String runId = UUID.randomUUID().toString();
         String now = Instant.now().toString();
         List<VariableChange> seedVariables = command.seedFromRunId() == null ? List.of()
@@ -144,6 +145,46 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         refreshInflightPresence();
         notifications.runChanged(cycleId, runId);
         return created;
+    }
+
+    /**
+     * A cycle stamped before the index existed has SEMANTIC_V1 hashes and a null map. Store that map
+     * once from the hashes already on the steps. Bodies are not read and hashes are not recomputed.
+     * An empty map is left null so a cycle that still has no fingerprints is not rewritten at start.
+     */
+    private ReliveCycle persistIndexIfAbsent(ReliveCycle cycle) {
+        if (cycle.fingerprintIndex() != null) {
+            return cycle;
+        }
+        Map<String, Map<String, List<String>>> index = StepFingerprints.indexes(cycle.steps());
+        if (index.isEmpty()) {
+            return cycle;
+        }
+        String now = Instant.now().toString();
+        ReliveCycle indexed = new ReliveCycle(
+                cycle.id(), cycle.name(), cycle.description(), cycle.steps(),
+                cycle.variables(), cycle.cycleRules(), cycle.globalRules(), cycle.settings(),
+                cycle.noise(), cycle.unexpectedCalls(), cycle.createdAt(), now,
+                cycle.isTransient(), cycle.lastRun(), index);
+        ReliveCycle saved = cycleStore.save(indexed);
+        notifications.cycleChanged();
+        return saved;
+    }
+
+    /** Same one-time fill, on the run's own definition, so a later resume does not rebuild the map. */
+    private ReliveCycle attachIndex(ReliveCycle cycle) {
+        if (cycle.fingerprintIndex() != null) {
+            return cycle;
+        }
+        Map<String, Map<String, List<String>>> index = StepFingerprints.indexes(cycle.steps());
+        if (index.isEmpty()) {
+            return cycle;
+        }
+        return new ReliveCycle(
+                cycle.id(), cycle.name(), cycle.description(), cycle.steps(),
+                cycle.variables(), cycle.cycleRules(), cycle.globalRules(), cycle.settings(),
+                cycle.noise(), cycle.unexpectedCalls(), cycle.createdAt(), cycle.updatedAt(),
+                cycle.isTransient(), cycle.lastRun(), index);
     }
 
     @Override
@@ -210,7 +251,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         List<Resumed> resumed = new ArrayList<>(run.resumed());
         resumed.add(new Resumed(Instant.now().toString(), afterStepKey));
         Run updated = new Run(run.id(), run.cycleId(), run.driver(), RunStatus.RUNNING, run.startedAt(), null,
-                run.definition(), run.fromStepKey(), run.seedVariables(), run.variableTimeline(), run.summary(),
+                attachIndex(run.definition()), run.fromStepKey(), run.seedVariables(), run.variableTimeline(), run.summary(),
                 null, resumed, run.log());
         runStore.update(updated);
         publisher.publish(runId, snapshotBuilder.build(updated));
@@ -223,7 +264,8 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         Run run = getOrThrow(runId);
         Set<String> resultKeys = runStore.listStepResults(runId).stream().map(StepResult::stepKey).collect(Collectors.toSet());
         Map<String, Step> incomingByKey = new LinkedHashMap<>();
-        definition.steps().forEach(s -> incomingByKey.put(s.key(), s));
+        StepFingerprints.maintain(definition.steps(), run.definition().steps())
+                .forEach(s -> incomingByKey.put(s.key(), s));
 
         List<Step> mergedSteps = new ArrayList<>();
         for (Step currentStep : run.definition().steps()) {
@@ -245,7 +287,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
                 mergedSteps, definition.variables(), definition.cycleRules(), definition.globalRules(),
                 definition.settings(), definition.noise(), definition.unexpectedCalls(),
                 run.definition().createdAt(), run.definition().updatedAt(), run.definition().isTransient(),
-                run.definition().lastRun());
+                run.definition().lastRun(), StepFingerprints.indexes(mergedSteps));
         Run updated = new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(), run.finishedAt(),
                 mergedDefinition, run.fromStepKey(), run.seedVariables(), run.variableTimeline(), run.summary(),
                 run.hold(), run.resumed(), run.log());

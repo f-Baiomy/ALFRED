@@ -57,14 +57,25 @@ public class ReliveCyclesController {
 
     @PostMapping
     public ResponseEntity<ReliveCycle> create(@Valid @RequestBody ReliveCycleRequestDto request,
-                                               @RequestParam(name = "transient", required = false, defaultValue = "false") boolean isTransient) {
+                                               @RequestParam(name = "transient", required = false, defaultValue = "false") boolean isTransient,
+                                               @RequestParam(name = "deferFingerprint", required = false, defaultValue = "false") boolean deferFingerprint) {
         try {
             ReliveCycle created = isTransient
-                    ? manageCycles.createTransient(request.toDomain(null))
-                    : manageCycles.create(request.toDomain(null));
+                    ? manageCycles.createTransient(request.toDomain(null), deferFingerprint)
+                    : manageCycles.create(request.toDomain(null), deferFingerprint);
             return ResponseEntity.status(HttpStatus.CREATED).body(created);
         } catch (CycleValidationException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    @PostMapping("/{id}/fingerprints")
+    public ResponseEntity<ReliveCycle> fingerprint(@PathVariable String id,
+                                                    @RequestParam(name = "rebuild", required = false, defaultValue = "false") boolean rebuild) {
+        try {
+            return ResponseEntity.ok(manageCycles.fingerprint(id, rebuild));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
         }
     }
 

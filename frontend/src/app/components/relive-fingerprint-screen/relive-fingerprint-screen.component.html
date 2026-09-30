@@ -1,0 +1,23 @@
+@if (view(); as current) {
+  <div class="dialog-backdrop fingerprint-screen">
+    <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="fingerprint-title" (click)="$event.stopPropagation()">
+      @if (current.warning) {
+        <h2 id="fingerprint-title">Fingerprinting will wait</h2>
+        <p class="dialog-sub dialog-warning-note">If you close this, the fingerprints are not saved. A run will not compute them. Fingerprint the cycle from its page before you run it.</p>
+        <div class="dialog-actions">
+          <button type="button" class="dialog-btn secondary" (click)="confirmClose()">Close</button>
+          <button type="button" class="dialog-btn primary" (click)="keepWaiting()">Keep waiting</button>
+        </div>
+      } @else if (current.allowClose) {
+        <h2 id="fingerprint-title">Fingerprinting supplier steps</h2>
+        <p class="dialog-sub">Reading each supplier request once and saving its fingerprint. This cycle has {{ current.outbound }} supplier step{{ current.outbound === 1 ? '' : 's' }}.</p>
+        <div class="dialog-actions">
+          <button type="button" class="dialog-btn secondary" (click)="requestClose()">Close</button>
+        </div>
+      } @else {
+        <h2 id="fingerprint-title">Fingerprinting supplier steps</h2>
+        <p class="dialog-sub">Reading each supplier request once and saving its fingerprint. This cycle has {{ current.outbound }} supplier step{{ current.outbound === 1 ? '' : 's' }}.</p>
+      }
+    </div>
+  </div>
+}

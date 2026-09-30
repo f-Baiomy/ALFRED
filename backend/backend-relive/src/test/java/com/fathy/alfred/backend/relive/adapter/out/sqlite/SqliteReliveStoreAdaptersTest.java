@@ -58,7 +58,7 @@ class SqliteReliveStoreAdaptersTest {
         var step = new com.fathy.alfred.backend.relive.domain.model.Step(
                 "s-search", null, "POST /v2/search", true, false, "inbound", "odeysys", callRule,
                 "BLOCK", recording, new com.fathy.alfred.backend.relive.domain.model.StepSource(null, null, "inbound"),
-                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         return new ReliveCycle(id, "Book flow", "desc", List.of(step), List.of(), List.of(),
                 new GlobalRulesSelection("NONE", List.of()),
                 new ReliveSettings("LIVE", "HOLD", "CONTINUE", "AUTOMATIC", List.of()),
@@ -71,7 +71,7 @@ class SqliteReliveStoreAdaptersTest {
         var parent = base.steps().get(0);
         var child = new com.fathy.alfred.backend.relive.domain.model.Step(
                 "s-child", parent.key(), "Supplier A", true, false, "outbound", "Supplier A", parent.callRule(),
-                "BLOCK", parent.recording(), parent.source(), parent.extract(), parent.assertions(), List.of());
+                "BLOCK", parent.recording(), parent.source(), parent.extract(), parent.assertions(), List.of(), null, null);
         return new ReliveCycle(base.id(), base.name(), base.description(), List.of(parent, child),
                 base.variables(), List.of(parent.callRule()), base.globalRules(), base.settings(), base.noise(),
                 base.unexpectedCalls(), base.createdAt(), base.updatedAt(), base.isTransient(), base.lastRun());

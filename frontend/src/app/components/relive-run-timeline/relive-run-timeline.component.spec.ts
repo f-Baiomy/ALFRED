@@ -631,6 +631,63 @@ describe('ReliveRunTimelineComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.rl-why-list')).toBeNull();
     expect(fixture.nativeElement.querySelector('.rl-why-more')).toBeNull();
+    const detail = fixture.nativeElement.querySelector('.rl-step-detail') as HTMLElement;
+    expect(detail.textContent).toContain('A check expected the whole body to equal "200".');
+    expect(detail.textContent).toContain('searchOffers');
+    expect(row.textContent).not.toContain('searchOffers');
+
+    const liveRow = fixture.nativeElement.querySelector('[data-step-key="search"]') as HTMLElement;
+    (liveRow.querySelector('.rl-p-diff') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const popup = fixture.nativeElement.querySelector('.rl-diff-dialog') as HTMLElement;
+    expect(popup.textContent).toContain('searchOffers');
+    expect(popup.textContent).toContain('Recorded');
+    expect(popup.textContent).toContain('This run');
+    expect(liveRow.textContent).not.toContain('searchOffers');
+
+    (fixture.nativeElement.querySelector('.rl-reason-overlay') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rl-diff-dialog')).toBeNull();
+  });
+
+  it('opens the changed fields from the difference pill without putting them on the row', () => {
+    const search = makeStep('search', null, {
+      label: 'flight-search',
+      recording: recording({
+        responseHeaders: { 'Content-Type': 'application/json' },
+        responseBody: '{"total":450,"traceId":"b-7c1e"}',
+      }),
+    });
+    fixture.componentRef.setInput('run', run({ status: 'COMPLETED_WITH_DIFFERENCES' }));
+    fixture.componentRef.setInput('steps', [search]);
+    fixture.componentRef.setInput('results', {
+      search: result('search', 'COMPLETED_WITH_DIFFERENCES', {
+        actualResponse: {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', Date: 'Tue' },
+          body: '{"total":455,"traceId":"other"}',
+        },
+        differences: [{ part: 'body', path: 'response', recorded: 'recorded response', actual: 'different response', kind: 'UNEXPECTED' }],
+      }),
+    });
+    fixture.detectChanges();
+
+    const row = fixture.nativeElement.querySelector('[data-step-key="search"]') as HTMLElement;
+    expect(row.textContent).toContain('1 difference');
+    expect(row.textContent).not.toContain('455');
+    expect(row.textContent).not.toContain('body.total');
+
+    (row.querySelector('.rl-p-diff') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const popup = fixture.nativeElement.querySelector('.rl-diff-dialog') as HTMLElement;
+    expect(popup.textContent).toContain('One difference: the response does not match the recording.');
+    expect(popup.textContent).toContain('body.total');
+    expect(popup.textContent).toContain('450');
+    expect(popup.textContent).toContain('455');
+    expect(popup.textContent).not.toContain('traceId');
+    expect(popup.textContent).not.toContain('recorded response');
+    expect(row.textContent).not.toContain('455');
+    expect(fixture.nativeElement.querySelector('.rl-step-detail')).toBeNull();
   });
 
   it('opens a long failure in a formatted popup instead of pasting it into the row', () => {

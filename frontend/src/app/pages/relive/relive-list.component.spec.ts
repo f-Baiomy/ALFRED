@@ -99,7 +99,7 @@ describe('ReliveListComponent', () => {
     http.expectNone((request) => request.method === 'POST' && request.url === 'http://backend/relive-cycles');
   });
 
-  it('creates the new cycle with the selected steps', () => {
+  it('creates the new cycle with the selected steps', async () => {
     spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
     const step: Step = {
       key: 'selected-step', parentKey: null, label: 'POST /search', enabled: true, optional: false, direction: 'inbound',

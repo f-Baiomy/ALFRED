@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -61,22 +62,72 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
 
     @Override
     public ReliveCycle create(ReliveCycle cycle) {
-        return createInternal(cycle, false);
+        return create(cycle, false);
+    }
+
+    @Override
+    public ReliveCycle create(ReliveCycle cycle, boolean deferFingerprint) {
+        return createInternal(cycle, false, deferFingerprint);
     }
 
     @Override
     public ReliveCycle createTransient(ReliveCycle cycle) {
-        return createInternal(cycle, true);
+        return createTransient(cycle, false);
     }
 
-    private ReliveCycle createInternal(ReliveCycle cycle, boolean isTransient) {
+    @Override
+    public ReliveCycle createTransient(ReliveCycle cycle, boolean deferFingerprint) {
+        return createInternal(cycle, true, deferFingerprint);
+    }
+
+    @Override
+    public ReliveCycle fingerprint(String id) {
+        return fingerprint(id, false);
+    }
+
+    @Override
+    public ReliveCycle fingerprint(String id, boolean rebuild) {
+        ReliveCycle existing = cycleStore.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Cycle " + id + " does not exist"));
+        // Hashes are already current. A missing index is filled from those hashes, with no body read.
+        if (!rebuild && !StepFingerprints.missing(existing.steps())) {
+            if (existing.fingerprintIndex() != null) {
+                return existing;
+            }
+            return storeFingerprints(existing, existing.steps(), StepFingerprints.indexes(existing.steps()));
+        }
+        List<Step> stamped = StepFingerprints.maintain(existing.steps(), rebuild ? List.of() : existing.steps());
+        Map<String, Map<String, List<String>>> index = StepFingerprints.indexes(stamped);
+        if (stamped.equals(existing.steps()) && index.equals(existing.fingerprintIndex())) {
+            return existing;
+        }
+        return storeFingerprints(existing, stamped, index);
+    }
+
+    private ReliveCycle storeFingerprints(ReliveCycle existing, List<Step> steps,
+                                           Map<String, Map<String, List<String>>> index) {
+        String now = Instant.now().toString();
+        ReliveCycle toSave = new ReliveCycle(existing.id(), existing.name(), existing.description(), steps,
+                existing.variables(), existing.cycleRules(), existing.globalRules(), existing.settings(),
+                existing.noise(), existing.unexpectedCalls(), existing.createdAt(), now,
+                existing.isTransient(), existing.lastRun(), index);
+        ReliveCycle saved = cycleStore.save(toSave);
+        notifications.cycleChanged();
+        return saved;
+    }
+
+    private ReliveCycle createInternal(ReliveCycle cycle, boolean isTransient, boolean deferFingerprint) {
         validate(cycle);
         String now = Instant.now().toString();
+        List<Step> steps = deferFingerprint
+                ? StepFingerprints.cleared(cycle.steps())
+                : StepFingerprints.maintain(cycle.steps(), List.of());
         ReliveCycle toSave = new ReliveCycle(
                 cycle.id() == null ? UUID.randomUUID().toString() : cycle.id(),
-                cycle.name(), cycle.description(), cycle.steps(), cycle.variables(), cycle.cycleRules(),
+                cycle.name(), cycle.description(), steps,
+                cycle.variables(), cycle.cycleRules(),
                 cycle.globalRules(), cycle.settings(), cycle.noise(), cycle.unexpectedCalls(),
-                now, now, isTransient, cycle.lastRun());
+                now, now, isTransient, cycle.lastRun(), StepFingerprints.indexes(steps));
         ReliveCycle saved = cycleStore.save(toSave);
         notifications.cycleChanged();
         return saved;
@@ -94,9 +145,11 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
             cycleStore.saveVersion(new CycleVersion(id, nextVersionNumber(id), existing.updatedAt(), reason, existing), KEEP_VERSIONS);
         }
         String now = Instant.now().toString();
-        ReliveCycle toSave = new ReliveCycle(id, cycle.name(), cycle.description(), cycle.steps(),
+        List<Step> stamped = StepFingerprints.maintain(cycle.steps(), existing.steps());
+        ReliveCycle toSave = new ReliveCycle(id, cycle.name(), cycle.description(), stamped,
                 cycle.variables(), cycle.cycleRules(), cycle.globalRules(), cycle.settings(), cycle.noise(),
-                cycle.unexpectedCalls(), existing.createdAt(), now, existing.isTransient(), existing.lastRun());
+                cycle.unexpectedCalls(), existing.createdAt(), now, existing.isTransient(), existing.lastRun(),
+                StepFingerprints.indexes(stamped));
         ReliveCycle saved = cycleStore.save(toSave);
         notifications.cycleChanged();
         return saved;
@@ -113,10 +166,12 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
                 .orElseThrow(() -> new IllegalArgumentException("Cycle " + id + " does not exist"));
         String now = Instant.now().toString();
         String copyName = (name == null || name.isBlank()) ? existing.name() + " (copy)" : name;
+        List<Step> stamped = StepFingerprints.maintain(existing.steps(), existing.steps());
         ReliveCycle copy = new ReliveCycle(UUID.randomUUID().toString(), copyName,
-                existing.description(), existing.steps(), existing.variables(), existing.cycleRules(),
+                existing.description(), stamped,
+                existing.variables(), existing.cycleRules(),
                 existing.globalRules(), existing.settings(), existing.noise(), existing.unexpectedCalls(),
-                now, now, false, null);
+                now, now, false, null, StepFingerprints.indexes(stamped));
         ReliveCycle saved = cycleStore.save(copy);
         notifications.cycleChanged();
         return saved;
@@ -146,10 +201,13 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
         ReliveCycle existing = cycleStore.findById(cycleId)
                 .orElseThrow(() -> new IllegalArgumentException("Cycle " + cycleId + " does not exist"));
         String now = Instant.now().toString();
+        List<Step> stamped = StepFingerprints.maintain(found.definition().steps(), found.definition().steps());
         ReliveCycle restored = new ReliveCycle(cycleId, found.definition().name(), found.definition().description(),
-                found.definition().steps(), found.definition().variables(), found.definition().cycleRules(),
+                stamped,
+                found.definition().variables(), found.definition().cycleRules(),
                 found.definition().globalRules(), found.definition().settings(), found.definition().noise(),
-                found.definition().unexpectedCalls(), existing.createdAt(), now, existing.isTransient(), existing.lastRun());
+                found.definition().unexpectedCalls(), existing.createdAt(), now, existing.isTransient(), existing.lastRun(),
+                StepFingerprints.indexes(stamped));
         ReliveCycle saved = cycleStore.save(restored);
         notifications.cycleChanged();
         return saved;

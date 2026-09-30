@@ -136,3 +136,13 @@ function classifyOne(diff: RawDifference, ctx: ClassifyContext): ClassifiedDiffe
 export function classify(diffs: readonly RawDifference[], ctx: ClassifyContext): ClassifiedDifference[] {
   return diffs.map((d) => classifyOne(d, ctx));
 }
+
+/** True when this one leaf would change the step outcome. Noise and substitutions do not. */
+export function countsAsUnexpected(
+  diff: RawDifference,
+  noiseRules: readonly NoiseRule[],
+  variablesUsed: ClassifyContext['variablesUsed'],
+  variablesProduced: ClassifyContext['variablesProduced'],
+): boolean {
+  return classifyOne(diff, { noiseRules, expected: [], variablesUsed, variablesProduced }).kind === 'UNEXPECTED';
+}

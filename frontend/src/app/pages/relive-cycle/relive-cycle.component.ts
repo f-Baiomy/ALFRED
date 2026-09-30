@@ -13,7 +13,8 @@ import { ReliveRebuildDialogComponent } from '../../components/relive-rebuild-di
 import { ReliveVariablesComponent } from '../../components/relive-variables/relive-variables.component';
 import { ReliveRunTimelineComponent } from '../../components/relive-run-timeline/relive-run-timeline.component';
 import { ReliveHistoryComponent } from '../../components/relive-history/relive-history.component';
-import { ReliveApiService } from '../../core/services/relive-api.service';
+import { ReliveApiService, StartRunRequest } from '../../core/services/relive-api.service';
+import { outboundMissingFingerprint, outboundOnOldFingerprint } from '../../core/services/relive-fingerprint';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
@@ -318,8 +319,9 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     const cycle = this.state.saved();
     if (!cycle) return;
     this.historyRun.set(null);
-    this.runService.start(cycle, { driver: 'AUTOMATIC', fromStepKey: stepKey, seedFromRunId: seedFromRun.id, unattributedChoices: {} });
-    this.setTab('run');
+    void this.launchRun(cycle, { driver: 'AUTOMATIC', fromStepKey: stepKey, seedFromRunId: seedFromRun.id, unattributedChoices: {} }).catch((error: unknown) => {
+      this.actionError.set(error instanceof Error ? error.message : 'Could not start the run. Check the cycle and try again.');
+    });
   }
 
   /** The historical run's own variables, for the read-only timeline's "Run from here" check -
@@ -482,6 +484,47 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.state.duplicateCycle()?.subscribe();
   }
 
+  readonly oldFingerprints = computed(() => outboundOnOldFingerprint(this.state.draft()?.steps ?? []));
+  readonly missingFingerprints = computed(() => outboundMissingFingerprint(this.state.draft()?.steps ?? []));
+  readonly rebuildingFingerprints = signal(false);
+  readonly stampingFingerprints = signal(false);
+
+  /** Computes hashes that were never stored. A dirty draft is left alone; Save already restamps. */
+  stampFingerprints(): void {
+    const saved = this.state.saved();
+    if (!saved || this.state.dirty() || this.stampingFingerprints() || this.rebuildingFingerprints()) return;
+    this.stampingFingerprints.set(true);
+    this.actionError.set(null);
+    this.api.fingerprint(saved.id).subscribe({
+      next: () => {
+        this.stampingFingerprints.set(false);
+        this.state.load(saved.id);
+      },
+      error: (error: { error?: { message?: string } }) => {
+        this.stampingFingerprints.set(false);
+        this.actionError.set(error?.error?.message ?? 'Could not fingerprint supplier steps.');
+      },
+    });
+  }
+
+  /** Recomputes stored hashes that are not SEMANTIC_V1. A dirty draft is left alone; Save already restamps. */
+  rebuildFingerprints(): void {
+    const saved = this.state.saved();
+    if (!saved || this.state.dirty() || this.rebuildingFingerprints() || this.stampingFingerprints()) return;
+    this.rebuildingFingerprints.set(true);
+    this.actionError.set(null);
+    this.api.fingerprint(saved.id, true).subscribe({
+      next: () => {
+        this.rebuildingFingerprints.set(false);
+        this.state.load(saved.id);
+      },
+      error: (error: { error?: { message?: string } }) => {
+        this.rebuildingFingerprints.set(false);
+        this.actionError.set(error?.error?.message ?? 'Could not rebuild fingerprints.');
+      },
+    });
+  }
+
   readonly rebuildOpen = signal(false);
 
   /** Rebuild (T070) persists straight to the SAVED cycle - a dirty draft would silently discard
@@ -507,6 +550,12 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.prerunOpen.set(false);
   }
 
+  /** A run loads the stored fingerprints. It does not compute the ones that are still missing. */
+  private async launchRun(cycle: ReliveCycle, request: StartRunRequest): Promise<void> {
+    this.setTab('run');
+    await this.runService.start(cycle, request);
+  }
+
   async startRun(request: ReliveStartRequest): Promise<void> {
     this.actionError.set(null);
     try {
@@ -515,9 +564,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
       if (!cycle.steps.some((step) => step.enabled)) throw new Error('Add calls before starting a run.');
       this.stopHistoryWatch();
       this.historyRun.set(null);
-      const running = this.runService.start(cycle, { driver: request.driver, unattributedChoices: {} });
-      this.setTab('run');
-      await running;
+      await this.launchRun(cycle, { driver: request.driver, unattributedChoices: {} });
     } catch (error: any) {
       this.actionError.set(this.state.saveError() ?? error?.error?.message ?? error?.message ?? 'Could not start the run. Check the cycle and try again.');
     }

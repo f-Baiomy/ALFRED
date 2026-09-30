@@ -69,7 +69,7 @@ class CycleValidatorTest {
     private Step step(String key, String parentKey, FrozenCall rec, JsonNode rule) {
         return new Step(key, parentKey, "label-" + key, true, false, parentKey == null ? "inbound" : "outbound",
                 "odeysys", new CycleRule(rule, null), "BLOCK", rec, new StepSource(key, null, "outbound"),
-                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
     }
 
     private ReliveCycle cycle(List<Step> steps) {
@@ -86,7 +86,7 @@ class CycleValidatorTest {
     void missingRecordingIsBlocking() {
         Step step = new Step("s-1", null, "x", true, false, "inbound", "odeysys",
                 new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null,
-                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         List<ValidationFinding> findings = validator.validate(cycle(List.of(step)));
         assertThat(has(findings, "MISSING_RECORDING")).isTrue();
         assertThat(findings.stream().filter(f -> f.code().equals("MISSING_RECORDING")).findFirst().get().severity()).isEqualTo("BLOCK");
@@ -105,7 +105,7 @@ class CycleValidatorTest {
         JsonNode rule = ruleDoc();
         Step disabled = new Step("s-1", null, "x", false, false, "inbound", "odeysys",
                 new CycleRule(rule, null), "BLOCK", recording("https://app.local/x"),
-                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         assertThat(has(validator.validate(cycle(List.of(disabled))), "NOTHING_TO_RUN")).isTrue();
     }
 
@@ -171,7 +171,7 @@ class CycleValidatorTest {
     void guidedDriverBlocksWhenAnotherCycleAlreadyHasAGuidedRunForTheSameProject() {
         Step inbound = new Step("s-1", null, "x", true, false, "inbound", "odeysys",
                 new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", recording("https://app.local/x"),
-                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         ReliveCycle guidedCycle = new ReliveCycle("c-1", "x", null, List.of(inbound), List.of(), List.of(),
                 new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "GUIDED", List.of()),
                 List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
@@ -191,7 +191,7 @@ class CycleValidatorTest {
     void guidedDriverIsNotBusyWhenTheRunningGuidedRunIsItsOwn() {
         Step inbound = new Step("s-1", null, "x", true, false, "inbound", "odeysys",
                 new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", recording("https://app.local/x"),
-                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                new StepSource("s-1", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         ReliveCycle guidedCycle = new ReliveCycle("c-1", "x", null, List.of(inbound), List.of(), List.of(),
                 new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "GUIDED", List.of()),
                 List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
@@ -224,10 +224,10 @@ class CycleValidatorTest {
 
         Step early = new Step("s-early", null, "early", true, false, "inbound", "odeysys",
                 new CycleRule(usesEarly, null), "BLOCK", recording("https://app.local/x"),
-                new StepSource("s-early", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                new StepSource("s-early", null, "outbound"), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         Step later = new Step("s-later", null, "later", true, false, "inbound", "odeysys",
                 new CycleRule(ruleDoc(), null), "BLOCK", recording("https://app.local/y"),
-                new StepSource("s-later", null, "outbound"), (JsonNode) extractLater, objectMapper.createArrayNode(), List.of());
+                new StepSource("s-later", null, "outbound"), (JsonNode) extractLater, objectMapper.createArrayNode(), List.of(), null, null);
 
         assertThat(has(validator.validate(cycle(List.of(early, later))), "ORDER_DEPENDENCY")).isTrue();
     }

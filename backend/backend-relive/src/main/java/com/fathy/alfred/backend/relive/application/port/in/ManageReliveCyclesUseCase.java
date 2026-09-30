@@ -15,8 +15,25 @@ public interface ManageReliveCyclesUseCase {
 
     ReliveCycle create(ReliveCycle cycle);
 
+    /** {@code deferFingerprint} stores the steps with no hash. {@link #fingerprint(String)} stamps them later. */
+    ReliveCycle create(ReliveCycle cycle, boolean deferFingerprint);
+
     /** A "Relive now" quick run - created and returned already marked {@code transient}. */
     ReliveCycle createTransient(ReliveCycle cycle);
+
+    ReliveCycle createTransient(ReliveCycle cycle, boolean deferFingerprint);
+
+    /**
+     * Stamps outbound steps that have no SEMANTIC_V1 hash and saves the cycle.
+     * A cycle that is already stamped is returned unchanged, including its {@code updatedAt}.
+     */
+    ReliveCycle fingerprint(String id);
+
+    /**
+     * Recomputes every outbound hash to the current algorithm, refreshes the parent → hash →
+     * calls index, and saves. {@code rebuild} false is {@link #fingerprint(String)}.
+     */
+    ReliveCycle fingerprint(String id, boolean rebuild);
 
     /** @throws StaleCycleException when {@code ifMatch} doesn't match the stored {@code updatedAt}. */
     ReliveCycle update(String id, ReliveCycle cycle, String ifMatch, String reason);

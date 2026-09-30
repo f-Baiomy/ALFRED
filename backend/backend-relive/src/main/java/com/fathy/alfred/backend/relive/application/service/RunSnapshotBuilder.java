@@ -103,6 +103,7 @@ public class RunSnapshotBuilder {
         secrets.forEach(secretsNode::add);
 
         List<Step> tops = definition.steps().stream().filter(s -> s.parentKey() == null).toList();
+        Map<String, Map<String, List<String>>> fingerprintIndex = definition.fingerprintIndex();
         ArrayNode stepsNode = snapshot.putArray("steps");
         Map<String, Map<String, Integer>> ordinalCounters = new LinkedHashMap<>();
         for (Step top : tops) {
@@ -117,7 +118,8 @@ public class RunSnapshotBuilder {
             stepNode.set("callRule", resolveRecordedCallConditions(run.id(), topRule, top));
             ArrayNode childrenNode = stepNode.putArray("children");
             Map<String, Integer> counters = ordinalCounters.computeIfAbsent(top.key(), k -> new LinkedHashMap<>());
-            appendChildren(childrenNode, top.key(), definition.steps(), run.id(), counters, projects);
+            appendChildren(childrenNode, top.key(), definition.steps(), run.id(), counters, projects, fingerprintIndex);
+            putFingerprintIndex(stepNode, top.key(), fingerprintIndex);
         }
         ArrayNode projectsNode = snapshot.putArray("projects");
         projects.forEach(projectsNode::add);
@@ -137,7 +139,8 @@ public class RunSnapshotBuilder {
     }
 
     private void appendChildren(ArrayNode childrenNode, String parentKey, List<Step> all, String runId,
-                                 Map<String, Integer> counters, Set<String> projects) {
+                                 Map<String, Integer> counters, Set<String> projects,
+                                 Map<String, Map<String, List<String>>> fingerprintIndex) {
         for (Step child : all) {
             if (!parentKey.equals(child.parentKey())) {
                 continue;
@@ -145,15 +148,16 @@ public class RunSnapshotBuilder {
             if (child.serviceName() != null) {
                 projects.add(child.serviceName());
             }
-            childrenNode.add(buildChild(runId, child, counters, all, projects));
+            childrenNode.add(buildChild(runId, child, counters, all, projects, fingerprintIndex));
         }
     }
 
     private ObjectNode buildChild(String runId, Step child, Map<String, Integer> counters, List<Step> all,
-                                   Set<String> projects) {
+                                   Set<String> projects, Map<String, Map<String, List<String>>> fingerprintIndex) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("stepKey", child.key());
         node.put("direction", child.direction());
+        node.put("enabled", child.enabled());
 
         String matchKey = matchKeyOf(child.recording());
         int ordinal = counters.merge(matchKey, 1, Integer::sum);
@@ -166,6 +170,10 @@ public class RunSnapshotBuilder {
         JsonNode resolvedRule = resolveRecordedCallConditions(runId, ruleDoc, child);
         node.set("callRule", resolvedRule);
         node.put("unattributed", child.unattributed());
+        if (child.fingerprint() != null && child.fingerprintVersion() != null) {
+            node.put("fingerprint", child.fingerprint());
+            node.put("fingerprintVersion", child.fingerprintVersion());
+        }
 
         ObjectNode recordedRequest = node.putObject("recordedRequest");
         FrozenCall recording = child.recording();
@@ -174,8 +182,22 @@ public class RunSnapshotBuilder {
         putUrl(recordedRequest, uri, recording.url());
 
         ArrayNode nested = node.putArray("children");
-        appendChildren(nested, child.key(), all, runId, new LinkedHashMap<>(), projects);
+        appendChildren(nested, child.key(), all, runId, new LinkedHashMap<>(), projects, fingerprintIndex);
+        putFingerprintIndex(node, child.key(), fingerprintIndex);
         return node;
+    }
+
+    /** The in-flight step looks its live hash up here. Absent when this step has no SEMANTIC_V1 candidates. */
+    private void putFingerprintIndex(ObjectNode node, String stepKey, Map<String, Map<String, List<String>>> index) {
+        Map<String, List<String>> forStep = index == null ? null : index.get(stepKey);
+        if (forStep == null || forStep.isEmpty()) {
+            return;
+        }
+        ObjectNode indexNode = node.putObject("fingerprintIndex");
+        for (Map.Entry<String, List<String>> entry : forStep.entrySet()) {
+            ArrayNode keys = indexNode.putArray(entry.getKey());
+            entry.getValue().forEach(keys::add);
+        }
     }
 
     private static void putUrl(ObjectNode target, URI uri, String rawUrl) {

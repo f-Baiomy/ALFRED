@@ -74,7 +74,7 @@ class RunSnapshotBuilderTest {
     private Step child(String key, String parentKey, FrozenCall recording, JsonNode rule) {
         return new Step(key, parentKey, "label", true, false, "outbound", "odeysys",
                 new CycleRule(rule, null), "BLOCK", recording, new StepSource(key, null, "outbound"),
-                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
     }
 
     private Run run(ReliveCycle cycle) {
@@ -145,7 +145,7 @@ class RunSnapshotBuilderTest {
                 new CycleRule(captureRule, null), "BLOCK",
                 recording("http://localhost/loginAction", "POST", "{}"),
                 new StepSource("s-login", null, "inbound"),
-                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
 
         JsonNode published = builder.build(run(cycleWithVariables(List.of(root),
                 List.of(new CycleVariable("session_id", "initial", false, null)))));
@@ -194,6 +194,60 @@ class RunSnapshotBuilderTest {
     }
 
     @Test
+    void aStoredFingerprintIsCopiedAndAMissingOneIsLeftOff() {
+        Step root = child("s-search", null, recording("https://app.local/search", "POST", "{}"), objectMapper.createObjectNode());
+        Step stamped = child("c-stamped", "s-search",
+                recording("https://api.supplier.com/search", "POST", "{\"not\":\"read at publish\"}"),
+                objectMapper.createObjectNode()).withFingerprint("not-a-real-hash", "SEMANTIC_V1");
+        Step legacy = child("c-legacy", "s-search",
+                recording("https://api.supplier.com/other", "POST", "{\"also\":\"unread\"}"),
+                objectMapper.createObjectNode());
+
+        ReliveCycle stored = cycle(List.of(root, stamped, legacy), new GlobalRulesSelection("NONE", List.of()), List.of());
+        ReliveCycle indexed = new ReliveCycle(stored.id(), stored.name(), stored.description(), stored.steps(),
+                stored.variables(), stored.cycleRules(), stored.globalRules(), stored.settings(), stored.noise(),
+                stored.unexpectedCalls(), stored.createdAt(), stored.updatedAt(), stored.isTransient(), stored.lastRun(),
+                StepFingerprints.indexes(stored.steps()));
+
+        JsonNode snapshot = builder.build(run(indexed));
+
+        JsonNode parent = snapshot.get("steps").get(0);
+        assertThat(parent.has("fingerprint")).isFalse();
+        JsonNode first = parent.get("children").get(0);
+        assertThat(first.get("fingerprint").asText()).isEqualTo("not-a-real-hash");
+        assertThat(first.get("fingerprintVersion").asText()).isEqualTo("SEMANTIC_V1");
+        assertThat(first.get("enabled").asBoolean()).isTrue();
+        assertThat(parent.get("children").get(1).has("fingerprint")).isFalse();
+        assertThat(parent.get("fingerprintIndex").get("not-a-real-hash").get(0).asText()).isEqualTo("c-stamped");
+        assertThat(parent.get("fingerprintIndex").size()).isEqualTo(1);
+        assertThat(writtenAnswers).isEmpty();
+    }
+
+    @Test
+    void aNullIndexIsPublishedWithoutBeingRebuilt() {
+        Step root = child("s-search", null, recording("https://app.local/search", "POST", "{}"), objectMapper.createObjectNode());
+        Step stamped = child("c-stamped", "s-search",
+                recording("https://api.supplier.com/search", "POST", "{\"not\":\"read at publish\"}"),
+                objectMapper.createObjectNode()).withFingerprint("not-a-real-hash", "SEMANTIC_V1");
+        Step disabled = new Step("c-off", "s-search", "label", false, false, "outbound", "odeysys",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK",
+                recording("https://api.supplier.com/off", "POST", "{\"off\":true}"),
+                new StepSource("c-off", null, "outbound"),
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(),
+                "hash-off", "SEMANTIC_V1");
+
+        JsonNode snapshot = builder.build(run(cycle(List.of(root, stamped, disabled),
+                new GlobalRulesSelection("NONE", List.of()), List.of())));
+
+        JsonNode parent = snapshot.get("steps").get(0);
+        assertThat(parent.has("fingerprintIndex")).isFalse();
+        assertThat(parent.get("children").get(0).get("fingerprint").asText()).isEqualTo("not-a-real-hash");
+        assertThat(parent.get("children").get(1).get("enabled").asBoolean()).isFalse();
+        assertThat(parent.get("children").get(1).get("fingerprint").asText()).isEqualTo("hash-off");
+        assertThat(writtenAnswers).isEmpty();
+    }
+
+    @Test
     void nestedInboundKeepsItsOwnOutboundChild() throws Exception {
         Step root = child("s-search", null, recording("https://app.local/search", "POST", "{}"), objectMapper.createObjectNode());
         FrozenCall innerCall = new FrozenCall("POST", "http://core.local/search", Map.of(), "{}", 200, Map.of(), "{}",
@@ -201,7 +255,7 @@ class RunSnapshotBuilderTest {
         Step inner = new Step("s-core", "s-search", "core", true, false, "inbound", "core",
                 new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", innerCall,
                 new StepSource("s-core", null, "inbound"),
-                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of());
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
         Step supplier = child("c-supplier", "s-core",
                 recording("https://ndc.example/api/FlightSearch/Search", "POST", "{\"a\":1}"),
                 objectMapper.createObjectNode());

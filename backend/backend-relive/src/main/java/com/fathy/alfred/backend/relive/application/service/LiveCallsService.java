@@ -58,7 +58,8 @@ public class LiveCallsService implements UseLiveCallAsRecordingUseCase {
                 old.sessionId(), old.operationId(), old.serviceName(), old.source());
         CycleRule callRule = new CycleRule(withMockResponseUpdated(step.callRule().rule(), live), step.callRule().copiedFrom());
         return new Step(step.key(), step.parentKey(), step.label(), step.enabled(), step.optional(), step.direction(),
-                step.serviceName(), callRule, step.unattributed(), recording, step.source(), step.extract(), step.assertions(), step.noise());
+                step.serviceName(), callRule, step.unattributed(), recording, step.source(), step.extract(), step.assertions(), step.noise(),
+                null, null);
     }
 
     private static Map<String, String> headersOf(JsonNode side) {

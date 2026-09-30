@@ -4,8 +4,9 @@ import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.co
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
 import { PausedCall } from '../../core/models/interception.model';
 import { maskRelive } from '../../shared/utils/relive-mask';
-import { displayedState, explainStep, formatReasonDetail, StepReason } from '../../shared/utils/relive-outcome';
-import { CycleVariable, Run, Step, StepResult, StepState } from '../../shared/utils/relive-types';
+import { isCollapsedResponseDifference, listResponseDifferences } from '../../shared/utils/relive-canonical-body';
+import { displayedState, explainStep, formatReasonDetail, StepReason, wholeDocumentCheckNote } from '../../shared/utils/relive-outcome';
+import { CycleVariable, DifferenceEntry, NoiseRule, Run, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 
 type Filter = 'all' | 'running' | 'diff' | 'failed' | 'live' | 'replayed';
 
@@ -60,6 +61,23 @@ const RUN_TITLE: Readonly<Record<Run['status'], readonly [string, string]>> = {
 };
 
 const PLAIN_VAR_TOKEN = /\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
+const DIFF_PREVIEW_LIMIT = 3;
+const DIFF_VALUE_LIMIT = 72;
+const DIFF_POPUP_LIMIT = 80;
+
+interface ShownDifference {
+  readonly path: string;
+  readonly recorded: string | null;
+  readonly actual: string | null;
+}
+
+interface DifferencePopup {
+  readonly label: string;
+  readonly headline: string | null;
+  readonly note: string | null;
+  readonly rows: readonly ShownDifference[];
+  readonly more: number;
+}
 
 /** Every `{{name}}` a step's call rule actions reference - the only place a step's request/response
  *  overrides live (its frozen `recording` never contains one). */
@@ -318,9 +336,12 @@ export class ReliveRunTimelineComponent {
   }
 
   readonly reasonPopup = signal<StepReason | null>(null);
+  readonly differencePopup = signal<DifferencePopup | null>(null);
+  private readonly differenceCache = new Map<string, readonly ShownDifference[]>();
 
   openReason(event: Event, reason: StepReason): void {
     event.stopPropagation();
+    this.differencePopup.set(null);
     this.reasonPopup.set(reason);
   }
 
@@ -330,6 +351,50 @@ export class ReliveRunTimelineComponent {
 
   formatReason(detail: string): string {
     return formatReasonDetail(detail);
+  }
+
+  /** Short field rows for the open step. A long body stays behind "Click to show". */
+  differenceView(row: TimelineRow): { readonly inline: readonly ShownDifference[]; readonly note: string | null } {
+    const all = this.visibleDiffs(row);
+    const inline = all.length > 0 && all.length <= DIFF_PREVIEW_LIMIT && all.every(shortDifference) ? all : [];
+    return { inline, note: wholeDocumentCheckNote(row.result.assertions) };
+  }
+
+  openDifferences(event: Event, row: TimelineRow): void {
+    event.stopPropagation();
+    this.reasonPopup.set(null);
+    const rows = this.visibleDiffs(row);
+    const concrete = concreteDifferences(row.result.differences);
+    this.differencePopup.set({
+      label: row.step.label,
+      headline: concrete || !rows.length
+        ? null
+        : 'One difference: the response does not match the recording. The lines below are the fields inside it.',
+      note: wholeDocumentCheckNote(row.result.assertions),
+      rows: rows.slice(0, DIFF_POPUP_LIMIT),
+      more: Math.max(0, rows.length - DIFF_POPUP_LIMIT),
+    });
+  }
+
+  closeDifferences(): void {
+    this.differencePopup.set(null);
+  }
+
+  formatDiffValue(value: string | null): string {
+    if (value == null) return '(not present)';
+    if (!value) return '(empty)';
+    const secrets = this.variableDefs().filter((variable) => variable.secret).map((variable) => variable.name);
+    return maskRelive(formatReasonDetail(value), secrets, this.variables());
+  }
+
+  private visibleDiffs(row: TimelineRow): readonly ShownDifference[] {
+    const key = differenceCacheKey(row);
+    const cached = this.differenceCache.get(key);
+    if (cached) return cached;
+    const shown = concreteDifferences(row.result.differences);
+    const rows = shown ?? computedDifferences(row, noiseRulesOf(this.run(), row));
+    this.differenceCache.set(key, rows);
+    return rows;
   }
 
   readonly savedLiveCount = computed(() => Object.values(this.results()).filter((r) => this.wasSavedLive(r)).length);
@@ -392,4 +457,47 @@ export class ReliveRunTimelineComponent {
       .map((v) => v.name);
     return maskRelive(text, secretNames, this.variables());
   }
+}
+
+function differenceCacheKey(row: TimelineRow): string {
+  const response = row.result.actualResponse;
+  const body = response && typeof response === 'object' && 'body' in response ? (response as { body?: unknown }).body : null;
+  const bodyLen = typeof body === 'string' ? body.length : 0;
+  return `${row.step.key}|${row.result.attempt}|${row.result.finishedAt ?? ''}|${bodyLen}|${row.result.differences.length}`;
+}
+
+/** Stored field rows, when the grade kept them. A collapsed response row is computed from the bodies instead. */
+function concreteDifferences(differences: readonly DifferenceEntry[]): ShownDifference[] | null {
+  const unexpected = differences.filter((diff) => diff.kind === 'UNEXPECTED' && !isCollapsedResponseDifference(diff));
+  if (!unexpected.length) return null;
+  return unexpected.map((diff) => ({ path: diff.path, recorded: diff.recorded, actual: diff.actual }));
+}
+
+function computedDifferences(row: TimelineRow, noiseRules: readonly NoiseRule[]): readonly ShownDifference[] {
+  const actual = gradedResponse(row.result.actualResponse);
+  if (!actual) return [];
+  const recording = row.step.recording;
+  return listResponseDifferences(
+    { status: recording.status, headers: recording.responseHeaders, body: recording.responseBody },
+    actual,
+    { noiseRules, variablesUsed: row.result.variablesUsed, variablesProduced: row.result.variablesProduced },
+  );
+}
+
+function gradedResponse(value: unknown): { status: number; headers: Readonly<Record<string, string>>; body: string | null } | null {
+  if (!value || typeof value !== 'object' || typeof (value as { status?: unknown }).status !== 'number') return null;
+  const response = value as { status: number; headers?: unknown; body?: unknown };
+  const headers = response.headers && typeof response.headers === 'object'
+    ? response.headers as Record<string, string>
+    : {};
+  const body = typeof response.body === 'string' ? response.body : response.body == null ? null : JSON.stringify(response.body);
+  return { status: response.status, headers, body };
+}
+
+function noiseRulesOf(run: Run | null, row: TimelineRow): readonly NoiseRule[] {
+  return [...(run?.definition?.noise ?? []), ...row.step.noise];
+}
+
+function shortDifference(diff: ShownDifference): boolean {
+  return (diff.recorded?.length ?? 0) <= DIFF_VALUE_LIMIT && (diff.actual?.length ?? 0) <= DIFF_VALUE_LIMIT;
 }

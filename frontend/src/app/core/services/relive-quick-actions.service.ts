@@ -1,9 +1,9 @@
 import { Injectable, inject } from '@angular/core';
-import { Router } from '@angular/router';
 import { CallRecord } from '../models/call.model';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { ReliveSettings, Step } from '../../shared/utils/relive-types';
-import { ReliveApiService, ReliveWriteRequest } from './relive-api.service';
+import { ReliveWriteRequest } from './relive-api.service';
+import { ReliveFingerprintFlow } from './relive-fingerprint-flow.service';
 import { ReliveSelectionDialogService } from './relive-selection-dialog.service';
 
 const DEFAULT_SETTINGS: ReliveSettings = { inboundMode: 'LIVE', onFailure: 'HOLD', onDifferences: 'CONTINUE', defaultDriver: 'AUTOMATIC', internalHosts: [] };
@@ -30,8 +30,7 @@ function baseCycle(name: string, description: string | null, steps: readonly Ste
  */
 @Injectable({ providedIn: 'root' })
 export class ReliveQuickActionsService {
-  private readonly api = inject(ReliveApiService);
-  private readonly router = inject(Router);
+  private readonly fingerprints = inject(ReliveFingerprintFlow);
   private readonly picker = inject(ReliveSelectionDialogService);
 
   addToCycle(calls: readonly CallRecord[]): void {
@@ -46,20 +45,13 @@ export class ReliveQuickActionsService {
   newCycleFromSelection(calls: readonly CallRecord[], onError?: () => void): void {
     const steps = freezeCalls(calls, new Map(), DEFAULT_SETTINGS, null);
     const name = `New cycle from ${calls.length} call${calls.length === 1 ? '' : 's'}`;
-    this.api.create(baseCycle(name, null, steps)).subscribe({
-      next: (created) => void this.router.navigate(['/relive', created.id]),
-      error: () => onError?.(),
-    });
+    void this.fingerprints.createAndOpen(baseCycle(name, null, steps)).catch(() => onError?.());
   }
 
   /** "⚡ Relive now": a transient (not saved) cycle, run immediately - every supplier call REPLAY
    *  by default (`defaultCallRule`'s own default for an outbound step). */
   reliveNow(calls: readonly CallRecord[]): void {
     const steps = freezeCalls(calls, new Map(), DEFAULT_SETTINGS, null);
-    this.api.create(baseCycle('Quick run', 'From a Live Calls selection', steps), true).subscribe((created) => {
-      this.api.startRun(created.id, { driver: 'AUTOMATIC', unattributedChoices: {} }).subscribe(() => {
-        this.router.navigate(['/relive', created.id]);
-      });
-    });
+    void this.fingerprints.createAndOpen(baseCycle('Quick run', 'From a Live Calls selection', steps), { transient: true, start: true });
   }
 }
