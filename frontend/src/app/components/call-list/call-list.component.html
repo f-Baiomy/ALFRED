@@ -12,7 +12,20 @@
 }
 
 @if (!state.error()) {
-  @if (!hasAnyData()) {
+  @if (state.loading() && !hasAnyData()) {
+    <div class="call-skeletons" aria-hidden="true">
+      @for (row of [1, 2, 3, 4, 5]; track row) {
+        <div class="ghost-row">
+          <span class="chk"></span>
+          <span class="bar w-method"></span>
+          <span class="bar w-supplier"></span>
+          <span class="bar w-url"></span>
+          <span class="bar w-timing"></span>
+          <span class="bar w-status"></span>
+        </div>
+      }
+    </div>
+  } @else if (!hasAnyData()) {
     <div class="empty">No calls logged yet — waiting for traffic through Alfred.</div>
   } @else if (state.groupBySupplier()) {
     @if (state.mainListCalls().length === 0) {

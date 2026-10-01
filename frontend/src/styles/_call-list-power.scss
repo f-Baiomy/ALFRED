@@ -281,3 +281,78 @@
   );
   border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
 }
+
+// ---- Live Calls loading skeletons ----
+// Ghost rows mimicking a call card, shown while the first page is still
+// loading (replaces the "No calls logged yet" flash). A soft purple/cyan
+// sweep runs across them so the wait reads as "the list is shaping up"
+// rather than an empty list.
+.call-skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 4px 2px;
+
+  .ghost-row {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 14px;
+    animation: skeleton-in 0.45s backwards;
+  }
+  .ghost-row:nth-child(2) { animation-delay: 0.06s; }
+  .ghost-row:nth-child(3) { animation-delay: 0.12s; }
+  .ghost-row:nth-child(4) { animation-delay: 0.18s; }
+  .ghost-row:nth-child(5) { animation-delay: 0.24s; }
+
+  .ghost-row::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 20%,
+      color-mix(in srgb, var(--purple) 10%, transparent) 45%,
+      color-mix(in srgb, var(--cyan) 8%, transparent) 55%,
+      transparent 80%
+    );
+    transform: translateX(-100%);
+    animation: skeleton-sweep 1.8s infinite;
+  }
+  .ghost-row:nth-child(2)::after { animation-delay: 0.12s; }
+  .ghost-row:nth-child(3)::after { animation-delay: 0.24s; }
+  .ghost-row:nth-child(4)::after { animation-delay: 0.36s; }
+  .ghost-row:nth-child(5)::after { animation-delay: 0.48s; }
+
+  .chk {
+    width: 14px; height: 14px; flex-shrink: 0;
+    border-radius: 4px; border: 1.5px solid var(--border-strong);
+  }
+  .bar {
+    height: 10px; border-radius: 6px;
+    background: linear-gradient(90deg, #2a3050, #333b60);
+  }
+  .w-method { width: 46px; height: 18px; border-radius: 6px; }
+  .w-supplier { width: 74px; }
+  .w-url { flex: 1; max-width: 340px; }
+  .w-timing { width: 130px; }
+  .w-status { width: 26px; height: 14px; margin-left: auto; }
+}
+
+@keyframes skeleton-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+@keyframes skeleton-sweep {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-skeletons .ghost-row,
+  .call-skeletons .ghost-row::after {
+    animation: none;
+  }
+}
