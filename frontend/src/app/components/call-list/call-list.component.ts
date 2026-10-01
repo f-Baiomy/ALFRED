@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, ElementRef, computed, effect, inject, input, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, computed, effect, inject, input, signal, viewChild } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE, CycleSpacer } from '../../core/state/call-selection.tokens';
 import { CallRecord } from '../../core/models/call.model';
@@ -113,6 +113,18 @@ export class CallListComponent {
 
   readonly pinnedCalls = computed(() => [...this.pinService.pinned().values()]);
   readonly hasAnyData = computed(() => this.state.calls().length > 0 || this.pinnedCalls().length > 0);
+
+  /**
+   * Whether the loading skeleton shows: the store still has nothing on screen. Initialized from the
+   * state itself (a fresh dashboard starts empty, so the skeleton is up before the first frame) and
+   * held for a beat before swapping to real data or the empty-state text - a local backend answers
+   * in tens of milliseconds, which flashed it by before anyone could read it. Presentation-only:
+   * the shared view's loading flag, and the latency of live WebSocket pushes and load-more
+   * fetches, are untouched.
+   */
+  readonly skeletonVisible = signal(!this.hasAnyData());
+  private hideSkeletonTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly skeletonHoldMs = 700;
   readonly dragEnabled = computed(() => !this.state.groupBySupplier() && (this.reorderState?.dragEnabled() ?? false));
 
   /** How the lists are ordered right now - decides which side of its call a spacer sits on, and whether a hidden anchor can be placed by time. See layoutSpacers. */
@@ -182,6 +194,29 @@ export class CallListComponent {
   private sentinelObserver?: IntersectionObserver;
 
   constructor() {
+    // The loading skeleton's hold: skeletonVisible is presentation-only (see its doc above), and
+    // lives in this constructor alongside the sentinel effect so both share the component's
+    // injection context and cleanup.
+    effect(() => {
+      if (this.state.loading() && !this.hasAnyData()) {
+        if (this.hideSkeletonTimer !== null) {
+          clearTimeout(this.hideSkeletonTimer);
+          this.hideSkeletonTimer = null;
+        }
+        this.skeletonVisible.set(true);
+      } else if (this.skeletonVisible() && this.hideSkeletonTimer === null) {
+        this.hideSkeletonTimer = setTimeout(() => {
+          this.hideSkeletonTimer = null;
+          this.skeletonVisible.set(false);
+        }, this.skeletonHoldMs);
+      }
+    });
+    inject(DestroyRef).onDestroy(() => {
+      if (this.hideSkeletonTimer !== null) {
+        clearTimeout(this.hideSkeletonTimer);
+      }
+    });
+
     // Signal-based viewChild re-fires this effect whenever the sentinel div mounts/unmounts (e.g.
     // the flat list only appears once data exists), so the observer always tracks the current
     // element instead of being wired up once in ngAfterViewInit and missing a later mount.

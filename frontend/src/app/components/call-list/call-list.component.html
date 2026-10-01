@@ -12,7 +12,7 @@
 }
 
 @if (!state.error()) {
-  @if (state.loading() && !hasAnyData()) {
+  @if (skeletonVisible()) {
     <div class="call-skeletons" aria-hidden="true">
       @for (row of [1, 2, 3, 4, 5]; track row) {
         <div class="ghost-row">
