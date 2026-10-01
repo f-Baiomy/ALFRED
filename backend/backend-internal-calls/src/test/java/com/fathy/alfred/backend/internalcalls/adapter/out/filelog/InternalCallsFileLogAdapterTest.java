@@ -264,6 +264,38 @@ class InternalCallsFileLogAdapterTest {
         assertThat(secondInstance.readAll()).extracting(CallRecord::id).containsExactly(id);
     }
 
+    /** The relive history delete tombstones rather than rewriting the log: attributed calls vanish
+     *  from every read immediately, the file itself is left to retention, and the tombstones
+     *  survive a restart (fresh adapter over the same file) so the calls stay gone. */
+    @Test
+    void deleteByReliveRunIdsTombstonesAttributedCallsWithoutRewritingTheLog() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        String ours = UUID.randomUUID().toString();
+        String other = UUID.randomUUID().toString();
+        Files.writeString(file, "{\"id\":\"" + ours + "\",\"url\":\"http://x/\",\"method\":\"GET\","
+                + "\"state\":\"COMPLETED\",\"relive\":{\"runId\":\"run-1\",\"stepKey\":\"s1\"}}\n"
+                + "{\"id\":\"" + other + "\",\"url\":\"http://x/\",\"method\":\"GET\",\"state\":\"COMPLETED\"}\n"
+                // a body that merely quotes the run id must NOT cause a delete
+                + "{\"id\":\"quoted\",\"url\":\"http://x/\",\"method\":\"POST\",\"state\":\"COMPLETED\","
+                + "\"request\":{\"body\":\"{\\\"relive\\\":{\\\"runId\\\":\\\"run-1\\\"}}\"}}\n");
+        long sizeBefore = Files.size(file);
+
+        InternalCallsFileLogAdapter adapter = adapterFor(file);
+        assertThat(adapter.deleteByReliveRunIds(List.of("run-1"))).isEqualTo(1);
+        assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly(other, "quoted");
+        assertThat(Files.size(file)).isEqualTo(sizeBefore);
+
+        // the tombstone outlives the adapter instance - a restart must not resurrect the call
+        InternalCallsFileLogAdapter reopened = adapterFor(file);
+        assertThat(reopened.readAll()).extracting(CallRecord::id).containsExactly(other, "quoted");
+
+        // deleting the whole log clears the tombstones with it
+        adapter.deleteAll();
+        assertThat(adapter.readAll()).isEmpty();
+        InternalCallsFileLogAdapter afterClear = adapterFor(file);
+        assertThat(afterClear.readAll()).isEmpty();
+    }
+
     @Test
     void cacheIsInvalidatedWhenTheFileIsModifiedOutOfBand() throws Exception {
         Path file = tempDir.resolve("internal-calls.log");

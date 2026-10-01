@@ -269,6 +269,10 @@ public class SqliteCallsRepository {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_status_rank ON call_metadata(status_rank)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_duration ON call_metadata(duration_ms)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_status_state ON call_metadata(status_state)");
+        // Expression index on the relive attribution - the relive history delete's primary clause
+        // (json_extract(relive_json,'$.runId') IN (...)) becomes an index lookup instead of a full
+        // scan of every logged call. Built once on startup; existing rows are indexed then too.
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_relive_run ON call_metadata(json_extract(relive_json, '$.runId'))");
     }
 
     /** {@code session_id}/{@code operation_id} were added after call_metadata was already in use in some deployments (this repository already existed with 3 tables before these two fields) - added explicitly via ALTER TABLE for those, same pattern as every other column added after initial rollout. */
@@ -993,6 +997,32 @@ public class SqliteCallsRepository {
         } catch (Exception e) {
             log.warn("VACUUM after clearing calls.db failed (non-fatal): {}", e.getMessage());
         }
+    }
+
+    /** Deletes the calls attributed to the given Relive runs, in two statements: the attributed-normally
+     *  form is answered by the {@code idx_call_metadata_relive_run} expression index, and the rare
+     *  AMBIGUOUS-blocked form keeps a LIKE pre-filter so json_each only ever runs for rows that carry
+     *  the array. Same cascade/FTS behavior as {@link #deleteAll()}; no VACUUM - a targeted delete
+     *  leaves free pages behind, which retention's own churn reclaims soon enough. */
+    public int deleteByReliveRunIds(java.util.Collection<String> runIds) {
+        if (runIds == null || runIds.isEmpty()) {
+            return 0;
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(runIds.size(), "?"));
+        int deleted = jdbcTemplate.update("""
+                DELETE FROM call_metadata WHERE id IN (
+                    SELECT id FROM call_metadata
+                    WHERE relive_json IS NOT NULL AND json_extract(relive_json, '$.runId') IN (%s)
+                )
+                """.formatted(placeholders), runIds.toArray());
+        deleted += jdbcTemplate.update("""
+                DELETE FROM call_metadata WHERE id IN (
+                    SELECT id FROM call_metadata
+                    WHERE relive_json LIKE '%%ambiguousRunIds%%'
+                      AND EXISTS (SELECT 1 FROM json_each(relive_json, '$.ambiguousRunIds') WHERE value IN (%s))
+                )
+                """.formatted(placeholders), runIds.toArray());
+        return deleted;
     }
 
     /**

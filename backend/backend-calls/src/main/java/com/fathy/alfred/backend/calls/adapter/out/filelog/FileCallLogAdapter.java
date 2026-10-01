@@ -357,6 +357,64 @@ public class FileCallLogAdapter implements CallLogPort {
         pendingById.clear();
     }
 
+    /** Removes the calls attributed to the given Relive runs: filters the cached lines, rewrites the
+     *  file the same way {@link #save} does, and drops any still-pending two-phase call of those
+     *  runs from memory - it was never on disk to begin with. */
+    @Override
+    public synchronized int deleteByReliveRunIds(java.util.Collection<String> runIds) {
+        if (runIds == null || runIds.isEmpty()) {
+            return 0;
+        }
+        java.util.Set<String> ids = java.util.Set.copyOf(runIds);
+        List<CachedLine> kept = new ArrayList<>();
+        int removed = 0;
+        for (CachedLine line : loadLines()) {
+            if (belongsToRun(line.record(), ids)) {
+                removed++;
+            } else {
+                kept.add(line);
+            }
+        }
+        pendingById.values().removeIf(call -> belongsToRun(call, ids));
+        if (removed == 0) {
+            return 0;
+        }
+        Path path = Path.of(recentCallsFile);
+        try {
+            StringBuilder content = new StringBuilder();
+            for (CachedLine line : kept) {
+                content.append(line.text()).append(System.lineSeparator());
+            }
+            Files.writeString(path, content.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            rememberCache(path, kept);
+        } catch (IOException e) {
+            invalidateCache();
+            log.error("Failed to rewrite {} after deleting relive calls: {}", recentCallsFile, e.getMessage());
+            throw new UncheckedIOException(e);
+        }
+        return removed;
+    }
+
+    private static boolean belongsToRun(CallRecord call, java.util.Set<String> runIds) {
+        com.fasterxml.jackson.databind.JsonNode relive = call.relive();
+        if (relive == null || relive.isMissingNode()) {
+            return false;
+        }
+        com.fasterxml.jackson.databind.JsonNode runId = relive.get("runId");
+        if (runId != null && runId.isTextual() && runIds.contains(runId.asText())) {
+            return true;
+        }
+        com.fasterxml.jackson.databind.JsonNode ambiguous = relive.get("ambiguousRunIds");
+        if (ambiguous != null && ambiguous.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode id : ambiguous) {
+                if (id.isTextual() && runIds.contains(id.asText())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static CallRecord withGeneratedId(CallRecord call) {
         return new CallRecord(UUID.randomUUID().toString(), call.originalUrl(), call.url(), call.method(),
                 call.request(), call.timestamp(), call.durationMs(), call.response(), call.error());

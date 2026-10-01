@@ -6,6 +6,8 @@ import com.fathy.alfred.backend.relive.application.port.in.HoldRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.ListRunsUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.RecordStepResultUseCase;
+import com.fathy.alfred.backend.relive.application.port.in.DeleteRunHistoryCommand;
+import com.fathy.alfred.backend.relive.application.port.in.DeleteRunHistoryUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.ResumeRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.RunBlockedException;
 import com.fathy.alfred.backend.relive.application.port.in.RunDefinitionConflictException;
@@ -15,10 +17,12 @@ import com.fathy.alfred.backend.relive.application.port.in.SetRunVariableUseCase
 import com.fathy.alfred.backend.relive.application.port.in.StartRunCommand;
 import com.fathy.alfred.backend.relive.application.port.in.StartRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.StopRunUseCase;
+import com.fathy.alfred.backend.relive.application.port.in.StopRunsUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.UpdateRunDefinitionUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.ValidateCycleUseCase;
 import com.fathy.alfred.backend.relive.application.port.out.LeaseQuery;
 import com.fathy.alfred.backend.relive.application.port.out.LiveCallStorePort;
+import com.fathy.alfred.backend.relive.application.port.out.RelatedCallsPort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveCycleStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveNotificationPort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
@@ -27,6 +31,7 @@ import com.fathy.alfred.backend.relive.domain.model.Hold;
 import com.fathy.alfred.backend.relive.domain.model.LiveCall;
 import com.fathy.alfred.backend.relive.domain.model.LogEntry;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
+import com.fathy.alfred.backend.relive.domain.model.ReliveLimits;
 import com.fathy.alfred.backend.relive.domain.model.Resumed;
 import com.fathy.alfred.backend.relive.domain.model.Run;
 import com.fathy.alfred.backend.relive.domain.model.RunStatus;
@@ -40,11 +45,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,6 +63,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -73,8 +83,11 @@ import java.util.stream.Collectors;
  */
 @Service
 public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCase, StopRunUseCase,
-        FinishRunUseCase, HoldRunUseCase, ResumeRunUseCase, UpdateRunDefinitionUseCase, ListRunsUseCase,
-        GetRunUseCase, SetRunVariableUseCase, ObserveRunCallUseCase {
+        StopRunsUseCase, DeleteRunHistoryUseCase, FinishRunUseCase, HoldRunUseCase, ResumeRunUseCase,
+        UpdateRunDefinitionUseCase, ListRunsUseCase, GetRunUseCase, SetRunVariableUseCase,
+        ObserveRunCallUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(ReliveRunsService.class);
 
     /** Mirrors CycleValidator.VARIABLE_TOKEN / frontend/src/app/shared/utils/variable-tokens.ts. */
     private static final Pattern VARIABLE_TOKEN = Pattern.compile("\\{\\{\\$\\.([A-Za-z][A-Za-z0-9_.-]*)}}");
@@ -95,6 +108,8 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     private final LeaseQuery leaseQuery;
     private final ScheduledExecutorService scheduler;
     private final LiveCallStorePort liveCallStore;
+    private final RelatedCallsPort relatedCalls;
+    private final Executor callsCleanupExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final Map<String, ScheduledFuture<?>> stoppingTimers = new ConcurrentHashMap<>();
@@ -111,7 +126,8 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
                               RunSnapshotPublisherPort publisher, ReliveNotificationPort notifications,
                               ValidateCycleUseCase validateCycle, RunSnapshotBuilder snapshotBuilder,
                               @Lazy LeaseQuery leaseQuery, ScheduledExecutorService scheduler,
-                              LiveCallStorePort liveCallStore) {
+                              LiveCallStorePort liveCallStore, RelatedCallsPort relatedCalls,
+                              @Qualifier("reliveCallsCleanupExecutor") Executor callsCleanupExecutor) {
         this.runStore = runStore;
         this.cycleStore = cycleStore;
         this.publisher = publisher;
@@ -121,6 +137,8 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         this.leaseQuery = leaseQuery;
         this.scheduler = scheduler;
         this.liveCallStore = liveCallStore;
+        this.relatedCalls = relatedCalls;
+        this.callsCleanupExecutor = callsCleanupExecutor;
     }
 
     @Override
@@ -212,6 +230,72 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     @Override
     public Run stop(String runId) {
         return finalizeRun(getOrThrow(runId), RunStatus.STOPPED);
+    }
+
+    @Override
+    public int stopAllRunning(String cycleId) {
+        List<Run> running = runStore.findAllRunning().stream()
+                .filter(run -> run.cycleId().equals(cycleId))
+                .toList();
+        running.forEach(run -> finalizeRun(run, RunStatus.STOPPED));
+        return running.size();
+    }
+
+    @Override
+    public int stopSelected(String cycleId, Collection<String> runIds) {
+        int stopped = 0;
+        for (String runId : runIds) {
+            Optional<Run> target = runStore.findById(runId)
+                    .filter(run -> run.cycleId().equals(cycleId))
+                    .filter(run -> run.status() == RunStatus.RUNNING);
+            if (target.isPresent()) {
+                finalizeRun(target.get(), RunStatus.STOPPED);
+                stopped++;
+            }
+        }
+        return stopped;
+    }
+
+    @Override
+    public DeletedRunHistory delete(String cycleId, DeleteRunHistoryCommand command) {
+        List<String> requested = command.runIds() == null || command.runIds().isEmpty()
+                ? runStore.listByCycleId(cycleId, ReliveLimits.MAX_LIST_LIMIT).stream().map(Run::id).toList()
+                : command.runIds();
+        List<Run> targets = requested.stream()
+                .map(runStore::findById)
+                .flatMap(Optional::stream)
+                .filter(run -> run.cycleId().equals(cycleId))
+                .toList();
+        // A run that settled between selection and this call is left alone; one the user is wiping
+        // mid-flight is stopped through the same drain-safe path as a manual stop first - deletion
+        // while its snapshot is still live could let a REPLAY child reach the real supplier.
+        targets.stream().filter(run -> run.status() == RunStatus.RUNNING)
+                .forEach(run -> finalizeRun(run, RunStatus.STOPPED));
+        if (targets.isEmpty()) {
+            return new DeletedRunHistory(0, false);
+        }
+        Set<String> ids = targets.stream().map(Run::id).collect(Collectors.toSet());
+        if (command.deleteCalls()) {
+            // The Live-calls rows are the run history's own index into real calls - removed now,
+            // while the History tab's reload right after this response still sees them gone. The
+            // logged calls themselves can take longer to purge (the file-backed inbound store has
+            // to scan its whole log), so that cleanup runs in the background: the delete responds
+            // as soon as the history is gone, and each call store broadcasts its own
+            // "calls-cleared" the moment its rows are actually removed - the dashboard refetches
+            // on that signal and updates without a reload.
+            liveCallStore.deleteByRunIds(ids);
+            Set<String> toClean = Set.copyOf(ids);
+            callsCleanupExecutor.execute(() -> {
+                try {
+                    relatedCalls.deleteByRunIds(toClean);
+                } catch (RuntimeException e) {
+                    log.error("Background cleanup of the logged calls for relive runs {} failed", toClean, e);
+                }
+            });
+        }
+        runStore.deleteByIds(ids);
+        notifications.runChanged(cycleId, null);
+        return new DeletedRunHistory(ids.size(), command.deleteCalls());
     }
 
     @Override

@@ -88,6 +88,12 @@ public interface CallLogPort {
     /** Permanently deletes every logged call. */
     void deleteAll();
 
+    /** Permanently deletes every call attributed to one of the given Relive runs - attributed
+     *  normally ({@code relive.runId}) or only ever blocked as AMBIGUOUS for it
+     *  ({@code relive.ambiguousRunIds}). Returns how many calls were removed - the Relive
+     *  history-delete "also delete the related calls" choice. */
+    int deleteByReliveRunIds(java.util.Collection<String> runIds);
+
     /** All logged calls, in file order (oldest first). */
     List<CallRecord> readAll();
 

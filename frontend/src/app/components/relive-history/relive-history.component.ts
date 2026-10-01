@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, input, output, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { forkJoin } from 'rxjs';
 import { ReliveApiService } from '../../core/services/relive-api.service';
 import { downloadText } from '../../shared/utils/download';
@@ -26,6 +26,10 @@ const STATUS_PILL: Readonly<Record<Run['status'], readonly [string, string]>> = 
  * exactly what it executed, even after the cycle is edited later - newest 50 kept. "Compare with
  * newest" reuses `ScenarioRunCompareComponent` (D1) via `reliveRunToScenarioRun`, rather than a
  * parallel step-diff viewer.
+ *
+ * Rows are multi-selectable for the two bulk actions: stopping every RUNNING run at once (or just
+ * the selected ones), and deleting run history from the database - with the choice of whether the
+ * calls those runs logged are deleted too or kept.
  */
 @Component({
   selector: 'app-relive-history',
@@ -35,6 +39,9 @@ const STATUS_PILL: Readonly<Record<Run['status'], readonly [string, string]>> = 
 })
 export class ReliveHistoryComponent implements OnInit {
   private readonly api = inject(ReliveApiService);
+  /** Reloaded directly after a history delete that removed live-call rows, so the log below the
+   *  runs list reflects the deletion without a page reload. */
+  private readonly liveCalls = viewChild.required(ReliveLiveCallsComponent);
 
   readonly cycleId = input.required<string>();
   readonly steps = input<readonly Step[]>([]);
@@ -47,9 +54,111 @@ export class ReliveHistoryComponent implements OnInit {
   readonly runs = signal<readonly Run[]>([]);
   readonly compareRuns = signal<readonly ScenarioRun[] | null>(null);
   readonly comparing = signal(false);
+  readonly busy = signal(false);
+  readonly selected = signal<ReadonlySet<string>>(new Set());
+  /** Open delete confirmation: which runs it covers and the headline it shows. Null = closed. */
+  readonly deleteDialog = signal<{ readonly runIds: readonly string[]; readonly title: string } | null>(null);
+  readonly deleteCalls = signal(false);
+
+  readonly runningCount = computed(() => this.runs().filter((r) => r.status === 'RUNNING').length);
+  readonly selectedCount = computed(() => this.selected().size);
+  readonly selectedRunningCount = computed(
+    () => this.runs().filter((r) => r.status === 'RUNNING' && this.selected().has(r.id)).length,
+  );
 
   ngOnInit(): void {
-    this.api.listRuns(this.cycleId()).subscribe((runs) => this.runs.set(runs));
+    this.refresh();
+  }
+
+  private refresh(): void {
+    this.api.listRuns(this.cycleId()).subscribe((runs) => {
+      this.runs.set(runs);
+      // A run deleted elsewhere (or dropped by retention) must not linger in the selection.
+      const known = new Set(runs.map((r) => r.id));
+      const stillThere = new Set([...this.selected()].filter((id) => known.has(id)));
+      if (stillThere.size !== this.selected().size) this.selected.set(stillThere);
+    });
+  }
+
+  toggle(runId: string, event: Event): void {
+    const next = new Set(this.selected());
+    if ((event.target as HTMLInputElement).checked) next.add(runId);
+    else next.delete(runId);
+    this.selected.set(next);
+  }
+
+  allSelected(): boolean {
+    const runs = this.runs();
+    return runs.length > 0 && runs.every((r) => this.selected().has(r.id));
+  }
+
+  toggleAll(event: Event): void {
+    this.selected.set((event.target as HTMLInputElement).checked ? new Set(this.runs().map((r) => r.id)) : new Set());
+  }
+
+  clearSelection(): void {
+    this.selected.set(new Set());
+  }
+
+  /** One call to the bulk endpoint settles every RUNNING run of the cycle - the History tab's
+   *  "stop everything at once" button. */
+  stopAllRunning(): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.api.stopRuns(this.cycleId()).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.refresh();
+      },
+      error: () => this.busy.set(false),
+    });
+  }
+
+  stopSelected(): void {
+    if (this.busy() || this.selectedRunningCount() === 0) return;
+    this.busy.set(true);
+    this.api.stopRuns(this.cycleId(), [...this.selected()]).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.refresh();
+      },
+      error: () => this.busy.set(false),
+    });
+  }
+
+  askDeleteSelected(): void {
+    const count = this.selectedCount();
+    if (count === 0) return;
+    this.askDelete([...this.selected()], `Delete ${count} selected run${count === 1 ? '' : 's'}?`);
+  }
+
+  askDeleteAll(): void {
+    this.askDelete([], 'Delete the entire run history?');
+  }
+
+  private askDelete(runIds: readonly string[], title: string): void {
+    this.deleteCalls.set(false);
+    this.deleteDialog.set({ runIds, title });
+  }
+
+  cancelDelete(): void {
+    if (!this.busy()) this.deleteDialog.set(null);
+  }
+
+  confirmDelete(): void {
+    const dialog = this.deleteDialog();
+    if (!dialog || this.busy()) return;
+    this.busy.set(true);
+    this.api.deleteRunHistory(this.cycleId(), dialog.runIds, this.deleteCalls()).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.deleteDialog.set(null);
+        this.selected.set(new Set());
+        this.refresh();
+        this.liveCalls().reload();
+      },
+      error: () => this.busy.set(false),
+    });
   }
 
   statusPill(run: Run): readonly [string, string] {

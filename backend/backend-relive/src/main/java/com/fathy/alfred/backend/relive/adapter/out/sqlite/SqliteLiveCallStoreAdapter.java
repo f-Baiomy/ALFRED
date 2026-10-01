@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -65,6 +67,15 @@ public class SqliteLiveCallStoreAdapter implements LiveCallStorePort {
     @Override
     public boolean deleteById(String id) {
         return jdbc.update("DELETE FROM relive_live_calls WHERE id = ?", id) > 0;
+    }
+
+    @Override
+    public void deleteByRunIds(Collection<String> runIds) {
+        if (runIds.isEmpty()) {
+            return;
+        }
+        String placeholders = String.join(",", Collections.nCopies(runIds.size(), "?"));
+        jdbc.update("DELETE FROM relive_live_calls WHERE run_id IN (" + placeholders + ")", runIds.toArray());
     }
 
     @Override

@@ -156,6 +156,11 @@ public class SqliteCallLogAdapter implements CallLogPort {
     }
 
     @Override
+    public int deleteByReliveRunIds(java.util.Collection<String> runIds) {
+        return repository.deleteByReliveRunIds(runIds);
+    }
+
+    @Override
     public List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> recentRequestHeaders(String host, int limit) {
         return repository.recentRequestHeaders(host, limit);
     }

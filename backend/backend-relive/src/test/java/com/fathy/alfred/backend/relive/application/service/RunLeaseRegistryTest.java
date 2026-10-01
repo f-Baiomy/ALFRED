@@ -66,10 +66,12 @@ class RunLeaseRegistryTest {
             @Override public List<LiveCall> list(String cycleId, int limit) { return List.of(); }
             @Override public Optional<LiveCall> findById(String id) { return Optional.empty(); }
             @Override public boolean deleteById(String id) { return false; }
+            @Override public void deleteByRunIds(java.util.Collection<String> runIds) { }
             @Override public long totalBytes(String cycleId) { return 0L; }
         };
+        com.fathy.alfred.backend.relive.application.port.out.RelatedCallsPort relatedCalls = runIds -> 0;
         runsService = new ReliveRunsService(runStore, cycleStore, publisher, notifications, validator,
-                snapshotBuilder, neverHeld, scheduler, liveCallStore);
+                snapshotBuilder, neverHeld, scheduler, liveCallStore, relatedCalls, Runnable::run);
         registry = new RunLeaseRegistry(runsService, runStore, scheduler);
     }
 
@@ -157,6 +159,7 @@ class RunLeaseRegistryTest {
         }
         @Override public void pruneRuns(String cycleId, int keep, long maxBytes) { }
         @Override public void deleteByCycleId(String cycleId) { byId.values().removeIf(r -> r.cycleId().equals(cycleId)); }
+        @Override public void deleteByIds(java.util.Collection<String> runIds) { byId.keySet().removeAll(runIds); }
     }
 
     static class FakePublisher implements RunSnapshotPublisherPort {

@@ -1,12 +1,50 @@
 <div class="rl-row">
+  @if (runs().length) {
+    <input
+      type="checkbox"
+      style="accent-color: var(--purple)"
+      title="Select all runs"
+      [checked]="allSelected()"
+      (click)="toggleAll($event)"
+    />
+  }
   <h2 style="margin: 0">Runs</h2>
   <span class="rl-spacer"></span>
   <span class="rl-hint">each run keeps exactly what it executed, even after you edit the cycle · newest 50 kept</span>
+  @if (runningCount() > 0) {
+    <button class="rl-btn rl-sm" [disabled]="busy()" (click)="stopAllRunning()">
+      Stop all running ({{ runningCount() }})
+    </button>
+  }
+  @if (runs().length) {
+    <button class="rl-btn rl-sm rl-danger" [disabled]="busy()" (click)="askDeleteAll()">Delete history…</button>
+  }
 </div>
+
+@if (selectedCount() > 0) {
+  <div class="rl-row" style="margin: 0 0 8px">
+    <span class="rl-dim" style="font-size: 12.5px">{{ selectedCount() }} selected</span>
+    <span class="rl-spacer"></span>
+    @if (selectedRunningCount() > 0) {
+      <button class="rl-btn rl-sm" [disabled]="busy()" (click)="stopSelected()">
+        Stop selected ({{ selectedRunningCount() }})
+      </button>
+    }
+    <button class="rl-btn rl-sm rl-danger" [disabled]="busy()" (click)="askDeleteSelected()">Delete selected…</button>
+    <button class="rl-btn rl-sm" [disabled]="busy()" (click)="clearSelection()">Clear</button>
+  </div>
+}
 
 @if (runs().length) {
   @for (run of runs(); track run.id; let i = $index) {
     <div class="rl-rulecard">
+      <input
+        type="checkbox"
+        style="accent-color: var(--purple)"
+        [attr.aria-label]="'Select run ' + run.startedAt"
+        [checked]="selected().has(run.id)"
+        (click)="toggle(run.id, $event)"
+      />
       <span class="rl-mono">{{ run.startedAt }}</span>
       <span class="rl-pill" [class]="statusPill(run)[0]">{{ statusPill(run)[1] }}</span>
       <span class="rl-dim" style="font-size: 12.5px">{{ summaryOf(run) }}</span>
@@ -31,6 +69,40 @@
   <div class="rl-sect">
     <h3>Compare runs</h3>
     <app-scenario-run-compare [runs]="runs" />
+  </div>
+}
+
+@if (deleteDialog(); as dialog) {
+  <div class="dialog-backdrop" (click)="cancelDelete()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <h2>{{ dialog.title }}</h2>
+      <p class="rl-hint" style="margin: 4px 0 12px">
+        This permanently removes the runs and everything they recorded from the database. It cannot be undone.
+      </p>
+      <label style="display: flex; align-items: flex-start; gap: 8px; margin: 0 0 6px; cursor: pointer; color: var(--text); font-size: 0.875rem">
+        <input
+          type="checkbox"
+          style="accent-color: var(--purple); margin-top: 2px"
+          [checked]="deleteCalls()"
+          (change)="deleteCalls.set($any($event.target).checked)"
+        />
+        <span>Also delete the calls logged while these runs were active (outbound and inbound)</span>
+      </label>
+      <p class="rl-hint" style="margin: 0 0 14px">
+        Leave unchecked to keep every logged call and the Live calls log - only the run history is deleted.
+      </p>
+      <div class="rl-row">
+        <span class="rl-spacer"></span>
+        <button class="dialog-btn secondary" [disabled]="busy()" (click)="cancelDelete()">Cancel</button>
+        <button class="dialog-btn danger" [disabled]="busy()" (click)="confirmDelete()">
+          @if (busy()) {
+            Deleting…
+          } @else {
+            Delete
+          }
+        </button>
+      </div>
+    </div>
   </div>
 }
 

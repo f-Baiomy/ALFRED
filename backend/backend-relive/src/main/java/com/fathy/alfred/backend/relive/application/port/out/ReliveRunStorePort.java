@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.relive.application.port.out;
 import com.fathy.alfred.backend.relive.domain.model.Run;
 import com.fathy.alfred.backend.relive.domain.model.StepResult;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,4 +33,8 @@ public interface ReliveRunStorePort {
     void pruneRuns(String cycleId, int keep, long maxBytes);
 
     void deleteByCycleId(String cycleId);
+
+    /** Deletes exactly these runs and their step results - the explicit history-delete path
+     *  ({@code DeleteRunHistoryUseCase}), not retention. Rows already gone are ignored. */
+    void deleteByIds(Collection<String> runIds);
 }

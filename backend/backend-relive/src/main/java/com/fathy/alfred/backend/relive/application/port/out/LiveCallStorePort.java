@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.relive.application.port.out;
 
 import com.fathy.alfred.backend.relive.domain.model.LiveCall;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,4 +20,9 @@ public interface LiveCallStorePort {
 
     /** Drives the "warn above 200 MB" size display (FR-015c). */
     long totalBytes(String cycleId);
+
+    /** Removes the Live-calls rows recorded while the given runs were active - only ever called
+     *  from the explicit history delete, and only when the user chose to delete the related
+     *  calls; keeping them is the default. */
+    void deleteByRunIds(Collection<String> runIds);
 }

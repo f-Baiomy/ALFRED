@@ -2,6 +2,8 @@ package com.fathy.alfred.backend.relive.application.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fathy.alfred.backend.relive.application.port.in.DeleteRunHistoryCommand;
+import com.fathy.alfred.backend.relive.application.port.in.DeleteRunHistoryUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.RunBlockedException;
 import com.fathy.alfred.backend.relive.application.port.in.RunDefinitionConflictException;
 import com.fathy.alfred.backend.relive.application.port.in.RunLeaseHeldException;
@@ -10,6 +12,7 @@ import com.fathy.alfred.backend.relive.application.port.in.StartRunCommand;
 import com.fathy.alfred.backend.relive.application.port.in.ValidateCycleUseCase;
 import com.fathy.alfred.backend.relive.application.port.out.LeaseQuery;
 import com.fathy.alfred.backend.relive.application.port.out.LiveCallStorePort;
+import com.fathy.alfred.backend.relive.application.port.out.RelatedCallsPort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveCycleStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveNotificationPort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
@@ -36,9 +39,11 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.ExecutorService;
@@ -61,6 +66,7 @@ class ReliveRunsServiceTest {
     private FakeLeaseQuery leaseQuery;
     private FakeScheduler scheduler;
     private FakeLiveCallStore liveCallStore;
+    private FakeRelatedCalls relatedCalls;
     private ReliveRunsService service;
 
     @BeforeEach
@@ -73,9 +79,10 @@ class ReliveRunsServiceTest {
         leaseQuery = new FakeLeaseQuery();
         scheduler = new FakeScheduler();
         liveCallStore = new FakeLiveCallStore();
+        relatedCalls = new FakeRelatedCalls();
         RunSnapshotBuilder snapshotBuilder = new RunSnapshotBuilder(publisher, objectMapper);
         service = new ReliveRunsService(runStore, cycleStore, publisher, notifications, validator,
-                snapshotBuilder, leaseQuery, scheduler, liveCallStore);
+                snapshotBuilder, leaseQuery, scheduler, liveCallStore, relatedCalls, Runnable::run);
     }
 
     private ReliveCycle bareCycle(String name, boolean isTransient) {
@@ -172,6 +179,93 @@ class ReliveRunsServiceTest {
         assertThat(publisher.unpublished).doesNotContain(run.id());
         assertThat(publisher.published.get(run.id()).get("state").asText()).isEqualTo("STOPPING");
         assertThat(scheduler.tasks).hasSize(1);
+    }
+
+    @Test
+    void stopAllRunningStopsEveryRunningRunOfTheCycle() {
+        String cycleId = save(bareCycle("bulk", false));
+        String otherCycleId = save(bareCycle("other", false));
+        Run first = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        Run second = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.start(otherCycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.finish(second.id(), RunStatus.COMPLETED);
+
+        int stopped = service.stopAllRunning(cycleId);
+
+        assertThat(stopped).isEqualTo(1);
+        assertThat(runStore.findById(first.id()).orElseThrow().status()).isEqualTo(RunStatus.STOPPED);
+        assertThat(runStore.findAllRunning()).allSatisfy(run -> assertThat(run.cycleId()).isEqualTo(otherCycleId));
+    }
+
+    @Test
+    void stopSelectedSkipsForeignAndSettledRuns() {
+        String cycleId = save(bareCycle("bulk", false));
+        String otherCycleId = save(bareCycle("other", false));
+        Run mine = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        Run settled = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.finish(settled.id(), RunStatus.FAILED);
+        Run foreign = service.start(otherCycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        int stopped = service.stopSelected(cycleId, List.of(mine.id(), settled.id(), foreign.id()));
+
+        assertThat(stopped).isEqualTo(1);
+        assertThat(runStore.findById(mine.id()).orElseThrow().status()).isEqualTo(RunStatus.STOPPED);
+        assertThat(runStore.findById(foreign.id()).orElseThrow().status()).isEqualTo(RunStatus.RUNNING);
+    }
+
+    @Test
+    void deleteHistoryRemovesRunsAndTheirStepResults() {
+        String cycleId = save(bareCycle("history", false));
+        Run gone = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        Run kept = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.finish(kept.id(), RunStatus.COMPLETED);
+
+        DeleteRunHistoryUseCase.DeletedRunHistory deleted =
+                service.delete(cycleId, new DeleteRunHistoryCommand(List.of(gone.id()), false));
+
+        assertThat(deleted.runs()).isEqualTo(1);
+        assertThat(deleted.callsCleanupStarted()).isFalse();
+        assertThat(runStore.findById(gone.id())).isEmpty();
+        assertThat(runStore.listStepResults(gone.id())).isEmpty();
+        assertThat(runStore.findById(kept.id())).isPresent();
+        assertThat(relatedCalls.deletedRunIds).isEmpty();
+    }
+
+    @Test
+    void deleteAllHistoryStopsRunningRunsAndOptionallyDeletesRelatedCalls() {
+        String cycleId = save(bareCycle("history", false));
+        Run running = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        liveCallStore.add(new LiveCall(java.util.UUID.randomUUID().toString(), cycleId, running.id(),
+                null, "LIVE", "call-1", null, null, 200, 5, "t0"));
+
+        DeleteRunHistoryUseCase.DeletedRunHistory deleted =
+                service.delete(cycleId, DeleteRunHistoryCommand.all(true));
+
+        assertThat(deleted.runs()).isEqualTo(1);
+        assertThat(deleted.callsCleanupStarted()).isTrue();
+        assertThat(runStore.findById(running.id())).isEmpty();
+        assertThat(runStore.listStepResults(running.id())).isEmpty();
+        assertThat(relatedCalls.deletedRunIds).containsExactly(running.id());
+        assertThat(liveCallStore.calls).isEmpty();
+        // The run was RUNNING when selected: stopping it first republished its snapshot as
+        // STOPPING, and deletion deliberately leaves its removal to the drain path - the
+        // snapshot must not vanish while in-flight REPLAY children might still consult it.
+        assertThat(publisher.published.get(running.id()).get("state").asText()).isEqualTo("STOPPING");
+    }
+
+    @Test
+    void deleteHistoryKeepsCallsWhenAskedTo() {
+        String cycleId = save(bareCycle("history", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.finish(run.id(), RunStatus.COMPLETED);
+
+        DeleteRunHistoryUseCase.DeletedRunHistory deleted =
+                service.delete(cycleId, new DeleteRunHistoryCommand(List.of(), false));
+
+        assertThat(deleted.runs()).isEqualTo(1);
+        assertThat(deleted.callsCleanupStarted()).isFalse();
+        assertThat(relatedCalls.deletedRunIds).isEmpty();
+        assertThat(runStore.findById(run.id())).isEmpty();
     }
 
     @Test
@@ -511,6 +605,10 @@ class ReliveRunsServiceTest {
             byId.values().removeIf(r -> r.cycleId().equals(cycleId));
             stepResults.removeIf(r -> !byId.containsKey(r.runId()));
         }
+        @Override public void deleteByIds(Collection<String> runIds) {
+            runIds.forEach(byId::remove);
+            stepResults.removeIf(r -> !byId.containsKey(r.runId()));
+        }
     }
 
     static class FakePublisher implements RunSnapshotPublisherPort {
@@ -552,7 +650,17 @@ class ReliveRunsServiceTest {
             return calls.stream().filter(c -> c.id().equals(id)).findFirst();
         }
         @Override public boolean deleteById(String id) { return calls.removeIf(c -> c.id().equals(id)); }
+        @Override public void deleteByRunIds(Collection<String> runIds) { calls.removeIf(c -> runIds.contains(c.runId())); }
         @Override public long totalBytes(String cycleId) { return 0L; }
+    }
+
+    static class FakeRelatedCalls implements RelatedCallsPort {
+        final Set<String> deletedRunIds = new LinkedHashSet<>();
+        int callsDeleted;
+        @Override public int deleteByRunIds(Collection<String> runIds) {
+            deletedRunIds.addAll(runIds);
+            return callsDeleted;
+        }
     }
 
     /** Captures every scheduled task instead of running it, so a test can invoke or cancel it deterministically. */

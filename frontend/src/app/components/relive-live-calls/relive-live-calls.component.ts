@@ -86,6 +86,12 @@ export class ReliveLiveCallsComponent implements OnInit {
     this.load();
   }
 
+  /** Re-reads the log from the backend - used after a bulk action (e.g. the history delete with
+   *  "also delete the calls") removes rows this component already has on screen. */
+  reload(): void {
+    this.load();
+  }
+
   private load(): void {
     this.api.listLiveCalls(this.cycleId()).subscribe(({ calls, totalBytes }) => {
       this.calls.set(calls);

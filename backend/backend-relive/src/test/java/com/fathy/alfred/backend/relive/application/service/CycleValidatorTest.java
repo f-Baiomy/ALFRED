@@ -43,6 +43,7 @@ class CycleValidatorTest {
         @Override public List<StepResult> listStepResults(String runId) { return List.of(); }
         @Override public void pruneRuns(String cycleId, int keep, long maxBytes) { }
         @Override public void deleteByCycleId(String cycleId) { }
+        @Override public void deleteByIds(java.util.Collection<String> runIds) { }
     }
 
     private final FakeRunStore runStore = new FakeRunStore();

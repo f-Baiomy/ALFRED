@@ -99,6 +99,12 @@ public interface CallLogPort {
     /** Permanently deletes every logged call - the Database settings tab's "Clear calls" action. */
     void deleteAll();
 
+    /** Permanently deletes every call attributed to one of the given Relive runs - attributed
+     *  normally ({@code relive.runId}) or only ever blocked as AMBIGUOUS for it
+     *  ({@code relive.ambiguousRunIds}). Returns how many calls were removed - the Relive
+     *  history-delete "also delete the related calls" choice. */
+    int deleteByReliveRunIds(java.util.Collection<String> runIds);
+
     /**
      * Appends one WebSocket connection's newly-batched messages to {@code callId}'s own list -
      * capped at {@code alfred.calls.ws-max-messages} per call (oldest dropped first, counted).

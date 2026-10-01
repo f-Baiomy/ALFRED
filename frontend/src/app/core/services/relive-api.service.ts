@@ -169,6 +169,24 @@ export class ReliveApiService {
     return this.http.post<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/stop`, {}).pipe(map(fromWireRun));
   }
 
+  /** Bulk stop - the given runs, or (with no {@code runIds}) every RUNNING run of the cycle at once. */
+  stopRuns(cycleId: string, runIds?: readonly string[]): Observable<{ stopped: number }> {
+    return this.http.post<{ stopped: number }>(
+      `${this.base}/${encodeURIComponent(cycleId)}/runs/stop-all`,
+      runIds && runIds.length ? { runIds } : {},
+    );
+  }
+
+  /** Wipes run history - the given runs or the whole history; {@code deleteCalls} also removes the
+   *  logged calls those runs produced, in the background (each store signals "calls-cleared" the
+   *  moment its rows are gone), otherwise every logged call is kept. */
+  deleteRunHistory(cycleId: string, runIds: readonly string[], deleteCalls: boolean): Observable<{ runs: number; callsCleanup: boolean }> {
+    return this.http.post<{ runs: number; callsCleanup: boolean }>(
+      `${this.base}/${encodeURIComponent(cycleId)}/runs/delete-history`,
+      { runIds: runIds ?? [], deleteCalls },
+    );
+  }
+
   updateRunDefinition(cycleId: string, runId: string, definition: ReliveCycle, reason: string): Observable<Run> {
     return this.http.put<Run>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/definition`, {
       definition: toWireCycle(definition),

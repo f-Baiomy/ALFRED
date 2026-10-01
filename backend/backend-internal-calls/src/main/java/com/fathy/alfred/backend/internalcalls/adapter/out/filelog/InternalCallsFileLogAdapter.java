@@ -361,6 +361,13 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
     @Override
     public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs,
                                          CallInterception interception, Boolean reachedUpstream) {
+        loadDeletedJournal();
+        if (reliveDeletedCallIds.contains(id)) {
+            // The call was deleted by a relive history delete while it was still in flight - its
+            // completion must not resurrect it on disk.
+            pendingById.remove(id);
+            return false;
+        }
         CallRecord partial = pendingById.remove(id);
         boolean wasPending = partial != null;
         boolean hasError = error != null && !error.isBlank();
@@ -385,8 +392,10 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
         return wasPending;
     }
 
-    /** Returns the cached lines, re-reading and re-parsing only when the file's size/mtime no longer match what was cached. */
+    /** Returns the cached lines minus any tombstoned by the relive history delete, re-reading and
+     *  re-parsing only when the file's size/mtime no longer match what was cached. */
     private List<CachedLine> loadLines() {
+        loadDeletedJournal();
         Path path = Path.of(internalCallsFile);
         if (!Files.exists(path)) {
             cachedLines = List.of();
@@ -400,7 +409,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
         if (cachedLines != null && attributes != null
                 && attributes.size() == cachedFileSize
                 && attributes.lastModifiedTime().toMillis() == cachedModifiedMillis) {
-            return cachedLines;
+            return filterDeleted(cachedLines);
         }
 
         Scan scan;
@@ -417,7 +426,23 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
         // when the next save has to compact.
         linesOnDisk = scan.lineCount();
         rememberCache(path, scan.retained());
-        return cachedLines != null ? cachedLines : List.copyOf(scan.retained());
+        return filterDeleted(cachedLines != null ? cachedLines : List.copyOf(scan.retained()));
+    }
+
+    /** Tombstoned relive calls may still be on disk until the retention ring evicts them - they
+     *  just never surface through any read. The cache itself stays unfiltered so the file's
+     *  size/mtime stay the only invalidation inputs. */
+    private List<CachedLine> filterDeleted(List<CachedLine> lines) {
+        if (reliveDeletedCallIds.isEmpty()) {
+            return lines;
+        }
+        List<CachedLine> kept = new ArrayList<>(lines.size());
+        for (CachedLine line : lines) {
+            if (line.record() == null || !reliveDeletedCallIds.contains(line.record().id())) {
+                kept.add(line);
+            }
+        }
+        return kept;
     }
 
     private record Scan(int lineCount, boolean needsBackfill, List<CachedLine> retained) {}
@@ -587,6 +612,189 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
         }
         invalidateCache();
         pendingById.clear();
+        // The log is gone - tombstones have nothing left to hide.
+        reliveDeletedCallIds.clear();
+        try {
+            Files.deleteIfExists(deletedJournal());
+        } catch (IOException e) {
+            log.error("Failed to delete the relive deleted-ids journal: {}", e.getMessage());
+        }
+    }
+
+    /** Removes the calls attributed to the given Relive runs from every read - WITHOUT rewriting
+     *  the file. One needle-guided scan ({@code "relive":{"runId":"}, plus the rarer
+     *  ambiguousRunIds form) locates the attributed lines; their call ids are tombstoned, which
+     *  filters them out of {@link #loadLines} - every read this adapter serves - from that
+     *  instant on, and the ids are appended to a small journal next to the log so a restart
+     *  doesn't resurrect them while retention still holds their bytes. The dead lines themselves
+     *  age out with the retention ring: physically rewriting hundreds of MB inline was what made
+     *  this delete take the better part of a minute. Still-pending two-phase calls of those runs
+     *  are dropped from memory; they were never on disk to begin with. */
+    @Override
+    public synchronized int deleteByReliveRunIds(java.util.Collection<String> runIds) {
+        if (runIds == null || runIds.isEmpty()) {
+            return 0;
+        }
+        java.util.Set<String> ids = java.util.Set.copyOf(runIds);
+        loadDeletedJournal();
+        Needle attributed = new Needle("\"relive\":{\"runId\":\"".getBytes(StandardCharsets.UTF_8));
+        Needle ambiguous = new Needle("\"relive\":{\"ambiguousRunIds\":[".getBytes(StandardCharsets.UTF_8));
+        Path path = Path.of(internalCallsFile);
+        if (!Files.exists(path)) {
+            pendingById.values().removeIf(call -> belongsToRun(call, ids));
+            return 0;
+        }
+        List<String> deletedIds = new ArrayList<>();
+        try (java.io.InputStream in = new java.io.BufferedInputStream(Files.newInputStream(path), 1 << 20)) {
+            byte[] chunk = new byte[1 << 20];
+            byte[] line = new byte[1 << 16];
+            int len = 0;
+            int nRead;
+            while ((nRead = in.read(chunk)) != -1) {
+                for (int i = 0; i < nRead; i++) {
+                    if (chunk[i] == '\n') {
+                        collectIfDeleted(line, len, ids, attributed, ambiguous, deletedIds);
+                        len = 0;
+                    } else {
+                        if (len == line.length) {
+                            line = java.util.Arrays.copyOf(line, line.length * 2);
+                        }
+                        line[len++] = chunk[i];
+                    }
+                }
+            }
+            collectIfDeleted(line, len, ids, attributed, ambiguous, deletedIds);
+        } catch (IOException e) {
+            log.error("Failed to scan {} for relive-attributed calls: {}", internalCallsFile, e.getMessage());
+            throw new UncheckedIOException(e);
+        }
+        if (deletedIds.isEmpty()) {
+            return 0;
+        }
+        reliveDeletedCallIds.addAll(deletedIds);
+        appendDeletedJournal(deletedIds);
+        pendingById.values().removeIf(call -> reliveDeletedCallIds.contains(call.id()));
+        return deletedIds.size();
+    }
+
+    /** Parses a scanned line only when its bytes mention run attribution at all, and collects the
+     *  call id when the attribution really names one of the runs - so a body merely quoting a
+     *  run id never causes a delete, and an unparseable line is kept. */
+    private void collectIfDeleted(byte[] line, int len, java.util.Set<String> ids,
+                                  Needle attributed, Needle ambiguous, List<String> out) {
+        if (len == 0 || (indexOf(line, len, attributed) < 0 && indexOf(line, len, ambiguous) < 0)) {
+            return;
+        }
+        try {
+            com.fasterxml.jackson.databind.JsonNode node =
+                    objectMapper.readTree(new String(line, 0, len, StandardCharsets.UTF_8));
+            if (reliveMatchesRun(node.get("relive"), ids) && node.hasNonNull("id")) {
+                out.add(node.get("id").asText());
+            }
+        } catch (Exception e) {
+            // Not positively matched - the line stays.
+        }
+    }
+
+    /** Call ids hidden from every read by the relive history delete, persisted next to the log:
+     *  their lines remain on disk until the retention ring evicts them, and without this journal
+     *  a restart would surface them again. */
+    private final java.util.Set<String> reliveDeletedCallIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private boolean deletedJournalLoaded;
+
+    private Path deletedJournal() {
+        return Path.of(internalCallsFile + ".relive-deleted");
+    }
+
+    private void loadDeletedJournal() {
+        if (deletedJournalLoaded) {
+            return;
+        }
+        deletedJournalLoaded = true;
+        Path journal = deletedJournal();
+        if (!Files.exists(journal)) {
+            return;
+        }
+        try {
+            for (String id : Files.readAllLines(journal, StandardCharsets.UTF_8)) {
+                String trimmed = id.strip();
+                if (!trimmed.isEmpty()) {
+                    reliveDeletedCallIds.add(trimmed);
+                }
+            }
+        } catch (IOException e) {
+            log.error("Could not read {}: tombstoned relive calls may reappear - {}", journal, e.getMessage());
+        }
+    }
+
+    private void appendDeletedJournal(List<String> ids) {
+        try {
+            Files.writeString(deletedJournal(), String.join(System.lineSeparator(), ids) + System.lineSeparator(),
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            log.error("Could not append to the relive deleted-ids journal {}: {}", deletedJournal(), e.getMessage());
+        }
+    }
+
+    /** A search needle with its Horspool bad-character shift table. Pure ASCII by construction. */
+    private record Needle(byte[] bytes, int[] skip) {
+        Needle(byte[] bytes) {
+            this(bytes, skipTable(bytes));
+        }
+
+        private static int[] skipTable(byte[] pattern) {
+            int[] skip = new int[256];
+            java.util.Arrays.fill(skip, pattern.length);
+            for (int i = 0; i < pattern.length - 1; i++) {
+                skip[pattern[i] & 0xff] = pattern.length - 1 - i;
+            }
+            return skip;
+        }
+    }
+
+    /** Horspool search over the first {@code len} bytes of {@code data}. */
+    private static int indexOf(byte[] data, int len, Needle needle) {
+        byte[] pattern = needle.bytes();
+        int[] skip = needle.skip();
+        int m = pattern.length;
+        if (m == 0 || len < m) {
+            return -1;
+        }
+        int i = m - 1;
+        while (i < len) {
+            int j = m - 1;
+            while (j >= 0 && data[i - m + 1 + j] == pattern[j]) {
+                j--;
+            }
+            if (j < 0) {
+                return i - m + 1;
+            }
+            i += skip[data[i] & 0xff];
+        }
+        return -1;
+    }
+
+    private static boolean belongsToRun(CallRecord call, java.util.Set<String> runIds) {
+        return reliveMatchesRun(call.relive(), runIds);
+    }
+
+    private static boolean reliveMatchesRun(com.fasterxml.jackson.databind.JsonNode relive, java.util.Set<String> runIds) {
+        if (relive == null || relive.isMissingNode()) {
+            return false;
+        }
+        com.fasterxml.jackson.databind.JsonNode runId = relive.get("runId");
+        if (runId != null && runId.isTextual() && runIds.contains(runId.asText())) {
+            return true;
+        }
+        com.fasterxml.jackson.databind.JsonNode ambiguous = relive.get("ambiguousRunIds");
+        if (ambiguous != null && ambiguous.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode id : ambiguous) {
+                if (id.isTextual() && runIds.contains(id.asText())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static CallRecord withGeneratedId(CallRecord call) {

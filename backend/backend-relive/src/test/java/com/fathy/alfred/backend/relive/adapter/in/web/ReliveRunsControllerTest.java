@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.relive.adapter.in.web;
 
+import com.fathy.alfred.backend.relive.application.port.in.DeleteRunHistoryUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.FinishRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.GetRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.HoldRunUseCase;
@@ -13,6 +14,7 @@ import com.fathy.alfred.backend.relive.application.port.in.RunLeaseHeldException
 import com.fathy.alfred.backend.relive.application.port.in.SetRunVariableUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.StartRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.StopRunUseCase;
+import com.fathy.alfred.backend.relive.application.port.in.StopRunsUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.UpdateRunDefinitionUseCase;
 import com.fathy.alfred.backend.relive.domain.model.GlobalRulesSelection;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
@@ -53,6 +55,8 @@ class ReliveRunsControllerTest {
     @MockBean private StartRunUseCase startRun;
     @MockBean private RecordStepResultUseCase recordStepResult;
     @MockBean private StopRunUseCase stopRun;
+    @MockBean private StopRunsUseCase stopRuns;
+    @MockBean private DeleteRunHistoryUseCase deleteRunHistory;
     @MockBean private FinishRunUseCase finishRun;
     @MockBean private HoldRunUseCase holdRun;
     @MockBean private ResumeRunUseCase resumeRun;
@@ -154,6 +158,47 @@ class ReliveRunsControllerTest {
         mockMvc.perform(post("/relive-cycles/c-1/runs/r-1/stop"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("STOPPED"));
+    }
+
+    @Test
+    void stopAllWithoutBodyStopsEveryRunningRun() throws Exception {
+        when(stopRuns.stopAllRunning("c-1")).thenReturn(3);
+
+        mockMvc.perform(post("/relive-cycles/c-1/runs/stop-all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stopped").value(3));
+    }
+
+    @Test
+    void stopAllWithRunIdsStopsJustThose() throws Exception {
+        when(stopRuns.stopSelected(eq("c-1"), any())).thenReturn(2);
+
+        mockMvc.perform(post("/relive-cycles/c-1/runs/stop-all")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"runIds\":[\"r-1\",\"r-2\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stopped").value(2));
+    }
+
+    @Test
+    void deleteHistoryReportsRunsAndWhetherCallCleanupStarted() throws Exception {
+        when(deleteRunHistory.delete(eq("c-1"), any()))
+                .thenReturn(new DeleteRunHistoryUseCase.DeletedRunHistory(5, true));
+
+        mockMvc.perform(post("/relive-cycles/c-1/runs/delete-history")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"runIds\":[],\"deleteCalls\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runs").value(5))
+                .andExpect(jsonPath("$.callsCleanup").value(true));
+    }
+
+    @Test
+    void deleteHistoryRequiresDeleteCallsFlag() throws Exception {
+        mockMvc.perform(post("/relive-cycles/c-1/runs/delete-history")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"runIds\":[]}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

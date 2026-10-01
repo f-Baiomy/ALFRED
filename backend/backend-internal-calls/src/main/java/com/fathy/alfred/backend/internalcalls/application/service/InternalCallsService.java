@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsInRang
 import com.fathy.alfred.backend.internalcalls.application.port.in.FindRecentRequestHeadersUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetWsMessagesUseCase;
+import com.fathy.alfred.backend.internalcalls.application.port.in.DeleteInternalReliveCallsUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceivePreparedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveWsMessagesUseCase;
@@ -43,7 +44,7 @@ import java.util.UUID;
 @Service
 public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase,
         ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase, FindRecentRequestHeadersUseCase,
-        ReceiveWsMessagesUseCase, GetWsMessagesUseCase {
+        ReceiveWsMessagesUseCase, GetWsMessagesUseCase, DeleteInternalReliveCallsUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(InternalCallsService.class);
 
@@ -187,5 +188,17 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
     public WsMessagesPage getWsMessages(String callId, int offset, int limit) {
         int cap = Math.max(1, Math.min(limit, 500));
         return callLogPort.wsMessages(callId, Math.max(0, offset), cap);
+    }
+
+    @Override
+    public int deleteByRunIds(java.util.Collection<String> runIds) {
+        int deleted = callLogPort.deleteByReliveRunIds(runIds);
+        // Same payload-free signal the "Clear calls" action sends - the dashboard refetches
+        // GET /internal-calls, so calls wiped by a Relive history delete disappear without a
+        // manual reload.
+        if (deleted > 0) {
+            notificationPort.notifyCallsCleared();
+        }
+        return deleted;
     }
 }

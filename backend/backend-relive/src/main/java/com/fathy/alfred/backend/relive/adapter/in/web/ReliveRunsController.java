@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.relive.adapter.in.web;
 
+import com.fathy.alfred.backend.relive.adapter.in.web.dto.DeleteRunHistoryRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.FinishRunRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.HoldRunRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.ResumeRunRequestDto;
@@ -8,8 +9,11 @@ import com.fathy.alfred.backend.relive.adapter.in.web.dto.SetRunVariableRequestD
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.StartRunRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.StepDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.StepResultPairDto;
+import com.fathy.alfred.backend.relive.adapter.in.web.dto.StopRunsRequestDto;
 import com.fathy.alfred.backend.relive.adapter.in.web.dto.UpdateRunDefinitionRequestDto;
 import com.fathy.alfred.backend.relive.application.port.in.CycleValidationException;
+import com.fathy.alfred.backend.relive.application.port.in.DeleteRunHistoryCommand;
+import com.fathy.alfred.backend.relive.application.port.in.DeleteRunHistoryUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.FinishRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.GetRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.HoldRunUseCase;
@@ -24,6 +28,7 @@ import com.fathy.alfred.backend.relive.application.port.in.RunNotResumableExcept
 import com.fathy.alfred.backend.relive.application.port.in.SetRunVariableUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.StartRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.StopRunUseCase;
+import com.fathy.alfred.backend.relive.application.port.in.StopRunsUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.UpdateRunDefinitionUseCase;
 import com.fathy.alfred.backend.relive.domain.model.CycleVariable;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
@@ -60,6 +65,8 @@ public class ReliveRunsController {
     private final StartRunUseCase startRun;
     private final RecordStepResultUseCase recordStepResult;
     private final StopRunUseCase stopRun;
+    private final StopRunsUseCase stopRuns;
+    private final DeleteRunHistoryUseCase deleteRunHistory;
     private final FinishRunUseCase finishRun;
     private final HoldRunUseCase holdRun;
     private final ResumeRunUseCase resumeRun;
@@ -70,13 +77,17 @@ public class ReliveRunsController {
     private final ManageReliveCyclesUseCase manageCycles;
 
     public ReliveRunsController(StartRunUseCase startRun, RecordStepResultUseCase recordStepResult,
-                                StopRunUseCase stopRun, FinishRunUseCase finishRun, HoldRunUseCase holdRun,
-                                ResumeRunUseCase resumeRun, UpdateRunDefinitionUseCase updateRunDefinition,
+                                StopRunUseCase stopRun, StopRunsUseCase stopRuns,
+                                DeleteRunHistoryUseCase deleteRunHistory, FinishRunUseCase finishRun,
+                                HoldRunUseCase holdRun, ResumeRunUseCase resumeRun,
+                                UpdateRunDefinitionUseCase updateRunDefinition,
                                 ListRunsUseCase listRuns, GetRunUseCase getRun, SetRunVariableUseCase setRunVariable,
                                 ManageReliveCyclesUseCase manageCycles) {
         this.startRun = startRun;
         this.recordStepResult = recordStepResult;
         this.stopRun = stopRun;
+        this.stopRuns = stopRuns;
+        this.deleteRunHistory = deleteRunHistory;
         this.finishRun = finishRun;
         this.holdRun = holdRun;
         this.resumeRun = resumeRun;
@@ -160,6 +171,29 @@ public class ReliveRunsController {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
         }
+    }
+
+    /** Bulk stop - the given runs, or (with no {@code runIds}) every RUNNING run of the cycle at
+     *  once. Runs that settled before the call arrives are simply not counted. */
+    @PostMapping("/{id}/runs/stop-all")
+    public ResponseEntity<Map<String, Integer>> stopAll(@PathVariable String id,
+                                                        @RequestBody(required = false) StopRunsRequestDto request) {
+        int stopped = request == null || request.runIds() == null || request.runIds().isEmpty()
+                ? stopRuns.stopAllRunning(id)
+                : stopRuns.stopSelected(id, request.runIds());
+        return ResponseEntity.ok(Map.of("stopped", stopped));
+    }
+    /** Wipes run history - the given runs or the whole history, optionally together with the
+     *  logged calls those runs produced. Still-RUNNING targets are stopped first, never deleted
+     *  mid-flight. The logged-call cleanup runs in the background ({@code callsCleanup} says
+     *  whether it was started); each call store signals the dashboard when its rows are actually
+     *  gone (contracts/rest-api.md "Runs"). */
+    @PostMapping("/{id}/runs/delete-history")
+    public ResponseEntity<Map<String, Object>> deleteHistory(@PathVariable String id,
+                                                             @Valid @RequestBody DeleteRunHistoryRequestDto request) {
+        DeleteRunHistoryUseCase.DeletedRunHistory deleted =
+                deleteRunHistory.delete(id, new DeleteRunHistoryCommand(request.runIds(), request.deleteCalls()));
+        return ResponseEntity.ok(Map.of("runs", deleted.runs(), "callsCleanup", deleted.callsCleanupStarted()));
     }
 
     @PostMapping("/{id}/runs/{runId}/finish")

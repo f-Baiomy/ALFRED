@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.calls.application.port.in.GetCallsInRangeUseCase
 import com.fathy.alfred.backend.calls.application.port.in.FindRecentRequestHeadersUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetWsMessagesUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.DeleteReliveCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveWsMessagesUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
@@ -40,7 +41,7 @@ import java.util.UUID;
 @Service
 public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase, ReceiveNewCallUseCase,
         ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase, FindRecentRequestHeadersUseCase,
-        ReceiveWsMessagesUseCase, GetWsMessagesUseCase {
+        ReceiveWsMessagesUseCase, GetWsMessagesUseCase, DeleteReliveCallsUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(CallsService.class);
 
@@ -216,5 +217,17 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
     public WsMessagesPage getWsMessages(String callId, int offset, int limit) {
         int cap = Math.max(1, Math.min(limit, 500));
         return callLogPort.wsMessages(callId, Math.max(0, offset), cap);
+    }
+
+    @Override
+    public int deleteByRunIds(java.util.Collection<String> runIds) {
+        int deleted = callLogPort.deleteByReliveRunIds(runIds);
+        // Same payload-free signal the "Clear calls" action sends - every open dashboard just
+        // refetches GET /calls, so calls wiped by a Relive history delete disappear from the live
+        // list without a manual reload.
+        if (deleted > 0) {
+            notificationPort.notifyCallsCleared();
+        }
+        return deleted;
     }
 }

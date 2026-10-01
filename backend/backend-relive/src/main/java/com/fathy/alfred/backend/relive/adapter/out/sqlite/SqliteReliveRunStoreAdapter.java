@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -159,6 +160,16 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
     public void deleteByCycleId(String cycleId) {
         jdbc.update("DELETE FROM relive_step_results WHERE run_id IN (SELECT id FROM relive_runs WHERE cycle_id = ?)", cycleId);
         jdbc.update("DELETE FROM relive_runs WHERE cycle_id = ?", cycleId);
+    }
+
+    @Override
+    public void deleteByIds(Collection<String> runIds) {
+        if (runIds.isEmpty()) {
+            return;
+        }
+        String placeholders = String.join(",", Collections.nCopies(runIds.size(), "?"));
+        jdbc.update("DELETE FROM relive_step_results WHERE run_id IN (" + placeholders + ")", runIds.toArray());
+        jdbc.update("DELETE FROM relive_runs WHERE id IN (" + placeholders + ")", runIds.toArray());
     }
 
     private String writeJson(Object value) {
