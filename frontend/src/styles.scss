@@ -165,23 +165,19 @@ header {
   align-items: center;
   gap: 0.75rem;
 
-  // The butler's bow tie - Alfred Pennyworth's signature, standing in for a literal Alfred
-  // portrait. Rendered as a knocked-out shape (fill: var(--nav-bg)) over a purple->cyan gradient
-  // badge so it reads correctly against every theme without a separate icon per theme.
+  // Alfred's portrait - the butler logomark. Shipped as a pre-sized 100px PNG (2x the 50px badge,
+  // so it stays crisp on retina) instead of the 1.6MB source art, keeping the header payload tiny.
   .logo-badge {
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+    overflow: hidden;
     flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, var(--purple), var(--cyan));
 
-    svg {
-      width: 22px;
-      height: 22px;
-      fill: #fff;
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
     }
   }
 
