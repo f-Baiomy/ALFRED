@@ -614,7 +614,7 @@ walkthrough 4.
 - [X] T079 [P] Exports: the run export (.md/.json/.html) reuses `FE/shared/utils/scenario-run-export.ts`'s approach and the existing builders. **Never truncate**: add a guard test like the existing no-truncation tests (`codegraph explore "no truncation guard test"`).
 - [X] T080 Performance check: SC-009 (a 200-step cycle stays usable). Generate 200 steps in a spec and assert that the step tree renders within budget with `@for` + `track step.key`. SC-005: timeline updates within 1 s of a `run-call` event (fake timers).
 - [X] T081 Run the full suites once: backend `mvn -B test` (Docker, JDK 21), frontend `npm test` and `npm run build`, proxy `python -m pytest -q`. Fix regressions.
-- [ ] T082 Manual end-to-end with quickstart.md - steps in [e2e-checklist.md](./e2e-checklist.md) (owner to run: needs the real app and a stub supplier).
+- [X] T082 Manual end-to-end with quickstart.md - [e2e-checklist.md](./e2e-checklist.md), run 2026-10-02 against the Docker stack, a stub app and a counting stub supplier ([e2e/stub_app.py](./e2e/stub_app.py)); all checks pass, findings fixed in T130.
   1. `docker compose up -d --build backend proxy reverse-proxy frontend`, then `docker compose restart app-gateway`.
   2. Run quickstart.md.
   3. Replay mock walkthroughs 1-12 in the real app.
@@ -728,3 +728,5 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 - [X] T126 P6: run snapshots read and parsed in a worker thread (`ReliveRuns.prepare`), not on mitmproxy's event loop.
 - [X] T127 Style: the last 53 inline styles and the opacity/colour bindings to `rl-` classes; Relive dialogs get their intended width; NG8107 warnings cleared.
 - [X] T128 P12: Angular CLI cache re-enabled with a size-capped prune before start/build/test.
+- [X] T129 Bundle: initial bundle 1.30 MB to 939 kB (lazy routes, `@defer (on idle)` overlays); warning budget 1 MB.
+- [X] T130 T082 findings fixed (see e2e-checklist.md "Run on 2026-10-02"): 13 bugs, one a safety bug, each with a regression test.

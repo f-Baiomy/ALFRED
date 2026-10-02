@@ -87,6 +87,10 @@ on the call as `attribution`:
    the step's own pre-run choice applies (Block / Replay anyway / Send to the real system -
    default Block, FR-049a).
 
+   With two runs of the same project in flight at once, an untagged outbound call has more than one
+   owner and is blocked ("claimed by more than one run"), whatever its host - including traffic
+   from the same machine that belongs to neither run. It is never answered for the wrong run.
+
 The proxy re-lists `relive/` at most once a second, but a run id named by the header or by
 `inflight.json` that it has not loaded yet forces one rescan at once: a run starts and sends its
 first step within milliseconds, and its first supplier call must already see it.
@@ -140,6 +144,17 @@ still answered by its mock, never sent to the supplier. The run view decides hel
 
 The run's choice travels on the paused-call decision as `relive: REPLAY | ANSWER | FAIL |
 SEND_REAL` (`relive.settle_request_pause`).
+
+A call can be held twice: a released "pause before" carries on into the request-differs branch, and
+when the request differs that branch's "Ask me" is a second hold (`PAUSED_AGAIN`). Both addons wait
+on it like the first. It is never forwarded without a yes. Because a released pause carries on, the
+Relive validation bridge allows a pause and a mock in one call rule, and one pause per phase
+(the generic interception validator refuses both for ordinary rules, whose released pause forwards
+the call).
+
+In an **Automatic** run the tab holds an inbound step's own checkpoints (Replay, Edit & replay,
+Continue), so the snapshot leaves the pauses out of a top-level step's call rule. In a **Guided** run
+the user's browser sends the step, so the reverse proxy holds it.
 
 ## Leases
 

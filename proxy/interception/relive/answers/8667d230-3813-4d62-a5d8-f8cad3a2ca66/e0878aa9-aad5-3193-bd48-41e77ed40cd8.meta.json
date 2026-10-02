@@ -1,1 +1,0 @@
-{"kind":"RECORDED_REQUEST","method":"POST","scheme":"http","host":"192.168.65.254","path":"/supplierB","query":"","headers":{"Accept-Encoding":"identity","Content-Length":"50","Host":"192.168.65.254:9500","User-Agent":"Python-urllib/3.13","Content-Type":"application/json","Connection":"close"}}

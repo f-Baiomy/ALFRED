@@ -48,6 +48,8 @@ proxy/interception/rules.json
 proxy/interception/variables.json
 # The stored answers published beside it (answers/<id>.meta.json and .body), generated the same way.
 proxy/interception/answers/
+# Relive run snapshots and in-flight calls, published by the backend at run time
+proxy/interception/relive/
 
 # CodeGraph code-intelligence index - local, machine-specific, rebuilt from the sources (see CLAUDE.md).
 .codegraph/

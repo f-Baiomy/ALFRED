@@ -620,5 +620,8 @@ Every finding above is fixed and covered by a test unless noted. One commit per 
 | Docs | T122 | |
 | Suites | T123 | backend, 1910 frontend specs, 404 proxy tests, `ng build` all green |
 
-Not done here:
+T082 was run on 2026-10-02: all checks pass after 13 fixes (T130), listed in
+[e2e-checklist.md](./e2e-checklist.md). The bundle-size warning is resolved by T129.
+
+Previously not done here:
 - **T082** (manual end-to-end, SC-002/SC-010 on a real app): steps in [e2e-checklist.md](./e2e-checklist.md) for the owner to run.
