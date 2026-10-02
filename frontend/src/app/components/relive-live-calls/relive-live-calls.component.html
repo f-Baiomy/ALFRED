@@ -15,7 +15,7 @@
 @if (calls().length) {
   @for (call of calls(); track call.id) {
     <div class="rl-rulecard rl-wrap">
-      <span class="rl-mono rl-t-115">{{ call.at }}</span>
+      <span class="rl-mono rl-t-115" [title]="call.at">{{ call.at | date: 'medium' }}</span>
       <b>{{ stepLabel(call) }}</b>
       <span class="rl-pill rl-p-mod">{{ call.reason }}</span>
       <span class="rl-dim rl-t-125">{{ call.status }} · {{ call.durationMs }}ms</span>

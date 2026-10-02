@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { catchError, forkJoin, map, of } from 'rxjs';
 import { Comment } from '../../core/models/comment.model';
@@ -45,7 +46,7 @@ function toOriginalHttp(value: unknown): OriginalHttp | null {
 @Component({
   selector: 'app-relive-live-calls',
   standalone: true,
-  imports: [InterceptionPanelComponent, ActionMenuComponent],
+  imports: [DatePipe, InterceptionPanelComponent, ActionMenuComponent],
   templateUrl: './relive-live-calls.component.html',
 })
 export class ReliveLiveCallsComponent implements OnInit {
