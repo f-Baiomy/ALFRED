@@ -716,7 +716,15 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 - [X] T117 B14-B17, B19: WebSocket-driven reattach with a deadline, stop() crash, history delete lock, reachedUpstream at complete, orchestrator data gaps.
 - [X] T118 B18: validator aligned with reachesHost, GLOBAL/CYCLE overlap, driver-aware Guided check.
 - [X] T119 B20/B21: call-list skeleton effect fixed, no data hold-back.
-- [X] T120 B23-B32: remaining low items.
+- [X] T120 B23-B31: remaining low items (B29 and B32 moved to T124/T125).
 - [X] T121 Style: inline styles and literal colours to `rl-` classes/variables, record `withX` helpers, dead code, `unknown` over `any`.
 - [X] T122 Docs: `docs/relive.md` (fingerprint matching, RELIVE scope), corrected comments.
 - [X] T123 Full suites green (backend Docker JDK 21, frontend test + build, proxy pytest); T091 closed; T082 steps prepared for the owner.
+
+### F. Leftovers from Phase 16
+
+- [X] T124 B32: a recorded body with non-UTF-8 bytes matches its replay (`interception._as_stored`, both comparison and fingerprint).
+- [X] T125 B29: rules of tiers the request phase never reached (mock or pause) listed under "rules applied" when they have a response action (`complete_tier_matches`).
+- [X] T126 P6: run snapshots read and parsed in a worker thread (`ReliveRuns.prepare`), not on mitmproxy's event loop.
+- [X] T127 Style: the last 53 inline styles and the opacity/colour bindings to `rl-` classes; Relive dialogs get their intended width; NG8107 warnings cleared.
+- [X] T128 P12: Angular CLI cache re-enabled with a size-capped prune before start/build/test.

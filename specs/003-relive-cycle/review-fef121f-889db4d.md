@@ -606,18 +606,19 @@ Every finding above is fixed and covered by a test unless noted. One commit per 
 | P1, P2 | T111 | |
 | P3 | T112 | |
 | P5 | T113 | |
-| P6, B28 | T114 | snapshot parse still runs on the event loop, but no longer carries large bodies |
+| P6, B28 | T114, T126 | large bodies moved out (T114); parse moved off the event loop (T126) |
 | P8, P9, P10, P11 | T115 | |
 | P4 | T116 | |
 | B14, B15, B16, B17, B36, B37, B19 (grace, mode) | T117 | |
 | B18 | T118 | |
 | B20, B21 | T119 | |
 | B23–B27, B30, B31 | T120 | B23 bounded to 1 s rather than removed: the other proxy needs the backend's republish |
-| Style (§6) | T121 | 53 one-off layout inline styles remain |
+| B29 | T125 | |
+| B32 | T124 | cause: bytes that are not UTF-8 in a body declared UTF-8 decode with surrogateescape on the proxy; the backend stores them as `?`. Latin-1-decoded binary already round-tripped |
+| P12 | T128 | cache on, pruned past `NG_CACHE_MAX_MB` |
+| Style (§6) | T121, T127 | no inline styles left in Relive templates (the progress bar width is a bound value) |
 | Docs | T122 | |
 | Suites | T123 | backend, 1910 frontend specs, 404 proxy tests, `ng build` all green |
 
 Not done here:
-- **B29** (response-phase rule applications in "rules applied"): the proxy reports request-phase rules only.
-- **B32** (binary recorded request bodies always compare as "differs").
 - **T082** (manual end-to-end, SC-002/SC-010 on a real app): steps in [e2e-checklist.md](./e2e-checklist.md) for the owner to run.
