@@ -3645,6 +3645,29 @@ class InterceptionEngine:
                         return verdict
         return verdict
 
+    def complete_tier_matches(self, flow, service_name, extra_rulesets):
+        """The request phase's per-tier matches, extended to the tiers it never reached.
+
+        A terminal action (a REPLAY mock) or a pause ends the request phase at its own tier, so
+        later tiers are not matched until the response phase - yet their response actions still
+        apply to the answer (FR-028a), and Relive lists every rule applied when the call is
+        prepared (review B29). Remembered under MATCHED_KEY, so the response phase reuses these
+        matches rather than matching the call a second time."""
+        metadata = getattr(flow, 'metadata', None)
+        if not isinstance(metadata, dict):
+            return ()
+        remembered = metadata.get(MATCHED_KEY)
+        tiers = list(remembered[1]) if remembered is not None and remembered[0] == 'TIERED' else []
+        if len(tiers) >= len(extra_rulesets):
+            return tuple(tiers)
+        answer_dir = metadata.get('_interception_answer_dir')
+        for _tier_name, tier_ruleset, answers_dir in extra_rulesets[len(tiers):]:
+            metadata['_interception_answer_dir'] = answers_dir or self._answers._dir
+            tiers.append((tier_ruleset, tuple(self._matching(flow, service_name, tier_ruleset))))
+        metadata['_interception_answer_dir'] = answer_dir
+        metadata[MATCHED_KEY] = ('TIERED', tuple(tiers))
+        return tuple(tiers)
+
     def _matched_for_response_tiers(self, flow, service_name, extra_rulesets):
         """Tiered counterpart of _matched_for_response: reuses the request phase's per-tier
         matches when they were decided against these same RuleSets, and re-matches only the tiers

@@ -1224,21 +1224,29 @@ async def settle_request_pause(flow, verdict, decision, service_name, engine):
     return False
 
 
-def _rule_applications(flow, rulesets):
+def _rule_applications(flow, rulesets, engine=None, service_name=None):
     """[{'tier': 'STEP'|'CYCLE'|'GLOBAL', 'ruleId': ..., 'ruleName': ...}, ...] in tier order
     (FR-028/T068) - read straight from the engine's own per-tier matched-rules record
     (`interception.MATCHED_KEY`, set by `_apply_request_phase_tiered`) rather than re-evaluating
     anything: `rulesets` is the exact `(tier_name, ruleset, answers_dir)` list this call's
     `apply_request` was given, in the same order the engine iterated it in, so zipping the two
-    together recovers which tier each matched rule came from. Request-phase only - a rule that only
-    ever changes the response is not reflected here."""
+    together recovers which tier each matched rule came from.
+
+    A tier the request phase never reached - it ended at a mock or a pause - is matched now
+    (`complete_tier_matches`) and lists the rules that will still change the response (FR-028a,
+    review B29). Their request actions never ran, so a rule with no response action is left out."""
     matched = (getattr(flow, 'metadata', None) or {}).get(interception.MATCHED_KEY)
     if not matched or matched[0] != 'TIERED':
         return []
+    reached = len(matched[1])
     tiers_matched = matched[1]
+    if engine is not None and reached < len(rulesets):
+        tiers_matched = engine.complete_tier_matches(flow, service_name, rulesets)
     out = []
-    for (tier_name, _ruleset, _dir), (_tier_ruleset, matching) in zip(rulesets, tiers_matched):
+    for index, ((tier_name, _ruleset, _dir), (_tier_ruleset, matching)) in enumerate(zip(rulesets, tiers_matched)):
         for rule in matching:
+            if index >= reached and not any(a.get('type') in interception.RESPONSE_ACTIONS for a in rule.actions):
+                continue
             out.append({'tier': tier_name, 'ruleId': rule.id, 'ruleName': rule.name})
     return out
 
@@ -1322,7 +1330,7 @@ async def apply_outbound(flow, service_name, backend_addresses, engine, runs=Non
     _guard_replay(verdict, child, run_id, child.get('stepKey'))
     _tag_changed_pause(verdict, run_id, child.get('stepKey'))
     info = {'runId': run_id, 'stepKey': child.get('stepKey'), 'attribution': result.kind,
-            'choice': child.get('mode'), 'ruleIds': _rule_applications(flow, rulesets)}
+            'choice': child.get('mode'), 'ruleIds': _rule_applications(flow, rulesets, engine, service_name)}
     differs = _request_differs(flow, child, runs, run)
     if differs is not None:
         info['requestChanged'] = differs
@@ -1365,7 +1373,7 @@ async def _handle_unattributed(flow, service_name, engine, runs):
         verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
         _guard_replay(verdict, child, run_id, child.get('stepKey'))
         _tag_changed_pause(verdict, run_id, child.get('stepKey'))
-        info['ruleIds'] = _rule_applications(flow, rulesets)
+        info['ruleIds'] = _rule_applications(flow, rulesets, engine, service_name)
         return verdict, info
 
     # BLOCK (default)
@@ -1500,5 +1508,5 @@ async def _apply_matched_step(flow, service_name, engine, run, step_key, attribu
     _guard_replay(verdict, step, run_id, step.get('stepKey'))  # FR-018 holds for inbound REPLAY too
     _tag_changed_pause(verdict, run_id, step.get('stepKey'))
     info = {'runId': run_id, 'stepKey': step.get('stepKey'), 'attribution': attribution,
-            'choice': step.get('mode'), 'ruleIds': _rule_applications(flow, rulesets)}
+            'choice': step.get('mode'), 'ruleIds': _rule_applications(flow, rulesets, engine, service_name)}
     return verdict, info

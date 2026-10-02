@@ -168,6 +168,9 @@ engine.
 A run keeps a full snapshot of the cycle `definition` it executed - editing the cycle afterward
 never changes a past run's own view of itself. `StepResult`s (state, mode, attribution, actual
 request/response, differences, rules applied, variables used/produced) accumulate per attempt.
+"Rules applied" is reported by the proxy when the call is prepared. It includes rules in tiers the
+request phase never reached because a mock or a pause ended it. Those rules are listed only when
+they have a response action, which still changes the answer.
 The History tab (`relive-history` component) lists runs and can open one read-only in the same
 timeline component the live run uses (`relive-run-timeline` is pure input/output - it never talks
 to the run engine directly, so viewing a past run needs no separate component).

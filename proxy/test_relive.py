@@ -530,6 +530,30 @@ class TierEvaluationTest(unittest.TestCase):
             self.assertIsNotNone(rulesets)
             response_verdict = run(engine.apply_response(flow, 'proj', extra_rulesets=rulesets))
             self.assertEqual('yes', flow.response.headers.get('X-Rewritten'))
+            # B29: the GLOBAL rule the mock ended the request phase before is still listed.
+            self.assertEqual(['STEP', 'GLOBAL'], [r['tier'] for r in info['ruleIds']])
+            self.assertEqual('rewrite', info['ruleIds'][1]['ruleName'])
+
+    def test_rules_past_a_mock_without_response_actions_are_not_listed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_rules(tmp, [
+                {'id': 'g1', 'name': 'request-only', 'match': {}, 'priority': 1,
+                 'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Never', 'value': 'yes'}]},
+            ], enabled=True)
+            call_rule = {
+                'match': {'source': 'outbound', 'host': 'api.supplier.com', 'pathContains': '/search'},
+                'actions': [{'type': 'MOCK_RESPONSE', 'status': 200, 'body': '{"ok":true}'}],
+            }
+            child = {'stepKey': 'c-supA', 'mode': 'REPLAY', 'unattributed': 'BLOCK', 'ordinal': 1,
+                     'match': call_rule['match'], 'callRule': call_rule}
+            write_run(tmp, 'run-a', steps=[{'stepKey': 's-search', 'direction': 'inbound',
+                                             'serviceName': 'proj', 'children': [child]}],
+                      globalRules={'mode': 'ALL'})
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            flow = outbound_flow(headers={'X-Alfred-Relive': 'run-a/s-search'})
+            _verdict, info = run(relive.apply_outbound(flow, 'proj', (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual(['STEP'], [r['tier'] for r in info['ruleIds']])
 
 
 class IsolationTest(unittest.TestCase):
