@@ -460,11 +460,11 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
             return;
         }
         JsonNode relive = call.relive();
-        String runId = runIdOf(relive);
-        if (runId == null) {
+        if (runIdOf(relive) == null) {
             return;
         }
-        addInflightEntry(call.serviceName(), call.callId(), runId, stepKeyOf(relive));
+        // No in-flight entry: only an inbound execution owns outbound calls. Listing a supplier
+        // call made a sibling issued at the same time look like that supplier's own child.
         broadcastRunCall(call, relive, "outbound", "IN_PROGRESS");
     }
 
@@ -473,7 +473,6 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         if (handleAmbiguousIfPresent(call)) {
             return;
         }
-        removeInflightEntry(call.callId());
         JsonNode relive = call.relive();
         if (runIdOf(relive) == null) {
             return;
@@ -631,6 +630,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
                 node.put("callId", e.callId());
                 node.put("runId", e.runId());
                 node.put("stepKey", e.stepKey());
+                node.put("direction", "inbound");
             });
         });
         return root;

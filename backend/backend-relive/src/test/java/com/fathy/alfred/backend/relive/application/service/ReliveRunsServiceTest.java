@@ -505,30 +505,32 @@ class ReliveRunsServiceTest {
     }
 
     @Test
-    void outboundCallPreparedAddsAnInflightEntryAndBroadcasts() {
+    void outboundCallPreparedBroadcastsWithoutAnInflightEntry() {
         String cycleId = save(bareCycle("inflight", false));
         Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        int publishedBefore = publisher.inflightPublishedCount;
 
         JsonNode relive = objectMapper.createObjectNode().put("runId", run.id()).put("stepKey", "s-1").put("attribution", "HEADER");
         service.onOutboundCallPrepared(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
                 "call-1", "odeysys", relive, false, null, null, null, null, null));
 
-        assertThat(publisher.inflightPublishedCount).isGreaterThan(0);
+        // Review B1: a supplier call in flight must never become the owner of its siblings.
+        assertThat(publisher.inflightPublishedCount).isEqualTo(publishedBefore);
         assertThat(notifications.runCallEvents).hasSize(1);
         assertThat(notifications.runCallEvents.get(0).get("direction").asText()).isEqualTo("outbound");
     }
 
     @Test
-    void outboundCallCompletedRemovesInflightEntryAndDrainsAStoppingRun() {
+    void inboundCallCompletedRemovesInflightEntryAndDrainsAStoppingRun() {
         String cycleId = save(bareCycle("drain", false));
         Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
         JsonNode relive = objectMapper.createObjectNode().put("runId", run.id()).put("stepKey", "s-1");
-        service.onOutboundCallPrepared(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+        service.onInboundCallPrepared(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
                 "call-1", "odeysys", relive, false, null, null, null, null, null));
         service.stop(run.id());
         assertThat(publisher.unpublished).doesNotContain(run.id());
 
-        service.onOutboundCallCompleted(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+        service.onInboundCallCompleted(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
                 "call-1", "odeysys", relive, false, null, null, null, null, null));
 
         assertThat(publisher.unpublished).contains(run.id());

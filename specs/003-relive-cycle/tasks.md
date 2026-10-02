@@ -677,7 +677,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 ### A. Safety
 
 - [X] T092 B3: force a run-file refresh in `proxy/relive.py` when `inflight.json` or `X-Alfred-Relive` names a runId the proxy has not loaded yet. Test: run published inside the refresh window is still attributed.
-- [ ] T093 B1: only inbound calls create in-flight entries (`ReliveRunsService`), and the proxy ignores outbound entries. Test: two concurrent sibling supplier calls both replay.
+- [X] T093 B1: only inbound calls create in-flight entries (`ReliveRunsService`), and the proxy ignores outbound entries. Test: two concurrent sibling supplier calls both replay.
 - [ ] T094 B2/B11: Guided runs match the expected inbound step in the proxy (real stepKey, inbound call rule and pauses apply, repeats stay on the same step). Test: supplier call during a Guided run replays.
 - [ ] T095 B4: `/ws/relive` handles `release`; holders dropped when a run leaves RUNNING; `interrupt`/`finish`/`stop` are no-ops on a final run.
 - [ ] T096 B22: create the run row before publishing its snapshot.

@@ -423,6 +423,19 @@ def _inflight_entries(runs, service_name):
     return entries
 
 
+def _is_outbound_entry(run, entry, runs):
+    """An in-flight entry for an outbound call never owns another call.
+
+    Only an inbound execution has outbound children. An older backend also listed each supplier
+    call while it was in flight, which made a sibling made at the same time look like that
+    supplier's own child - and so unexpected.
+    """
+    if (entry.get('direction') or '').lower() == 'outbound':
+        return True
+    step = _find_step(run, entry.get('stepKey'), runs)
+    return step is not None and (step.get('direction') or '').lower() == 'outbound'
+
+
 def _deepest_inflight_entry(run, entries):
     """The in-flight step that is not an ancestor of another in-flight step of this run.
 
@@ -469,7 +482,8 @@ def attribute(flow, source, service_name, backend_addresses, runs=None):
         return AttributionResult('UNATTRIBUTED')
 
     entries = _inflight_entries(runs, service_name)
-    with_run = [e for e in entries if e.get('runId') in active]
+    with_run = [e for e in entries if e.get('runId') in active
+                and not _is_outbound_entry(active[e.get('runId')], e, runs)]
     in_flight_run_ids = {e['runId'] for e in with_run}
 
     if len(in_flight_run_ids) > 1:

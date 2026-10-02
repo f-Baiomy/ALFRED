@@ -1073,6 +1073,26 @@ class ReviewFixesTest(unittest.TestCase):
                 runs.ensure_known({'gone'})
             self.assertEqual(1, scan.call_count)
 
+    def test_parallel_sibling_supplier_calls_both_replay(self):
+        # B1: an older backend listed each supplier call in inflight.json while it was in
+        # flight; the sibling made at the same time must still match its own child.
+        with tempfile.TemporaryDirectory() as tmp:
+            h = {'Content-Type': 'application/json'}
+            a = supplier_step('s', 'c-a', '/a', '{"a":1}', h, answer_id='11111111-1111-4111-8111-111111111111')['children'][0]
+            b = supplier_step('s', 'c-b', '/b', '{"b":1}', h, answer_id='22222222-2222-4222-8222-222222222222')['children'][0]
+            write_recorded_request(tmp, 'run-a', '11111111-1111-4111-8111-111111111111', '{"a":1}', h, path='/a')
+            write_recorded_request(tmp, 'run-a', '22222222-2222-4222-8222-222222222222', '{"b":1}', h, path='/b')
+            write_run(tmp, 'run-a', projects=['odeysys'], steps=[
+                {'stepKey': 's', 'direction': 'inbound', 'serviceName': 'odeysys', 'children': [a, b]}])
+            write_inflight(tmp, {'odeysys': [{'callId': 'in', 'runId': 'run-a', 'stepKey': 's'}],
+                                 'unknown': [{'callId': 'outA', 'runId': 'run-a', 'stepKey': 'c-a'}]})
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            flow = FakeFlow(request=FakeRequest(method='POST', host='ndc.example', path='/b', text='{"b":1}', headers=h))
+            verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual(200, verdict.mock['status'])
+            self.assertEqual('c-b', info['stepKey'])
+
 
 if __name__ == '__main__':
     unittest.main()
