@@ -1032,5 +1032,47 @@ class StoredFingerprintMatchTest(unittest.TestCase):
             self.assertEqual('c-search', matched['stepKey'])
 
 
+class ReviewFixesTest(unittest.TestCase):
+    """Phase 16 (specs/003-relive-cycle/review-fef121f-889db4d.md) regression tests."""
+
+    def test_run_published_inside_the_refresh_window_is_still_attributed(self):
+        # B3: an unrelated call lists relive/ first; the run appears milliseconds later. The
+        # supplier call must replay, never reach the real host.
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(relive_dir(tmp), exist_ok=True)
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            runs.refresh()
+            write_run(tmp, 'run-a', steps=[replay_step()])
+            write_inflight(tmp, {'proj': [{'callId': 'in', 'runId': 'run-a', 'stepKey': 's-search'}]})
+            verdict, info = run(relive.apply_outbound(outbound_flow(), 'proj', (BACKEND_PEER[0],), engine, runs))
+            self.assertIsNotNone(verdict)
+            self.assertEqual('MOCK_RESPONSE', verdict.terminal)
+            self.assertEqual(200, verdict.mock['status'])
+            self.assertEqual('c-supA', info['stepKey'])
+
+    def test_header_run_published_inside_the_refresh_window_is_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(relive_dir(tmp), exist_ok=True)
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            runs.refresh()
+            write_run(tmp, 'run-a', steps=[replay_step()])
+            flow = outbound_flow(headers={'X-Alfred-Relive': 'run-a/s-search'})
+            verdict, info = run(relive.apply_outbound(flow, 'proj', (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual('HEADER', info['attribution'])
+
+    def test_a_stale_inflight_run_id_forces_one_scan_per_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(relive_dir(tmp), exist_ok=True)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            runs.refresh()
+            with patch.object(runs, '_refresh_run_files', wraps=runs._refresh_run_files) as scan:
+                runs.ensure_known({'gone'})
+                runs.ensure_known({'gone'})
+                runs.ensure_known({'gone'})
+            self.assertEqual(1, scan.call_count)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -81,6 +81,7 @@ class ReliveRuns:
         self._ordinals = {}
         self._ordinal_epoch = {}  # (run_id, parent_step_key) -> inflight callId
         self._steps_by_run = {}   # runId -> {stepKey: step node}, built when the snapshot is loaded
+        self._forced_for = set()  # unknown run ids already given a forced scan this window
 
     def _stale(self):
         now = time.monotonic()
@@ -90,7 +91,10 @@ class ReliveRuns:
         return False
 
     def refresh(self, force=False):
-        if force or self._stale():
+        if self._stale():
+            self._forced_for = set()
+            self._refresh_run_files()
+        elif force:
             self._refresh_run_files()
         # Inflight changes on every inbound send. The run-file scan stays throttled; this stat
         # does not, or a retry inside the throttle window still sees the previous execution.
@@ -179,6 +183,22 @@ class ReliveRuns:
 
     def active_runs(self):
         self.refresh()
+        return self._runs
+
+    def ensure_known(self, run_ids):
+        """Re-list the run files now when a run id is named that this process has not loaded.
+
+        The run-file scan is throttled to once a second, but the backend publishes a run and its
+        first inflight entry within milliseconds of each other. Without this, a supplier call made
+        in that window sees no run and goes to the real host.
+        """
+        missing = {run_id for run_id in run_ids
+                   if run_id and run_id not in self._runs and run_id not in self._forced_for}
+        if missing:
+            # Each unknown id forces one scan per throttle window, not one per call: an id that
+            # names a run already gone (a stale inflight entry) must not cost a listing every call.
+            self._forced_for |= missing
+            self.refresh(force=True)
         return self._runs
 
     def get(self, run_id):
@@ -433,6 +453,9 @@ def attribute(flow, source, service_name, backend_addresses, runs=None):
     active = runs.active_runs()
 
     header_run_id, header_step_key = _take_header(flow, backend_addresses)
+    inflight_ids = {e.get('runId') for entries in (runs._inflight or {}).values()
+                    if isinstance(entries, list) for e in entries if isinstance(e, dict)}
+    active = runs.ensure_known({header_run_id, *inflight_ids} - {None})
     if header_run_id and header_run_id in active:
         return AttributionResult('HEADER', active[header_run_id], header_step_key)
 
@@ -1191,6 +1214,7 @@ async def apply_inbound(flow, service_name, backend_addresses, engine, runs=None
     runs = runs or _default_runs()
     header_run_id, header_step_key = _take_header(flow, backend_addresses)
     if header_run_id:
+        runs.ensure_known({header_run_id})
         run = runs.get(header_run_id)
         if run is not None:
             return await _apply_matched_step(flow, service_name, engine, run, header_step_key, 'HEADER', runs)
