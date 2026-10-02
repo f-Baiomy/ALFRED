@@ -706,7 +706,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 
 - [X] T111 P1/P2: column-level run updates, header-only run lookup, cheap summary recompute.
 - [X] T112 P3: stable recorded-request answer ids, written once per run.
-- [ ] T113 P5: proxy caches evicted when a run ends.
+- [X] T113 P5: proxy caches evicted when a run ends.
 - [ ] T114 P6: snapshot load off the event loop; oversized mocks in answer files.
 - [ ] T115 P8-P11: child index by host, cheaper fingerprinting, split publisher locks, batch variable writes.
 - [ ] T116 P4: editor dirty check without full-cycle stringify per keystroke.

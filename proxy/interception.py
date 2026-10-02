@@ -36,6 +36,7 @@ import hashlib
 import json
 from http.cookies import SimpleCookie
 import os
+import weakref
 import xml.etree.ElementTree as ET
 import queue
 import random
@@ -2217,6 +2218,16 @@ def _forget(*messages):
 # ---------------------------------------------------------------------------------------------
 
 _RECORDED_REQUEST_CACHE = {}  # (directory, answerId) -> (mtime, dict|None)
+_ENGINES = weakref.WeakSet()  # every InterceptionEngine, so a finished run's answer caches can go
+
+
+def forget_answer_dir(directory):
+    """Drops everything cached from one answer directory - a Relive run's, once the run is over.
+    Each holds full request or response bodies, and a new run never reads an old run's files."""
+    for key in [k for k in _RECORDED_REQUEST_CACHE if k[0] == directory]:
+        del _RECORDED_REQUEST_CACHE[key]
+    for engine in list(_ENGINES):
+        engine._answer_caches.pop(directory, None)
 
 
 def _load_recorded_request(directory, answer_id):
@@ -3012,6 +3023,7 @@ class InterceptionEngine:
         # ever asked for - see _answer_cache_for - so a deployment that never runs Relive pays
         # nothing beyond this empty dict.
         self._answer_caches = {}
+        _ENGINES.add(self)
 
     def enabled(self):
         return not self._cache.current().inert

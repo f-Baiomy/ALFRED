@@ -1286,6 +1286,28 @@ class ReviewFixesTest(unittest.TestCase):
                 seen.append(info.get('requestChanged'))
             self.assertEqual([False, True], seen)
 
+    def test_caches_of_a_finished_run_are_dropped(self):
+        # P5: rulesets and recorded requests of every past run stayed in memory forever.
+        with tempfile.TemporaryDirectory() as tmp:
+            h = {'Content-Type': 'application/json'}
+            step = supplier_step('s', 'c-1', '/a', '{"a":1}', h, answer_id='11111111-1111-4111-8111-111111111111')
+            write_recorded_request(tmp, 'run-a', '11111111-1111-4111-8111-111111111111', '{"a":1}', h, path='/a')
+            write_run(tmp, 'run-a', projects=['odeysys'], steps=[step])
+            write_inflight(tmp, {'odeysys': [{'callId': 'in', 'runId': 'run-a', 'stepKey': 's'}]})
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            flow = FakeFlow(request=FakeRequest(method='POST', host='ndc.example', path='/a', text='{"a":1}', headers=h))
+            run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            answers = relive._relive_answers_dir('run-a', runs)
+            self.assertIn('run-a', relive._TIER_CACHE)
+            self.assertTrue(any(k[0] == answers for k in interception._RECORDED_REQUEST_CACHE))
+
+            os.remove(os.path.join(relive_dir(tmp), 'run-a.json'))
+            runs.refresh(force=True)
+
+            self.assertNotIn('run-a', relive._TIER_CACHE)
+            self.assertFalse(any(k[0] == answers for k in interception._RECORDED_REQUEST_CACHE))
+
 
 if __name__ == '__main__':
     unittest.main()

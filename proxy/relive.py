@@ -166,7 +166,10 @@ class ReliveRuns:
         self._inflight = projects if isinstance(projects, dict) else {}
 
     def _forget_ordinals(self, run_id):
+        """Everything kept for a run that is no longer active (review P5: these grew per run forever)."""
         interception.clear_relive_overlay(run_id)
+        _TIER_CACHE.pop(run_id, None)
+        interception.forget_answer_dir(_relive_answers_dir(run_id, self))
         self._guided.pop(run_id, None)
         for key in [k for k in self._ordinals if k[0] == run_id]:
             del self._ordinals[key]
