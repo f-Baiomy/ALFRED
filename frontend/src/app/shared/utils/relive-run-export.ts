@@ -5,6 +5,7 @@
  * handling every other Relive view uses), not `redact.ts`'s global rules.
  */
 import { maskRelive } from './relive-mask';
+import { RunComparison, StepSide, StepVerdict } from './relive-run-compare';
 import { Step, StepResult } from './relive-types';
 
 export interface RunReportRow {
@@ -105,6 +106,106 @@ export function buildJsonRunReport(cycleName: string, rows: readonly RunReportRo
     {
       cycleName,
       steps: rows.map((row) => ({ stepKey: row.step.key, label: row.step.label, result: row.result ?? null })),
+    },
+    null,
+    2,
+  );
+}
+
+// ---- Comparing two runs (T134) ----
+
+/** How a side of a comparison is named in an export: "Run of 2026-10-02T16:16:00Z" or "The recording". */
+export interface CompareReportSides {
+  readonly a: string;
+  readonly b: string;
+}
+
+const VERDICT_TEXT: Readonly<Record<StepVerdict, string>> = {
+  NEW_FAILURE: 'new failure',
+  FIXED: 'fixed',
+  CHANGED: 'answer changed',
+  NOT_RUN: 'ran in only one',
+  SLOWER: 'slower',
+  FASTER: 'faster',
+  SAME: 'same',
+};
+
+function sideLine(side: StepSide): string {
+  if (side.outcome === 'skip') return 'not run';
+  return `${side.outcome} · status ${side.status ?? '(none)'} · ${side.durationMs ?? '(none)'} ms${side.mode ? ` · ${side.mode}` : ''}${side.error ? ` · error: ${side.error}` : ''}`;
+}
+
+/** Every step, both full response bodies - a comparison export never truncates call data either. */
+export function buildMarkdownCompareReport(cmp: RunComparison, cycleName: string, sides: CompareReportSides, secretNames: readonly string[], variables: Readonly<Record<string, string>>): string {
+  const mask = (text: string) => maskRelive(text, secretNames, variables);
+  const lines: string[] = [
+    `# Relive run comparison: ${cycleName}`, '',
+    `- A: ${sides.a}`, `- B: ${sides.b}`, '',
+    `**${cmp.verdict.lead}** ${cmp.verdict.text}`, '',
+  ];
+  for (const row of cmp.rows) {
+    lines.push(`## ${row.label} - ${VERDICT_TEXT[row.verdict]}`, '', `\`${row.path}\``, '');
+    lines.push(`- A: ${mask(sideLine(row.a))}`, `- B: ${mask(sideLine(row.b))}`);
+    if (row.timeChangePct != null) lines.push(`- Time change: ${row.timeChangePct > 0 ? '+' : ''}${row.timeChangePct}%`);
+    if (row.fields.length) {
+      lines.push('- Response fields that changed:');
+      for (const f of row.fields) lines.push(`  - ${f.noise ? `(noise: ${f.cause}) ` : ''}\`${f.path}\`: ${mask(f.a ?? '(not present)')} → ${mask(f.b ?? '(not present)')}`);
+    }
+    if (row.sent.length) {
+      lines.push('- Sent differently:');
+      for (const f of row.sent) lines.push(`  - \`${f.path}\`: ${mask(f.a ?? '(not present)')} → ${mask(f.b ?? '(not present)')}`);
+    }
+    lines.push('', 'Full response body A:', '', '```', mask(row.a.response?.body ?? ''), '```', '', 'Full response body B:', '', '```', mask(row.b.response?.body ?? ''), '```', '');
+  }
+  if (cmp.variables.length) {
+    lines.push('## Values captured', '', '| Variable | Saved by | A | B |', '| --- | --- | --- | --- |');
+    for (const v of cmp.variables) lines.push(`| \`${v.name}\` | ${v.savedBy ?? ''} | ${mask(v.a ?? '(not set)')} | ${mask(v.b ?? '(not set)')} |`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+export function buildHtmlCompareReport(cmp: RunComparison, cycleName: string, sides: CompareReportSides, secretNames: readonly string[], variables: Readonly<Record<string, string>>): string {
+  const mask = (text: string) => escapeHtml(maskRelive(text, secretNames, variables));
+  const fieldList = (title: string, fields: RunComparison['rows'][number]['fields']) => fields.length
+    ? `<p>${title}</p><ul>${fields.map((f) => `<li>${f.noise ? `(noise: ${escapeHtml(f.cause ?? '')}) ` : ''}<code>${escapeHtml(f.path)}</code>: ${mask(f.a ?? '(not present)')} → ${mask(f.b ?? '(not present)')}</li>`).join('')}</ul>`
+    : '';
+  const sections = cmp.rows.map((row) => `<section><h2>${escapeHtml(row.label)} - ${VERDICT_TEXT[row.verdict]}</h2>
+    <p><code>${escapeHtml(row.path)}</code></p>
+    <p>A: ${mask(sideLine(row.a))}<br>B: ${mask(sideLine(row.b))}${row.timeChangePct != null ? `<br>Time change: ${row.timeChangePct > 0 ? '+' : ''}${row.timeChangePct}%` : ''}</p>
+    ${fieldList('Response fields that changed:', row.fields)}
+    ${fieldList('Sent differently:', row.sent)}
+    <p>Full response body A:</p><pre>${mask(row.a.response?.body ?? '')}</pre>
+    <p>Full response body B:</p><pre>${mask(row.b.response?.body ?? '')}</pre></section>`).join('\n');
+  const vars = cmp.variables.length
+    ? `<h2>Values captured</h2><table><tr><th>Variable</th><th>Saved by</th><th>A</th><th>B</th></tr>${cmp.variables.map((v) => `<tr><td><code>${escapeHtml(v.name)}</code></td><td>${escapeHtml(v.savedBy ?? '')}</td><td>${mask(v.a ?? '(not set)')}</td><td>${mask(v.b ?? '(not set)')}</td></tr>`).join('')}</table>`
+    : '';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relive run comparison: ${escapeHtml(cycleName)}</title></head>
+  <body><h1>Relive run comparison: ${escapeHtml(cycleName)}</h1><p>A: ${escapeHtml(sides.a)}<br>B: ${escapeHtml(sides.b)}</p>
+  <p><b>${escapeHtml(cmp.verdict.lead)}</b> ${escapeHtml(cmp.verdict.text)}</p>${sections}${vars}</body></html>`;
+}
+
+/** Unmasked, like the run's own .json export: both step results in full, per step. */
+export function buildJsonCompareReport(cmp: RunComparison, cycleName: string, sides: CompareReportSides): string {
+  return JSON.stringify(
+    {
+      cycleName,
+      a: sides.a,
+      b: sides.b,
+      verdict: `${cmp.verdict.lead} ${cmp.verdict.text}`,
+      counts: cmp.counts,
+      steps: cmp.rows.map((row) => ({
+        stepKey: row.key,
+        label: row.label,
+        path: row.path,
+        verdict: row.verdict,
+        timeChangePct: row.timeChangePct,
+        fields: row.fields,
+        sent: row.sent,
+        a: { outcome: row.a.outcome, status: row.a.status, durationMs: row.a.durationMs, mode: row.a.mode, request: row.a.request, response: row.a.response, result: row.a.result },
+        b: { outcome: row.b.outcome, status: row.b.status, durationMs: row.b.durationMs, mode: row.b.mode, request: row.b.request, response: row.b.response, result: row.b.result },
+      })),
+      variables: cmp.variables,
     },
     null,
     2,
