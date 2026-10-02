@@ -180,6 +180,18 @@ describe('ReliveRunTimelineComponent', () => {
     expect(fixture.nativeElement.querySelector('.rl-awaiting')).toBeNull();
   });
 
+  it('FR-036: offers Run from here on a completed step of an ended run, not only a failed one', () => {
+    const login = makeStep('login', null);
+    const book = makeStep('book', null);
+    fixture.componentRef.setInput('run', { ...run(), status: 'COMPLETED' });
+    fixture.componentRef.setInput('steps', [login, book]);
+    fixture.componentRef.setInput('results', { login: result('login', 'COMPLETED'), book: result('book', 'COMPLETED') });
+    fixture.detectChanges();
+
+    const offered = [...fixture.nativeElement.querySelectorAll('button')].filter((b: HTMLElement) => b.textContent?.includes('Run from here'));
+    expect(offered.length).toBe(2);
+  });
+
   it('shows a placeholder when there is no run', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('No run yet');

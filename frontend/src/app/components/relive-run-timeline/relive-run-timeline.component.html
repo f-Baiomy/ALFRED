@@ -201,10 +201,15 @@
             @if (!row.isChild && hasLaterRunnableStep(row.step.key)) {
               <button class="rl-btn rl-sm rl-primary" (click)="resumeFromStep.emit(row.step.key)" title="Same run, same variables">▶ Continue with the rest</button>
             }
-            @if (canRunFromStep(row.step.key); as check) {
-              <button class="rl-btn rl-sm" [disabled]="!check.ok" [title]="check.reason" (click)="runFromStep.emit(row.step.key)">Run from here</button>
-            }
           </span>
+        }
+        <!-- FR-036: a new run from any top-level step of a run that has ended, not only a failed one. -->
+        @if (!row.isChild && isEnded() && row.result.state !== 'SKIPPED') {
+          @if (canRunFromStep(row.step.key); as check) {
+            <span (click)="$event.stopPropagation()">
+              <button class="rl-btn rl-sm" [disabled]="!check.ok" [title]="check.reason || 'A new run from this step, seeded with the values of this run'" (click)="runFromStep.emit(row.step.key)">Run from here</button>
+            </span>
+          }
         }
         @if (viewState(row) === 'COMPLETED_WITH_DIFFERENCES') {
           <button type="button" class="rl-pill rl-p-diff" title="Show what changed" (click)="openDifferences($event, row)">⚠ Differences</button>
