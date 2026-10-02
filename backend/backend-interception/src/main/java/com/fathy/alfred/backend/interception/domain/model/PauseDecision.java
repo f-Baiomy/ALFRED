@@ -36,7 +36,18 @@ public record PauseDecision(
          */
         boolean follow,
         /** action: "simulate_failure" only. */
-        PauseFailure failure) {
+        PauseFailure failure,
+        /**
+         * A Relive run's choice for its own held call (proxy/relive.py settle_request_pause):
+         * REPLAY, ANSWER (status/headers/body are the answer), FAIL or SEND_REAL. Null for every
+         * other pause, and for a Relive pause means REPLAY.
+         */
+        String relive) {
+
+    public PauseDecision(String action, Integer status, Map<String, String> headers, String body,
+                         String reason, boolean follow, PauseFailure failure) {
+        this(action, status, headers, body, reason, follow, failure, null);
+    }
 
     /**
      * A "simulate_failure" decision's payload - exactly the fields {@link RuleAction}'s

@@ -618,6 +618,9 @@ export interface PauseDecision {
   readonly follow?: boolean;
   /** action: 'simulate_failure' only - what to reproduce instead of releasing or aborting plainly. */
   readonly failure?: PauseFailure | null;
+  /** A Relive run's choice for its own held call: replay the recording, answer with status/
+   *  headers/body, fail it, or send it to the real system (proxy/relive.py settle_request_pause). */
+  readonly relive?: 'REPLAY' | 'ANSWER' | 'FAIL' | 'SEND_REAL' | null;
 }
 
 /** One rule's effect on one call, as recorded on the call itself by the proxy. */

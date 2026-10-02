@@ -685,7 +685,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 ### B. Broken flows
 
 - [X] T097 B5: persist `fromStepKey` and seed variables; seed only up to the step; Run from here goes through the pre-run dialog.
-- [ ] T098 B6: only the call rule's request-differs pause is tagged CHANGED; checkpoints are tagged BEFORE/AFTER and continue on timeout.
+- [X] T098 B6: only the call rule's request-differs pause is tagged CHANGED; checkpoints are tagged BEFORE/AFTER and continue on timeout.
 - [ ] T099 B7: "Save as cycle" for Relive now (`POST /relive-cycles/{id}/keep`).
 - [ ] T100 B8: a Relive-attributed inbound call is reported to the backend even when the project's logging toggle is off.
 - [ ] T101 B10: child matching falls back to endpoint + order when no fingerprint hits.

@@ -3110,13 +3110,17 @@ class InterceptionEngine:
             return remembered[1]
         return self._matching(flow, service_name, ruleset)
 
-    async def apply_request(self, flow, service_name=None, extra_rulesets=None):
+    async def apply_request(self, flow, service_name=None, extra_rulesets=None, resume=None):
+        """`resume` (tiered only): the position a request-phase pause stopped at, from
+        flow.metadata['_relive_resume']. Evaluation continues with the action after it, so a
+        released pause still reaches the call rule's later actions (a REPLAY mock) instead of
+        sending the request to the host."""
         try:
-            return await self._apply_request_phase(flow, service_name, extra_rulesets)
+            return await self._apply_request_phase(flow, service_name, extra_rulesets, resume)
         finally:
             _forget(flow.request, getattr(flow, 'response', None))
 
-    async def _apply_request_phase(self, flow, service_name=None, extra_rulesets=None):
+    async def _apply_request_phase(self, flow, service_name=None, extra_rulesets=None, resume=None):
         """Applies every matching rule's request-phase actions, mutating the flow in place.
         Returns a Verdict describing what the addon still has to do.
 
@@ -3172,13 +3176,14 @@ class InterceptionEngine:
                         return verdict
             return verdict
 
-        return await self._apply_request_phase_tiered(flow, service_name, extra_rulesets, verdict)
+        return await self._apply_request_phase_tiered(flow, service_name, extra_rulesets, verdict, resume)
 
-    async def _apply_request_phase_tiered(self, flow, service_name, extra_rulesets, verdict):
+    async def _apply_request_phase_tiered(self, flow, service_name, extra_rulesets, verdict, resume=None):
         tiers_matched = []
         observed = False
         metadata = getattr(flow, 'metadata', None)
-        for tier_name, tier_ruleset, answers_dir in extra_rulesets:
+        resume_tier, resume_rule, resume_action = resume if resume else (-1, None, -1)
+        for tier_index, (tier_name, tier_ruleset, answers_dir) in enumerate(extra_rulesets):
             flow.metadata['_interception_answer_dir'] = answers_dir or self._answers._dir
             flow.metadata['_interception_local_ruleset'] = tier_ruleset
             matching = self._matching(flow, service_name, tier_ruleset)
@@ -3186,11 +3191,20 @@ class InterceptionEngine:
             if tier_name == 'GLOBAL':
                 verdict.sensitive = tier_ruleset.sensitive
                 verdict.self_targets = tier_ruleset.self_targets
+            if tier_index < resume_tier:
+                continue
+            if tier_index == resume_tier:
+                # Pick up after the paused action: its rule's later actions, then later rules.
+                at = next((i for i, r in enumerate(matching) if r is resume_rule or r.id == resume_rule.id), None)
+                matching = [] if at is None else matching[at:]
             if matching and not observed:
                 verdict.observe_request(flow)
                 observed = True
             for rule in matching:
-                for action in rule.actions:
+                skip_through = resume_action if (tier_index == resume_tier and rule is matching[0]) else -1
+                for action_index, action in enumerate(rule.actions):
+                    if action_index <= skip_through:
+                        continue
                     kind = action.get('type')
                     if kind not in REQUEST_ACTIONS:
                         if not _known_action(kind):
@@ -3204,6 +3218,8 @@ class InterceptionEngine:
                     if verdict.terminal or (verdict.pause and verdict.pause['phase'] == 'request'):
                         if isinstance(metadata, dict):
                             flow.metadata[MATCHED_KEY] = ('TIERED', tuple(tiers_matched))
+                            if verdict.pause and not verdict.terminal:
+                                flow.metadata['_relive_resume'] = (tier_index, rule, action_index)
                         return verdict
         if isinstance(metadata, dict):
             flow.metadata[MATCHED_KEY] = ('TIERED', tuple(tiers_matched))
@@ -3795,6 +3811,8 @@ class InterceptionEngine:
             'onTimeout': on_timeout,
             'ruleId': rule.id,
             'ruleName': rule.name,
+            # Relive marks the pause of its call rule's "request differs" branch (relive.py).
+            **({'reliveAt': action['reliveAt']} if action.get('reliveAt') else {}),
         }
 
     def match_for_websocket(self, flow, service_name=None):

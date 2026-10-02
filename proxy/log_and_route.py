@@ -310,21 +310,10 @@ class RouteAndLog:
                 # breakpoints.wait_for_decision itself falls back to.
                 decision = {'action': 'abort' if verdict.pause.get('onTimeout') == 'abort' else 'release',
                             'reason': 'no-webhook'}
-            if relive_meta and relive_meta.get('at') == 'CHANGED' and decision.get('reason'):
-                # T033, the single most safety-critical line in this feature: nobody made an
-                # explicit choice on a Relive "request differs" pause (a timeout, a dropped
-                # connection, or no webhook at all) - see decision['reason'], set only when
-                # nobody decided. The rule's own onTimeout ('release' by default) would otherwise
-                # forward this request to the real supplier with no human ever having agreed to
-                # it - see interception.apply_decision, which a bare 'release' leaves untouched.
-                # This must resolve to the failure mock and NEVER to forwarding, under any
-                # circumstance.
-                payload = relive.failure_payload(relive_meta)
-                body = json.dumps(payload).encode('utf-8')
-                flow.response = http.Response.make(502, body, {'content-type': 'application/json'})
-                verdict.terminal = 'MOCK_RESPONSE'
-                verdict.mock = {'status': 502, 'headers': {'content-type': 'application/json'},
-                                 'body_bytes': body}
+            if relive_meta and await relive.settle_request_pause(flow, verdict, decision, service_name, ENGINE):
+                # Answered by the run (T033/T098): a CHANGED hold nobody decided on is the failure
+                # mock, never the host; a released pause carries on with the rest of the call rule,
+                # so a REPLAY child's mock still answers instead of the real supplier.
                 return
             if call_id:
                 await self._record_decision(flow, verdict, 'request', decision)
@@ -401,6 +390,7 @@ class RouteAndLog:
         # applies to an answer an earlier tier already mocked (FR-028a).
         response_verdict = await ENGINE.apply_response(
             flow, flow.metadata.get('service_name'), extra_rulesets=flow.metadata.get('relive_rulesets'))
+        relive.tag_response_pause(flow, response_verdict)
         # State, not one field: adopt carries the pre-action snapshot across too, which copying
         # `applied` alone silently dropped - so no response action has ever produced a
         # before/after. See Verdict.adopt.

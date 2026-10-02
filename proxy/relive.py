@@ -928,6 +928,7 @@ def _build_ruleset(rule_docs, run, engine):
     for doc in rule_docs:
         if not isinstance(doc, dict):
             continue
+        _mark_differs_pauses(doc.get('actions'))
         if secrets:
             interception._mark_secret_actions(doc, secrets)
         try:
@@ -939,6 +940,30 @@ def _build_ruleset(rule_docs, run, engine):
     rules.sort(key=lambda r: r.priority)
     return interception.RuleSet(enabled=True, rules=rules, variables=variables,
                                 fallbacks=base.fallbacks, secrets=secrets)
+
+
+def _has_recorded_call_condition(action):
+    for branch in action.get('branches') or []:
+        for cond in (branch or {}).get('conditions') or []:
+            if str((cond or {}).get('subject') or '').upper() == 'RECORDED_CALL':
+                return True
+    return False
+
+
+def _mark_differs_pauses(actions):
+    """Marks the "Ask me" pause of a call rule's request-differs branch (the `otherwise` of an
+    IF_REQUEST testing RECORDED_CALL). Only that pause is a request-changed hold; a checkpoint's
+    PAUSE_REQUEST is a plain pause that continues on timeout (FR-035d)."""
+    for action in actions or []:
+        if not isinstance(action, dict):
+            continue
+        if action.get('type') == 'IF_REQUEST' and _has_recorded_call_condition(action):
+            for inner in action.get('otherwise') or []:
+                if isinstance(inner, dict) and inner.get('type') == 'PAUSE_REQUEST':
+                    inner['reliveAt'] = 'CHANGED'
+        for branch in action.get('branches') or []:
+            _mark_differs_pauses((branch or {}).get('actions'))
+        _mark_differs_pauses(action.get('otherwise'))
 
 
 def _build_global_ruleset(engine, run):
@@ -964,7 +989,8 @@ def _relive_answers_dir(run_id, runs=None):
     return os.path.join(base_dir, 'answers', run_id)
 
 
-def _set_flow_context(flow, run, step_key):
+def _set_flow_context(flow, run, step_key, step=None):
+    flow.metadata['_relive_step'] = step
     flow.metadata['_relive_context'] = {
         'cycleId': run.get('cycleId'), 'runId': run.get('runId'), 'stepKey': step_key,
         'mtime': run.get('_mtime'),
@@ -1042,6 +1068,11 @@ def _guard_replay(verdict, step_entry, run_id, step_key):
         return
     if verdict.terminal:
         return
+    if verdict.pause and verdict.pause.get('phase') == 'request':
+        # Held for a human: the rest of the call rule runs once the pause is settled, and the
+        # guard is applied to that outcome (settle_request_pause). Failing here answered every
+        # paused REPLAY child with a 502 before anyone could see it.
+        return
     verdict.terminal = 'MOCK_RESPONSE'
     verdict.mock = {
         'status': 502,
@@ -1054,11 +1085,74 @@ def _guard_replay(verdict, step_entry, run_id, step_key):
 
 
 def _tag_changed_pause(verdict, run_id, step_key):
-    """Marks a request-phase pause (the call rule's ASK/"request differs" branch, research D15/
-    D17) with the metadata breakpoints.py needs to carry to the backend, and the addon needs to
-    recognise its unattended-timeout guarantee - see force_failure_mock and T033."""
+    """Tags a request-phase pause of a run's call with what kind of hold it is: CHANGED for the
+    call rule's "request differs" branch (research D15/D17, never forwarded without a human yes),
+    BEFORE for a checkpoint (continues with the call's own mode when time runs out)."""
     if verdict.pause and verdict.pause.get('phase') == 'request':
-        verdict.pause['relive'] = {'runId': run_id, 'stepKey': step_key, 'at': 'CHANGED'}
+        at = 'CHANGED' if verdict.pause.get('reliveAt') == 'CHANGED' else 'BEFORE'
+        verdict.pause['relive'] = {'runId': run_id, 'stepKey': step_key, 'at': at}
+
+
+def tag_response_pause(flow, response_verdict):
+    """A response-phase pause of a run's call is a "pause after" checkpoint: tagged so the run
+    view can show it next to the step (FR-035e)."""
+    info = (getattr(flow, 'metadata', None) or {}).get('relive') or {}
+    if response_verdict.pause and info.get('runId'):
+        response_verdict.pause['relive'] = {'runId': info.get('runId'), 'stepKey': info.get('stepKey'), 'at': 'AFTER'}
+
+
+def _answer(flow, verdict, status, headers, body):
+    from mitmproxy import http
+    data = body if isinstance(body, bytes) else (body or '').encode('utf-8')
+    flow.response = http.Response.make(status, data, headers or {})
+    verdict.terminal = 'MOCK_RESPONSE'
+    verdict.mock = {'status': status, 'headers': headers or {}, 'body_bytes': data}
+
+
+async def settle_request_pause(flow, verdict, decision, service_name, engine):
+    """What a released or timed-out request-phase pause of a run's call does next. Returns True
+    when the call has been answered here (flow.response set), False when the request goes on to
+    the host (after the decision's own request edits).
+
+    A pause stops the call rule in the middle; a plain release used to send the request straight
+    to the host and skip the rest of the rule - so a REPLAY child's mock never ran and the real
+    supplier was contacted. The rule now carries on after the pause instead.
+
+    decision['relive'] (set by the Relive run view): REPLAY (default), ANSWER (status/headers/body
+    are the answer), FAIL, SEND_REAL. A CHANGED hold nobody decided on is the failure mock, never
+    the host (T033).
+    """
+    meta = (verdict.pause or {}).get('relive') or {}
+    choice = str(decision.get('relive') or '').upper()
+    nobody = bool(decision.get('reason'))
+    if meta.get('at') == 'CHANGED' and (nobody or choice == 'FAIL'):
+        _answer(flow, verdict, 502, {'content-type': 'application/json'}, json.dumps(failure_payload(meta)))
+        return True
+    if choice == 'FAIL':
+        _answer(flow, verdict, 502, {'content-type': 'application/json'},
+                json.dumps({'error': 'Failed by the user at a Relive checkpoint',
+                            'runId': meta.get('runId'), 'stepKey': meta.get('stepKey')}))
+        return True
+    if choice == 'ANSWER':
+        _answer(flow, verdict, int(decision.get('status') or 200), decision.get('headers') or {}, decision.get('body') or '')
+        return True
+    if choice == 'SEND_REAL' or (decision.get('action') or '').lower() == 'abort':
+        return False
+    resume = flow.metadata.pop('_relive_resume', None)
+    rulesets = flow.metadata.get('relive_rulesets')
+    if resume is None or not rulesets:
+        return False
+    resumed = await engine.apply_request(flow, service_name, extra_rulesets=rulesets, resume=resume)
+    step = flow.metadata.get('_relive_step')
+    if step is not None:
+        _guard_replay(resumed, step, meta.get('runId'), meta.get('stepKey'))
+    if resumed.terminal == 'MOCK_RESPONSE':
+        mock = resumed.mock or {}
+        body = mock.get('body_bytes')
+        _answer(flow, verdict, mock.get('status', 200), mock.get('headers') or {},
+                body if body is not None else mock.get('body') or '')
+        return True
+    return False
 
 
 def _rule_applications(flow, rulesets):
@@ -1139,7 +1233,7 @@ async def apply_outbound(flow, service_name, backend_addresses, engine, runs=Non
 
     rulesets = rulesets_for(engine, run, child, runs)
     flow.metadata['relive_rulesets'] = rulesets
-    _set_flow_context(flow, run, child.get('stepKey'))
+    _set_flow_context(flow, run, child.get('stepKey'), child)
     verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
     _guard_replay(verdict, child, run_id, child.get('stepKey'))
     _tag_changed_pause(verdict, run_id, child.get('stepKey'))
@@ -1180,7 +1274,7 @@ async def _handle_unattributed(flow, service_name, engine, runs):
         # very same REPLAY guard as an ordinary attributed call: no answer, no forward.
         rulesets = rulesets_for(engine, run, child, runs)
         flow.metadata['relive_rulesets'] = rulesets
-        _set_flow_context(flow, run, child.get('stepKey'))
+        _set_flow_context(flow, run, child.get('stepKey'), child)
         verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
         _guard_replay(verdict, child, run_id, child.get('stepKey'))
         _tag_changed_pause(verdict, run_id, child.get('stepKey'))
@@ -1314,7 +1408,7 @@ async def _apply_matched_step(flow, service_name, engine, run, step_key, attribu
 
     rulesets = rulesets_for(engine, run, step, runs)
     flow.metadata['relive_rulesets'] = rulesets
-    _set_flow_context(flow, run, step.get('stepKey'))
+    _set_flow_context(flow, run, step.get('stepKey'), step)
     verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
     _tag_changed_pause(verdict, run_id, step.get('stepKey'))
     info = {'runId': run_id, 'stepKey': step.get('stepKey'), 'attribution': attribution,

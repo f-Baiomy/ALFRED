@@ -632,6 +632,20 @@ class InboundGuidedTest(unittest.TestCase):
             self.assertEqual({'runId': 'run-g', 'stepKey': None, 'attribution': 'GUIDED', 'choice': None}, info)
 
 
+def ask_call_rule(answer_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'):
+    """A REPLAY child's call rule with "When the request differs: Ask me" (FR-014d): the recorded
+    request file is absent, so the condition reads as "differs" and the pause is reached."""
+    return {
+        'match': {'source': 'outbound', 'host': 'api.supplier.com', 'pathContains': '/search'},
+        'actions': [
+            {'type': 'IF_REQUEST', 'branches': [{'conditions': [
+                {'subject': 'RECORDED_CALL', 'operator': 'MATCHES', 'answerId': answer_id}], 'actions': []}],
+             'otherwise': [{'type': 'PAUSE_REQUEST', 'timeoutSeconds': 1, 'onTimeout': 'release'}]},
+            {'type': 'MOCK_RESPONSE', 'status': 200, 'body': '{"replayed":true}'},
+        ],
+    }
+
+
 class UnattendedTimeoutTest(unittest.TestCase):
     """T033's single most safety-critical guarantee: an ASK ("request differs") pause that times
     out with nobody watching resolves to the failure mock and NEVER forwards."""
@@ -640,10 +654,7 @@ class UnattendedTimeoutTest(unittest.TestCase):
         import unittest.mock
 
         with tempfile.TemporaryDirectory() as tmp:
-            call_rule = {
-                'match': {'source': 'outbound', 'host': 'api.supplier.com', 'pathContains': '/search'},
-                'actions': [{'type': 'PAUSE_REQUEST', 'timeoutSeconds': 1, 'onTimeout': 'release'}],
-            }
+            call_rule = ask_call_rule()
             child = {'stepKey': 'c-supA', 'mode': 'REPLAY', 'unattributed': 'BLOCK', 'ordinal': 1,
                      'match': call_rule['match'], 'callRule': call_rule}
             write_run(tmp, 'run-a', steps=[{'stepKey': 's-search', 'direction': 'inbound',
@@ -669,10 +680,7 @@ class UnattendedTimeoutTest(unittest.TestCase):
 
     def test_no_webhook_configured_still_never_forwards(self):
         with tempfile.TemporaryDirectory() as tmp:
-            call_rule = {
-                'match': {'source': 'outbound', 'host': 'api.supplier.com', 'pathContains': '/search'},
-                'actions': [{'type': 'PAUSE_REQUEST', 'timeoutSeconds': 1, 'onTimeout': 'release'}],
-            }
+            call_rule = ask_call_rule()
             child = {'stepKey': 'c-supA', 'mode': 'REPLAY', 'unattributed': 'BLOCK', 'ordinal': 1,
                      'match': call_rule['match'], 'callRule': call_rule}
             write_run(tmp, 'run-a', steps=[{'stepKey': 's-search', 'direction': 'inbound',
@@ -1149,6 +1157,75 @@ class ReviewFixesTest(unittest.TestCase):
             flow = FakeFlow(request=FakeRequest(method='POST', host='ndc.example', path='/a', text='{"a":1}', headers=h))
             verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
             self.assertEqual('UNEXPECTED', info['attribution'])
+
+    def _paused(self, tmp, call_rule):
+        child = {'stepKey': 'c-supA', 'direction': 'outbound', 'unattributed': 'BLOCK', 'ordinal': 1,
+                 'match': call_rule['match'], 'callRule': call_rule}
+        write_run(tmp, 'run-a', steps=[{'stepKey': 's-search', 'direction': 'inbound',
+                                         'serviceName': 'proj', 'children': [child]}])
+        engine = make_engine(tmp)
+        runs = relive.ReliveRuns(relive_dir(tmp))
+        flow = outbound_flow(headers={'X-Alfred-Relive': 'run-a/s-search'})
+        verdict, _ = run(relive.apply_outbound(flow, 'proj', (BACKEND_PEER[0],), engine, runs))
+        return flow, verdict
+
+    def _decide(self, flow, verdict, decision):
+        async def fake_wait_for_decision(*args, **kwargs):
+            return decision
+        addon = log_and_route.RouteAndLog()
+        with patch('breakpoints.wait_for_decision', fake_wait_for_decision):
+            run(addon._decide(flow, verdict, 'call-1', 'proj'))
+
+    def _checkpoint_rule(self):
+        return {'match': {'source': 'outbound', 'host': 'api.supplier.com', 'pathContains': '/search'},
+                'actions': [{'type': 'PAUSE_REQUEST', 'timeoutSeconds': 1, 'onTimeout': 'release'},
+                            {'type': 'MOCK_RESPONSE', 'status': 200, 'body': '{"replayed":true}'}]}
+
+    def test_a_checkpoint_pause_is_tagged_before_not_changed(self):
+        # B6
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, self._checkpoint_rule())
+            self.assertEqual('BEFORE', verdict.pause['relive']['at'])
+
+    def test_a_replay_child_checkpoint_that_times_out_still_replays(self):
+        # B6 + the released-pause leak: the mock after the pause must answer, never the host.
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, self._checkpoint_rule())
+            self._decide(flow, verdict, {'action': 'release', 'reason': 'timeout'})
+            self.assertEqual(200, flow.response.status_code)
+            self.assertIn(b'replayed', flow.response.content)
+
+    def test_a_released_replay_child_checkpoint_replays(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, self._checkpoint_rule())
+            self._decide(flow, verdict, {'action': 'release'})
+            self.assertEqual(200, flow.response.status_code)
+
+    def test_skip_at_a_checkpoint_fails_the_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, self._checkpoint_rule())
+            self._decide(flow, verdict, {'action': 'release', 'relive': 'FAIL'})
+            self.assertEqual(502, flow.response.status_code)
+
+    def test_ask_me_released_by_a_human_replays_the_recording(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, ask_call_rule())
+            self.assertEqual('CHANGED', verdict.pause['relive']['at'])
+            self._decide(flow, verdict, {'action': 'release', 'relive': 'REPLAY'})
+            self.assertEqual(200, flow.response.status_code)
+            self.assertIn(b'replayed', flow.response.content)
+
+    def test_ask_me_answered_with_an_edited_answer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, ask_call_rule())
+            self._decide(flow, verdict, {'action': 'release', 'relive': 'ANSWER', 'status': 201, 'body': '{"edited":1}'})
+            self.assertEqual(201, flow.response.status_code)
+
+    def test_ask_me_send_real_leaves_the_request_to_the_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, ask_call_rule())
+            self._decide(flow, verdict, {'action': 'release', 'relive': 'SEND_REAL'})
+            self.assertIsNone(flow.response)
 
 
 if __name__ == '__main__':

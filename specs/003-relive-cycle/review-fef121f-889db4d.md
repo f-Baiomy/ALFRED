@@ -561,3 +561,13 @@ Each bug has: **where**, **what happens**, **why**, and **fix**.
 5. **Medium and low bugs, then style:** B14–B32, §6.
 6. **Close the open tasks:** T091 checkbox, T082 manual E2E with SC-002 and SC-010 on a real app plus a stub
    supplier, then tick the tasks in `tasks.md` that are really done and untick the ones listed in B13.
+
+---
+
+## 9. Found while fixing (Phase 16)
+
+| # | Bug | Severity | Fixed in |
+|---|---|---|---|
+| B33 | Releasing a request-phase pause sent the request to the host and skipped the rest of the call rule. A REPLAY child with "pause before" reached the real supplier on Continue or timeout | CRITICAL | T098 |
+| B34 | `_guard_replay` turned every paused REPLAY child into an immediate 502, so "Ask me" and child checkpoints never held | HIGH | T098 |
+| B35 | `backend-app` tests did not compile after `CallDetail` gained `relive`; two `ReliveCyclesControllerTest` cases failed after `create()` gained `deferFingerprint` | MEDIUM | T095 |
