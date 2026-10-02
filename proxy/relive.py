@@ -386,28 +386,52 @@ def _take_operation_id(flow, active_run_ids):
     return None, None
 
 
+def _child_matchers(run):
+    """(child, compiled Match, lowercase host or None, upper-case methods) for every child with a
+    match, built once per loaded snapshot - unattributed traffic is checked against every active
+    run on each call, so compiling Match objects per call was the cost (review P8)."""
+    cached = run.get('_child_matchers')
+    if cached is not None:
+        return cached
+    built = []
+    for step in _walk_steps(run.get('steps')):
+        for child in step.get('children') or []:
+            match_raw = _child_match_raw(child)
+            if not match_raw:
+                continue
+            try:
+                compiled = interception.Match(match_raw)
+            except Exception:
+                continue
+            host = match_raw.get('host') if isinstance(match_raw.get('host'), str) else None
+            host = host.lower() if host and '*' not in host else None
+            methods = {str(m).upper() for m in (match_raw.get('methods') or [])}
+            built.append((child, compiled, host, methods))
+    run['_child_matchers'] = built
+    return built
+
+
+def _children_matching(flow, source, service_name, run):
+    request, host, path = _request_host_path(flow)
+    live_host = (host or '').lower().partition(':')[0]
+    method = (request.method or '').upper()
+    for child, compiled, child_host, methods in _child_matchers(run):
+        if child_host and child_host != live_host:
+            continue
+        if methods and method not in methods:
+            continue
+        try:
+            if compiled.matches(source, service_name, request.method, host, path, request, None):
+                yield child
+        except Exception:
+            continue
+
+
 def _runs_with_matching_outbound_child(flow, source, service_name, active_runs):
     """Every active run whose snapshot has AT LEAST ONE outbound child matching this request -
     used only to decide ambiguity (FR-050a), never to pick a specific child."""
-    request, host, path = _request_host_path(flow)
-    ids = set()
-    for run_id, run in active_runs.items():
-        for step in _walk_steps(run.get('steps')):
-            for child in step.get('children') or []:
-                match_raw = _child_match_raw(child)
-                if not match_raw:
-                    continue
-                try:
-                    if interception.Match(match_raw).matches(
-                            source, service_name, request.method, host, path, request, None):
-                        ids.add(run_id)
-                        break
-                except Exception:
-                    continue
-            else:
-                continue
-            break
-    return ids
+    return {run_id for run_id, run in active_runs.items()
+            if next(_children_matching(flow, source, service_name, run), None) is not None}
 
 
 def _inflight_entries(runs, service_name):
@@ -526,23 +550,8 @@ def _match_unattributed_all(flow, source, service_name, runs):
     unattributed choice (FR-049a) and for detecting the "claimed by more than one run" case even
     when in-flight uniqueness didn't (a request can match a child of a run with no in-flight
     inbound call at all, e.g. a stale or misconfigured match)."""
-    request, host, path = _request_host_path(flow)
-    found = []
-    for run in runs.active_runs().values():
-        for step in _walk_steps(run.get('steps')):
-            for child in step.get('children') or []:
-                if not _is_replay_step(child):
-                    continue
-                match_raw = _child_match_raw(child)
-                if not match_raw:
-                    continue
-                try:
-                    if interception.Match(match_raw).matches(
-                            source, service_name, request.method, host, path, request, None):
-                        found.append((run, child))
-                except Exception:
-                    continue
-    return found
+    return [(run, child) for run in runs.active_runs().values()
+            for child in _children_matching(flow, source, service_name, run) if _is_replay_step(child)]
 
 
 def _child_is_inbound(child):
@@ -850,6 +859,16 @@ def _consider_unindexed(child, source, service_name, request, host, path, live_e
     by_signature.setdefault(signature, []).append(child)
 
 
+def _any_endpoint_could_match(step, live_ep):
+    for child in _outbound_candidates(step):
+        if not _child_enabled(child):
+            continue
+        recorded_ep = _child_endpoint(child)
+        if recorded_ep is None or interception.endpoints_match(live_ep, recorded_ep):
+            return True
+    return False
+
+
 def _finish_scan(by_signature, endpoint_only, run_id, parent_step_key, runs, consume):
     chosen = _take_ordinal(by_signature, run_id, parent_step_key, runs, consume)
     if chosen is not None:
@@ -906,6 +925,10 @@ def _match_child(flow, source, service_name, run, parent_step_key, runs, consume
     run_id = run.get('runId')
     cache = {}
     index = step.get('fingerprintIndex') if isinstance(step.get('fingerprintIndex'), dict) else None
+
+    if index is not None and not _any_endpoint_could_match(step, live_ep):
+        # No child of this step has this URL: fingerprinting (parsing the whole body) is wasted.
+        return None
 
     if index is not None:
         live_fp = _live_semantic_fingerprint(request, cache)

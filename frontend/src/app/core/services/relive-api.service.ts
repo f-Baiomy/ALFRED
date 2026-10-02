@@ -156,6 +156,10 @@ export class ReliveApiService {
     );
   }
 
+  setVariables(cycleId: string, runId: string, values: readonly { readonly name: string; readonly value: string; readonly stepKey: string | null }[]): Observable<void> {
+    return this.http.post<void>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/variables/batch`, values);
+  }
+
   setVariable(cycleId: string, runId: string, name: string, value: string, stepKey: string | null): Observable<void> {
     return this.http.post<void>(`${this.base}/${encodeURIComponent(cycleId)}/runs/${encodeURIComponent(runId)}/variables`, {
       name,

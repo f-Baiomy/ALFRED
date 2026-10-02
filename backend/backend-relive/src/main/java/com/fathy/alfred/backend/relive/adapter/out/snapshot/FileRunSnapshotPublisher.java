@@ -40,6 +40,11 @@ public class FileRunSnapshotPublisher implements RunSnapshotPublisherPort {
     @Value("${INTERCEPTION_RULES_FILE:/appdata/interception/rules.json}")
     private String rulesFile;
 
+    /** Run snapshots and answers. inflight.json has its own lock: the reverse proxy waits on it
+     *  before forwarding an inbound call, and must not queue behind a large snapshot write. */
+    private final Object runFiles = new Object();
+    private final Object inflightFile = new Object();
+
     public FileRunSnapshotPublisher(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -49,11 +54,17 @@ public class FileRunSnapshotPublisher implements RunSnapshotPublisherPort {
     }
 
     @Override
-    public synchronized void publish(String runId, JsonNode snapshotJson) {
+    public void publish(String runId, JsonNode snapshotJson) {
         if (!RUN_ID.matcher(runId).matches()) {
             log.warn("Not publishing a run snapshot with an invalid run id");
             return;
         }
+        synchronized (runFiles) {
+            publishLocked(runId, snapshotJson);
+        }
+    }
+
+    private void publishLocked(String runId, JsonNode snapshotJson) {
         try {
             Path dir = reliveDir();
             Files.createDirectories(dir);
@@ -64,10 +75,16 @@ public class FileRunSnapshotPublisher implements RunSnapshotPublisherPort {
     }
 
     @Override
-    public synchronized void unpublish(String runId) {
+    public void unpublish(String runId) {
         if (!RUN_ID.matcher(runId).matches()) {
             return;
         }
+        synchronized (runFiles) {
+            unpublishLocked(runId);
+        }
+    }
+
+    private void unpublishLocked(String runId) {
         Path dir = reliveDir();
         try {
             Files.deleteIfExists(dir.resolve(runId + ".json"));
@@ -89,31 +106,41 @@ public class FileRunSnapshotPublisher implements RunSnapshotPublisherPort {
     }
 
     @Override
-    public synchronized void publishInflight(JsonNode inflightJson) {
-        try {
-            Path dir = reliveDir();
-            Files.createDirectories(dir);
-            writeAtomically(dir, dir.resolve("inflight.json"), objectMapper.writeValueAsBytes(inflightJson));
-        } catch (IOException e) {
-            log.error("Could not publish inflight.json: {}", e.getMessage());
+    public void publishInflight(JsonNode inflightJson) {
+        synchronized (inflightFile) {
+            try {
+                Path dir = reliveDir();
+                Files.createDirectories(dir);
+                writeAtomically(dir, dir.resolve("inflight.json"), objectMapper.writeValueAsBytes(inflightJson));
+            } catch (IOException e) {
+                log.error("Could not publish inflight.json: {}", e.getMessage());
+            }
         }
     }
 
     @Override
-    public synchronized void clearInflight() {
-        try {
-            Files.deleteIfExists(reliveDir().resolve("inflight.json"));
-        } catch (IOException e) {
-            log.warn("Could not clear inflight.json: {}", e.getMessage());
+    public void clearInflight() {
+        synchronized (inflightFile) {
+            try {
+                Files.deleteIfExists(reliveDir().resolve("inflight.json"));
+            } catch (IOException e) {
+                log.warn("Could not clear inflight.json: {}", e.getMessage());
+            }
         }
     }
 
     @Override
-    public synchronized void writeAnswer(String runId, String answerId, JsonNode meta, byte[] body) {
+    public void writeAnswer(String runId, String answerId, JsonNode meta, byte[] body) {
         if (!RUN_ID.matcher(runId).matches() || !ANSWER_ID.matcher(answerId).matches()) {
             log.warn("Not writing a relive answer file with an invalid run id or answer id");
             return;
         }
+        synchronized (runFiles) {
+            writeAnswerLocked(runId, answerId, meta, body);
+        }
+    }
+
+    private void writeAnswerLocked(String runId, String answerId, JsonNode meta, byte[] body) {
         try {
             Path dir = reliveDir().resolve("answers").resolve(runId);
             Files.createDirectories(dir);

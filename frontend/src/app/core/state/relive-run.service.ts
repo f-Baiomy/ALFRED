@@ -1145,9 +1145,8 @@ export class ReliveRunService {
     const vars = { ...this.variables() };
     for (const v of result.variablesProduced) vars[v.name] = v.value;
     this.variables.set(vars);
-    for (const v of result.variablesProduced) {
-      await firstValueFrom(this.api.setVariable(run.cycleId, run.id, v.name, v.value, step.key));
-    }
+    await firstValueFrom(this.api.setVariables(run.cycleId, run.id,
+      result.variablesProduced.map((v) => ({ name: v.name, value: v.value, stepKey: step.key }))));
   }
 
   private async refreshRunVariables(run: Run): Promise<void> {

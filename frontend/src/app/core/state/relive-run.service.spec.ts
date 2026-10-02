@@ -236,6 +236,8 @@ describe('ReliveRunService', () => {
       'startRun',
       'putStepAttempt',
       'setVariable',
+      'setVariables',
+      'saveStepEdits',
       'stopRun',
       'finishRun',
       'setHold',
@@ -251,6 +253,7 @@ describe('ReliveRunService', () => {
 
     reliveApi.putStepAttempt.and.returnValue(of(undefined));
     reliveApi.setVariable.and.returnValue(of(undefined));
+    reliveApi.setVariables.and.returnValue(of(undefined));
 
     TestBed.configureTestingModule({
       providers: [

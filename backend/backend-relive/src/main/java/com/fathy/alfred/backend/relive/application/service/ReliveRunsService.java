@@ -14,6 +14,7 @@ import com.fathy.alfred.backend.relive.application.port.in.RunDefinitionConflict
 import com.fathy.alfred.backend.relive.application.port.in.RunLeaseHeldException;
 import com.fathy.alfred.backend.relive.application.port.in.RunNotResumableException;
 import com.fathy.alfred.backend.relive.application.port.in.SetRunVariableUseCase;
+import com.fathy.alfred.backend.relive.application.port.in.SetRunVariableUseCase.NewValue;
 import com.fathy.alfred.backend.relive.application.port.in.StartRunCommand;
 import com.fathy.alfred.backend.relive.application.port.in.StartRunUseCase;
 import com.fathy.alfred.backend.relive.application.port.in.StopRunUseCase;
@@ -329,16 +330,34 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     }
 
     private void setVariableLocked(String runId, String name, String value, String stepKey) {
+        setVariablesLocked(runId, List.of(new NewValue(name, value, stepKey)));
+    }
+
+    @Override
+    public void setVariables(String runId, List<NewValue> values) {
+        if (values.isEmpty()) {
+            return;
+        }
+        synchronized (lockFor(runId)) {
+            setVariablesLocked(runId, values);
+        }
+    }
+
+    private void setVariablesLocked(String runId, List<NewValue> values) {
         Run run = getOrThrow(runId);
+        String now = Instant.now().toString();
         List<VariableChange> timeline = new ArrayList<>(run.variableTimeline());
-        timeline.add(new VariableChange(name, value, stepKey, Instant.now().toString()));
-        Run updated = new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(), run.finishedAt(),
+        List<LogEntry> entries = new ArrayList<>();
+        for (NewValue v : values) {
+            timeline.add(new VariableChange(v.name(), v.value(), v.stepKey(), now));
+            entries.add(new LogEntry(now, v.stepKey(), "VARIABLE_SET",
+                    "{{$." + v.name() + "}} set" + (v.stepKey() == null ? "" : " by this step")));
+        }
+        Run updated = withLog(new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(), run.finishedAt(),
                 run.definition(), run.fromStepKey(), run.seedVariables(), timeline, run.summary(), run.hold(),
-                run.resumed(), run.log());
-        updated = withLog(updated, List.of(new LogEntry(Instant.now().toString(), stepKey, "VARIABLE_SET",
-                "{{$." + name + "}} set" + (stepKey == null ? "" : " by this step"))));
+                run.resumed(), run.log()), entries);
         runStore.updateState(updated);
-        if (isReferencedByARule(updated.definition(), name)) {
+        if (values.stream().anyMatch(v -> isReferencedByARule(updated.definition(), v.name()))) {
             publisher.publish(runId, snapshotBuilder.build(updated));
         }
         notifications.runChanged(run.cycleId(), runId);

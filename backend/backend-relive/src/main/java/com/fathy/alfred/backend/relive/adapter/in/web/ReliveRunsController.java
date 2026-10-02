@@ -164,6 +164,19 @@ public class ReliveRunsController {
         }
     }
 
+    /** Every value one step produced, in one request (review P11). */
+    @PostMapping("/{id}/runs/{runId}/variables/batch")
+    public ResponseEntity<Void> setVariables(@PathVariable String id, @PathVariable String runId,
+                                             @Valid @RequestBody @jakarta.validation.constraints.Size(max = 200) List<SetRunVariableRequestDto> request) {
+        try {
+            setRunVariable.setVariables(runId, request.stream()
+                    .map(v -> new SetRunVariableUseCase.NewValue(v.name(), v.value(), v.stepKey())).toList());
+            return ResponseEntity.noContent().build();
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
+        }
+    }
+
     @PostMapping("/{id}/runs/{runId}/stop")
     public ResponseEntity<Run> stop(@PathVariable String id, @PathVariable String runId) {
         try {

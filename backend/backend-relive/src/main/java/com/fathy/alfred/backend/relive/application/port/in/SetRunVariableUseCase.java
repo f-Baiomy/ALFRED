@@ -5,4 +5,10 @@ package com.fathy.alfred.backend.relive.application.port.in;
 public interface SetRunVariableUseCase {
 
     void setVariable(String runId, String name, String value, String stepKey);
+
+    /** Several values a step produced at once: one write and at most one republish (review P11). */
+    void setVariables(String runId, java.util.List<NewValue> values);
+
+    record NewValue(String name, String value, String stepKey) {
+    }
 }
