@@ -28,8 +28,10 @@ describe('ReliveCycleComponent picker and run', () => {
   let source: jasmine.SpyObj<ReliveCallSourceService>;
   let run: any;
   let api: { listRuns: jasmine.Spy; getRun: jasmine.Spy; fingerprint: jasmine.Spy };
+  let holdingCalls: ReturnType<typeof signal<unknown[]>>;
 
   beforeEach(() => {
+    holdingCalls = signal<unknown[]>([]);
     draft = signal<ReliveCycle | null>(null);
     saved = signal<ReliveCycle | null>(oldCycle);
     dirty = signal(false);
@@ -53,7 +55,7 @@ describe('ReliveCycleComponent picker and run', () => {
       continueAdopted: jasmine.createSpy('continueAdopted'),
       retain: jasmine.createSpy('retain'),
       release: jasmine.createSpy('release'),
-      run: signal(null),
+      run: signal<unknown>(null),
     };
     api = {
       listRuns: jasmine.createSpy('listRuns').and.returnValue(of([])),
@@ -69,7 +71,7 @@ describe('ReliveCycleComponent picker and run', () => {
         { provide: ReliveCallSourceService, useValue: source },
         { provide: ConfirmDialogService, useValue: {} },
         { provide: ReliveApiService, useValue: api },
-        { provide: InterceptionStateService, useValue: { pausedCalls: signal([]) } },
+        { provide: InterceptionStateService, useValue: { pausedCalls: signal([]), holdingCalls } },
         { provide: ReliveSocketService, useValue: { events$: new Subject() } },
         { provide: InterceptionApiService, useValue: { decide: jasmine.createSpy('decide').and.returnValue(of(undefined)) } },
         { provide: ReliveRuleDialogService, useValue: { request: signal(null) } },
@@ -81,6 +83,16 @@ describe('ReliveCycleComponent picker and run', () => {
         { provide: ReliveRunService, useValue: run },
       ],
     } });
+  });
+
+  it('lists only the calls of this run still holding: a decided call leaves the run view', () => {
+    run.run.set({ id: 'run-1' } as any);
+    holdingCalls.set([
+      { callId: 'held', stage: 'holding', relive: { runId: 'run-1' } },
+      { callId: 'other-run', stage: 'holding', relive: { runId: 'run-2' } },
+    ] as any);
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    expect(fixture.componentInstance.changedPauses().map((c) => c.callId)).toEqual(['held']);
   });
 
   it('waits for the async cycle load before consuming a picker result', async () => {

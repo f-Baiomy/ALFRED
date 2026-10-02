@@ -202,7 +202,9 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   readonly changedPauses = computed(() => {
     const runId = this.runService.run()?.id;
     if (!runId) return [];
-    return this.interceptionState.pausedCalls().filter((c) => c.relive?.runId === runId);
+    // Holding only: a decided call keeps its card in the Paused Calls feed (in flight, then
+    // finished) until dismissed there, and used to stay in the run view counting down (T082).
+    return this.interceptionState.holdingCalls().filter((c) => c.relive?.runId === runId);
   });
 
   /** FR-041b/c: a field marked from a step's differences goes to that step's or the cycle's noise
