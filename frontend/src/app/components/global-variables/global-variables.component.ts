@@ -126,7 +126,7 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
         }
       </aside>
     }
-    @if (selectionText() && !selectionEditing()) {
+    @if (selectionText() && !selectionEditing() && !selectionOffscreen()) {
       <button class="selection-variable-button" type="button" [style.left.px]="selectionLeft()" [style.top.px]="selectionTop()" (click)="beginSelectionCreate()">+ {{ selectionCanReplace() ? 'Create variable' : 'Save as variable' }}</button>
     }
     @if (selectionEditing()) {
@@ -276,7 +276,10 @@ export class GlobalVariablesComponent {
   constructor() {
     this.variables.load();
     this.variables.watchForChanges();
-    const onScroll = () => this.highlightLayoutVersion.update((value) => value + 1);
+    const onScroll = () => {
+      this.highlightLayoutVersion.update((value) => value + 1);
+      this.followSelection();
+    };
     document.addEventListener('scroll', onScroll, true);
     this.clockInterval = setInterval(() => this.clockTick.update((value) => value + 1), 30_000);
     // Live WS-driven change: flash the row while the drawer is open, otherwise bump the launch
@@ -415,8 +418,8 @@ export class GlobalVariablesComponent {
         this.selectedDomRange = null;
         this.selectionCanReplace.set(true);
         this.selectionText.set(element.value.slice(start, end));
-        const rect = element.getBoundingClientRect();
-        this.placeSelectionButton(rect.left, rect.top);
+        this.selectionAnchor = () => element.getBoundingClientRect();
+        this.followSelection();
         return;
       }
     }
@@ -432,8 +435,22 @@ export class GlobalVariablesComponent {
     this.selectedDomRange = parent?.closest('[contenteditable="true"], [contenteditable=""]') ? range.cloneRange() : null;
     this.selectionCanReplace.set(!!this.selectedDomRange);
     this.selectionText.set(text);
-    const rect = range.getBoundingClientRect();
-    this.placeSelectionButton(rect.left, rect.top);
+    const anchored = range.cloneRange();
+    this.selectionAnchor = () => anchored.getBoundingClientRect();
+    this.followSelection();
+  }
+
+  /** What the "Save as variable" button sits above - re-read on every scroll, so the button stays
+   *  with the selected text instead of hanging at the spot it first appeared. */
+  private selectionAnchor: (() => DOMRect) | null = null;
+  readonly selectionOffscreen = signal(false);
+
+  private followSelection(): void {
+    if (!this.selectionAnchor || !this.selectionText()) return;
+    const rect = this.selectionAnchor();
+    const onScreen = rect.bottom > 0 && rect.top < window.innerHeight && rect.width + rect.height > 0;
+    this.selectionOffscreen.set(!onScreen);
+    if (onScreen) this.placeSelectionButton(rect.left, rect.top);
   }
   private placeSelectionButton(left: number, top: number): void {
     this.selectionLeft.set(Math.max(8, Math.min(window.innerWidth - 165, left)));

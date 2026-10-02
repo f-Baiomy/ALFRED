@@ -61,6 +61,34 @@ describe('GlobalVariablesComponent input highlighting', () => {
     expect(input.value).toBe('{{saved}} {{var}} suffix');
   });
 
+  it('the "Save as variable" button follows its text on scroll, and hides when the text scrolls out of view', () => {
+    const box = document.createElement('div');
+    box.style.cssText = 'position: fixed; top: 300px; left: 40px; height: 120px; width: 300px; overflow: auto';
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'margin: 0; height: 2000px';
+    pre.textContent = 'JSESSIONID=GGnU6';
+    box.append(pre);
+    document.body.append(box);
+    const range = document.createRange();
+    range.setStart(pre.firstChild!, 0);
+    range.setEnd(pre.firstChild!, 10);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    component.onMouseUp({ target: pre } as unknown as MouseEvent);
+    const before = component.selectionTop();
+    box.scrollTop = 40;
+    box.dispatchEvent(new Event('scroll'));
+    expect(component.selectionTop()).toBe(before - 40);
+    expect(component.selectionOffscreen()).toBeFalse();
+
+    box.style.top = '-500px';
+    box.dispatchEvent(new Event('scroll'));
+    expect(component.selectionOffscreen()).toBeTrue();
+    box.remove();
+  });
+
   it('clears the floating action when creation is cancelled', () => {
     input.setSelectionRange(0, 6);
     component.onSelect({ target: input } as unknown as Event);
