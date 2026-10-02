@@ -218,3 +218,21 @@ describe('ReliveStepTreeComponent inside a host page', () => {
     expect(fixture.componentInstance.picks).toEqual([]);
   });
 });
+
+describe('ReliveStepTreeComponent dragging', () => {
+  it('drags a step only by its grip, so the open call card stays selectable', () => {
+    TestBed.configureTestingModule({
+      imports: [ReliveStepTreeComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    });
+    const fixture = TestBed.createComponent(ReliveStepTreeComponent);
+    fixture.componentRef.setInput('steps', fixtureSteps());
+    fixture.componentRef.setInput('settings', settings);
+    fixture.detectChanges();
+    const handles = fixture.nativeElement.querySelectorAll('[cdkDragHandle], .cdk-drag-handle');
+    const grips = fixture.nativeElement.querySelectorAll('.rl-grip');
+    expect(grips.length).toBeGreaterThan(0);
+    expect(handles.length).toBe(grips.length);
+    expect(Array.from(handles as NodeListOf<HTMLElement>).every((h) => h.classList.contains('rl-grip'))).toBeTrue();
+  });
+});

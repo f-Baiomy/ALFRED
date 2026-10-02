@@ -11,7 +11,9 @@
           [class.rl-disabled-step]="!block.parent.enabled"
           (click)="onSelect(block.parent.key)"
         >
-          <span class="rl-grip" title="Drag to reorder">⋮⋮</span>
+          <!-- The only place a step is dragged from: the open call card below it is for reading,
+               selecting text and commenting, which a whole-block drag would swallow. -->
+          <span class="rl-grip" cdkDragHandle title="Drag to reorder">⋮⋮</span>
           <span class="rl-step-number">{{ stepNumber + 1 }}</span>
           @if (block.children.length) {
             <button class="icon-btn" (click)="toggleFold(block.parent.key, $event)">{{ isFolded(block.parent.key) ? '▸' : '▾' }}</button>
