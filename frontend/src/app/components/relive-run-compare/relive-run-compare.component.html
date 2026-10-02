@@ -1,0 +1,207 @@
+<div class="rl-cmp-card">
+  <div class="rl-cmp-head">
+    @for (side of [a(), b()]; track $index; let isB = $last) {
+      <div class="rl-cmp-side" [class.rl-cmp-b]="isB">
+        <div class="rl-row">
+          <span class="rl-slot" [class.rl-slot-a]="!isB" [class.rl-slot-b]="isB">{{ isB ? 'B' : 'A' }}</span>
+          @if (side.isRecording) {
+            <b>The recording</b>
+          } @else {
+            <b [title]="side.startedAt ?? ''">{{ side.startedAt | date: 'medium' }}</b>
+          }
+          @if (runPill(side); as pill) {
+            <span class="rl-pill" [class]="pill[0]">{{ pill[1] }}</span>
+          }
+        </div>
+        <div class="rl-dim rl-t-125">
+          {{ sideSummary(side) }}
+          @if (isB && editedBetween()) {
+            <span class="rl-cmp-warn">· the cycle was edited between A and B</span>
+          }
+        </div>
+      </div>
+      @if (!isB) {
+        <div class="rl-cmp-vs">→</div>
+      }
+    }
+  </div>
+
+  <div class="rl-cmp-verdict" [attr.data-tone]="comparison().verdict.tone">
+    <b>{{ comparison().verdict.lead }}</b> {{ comparison().verdict.text }}
+  </div>
+
+  <div class="rl-cmp-tiles">
+    @for (tile of tiles(); track tile.key) {
+      <button type="button" class="rl-cmp-tile" [class.rl-on]="filter() === tile.key" [attr.data-filter]="tile.key" (click)="setFilter(tile.key)">
+        <b [class]="tile.tone">{{ tile.count }}</b>
+        <span>{{ tile.label }}</span>
+      </button>
+    }
+  </div>
+</div>
+
+<div class="rl-cmp-card rl-cmp-table">
+  <div class="rl-row rl-cmp-tools">
+    <div class="rl-seg">
+      <button type="button" [class.rl-on]="filter() !== 'all'" (click)="setFilter('changed')">Changed only</button>
+      <button type="button" [class.rl-on]="filter() === 'all'" (click)="setFilter('all')">All steps</button>
+    </div>
+    <label class="rl-check-row rl-t-125">
+      <input class="rl-check" type="checkbox" [checked]="showNoise()" (change)="showNoise.set($any($event.target).checked)" />
+      Show noise fields
+    </label>
+    <span class="rl-faint rl-t-115">noise rules of the cycle and steps applied</span>
+    <span class="rl-spacer"></span>
+    <input class="rl-search" type="search" placeholder="Search steps…" aria-label="Search steps" [value]="query()" (input)="query.set($any($event.target).value)" />
+    <app-action-menu label="Export">
+      <button type="button" class="filter-option-item" (click)="exportAs('markdown')">Export comparison...</button>
+      <button type="button" class="filter-option-item" (click)="exportAs('json')">Export as JSON</button>
+      <button type="button" class="filter-option-item" (click)="exportAs('html')">Export as HTML</button>
+    </app-action-menu>
+  </div>
+
+  <div class="rl-cmp-row rl-cmp-row-head">
+    <span></span><span>Step</span><span>Outcome / status A → B</span><span>Fields</span><span>Time A → B</span><span>Verdict</span><span></span>
+  </div>
+  @for (row of shown(); track row.key) {
+    <div class="rl-cmp-row" [class.rl-child]="row.isChild" [class.rl-open]="openKey() === row.key" [attr.data-cmp-key]="row.key" (click)="toggleRow(row.key)">
+      <span class="rl-faint">{{ openKey() === row.key ? '▾' : '▸' }}</span>
+      <span class="rl-cmp-name">
+        <b>@if (row.isChild) {<span class="rl-faint">↗ </span>}{{ row.label }}</b>
+        <span class="rl-cmp-path rl-mono">{{ row.path }}</span>
+      </span>
+      <span class="rl-row">
+        <span class="rl-pill" [class]="outcomePill(row.a.outcome)[0]">{{ outcomePill(row.a.outcome)[1] }} {{ row.a.status ?? '' }}</span>
+        <span class="rl-faint">→</span>
+        <span class="rl-pill" [class]="outcomePill(row.b.outcome)[0]">{{ outcomePill(row.b.outcome)[1] }} {{ row.b.status ?? '' }}</span>
+      </span>
+      <span>
+        @if (unexpectedCount(row)) {
+          <b>{{ unexpectedCount(row) }}</b> field{{ unexpectedCount(row) === 1 ? '' : 's' }}
+        } @else {
+          <span class="rl-faint">-</span>
+        }
+        @if (showNoise() && noiseCount(row)) {
+          <span class="rl-faint"> +{{ noiseCount(row) }} noise</span>
+        }
+      </span>
+      <span>
+        <span class="rl-t-115">{{ timeText(row.a.durationMs) }} → {{ timeText(row.b.durationMs) }}</span>
+        @if (row.timeChangePct != null) {
+          <span class="rl-t-115" [class.rl-cmp-up]="row.timeChangePct > 0" [class.rl-cmp-down]="row.timeChangePct < 0"> {{ row.timeChangePct > 0 ? '+' : '' }}{{ row.timeChangePct }}%</span>
+        }
+        <span class="rl-cmp-bar"><i class="rl-cmp-bar-a" [style.width.%]="bars(row)[0]"></i><i class="rl-cmp-bar-b" [style.width.%]="bars(row)[1]"></i></span>
+      </span>
+      <span><span class="rl-pill" [class]="verdictPill(row.verdict)[0]">{{ verdictPill(row.verdict)[1] }}</span></span>
+      <span class="rl-cmp-actions">
+        @if (!b().isRecording && row.b.outcome !== 'skip') {
+          <button type="button" class="rl-btn rl-sm" (click)="$event.stopPropagation(); open(b(), row)">Open in B ↗</button>
+        }
+      </span>
+    </div>
+
+    @if (openKey() === row.key) {
+      <div class="rl-cmp-detail" [class.rl-child]="row.isChild">
+        <div class="rl-cmp-two">
+          @for (pair of [{ name: 'A', side: a(), step: row.a }, { name: 'B', side: b(), step: row.b }]; track pair.name) {
+            <div class="rl-cmp-box" [class.rl-cmp-b]="pair.name === 'B'">
+              <b>{{ pair.name }} · {{ sideName(pair.side) }}</b>
+              <div class="rl-t-125">
+                @if (pair.step.outcome === 'skip' && !pair.side.isRecording) {
+                  not run
+                } @else {
+                  {{ sideLine(pair.step) }}
+                  @if (rulesOf(pair.step); as rules) {
+                    · rules: {{ rules }}
+                  }
+                }
+              </div>
+              @if (pair.step.error) {
+                <div class="rl-cmp-err rl-t-125">{{ mask(pair.step.error) }}</div>
+              }
+            </div>
+          }
+        </div>
+
+        <h4>Response fields that changed ({{ unexpectedCount(row) }})</h4>
+        @for (f of visibleFields(row); track f.part + f.path) {
+          <div class="rl-cmp-field" [class.rl-cmp-noise]="f.noise">
+            <span class="rl-mono">{{ f.path }}</span>
+            <span class="rl-cmp-va">{{ value(f.a) }}</span>
+            <span class="rl-cmp-vb">{{ value(f.b) }}</span>
+            <span>
+              @if (f.noise) {
+                <span class="rl-faint rl-t-115">noise · {{ f.cause }}</span>
+              } @else {
+                <button type="button" class="rl-btn rl-sm" (click)="ignoreInCycle(row, f)">Ignore in cycle</button>
+              }
+            </span>
+          </div>
+        } @empty {
+          <div class="rl-faint rl-t-125">No field changed{{ noiseCount(row) && !showNoise() ? ' (' + noiseCount(row) + ' noise hidden)' : '' }}.</div>
+        }
+
+        <h4>What the step sent differently</h4>
+        @for (f of row.sent; track f.part + f.path) {
+          <div class="rl-cmp-field">
+            <span class="rl-mono">{{ f.path }}</span>
+            <span class="rl-cmp-va">{{ value(f.a) }}</span>
+            <span class="rl-cmp-vb">{{ value(f.b) }}</span>
+            <span class="rl-faint rl-t-115">{{ f.cause }}</span>
+          </div>
+        } @empty {
+          <div class="rl-faint rl-t-125">Sent the same request in both.</div>
+        }
+
+        <div class="rl-row rl-cmp-detail-actions">
+          <div class="intercept-views resend-halves">
+            <button type="button" [class.on]="half() === 'request'" (click)="toggleHalf('request')">Request A vs B</button>
+            <button type="button" [class.on]="half() === 'response'" (click)="toggleHalf('response')">Response A vs B</button>
+          </div>
+          <span class="rl-spacer"></span>
+          @if (!a().isRecording && row.a.outcome !== 'skip') {
+            <button type="button" class="rl-btn rl-sm" (click)="open(a(), row)">Open in run A ↗</button>
+          }
+          @if (!b().isRecording && row.b.outcome !== 'skip') {
+            <button type="button" class="rl-btn rl-sm" (click)="open(b(), row)">Open in run B ↗</button>
+          }
+        </div>
+        @if (half(); as h) {
+          @if (h === 'request' ? row.a.request && row.b.request : row.a.response && row.b.response) {
+            <app-interception-panel [interception]="interception(row)" [phase]="h" [embedded]="true" [collapsibleSections]="true" [labels]="halfLabels(h)" />
+          } @else {
+            <div class="intercept-empty">Only one of the two has a {{ h }} for this step.</div>
+          }
+        }
+      </div>
+    }
+  } @empty {
+    <div class="rl-faint rl-cmp-nothing">Nothing matches.</div>
+  }
+</div>
+
+@if (comparison().variables.length) {
+  <div class="rl-cmp-card">
+    <b>Values captured</b> <span class="rl-faint">- often why a later step differs</span>
+    <table class="rl-cmp-vars">
+      <thead><tr><th>Variable</th><th>Saved by</th><th>A</th><th>B</th><th></th></tr></thead>
+      <tbody>
+        @for (v of comparison().variables; track v.name) {
+          <tr>
+            <td class="rl-mono">{{ token(v.name) }}</td>
+            <td>{{ v.savedBy ?? '' }}</td>
+            <td class="rl-mono">{{ v.a == null ? 'not set' : mask(v.a) }}</td>
+            <td class="rl-mono">{{ v.b == null ? 'not set' : mask(v.b) }}</td>
+            <td>
+              @switch (v.change) {
+                @case ('same') { <span class="rl-pill rl-p-wait">same</span> }
+                @case ('changed') { <span class="rl-pill rl-p-diff">changed</span> }
+                @default { <span class="rl-pill rl-p-fail">missing in {{ v.change === 'missing-a' ? 'A' : 'B' }}</span> }
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}
