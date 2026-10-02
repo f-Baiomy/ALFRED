@@ -871,6 +871,24 @@ def fingerprint_flow(body, path='/api/FlightSearch/Search'):
     ))
 
 
+class BinaryBodyTest(unittest.TestCase):
+    """Review B32: bytes that are not UTF-8 in a body declared UTF-8."""
+
+    def test_surrogate_escaped_live_body_matches_the_stored_recording(self):
+        live = b'{"blob":"\xff\xfeA"}'.decode('utf-8', 'surrogateescape')
+        stored = '{"blob":"??A"}'  # what Java's getBytes(UTF_8) wrote for the same call
+        self.assertEqual(interception.canonical_body(stored), interception.canonical_body(live))
+        self.assertTrue(interception._bodies_match(live, stored, []))
+
+    def test_fingerprint_of_a_surrogate_escaped_body_does_not_raise(self):
+        live = b'\x00\xff\x10binary'.decode('utf-8', 'surrogateescape')
+        self.assertEqual(_semantic_fingerprint('\x00?\x10binary'), _semantic_fingerprint(live))
+
+    def test_latin1_decoded_binary_survives_unchanged(self):
+        text = bytes(b for b in range(256) if b != 0x0d).decode('latin-1')  # CR: line endings normalize
+        self.assertEqual(text, interception.canonical_body(text))
+
+
 class StoredFingerprintMatchTest(unittest.TestCase):
     def _doc(self, tmp, children, fingerprint_index=None):
         step = {

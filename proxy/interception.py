@@ -675,6 +675,20 @@ def _canonical_xml(text):
     return render(root)
 
 
+def _as_stored(text):
+    """`text` as the backend stores it. A body that declares UTF-8 but carries other bytes is
+    decoded with surrogateescape here; the logged copy reaches the backend as lone surrogates,
+    which Java writes out as '?'. Comparing or hashing the raw form would make such a recording
+    "differ" from its own replay every time (review B32), and encode('utf-8') would raise."""
+    if text.isascii():
+        return text
+    try:
+        text.encode('utf-8')
+        return text
+    except UnicodeEncodeError:
+        return text.encode('utf-8', 'replace').decode('utf-8')
+
+
 def canonical_body(text):
     """One form of a body so pretty-printing, key order, and SOAP indentation do not matter.
 
@@ -683,7 +697,7 @@ def canonical_body(text):
     A body that only looks like JSON or XML but does not parse falls back to the whitespace
     squash, so a format change of a real document still matches and garbage does not.
     """
-    text = text or ''
+    text = _as_stored(text or '')
     if len(text) > _CANONICAL_BODY_LIMIT:
         kind = _body_kind(text)
         if kind == 'json':
