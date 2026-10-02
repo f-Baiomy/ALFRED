@@ -281,7 +281,9 @@ class RouteAndLog:
             await self._fail(flow, verdict.failure)
             return
 
-        if verdict.pause and verdict.pause.get('phase') == 'request':
+        # A Relive call rule can stop twice: a released checkpoint carries on into the request-differs
+        # "Ask me" hold, which is a new pause to wait on (relive.PAUSED_AGAIN), never the host.
+        while verdict.pause and verdict.pause.get('phase') == 'request':
             relive_meta = verdict.pause.get('relive')
             if call_id:
                 decision = await breakpoints.wait_for_decision(
@@ -289,13 +291,17 @@ class RouteAndLog:
             else:
                 decision = {'action': 'abort' if verdict.pause.get('onTimeout') == 'abort' else 'release',
                             'reason': 'no-webhook'}
-            if relive_meta and await relive.settle_request_pause(flow, verdict, decision, service_name, ENGINE):
+            settled = await relive.settle_request_pause(flow, verdict, decision, service_name, ENGINE) if relive_meta else False
+            if settled == relive.PAUSED_AGAIN:
+                continue
+            if settled:
                 # Answered by the run (T033/T098): a CHANGED hold nobody decided on is the failure
                 # mock, never the host; a released pause carries on with the rest of the call rule,
                 # so a REPLAY child's mock still answers instead of the real supplier.
                 return
             if call_id:
                 await self._record_decision(flow, verdict, 'request', decision)
+            return
 
     async def _fail(self, flow, failure):
         """Carries out a SIMULATE_FAILURE verdict.

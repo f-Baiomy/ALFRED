@@ -1323,6 +1323,41 @@ class ReviewFixesTest(unittest.TestCase):
             self.assertEqual(200, flow.response.status_code)
             self.assertIn(b'replayed', flow.response.content)
 
+    def _decide_each(self, flow, verdict, decisions):
+        """The addon's _decide with one decision per hold, in order. Returns how many holds there were."""
+        queue = list(decisions)
+        holds = []
+
+        async def fake_wait_for_decision(flow, phase, call_id, pause, *args, **kwargs):
+            holds.append((pause.get('relive') or {}).get('at'))
+            return queue.pop(0)
+        addon = log_and_route.RouteAndLog()
+        with patch('breakpoints.wait_for_decision', fake_wait_for_decision):
+            run(addon._decide(flow, verdict, 'call-1', 'proj'))
+        return holds
+
+    def _checkpoint_then_ask_rule(self):
+        rule = ask_call_rule()
+        rule['actions'].insert(0, {'type': 'PAUSE_REQUEST', 'timeoutSeconds': 1, 'onTimeout': 'release'})
+        return rule
+
+    def test_a_checkpoint_released_into_ask_me_is_held_again_not_sent(self):
+        # T082: Continue at "pause before" ran into the request-differs "Ask me" hold, and the call
+        # went to the real supplier with nobody's yes.
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, self._checkpoint_then_ask_rule())
+            holds = self._decide_each(flow, verdict, [{'action': 'release'}, {'action': 'release', 'relive': 'REPLAY'}])
+            self.assertEqual(['BEFORE', 'CHANGED'], holds)
+            self.assertEqual(200, flow.response.status_code)
+            self.assertIn(b'replayed', flow.response.content)
+
+    def test_a_checkpoint_released_into_an_unanswered_ask_me_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flow, verdict = self._paused(tmp, self._checkpoint_then_ask_rule())
+            self._decide_each(flow, verdict, [{'action': 'release', 'reason': 'timeout'},
+                                              {'action': 'release', 'reason': 'timeout'}])
+            self.assertEqual(502, flow.response.status_code)
+
     def test_ask_me_answered_with_an_edited_answer(self):
         with tempfile.TemporaryDirectory() as tmp:
             flow, verdict = self._paused(tmp, ask_call_rule())

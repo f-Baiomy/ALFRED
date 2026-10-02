@@ -1256,10 +1256,16 @@ def _answer(flow, verdict, status, headers, body):
     verdict.mock = {'status': status, 'headers': headers or {}, 'body_bytes': data}
 
 
+PAUSED_AGAIN = 'PAUSED_AGAIN'
+
+
 async def settle_request_pause(flow, verdict, decision, service_name, engine):
     """What a released or timed-out request-phase pause of a run's call does next. Returns True
     when the call has been answered here (flow.response set), False when the request goes on to
-    the host (after the decision's own request edits).
+    the host (after the decision's own request edits), and PAUSED_AGAIN when the rest of the call
+    rule stopped at another pause - `verdict.pause` is then that pause, and the caller holds the
+    call again (a checkpoint released into the "Ask me" request-differs hold, T082: it used to go
+    to the real host with nobody's yes).
 
     A pause stops the call rule in the middle; a plain release used to send the request straight
     to the host and skip the rest of the rule - so a REPLAY child's mock never ran and the real
@@ -1292,6 +1298,11 @@ async def settle_request_pause(flow, verdict, decision, service_name, engine):
     if resume is None or not rulesets:
         return False
     resumed = await engine.apply_request(flow, service_name, extra_rulesets=rulesets, resume=resume)
+    verdict.applied.extend(resumed.applied)
+    if resumed.pause and resumed.pause.get('phase') == 'request' and not resumed.terminal:
+        _tag_changed_pause(resumed, meta.get('runId'), meta.get('stepKey'))
+        verdict.pause = resumed.pause
+        return PAUSED_AGAIN
     step = flow.metadata.get('_relive_step')
     if step is not None:
         _guard_replay(resumed, step, meta.get('runId'), meta.get('stepKey'))

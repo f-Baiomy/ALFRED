@@ -191,6 +191,15 @@ async def wait_for_decision(flow, phase, call_id, pause, source, service_name):
     walking away from the screen.
     """
     loop = asyncio.get_event_loop()
+    # The same call held a second time (a Relive checkpoint released into the "Ask me" hold): the
+    # first hold's "resolved" is fire-and-forget, and landing after this registration it would
+    # remove the new hold. Wait for it first.
+    resolving = _RESOLVING.pop(call_id, None)
+    if resolving is not None:
+        try:
+            await resolving
+        except Exception:
+            pass
     deadline = loop.time() + pause['timeoutSeconds']
     timed_out = {'action': 'abort' if pause.get('onTimeout') == 'abort' else 'release',
                  'reason': 'timeout'}
@@ -260,11 +269,16 @@ async def wait_for_decision(flow, phase, call_id, pause, source, service_name):
         # doesn't show a row whose caller has already been answered. Fire-and-forget on purpose -
         # the flow must continue whether or not this lands.
         try:
-            loop.run_in_executor(None, _resolve_quietly, call_id)
+            resolved = loop.run_in_executor(None, _resolve_quietly, call_id)
+            _RESOLVING[call_id] = resolved
+            resolved.add_done_callback(lambda done: _RESOLVING.pop(call_id, None) if _RESOLVING.get(call_id) is done else None)
         except Exception:
             pass
 
     return timed_out
+
+
+_RESOLVING = {}  # call id -> the in-flight "resolved" of its last hold
 
 
 def _resolve_quietly(call_id):
