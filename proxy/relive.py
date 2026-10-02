@@ -85,6 +85,7 @@ class ReliveRuns:
         self._forced_for = set()  # unknown run ids already given a forced scan this window
         self._guided = {}         # runId -> (top-step index, stepKey, monotonic time) last matched
         self._used = {}           # (runId, parent stepKey) -> child stepKeys already matched this execution
+        self._scanning = None     # Future of the prepare() scan in progress, awaited by every other call
 
     def _stale(self):
         now = time.monotonic()
@@ -113,7 +114,14 @@ class ReliveRuns:
         synchronous refresh() that follows within the same throttle window then has nothing to
         do. A run id named by the Relive header or by inflight.json that is not loaded yet forces
         a scan, exactly like ensure_known.
+
+        Every call that arrives while a scan is in progress waits for it. Going on without it, a
+        call saw the run id already marked as scanned, found no snapshot for it yet, and was
+        attributed to the previous run or to none: a parallel REPLAY supplier call reached the
+        real host (T082).
         """
+        while self._scanning is not None:
+            await asyncio.shield(self._scanning)
         self._reload_inflight_if_changed()
         wanted = {e.get('runId') for entries in (self._inflight or {}).values()
                   if isinstance(entries, list) for e in entries if isinstance(e, dict)}
@@ -133,8 +141,17 @@ class ReliveRuns:
         if listing is None:
             return
         seen, changed = listing
-        loaded = await asyncio.to_thread(_parse_snapshots, changed) if changed else []
-        self._apply_run_files(seen, loaded)
+        if not changed:
+            self._apply_run_files(seen, [])
+            return
+        scanning = asyncio.get_running_loop().create_future()
+        self._scanning = scanning
+        try:
+            loaded = await asyncio.to_thread(_parse_snapshots, changed)
+            self._apply_run_files(seen, loaded)
+        finally:
+            self._scanning = None
+            scanning.set_result(None)
 
     def _refresh_run_files(self):
         listing = self._list_run_files()

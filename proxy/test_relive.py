@@ -128,6 +128,40 @@ class ReliveRunsLoaderTest(unittest.TestCase):
             self.assertIsNot(threading.main_thread(), parsed_on[0])
             self.assertIn('s-search', runs._steps_by_run['run-a'])
 
+    def test_parallel_calls_wait_for_the_scan_in_progress(self):
+        """T082: Search's suppliers B and C arrive together, right after the run changed. C must
+        not go on with the previous run's snapshot while B's scan is still parsing the new one."""
+        def child(key, path, mode):
+            match = {'source': 'outbound', 'host': 'api.supplier.com', 'methods': ['GET'], 'pathContains': path}
+            return {'stepKey': key, 'direction': 'outbound', 'ordinal': 1, 'unattributed': 'BLOCK', 'mode': mode,
+                    'recordedRequest': {'method': 'GET', 'scheme': 'https', 'host': 'api.supplier.com',
+                                        'path': path, 'query': ''},
+                    'match': match, 'callRule': {'match': match, 'actions': [
+                        {'type': 'MOCK_RESPONSE', 'enabled': mode == 'REPLAY', 'status': 200, 'body': '{}'}]}}
+
+        steps = [{'stepKey': 's-search', 'direction': 'inbound', 'serviceName': 'proj',
+                  'children': [child('c-B', '/supplierB', 'LIVE'), child('c-C', '/supplierC', 'REPLAY')]}]
+        with tempfile.TemporaryDirectory() as tmp:
+            write_run(tmp, 'run-old', steps=steps)
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            runs.refresh(force=True)
+            runs._last_check = time.monotonic() - 5
+            os.remove(os.path.join(relive_dir(tmp), 'run-old.json'))
+            write_run(tmp, 'run-new', steps=steps)
+            write_inflight(tmp, {'proj': [{'callId': 'in-1', 'runId': 'run-new', 'stepKey': 's-search',
+                                           'direction': 'inbound'}]})
+
+            async def both():
+                return await asyncio.gather(
+                    relive.apply_outbound(outbound_flow(path='/supplierB'), None, (BACKEND_PEER[0],), engine, runs),
+                    relive.apply_outbound(outbound_flow(path='/supplierC'), None, (BACKEND_PEER[0],), engine, runs))
+
+            (b_verdict, b_info), (c_verdict, c_info) = run(both())
+            self.assertEqual(('run-new', 'c-B', 'INFLIGHT'), (b_info['runId'], b_info['stepKey'], b_info['attribution']))
+            self.assertEqual(('run-new', 'c-C', 'INFLIGHT'), (c_info['runId'], c_info['stepKey'], c_info['attribution']))
+            self.assertEqual('MOCK_RESPONSE', c_verdict.terminal)
+
     def test_prepare_scans_at_once_for_a_run_named_by_the_header(self):
         with tempfile.TemporaryDirectory() as tmp:
             os.makedirs(relive_dir(tmp))
