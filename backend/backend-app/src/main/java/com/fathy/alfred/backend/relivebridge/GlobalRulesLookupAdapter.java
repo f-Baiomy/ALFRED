@@ -13,15 +13,19 @@ import java.util.List;
 public class GlobalRulesLookupAdapter implements GlobalRulesLookupPort {
 
     private final ManageInterceptionRulesUseCase manageRules;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
-    public GlobalRulesLookupAdapter(ManageInterceptionRulesUseCase manageRules) {
+    public GlobalRulesLookupAdapter(ManageInterceptionRulesUseCase manageRules,
+                                    com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.manageRules = manageRules;
+        this.objectMapper = objectMapper;
     }
 
+    /** With each rule's match, so pre-run validation can report a GLOBAL/CYCLE overlap (FR-017). */
     @Override
     public List<GlobalRuleRef> list() {
         return manageRules.list().stream()
-                .map(r -> new GlobalRuleRef(r.id(), r.name(), r.enabled()))
+                .map(r -> new GlobalRuleRef(r.id(), r.name(), r.enabled(), objectMapper.valueToTree(r.match())))
                 .toList();
     }
 

@@ -156,7 +156,8 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     public Run start(String cycleId, StartRunCommand command) {
         ReliveCycle cycle = cycleStore.findById(cycleId)
                 .orElseThrow(() -> new IllegalArgumentException("Cycle " + cycleId + " does not exist"));
-        List<ValidationFinding> findings = validateCycle.validate(cycleId);
+        String requestedDriver = command.driver() == null ? cycle.settings().defaultDriver() : command.driver();
+        List<ValidationFinding> findings = validateCycle.validate(cycleId, requestedDriver);
         if (findings.stream().anyMatch(f -> "BLOCK".equals(f.severity()))) {
             throw new RunBlockedException(findings);
         }

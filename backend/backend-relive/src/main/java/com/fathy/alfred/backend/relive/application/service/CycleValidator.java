@@ -38,6 +38,13 @@ public class CycleValidator {
     }
 
     public List<ValidationFinding> validate(ReliveCycle cycle) {
+        return validate(cycle, cycle.settings() == null ? null : cycle.settings().defaultDriver());
+    }
+
+    /** {@code driver}: the one this run will use - the pre-run dialog may choose Guided for a cycle
+     *  whose default is Automatic, and the Guided checks must apply then too (review B18). */
+    public List<ValidationFinding> validate(ReliveCycle cycle, String driver) {
+        boolean guided = "GUIDED".equals(driver);
         List<ValidationFinding> findings = new ArrayList<>();
         List<Step> steps = cycle.steps() == null ? List.of() : cycle.steps();
 
@@ -46,9 +53,11 @@ public class CycleValidator {
         checkNothingToRun(steps, findings);
         checkGlobalRuleGone(cycle, findings);
         checkRuleOverlap(cycle, findings);
-        checkLiveExternal(steps, findings);
-        checkMayBeUnattributed(cycle, findings);
-        checkGuidedProjectBusy(cycle, findings);
+        checkLiveExternal(cycle, steps, findings);
+        checkMayBeUnattributed(steps, guided, findings);
+        checkGuidedProjectBusy(cycle, guided, findings);
+        checkGlobalCycleOverlap(cycle, findings);
+        checkSameRecordingTwice(steps, findings);
 
         Set<String> declaredVariables = new HashSet<>();
         if (cycle.variables() != null) {
@@ -139,19 +148,91 @@ public class CycleValidator {
         }
     }
 
-    /** A step whose call rule has no enabled MOCK_RESPONSE/REPLACE_RESPONSE reaches a real host. */
-    private void checkLiveExternal(List<Step> steps, List<ValidationFinding> findings) {
+    /** Every way the run can reach a real external system (FR-016), by the same walk as the
+     *  browser's reachesHost: each enabled path through the call rule, IF branches and otherwise
+     *  included - so "Call live" on a differing request and Rewrite URL count, a host the cycle marks
+     *  internal does not - plus unexpected-call and unattributed policies that send to the real system. */
+    private void checkLiveExternal(ReliveCycle cycle, List<Step> steps, List<ValidationFinding> findings) {
+        List<String> internalHosts = cycle.settings() == null || cycle.settings().internalHosts() == null
+                ? List.of() : cycle.settings().internalHosts();
         for (Step step : steps) {
             if (!step.enabled() || step.parentKey() == null || step.callRule() == null) {
                 continue;
             }
-            JsonNode actions = step.callRule().rule() == null ? null : step.callRule().rule().get("actions");
-            boolean answersWithoutHost = actions != null && actions.isArray()
-                    && anyEnabledActionOfType(actions, "MOCK_RESPONSE");
-            if (!answersWithoutHost) {
-                findings.add(new ValidationFinding("WARN", "LIVE_EXTERNAL", step.key(),
-                        "\"" + step.label() + "\" can reach a real external system."));
+            String host = hostOf(step);
+            if (internalHosts.stream().anyMatch(suffix -> host.equals(suffix) || host.endsWith(suffix))) {
+                continue;
             }
+            JsonNode actions = step.callRule().rule() == null ? null : step.callRule().rule().get("actions");
+            if (reachesHost(actions == null ? List.of() : toList(actions))) {
+                findings.add(new ValidationFinding("WARN", "LIVE_EXTERNAL", step.key(),
+                        "\"" + step.label() + "\" can reach a real external system (" + host + ")."));
+            }
+            if (step.enabled() && "SEND_REAL".equals(step.unattributed())) {
+                findings.add(new ValidationFinding("WARN", "LIVE_EXTERNAL", step.key(),
+                        "\"" + step.label() + "\": a matching call ALFRED can't tie to this run is sent to the real system."));
+            }
+        }
+        var unexpected = cycle.unexpectedCalls();
+        if (unexpected != null && ("SEND_REAL".equals(unexpected.policy())
+                || ("RULES".equals(unexpected.policy()) && "SEND_REAL".equals(unexpected.fallback())))) {
+            findings.add(new ValidationFinding("WARN", "LIVE_EXTERNAL", null,
+                    "Unexpected outbound calls are sent to the real system."));
+        }
+    }
+
+    private static final java.util.Set<String> TERMINAL = java.util.Set.of(
+            "ABORT_REQUEST", "MOCK_RESPONSE", "SIMULATE_FAILURE", "ANSWER_WITH_RECORDED_CALL", "ANSWER_WITH_FILE");
+
+    static boolean reachesHost(List<JsonNode> actions) {
+        for (int i = 0; i < actions.size(); i++) {
+            JsonNode action = actions.get(i);
+            if (action.path("enabled").isBoolean() && !action.path("enabled").asBoolean()) {
+                continue;
+            }
+            String type = action.path("type").asText();
+            if ("PAUSE_REQUEST".equals(type) || TERMINAL.contains(type)) {
+                return false;
+            }
+            if ("SEND_TO_HOST".equals(type) || "REWRITE_URL".equals(type)) {
+                return true;
+            }
+            if ("IF_REQUEST".equals(type)) {
+                List<JsonNode> rest = actions.subList(i + 1, actions.size());
+                for (JsonNode branch : action.path("branches")) {
+                    if (reachesHost(concat(toList(branch.path("actions")), rest))) {
+                        return true;
+                    }
+                }
+                return reachesHost(concat(toList(action.path("otherwise")), rest));
+            }
+        }
+        return true;
+    }
+
+    private static List<JsonNode> toList(JsonNode array) {
+        List<JsonNode> out = new ArrayList<>();
+        if (array != null && array.isArray()) {
+            array.forEach(out::add);
+        }
+        return out;
+    }
+
+    private static List<JsonNode> concat(List<JsonNode> first, List<JsonNode> rest) {
+        List<JsonNode> out = new ArrayList<>(first);
+        out.addAll(rest);
+        return out;
+    }
+
+    private static String hostOf(Step step) {
+        if (step.recording() == null || step.recording().url() == null) {
+            return "";
+        }
+        try {
+            String host = java.net.URI.create(step.recording().url()).getHost();
+            return host == null ? "" : host.toLowerCase();
+        } catch (IllegalArgumentException e) {
+            return "";
         }
     }
 
@@ -166,12 +247,21 @@ public class CycleValidator {
         return false;
     }
 
-    /** A Guided run has no per-call header to attribute by - every inbound call for the cycle's
-     *  project(s) relies on in-flight uniqueness alone (research D1-D4). */
-    private void checkMayBeUnattributed(ReliveCycle cycle, List<ValidationFinding> findings) {
-        if (cycle.settings() != null && "GUIDED".equals(cycle.settings().defaultDriver())) {
-            findings.add(new ValidationFinding("WARN", "MAY_BE_UNATTRIBUTED", null,
-                    "Guided runs attribute inbound calls by timing alone - a second call to the same project while this run is active may be misattributed."));
+    /** FR-049a: the REPLAY children whose calls ALFRED may not be able to tie to this run. In a
+     *  Guided run nothing carries the run's tag, so every REPLAY child is attributed by timing;
+     *  each is listed with the choice that applies when that fails. */
+    private void checkMayBeUnattributed(List<Step> steps, boolean guided, List<ValidationFinding> findings) {
+        if (!guided) {
+            return;
+        }
+        for (Step step : steps) {
+            if (!step.enabled() || step.parentKey() == null || step.callRule() == null
+                    || !"REPLAY".equals(RunSnapshotBuilder.modeOf(step.callRule().rule()))) {
+                continue;
+            }
+            findings.add(new ValidationFinding("WARN", "MAY_BE_UNATTRIBUTED", step.key(),
+                    "\"" + step.label() + "\" is matched by timing in a Guided run; if ALFRED can't tell it is this run's: "
+                            + (step.unattributed() == null ? "BLOCK" : step.unattributed()) + "."));
         }
     }
 
@@ -180,8 +270,8 @@ public class CycleValidator {
      *  cycle whose own driver is GUIDED and whose projects overlap another cycle's already-RUNNING
      *  Guided run would therefore have its calls misattributed the moment it started - this is a
      *  BLOCK, not the timing-only WARN checkMayBeUnattributed gives every Guided cycle. */
-    private void checkGuidedProjectBusy(ReliveCycle cycle, List<ValidationFinding> findings) {
-        if (cycle.settings() == null || !"GUIDED".equals(cycle.settings().defaultDriver())) {
+    private void checkGuidedProjectBusy(ReliveCycle cycle, boolean guided, List<ValidationFinding> findings) {
+        if (!guided) {
             return;
         }
         Set<String> thisProjects = RunSnapshotBuilder.projectsOf(cycle);
@@ -197,6 +287,61 @@ public class CycleValidator {
             for (String project : busyProjects) {
                 findings.add(new ValidationFinding("BLOCK", "GUIDED_PROJECT_BUSY", null,
                         "\"" + project + "\" already has a Guided run in progress (from another cycle) - inbound calls could be attributed to the wrong run."));
+            }
+        }
+    }
+
+    /** FR-017/FR-028: a participating GLOBAL rule and a CYCLE rule that could both affect one call.
+     *  Two matches overlap unless their hosts, or their path tests, plainly differ. */
+    private void checkGlobalCycleOverlap(ReliveCycle cycle, List<ValidationFinding> findings) {
+        if (cycle.globalRules() == null || "NONE".equals(cycle.globalRules().mode()) || cycle.cycleRules() == null) {
+            return;
+        }
+        Set<String> selected = new HashSet<>(cycle.globalRules().selectedIds());
+        List<com.fathy.alfred.backend.relive.application.port.out.GlobalRuleRef> globals = globalRulesLookup.list().stream()
+                .filter(g -> g.enabled() && ("ALL".equals(cycle.globalRules().mode()) || selected.contains(g.id())))
+                .toList();
+        for (CycleRule rule : cycle.cycleRules()) {
+            JsonNode doc = rule.rule();
+            if (doc == null || (doc.path("enabled").isBoolean() && !doc.path("enabled").asBoolean())) {
+                continue;
+            }
+            for (var global : globals) {
+                if (matchesOverlap(doc.get("match"), global.match())) {
+                    findings.add(new ValidationFinding("WARN", "RULE_OVERLAP", null,
+                            "CYCLE rule \"" + textOrEmpty(doc, "name") + "\" and GLOBAL rule \"" + global.name()
+                                    + "\" can both affect the same call - CYCLE rules run first, then GLOBAL."));
+                }
+            }
+        }
+    }
+
+    static boolean matchesOverlap(JsonNode a, JsonNode b) {
+        if (a == null || b == null || a.isNull() || b.isNull()) {
+            return true;
+        }
+        String hostA = a.path("host").asText("");
+        String hostB = b.path("host").asText("");
+        if (!hostA.isEmpty() && !hostB.isEmpty() && !hostA.contains("*") && !hostB.contains("*")
+                && !hostA.equalsIgnoreCase(hostB)) {
+            return false;
+        }
+        String pathA = a.path("pathContains").asText("");
+        String pathB = b.path("pathContains").asText("");
+        return pathA.isEmpty() || pathB.isEmpty() || pathA.contains(pathB) || pathB.contains(pathA);
+    }
+
+    /** Edge case "the same recorded call added twice": allowed, but flagged so it is intentional. */
+    private void checkSameRecordingTwice(List<Step> steps, List<ValidationFinding> findings) {
+        Map<String, String> firstLabel = new HashMap<>();
+        for (Step step : steps) {
+            if (step.source() == null || step.source().callId() == null) {
+                continue;
+            }
+            String earlier = firstLabel.putIfAbsent(step.source().callId() + "|" + step.parentKey(), step.label());
+            if (earlier != null) {
+                findings.add(new ValidationFinding("WARN", "DUPLICATE_STEP", step.key(),
+                        "\"" + step.label() + "\" replays the same recorded call as an earlier step - fine if intended."));
             }
         }
     }

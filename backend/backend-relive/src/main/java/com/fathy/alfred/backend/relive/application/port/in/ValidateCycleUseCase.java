@@ -8,4 +8,10 @@ import java.util.List;
 public interface ValidateCycleUseCase {
 
     List<ValidationFinding> validate(String cycleId);
+
+    /** For the driver this run will really use (the pre-run dialog can pick one other than the
+     *  cycle's default), so the Guided-only checks apply when they should. */
+    default List<ValidationFinding> validate(String cycleId, String driver) {
+        return validate(cycleId);
+    }
 }

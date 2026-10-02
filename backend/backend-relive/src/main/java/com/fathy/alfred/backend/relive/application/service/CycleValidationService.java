@@ -25,4 +25,9 @@ public class CycleValidationService implements ValidateCycleUseCase {
     public List<ValidationFinding> validate(String cycleId) {
         return cycleStore.findById(cycleId).map(validator::validate).orElse(List.of());
     }
+
+    @Override
+    public List<ValidationFinding> validate(String cycleId, String driver) {
+        return cycleStore.findById(cycleId).map(cycle -> validator.validate(cycle, driver)).orElse(List.of());
+    }
 }

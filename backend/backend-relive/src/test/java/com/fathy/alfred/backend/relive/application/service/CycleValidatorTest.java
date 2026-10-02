@@ -161,11 +161,48 @@ class CycleValidatorTest {
     }
 
     @Test
-    void guidedDriverMayBeUnattributed() {
-        ReliveCycle cycle = new ReliveCycle("c-1", "x", null, List.of(), List.of(), List.of(),
+    void guidedDriverListsEachReplayChildThatMayBeUnattributed() throws Exception {
+        Step child = step("c-1", "s-1", recording("https://api.supplier-a.com/x"),
+                ruleDoc("{\"type\":\"MOCK_RESPONSE\",\"status\":200,\"body\":\"{}\"}"));
+        ReliveCycle cycle = new ReliveCycle("c-1", "x", null, List.of(child), List.of(), List.of(),
                 new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "GUIDED", List.of()),
                 List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
-        assertThat(has(validator.validate(cycle), "MAY_BE_UNATTRIBUTED")).isTrue();
+        assertThat(validator.validate(cycle)).anyMatch(f -> f.code().equals("MAY_BE_UNATTRIBUTED") && "c-1".equals(f.stepKey()));
+        // Review B18: the driver chosen for this run counts, not only the cycle's default.
+        assertThat(has(validator.validate(cycle, "AUTOMATIC"), "MAY_BE_UNATTRIBUTED")).isFalse();
+    }
+
+    @Test
+    void callLiveOnADifferingRequestCountsAsReachingTheHost() throws Exception {
+        JsonNode rule = ruleDoc("{\"type\":\"IF_REQUEST\",\"branches\":[{\"conditions\":[],\"actions\":[]}],"
+                + "\"otherwise\":[{\"type\":\"SEND_TO_HOST\"}]}", "{\"type\":\"MOCK_RESPONSE\",\"status\":200}");
+        Step child = step("c-1", "s-1", recording("https://api.supplier-a.com/x"), rule);
+        assertThat(has(validator.validate(cycle(List.of(child))), "LIVE_EXTERNAL")).isTrue();
+    }
+
+    @Test
+    void aReplayChildOnAnInternalHostIsNotExternal() throws Exception {
+        Step child = step("c-1", "s-1", recording("https://pricing.internal/x"), ruleDoc());
+        ReliveCycle cycle = new ReliveCycle("c-1", "x", null, List.of(child), List.of(), List.of(),
+                new GlobalRulesSelection("NONE", List.of()), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "AUTOMATIC", List.of(".internal")),
+                List.of(), new UnexpectedCallsPolicy("BLOCK", List.of(), "BLOCK"), "t0", "t0", false, null);
+        assertThat(has(validator.validate(cycle), "LIVE_EXTERNAL")).isFalse();
+    }
+
+    @Test
+    void theSameRecordedCallAddedTwiceIsFlagged() throws Exception {
+        Step first = step("s-1", null, recording("https://app/x"), ruleDoc());
+        Step again = new Step("s-2", null, "again", true, false, "inbound", "odeysys", first.callRule(), "BLOCK",
+                first.recording(), first.source(), objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
+        assertThat(validator.validate(cycle(List.of(first, again)))).anyMatch(f -> f.code().equals("DUPLICATE_STEP") && f.severity().equals("WARN"));
+    }
+
+    @Test
+    void globalAndCycleRulesOnTheSameHostOverlap() {
+        var a = objectMapper.createObjectNode().put("host", "api.supplier-a.com");
+        var b = objectMapper.createObjectNode().put("host", "api.supplier-b.com");
+        assertThat(CycleValidator.matchesOverlap(a, a.deepCopy())).isTrue();
+        assertThat(CycleValidator.matchesOverlap(a, b)).isFalse();
     }
 
     @Test
