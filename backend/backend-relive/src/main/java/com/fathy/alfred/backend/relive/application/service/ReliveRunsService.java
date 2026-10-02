@@ -121,6 +121,13 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     private final Set<String> activeRunIds = ConcurrentHashMap.newKeySet();
     /** serviceName -> in-flight outbound calls attributed to a run from that project (proxy-snapshot.md's inflight.json). */
     private final Map<String, List<InflightEntry>> inflightByProject = new ConcurrentHashMap<>();
+    /** One lock per run: every run change is read-modify-write of the whole row, and the proxy,
+     *  the observer and the browser write the same run at the same time (review B12). */
+    private final Map<String, Object> runLocks = new ConcurrentHashMap<>();
+
+    private Object lockFor(String runId) {
+        return runLocks.computeIfAbsent(runId, k -> new Object());
+    }
 
     private record InflightEntry(String callId, String runId, String stepKey) {
     }
@@ -249,6 +256,12 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     @Override
     public void recordStepResult(String runId, StepResult result) {
+        synchronized (lockFor(runId)) {
+            recordStepResultLocked(runId, result);
+        }
+    }
+
+    private void recordStepResultLocked(String runId, StepResult result) {
         runStore.putStepResult(result);
         Run run = getOrThrow(runId);
         runStore.update(withSummary(run, computeSummary(run.definition(), runStore.listStepResults(runId))));
@@ -256,6 +269,12 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     @Override
     public void setVariable(String runId, String name, String value, String stepKey) {
+        synchronized (lockFor(runId)) {
+            setVariableLocked(runId, name, value, stepKey);
+        }
+    }
+
+    private void setVariableLocked(String runId, String name, String value, String stepKey) {
         Run run = getOrThrow(runId);
         List<VariableChange> timeline = new ArrayList<>(run.variableTimeline());
         timeline.add(new VariableChange(name, value, stepKey, Instant.now().toString()));
@@ -271,6 +290,12 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     @Override
     public Run stop(String runId) {
+        synchronized (lockFor(runId)) {
+            return stopLocked(runId);
+        }
+    }
+
+    private Run stopLocked(String runId) {
         return finalizeIfRunning(getOrThrow(runId), RunStatus.STOPPED);
     }
 
@@ -279,7 +304,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         List<Run> running = runStore.findAllRunning().stream()
                 .filter(run -> run.cycleId().equals(cycleId))
                 .toList();
-        running.forEach(run -> finalizeRun(run, RunStatus.STOPPED));
+        running.forEach(run -> stop(run.id()));
         return running.size();
     }
 
@@ -291,7 +316,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
                     .filter(run -> run.cycleId().equals(cycleId))
                     .filter(run -> run.status() == RunStatus.RUNNING);
             if (target.isPresent()) {
-                finalizeRun(target.get(), RunStatus.STOPPED);
+                stop(runId);
                 stopped++;
             }
         }
@@ -312,7 +337,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         // mid-flight is stopped through the same drain-safe path as a manual stop first - deletion
         // while its snapshot is still live could let a REPLAY child reach the real supplier.
         targets.stream().filter(run -> run.status() == RunStatus.RUNNING)
-                .forEach(run -> finalizeRun(run, RunStatus.STOPPED));
+                .forEach(run -> stop(run.id()));
         if (targets.isEmpty()) {
             return new DeletedRunHistory(0, false);
         }
@@ -336,18 +361,31 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
             });
         }
         runStore.deleteByIds(ids);
+        ids.forEach(runLocks::remove);
         notifications.runChanged(cycleId, null);
         return new DeletedRunHistory(ids.size(), command.deleteCalls());
     }
 
     @Override
     public Run finish(String runId, RunStatus status) {
+        synchronized (lockFor(runId)) {
+            return finishLocked(runId, status);
+        }
+    }
+
+    private Run finishLocked(String runId, RunStatus status) {
         return finalizeIfRunning(getOrThrow(runId), status);
     }
 
     /** T047's RunLeaseRegistry calls this once the last lease holder is gone for 15s - same
      *  drain-safe path as stop/finish, just a different terminal status. */
     public Run interrupt(String runId) {
+        synchronized (lockFor(runId)) {
+            return interruptLocked(runId);
+        }
+    }
+
+    private Run interruptLocked(String runId) {
         return runStore.findById(runId).map(run -> finalizeIfRunning(run, RunStatus.INTERRUPTED)).orElse(null);
     }
 
@@ -362,6 +400,12 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     @Override
     public Run hold(String runId, String stepKey, String reason) {
+        synchronized (lockFor(runId)) {
+            return holdLocked(runId, stepKey, reason);
+        }
+    }
+
+    private Run holdLocked(String runId, String stepKey, String reason) {
         Run run = getOrThrow(runId);
         String now = Instant.now().toString();
         Hold newHold = reason == null ? null : new Hold(stepKey, reason, now);
@@ -376,6 +420,12 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     @Override
     public Run resume(String runId, String afterStepKey) {
+        synchronized (lockFor(runId)) {
+            return resumeLocked(runId, afterStepKey);
+        }
+    }
+
+    private Run resumeLocked(String runId, String afterStepKey) {
         Run run = getOrThrow(runId);
         if (run.status() != RunStatus.FAILED && run.status() != RunStatus.STOPPED && run.status() != RunStatus.INTERRUPTED) {
             throw new RunNotResumableException(runId);
@@ -396,6 +446,12 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     @Override
     public Run updateDefinition(String runId, ReliveCycle definition, String reason) {
+        synchronized (lockFor(runId)) {
+            return updateDefinitionLocked(runId, definition, reason);
+        }
+    }
+
+    private Run updateDefinitionLocked(String runId, ReliveCycle definition, String reason) {
         Run run = getOrThrow(runId);
         Set<String> resultKeys = runStore.listStepResults(runId).stream().map(StepResult::stepKey).collect(Collectors.toSet());
         Map<String, Step> incomingByKey = new LinkedHashMap<>();
@@ -586,15 +642,17 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         String now = Instant.now().toString();
         for (JsonNode idNode : relive.get("ambiguousRunIds")) {
             String runId = idNode.asText();
-            runStore.findById(runId).ifPresent(run -> {
-                List<LogEntry> log = new ArrayList<>(run.log());
-                log.add(new LogEntry(now, null, "AMBIGUOUS_BLOCKED",
-                        "Call " + call.callId() + " matched more than one active run and was blocked."));
-                runStore.update(new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(),
-                        run.finishedAt(), run.definition(), run.fromStepKey(), run.seedVariables(),
-                        run.variableTimeline(), run.summary(), run.hold(), run.resumed(), log));
-                notifications.runChanged(run.cycleId(), run.id());
-            });
+            synchronized (lockFor(runId)) {
+                runStore.findById(runId).ifPresent(run -> {
+                    List<LogEntry> log = new ArrayList<>(run.log());
+                    log.add(new LogEntry(now, null, "AMBIGUOUS_BLOCKED",
+                            "Call " + call.callId() + " matched more than one active run and was blocked."));
+                    runStore.update(new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(),
+                            run.finishedAt(), run.definition(), run.fromStepKey(), run.seedVariables(),
+                            run.variableTimeline(), run.summary(), run.hold(), run.resumed(), log));
+                    notifications.runChanged(run.cycleId(), run.id());
+                });
+            }
         }
         return true;
     }

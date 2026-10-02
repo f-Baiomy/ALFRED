@@ -508,6 +508,35 @@ class ReliveRunsServiceTest {
     }
 
     @Test
+    void concurrentVariableWritesAreNotLost() throws Exception {
+        // Review B12: the proxy and the browser write the same run at the same time.
+        String cycleId = save(bareCycle("race", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        int writers = 8;
+        int each = 25;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(writers);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+        for (int w = 0; w < writers; w++) {
+            int writer = w;
+            futures.add(pool.submit(() -> {
+                go.await();
+                for (int i = 0; i < each; i++) {
+                    service.setVariable(run.id(), "v" + writer + "_" + i, "x", null);
+                }
+                return null;
+            }));
+        }
+        go.countDown();
+        for (var future : futures) {
+            future.get();
+        }
+        pool.shutdown();
+
+        assertThat(runStore.findById(run.id()).orElseThrow().variableTimeline()).hasSize(writers * each);
+    }
+
+    @Test
     void runFromAStepSeedsOnlyTheValuesProducedBeforeIt() {
         String cycleId = save(withSteps(bareCycle("seed", false),
                 List.of(step("s-1", true), step("s-2", true), step("s-3", true))));

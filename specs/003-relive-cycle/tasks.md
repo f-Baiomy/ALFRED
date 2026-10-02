@@ -689,7 +689,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 - [X] T099 B7: "Save as cycle" for Relive now (`POST /relive-cycles/{id}/keep`).
 - [X] T100 B8: a Relive-attributed inbound call is reported to the backend even when the project's logging toggle is off.
 - [X] T101 B10: child matching falls back to endpoint + order when no fingerprint hits.
-- [ ] T102 B12: per-run lock around every run read-modify-write.
+- [X] T102 B12: per-run lock around every run read-modify-write.
 
 ### C. Missing spec features
 
