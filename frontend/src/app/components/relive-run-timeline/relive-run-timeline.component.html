@@ -167,7 +167,7 @@
           <span class="rl-u rl-mono">{{ row.step.recording.url }}</span>
         </span>
         @if (row.isChild) {
-          <span class="rl-pill" [class]="row.result.mode === 'LIVE' ? 'rl-p-live' : 'rl-p-replay'">
+          <span class="rl-pill" [class]="row.result.mode === 'LIVE' || row.result.reachedUpstream ? 'rl-p-live' : 'rl-p-replay'">
             {{ modePill(row.result) }}
           </span>
         }

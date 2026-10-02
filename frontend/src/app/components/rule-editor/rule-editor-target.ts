@@ -19,6 +19,9 @@ import { InterceptionStateService } from '../../core/state/interception-state.se
 export interface RuleEditorTarget {
   /** `null` result means the caller rejected it (validation problems) - the editor stays open. */
   save(draft: InterceptionRuleDraft, ruleId: string | null): Observable<InterceptionRule | InterceptionRuleDraft | null>;
+  /** Releasing a pause carries on with the rest of the rule (a Relive call rule), so a pause and a
+   *  mock in one rule do not contradict each other. */
+  readonly pauseCarriesOn?: boolean;
 }
 
 export const RULE_EDITOR_TARGET = new InjectionToken<RuleEditorTarget>('RULE_EDITOR_TARGET');

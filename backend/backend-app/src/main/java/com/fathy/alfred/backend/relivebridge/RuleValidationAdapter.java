@@ -47,6 +47,14 @@ public class RuleValidationAdapter implements RuleValidationPort {
             while (fallthroughs-- > 0) {
                 if (!problems.remove("An IF branch that does nothing when it matches has no effect - remove it.")) break;
             }
+            // Releasing a Relive pause carries on with the rest of the call rule (the proxy
+            // resumes after the paused action), so a checkpoint before a REPLAY mock, or after
+            // it, is reached - found by T082, where no such checkpoint could be saved.
+            problems.remove(RuleValidator.PAUSE_NEVER_REACHED);
+            // "Pause before" and "pause after" are one pause per phase, each reached in turn.
+            if (enabledCount(ruleDoc, "PAUSE_REQUEST") <= 1 && enabledCount(ruleDoc, "PAUSE_RESPONSE") <= 1) {
+                problems.remove(RuleValidator.PAUSES_ONCE);
+            }
             return problems;
         } catch (Exception e) {
             return List.of("rule document could not be parsed: " + e.getMessage());
@@ -63,6 +71,16 @@ public class RuleValidationAdapter implements RuleValidationPort {
         } else if (node.isArray()) {
             node.elements().forEachRemaining(RuleValidationAdapter::normalizeReliveScopes);
         }
+    }
+
+    private static int enabledCount(JsonNode ruleDoc, String type) {
+        int count = 0;
+        for (JsonNode action : ruleDoc.path("actions")) {
+            if (type.equals(action.path("type").asText()) && action.path("enabled").asBoolean(true)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static int replayFallthroughs(JsonNode ruleDoc) {

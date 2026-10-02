@@ -373,7 +373,8 @@ export class ReliveRunTimelineComponent {
   /** A child's mode pill: a LIVE child answered here (its request differed, a pause failed it) did
    *  not contact the host. */
   modePill(result: StepResult): string {
-    if (result.mode !== 'LIVE') return 'REPLAY';
+    // A REPLAY child sent to the real host by a decision ("Send to real", FR-014d).
+    if (result.mode !== 'LIVE') return result.reachedUpstream === true ? 'REPLAY · sent to real host' : 'REPLAY';
     return result.reachedUpstream === false ? 'LIVE · answered by ALFRED' : 'LIVE · contacted host';
   }
 

@@ -38,6 +38,7 @@ export class ReliveRuleDialogService {
   targetFor(apply: (scope: RuleEditorScope, targetKey: string | null, draft: InterceptionRuleDraft) => void): RuleEditorTarget {
     const req = this.request();
     return {
+      pauseCarriesOn: true,
       save: (draft, ruleId): Observable<InterceptionRuleDraft | null> => {
         if (!req) return of(null);
         apply(req.scope, ruleId ?? req.targetKey, draft);

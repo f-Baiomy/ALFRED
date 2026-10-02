@@ -67,6 +67,15 @@ public final class RuleValidator {
     private static final int MIN_EVERY_NTH = 2;
     private static final int MAX_EVERY_NTH = 1000;
 
+    /** A terminal action plus a pause in one rule. Releasing an ordinary rule's pause forwards the
+     *  call, so the two contradict each other. A Relive call rule carries on after its pause (a
+     *  checkpoint on a REPLAY child is pause-then-mock), so its bridge drops this one. */
+    public static final String PAUSE_NEVER_REACHED =
+            "A rule that aborts or mocks a request never reaches a pause - remove one of them.";
+
+    /** More than one pause in a rule. */
+    public static final String PAUSES_ONCE = "A rule can only pause a call once.";
+
     public static List<String> validate(InterceptionRule rule) {
         return validate(rule, SelfTargets.none());
     }
@@ -145,13 +154,13 @@ public final class RuleValidator {
                     + "or aborting it.");
         }
         if (pauses > 1) {
-            problems.add("A rule can only pause a call once.");
+            problems.add(PAUSES_ONCE);
         }
         if (sendsToHost && terminals > 0) {
             problems.add("This rule both sends the call to the host and short-circuits it - keep one.");
         }
         if (terminals > 0 && pauses > 0) {
-            problems.add("A rule that aborts or mocks a request never reaches a pause - remove one of them.");
+            problems.add(PAUSE_NEVER_REACHED);
         }
         return problems;
     }

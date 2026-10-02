@@ -33,6 +33,29 @@ class RuleValidationAdapterTest {
     }
 
     @Test
+    void aCheckpointOnAReplayChildIsValid() throws Exception {
+        // T082: pause before and pause after a REPLAY mock could not be saved - releasing a
+        // Relive pause carries on with the rest of the call rule.
+        JsonNode rule = objectMapper.readTree("""
+                {
+                  "id": "r-1",
+                  "name": "Supplier A",
+                  "enabled": true,
+                  "priority": 0,
+                  "stopProcessing": false,
+                  "match": {},
+                  "actions": [
+                    { "type": "PAUSE_REQUEST", "timeoutSeconds": 30, "onTimeout": "release" },
+                    { "type": "MOCK_RESPONSE", "status": 200, "headers": {}, "body": "{}" },
+                    { "type": "PAUSE_RESPONSE", "timeoutSeconds": 30, "onTimeout": "release" }
+                  ]
+                }
+                """);
+
+        assertThat(adapter.validate(rule)).isEmpty();
+    }
+
+    @Test
     void reliveReplayRuleMayFallThroughAfterARecordedCallMatch() throws Exception {
         JsonNode rule = objectMapper.readTree("""
                 {

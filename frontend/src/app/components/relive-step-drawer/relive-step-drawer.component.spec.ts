@@ -74,6 +74,18 @@ describe('ReliveStepDrawerComponent', () => {
     expect(asked).toEqual(['c-supA']);
   });
 
+  it('pasting the recorded body back clears the request edit', () => {
+    const changes: Step[] = [];
+    fixture.componentInstance.stepChange.subscribe((s) => changes.push(s));
+    fixture.componentInstance.saveRequestBody('{"origin":"CAI"}');
+    fixture.componentRef.setInput('step', changes[0]);
+    fixture.detectChanges();
+
+    fixture.componentInstance.saveRequestBody('{"origin":"DXB"}');
+
+    expect(changes[1].callRule.actions.some((a) => a.type === 'SET_REQUEST_BODY')).toBeFalse();
+  });
+
   it('T037: the Response tab edits the mock answer', () => {
     const changes: Step[] = [];
     fixture.componentInstance.stepChange.subscribe((s) => changes.push(s));

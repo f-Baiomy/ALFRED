@@ -558,7 +558,8 @@ export class RuleEditorComponent implements OnInit {
     const terminals = types.filter((t) => isTerminalAction(t)).length;
     const pauses = types.filter((t) => t.startsWith('PAUSE_')).length;
     if (terminals > 1) return 'Two actions both end the request — only the first would ever run.';
-    if (terminals > 0 && pauses > 0) return 'This rule ends the request before it could pause.';
+    const pauseCarriesOn = (this.target ?? this.editorTarget)?.pauseCarriesOn === true;
+    if (terminals > 0 && pauses > 0 && !pauseCarriesOn) return 'This rule ends the request before it could pause.';
     if (pauses > 1) return 'A call can only be paused once.';
     return null;
   });
