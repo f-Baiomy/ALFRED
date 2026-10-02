@@ -10,6 +10,7 @@ import com.fathy.alfred.backend.relive.domain.model.Run;
 import com.fathy.alfred.backend.relive.domain.model.RunStatus;
 import com.fathy.alfred.backend.relive.domain.model.RunSummary;
 import com.fathy.alfred.backend.relive.domain.model.StepResult;
+import com.fathy.alfred.backend.relive.domain.model.StepState;
 import com.fathy.alfred.backend.relive.domain.model.VariableChange;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,6 +58,16 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
     }
 
     @Override
+    public Optional<Run> findStateById(String runId) {
+        return jdbc.query("""
+                SELECT id, cycle_id, status, driver, started_at, finished_at, summary_json,
+                       NULL AS definition_json, hold_json, resumed_json, variables_json, log_json,
+                       from_step_key, seed_json
+                FROM relive_runs WHERE id = ?
+                """, DETAIL_ROW_MAPPER, runId).stream().findFirst();
+    }
+
+    @Override
     public List<Run> listByCycleId(String cycleId, int limit) {
         return jdbc.query("""
                 SELECT id, cycle_id, status, driver, started_at, finished_at, summary_json, from_step_key
@@ -77,7 +88,35 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
     @Override
     public Run update(Run run) {
         insertOrUpdate(run);
-        return findById(run.id()).orElseThrow(() -> new IllegalStateException("Run " + run.id() + " vanished immediately after being updated"));
+        return run;
+    }
+
+    @Override
+    public void updateState(Run run) {
+        String summaryJson = writeJson(run.summary());
+        String holdJson = writeJson(run.hold());
+        String resumedJson = writeJson(run.resumed());
+        String variablesJson = writeJson(run.variableTimeline());
+        String logJson = writeJson(run.log());
+        long others = summaryJson.length() + (holdJson == null ? 0 : holdJson.length())
+                + (resumedJson == null ? 0 : resumedJson.length()) + variablesJson.length() + logJson.length();
+        jdbc.update("""
+                        UPDATE relive_runs SET status = ?, finished_at = ?, summary_json = ?, hold_json = ?,
+                            resumed_json = ?, variables_json = ?, log_json = ?,
+                            size_bytes = LENGTH(definition_json) + ?
+                        WHERE id = ?
+                        """,
+                run.status().name(), run.finishedAt(), summaryJson, holdJson, resumedJson, variablesJson, logJson,
+                others, run.id());
+    }
+
+    @Override
+    public List<StepOutcome> listStepOutcomes(String runId) {
+        return jdbc.query("""
+                SELECT step_key, attempt, state, json_extract(result_json, '$.attribution') AS attribution
+                FROM relive_step_results WHERE run_id = ? ORDER BY step_key, attempt
+                """, (rs, n) -> new StepOutcome(rs.getString("step_key"), rs.getInt("attempt"),
+                StepState.valueOf(rs.getString("state")), rs.getString("attribution")), runId);
     }
 
     private void insertOrUpdate(Run run) {

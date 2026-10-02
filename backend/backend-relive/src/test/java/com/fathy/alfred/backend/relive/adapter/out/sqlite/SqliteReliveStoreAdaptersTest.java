@@ -105,6 +105,28 @@ class SqliteReliveStoreAdaptersTest {
     }
 
     @Test
+    void stateUpdatesLeaveTheDefinitionAloneAndOutcomesNeedNoBodies() {
+        var run = new com.fathy.alfred.backend.relive.domain.model.Run("r-2", "c-1", "AUTOMATIC",
+                com.fathy.alfred.backend.relive.domain.model.RunStatus.RUNNING, "t0", null, newCycle("c-1", false),
+                null, List.of(), List.of(), null, null, List.of(), List.of());
+        runStore.create(run);
+        var later = new com.fathy.alfred.backend.relive.domain.model.Run("r-2", "c-1", "AUTOMATIC",
+                com.fathy.alfred.backend.relive.domain.model.RunStatus.STOPPED, "t0", "t9", null,
+                null, List.of(), List.of(), null, null, List.of(), List.of());
+
+        runStore.updateState(later);
+        runStore.putStepResult(new com.fathy.alfred.backend.relive.domain.model.StepResult("r-2", "s-search", 1,
+                com.fathy.alfred.backend.relive.domain.model.StepState.COMPLETED, "LIVE", "HEADER", null, null, null,
+                List.of(), List.of(), List.of(), List.of(), null, "t0", "t1", 5L, null, List.of(), null, List.of(), null));
+
+        var stored = runStore.findById("r-2").orElseThrow();
+        assertThat(stored.status()).isEqualTo(com.fathy.alfred.backend.relive.domain.model.RunStatus.STOPPED);
+        assertThat(stored.definition().steps().get(0).recording().requestBody()).hasSize(30_000);
+        assertThat(runStore.listStepOutcomes("r-2")).singleElement()
+                .satisfies(o -> assertThat(o.attribution()).isEqualTo("HEADER"));
+    }
+
+    @Test
     void listDoesNotReadBodies() {
         cycleStore.save(cycleWithChildAndRule("c-1"));
         List<ReliveCycleSummary> summaries = cycleStore.listSummaries();

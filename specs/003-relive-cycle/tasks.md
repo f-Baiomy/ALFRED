@@ -704,7 +704,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 
 ### D. Performance
 
-- [ ] T111 P1/P2: column-level run updates, header-only run lookup, cheap summary recompute.
+- [X] T111 P1/P2: column-level run updates, header-only run lookup, cheap summary recompute.
 - [ ] T112 P3: stable recorded-request answer ids, written once per run.
 - [ ] T113 P5: proxy caches evicted when a run ends.
 - [ ] T114 P6: snapshot load off the event loop; oversized mocks in answer files.

@@ -264,8 +264,8 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     private void recordStepResultLocked(String runId, StepResult result) {
         runStore.putStepResult(result);
         Run run = getOrThrow(runId);
-        Run summarized = withSummary(run, computeSummary(run.definition(), runStore.listStepResults(runId)));
-        runStore.update(withLog(summarized, stepLog(result)));
+        Run summarized = withSummary(run, computeSummary(run.definition(), runStore.listStepOutcomes(runId)));
+        runStore.updateState(withLog(summarized, stepLog(result)));
     }
 
     /** FR-038: what happened to a step, in the run's own log - only once it has an outcome. */
@@ -317,7 +317,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
                     rule.path("tier").asText() + " rule \"" + rule.path("ruleName").asText(rule.path("ruleId").asText()) + "\""));
         }
         synchronized (lockFor(runId)) {
-            runStore.findById(runId).ifPresent(run -> runStore.update(withLog(run, entries)));
+            runStore.findStateById(runId).ifPresent(run -> runStore.updateState(withLog(run, entries)));
         }
     }
 
@@ -337,7 +337,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
                 run.resumed(), run.log());
         updated = withLog(updated, List.of(new LogEntry(Instant.now().toString(), stepKey, "VARIABLE_SET",
                 "{{$." + name + "}} set" + (stepKey == null ? "" : " by this step"))));
-        runStore.update(updated);
+        runStore.updateState(updated);
         if (isReferencedByARule(updated.definition(), name)) {
             publisher.publish(runId, snapshotBuilder.build(updated));
         }
@@ -462,7 +462,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     }
 
     private Run holdLocked(String runId, String stepKey, String reason) {
-        Run run = getOrThrow(runId);
+        Run run = getOrThrow(runId); // returned to the browser, which needs the definition
         String now = Instant.now().toString();
         Hold newHold = reason == null ? null : new Hold(stepKey, reason, now);
         List<LogEntry> log = new ArrayList<>(run.log());
@@ -471,7 +471,8 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         Run updated = new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(), run.finishedAt(),
                 run.definition(), run.fromStepKey(), run.seedVariables(), run.variableTimeline(), run.summary(),
                 newHold, run.resumed(), log);
-        return runStore.update(updated);
+        runStore.updateState(updated);
+        return updated;
     }
 
     @Override
@@ -568,9 +569,9 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         cancelRemainingSteps(run);
         Run finalized = new Run(run.id(), run.cycleId(), run.driver(), status, run.startedAt(),
                 Instant.now().toString(), run.definition(), run.fromStepKey(), run.seedVariables(),
-                run.variableTimeline(), computeSummary(run.definition(), runStore.listStepResults(run.id())),
+                run.variableTimeline(), computeSummary(run.definition(), runStore.listStepOutcomes(run.id())),
                 null, run.resumed(), run.log());
-        runStore.update(finalized);
+        runStore.updateState(finalized);
         // RunSnapshotBuilder.build() already renders "state": "STOPPING" for any non-RUNNING status.
         publisher.publish(run.id(), snapshotBuilder.build(finalized));
         notifications.runChanged(run.cycleId(), run.id());
@@ -705,11 +706,11 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         for (JsonNode idNode : relive.get("ambiguousRunIds")) {
             String runId = idNode.asText();
             synchronized (lockFor(runId)) {
-                runStore.findById(runId).ifPresent(run -> {
+                runStore.findStateById(runId).ifPresent(run -> {
                     List<LogEntry> log = new ArrayList<>(run.log());
                     log.add(new LogEntry(now, null, "AMBIGUOUS_BLOCKED",
                             "Call " + call.callId() + " matched more than one active run and was blocked."));
-                    runStore.update(new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(),
+                    runStore.updateState(new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(),
                             run.finishedAt(), run.definition(), run.fromStepKey(), run.seedVariables(),
                             run.variableTimeline(), run.summary(), run.hold(), run.resumed(), log));
                     notifications.runChanged(run.cycleId(), run.id());
@@ -753,7 +754,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         if (runId == null) {
             return;
         }
-        runStore.findById(runId).ifPresent(run -> {
+        runStore.findStateById(runId).ifPresent(run -> {
             String reason = relive.path("choice").asText("REACHED_UPSTREAM");
             LiveCall liveCall = new LiveCall(UUID.randomUUID().toString(), run.cycleId(), runId, stepKeyOf(relive),
                     reason, call.callId(), call.request(), call.response(),
@@ -822,13 +823,13 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         return root;
     }
 
-    private RunSummary computeSummary(ReliveCycle definition, List<StepResult> results) {
-        Map<String, StepResult> latestByStep = new LinkedHashMap<>();
-        for (StepResult r : results) {
+    private RunSummary computeSummary(ReliveCycle definition, List<ReliveRunStorePort.StepOutcome> results) {
+        Map<String, ReliveRunStorePort.StepOutcome> latestByStep = new LinkedHashMap<>();
+        for (ReliveRunStorePort.StepOutcome r : results) {
             latestByStep.merge(r.stepKey(), r, (a, b) -> b.attempt() >= a.attempt() ? b : a);
         }
         int completed = 0, different = 0, failed = 0, skipped = 0, notCalled = 0, cancelled = 0, live = 0, replayed = 0, unattributed = 0;
-        for (StepResult r : latestByStep.values()) {
+        for (ReliveRunStorePort.StepOutcome r : latestByStep.values()) {
             switch (r.state()) {
                 case COMPLETED -> completed++;
                 case COMPLETED_WITH_DIFFERENCES -> different++;
