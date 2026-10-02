@@ -1,0 +1,267 @@
+<!-- One more panel of the call card's family (see app-resend-panel): same frame, head and strip. -->
+<div class="intercept-panel rl-step-panel">
+  <button type="button" class="intercept-panel-head" (click)="toggle()">
+    <span class="intercept-panel-icon">⚙</span>
+    <span class="intercept-panel-title">
+      How this step runs
+      <em>{{ summary() }}</em>
+    </span>
+    <span class="intercept-panel-toggle">{{ open() ? '▲ hide' : '▼ show' }}</span>
+  </button>
+
+  @if (open()) {
+    <div class="intercept-panel-body">
+      <app-call-step-strip [steps]="strip()" [selected]="box()" ariaLabel="How this step runs" (select)="select($event)" />
+
+      <div class="resend-step-detail rl-panel-detail">
+        @switch (box()) {
+          @case ('recorded') {
+            <div>
+              <span class="badge">{{ step().recording.method }}</span>
+              {{ step().recording.status }} · <code>{{ step().recording.url }}</code>
+              @if (step().recording.timestamp) {
+                · {{ step().recording.timestamp }}
+              }
+              · {{ step().recording.durationMs }} ms
+              @if (orderLabel(); as order) {
+                · {{ order }}
+              }
+              · <a class="rl-link" (click)="openOriginal()">open original</a>
+            </div>
+            <div class="rl-row rl-mt-8 rl-wrap">
+              <label class="rl-row">Label <input class="rl-panel-input" [value]="step().label" (change)="setLabel($any($event.target).value)" /></label>
+              <label class="rl-row">
+                <input type="checkbox" [checked]="step().optional" (change)="setOptional($any($event.target).checked)" />
+                optional - a failure here doesn't fail the run
+              </label>
+            </div>
+          }
+          @case ('mode') {
+            @if (isChild()) {
+              <span class="rl-seg rl-mode">
+                <button [class.rl-on]="mode() === 'REPLAY'" [class.rl-replay]="mode() === 'REPLAY'" (click)="setMode('REPLAY')">REPLAY - ALFRED answers</button>
+                <button [class.rl-on]="mode() === 'LIVE'" [class.rl-live]="mode() === 'LIVE'" (click)="setMode('LIVE')">LIVE - real supplier ⚠</button>
+                <button [class.rl-on]="mode() === 'LIVE_MOCKED'" [class.rl-live]="mode() === 'LIVE_MOCKED'" (click)="setMode('LIVE_MOCKED')">LIVE, reply mocked ⚠</button>
+              </span>
+            } @else {
+              <span class="rl-seg rl-mode">
+                <button [class.rl-on]="mode() === 'LIVE'" [class.rl-live]="mode() === 'LIVE'" (click)="setMode('LIVE')">LIVE - sent to the app</button>
+                <button [class.rl-on]="mode() === 'REPLAY'" [class.rl-replay]="mode() === 'REPLAY'" (click)="setMode('REPLAY')">REPLAY - ALFRED answers</button>
+              </span>
+            }
+            <div class="muted rl-mt-4">
+              @switch (mode()) {
+                @case ('REPLAY') { The host is never contacted; ALFRED answers with box 6. }
+                @case ('LIVE_MOCKED') { The call reaches the real supplier, but the caller gets the answer in box 6. }
+                @default { The run sends this call to {{ isChild() ? 'the real supplier' : (step().serviceName || 'the app') }} and compares its answer with the recording. }
+              }
+              The mode only sets actions in the call rule (box 5).
+            </div>
+          }
+          @case ('edits') {
+            <div class="rl-row rl-wrap rl-mb-6">
+              <span>Request body {{ editedBody() !== null ? '· edited' : '· as recorded' }}</span>
+              <span class="rl-spacer"></span>
+              @if (editedBody() !== null) {
+                <button class="rl-btn rl-sm" (click)="resetRequestBody()">Back to recorded</button>
+              }
+            </div>
+            <app-body-editor label="Request body" [value]="requestBody()" (valueChange)="setRequestBody($event)" />
+            <div class="muted rl-mt-4">Saved as "Replace the request body" in the call rule (box 5). Type <code>{{ '{{' }}</code> to use a variable.</div>
+          }
+          @case ('variables') {
+            @for (u of used(); track u.name) {
+              <div>
+                <code>{{ '{{$.' + u.name + '}}' }}</code>
+                @if (u.source) {
+                  - {{ u.source }}
+                  @if (u.value !== null) {
+                    · recorded value <code>{{ u.secret && !revealed() ? '••••••' : u.value }}</code>
+                  }
+                } @else {
+                  - <span class="rl-warn-text">nothing sets it before this step</span>
+                }
+              </div>
+            } @empty {
+              <div class="muted">This step uses no variables. Type <code>{{ '{{' }}</code> in its request (box 3) to use one.</div>
+            }
+          }
+          @case ('rule') {
+            <div class="rl-row rl-wrap rl-mb-6">
+              <span>Matches <b>only this step's call</b>: <code>{{ step().recording.method }} {{ step().recording.url }}</code>@if (orderLabel(); as order) { · {{ order }} }</span>
+              <span class="rl-spacer"></span>
+              <button class="rl-btn rl-sm" (click)="openCallRule.emit(step().key)">Open in the rule dialog ↗</button>
+            </div>
+            <div class="rl-row rl-wrap rl-mb-6">
+              <button class="rl-btn rl-sm" [class.rl-on]="checkpoint().before" (click)="togglePause('before')">{{ checkpoint().before ? '− ' : '＋ ' }}Pause before</button>
+              <button class="rl-btn rl-sm" [class.rl-on]="checkpoint().after" (click)="togglePause('after')">{{ checkpoint().after ? '− ' : '＋ ' }}Pause after</button>
+              @if (isChild() && mode() === 'REPLAY') {
+                <button class="rl-btn rl-sm" (click)="openRequestDiffers.emit(step().key)">When the request differs: {{ requestDiffersLabel() }}…</button>
+              }
+            </div>
+            @for (k of [ruleEditorKey()]; track k) {
+              <app-rule-editor
+                [inline]="true"
+                scope="CALL"
+                applyLabel="Apply to this step"
+                applyHint="Applied to this step's call rule - save the cycle to keep it."
+                [snapshot]="ruleSnapshot()"
+                [target]="ruleTarget"
+                [recordedCallPreview]="recordedPreview()"
+                [reliveVariableHints]="reliveVariableHints()"
+                (closed)="undoRuleChanges()"
+              />
+            }
+            <div class="rl-panel-extra">
+              @if (isChild() && mode() === 'REPLAY') {
+                <div class="rl-panel-box">
+                  <b>If ALFRED can't tell the call is yours</b>
+                  <div class="rl-choice rl-mt-4">
+                    <button [class.rl-on]="step().unattributed === 'BLOCK'" (click)="setUnattributed('BLOCK')">Block (default)</button>
+                    <button [class.rl-on]="step().unattributed === 'REPLAY_ANYWAY'" (click)="setUnattributed('REPLAY_ANYWAY')">Replay anyway</button>
+                    <button [class.rl-on]="step().unattributed === 'SEND_REAL'" (click)="setUnattributed('SEND_REAL')">Send to real system</button>
+                  </div>
+                  <div class="muted rl-mt-4">Happens when the app doesn't pass ALFRED's tag on to this call and another request for it is in flight.</div>
+                </div>
+              } @else {
+                <div class="rl-panel-box">
+                  <b>Cycle rules also apply</b>
+                  <div class="muted rl-mt-4">
+                    @for (rule of enabledCycleRules(); track $index) {
+                      {{ $index ? ' · ' : '' }}"{{ rule.name }}"
+                    } @empty {
+                      None enabled.
+                    }
+                    The step's own rule runs first. Change cycle rules in the Rules tab.
+                  </div>
+                </div>
+              }
+              <div class="rl-panel-box">
+                <b>Reset</b>
+                <div class="muted rl-mt-4">Rebuild the call rule from the recording and the mode alone.</div>
+                <button class="rl-btn rl-sm rl-danger rl-mt-4" (click)="resetRequested.emit(step().key)">Reset call rule…</button>
+              </div>
+            </div>
+          }
+          @case ('answer') {
+            @if (mockAnswer(); as answer) {
+              <div class="rl-row rl-wrap rl-mb-6">
+                <label class="rl-row">Status <input #answerStatus class="rl-input-sm" type="number" [value]="answer.status" (change)="setAnswer(+answerStatus.value, answer.body)" /></label>
+                <span class="rl-pill" [class]="answerEdited() ? 'rl-p-mod' : 'rl-p-ok'">{{ answerEdited() ? 'edited' : 'recorded answer' }}</span>
+                <span class="rl-spacer"></span>
+                @if (answerEdited()) {
+                  <button class="rl-btn rl-sm" (click)="resetAnswer()">Back to recorded</button>
+                }
+              </div>
+              <app-body-editor label="Answer body" [value]="answer.body" (valueChange)="setAnswer(answer.status, $event)" />
+              <div class="muted rl-mt-4">Your edits stay even if you switch to LIVE and back.</div>
+            } @else {
+              <div class="muted">
+                {{ isChild() ? 'The real supplier answers' : 'Your app answers' }} - the run compares that answer with the recording.
+                Switch the mode (box 2) to {{ isChild() ? 'REPLAY or LIVE, reply mocked' : 'REPLAY' }} to set the answer ALFRED gives instead.
+              </div>
+            }
+          }
+          @case ('values') {
+            <div class="rl-row rl-mb-6">
+              <b>Save values from the response</b>
+              <span class="rl-spacer"></span>
+              <button class="rl-btn rl-sm" [class.rl-on]="browsing() && browseAs() === 'value'" (click)="browseAs.set('value'); browsing.set(!browsing() || browseAs() !== 'value')">Browse response body…</button>
+            </div>
+            @for (rule of step().extract; track $index) {
+              <div class="rl-capture-card">
+                <div class="rl-row rl-wrap">
+                  <select [value]="rule.from" (change)="updateExtractRule($index, { from: $any($event.target).value })">
+                    <option value="JSON">JSON field</option>
+                    <option value="HEADER">Header</option>
+                    <option value="COOKIE">Cookie</option>
+                  </select>
+                  @if (rule.from === 'JSON') {
+                    <app-json-path-input [value]="rule.path" [index]="extractIndex()" (valueChange)="updateExtractRule($index, { path: $event })" />
+                  } @else {
+                    <input [value]="rule.path" (change)="updateExtractRule($index, { path: $any($event.target).value })" placeholder="header/cookie name" />
+                  }
+                  <span class="muted">as</span>
+                  <input class="rl-mono" [value]="rule.as" (change)="updateExtractRule($index, { as: $any($event.target).value })" placeholder="variableName" />
+                  <select [value]="rule.missing" (change)="updateExtractRule($index, { missing: $any($event.target).value })">
+                    <option value="SKIP">Skip if missing</option>
+                    <option value="FALLBACK">Fallback if missing</option>
+                  </select>
+                  @if (rule.missing === 'FALLBACK') {
+                    <input [value]="rule.fallback ?? ''" (change)="updateExtractRule($index, { fallback: $any($event.target).value })" placeholder="fallback value" />
+                  }
+                  <span class="rl-spacer"></span>
+                  <button class="icon-btn" title="Remove" (click)="removeExtractRule($index)">✕</button>
+                </div>
+                @if (extractPreviews()[$index]; as preview) {
+                  <div class="rl-capture-preview">
+                    @if (preview.found) {
+                      <span class="cp-badge cp-found">✓ Found</span> in the recording: <code class="cp-value">{{ mask(preview.value ?? '') }}</code>
+                    } @else if (preview.fallback) {
+                      <span class="cp-badge rl-cp-missing">Not in the recording</span> - the fallback <code class="cp-value">{{ preview.value }}</code> is used
+                    } @else if (rule.path.trim()) {
+                      <span class="cp-badge rl-cp-missing">Not in the recording</span> - left unset
+                    }
+                    <span class="rl-spacer"></span>
+                    <span class="muted">{{ preview.usedBy.length ? 'used by ' + preview.usedBy.join(', ') : 'not used by a later step yet' }}</span>
+                  </div>
+                }
+              </div>
+            }
+            <button class="rl-btn rl-sm rl-mt-4" (click)="addExtractRule()">＋ Save a value…</button>
+
+            @if (browsing()) {
+              <div class="rl-mt-8">
+                <div class="rl-row rl-mb-6">
+                  <span class="muted">Ticked fields become</span>
+                  <span class="rl-seg">
+                    <button [class.rl-on]="browseAs() === 'value'" (click)="browseAs.set('value')">saved values</button>
+                    <button [class.rl-on]="browseAs() === 'check'" (click)="browseAs.set('check')">checks</button>
+                  </span>
+                </div>
+                <app-json-browse [doc]="responseDoc()" [allowChange]="false" title="The recorded response body" (picked)="onBrowsePicked($event)" (closed)="browsing.set(false)" />
+              </div>
+            }
+
+            <div class="rl-row rl-mt-10 rl-mb-6">
+              <b>Check the response</b>
+              <span class="rl-spacer"></span>
+              <button class="rl-btn rl-sm" (click)="browseAs.set('check'); browsing.set(true)">Browse response body…</button>
+            </div>
+            <app-scenario-assertion-editor [assertions]="step().assertions" (assertionsChange)="setAssertions($event)" />
+            @if (assertionPreview().length) {
+              <div class="rl-mt-4">
+                <span class="muted">On the recording:</span>
+                @for (r of assertionPreview(); track $index) {
+                  <div [class.rl-ok-text]="r.passed" [class.rl-warn-text]="!r.passed">
+                    {{ r.passed ? '✓' : '✗' }} {{ r.assertion.kind }} {{ r.assertion.path ?? '' }} {{ r.assertion.operator }} {{ r.assertion.value ?? '' }}
+                    @if (!r.passed) {
+                      - {{ r.message }}
+                    }
+                  </div>
+                }
+              </div>
+            }
+            <div class="muted rl-mt-4">Without checks a step passes when its response matches the recording (after noise). A failed check fails the step unless it is optional.</div>
+          }
+        }
+      </div>
+
+      <div class="intercept-views resend-halves">
+        <button type="button" [class.on]="half() === 'request'" (click)="half.set('request')">Request</button>
+        <button type="button" [class.on]="half() === 'response'" (click)="half.set('response')">Response</button>
+        @if (hasSecrets()) {
+          <span class="rl-spacer"></span>
+          <a class="rl-link rl-t-12" (click)="toggleReveal()">{{ revealed() ? 'Hide secrets' : 'Reveal secrets' }}</a>
+        }
+      </div>
+      @if (half() === 'request') {
+        <app-interception-panel [interception]="compare()" phase="request" [embedded]="true" [labels]="requestLabels" />
+      } @else if (mockAnswer()) {
+        <app-interception-panel [interception]="compare()" phase="response" [embedded]="true" [labels]="responseLabels()" />
+      } @else {
+        <div class="intercept-empty">{{ isChild() ? 'The real supplier' : 'Your app' }} answers live - its answer is compared with the recording after a run.</div>
+      }
+    </div>
+  }
+</div>

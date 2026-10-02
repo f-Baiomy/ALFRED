@@ -5,7 +5,8 @@ import { Observable, Subscription, catchError, debounceTime, filter, firstValueF
 import { ReliveSocketService } from '../../core/services/relive-socket.service';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
-import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/relive-step-drawer.component';
+import { ReliveStepPanelComponent } from '../../components/relive-step-panel/relive-step-panel.component';
+import { ReliveStepCallComponent } from '../../components/relive-step-call/relive-step-call.component';
 import { ReliveRequestDiffersDialogComponent } from '../../components/relive-request-differs-dialog/relive-request-differs-dialog.component';
 import { ReliveExternalNoticeComponent } from '../../components/relive-external-notice/relive-external-notice.component';
 import { ReliveRulesTabComponent } from '../../components/relive-rules-tab/relive-rules-tab.component';
@@ -47,7 +48,8 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
     RouterLink,
     ReliveStepTreeComponent,
     ReliveAddCallsDialogComponent,
-    ReliveStepDrawerComponent,
+    ReliveStepPanelComponent,
+    ReliveStepCallComponent,
     RuleEditorComponent,
     ReliveRequestDiffersDialogComponent,
     ReliveExternalNoticeComponent,
@@ -192,10 +194,6 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     const draft = this.state.draft();
     return draft ? externalReach(draft).size : 0;
   });
-  readonly selectedStep = computed(() => {
-    const key = this.state.selectedStepKey();
-    return key ? (this.state.draft()?.steps.find((s) => s.key === key) ?? null) : null;
-  });
 
   /** Calls of THIS run held in the proxy - request-changed holds and child checkpoints - out of
    *  the existing Paused Calls feed, decided in the run view (FR-035e). */
@@ -296,10 +294,6 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
       'Reset call rule',
     );
     if (confirmed) this.state.resetStep(key);
-  }
-
-  duplicateStep(key: string): void {
-    this.state.duplicateStep(key);
   }
 
   setTab(tab: ReliveTab): void {

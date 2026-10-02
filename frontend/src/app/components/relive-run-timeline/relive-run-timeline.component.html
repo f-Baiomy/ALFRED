@@ -226,43 +226,23 @@
       </div>
       @if (detailKey() === row.step.key) {
         <div class="rl-step-detail" [class.rl-child]="row.isChild">
-          @if (viewState(row) === 'COMPLETED_WITH_DIFFERENCES') {
-            @if (differenceView(row); as view) {
-              @if (view.note) {
-                <div class="rl-diff-note">{{ view.note }}</div>
-              }
-              @for (d of view.inline; track d.path) {
-                <div class="rl-drow">
-                  <span class="rl-mono">{{ d.path }}</span>
-                  <span class="rl-old">{{ formatDiffValue(d.recorded) }}</span>
-                  <span class="rl-new">{{ formatDiffValue(d.actual) }}</span>
-                  <span></span>
-                </div>
-              }
-              @if (!view.inline.length) {
-                <div class="rl-diff-note">
-                  Response differs from the recording.
-                  <button type="button" class="rl-link rl-diff-more" (click)="openDifferences($event, row)">Click to show</button>
-                </div>
-              }
-            }
-          }
-          @if (whyOf(row); as reasons) {
-            @if (reasons.length) {
-              <ul class="rl-why-list" [class.rl-why-fail]="viewState(row) === 'FAILED'">
-                @for (reason of reasons; track $index) {
-                  <li>
-                    {{ reason.summary }}
-                    @if (reason.detail) {
-                      <button type="button" class="rl-link rl-why-more" (click)="openReason($event, reason)">Click to show</button>
-                    }
-                  </li>
-                }
-              </ul>
-            }
-          }
-          <app-call-step-strip [steps]="stripOf(row)" ariaLabel="What happened to this call" />
-          <app-relive-step-call [step]="row.step" [result]="row.result" />
+          <app-relive-step-call [step]="row.step" [result]="row.result">
+            <app-relive-result-panel
+              callPanels
+              [step]="row.step"
+              [result]="row.result"
+              [reasons]="whyOf(row)"
+              [differences]="detailDifferences(row)"
+              [diffNote]="differenceView(row).note"
+              [variableDefs]="variableDefs()"
+              [variables]="variables()"
+              [markedPaths]="markedFields()"
+              (ignore)="ignoreField(row.step.key, $event.diff, $event.scope)"
+              (count)="countField(row.step.key, $event)"
+              (showReason)="showReasonPopup($event)"
+              (showAllDifferences)="showDifferencesPopup(row)"
+            />
+          </app-relive-step-call>
         </div>
       }
       }

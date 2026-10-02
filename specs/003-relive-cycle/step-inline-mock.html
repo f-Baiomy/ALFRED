@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Relive - steps shown with the Live Calls card (mock)</title>
+<style>
+  :root {
+    --bg: #18191c; --card: #232428; --card-2: #1d1e22; --inner: #141518; --row: #26272c;
+    --border: #34363d; --border-strong: #45474f;
+    --text: #e6e8ee; --dim: #a3a8b6; --faint: #6c7180;
+    --blue: #7aa2ff; --blue-bg: #24304d; --green: #34d399; --green-bg: #1d3a2e; --amber: #fbbf24; --amber-bg: #3a2f17;
+    --red: #f87171; --red-bg: #3d2224; --cyan: #22d3ee; --orange: #fb923c; --purple: #a78bfa; --pink: #e879f9;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 28px 60px; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  button { font: inherit; color: inherit; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .note { color: var(--dim); max-width: 1150px; margin: 0 0 18px; }
+  .page-tabs { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
+  .page-tabs button { background: transparent; border: 0; padding: 7px 14px; color: var(--dim); cursor: pointer; }
+  .page-tabs button.on { background: var(--blue-bg); color: var(--text); }
+  .wrap { max-width: 1150px; }
+
+  /* Step rows (cycle Steps tab / run timeline) */
+  .step { display: grid; grid-template-columns: 16px 26px 22px 1fr auto; gap: 10px; align-items: center; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--card-2); margin-bottom: 8px; cursor: pointer; }
+  .step.open { border-color: var(--blue); background: #20232c; border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: 0; }
+  .step.child { margin-left: 34px; }
+  .grip { color: var(--faint); font-size: 11px; }
+  .num { color: var(--faint); text-align: right; font-size: 13px; }
+  .tick { color: var(--green); } .cross { color: var(--red); } .neq { color: var(--amber); }
+  .step .path { font-family: var(--mono); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .step .path b { font-family: "Segoe UI", system-ui; font-weight: 600; margin-right: 8px; }
+  .step .path .lbl { color: var(--faint); font-family: "Segoe UI", system-ui; font-size: 12.5px; margin-left: 8px; }
+  .row-pills { display: flex; gap: 6px; align-items: center; }
+  .icon { background: transparent; border: 1px solid var(--border-strong); border-radius: 7px; color: var(--dim); padding: 1px 7px; cursor: pointer; }
+  .expand { border: 1px solid var(--blue); border-top: 0; border-radius: 0 0 12px 12px; padding: 12px; margin-bottom: 8px; background: #1b1d24; }
+  .expand.child { margin-left: 34px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .p-live { color: var(--orange); border-color: rgba(251, 146, 60, .55); background: rgba(251, 146, 60, .12); }
+  .p-replay { color: var(--cyan); border-color: rgba(34, 211, 238, .45); background: rgba(34, 211, 238, .1); }
+  .p-wait { color: var(--dim); border-color: var(--border-strong); }
+  .p-edit { color: var(--amber); border-color: rgba(251, 191, 36, .5); background: rgba(251, 191, 36, .1); }
+  .p-pause { color: var(--pink); border-color: rgba(232, 121, 249, .5); background: rgba(232, 121, 249, .1); }
+  .p-fail { color: var(--red); border-color: rgba(248, 113, 113, .5); background: rgba(248, 113, 113, .1); }
+  .p-ok { color: var(--green); border-color: rgba(52, 211, 153, .45); background: rgba(52, 211, 153, .1); }
+
+  /* The Live Calls call card, as it is today */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+  .card-top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .chk { width: 18px; height: 18px; border: 1px solid var(--border-strong); border-radius: 4px; }
+  .b { border-radius: 8px; padding: 3px 11px; font-weight: 700; font-size: 13px; border: 1px solid; }
+  .b-method { color: var(--blue); background: var(--blue-bg); border-color: #3b4f7d; }
+  .b-200 { color: var(--green); background: var(--green-bg); border-color: #2f5f49; }
+  .b-500 { color: var(--red); background: var(--red-bg); border-color: #6b3537; }
+  .b-ms { color: var(--orange); background: #2b2420; border-color: transparent; font-weight: 600; }
+  .b-svc { color: var(--blue); background: #1f2638; border-color: #3b4f7d; }
+  .b-act { color: var(--blue); background: #1f2638; border-color: #3b4f7d; font-weight: 600; cursor: pointer; }
+  .when { color: var(--faint); margin-left: auto; font-size: 13px; }
+  .url { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .url-badge { color: var(--green); border: 1px solid #2f5f49; background: var(--green-bg); border-radius: 7px; padding: 1px 8px; font-weight: 700; font-size: 12.5px; }
+  .url code { font-family: var(--mono); color: #6ee7d8; font-size: 14px; }
+  .chips { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .chip { font-family: var(--mono); font-size: 12px; color: var(--faint); border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; }
+  .reqres { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--dim); font-size: 13px; }
+  .reqres button { background: transparent; border: 1px solid var(--border); border-radius: 7px; padding: 3px 11px; color: var(--dim); cursor: pointer; }
+  .reqres span { margin: 0 2px 0 6px; }
+  .error { margin-top: 10px; border: 1px solid rgba(248, 113, 113, .45); background: rgba(248, 113, 113, .08); color: #fecaca; border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+
+  /* The intercepted / resent panel family - the new Relive panel is one more twin */
+  .ipanel { margin-top: 12px; border: 1px solid rgba(251, 191, 36, .45); background: rgba(251, 191, 36, .05); border-radius: 12px; overflow: hidden; }
+  .ipanel.setup { border-color: rgba(122, 162, 255, .5); background: rgba(122, 162, 255, .05); }
+  .ipanel.rules { border-color: rgba(167, 139, 250, .5); background: rgba(167, 139, 250, .05); }
+  .ihead { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: transparent; border: 0; cursor: pointer; text-align: left; }
+  .ihead .ico { font-size: 16px; color: var(--amber); }
+  .setup .ihead .ico { color: var(--blue); }
+  .rules .ihead .ico { color: var(--purple); }
+  .ihead .t { font-weight: 600; }
+  .ihead em { font-style: normal; color: var(--faint); font-family: var(--mono); font-size: 12.5px; margin-left: 10px; }
+  .ihead .tog { margin-left: auto; color: var(--dim); font-size: 13px; }
+  .ibody { padding: 4px 14px 14px; }
+
+  .strip { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 4px; }
+  .sbox { min-width: 128px; border: 1px solid var(--border); border-radius: 9px; padding: 7px 11px; background: var(--card-2); cursor: pointer; text-align: left; }
+  .sbox.on { border-color: var(--blue); background: #222a3d; }
+  .sbox .st { font-weight: 600; font-size: 13px; white-space: nowrap; }
+  .sbox .sl { color: var(--faint); font-size: 12px; white-space: nowrap; }
+  .sbox.warn .sl { color: var(--amber); } .sbox.bad .sl { color: var(--red); } .sbox.set .sl { color: var(--blue); }
+  .sarrow { color: var(--faint); display: flex; align-items: center; padding: 0 6px; }
+
+  .detail { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--inner); font-size: 13px; }
+  .detail .muted { color: var(--faint); }
+  .detail code { font-family: var(--mono); font-size: 12.5px; background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .detail h4 { margin: 0 0 8px; font-size: 12px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .detail .line { padding: 3px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .detail .was { color: var(--faint); text-decoration: line-through; }
+  .btn { background: transparent; border: 1px solid var(--border-strong); border-radius: 8px; padding: 3px 10px; cursor: pointer; font-size: 12.5px; }
+  .btn.primary { background: #3b5bdb; border-color: #3b5bdb; }
+  .btn.danger { color: var(--red); border-color: rgba(248, 113, 113, .5); }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 4px 11px; color: var(--dim); cursor: pointer; font-size: 12.5px; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button.live { background: rgba(251, 146, 60, .18); color: var(--orange); }
+  .seg button.replay { background: rgba(34, 211, 238, .14); color: var(--cyan); }
+  .editor { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top: 6px; }
+  .editor .bar { display: flex; gap: 8px; align-items: center; padding: 5px 8px; background: var(--card); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--dim); }
+  .editor .bar .sp { flex: 1; }
+  .editor pre { margin: 0; padding: 9px 12px; font-family: var(--mono); font-size: 12.5px; background: #101114; color: #d6dae6; white-space: pre-wrap; }
+  .k { color: #c4b5fd; } .s { color: #6ee7d8; } .n { color: #fb923c; } .hl { background: rgba(251, 191, 36, .2); border-radius: 3px; }
+  input.f, select { background: var(--inner); border: 1px solid var(--border-strong); border-radius: 7px; color: var(--text); padding: 3px 8px; font: inherit; font-size: 12.5px; }
+
+  .halves { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+  .halves button { background: transparent; border: 0; padding: 3px 12px; cursor: pointer; color: var(--dim); font-size: 12.5px; }
+  .halves button.on { background: var(--blue-bg); color: var(--text); }
+  .diffbox { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .diffhead { display: flex; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--card); align-items: center; font-size: 12.5px; }
+  .diffhead button { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 1px 9px; color: var(--dim); cursor: pointer; font-size: 12px; }
+  .diffhead button.on { color: var(--text); border-color: var(--blue); }
+  .diffhead .sp { flex: 1; }
+  .diff { font-family: var(--mono); font-size: 12.5px; background: #101114; padding: 8px 0; }
+  .diff div { padding: 0 12px; white-space: pre; }
+  .diff .del { background: rgba(248, 113, 113, .12); color: #fecaca; }
+  .diff .add { background: rgba(52, 211, 153, .12); color: #bbf7d0; }
+  .diff .noise { color: var(--faint); }
+  .diff .act { float: right; font-family: "Segoe UI", system-ui; font-size: 11.5px; color: var(--blue); cursor: pointer; }
+
+  .legend { margin-top: 26px; color: var(--dim); font-size: 13px; max-width: 1150px; }
+  .legend h2 { font-size: 15px; color: var(--text); margin: 18px 0 8px; }
+  .legend li { margin: 5px 0; }
+  .legend code { font-family: var(--mono); font-size: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  table { border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+  td, th { border: 1px solid var(--border); padding: 5px 9px; text-align: left; vertical-align: top; }
+  th { color: var(--text); background: var(--card); }
+  /* The Interception page's rule editor pipeline, embedded (app-rule-editor) */
+  .pipe { display: grid; grid-template-columns: 1fr 150px 1fr; gap: 10px; align-items: stretch; }
+  .lane { border: 1px solid var(--border); border-radius: 10px; background: var(--card-2); padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .lane.dead { opacity: .45; }
+  .lane-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--dim); }
+  .lane-head .n { width: 18px; height: 18px; border-radius: 50%; background: var(--blue-bg); color: var(--blue); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+  .lane-head .sp { flex: 1; }
+  .lane-empty { color: var(--faint); font-size: 12.5px; padding: 4px 2px; }
+  .acard { border: 1px solid var(--border-strong); border-radius: 9px; background: var(--card); overflow: hidden; }
+  .acard.off { opacity: .5; }
+  .acard-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12.5px; }
+  .acard-head .h { color: var(--faint); cursor: grab; }
+  .acard-head .title { font-weight: 600; flex: 1; }
+  .acard-head .tag { font-size: 10.5px; color: var(--faint); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
+  .acard-body { border-top: 1px solid var(--border); padding: 7px 9px; font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
+  .acard-body .r { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .acard-body pre { margin: 0; padding: 6px 9px; background: #101114; border-radius: 6px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+  .switch { width: 28px; height: 16px; border-radius: 9px; background: #2f5f49; position: relative; display: inline-block; }
+  .switch::after { content: ''; position: absolute; right: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--green); }
+  .switch.off { background: var(--border-strong); } .switch.off::after { left: 2px; right: auto; background: var(--faint); }
+  .adder { border: 1px dashed var(--border-strong); background: transparent; border-radius: 8px; padding: 4px; color: var(--dim); cursor: pointer; font-size: 12.5px; }
+  .host { border: 1px dashed var(--border-strong); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 8px; gap: 3px; font-size: 12px; }
+  .host.blocked { border-color: rgba(34, 211, 238, .5); background: rgba(34, 211, 238, .05); }
+  .host .big { font-size: 18px; }
+  .host small { color: var(--faint); }
+  .rule-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .rule-top .sp { flex: 1; }
+  .match { font-size: 12.5px; color: var(--dim); }
+  .match code { font-family: var(--mono); }
+  .warnline { border: 1px solid rgba(232, 121, 249, .45); background: rgba(232, 121, 249, .07); color: #f5d0fe; border-radius: 8px; padding: 6px 10px; font-size: 12.5px; margin-bottom: 8px; }
+  .extra { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .extra .box { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; background: var(--card-2); }
+  .extra h5 { margin: 0 0 6px; font-size: 12.5px; }
+  .extra p { margin: 6px 0 0; color: var(--faint); font-size: 12px; }
+  @media (max-width: 1000px) { .pipe, .extra { grid-template-columns: 1fr; } }
+  /* Values: rule editor's capture card + capture preview + json browse + assertion editor */
+  .vsect { margin-bottom: 14px; }
+  .vsect-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .vsect-head h4 { margin: 0 !important; }
+  .vsect-head .sp { flex: 1; }
+  .grid4 { display: grid; grid-template-columns: 90px 1fr; gap: 6px 10px; align-items: center; }
+  .grid4 > span { color: var(--dim); font-size: 12px; }
+  .found { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+  .cp-found { color: var(--green); border: 1px solid rgba(52, 211, 153, .45); background: rgba(52, 211, 153, .1); border-radius: 6px; padding: 0 6px; font-weight: 700; font-size: 11.5px; }
+  .cp-miss { color: var(--amber); border: 1px solid rgba(251, 191, 36, .45); background: rgba(251, 191, 36, .1); border-radius: 6px; padding: 0 6px; font-weight: 700; font-size: 11.5px; }
+  .cp-value { font-family: var(--mono); color: #6ee7d8; }
+  .tree { font-family: var(--mono); font-size: 12px; background: #101114; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+  .tree div { padding: 1px 0; display: flex; gap: 6px; align-items: center; }
+  .tree .pick { color: var(--blue); cursor: pointer; font-family: "Segoe UI", system-ui; font-size: 11px; border: 1px solid #3b4f7d; border-radius: 5px; padding: 0 5px; }
+  .tree .picked { color: var(--green); border-color: #2f5f49; }
+  .arow { display: grid; grid-template-columns: 100px 1fr 120px 1fr 150px 24px; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .arow .res { font-size: 12px; }
+  .ok { color: var(--green); } .bad { color: var(--red); } .meh { color: var(--faint); }
+  .rtable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .rtable td, .rtable th { border: 0; border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; background: transparent; }
+  .rtable th { color: var(--faint); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .rtable code { font-family: var(--mono); }
+  @media (max-width: 1000px) { .arow { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>Relive steps shown with the Live Calls call card</h1>
+<p class="note">Inline only - the side drawer goes away. Every step, in the Steps tab and in a run, opens the <b>same call card Live Calls uses</b>: badges, URL, Resend / Pin / Export / Relive, REQ/RES headers and bodies, the ⚡ intercepted panel, the error banner. What Relive adds is <b>one more panel in the card's existing panel family</b> (the twin of "Intercepted" and "Resent from a Live Calls call"): the same head, the same numbered strip, the same Request / Response diff. Click the strip boxes and the panel heads.</p>
+
+<div class="page-tabs" id="pageTabs">
+  <button class="on" data-p="steps">Steps tab - setting up a step</button>
+  <button data-p="run">Run tab - what happened</button>
+</div>
+
+<div class="wrap" id="app"></div>
+
+<div class="legend">
+  <h2>What is reused, unchanged</h2>
+  <ul>
+    <li><code>app-call-card</code> (through <code>app-relive-step-call</code>, already used today) - the whole card, its actions, its REQ/RES panels and its error banner. A step that hasn't run shows its recording; a step of a run shows the call the run actually made.</li>
+    <li><code>app-interception-panel</code> - the ⚡ "Intercepted" panel for rules that changed the call during the run (exactly as for a Live Calls call), and in <code>embedded</code> mode for the Request / Response diff inside the Relive panel.</li>
+    <li><code>app-call-step-strip</code> - the numbered strip. The run timeline already uses it; the Steps tab starts using it too.</li>
+    <li><code>app-resend-panel</code>'s frame - the new <code>app-relive-panel</code> copies its structure (head → strip → step detail → Request/Response halves). Better still, the shared part becomes one base both use, so the two can't drift.</li>
+    <li><code>app-resend-call-editor</code> (the Resend dialog's editor) for "Your edits", <code>app-body-editor</code>/<code>app-header-editor</code> for ALFRED's answer, <code>app-rule-action-card</code> + the rule dialog for the call rule, <code>app-json-path-input</code> and <code>app-scenario-assertion-editor</code> for values.</li>
+  </ul>
+
+  <h2>What goes away</h2>
+  <table>
+    <tr><th>Today (side drawer)</th><th>Now (inside the card)</th></tr>
+    <tr><td>Configure · label, optional, duplicate, recorded</td><td>Step row (label inline) + strip box 1 "Recorded call"; Duplicate/Disable/Remove on the row's ⋯ menu</td></tr>
+    <tr><td>Configure · execution mode</td><td>Strip box "Mode" (and the pill on the row)</td></tr>
+    <tr><td>Configure · call rule, pauses, request differs, unattributed</td><td>Strip box "Call rule" - the embedded rule editor pipeline</td></tr>
+    <tr><td>Request tab (textarea + recorded reference)</td><td>Strip box "Your edits" with the Resend editor; Request half shows Recorded / Edited / Diff</td></tr>
+    <tr><td>Response tab (mock answer + recorded reference)</td><td>Strip box "Answer" with body/header editors; Response half shows Recorded / ALFRED's answer / Diff</td></tr>
+    <tr><td>Extract &amp; assert</td><td>Strip box "Values": capture cards with preview, field browser, the assertion editor; run box 8 shows results</td></tr>
+    <tr><td>Run: Overview / Original / Effective / Actual</td><td>The card itself (actual call) + strip boxes + Request half Recorded / Sent / Diff</td></tr>
+    <tr><td>Run: Rules &amp; variables</td><td>Strip boxes "Variables" and "Rules" + the card's own ⚡ Intercepted panel</td></tr>
+    <tr><td>Run: Compare (differences, ignore field)</td><td>Response half Recorded / Actual / Diff, with "ignore" on each differing line; strip box "Response" lists them</td></tr>
+    <tr><td>Run: Log</td><td>The run log (already redesigned) - each row's "Open step" opens this card</td></tr>
+  </table>
+
+  <h2>The step's call configuration (box 5 · Call rule)</h2>
+  <ul>
+    <li>It is the <b>Interception page's rule editor</b> (<code>app-rule-editor</code>) embedded in the card, with the Relive target it already has: the same pipeline (1 Request → host → 2 Response), the same action cards, drag to reorder, enable switches, "＋ Add action", "Browse body…".</li>
+    <li>The match is fixed by the step (only this step's call), so the editor's Match section is replaced by one line. "Open in full rule editor" opens today's rule dialog for anything bigger.</li>
+    <li>Mode, pauses, your edits and ALFRED's answer are <b>actions in this one rule</b> - boxes 2, 3 and 6 are shortcuts that edit them, and each card says which ("your edit", "REPLAY", "checkpoint"). That is how it already works today; the mock just shows it in one place.</li>
+    <li>The host box shows whether the call reaches the host: LIVE goes to your app or the supplier; REPLAY is "Not sent" and lane 2 greys out, using the rule editor's existing "host is never contacted" logic.</li>
+    <li>Relive-only settings sit under the pipeline: "If ALFRED can't tell the call is yours" (REPLAY children), which cycle and global rules also apply, and Reset call rule. "When the request differs" is an action card in lane 1, as it is in the rule today.</li>
+    <li>Open the <b>Supplier B price</b> child step in the mock to see a REPLAY call's rule.</li>
+  </ul>
+
+  <h2>Extract &amp; assert (box 7 · Values)</h2>
+  <ul>
+    <li><b>Save a value</b> uses the look of the rule editor's "Capture a value" action card (source JSON field / header / cookie, path, name, if-missing), and its <code>app-capture-value-preview</code> - but the preview runs on <b>this step's own recording</b>, so there is no "pick a call". It also says which later steps use the value.</li>
+    <li><b>Browse response body</b> is the rule editor's <code>app-json-browse</code> on the recording: click a field to save it or to add a check on it. Noise fields are marked.</li>
+    <li><b>Check the response</b> is <code>app-scenario-assertion-editor</code> unchanged (STATUS / JSON / HEADER / LATENCY × the same operators), plus a "passes on the recording" result per check so a wrong check shows before running.</li>
+    <li>The data is unchanged: still the step's <code>extract</code> and <code>assertions</code>, not rule actions.</li>
+    <li>In a run, box 8 shows each saved value (this run vs recorded, and what it unblocked or blocked) and each check's expected / got / result - replacing the drawer's "Variables produced" and the assertion lines.</li>
+  </ul>
+
+  <h2>Kept Relive-only</h2>
+  <ul>
+    <li>Ignore-field / count-field actions on differences, the noise list, and "Run from here" - they live in the Response box and the step row, not in the shared card.</li>
+    <li>Held-call decisions (Continue / Replay / Send real) stay on the run timeline's pause banner.</li>
+  </ul>
+</div>
+
+<script>
+// ---- Call rule (the step's call configuration): the Interception page's rule editor, embedded ----
+const card_ = (title, tag, body, on = true) => `<div class="acard ${on ? '' : 'off'}">
+  <div class="acard-head"><span class="h">⋮⋮</span><span class="title">${title}</span>${tag ? `<span class="tag">${tag}</span>` : ''}<span class="switch ${on ? '' : 'off'}" title="Enabled"></span><button class="icon" title="Remove">✕</button></div>
+  ${body ? `<div class="acard-body">${body}</div>` : ''}</div>`;
+
+function callRule(kind) {
+  const child = kind === 'child';
+  const req = child
+    ? card_('Pause before sending', 'checkpoint', `<div class="r">Wait <input class="f" value="30" style="width:52px"> s, then <select><option>Continue</option><option>Answer with the recording</option><option>Block</option></select></div>`, false)
+      + card_('If the request differs from the recording', 'request differs', `<div class="r">Then <select><option>Ask me (hold up to 30 s)</option><option>Replay anyway</option><option>Send to the real supplier</option><option>Block</option></select></div><div class="r" style="color:var(--faint)">Compared after noise rules; differed on <code>$.date</code> in the last run.</div>`)
+      + card_('Answer with the recorded response', 'REPLAY', `<div class="r"><span class="b b-200" style="padding:0 7px">200</span> 2 headers · 1.2 KB JSON <button class="btn">Edit in "Answer"</button></div>`)
+    : card_('Pause before sending', 'checkpoint', `<div class="r">Wait <input class="f" value="30" style="width:52px"> s, then <select><option>Continue</option><option>Skip the step</option></select></div>`)
+      + card_('Replace the request body', 'your edit', `<pre>{ "fare": "<span class="hl">{{$.priceId}}</span>", "pax": 1, "currency": "EGP" }</pre><div class="r"><button class="btn">Edit in "Your edits"</button><span style="color:var(--faint)">same text as box 3</span></div>`);
+  const resp = child ? '' : card_('Set response header', '', `<div class="r"><input class="f" value="X-Test-Run" style="font-family:var(--mono)"> = <input class="f" value="{{$.runId}}" style="font-family:var(--mono)"></div>`, false);
+  return `
+  <div class="rule-top">
+    <span class="match">Matches <b>only this step's call</b>: <code>${child ? 'POST supplier-b.example /api/price' : 'POST /odeysysadmin/v2/booking/fare-confirmation'}</code>${child ? ' · 1st call of step 3' : ''} <span style="color:var(--faint)">(fixed by the step)</span></span>
+    <span class="sp"></span>
+    <button class="btn">Open in full rule editor ↗</button>
+    <button class="btn">Copy to Interception rules…</button>
+  </div>
+  ${child ? '' : '<div class="warnline">⏸ This rule pauses the call: the caller waits until you answer or the 30 s timeout.</div>'}
+  <div class="pipe">
+    <div class="lane">
+      <div class="lane-head"><span class="n">1</span>Request - before it leaves ALFRED<span class="sp"></span><button class="btn">Browse request body…</button></div>
+      ${req}
+      <button class="adder">＋ Add a request action…</button>
+    </div>
+    ${child
+      ? `<div class="host blocked"><span class="big">🛡</span><b>Not sent</b><small>REPLAY: ALFRED answers, the supplier is never contacted</small></div>`
+      : `<div class="host"><span class="big">→</span><b>odeysys</b><small>LIVE: the real request goes to your app and its answer comes back</small></div>`}
+    <div class="lane ${child ? 'dead' : ''}">
+      <div class="lane-head"><span class="n">2</span>Response - after the host answers<span class="sp"></span><button class="btn">Browse response body…</button></div>
+      ${child ? '<div class="lane-empty">Never runs - the call is answered in lane 1 (REPLAY).</div>' : resp}
+      <button class="adder">＋ Add a response action…</button>
+    </div>
+  </div>
+  <div class="extra">
+    ${child ? `<div class="box"><h5>If ALFRED can't tell the call is yours</h5><div class="seg"><button class="replay">Block (default)</button><button>Replay anyway</button><button>Send to real system</button></div><p>Happens when your app doesn't pass ALFRED's tag on to this call and another request for it is in flight.</p></div>`
+            : `<div class="box"><h5>Cycle and global rules also apply</h5><div style="font-size:12.5px">Cycle rule "Ignore timestamps" · no global rules selected</div><p>Change them in the Rules tab. The step's own rule runs first.</p></div>`}
+    <div class="box"><h5>Reset</h5><div style="font-size:12.5px">Put the call rule back to what the mode alone sets.</div><p><button class="btn danger">Reset call rule…</button></p></div>
+  </div>`;
+}
+
+const strips = {
+  steps: [
+    { k: 'recorded', t: '1 · Recorded call', l: 'POST · 200 · 392 ms' },
+    { k: 'mode', t: '2 · Mode', l: 'LIVE · sent to your app', cls: 'set' },
+    { k: 'edits', t: '3 · Your edits', l: 'body edited', cls: 'warn' },
+    { k: 'vars', t: '4 · Variables', l: 'uses {{$.priceId}}', cls: 'set' },
+    { k: 'rules', t: '5 · Call rule', l: '2 actions · pause before', cls: 'set' },
+    { k: 'answer', t: '6 · Answer', l: 'from your app' },
+    { k: 'values', t: '7 · Values', l: 'saves pnr · 3 checks', cls: 'set' },
+  ],
+  child: [
+    { k: 'recorded', t: '1 · Recorded call', l: 'POST · 200 · 1.3 s' },
+    { k: 'mode', t: '2 · Mode', l: 'REPLAY · ALFRED answers', cls: 'set' },
+    { k: 'edits', t: '3 · Your edits', l: 'none' },
+    { k: 'vars', t: '4 · Variables', l: 'none' },
+    { k: 'rules', t: '5 · Call rule', l: 'request differs: ask me', cls: 'set' },
+    { k: 'answer', t: '6 · Answer', l: 'recorded 200', cls: 'set' },
+    { k: 'values', t: '7 · Values', l: 'none' },
+  ],
+  run: [
+    { k: 'recorded', t: '1 · Recorded call', l: 'POST · 200' },
+    { k: 'edits', t: '2 · Your edits', l: 'body edited', cls: 'warn' },
+    { k: 'vars', t: '3 · Variables', l: 'priceId = PR-88213', cls: 'set' },
+    { k: 'sent', t: '4 · Sent', l: 'attempt 2 of 2' },
+    { k: 'rules', t: '5 · Rules', l: '2 applied', cls: 'set' },
+    { k: 'upstream', t: '6 · Upstream', l: 'real host contacted' },
+    { k: 'response', t: '7 · Response', l: '500 (recorded 200) · 3 diffs', cls: 'bad' },
+    { k: 'values', t: '8 · Values', l: 'pnr missing · 2 of 3 checks failed', cls: 'bad' },
+  ],
+};
+
+const details = {
+  steps: {
+    recorded: `<div class="line"><span class="b b-method" style="padding:0 8px">POST</span> 200 · <code>/odeysysadmin/v2/booking/fare-confirmation</code> · from Session cycle "full record to serch" · 10/2/2026, 7:19:06 PM · 392 ms · <a style="color:var(--blue)">open original</a></div>
+      <div class="line"><span class="muted">Label</span><input class="f" value="Book" style="width:260px"><label><input type="checkbox"> optional - a failure here doesn't fail the run</label></div>`,
+    mode: `<div class="line"><div class="seg"><button class="live">LIVE · sent to your app</button><button>REPLAY · ALFRED answers</button></div></div>
+      <div class="muted">LIVE: the run sends this call to odeysys and compares its answer with the recording. The mode only sets actions in the call rule (box 5).</div>`,
+    edits: `<h4>Edit what the run sends - the Resend dialog's editor</h4>
+      <div class="line"><span class="b b-method" style="padding:0 8px">POST</span><input class="f" style="flex:1;font-family:var(--mono)" value="http://host.docker.internal:9001/odeysysadmin/v2/booking/fare-confirmation"></div>
+      <div class="editor"><div class="bar">Headers · 17 <span class="sp"></span><button class="btn">Open in big tab ↗</button></div></div>
+      <div class="editor"><div class="bar">Body · JSON · edited <span class="sp"></span><button class="btn">Format</button><button class="btn">Find / replace</button><button class="btn">Back to recorded</button></div>
+<pre>{
+  <span class="k">"fare"</span>: <span class="s hl">"{{$.priceId}}"</span>,
+  <span class="k">"pax"</span>: <span class="n">1</span>,
+  <span class="k">"currency"</span>: <span class="s">"EGP"</span>
+}</pre></div>
+      <div class="muted" style="margin-top:6px">Saved as the call rule's "Replace the request body" (box 5).</div>`,
+    vars: `<div class="line">Uses <code>{{$.priceId}}</code> - saved by step 3 "Price" from <code>$.priceId</code> · recorded value <code>PR-77120</code></div>
+      <div class="line muted">Type <code>{{</code> in the editor to insert a variable.</div>`,
+    rules: () => callRule('step'),
+    answer: `<div class="line muted">LIVE - your app answers. Switch Mode to REPLAY to set the answer ALFRED gives instead (status, headers and body, with the same editors).</div>`,
+    values: `
+      <div class="vsect">
+        <div class="vsect-head"><h4>Save values from the response</h4><span class="sp"></span><button class="btn">Browse response body…</button></div>
+        ${card_('Save a value', 'extract', `
+          <div class="grid4">
+            <span>From</span><div class="r"><select><option>JSON field</option><option>Header</option><option>Cookie</option></select><input class="f" value="$.pnr" style="font-family:var(--mono);flex:1"></div>
+            <span>Save as</span><div class="r"><code style="color:var(--faint)">{{$.</code><input class="f" value="pnr" style="font-family:var(--mono);width:120px"><code style="color:var(--faint)">}}</code></div>
+            <span>If missing</span><div class="r"><select><option>Skip - leave it unset</option><option>Use a fallback</option></select></div>
+          </div>
+          <div class="found"><span class="cp-found">✓ Found</span> in the recording: <code class="cp-value">XK29QD</code> <span class="meh">text · 6 chars</span><span style="flex:1"></span><span class="meh">used by step 5 "Ticket" ({{$.pnr}})</span></div>`)}
+        ${card_('Save a value', 'extract', `
+          <div class="grid4">
+            <span>From</span><div class="r"><select><option>Header</option></select><input class="f" value="X-Booking-Ref" style="font-family:var(--mono);flex:1"></div>
+            <span>Save as</span><div class="r"><code style="color:var(--faint)">{{$.</code><input class="f" value="bookingRef" style="font-family:var(--mono);width:120px"><code style="color:var(--faint)">}}</code></div>
+            <span>If missing</span><div class="r"><select><option>Use a fallback</option></select><input class="f" value="none" style="width:100px"></div>
+          </div>
+          <div class="found"><span class="cp-miss">Not in the recording</span> - the fallback <code class="cp-value">none</code> is used <span style="flex:1"></span><span class="meh">not used by any step yet</span></div>`)}
+        <button class="adder" style="width:100%;margin-top:6px">＋ Save a value…</button>
+        <div style="margin-top:8px">
+          <div class="meh" style="font-size:12px;margin-bottom:4px">Browse response body (the rule editor's field browser on this step's recording) - click a field to save it:</div>
+          <div class="tree">
+            <div>{</div>
+            <div>&nbsp;&nbsp;<span class="k">"pnr"</span>: <span class="s">"XK29QD"</span>, <span class="pick picked">✓ saved as pnr</span></div>
+            <div>&nbsp;&nbsp;<span class="k">"status"</span>: <span class="s">"CONFIRMED"</span>, <span class="pick">＋ save</span> <span class="pick">＋ check</span></div>
+            <div>&nbsp;&nbsp;<span class="k">"total"</span>: <span class="n">412.5</span>, <span class="pick">＋ save</span> <span class="pick">＋ check</span></div>
+            <div>&nbsp;&nbsp;<span class="k">"timestamp"</span>: <span class="s">"2026-10-02T16:19:06Z"</span> <span class="pick">＋ save</span> <span class="meh">ignored as noise</span></div>
+            <div>}</div>
+          </div>
+        </div>
+      </div>
+      <div class="vsect">
+        <div class="vsect-head"><h4>Check the response</h4><span class="sp"></span><span class="meh" style="font-size:12px">the scenario assertion editor</span></div>
+        <div class="arow"><select><option>STATUS</option></select><input class="f" disabled><select><option>EQUALS</option></select><input class="f" value="200"><span class="res ok">✓ passes on the recording</span><button class="icon">✕</button></div>
+        <div class="arow"><select><option>JSON</option></select><input class="f" value="$.status" style="font-family:var(--mono)"><select><option>EQUALS</option></select><input class="f" value="CONFIRMED"><span class="res ok">✓ passes on the recording</span><button class="icon">✕</button></div>
+        <div class="arow"><select><option>LATENCY</option></select><input class="f" disabled><select><option>LT</option></select><input class="f" value="2000"><span class="res ok">✓ 392 ms recorded</span><button class="icon">✕</button></div>
+        <button class="adder" style="width:100%">＋ Add a check…</button>
+        <p class="hint" style="color:var(--faint);font-size:12px;margin:6px 0 0">Without checks, a step passes when its response matches the recording (after noise). A failed check fails the step, unless the step is optional.</p>
+      </div>`,
+  },
+  child: {
+    recorded: `<div class="line"><span class="b b-method" style="padding:0 8px">POST</span> 200 · <code>https://supplier-b.example/api/price</code> · outbound call of step 3 "Price" · 1.3 s</div>
+      <div class="line"><span class="muted">Label</span><input class="f" value="Supplier B price" style="width:260px"></div>`,
+    mode: `<div class="line"><div class="seg"><button class="replay">REPLAY · ALFRED answers</button><button>LIVE · real supplier ⚠</button><button>LIVE · mocked reply ⚠</button></div></div>
+      <div class="muted">REPLAY: the supplier is never contacted; ALFRED answers with box 6.</div>`,
+    edits: `<div class="line muted">No edits - a REPLAY call is compared with the recording, not changed. "Your edits" applies to LIVE calls.</div>`,
+    vars: `<div class="line muted">This call uses no variables.</div>`,
+    rules: () => callRule('child'),
+    answer: `<h4>Answer ALFRED gives - the same body/header editors</h4>
+      <div class="line">Status <input class="f" value="200" style="width:70px"><span class="pill p-ok">recorded answer</span><span style="flex:1"></span><button class="btn">Back to recorded</button></div>
+      <div class="editor"><div class="bar">Headers · 2</div></div>
+      <div class="editor"><div class="bar">Body · JSON <span class="sp"></span><button class="btn">Format</button></div><pre>{ <span class="k">"price"</span>: { <span class="k">"supplier"</span>: <span class="s">"B"</span>, <span class="k">"amount"</span>: <span class="n">412.5</span> } }</pre></div>`,
+    values: `<div class="vsect"><div class="vsect-head"><h4>Save values from the response</h4><span class="sp"></span><button class="btn">Browse response body…</button></div>
+        <div class="line muted">Nothing saved. A REPLAY answer is ALFRED's own, so a saved value is the recorded one (here <code>$.price.amount</code> = 412.5).</div>
+        <button class="adder" style="width:100%">＋ Save a value…</button></div>
+      <div class="vsect"><div class="vsect-head"><h4>Check the response</h4></div>
+        <div class="line muted">No checks. In REPLAY the answer is the recording, so checks mostly matter for LIVE.</div>
+        <button class="adder" style="width:100%">＋ Add a check…</button></div>`,
+  },
+  run: {
+    recorded: `<div class="line"><span class="b b-method" style="padding:0 8px">POST</span> 200 · <code>/odeysysadmin/v2/booking/fare-confirmation</code> · recorded 10/2/2026, 7:09:35 PM · 392 ms</div>`,
+    edits: `<div class="line">Body edited - see Request · Diff below.</div>`,
+    vars: `<div class="line"><code>{{$.priceId}}</code> = <code>PR-88213</code> <span class="muted">(saved by step 3 "Price" in this run; recorded PR-77120)</span></div>`,
+    sent: `<div class="line">To odeysys's reverse-proxy listener, as inbound · attempt 2 of 2 <span class="muted">(attempt 1 at 19:19:02 failed the same way)</span></div>`,
+    rules: `<div class="line"><b>Book</b> (step's call rule) · Pause before sending · Replace the request body</div><div class="line"><b>Ignore timestamps</b> (cycle rule) · response noise</div><div class="muted">The full before/after of those rules is in the ⚡ panel on this card, as for any call.</div>`,
+    upstream: `<div class="line">host.docker.internal:9001 answered in 178 ms <span class="muted">(recorded: 392 ms)</span></div>`,
+    response: `<div class="line"><span class="pill p-fail">✗ failed</span> 500 Internal Server Error · recorded was 200 OK</div>
+      <div class="line">Why: <b>status 500 differs from the recorded 200</b> · check "Status equals 200" failed</div>
+      <div class="line">3 differences: <code>$.status</code> <code>$.pnr</code> missing <code>$.error</code> added · <span class="muted">1 ignored as noise (<code>$.timestamp</code>)</span></div>`,
+    values: `
+      <h4>Values saved by this step</h4>
+      <table class="rtable">
+        <tr><th>Variable</th><th>From</th><th>This run</th><th>Recorded</th><th>Effect</th></tr>
+        <tr><td><code>{{$.pnr}}</code></td><td><code>$.pnr</code></td><td><span class="cp-miss">missing</span> skipped</td><td><code>XK29QD</code></td><td class="bad">step 5 "Ticket" will not run (needs a missing value)</td></tr>
+        <tr><td><code>{{$.bookingRef}}</code></td><td>header <code>X-Booking-Ref</code></td><td><code>none</code> <span class="meh">fallback</span></td><td>-</td><td class="meh">not used</td></tr>
+      </table>
+      <h4 style="margin-top:12px">Checks</h4>
+      <table class="rtable">
+        <tr><th>Check</th><th>Expected</th><th>Got</th><th></th></tr>
+        <tr><td>STATUS EQUALS</td><td><code>200</code></td><td><code>500</code></td><td class="bad">✗ failed</td></tr>
+        <tr><td>JSON <code>$.status</code> EQUALS</td><td><code>CONFIRMED</code></td><td><code>FAILED</code></td><td class="bad">✗ failed</td></tr>
+        <tr><td>LATENCY LT</td><td><code>2000 ms</code></td><td><code>178 ms</code></td><td class="ok">✓ passed</td></tr>
+      </table>
+      <div class="line" style="margin-top:8px"><button class="btn">Edit values and checks…</button><span class="muted">opens this step in the Steps tab, box 7</span></div>`,
+  },
+};
+
+const cards = {
+  steps: { m: 'POST', st: 200, ms: '392.41 ms', svc: 'Odeysys', url: '/odeysysadmin/v2/booking/fare-confirmation', when: 'recorded 10/2/2026, 7:19:06 PM', chips: '<span class="chip">Request: 1fb85225…</span><span class="chip">Session cycle: full record to serch</span>',
+    head: `<span class="ico">⚙</span><span class="t">How this step runs<em>LIVE · body edited · uses {{$.priceId}} · pause before · saves pnr</em></span>` },
+  child: { m: 'POST', st: 200, ms: '1310.02 ms', svc: 'supplier-b.example', url: 'https://supplier-b.example/api/price', when: 'recorded 10/2/2026, 7:18:58 PM', chips: '<span class="chip">Outbound of step 3 · Price</span>',
+    head: `<span class="ico">⚙</span><span class="t">How this step runs<em>REPLAY · ALFRED answers · request differs: ask me</em></span>` },
+  run: { m: 'POST', st: 500, ms: '178.20 ms', svc: 'Odeysys', url: '/odeysysadmin/v2/booking/fare-confirmation', when: '10/2/2026, 7:19:09 PM', chips: '<span class="chip">Request: 1fb85225…</span><span class="chip">Operation: relive-7e03…</span><span class="chip">Run 7e033a93 · step 4</span>',
+    head: `<span class="ico">▶</span><span class="t">Relived from the recording<em>attempt 2 · LIVE · 2 rules · 3 differences</em></span>` },
+};
+
+const state = {
+  page: 'steps', open: { steps: 'book', run: 'book' },
+  sel: { steps: 'rules', child: 'rules', run: 'response' }, panel: { steps: true, child: true, run: true },
+  half: { steps: 'request', child: 'response', run: 'response' }, view: { steps: 'diff', child: 'b', run: 'diff' }, rulesOpen: false,
+};
+const vk = (page) => page === 'steps' && state.open.steps === 'supplier' ? 'child' : page;
+
+function strip(v) {
+  return `<div class="strip">${strips[v].map((s, i) => `${i ? '<span class="sarrow">→</span>' : ''}<button class="sbox ${s.cls || ''} ${state.sel[v] === s.k ? 'on' : ''}" data-s="${s.k}"><div class="st">${s.t}</div><div class="sl">${s.l}</div></button>`).join('')}</div>`;
+}
+
+function diffView(v) {
+  const half = state.half[v], view = state.view[v];
+  const names = v === 'run' ? ['Recorded', half === 'request' ? 'Sent' : 'Actual'] : v === 'child' ? ['Recorded', half === 'request' ? 'Expected from your app' : "ALFRED's answer"] : ['Recorded', half === 'request' ? 'Edited' : 'Your app (after a run)'];
+  let body;
+  if (v === 'child') {
+    body = half === 'request'
+      ? `<div class="noise">  { "fareId": "F-120", "date": "2026-11-04" }   ← what your app sent when recorded; a different request triggers "request differs"</div>`
+      : view === 'diff' ? `<div class="noise">  No difference - ALFRED answers with the recording.</div>` : `<div>{ "price": { "supplier": "B", "amount": 412.5 } }</div>`;
+  } else if (half === 'request') {
+    body = view === 'diff'
+      ? `<div>{</div><div class="del">-  "fare": "PR-77120",</div><div class="add">+  "fare": "${v === 'run' ? 'PR-88213' : '{{$.priceId}}'}",</div><div>   "pax": 1,</div><div>   "currency": "EGP"</div><div>}</div>`
+      : `<div>${view === 'a' ? '{ "fare": "PR-77120", "pax": 1, "currency": "EGP" }' : '{ "fare": "' + (v === 'run' ? 'PR-88213' : '{{$.priceId}}') + '", "pax": 1, "currency": "EGP" }'}</div>`;
+  } else if (v === 'steps') {
+    body = `<div class="noise">  Your app's answer appears here after a run. Recorded: { "pnr": "XK29QD", "status": "CONFIRMED", "timestamp": "…" }</div>`;
+  } else {
+    body = view === 'diff'
+      ? `<div>{</div><div class="del">-  "status": "CONFIRMED",<span class="act">ignore this field</span></div><div class="add">+  "status": "FAILED",</div><div class="del">-  "pnr": "XK29QD",<span class="act">ignore this field</span></div><div class="add">+  "error": "fare expired",<span class="act">ignore this field</span></div><div class="noise">   "timestamp": "2026-10-02T16:19:09Z"   ← ignored (noise)</div><div>}</div>`
+      : `<div>${view === 'a' ? '{ "pnr": "XK29QD", "status": "CONFIRMED" }' : '{ "status": "FAILED", "error": "fare expired" }'}</div>`;
+  }
+  return `
+    <div class="halves"><button data-h="request" class="${half === 'request' ? 'on' : ''}">Request</button><button data-h="response" class="${half === 'response' ? 'on' : ''}">Response</button></div>
+    <div class="diffbox">
+      <div class="diffhead"><button data-v="a" class="${view === 'a' ? 'on' : ''}">${names[0]}</button><button data-v="b" class="${view === 'b' ? 'on' : ''}">${names[1]}</button><button data-v="diff" class="${view === 'diff' ? 'on' : ''}">Diff</button><span class="sp"></span><span style="color:var(--faint)">Body · Headers</span></div>
+      <div class="diff">${body}</div>
+    </div>`;
+}
+
+function card(page) {
+  const v = vk(page), c = cards[v], run = v === 'run';
+  const d = details[v][state.sel[v]];
+  return `
+  <div class="card">
+    <div class="card-top">
+      <span class="chk"></span>
+      <span class="b b-method">${c.m}</span>
+      <span class="b ${c.st >= 500 ? 'b-500' : 'b-200'}">${c.st}</span>
+      <span class="b b-ms">${c.ms}</span>
+      <span class="b b-svc">${c.svc}</span>
+      ${run ? '<span class="b b-act" data-rules>⚡ Intercepted · 1</span>' : '<span class="b b-act">⚡+ Rule</span>'}
+      <span class="b b-act">Resend…</span><span class="b b-act">☆ Pin</span><span class="b b-act">Export ▾</span><span class="b b-act">Relive ▾</span>
+      <span class="when">${c.when}</span>
+    </div>
+    <div class="url"><span class="url-badge">URL</span><code>${c.url}</code></div>
+    <div class="chips">${c.chips}</div>
+    ${run ? '<div class="error">✗ The app answered 500 - recorded 200. Check "Status equals 200" failed.</div>' : ''}
+
+    <div class="ipanel ${run ? '' : 'setup'}">
+      <button class="ihead" data-panel>${c.head}<span class="tog">${state.panel[v] ? '▲ hide' : '▼ show the whole cycle'}</span></button>
+      ${state.panel[v] ? `<div class="ibody">${strip(v)}<div class="detail">${typeof d === 'function' ? d() : d}</div>${diffView(v)}</div>` : ''}
+    </div>
+
+    ${run ? `
+    <div class="ipanel rules">
+      <button class="ihead" data-rules><span class="ico">⚡</span><span class="t">Intercepted<em>1 rule changed the request · Book · Replace the request body</em></span><span class="tog">${state.rulesOpen ? '▲ hide' : '▼ show'}</span></button>
+      ${state.rulesOpen ? `<div class="ibody"><div class="diffbox"><div class="diffhead"><button>Before</button><button>After</button><button class="on">Diff</button><span class="sp"></span><span style="color:var(--faint)">the existing Interception panel</span></div><div class="diff"><div class="del">-  "fare": "{{$.priceId}}",</div><div class="add">+  "fare": "PR-88213",</div></div></div></div>` : ''}
+    </div>` : ''}
+
+    <div class="reqres">REQ <button>▸ Headers</button><button>▸ Body</button><span>RES</span><button>▸ Headers</button><button>▸ Body</button></div>
+  </div>`;
+}
+
+function stepRow(page, key, n, path, label, pills, mark, child) {
+  const open = state.open[page] === key;
+  return `<div class="step ${open ? 'open' : ''} ${child ? 'child' : ''}" data-k="${key}">
+    <span class="grip">${page === 'steps' && !child ? '⋮⋮' : ''}</span><span class="num">${n}</span><span class="${mark[1]}">${mark[0]}</span>
+    <span class="path"><b>${path.split(' ')[0]}</b>${path.split(' ')[1]}${label ? `<span class="lbl">${label}</span>` : ''}</span>
+    <span class="row-pills">${pills}<button class="icon" title="More: duplicate, disable, remove, run from here">⋯</button></span>
+  </div>${open ? `<div class="expand ${child ? 'child' : ''}">${card(page)}</div>` : ''}`;
+}
+
+function render() {
+  const p = state.page;
+  const run = p === 'run';
+  document.getElementById('app').innerHTML = [
+    stepRow(p, 'login', 1, 'POST /odeysysadmin/Admin2/loginAction', '', run ? '<span class="pill p-live">LIVE</span><span class="pill p-ok">✓ OK</span>' : '<span class="pill p-live">LIVE</span>', run ? ['✓', 'tick'] : ['↙', 'num']),
+    stepRow(p, 'roles', 2, 'GET /odeysysadmin/Admin2/userRolePermission', '', run ? '<span class="pill p-live">LIVE</span><span class="pill p-edit">≠ 2 differences</span>' : '<span class="pill p-live">LIVE</span>', run ? ['≠', 'neq'] : ['↙', 'num']),
+    stepRow(p, 'price', 3, 'POST /odeysysadmin/Booking2/price', 'Price', run ? '<span class="pill p-live">LIVE</span><span class="pill p-ok">✓ OK</span>' : '<span class="pill p-live">LIVE</span><span class="pill p-wait">1 ↗</span>', run ? ['✓', 'tick'] : ['↙', 'num']),
+    stepRow(p, 'supplier', '', 'POST supplier-b.example/api/price', 'Supplier B price', run ? '<span class="pill p-replay">REPLAY</span><span class="pill p-ok">✓ OK</span>' : '<span class="pill p-replay">REPLAY</span>', run ? ['✓', 'tick'] : ['↗', 'dir-out'], true),
+    stepRow(p, 'book', 4, 'POST /odeysysadmin/v2/booking/fare-confirmation', 'Book', run ? '<span class="pill p-live">LIVE</span><span class="pill p-fail">✗ failed · attempt 2</span>' : '<span class="pill p-live">LIVE</span><span class="pill p-edit">edited</span><span class="pill p-pause">⏸</span>', run ? ['✗', 'cross'] : ['↙', 'num']),
+  ].join('');
+}
+
+document.addEventListener('click', (ev) => {
+  const t = ev.target, p = state.page, v = vk(p);
+  const pt = t.closest('[data-p]'); if (pt) { state.page = pt.dataset.p; document.querySelectorAll('#pageTabs button').forEach((b) => b.classList.toggle('on', b === pt)); render(); return; }
+  if (t.closest('[data-panel]')) { state.panel[v] = !state.panel[v]; render(); return; }
+  if (t.closest('[data-rules]')) { state.rulesOpen = !state.rulesOpen; render(); return; }
+  const s = t.closest('[data-s]'); if (s) { state.sel[v] = s.dataset.s; render(); return; }
+  const h = t.closest('[data-h]'); if (h) { state.half[v] = h.dataset.h; render(); return; }
+  const vv = t.closest('[data-v]'); if (vv) { state.view[v] = vv.dataset.v; render(); return; }
+  const row = t.closest('.step'); if (row && !t.closest('button')) { state.open[p] = state.open[p] === row.dataset.k ? null : row.dataset.k; render(); }
+});
+render();
+</script>
+</body>
+</html>

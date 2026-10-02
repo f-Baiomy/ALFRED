@@ -1,0 +1,177 @@
+<!-- The resend panel's twin for one step of a run: same frame, head, strip and Request / Response diff. -->
+<div class="intercept-panel rl-step-panel rl-result-panel">
+  <button type="button" class="intercept-panel-head" (click)="toggle()">
+    <span class="intercept-panel-icon">▶</span>
+    <span class="intercept-panel-title">
+      Relived from the recording
+      <em>{{ summary() }}</em>
+    </span>
+    <span class="intercept-panel-toggle">{{ open() ? '▲ hide' : '▼ show the whole cycle' }}</span>
+  </button>
+
+  @if (open()) {
+    <div class="intercept-panel-body">
+      <app-call-step-strip [steps]="strip()" [selected]="box()" ariaLabel="What happened to this call" (select)="select($event)" />
+
+      <div class="resend-step-detail rl-panel-detail">
+        @switch (box()) {
+          @case ('recorded') {
+            <div>
+              <span class="badge">{{ step().recording.method }}</span>
+              {{ step().recording.status }} · <code>{{ step().recording.url }}</code>
+              @if (step().recording.timestamp) {
+                · recorded {{ step().recording.timestamp }}
+              }
+              · {{ step().recording.durationMs }} ms
+            </div>
+          }
+          @case ('edits') {
+            @if (edited()) {
+              <div>Request body replaced by the call rule - see Request · Diff below.</div>
+            } @else {
+              <div class="muted">Sent as recorded.</div>
+            }
+          }
+          @case ('variables') {
+            @for (v of result().variablesUsed; track v.name) {
+              <div><code>{{ '{{$.' + v.name + '}}' }}</code> = <code>{{ mask(v.value) }}</code></div>
+            } @empty {
+              <div class="muted">No variables were used.</div>
+            }
+          }
+          @case ('sent') {
+            <div>
+              Attempt {{ result().attempt }} · {{ result().mode }} · matched by {{ result().attribution.toLowerCase().replace('_', ' ') }}
+              @if (result().startedAt) {
+                · {{ result().startedAt }}
+              }
+            </div>
+            @if (result().requestChanged) {
+              <div class="rl-warn-text">The request differed from the recording - see Request · Diff below.</div>
+            }
+          }
+          @case ('rules') {
+            @for (rule of result().rulesApplied; track $index) {
+              <div>
+                <span class="rl-pill" [class]="rule.tier === 'GLOBAL' ? 'rl-p-global' : rule.tier === 'CYCLE' ? 'rl-p-cycle' : 'rl-p-wait'">{{ rule.tier }}</span>
+                <b>{{ rule.name || rule.ruleId }}</b>
+              </div>
+            } @empty {
+              <div class="muted">No rule touched this call.</div>
+            }
+            @if (result().rulesApplied.length) {
+              <div class="muted">The full before/after of those rules is in the ⚡ panel on this card, as for any call.</div>
+            }
+          }
+          @case ('answered') {
+            @if (result().mode === 'REPLAY') {
+              <div>ALFRED answered with the recording - the host was never contacted.</div>
+            } @else if (result().reachedUpstream === false) {
+              <div>ALFRED answered (a mocked reply) - the host was not contacted.</div>
+            } @else {
+              <div>
+                The real host answered
+                @if (result().durationMs != null) {
+                  in {{ result().durationMs }} ms
+                }
+                <span class="muted">(recorded: {{ step().recording.durationMs }} ms)</span>
+              </div>
+            }
+          }
+          @case ('response') {
+            <div>
+              {{ status() ?? 'No response' }}
+              <span class="muted">· recorded {{ step().recording.status }}</span>
+              @if (result().error) {
+                · <span class="rl-bad-text">{{ result().error }}</span>
+              }
+            </div>
+            @if (reasons().length) {
+              <ul class="rl-why-list" [class.rl-why-fail]="result().state === 'FAILED'">
+                @for (reason of reasons(); track $index) {
+                  <li>
+                    {{ reason.summary }}
+                    @if (reason.detail) {
+                      <button type="button" class="rl-link rl-why-more" (click)="showReason.emit(reason)">Click to show</button>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+            @if (diffNote(); as note) {
+              <div class="rl-diff-note">{{ note }}</div>
+            }
+            @if (differences().length) {
+              <div class="rl-mt-4">{{ differences().length }} difference{{ differences().length === 1 ? '' : 's' }}:</div>
+              @for (d of differences().slice(0, 12); track d.path) {
+                <div class="rl-drow">
+                  <span class="rl-mono">{{ d.path }}</span>
+                  <span class="rl-old">{{ formatValue(d.recorded) }}</span>
+                  <span class="rl-new">{{ formatValue(d.actual) }}</span>
+                  <span>
+                    @if (isMarked(d.path)) {
+                      <span class="muted">marked - counts from the next run</span>
+                    } @else if (d.kind === 'NOISE_AUTO' || d.kind === 'NOISE_USER') {
+                      <button type="button" class="rl-btn rl-sm" (click)="count.emit(d)">{{ d.kind === 'NOISE_USER' ? 'Un-ignore' : 'Count it' }}</button>
+                    } @else {
+                      <button type="button" class="rl-btn rl-sm" (click)="ignore.emit({ diff: d, scope: 'STEP' })">Ignore (this step)</button>
+                      <button type="button" class="rl-btn rl-sm" (click)="ignore.emit({ diff: d, scope: 'CYCLE' })">Ignore in cycle</button>
+                    }
+                  </span>
+                </div>
+              }
+              @if (differences().length > 12) {
+                <button type="button" class="rl-link rl-mt-4" (click)="showAllDifferences.emit()">Show all {{ differences().length }}…</button>
+              }
+            }
+          }
+          @case ('values') {
+            @if (values().length) {
+              <table class="rl-result-table">
+                <tr><th>Variable</th><th>From</th><th>This run</th></tr>
+                @for (v of values(); track $index) {
+                  <tr>
+                    <td><code>{{ '{{$.' + v.rule.as + '}}' }}</code></td>
+                    <td>{{ v.rule.from === 'JSON' ? '' : v.rule.from.toLowerCase() + ' ' }}<code>{{ v.rule.path }}</code></td>
+                    <td>
+                      @if (v.value !== null) {
+                        <code>{{ mask(v.value) }}</code>
+                      } @else {
+                        <span class="rl-warn-text">missing - not set</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </table>
+            }
+            @if (assertions().length) {
+              <table class="rl-result-table">
+                <tr><th>Check</th><th>Got</th><th></th></tr>
+                @for (a of assertions(); track $index) {
+                  <tr>
+                    <td>{{ a.assertion.kind }} {{ a.assertion.path ?? '' }} {{ a.assertion.operator }} <code>{{ a.assertion.value ?? '' }}</code></td>
+                    <td><code>{{ mask(a.actual) }}</code></td>
+                    <td [class.rl-ok-text]="a.passed" [class.rl-bad-text]="!a.passed">{{ a.passed ? '✓ passed' : '✗ ' + a.message }}</td>
+                  </tr>
+                }
+              </table>
+            }
+            @if (!values().length && !assertions().length) {
+              <div class="muted">This step saves no values and has no checks.</div>
+            }
+          }
+        }
+      </div>
+
+      <div class="intercept-views resend-halves">
+        <button type="button" [class.on]="half() === 'request'" (click)="half.set('request')">Request</button>
+        <button type="button" [class.on]="half() === 'response'" (click)="half.set('response')">Response</button>
+      </div>
+      @if (half() === 'request' ? hasRequest() : hasResponse()) {
+        <app-interception-panel [interception]="compare()" [phase]="half()" [embedded]="true" [labels]="half() === 'request' ? requestLabels : responseLabels" />
+      } @else {
+        <div class="intercept-empty">Nothing {{ half() === 'request' ? 'was sent' : 'came back' }} in this attempt yet.</div>
+      }
+    </div>
+  }
+</div>

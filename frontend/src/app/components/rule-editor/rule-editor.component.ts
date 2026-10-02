@@ -459,6 +459,12 @@ export class RuleEditorComponent implements OnInit {
    *  a static provider for each one. */
   @Input() target: RuleEditorTarget | null = null;
 
+  /** Embedded in a page rather than opened as a dialog (Relive's step card): no backdrop or head,
+   *  no name or match section - the host fixes both - and the footer applies the rule to `target`. */
+  @Input() inline = false;
+  @Input() applyLabel = 'Apply';
+  @Input() applyHint = '';
+
   readonly state = inject(InterceptionStateService);
   private readonly editorTarget = inject(RULE_EDITOR_TARGET, { optional: true });
   private readonly projectsApi = inject(InternalLoggingApiService);

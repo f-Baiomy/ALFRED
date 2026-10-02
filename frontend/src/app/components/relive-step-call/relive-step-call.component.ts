@@ -50,10 +50,14 @@ class ReliveStepCallControls {
   selector: 'app-relive-step-call',
   standalone: true,
   imports: [CallCardComponent],
+  // A Relive panel (step setup or run result) projected with the `callPanels` attribute lands
+  // inside the card, next to its resend and interception panels.
   template: `
     @if (record(); as call) {
-      <app-call-card [call]="call" />
-    } @else if (!settled()) {
+      <app-call-card [call]="call">
+        <ng-container ngProjectAs="[callPanels]"><ng-content select="[callPanels]" /></ng-container>
+      </app-call-card>
+    } @else {
       <div class="rl-faint">Loading the call…</div>
     }
   `,
@@ -81,7 +85,8 @@ export class ReliveStepCallComponent {
     if (logged) return logged;
     if (!this.settled()) return null;
     const result = this.result();
-    return result ? stepCallRecord(this.step(), result) : null;
+    // Not in the log any more (or never logged): the step's own frozen copy still shows the card.
+    return result ? stepCallRecord(this.step(), result) : recordingCallRecord(this.step());
   });
 
   constructor() {
@@ -105,7 +110,7 @@ export class ReliveStepCallComponent {
       return this.callsApi.getDetail(callId, source ?? logged.source ?? 'external', part);
     }
     const result = this.result();
-    return result ? of(stepCallDetail(this.step(), result, part)) : of({});
+    return of(result ? stepCallDetail(this.step(), result, part) : recordingCallDetail(this.step(), part));
   }
 }
 
@@ -185,6 +190,44 @@ export function stepCallRecord(step: Step, result: StepResult): CallRecord {
     source: inbound ? 'internal' : 'external',
     relive: result.runId ? { runId: result.runId, stepKey: step.key } : null,
   };
+}
+
+/** The step's recording as a card, for the Steps tab when the logged call it was frozen from is gone. */
+export function recordingCallRecord(step: Step): CallRecord {
+  const rec = step.recording;
+  const inbound = step.direction === 'inbound';
+  return {
+    id: `relive-recording:${step.key}`,
+    original_url: rec.url,
+    url: rec.url,
+    method: rec.method,
+    timestamp: rec.timestamp ?? '',
+    duration_ms: rec.durationMs,
+    response: { status: rec.status, headers: rec.responseHeaders, body: rec.responseBody ?? undefined },
+    state: 'COMPLETED',
+    session_id: rec.sessionId ?? null,
+    operation_id: rec.operationId ?? null,
+    service_name: step.serviceName || rec.serviceName || null,
+    source: inbound ? 'internal' : 'external',
+  };
+}
+
+export function recordingCallDetail(step: Step, part?: CallDetailPart): CallDetail {
+  const rec = step.recording;
+  const request = { headers: rec.requestHeaders, body: rec.requestBody ?? undefined };
+  const response = { status: rec.status, headers: rec.responseHeaders, body: rec.responseBody ?? undefined };
+  switch (part) {
+    case 'request-headers':
+      return { request: { headers: request.headers } };
+    case 'request-body':
+      return { request: { body: request.body } };
+    case 'response-headers':
+      return { response: { status: response.status, headers: response.headers } };
+    case 'response-body':
+      return { response: { status: response.status, body: response.body } };
+    default:
+      return { request, response };
+  }
 }
 
 /** One block, or the whole call when `part` is omitted (export / resend hydrate the full detail). */

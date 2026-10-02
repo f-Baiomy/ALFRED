@@ -126,8 +126,8 @@ has the full write-up, since it's a general concept, not Relive-specific):
 2. **CYCLE** - the cycle's own rules, by `priority`/order.
 3. **GLOBAL** - the participating global rules (none / all / selected, per the cycle's setting).
 
-Each applied rule is recorded with its tier; the step drawer's "Rules & variables" tab shows them
-in order (`proxy/relive.py`'s `_rule_applications`, reading the existing `MATCHED_KEY` metadata
+Each applied rule is recorded with its tier; box 5 "Rules" of the step's result panel in the run
+view shows them in order (`proxy/relive.py`'s `_rule_applications`, reading the existing `MATCHED_KEY` metadata
 `interception.py` already sets - no engine change needed to know which tier fired).
 
 ## Held calls
@@ -179,6 +179,30 @@ snapshot small. The proxy reads and parses a changed snapshot in a worker thread
 logic left is attribution and step matching; everything else is the existing rule-evaluation
 engine.
 
+### How a step is shown
+
+There is no side drawer. Opening a step - in the Steps tab or in a run - shows the Live Calls
+call card (`app-relive-step-call` around `app-call-card`), and Relive adds one panel inside the
+card through its `callPanels` content slot, next to the card's own "Resent from…" and ⚡
+intercepted panels. Both Relive panels reuse that family's frame (`.intercept-panel`), the
+numbered strip (`app-call-step-strip`) and the Request / Response diff (`app-interception-panel`,
+embedded):
+
+- **`app-relive-step-panel`** (Steps tab, "How this step runs") - 1 Recorded call (label,
+  optional), 2 Mode, 3 Your edits (`app-body-editor`), 4 Variables (who saves what this step
+  uses), 5 Call rule (the Interception page's `app-rule-editor` in `inline` mode: no match or
+  name section, its footer applies the rule to this step), 6 Answer (ALFRED's mock), 7 Values
+  (saved values previewed against the recording, the field browser `app-json-browse`, and
+  `app-scenario-assertion-editor` with each check run on the recording). The diff is the
+  recording against what this step sends / answers.
+- **`app-relive-result-panel`** (run view, "Relived from the recording") - the same strip for one
+  attempt plus box 8 Values (each saved value and check result). The card is the call the run
+  logged, so its ⚡ panel and error banner work as for any call; the diff is the recording
+  against this run. Ignore / count a differing field from the Response box.
+
+Mode, pauses, the edited request and ALFRED's answer are all actions of the one call rule; boxes
+2, 3 and 6 are shortcuts that edit them, so box 5 always shows the whole rule.
+
 ## Run history and the Live calls log
 
 A run keeps a full snapshot of the cycle `definition` it executed - editing the cycle afterward
@@ -206,8 +230,8 @@ returned - through the same versioned cycle update every rebuild-style change us
 ## Troubleshooting
 
 - **A REPLAY step answered 502 with `{"error": "..."}`** - its `MATCHES_RECORDED_CALL` condition
-  decided the (possibly edit-modified) request differs from what was recorded. Check the step
-  drawer's Compare tab for the actual diff, or its `ignore` list if the difference is expected
+  decided the (possibly edit-modified) request differs from what was recorded. Open the step in
+  the run view: its result panel's Response box and Request / Response diff show what differed, or its `ignore` list if the difference is expected
   noise (e.g. a timestamp field).
 - **An outbound call the run should own shows as unattributed** - `OPERATION_ID` only works if the
   application forwards `X-Operation-Id`; without that, `INFLIGHT` needs the project to have
@@ -215,7 +239,7 @@ returned - through the same versioned cycle update every rebuild-style change us
   a run make every one of their children unattributable by design (FR-049a's per-step choice is
   the escape hatch, not a proxy-side guess).
 - **A call that should be blocked went to the real supplier, or vice versa** - check the
-  evaluation tier that actually fired (step drawer, "Rules & variables"); a CYCLE or GLOBAL rule
+  evaluation tier that actually fired (the run view's result panel, box 5 "Rules"); a CYCLE or GLOBAL rule
   can still act on a call after the STEP tier's own `callRule` already decided LIVE/REPLAY, since
   all three tiers apply independently (a REPLAY answer at tier 1 ends the request, so tier 3 can
   never reach a live supplier a step already replayed - but a LIVE step's headers/body can still be

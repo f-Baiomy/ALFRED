@@ -1554,12 +1554,8 @@ button.rl-pill {
 
 .rl-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 430px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-
-  &.rl-nodrawer {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .rl-cycle-head {
@@ -1641,42 +1637,10 @@ button.rl-pill {
     padding-top: 8px;
   }
 
-  .rl-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .rl-drawer {
-    position: static;
-    max-height: none;
-  }
-
   .rl-page .rl-name-input,
   .rl-page .rl-description-input {
     min-width: 0;
     width: 100%;
-  }
-}
-
-.rl-drawer {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 40px);
-  overflow: auto;
-
-  pre {
-    margin: 0;
-    padding: 8px 10px;
-    background: var(--card-inner);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    font: 11.5px/1.45 Consolas, monospace;
-    white-space: pre-wrap;
-    word-break: break-all;
-    max-height: 320px;
-    overflow: auto;
   }
 }
 
@@ -1911,16 +1875,6 @@ h3.rl-caps-head-gap {
 .rl-card-pad {
   padding: 10px 12px;
 }
-.rl-drawer-head {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-}
-.rl-drawer-tabs {
-  margin: 10px 14px 0;
-}
-.rl-drawer-body {
-  padding: 0 14px 14px;
-}
 .rl-re-col-dashed {
   min-height: 0;
   border-style: dashed;
@@ -1940,4 +1894,153 @@ h3.rl-caps-head-gap {
 }
 .rl-disabled-step {
   opacity: 0.5;
+}
+
+// A Relive panel inside the Live Calls call card (step setup / run result) - the frame, head and
+// strip are the resend panel's (.intercept-panel, app-call-step-strip); only the detail is ours.
+.rl-step-panel {
+  border-color: color-mix(in srgb, var(--cyan) 35%, transparent);
+  background: color-mix(in srgb, var(--cyan) 5%, transparent);
+
+  .intercept-panel-icon {
+    color: var(--cyan);
+  }
+
+  .intercept-panel-body {
+    border-top-color: color-mix(in srgb, var(--cyan) 22%, transparent);
+  }
+
+  &.rl-result-panel {
+    border-color: color-mix(in srgb, var(--purple) 35%, transparent);
+    background: color-mix(in srgb, var(--purple) 5%, transparent);
+
+    .intercept-panel-icon {
+      color: var(--purple-light);
+    }
+  }
+}
+
+.rl-panel-detail {
+  select,
+  input:not([type='checkbox']) {
+    background: var(--card-inner);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 3px 7px;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .rl-input-sm {
+    width: 80px;
+  }
+
+  .rl-panel-input {
+    width: 280px;
+  }
+
+  .rl-row {
+    gap: 8px;
+  }
+
+  .rl-seg button.rl-on {
+    color: var(--text);
+  }
+}
+
+.rl-panel-extra {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.rl-panel-box {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: var(--card-inner);
+}
+
+.rl-capture-card {
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  padding: 7px 9px;
+  margin-bottom: 6px;
+  background: var(--card-inner);
+}
+
+.rl-capture-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.rl-cp-missing {
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+}
+
+.rl-ok-text {
+  color: var(--green);
+}
+
+.rl-bad-text {
+  color: var(--red);
+}
+
+.rl-result-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 10px;
+
+  th,
+  td {
+    text-align: left;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  th {
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+}
+
+// The Interception rule editor embedded in a step (RuleEditorComponent `inline`).
+.rule-editor.rule-editor-inline {
+  margin-top: 6px;
+
+  .dialog-body {
+    padding: 0;
+  }
+
+  .section-title:first-of-type {
+    margin-top: 0.4rem;
+  }
+
+  .dialog-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 0.6rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .dialog-foot-actions {
+    display: flex;
+    gap: 0.45rem;
+  }
 }

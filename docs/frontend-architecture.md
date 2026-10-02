@@ -175,6 +175,12 @@ live call's id, so the id alone cannot say which copy was picked. Load one in fu
   (`[embedded]`, `[labels]`) for Original / Resent / Diff of the request AND the response. It finds
   the original through `resend_edits.origin {direction, cycleId}` (see `shared/utils/resend-summary.ts`;
   older resends without it fall back to the live log) and fetches nothing until opened.
+- A host can add its own panel to that family through the card's `[callPanels]` content slot (full
+  variant only). Relive does: `app-relive-step-call` re-projects it, and `app-relive-step-panel` /
+  `app-relive-result-panel` reuse `.intercept-panel`, `CallStepStripComponent` and the embedded
+  `InterceptionPanelComponent` rather than a drawer of their own (see docs/relive.md, "How a step is
+  shown"). `RuleEditorComponent` has an `inline` mode for that panel: no backdrop, head, name or
+  match section, and the footer applies the rule to the host's `target`.
 
 **`ResendDialogComponent` (`components/resend-dialog/`)**, opened through a `ResendDialogService`
 following the existing `ExportDialogService` pattern, edits a hydrated call's method/URL/headers/

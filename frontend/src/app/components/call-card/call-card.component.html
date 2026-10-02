@@ -388,6 +388,10 @@
       <app-resend-panel [call]="call()" />
     }
 
+    <!-- A host's own panel in the same family as the resend and interception panels (Relive's
+         step setup and run result). Full variant only - nothing projects into a sandwich. -->
+    <ng-content select="[callPanels]" />
+
     <!-- The single-card variant shows both halves in one card, so both panels sit here, request
          first - the order things actually happened in. -->
     @if (panelInterception(); as intercepted) {

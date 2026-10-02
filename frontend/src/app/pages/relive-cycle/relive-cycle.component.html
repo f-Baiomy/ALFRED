@@ -93,7 +93,7 @@
       <button [class.rl-on]="tab() === 'history'" (click)="setTab('history')">History</button>
     </div>
 
-    <div class="rl-layout" [class.rl-nodrawer]="!selectedStep() || tab() === 'history'">
+    <div class="rl-layout">
       <div class="rl-card rl-panel">
     @switch (tab()) {
       @case ('steps') {
@@ -101,7 +101,7 @@
               <button class="rl-btn rl-sm" (click)="openAddCalls()">＋ Add calls</button>
               <input class="rl-search" placeholder="Search steps…" [value]="stepTree.search()" (input)="stepTree.onSearch($any($event.target).value)" />
               <span class="rl-spacer"></span>
-              <span class="rl-hint">Drag ⋮⋮ to reorder · click a step to configure it</span>
+              <span class="rl-hint">Drag ⋮⋮ to reorder · click a step to open its call and how it runs</span>
               <button class="rl-btn rl-sm" (click)="resetCycle()">Reset to recording</button>
             </div>
             <app-relive-step-tree
@@ -109,6 +109,7 @@
               [steps]="draft.steps"
               [settings]="draft.settings"
               [selectedKey]="state.selectedStepKey()"
+              [detail]="stepDetail"
               (stepsChange)="setSteps($event)"
               (select)="selectStep($event)"
               (addCallsRequested)="openAddCalls()"
@@ -188,22 +189,28 @@
       }
     }
       </div>
-      @if (selectedStep(); as step) {
-        @if (tab() !== 'history') {
-          <app-relive-step-drawer
-            [step]="step"
-            [orderLabel]="orderLabelFor(step)"
-            (stepChange)="updateStep($event)"
-            (closed)="selectStep(step.key)"
-            (resetRequested)="resetStep($event)"
-            (duplicateRequested)="duplicateStep($event)"
-            (openCallRule)="openCallRule($event)"
-            (openRequestDiffers)="openRequestDiffers($event)"
-            (requestEdited)="openRequestDiffers($event)"
-          />
-        }
-      }
     </div>
+
+    <!-- What opens under a selected step: the Live Calls card of its recorded call, with how the
+         step runs as one more panel inside it (replaces the side drawer). -->
+    <ng-template #stepDetail let-step>
+      <app-relive-step-call [step]="step">
+        <app-relive-step-panel
+          callPanels
+          [step]="step"
+          [steps]="draft.steps"
+          [variables]="draft.variables"
+          [cycleRules]="draft.cycleRules"
+          [orderLabel]="orderLabelFor(step)"
+          [reliveVariableHints]="reliveVariableHints()"
+          (stepChange)="updateStep($event)"
+          (resetRequested)="resetStep($event)"
+          (openCallRule)="openCallRule($event)"
+          (openRequestDiffers)="openRequestDiffers($event)"
+          (requestEdited)="openRequestDiffers($event)"
+        />
+      </app-relive-step-call>
+    </ng-template>
   </div>
 
   <app-relive-add-calls-dialog

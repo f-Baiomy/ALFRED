@@ -1,6 +1,11 @@
-<div class="dialog-backdrop" (click)="cancel()"></div>
+@if (!inline) {
+  <div class="dialog-backdrop" (click)="cancel()"></div>
+}
 
-<div class="dialog rule-editor" role="dialog" aria-label="Edit interception rule" [attr.data-relive-variables]="reliveVariableHintsJson()">
+<!-- `inline`: embedded in a page (Relive's step card) instead of a dialog - no backdrop or head, the
+     match and name are fixed by the host, and Save applies the rule to the host's target. -->
+<div class="rule-editor" [class.dialog]="!inline" [class.rule-editor-inline]="inline" [attr.role]="inline ? null : 'dialog'" aria-label="Edit interception rule" [attr.data-relive-variables]="reliveVariableHintsJson()">
+  @if (!inline) {
   <div class="dialog-head">
     <h2>{{ isNew() ? 'New interception rule' : 'Edit rule' }}</h2>
     @if (scope !== 'GLOBAL') {
@@ -8,8 +13,9 @@
     }
     <button type="button" class="icon-btn" aria-label="Close" (click)="cancel()">×</button>
   </div>
+  }
 
-  @if (sourceCall(); as source) {
+  @if (!inline && sourceCall(); as source) {
     <button type="button" class="rule-source-call" (click)="openSourceCall()" title="Go to this call - the unsaved rule is kept, and Return brings it back">
       <span class="rsc-kicker">↗ Made from</span>
       <span class="badge">{{ source.direction }}</span>
@@ -31,6 +37,7 @@
       </div>
     }
 
+    @if (!inline) {
     <div class="field-grid">
       <label class="field span-2">
         <span>Name</span>
@@ -279,6 +286,8 @@
       </div>
     </div>
 
+    }
+
     <h3 class="section-title">Pipeline — what happens to a matching call</h3>
     @if (sampleLabel(); as label) {
       <p class="sample-line">
@@ -470,11 +479,11 @@
   </div>
 
   <div class="dialog-foot">
-    <small class="muted">Saved rules reach the proxy immediately — no restart.</small>
+    <small class="muted">{{ inline ? applyHint : 'Saved rules reach the proxy immediately — no restart.' }}</small>
     <div class="dialog-foot-actions">
-      <button type="button" class="action-btn" (click)="cancel()">Cancel</button>
+      <button type="button" class="action-btn" (click)="cancel()">{{ inline ? 'Undo changes' : 'Cancel' }}</button>
       <button type="button" class="action-btn primary" [disabled]="state.saving()" (click)="save()">
-        {{ state.saving() ? 'Saving…' : 'Save rule' }}
+        {{ inline ? applyLabel : state.saving() ? 'Saving…' : 'Save rule' }}
       </button>
     </div>
   </div>

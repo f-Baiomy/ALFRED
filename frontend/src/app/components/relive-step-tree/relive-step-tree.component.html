@@ -40,7 +40,7 @@
         </div>
         @if (selectedKey() === block.parent.key) {
           <div class="rl-step-detail">
-            <app-relive-step-call [step]="block.parent" />
+            <ng-container *ngTemplateOutlet="detail() ?? plainCall; context: { $implicit: block.parent }" />
           </div>
         }
 
@@ -68,7 +68,7 @@
             </div>
             @if (selectedKey() === child.key) {
               <div class="rl-step-detail rl-child">
-                <app-relive-step-call [step]="child" />
+                <ng-container *ngTemplateOutlet="detail() ?? plainCall; context: { $implicit: child }" />
               </div>
             }
           }
@@ -77,3 +77,5 @@
     }
   </div>
 }
+
+<ng-template #plainCall let-step><app-relive-step-call [step]="step" /></ng-template>

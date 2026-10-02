@@ -1,5 +1,6 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { Component, computed, input, output, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { Component, TemplateRef, computed, input, output, signal } from '@angular/core';
 import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.component';
 import { applyMode, checkpointOf, isModified, modeOf } from '../../shared/utils/relive-call-rule';
 import { ReliveSettings, Step, StepMode } from '../../shared/utils/relive-types';
@@ -36,13 +37,15 @@ export function reorderTopLevel(steps: readonly Step[], fromIndex: number, toInd
 @Component({
   selector: 'app-relive-step-tree',
   standalone: true,
-  imports: [CdkDropList, CdkDrag, ReliveStepCallComponent],
+  imports: [CdkDropList, CdkDrag, NgTemplateOutlet, ReliveStepCallComponent],
   templateUrl: './relive-step-tree.component.html',
 })
 export class ReliveStepTreeComponent {
   readonly steps = input.required<readonly Step[]>();
   readonly settings = input.required<ReliveSettings>();
   readonly selectedKey = input<string | null>(null);
+  /** What opens under the selected step - the host's call card with its step panel. Defaults to the bare card. */
+  readonly detail = input<TemplateRef<{ $implicit: Step }> | null>(null);
 
   readonly stepsChange = output<readonly Step[]>();
   readonly select = output<string>();

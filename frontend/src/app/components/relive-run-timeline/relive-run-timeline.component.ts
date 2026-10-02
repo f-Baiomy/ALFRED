@@ -2,10 +2,9 @@ import { DestroyRef, Component, ElementRef, computed, effect, inject, input, out
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
 import { ReliveRunLogComponent } from '../relive-run-log/relive-run-log.component';
 import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.component';
+import { ReliveResultPanelComponent, ShownDifference } from '../relive-result-panel/relive-result-panel.component';
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
 import { PauseDecision, PausedCall } from '../../core/models/interception.model';
-import { CallStepStripComponent, CallStripStep } from '../call-step-strip/call-step-strip.component';
-import { requestBodyOf } from '../../shared/utils/relive-call-rule';
 import { maskRelive } from '../../shared/utils/relive-mask';
 import { isCollapsedResponseDifference, listResponseDifferences } from '../../shared/utils/relive-canonical-body';
 import { displayedState, explainStep, formatReasonDetail, StepReason, wholeDocumentCheckNote } from '../../shared/utils/relive-outcome';
@@ -68,15 +67,6 @@ const DIFF_PREVIEW_LIMIT = 3;
 const DIFF_VALUE_LIMIT = 72;
 const DIFF_POPUP_LIMIT = 80;
 
-interface ShownDifference {
-  readonly path: string;
-  readonly recorded: string | null;
-  readonly actual: string | null;
-  readonly part?: string;
-  readonly kind?: DifferenceEntry['kind'];
-  readonly cause?: string | null;
-}
-
 /** "Ignore this field" / "Count it" / "Un-ignore" from a step's differences (FR-041b/c). */
 export interface NoiseChange {
   readonly stepKey: string;
@@ -129,7 +119,7 @@ function emptyResult(): StepResult {
 @Component({
   selector: 'app-relive-run-timeline',
   standalone: true,
-  imports: [ReliveStepCallComponent, CallStepStripComponent, ReliveRunLogComponent],
+  imports: [ReliveStepCallComponent, ReliveResultPanelComponent, ReliveRunLogComponent],
   templateUrl: './relive-run-timeline.component.html',
 })
 export class ReliveRunTimelineComponent {
@@ -408,6 +398,21 @@ export class ReliveRunTimelineComponent {
     this.reasonPopup.set(reason);
   }
 
+  /** From the result panel inside the step's card (no click event to stop there). */
+  showReasonPopup(reason: StepReason): void {
+    this.differencePopup.set(null);
+    this.reasonPopup.set(reason);
+  }
+
+  showDifferencesPopup(row: TimelineRow): void {
+    this.openDifferences(new Event('click'), row);
+  }
+
+  /** Every field that differs for the open step, cached per result. */
+  detailDifferences(row: TimelineRow): readonly ShownDifference[] {
+    return this.visibleDiffs(row);
+  }
+
   closeReason(): void {
     this.reasonPopup.set(null);
   }
@@ -527,24 +532,6 @@ export class ReliveRunTimelineComponent {
   setCheckpointSave(saveToCycle: boolean): void {
     const edit = this.editingCheckpoint();
     if (edit) this.editingCheckpoint.set({ ...edit, saveToCycle });
-  }
-
-  /** The resend-style strip for one step (FR-014g/T062): recorded call → edits → variables →
-   *  sent → rules → who answered → response. */
-  stripOf(row: TimelineRow): readonly CallStripStep[] {
-    const { step, result } = row;
-    const edited = requestBodyOf(step.callRule) !== null;
-    const answered = result.mode === 'REPLAY' ? 'ALFRED answered (recording)' : result.mode === 'LIVE' ? 'real host contacted' : '-';
-    const status = (result.actualResponse as { status?: number } | null | undefined)?.status;
-    return [
-      { key: 'recorded', title: 'Recorded call', line: `${step.recording.method} · ${step.recording.status}` },
-      { key: 'edits', title: 'Your edits', line: edited ? 'request body replaced' : 'none' },
-      { key: 'variables', title: 'Variables', line: result.variablesUsed.length ? result.variablesUsed.map((v) => v.name).join(', ') : 'none' },
-      { key: 'sent', title: 'Sent', line: result.requestChanged ? 'differs from the recording' : 'as recorded' },
-      { key: 'rules', title: 'Rules', line: result.rulesApplied.length ? result.rulesApplied.map((r) => `${r.tier} ${r.name || r.ruleId}`).join(', ') : 'none' },
-      { key: 'answered', title: result.mode === 'REPLAY' ? 'ALFRED' : 'Upstream', line: answered },
-      { key: 'response', title: 'Response', line: status == null ? 'none' : `${status} (recorded ${step.recording.status})` },
-    ];
   }
 
   /** FR-038: the run's execution log, secrets masked. */
