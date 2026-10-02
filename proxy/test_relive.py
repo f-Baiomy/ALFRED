@@ -1227,6 +1227,23 @@ class ReviewFixesTest(unittest.TestCase):
             self._decide(flow, verdict, {'action': 'release', 'relive': 'SEND_REAL'})
             self.assertIsNone(flow.response)
 
+    def test_a_run_call_is_reported_even_when_project_logging_is_off(self):
+        # B8: no prepare webhook meant no in-flight entry, so every REPLAY child was blocked.
+        sent = []
+        addon = log_and_route_reverse.RouteAndLog()
+
+        async def fake_inbound(flow, name, addresses, engine):
+            return None, {'runId': 'run-a', 'stepKey': 's1', 'attribution': 'HEADER', 'choice': None}
+
+        async def fake_carry_out(*args, **kwargs):
+            return None
+
+        flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
+        with patch.object(log_and_route_reverse, 'WEBHOOK_URL', 'http://backend/webhook'),                 patch.object(log_and_route_reverse._toggle, 'enabled', lambda name: False),                 patch.object(relive, 'apply_inbound', fake_inbound),                 patch.object(log_and_route_reverse, '_send_webhook', lambda *a: sent.append(a)),                 patch.object(addon, '_carry_out', fake_carry_out):
+            run(addon.request(flow))
+        self.assertEqual(['prepare'], [a[0] for a in sent])
+        self.assertEqual('run-a', sent[0][2]['relive']['runId'])
+
 
 if __name__ == '__main__':
     unittest.main()

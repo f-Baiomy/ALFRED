@@ -187,7 +187,10 @@ class RouteAndLog:
             flow.metadata['relive'] = relive_info
         reached_upstream = not bool(verdict.terminal)
 
-        if not WEBHOOK_URL or not _toggle.enabled(name):
+        # A call of a Relive run is always reported, whatever the project's logging toggle says:
+        # the backend's in-flight entry is what lets the app's supplier calls be replayed for this
+        # run. Without it every REPLAY child was blocked (FR-051: run calls still show as logged).
+        if not WEBHOOK_URL or (not _toggle.enabled(name) and not relive_info):
             await self._carry_out(flow, verdict, None, name)
             return
 
