@@ -202,6 +202,11 @@ export class BulkResendDialogComponent {
   readonly scopeIncluded = computed(() => this.scopeDrafts().filter((d) => d.include));
 
   /** Any group set to parallel - which is what turns the delay into a stagger. */
+  /** A group's name; a group removed meanwhile reads as "Group". */
+  groupName(groupId: string): string {
+    return this.groups()[groupId]?.name ?? 'Group';
+  }
+
   readonly hasParallel = computed(() => Object.values(this.groups()).some((g) => g.mode === 'parallel'));
 
   /**

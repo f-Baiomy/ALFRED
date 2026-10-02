@@ -1,6 +1,6 @@
 @if (open() && cycle(); as cycle) {
   <div class="dialog-backdrop" (click)="close()">
-    <div class="dialog-card" style="width: 640px; max-height: 86vh; overflow: auto" (click)="$event.stopPropagation()">
+    <div class="dialog-card rl-dialog-wide" (click)="$event.stopPropagation()">
       <h2>Ready to run "{{ cycle.name }}"?</h2>
       <p class="rl-hint">Any unsaved cycle edits will be saved before this run starts.</p>
 
@@ -45,7 +45,7 @@
 
       <div class="rl-sect">
         <h3>When something goes wrong</h3>
-        <div class="rl-row" style="gap: 16px; flex-wrap: wrap">
+        <div class="rl-row rl-gap-16 rl-wrap">
           <div>
             <span class="rl-dim rl-t-115">On failure</span><br />
             <span class="rl-choice">

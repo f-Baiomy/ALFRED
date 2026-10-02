@@ -43,7 +43,7 @@ function conditionDetail(action: RuleAction, preview: RecordedCallPreview | null
     return `${branchWord} → otherwise → <b>replay the recording anyway</b>`;
   }
   if (first.type === 'SEND_TO_HOST') {
-    return `${branchWord} → otherwise → <b><span style="color:#fed7aa">send to the real host ⚠</span></b>`;
+    return `${branchWord} → otherwise → <b><span class="rl-warn-text">send to the real host ⚠</span></b>`;
   }
   if (first.type === 'PAUSE_REQUEST') {
     return `${branchWord} → otherwise → <b>pause and ask me (no answer in time = mocked failure)</b>`;

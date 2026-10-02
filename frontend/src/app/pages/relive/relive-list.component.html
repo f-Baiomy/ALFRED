@@ -19,9 +19,9 @@
             <span class="rl-pill" [class]="'rl-' + lastRunPillClass(cycle)">{{ lastRunLabel(cycle) }}</span>
           </div>
           @if (cycle.description) {
-            <div class="rl-dim" style="margin: 4px 0 8px">{{ cycle.description }}</div>
+            <div class="rl-dim rl-desc">{{ cycle.description }}</div>
           }
-          <div class="rl-row" style="flex-wrap: wrap; gap: 6px">
+          <div class="rl-row rl-wrap rl-gap-6">
             <span class="rl-pill rl-p-wait">{{ cycle.stepCount - cycle.childCount }} step{{ cycle.stepCount - cycle.childCount === 1 ? '' : 's' }} · {{ cycle.childCount }} children</span>
             @if (cycle.liveCount) {
               <span class="rl-pill rl-p-live">⚠ {{ cycle.liveCount }} LIVE external</span>

@@ -1,7 +1,7 @@
 @if (!run()) {
-  <div class="rl-faint" style="padding: 30px; text-align: center">No run yet.</div>
+  <div class="rl-faint rl-blank">No run yet.</div>
 } @else {
-  <div class="rl-row" style="margin-bottom: 10px">
+  <div class="rl-row rl-mb-10">
     <span class="rl-pill" [class]="titlePill()[0]">{{ titlePill()[1] }}</span>
     <span class="rl-pill rl-p-wait">{{ run()!.driver === 'GUIDED' ? 'Guided' : 'Automatic' }}</span>
     <div class="rl-progress"><i [style.width.%]="progressPct()"></i></div>
@@ -35,7 +35,7 @@
               : 'Attempt ' + row.result.attempt + ' completed (' + (row.result.durationMs ?? '-') + ' ms). Replay it as often as you like, then continue.'
           }}
         </div>
-        <pre style="max-height: 110px; margin-top: 6px">{{ pausePreview() }}</pre>
+        <pre class="rl-pre-short">{{ pausePreview() }}</pre>
         @if (editingCheckpoint(); as edit) {
           <div class="rl-held-edit">
             <textarea rows="8" [value]="edit.body" (input)="setCheckpointBody($any($event.target).value)"></textarea>
@@ -181,7 +181,7 @@
           <button type="button" class="rl-pill rl-p-diff" title="Show what changed" (click)="openDifferences($event, row)">⚠ {{ differenceLabel(row) }}</button>
         }
         @if (viewState(row) === 'FAILED') {
-          <span class="rl-pill rl-p-fail" [title]="whyOf(row)[0]?.summary ?? ''">✕ failed</span>
+          <span class="rl-pill rl-p-fail" [title]="whyOf(row).at(0)?.summary ?? ''">✕ failed</span>
         }
         @if (row.result.requestChanged) {
           <button type="button" class="rl-pill rl-p-fail" title="Compare the request with the recording" (click)="selectStep.emit(row.step.key)">request changed…</button>
@@ -260,8 +260,8 @@
   </div>
 
   @if (unexpectedCalls().length) {
-    <div class="rl-card" style="padding: 10px 12px; margin: 10px 0">
-      <h3 style="margin: 0 0 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint)">
+    <div class="rl-card rl-card-pad rl-my-10">
+      <h3 class="rl-caps-head rl-caps-head-gap">
         Unexpected outbound calls ({{ unexpectedCalls().length }}) - matched no step
       </h3>
       @for (u of unexpectedCalls(); track u.callId) {
@@ -291,9 +291,9 @@
     </details>
   }
 
-  <div class="rl-card" style="padding: 10px 12px">
+  <div class="rl-card rl-card-pad">
     <div class="rl-row">
-      <h3 style="margin: 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint)">Variables in this run</h3>
+      <h3 class="rl-caps-head">Variables in this run</h3>
     </div>
     @for (def of variableDefs(); track def.name) {
       <div class="rl-row rl-py-2">

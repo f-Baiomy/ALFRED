@@ -364,7 +364,7 @@
                     <option value="SKIP">skip the failed row</option>
                     <option value="STOP">stop this group's rows</option>
                   </select>
-                  <button type="button" class="pill" [disabled]="!datasetText().trim()" (click)="applyDataset(groupId, groups()[groupId]?.name ?? 'Group', datasetOf(groupId)?.onRowFailure ?? 'SKIP')">Load rows</button>
+                  <button type="button" class="pill" [disabled]="!datasetText().trim()" (click)="applyDataset(groupId, groupName(groupId), datasetOf(groupId)?.onRowFailure ?? 'SKIP')">Load rows</button>
                   @if (datasetOf(groupId)) {
                     <button type="button" class="pill" (click)="clearDataset(groupId)">Clear</button>
                   }

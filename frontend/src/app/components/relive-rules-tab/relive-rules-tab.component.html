@@ -36,7 +36,7 @@
 
 @if (overlapWarnings().length) {
   <div class="rl-sect">
-    <div class="rl-ext-banner" style="flex-direction: column; align-items: flex-start">
+    <div class="rl-ext-banner rl-stack">
       @for (w of overlapWarnings(); track $index) {
         <div>⚠ {{ w.message }}</div>
       }

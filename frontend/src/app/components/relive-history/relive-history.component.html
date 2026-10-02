@@ -1,8 +1,7 @@
 <div class="rl-row">
   @if (runs().length) {
-    <input
+    <input class="rl-check"
       type="checkbox"
-      style="accent-color: var(--purple)"
       title="Select all runs"
       [checked]="allSelected()"
       (click)="toggleAll($event)"
@@ -22,7 +21,7 @@
 </div>
 
 @if (selectedCount() > 0) {
-  <div class="rl-row" style="margin: 0 0 8px">
+  <div class="rl-row rl-row-gap">
     <span class="rl-dim rl-t-125">{{ selectedCount() }} selected</span>
     <span class="rl-spacer"></span>
     @if (selectedRunningCount() > 0) {
@@ -38,9 +37,8 @@
 @if (runs().length) {
   @for (run of runs(); track run.id; let i = $index) {
     <div class="rl-rulecard">
-      <input
+      <input class="rl-check"
         type="checkbox"
-        style="accent-color: var(--purple)"
         [attr.aria-label]="'Select run ' + run.startedAt"
         [checked]="selected().has(run.id)"
         (click)="toggle(run.id, $event)"
@@ -76,19 +74,18 @@
   <div class="dialog-backdrop" (click)="cancelDelete()">
     <div class="dialog-card" (click)="$event.stopPropagation()">
       <h2>{{ dialog.title }}</h2>
-      <p class="rl-hint" style="margin: 4px 0 12px">
+      <p class="rl-hint rl-hint-gap">
         This permanently removes the runs and everything they recorded from the database. It cannot be undone.
       </p>
-      <label style="display: flex; align-items: flex-start; gap: 8px; margin: 0 0 6px; cursor: pointer; color: var(--text); font-size: 0.875rem">
-        <input
+      <label class="rl-check-row">
+        <input class="rl-check rl-mt-2"
           type="checkbox"
-          style="accent-color: var(--purple); margin-top: 2px"
           [checked]="deleteCalls()"
           (change)="deleteCalls.set($any($event.target).checked)"
         />
         <span>Also delete the calls logged while these runs were active (outbound and inbound)</span>
       </label>
-      <p class="rl-hint" style="margin: 0 0 14px">
+      <p class="rl-hint rl-hint-end">
         Leave unchecked to keep every logged call and the Live calls log - only the run history is deleted.
       </p>
       <div class="rl-row">

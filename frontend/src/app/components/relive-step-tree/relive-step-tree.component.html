@@ -1,5 +1,5 @@
 @if (!steps().length) {
-  <div class="rl-faint" style="padding: 30px; text-align: center">No steps yet. <button class="rl-link" (click)="addCallsRequested.emit()">Add calls from a recording</button></div>
+  <div class="rl-faint rl-blank">No steps yet. <button class="rl-link" (click)="addCallsRequested.emit()">Add calls from a recording</button></div>
 } @else {
   <div cdkDropList (cdkDropListDropped)="onBlockDropped($event)">
     @for (block of blocks(); track block.parent.key; let stepNumber = $index) {
@@ -8,7 +8,7 @@
           class="rl-step"
           [class.rl-child]="false"
           [class.rl-sel]="selectedKey() === block.parent.key"
-          [style.opacity]="block.parent.enabled ? 1 : 0.5"
+          [class.rl-disabled-step]="!block.parent.enabled"
           (click)="onSelect(block.parent.key)"
         >
           <span class="rl-grip" title="Drag to reorder">⋮⋮</span>
@@ -46,7 +46,7 @@
 
         @if (!isFolded(block.parent.key)) {
           @for (child of block.children; track child.key) {
-            <div class="rl-step rl-child" [class.rl-sel]="selectedKey() === child.key" [style.opacity]="child.enabled ? 1 : 0.5" (click)="onSelect(child.key)">
+            <div class="rl-step rl-child" [class.rl-sel]="selectedKey() === child.key" [class.rl-disabled-step]="!child.enabled" (click)="onSelect(child.key)">
               <span class="rl-dir rl-out" title="Outbound">↗</span>
               <span class="rl-method">{{ child.recording.method }}</span>
               <span class="rl-lbl">

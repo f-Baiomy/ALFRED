@@ -7,11 +7,11 @@
           <span class="rl-spacer"></span>
           <button class="icon-btn" (click)="close()">✕</button>
         </div>
-        <p class="rl-hint" style="margin: 4px 0 12px">
+        <p class="rl-hint rl-hint-gap">
           You'll see a preview first - nothing changes until you apply it, and you can undo it. Past runs are never touched.
         </p>
 
-        <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%; margin-bottom: 8px" [disabled]="!refreshSourceCycleId()" (click)="chooseMode('REFRESH')">
+        <button class="rl-card rl-choice rl-choice-gap" [disabled]="!refreshSourceCycleId()" (click)="chooseMode('REFRESH')">
           <b>⟳ Refresh from sources</b>
           <div class="rl-faint rl-t-125 rl-mt-3">
             @if (refreshSourceCycleId()) {
@@ -22,14 +22,14 @@
           </div>
         </button>
 
-        <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%; margin-bottom: 8px" (click)="chooseMode('RECORDING')">
+        <button class="rl-card rl-choice rl-choice-gap" (click)="chooseMode('RECORDING')">
           <b>◉ Rebuild from a new recording</b>
           <div class="rl-faint rl-t-125 rl-mt-3">
             Pick a session cycle to use as the new baseline. Your configuration is carried over wherever a step matches.
           </div>
         </button>
         @if (pickedSessionCycleId() === null) {
-          <div class="rl-sect" style="padding-left: 16px">
+          <div class="rl-sect rl-pl-16">
             <select (change)="pickRecordingSource($any($event.target).value)">
               <option value="">Choose a session cycle…</option>
               @for (sc of sessionCycles.cycles(); track sc.id) {
@@ -42,7 +42,7 @@
           </div>
         }
 
-        <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%" (click)="chooseMode('START_OVER')">
+        <button class="rl-card rl-choice" (click)="chooseMode('START_OVER')">
           <b>↺ Start over, keep settings</b>
           <div class="rl-faint rl-t-125 rl-mt-3">
             Rebuild the step list exactly as first added from the original recording. Step edits are dropped; variables, cycle rules and settings stay.

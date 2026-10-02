@@ -1442,3 +1442,184 @@ button.rl-pill {
 .rl-left {
   text-align: left;
 }
+
+// One-off layout of Relive templates, replacing their last inline styles (review §6). Kept last
+// so each wins over the component class it sits beside, as the inline style did.
+.rl-blank {
+  padding: 30px;
+  text-align: center;
+}
+.rl-blank-sm {
+  padding: 20px;
+}
+.rl-start {
+  align-items: flex-start;
+}
+.rl-center {
+  align-items: center;
+}
+.rl-stack {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.rl-gap-6 {
+  gap: 6px;
+}
+.rl-gap-10 {
+  gap: 10px;
+}
+.rl-gap-16 {
+  gap: 16px;
+}
+.rl-mb-3 {
+  margin-bottom: 3px;
+}
+.rl-mb-10 {
+  margin-bottom: 10px;
+}
+.rl-mt-10 {
+  margin-top: 10px;
+}
+.rl-mt-18 {
+  margin-top: 18px;
+}
+.rl-my-6 {
+  margin: 6px 0;
+}
+.rl-my-10 {
+  margin: 10px 0;
+}
+.rl-ml-n6 {
+  margin-left: -6px;
+}
+.rl-pl-16 {
+  padding-left: 16px;
+}
+.rl-row-gap {
+  margin: 0 0 8px;
+}
+.rl-desc {
+  margin: 4px 0 8px;
+}
+.rl-section-head {
+  margin: 14px 0 8px;
+}
+.rl-hint-gap {
+  margin: 4px 0 12px;
+}
+.rl-hint-end {
+  margin: 0 0 14px;
+}
+.rl-sub-gap {
+  margin: 4px 0 10px;
+}
+.rl-sub-gap-lg {
+  margin: 6px 0 10px;
+}
+.rl-t-16 {
+  font-size: 16px;
+}
+.rl-w-52 {
+  width: 52px;
+}
+.rl-minw-150 {
+  min-width: 150px;
+}
+.rl-borderless {
+  border: 0;
+}
+.rl-warn-text,
+.dialog-card h2.rl-warn-text {
+  color: var(--rl-orange-text);
+}
+.rl-check {
+  accent-color: var(--purple);
+}
+.rl-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+.rl-choice {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+}
+.rl-choice-gap {
+  margin-bottom: 8px;
+}
+.rl-option-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+}
+// .dialog-card caps every dialog at 480px; these two are wider on purpose.
+.rl-dialog-wide {
+  width: 640px;
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow: auto;
+}
+.rl-dialog-md {
+  width: 560px;
+  max-width: 92vw;
+}
+.rl-scroll-320 {
+  max-height: 320px;
+  overflow: auto;
+}
+pre.rl-pre-short {
+  max-height: 110px;
+  margin-top: 6px;
+}
+h3.rl-caps-head {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+h3.rl-caps-head-gap {
+  margin-bottom: 6px;
+}
+.rl-card-pad {
+  padding: 10px 12px;
+}
+.rl-drawer-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.rl-drawer-tabs {
+  margin: 10px 14px 0;
+}
+.rl-drawer-body {
+  padding: 0 14px 14px;
+}
+.rl-re-col-dashed {
+  min-height: 0;
+  border-style: dashed;
+}
+.rl-notice-stack {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(430px, 92vw);
+}
+.rl-off {
+  opacity: 0.45;
+}
+.rl-disabled-step {
+  opacity: 0.5;
+}

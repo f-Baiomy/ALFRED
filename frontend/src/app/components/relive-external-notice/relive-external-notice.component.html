@@ -1,11 +1,11 @@
-<div style="position: fixed; left: 18px; bottom: 18px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(430px, 92vw)">
+<div class="rl-notice-stack">
   @for (notice of notices(); track notice.id) {
     <div class="rl-extnote">
-      <div class="rl-row" style="align-items: flex-start; gap: 8px">
-        <span style="font-size: 16px">⚠</span>
+      <div class="rl-row rl-start">
+        <span class="rl-t-16">⚠</span>
         <div class="rl-grow">
           @for (item of notice.items; track item.host) {
-            <div style="margin-bottom: 3px"><b>{{ item.label }}</b> can now contact the real <b>{{ item.host }}</b> - {{ item.reason }}.</div>
+            <div class="rl-mb-3"><b>{{ item.label }}</b> can now contact the real <b>{{ item.host }}</b> - {{ item.reason }}.</div>
           }
           <div class="rl-faint rl-t-115 rl-mt-3">It will be listed in the pre-run LIVE summary and needs your confirmation before a run.</div>
           <div class="rl-row rl-mt-6">

@@ -22,7 +22,7 @@
         </div>
       } @else {
         @if (!pickedCycle()) {
-          <div style="max-height: 320px; overflow: auto">
+          <div class="rl-scroll-320">
             @for (cycle of cyclesState.cycles(); track cycle.id) {
               <button class="rl-rulecard rl-w-full rl-left" (click)="pick(cycle)">
                 <b>{{ cycle.name }}</b>

@@ -1,5 +1,5 @@
 <div class="rl-drawer">
-  <div class="rl-row" style="padding: 12px 14px; border-bottom: 1px solid var(--border)">
+  <div class="rl-row rl-drawer-head">
     <span class="rl-dir" [class.rl-in]="!step().parentKey" [class.rl-out]="!!step().parentKey">{{ step().parentKey ? '↗' : '↙' }}</span>
     <b>{{ step().label }}</b>
     <span class="rl-spacer"></span>
@@ -12,7 +12,7 @@
     <button class="icon-btn" (click)="close()">✕</button>
   </div>
 
-  <div class="rl-tabs" style="margin: 10px 14px 0">
+  <div class="rl-tabs rl-drawer-tabs">
     @if (result(); as res) {
       <button [class.rl-on]="tab() === 'overview'" (click)="setTab('overview')">Overview</button>
       <button [class.rl-on]="tab() === 'request'" (click)="setTab('request')">Original</button>
@@ -29,7 +29,7 @@
     }
   </div>
 
-  <div style="padding: 0 14px 14px">
+  <div class="rl-drawer-body">
     @switch (tab()) {
       @case ('configure') {
         <div class="rl-sect">
@@ -73,12 +73,12 @@
           <h3>Call rule</h3>
           <p class="rl-hint rl-mb-6">One ALFRED interception rule for this call - the buttons above only edit it. Change anything here with every action ALFRED has.</p>
           @if (step().parentKey && orderLabel()) {
-            <div class="rl-re-act"><span class="rl-faint" style="width: 52px">Match</span><span class="rl-mono rl-grow rl-t-115">{{ orderLabel() }}</span></div>
+            <div class="rl-re-act"><span class="rl-faint rl-w-52">Match</span><span class="rl-mono rl-grow rl-t-115">{{ orderLabel() }}</span></div>
           }
-          <div class="rl-re-col" style="margin: 6px 0">
+          <div class="rl-re-col rl-my-6">
             <h4>1 Request - before it leaves ALFRED</h4>
             @for (line of requestActions(); track $index) {
-              <div class="rl-re-act" [style.opacity]="line.on ? 1 : 0.45">
+              <div class="rl-re-act" [class.rl-off]="!line.on">
                 <span class="rl-grow"><b>{{ line.title }}</b>@if (!line.on) {<span class="rl-pill rl-p-wait">off</span>}
                   @if (line.detail) {<div class="rl-faint rl-t-115 rl-mt-2" [innerHTML]="line.detail"></div>}
                 </span>
@@ -88,14 +88,14 @@
             }
           </div>
           @if (step().parentKey) {
-            <div class="rl-re-col" style="min-height: 0; border-style: dashed">
+            <div class="rl-re-col rl-re-col-dashed">
               <b>{{ host().icon }} {{ host().title }}</b> <span class="rl-dim">- {{ host().detail }}</span>
             </div>
           }
           <div class="rl-re-col rl-mt-6">
             <h4>2 Response - after the host answers</h4>
             @for (line of responseActions(); track $index) {
-              <div class="rl-re-act" [style.opacity]="line.on ? 1 : 0.45">
+              <div class="rl-re-act" [class.rl-off]="!line.on">
                 <span class="rl-grow"><b>{{ line.title }}</b>@if (!line.on) {<span class="rl-pill rl-p-wait">off</span>}
                   @if (line.detail) {<div class="rl-faint rl-t-115 rl-mt-2" [innerHTML]="line.detail"></div>}
                 </span>
@@ -219,7 +219,7 @@
           @if (res.differences.length) {
             <div class="rl-sect">
               <h3>Differences</h3>
-              <div class="rl-row" style="gap: 6px">
+              <div class="rl-row rl-gap-6">
                 @if (unexpectedCount(res)) {
                   <span class="rl-pill rl-p-diff">{{ unexpectedCount(res) }} unexpected</span>
                 }
@@ -303,7 +303,7 @@
               [labels]="{ title: 'Recorded vs this run', before: 'Recorded', after: 'This run', legend: 'Red is what the recording had; green is what happened this run.' }"
             />
           }
-          <div class="rl-sect" style="margin-top: 10px">
+          <div class="rl-sect rl-mt-10">
             <h3>Unexpected ({{ unexpectedCount(res) }})</h3>
             @for (d of res.differences; track d.path) {
               @if (d.kind === 'UNEXPECTED') {
@@ -323,7 +323,7 @@
               <div class="rl-faint">None.</div>
             }
           </div>
-          <details class="rl-drow" style="border: 0">
+          <details class="rl-drow rl-borderless">
             <summary>Ignored as noise ({{ noiseCount(res) }})</summary>
             @for (d of res.differences; track d.path) {
               @if (d.kind === 'NOISE_AUTO' || d.kind === 'NOISE_USER') {

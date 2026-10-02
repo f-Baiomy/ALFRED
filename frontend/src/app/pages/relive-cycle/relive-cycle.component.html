@@ -1,6 +1,6 @@
 @if (state.draft(); as draft) {
   <div class="rl-page" [attr.data-relive-variables]="reliveVariableHintsJson()">
-    <div class="rl-row rl-cycle-head" style="align-items: flex-start">
+    <div class="rl-row rl-cycle-head rl-start">
       <div class="rl-grow">
         <a class="rl-link" routerLink="/relive">← Relive Cycles</a>
         <div class="rl-row rl-mt-4">
@@ -10,12 +10,11 @@
           }
         </div>
         <input
-          style="margin-left: -6px"
-          class="rl-dim rl-description-input"
+          class="rl-dim rl-description-input rl-ml-n6"
           [value]="draft.description ?? ''"
           (input)="setDescription($any($event.target).value)"
         />
-        <div class="rl-row" style="flex-wrap: wrap; gap: 6px; margin-top: 8px">
+        <div class="rl-row rl-wrap rl-gap-6 rl-mt-8">
           <span class="rl-pill rl-p-wait">{{ topSteps().length }} steps · {{ childSteps().length }} outbound children</span>
           <span class="rl-pill" [class]="externalCount() ? 'rl-p-live' : 'rl-p-replay'">
             {{ externalCount() ? '⚠ ' + externalCount() + ' can reach an external system' : '✓ nothing external - all replayed' }}
