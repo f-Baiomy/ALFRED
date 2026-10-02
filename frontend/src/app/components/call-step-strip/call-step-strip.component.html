@@ -9,7 +9,7 @@
       class="resend-flow-node"
       [class.on]="selected() === s.key"
       [attr.aria-selected]="selected() === s.key"
-      (click)="select.emit(s.key)"
+      (click)="stepSelect.emit(s.key)"
     >
       <span class="rfn-title">{{ i + 1 }} · {{ s.title }}</span>
       <span class="rfn-line">{{ s.line }}</span>

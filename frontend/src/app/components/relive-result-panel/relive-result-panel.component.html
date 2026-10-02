@@ -11,7 +11,7 @@
 
   @if (open()) {
     <div class="intercept-panel-body">
-      <app-call-step-strip [steps]="strip()" [selected]="box()" ariaLabel="What happened to this call" (select)="select($event)" />
+      <app-call-step-strip [steps]="strip()" [selected]="box()" ariaLabel="What happened to this call" (stepSelect)="select($event)" />
 
       <div class="resend-step-detail rl-panel-detail">
         @switch (box()) {

@@ -21,5 +21,7 @@ export class CallStepStripComponent {
   readonly steps = input.required<readonly CallStripStep[]>();
   readonly selected = input<string | null>(null);
   readonly ariaLabel = input('The cycle of this call');
-  readonly select = output<string>();
+  /** Not `select`: the browser's own `select` event (text selected in a field) bubbles under that
+   *  name, and Angular would hand it to the host's `(select)` listener as if a box was picked. */
+  readonly stepSelect = output<string>();
 }

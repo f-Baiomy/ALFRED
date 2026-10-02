@@ -48,7 +48,9 @@ export class ReliveStepTreeComponent {
   readonly detail = input<TemplateRef<{ $implicit: Step }> | null>(null);
 
   readonly stepsChange = output<readonly Step[]>();
-  readonly select = output<string>();
+  /** Not `select` - see CallStepStripComponent.stepSelect: double-clicking a word in a field of the
+   *  open step fired the native `select` event, which closed the step. */
+  readonly stepSelect = output<string>();
   readonly addCallsRequested = output<void>();
 
   readonly search = signal('');
@@ -78,7 +80,7 @@ export class ReliveStepTreeComponent {
   }
 
   onSelect(key: string): void {
-    this.select.emit(key);
+    this.stepSelect.emit(key);
   }
 
   pathOf(step: Step): string {

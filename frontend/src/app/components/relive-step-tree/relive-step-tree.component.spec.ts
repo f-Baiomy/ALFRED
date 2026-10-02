@@ -1,3 +1,4 @@
+import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -179,5 +180,41 @@ describe('T080: SC-009 - a 200-step cycle stays usable', () => {
     // Generous budget for a headless CI browser - this is a smoke check against a regression that
     // makes the tree scale badly (e.g. an accidental O(n^2) per-row lookup), not a strict benchmark.
     expect(elapsedMs).toBeLessThan(2000);
+  });
+});
+
+/** A host like the cycle page: it closes the open step when the tree reports a pick. */
+@Component({
+  standalone: true,
+  imports: [ReliveStepTreeComponent],
+  template: `
+    <app-relive-step-tree [steps]="steps" [settings]="settings" [selectedKey]="selected()" [detail]="detail" (stepSelect)="picked($event)" />
+    <ng-template #detail><textarea class="detail-field">some text</textarea></ng-template>
+  `,
+})
+class TreeHostComponent {
+  readonly steps = fixtureSteps();
+  readonly settings = settings;
+  readonly selected = signal<string | null>('search');
+  readonly picks: unknown[] = [];
+  picked(key: unknown): void {
+    this.picks.push(key);
+  }
+}
+
+describe('ReliveStepTreeComponent inside a host page', () => {
+  it('selecting text in a field of the open step does not close the step (native select event)', () => {
+    TestBed.configureTestingModule({
+      imports: [TreeHostComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    });
+    const fixture = TestBed.createComponent(TreeHostComponent);
+    fixture.detectChanges();
+    const field: HTMLTextAreaElement = fixture.nativeElement.querySelector('.detail-field');
+
+    // What a double-click on a word does: the browser fires `select`, which bubbles.
+    field.dispatchEvent(new Event('select', { bubbles: true }));
+
+    expect(fixture.componentInstance.picks).toEqual([]);
   });
 });

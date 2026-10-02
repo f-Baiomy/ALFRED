@@ -12,7 +12,7 @@
 
   @if (open()) {
     <div class="intercept-panel-body">
-      <app-call-step-strip [steps]="steps()" [selected]="step()" ariaLabel="The cycle of this resend" (select)="select($any($event))" />
+      <app-call-step-strip [steps]="steps()" [selected]="step()" ariaLabel="The cycle of this resend" (stepSelect)="select($any($event))" />
 
       <div class="resend-step-detail">
         @switch (step()) {
