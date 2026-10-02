@@ -50,7 +50,8 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
     public Optional<Run> findById(String runId) {
         return jdbc.query("""
                 SELECT id, cycle_id, status, driver, started_at, finished_at, summary_json,
-                       definition_json, hold_json, resumed_json, variables_json, log_json
+                       definition_json, hold_json, resumed_json, variables_json, log_json,
+                       from_step_key, seed_json
                 FROM relive_runs WHERE id = ?
                 """, DETAIL_ROW_MAPPER, runId).stream().findFirst();
     }
@@ -58,7 +59,7 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
     @Override
     public List<Run> listByCycleId(String cycleId, int limit) {
         return jdbc.query("""
-                SELECT id, cycle_id, status, driver, started_at, finished_at, summary_json
+                SELECT id, cycle_id, status, driver, started_at, finished_at, summary_json, from_step_key
                 FROM relive_runs WHERE cycle_id = ? ORDER BY rowid DESC LIMIT ?
                 """, SUMMARY_ROW_MAPPER, cycleId, limit);
     }
@@ -67,7 +68,8 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
     public List<Run> findAllRunning() {
         return jdbc.query("""
                 SELECT id, cycle_id, status, driver, started_at, finished_at, summary_json,
-                       definition_json, hold_json, resumed_json, variables_json, log_json
+                       definition_json, hold_json, resumed_json, variables_json, log_json,
+                       from_step_key, seed_json
                 FROM relive_runs WHERE status = ?
                 """, DETAIL_ROW_MAPPER, RunStatus.RUNNING.name());
     }
@@ -85,14 +87,16 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
         String resumedJson = writeJson(run.resumed());
         String variablesJson = writeJson(run.variableTimeline());
         String logJson = writeJson(run.log());
+        String seedJson = writeJson(run.seedVariables());
         long size = summaryJson.length() + definitionJson.length()
                 + (holdJson == null ? 0 : holdJson.length())
                 + (resumedJson == null ? 0 : resumedJson.length())
                 + variablesJson.length() + logJson.length();
         jdbc.update("""
                         INSERT INTO relive_runs (id, cycle_id, status, driver, started_at, finished_at, summary_json,
-                            definition_json, hold_json, resumed_json, variables_json, log_json, size_bytes)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            definition_json, hold_json, resumed_json, variables_json, log_json, size_bytes,
+                            from_step_key, seed_json)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(id) DO UPDATE SET status = excluded.status, finished_at = excluded.finished_at,
                             summary_json = excluded.summary_json, definition_json = excluded.definition_json,
                             hold_json = excluded.hold_json, resumed_json = excluded.resumed_json,
@@ -100,7 +104,8 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
                             size_bytes = excluded.size_bytes
                         """,
                 run.id(), run.cycleId(), run.status().name(), run.driver(), run.startedAt(), run.finishedAt(),
-                summaryJson, definitionJson, holdJson, resumedJson, variablesJson, logJson, size);
+                summaryJson, definitionJson, holdJson, resumedJson, variablesJson, logJson, size,
+                run.fromStepKey(), seedJson);
     }
 
     @Override
@@ -194,14 +199,14 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
     private final RowMapper<Run> SUMMARY_ROW_MAPPER = (rs, rowNum) -> new Run(
             rs.getString("id"), rs.getString("cycle_id"), rs.getString("driver"),
             RunStatus.valueOf(rs.getString("status")), rs.getString("started_at"), rs.getString("finished_at"),
-            null, null, Collections.emptyList(), Collections.emptyList(),
+            null, rs.getString("from_step_key"), Collections.emptyList(), Collections.emptyList(),
             readJson(rs.getString("summary_json"), RunSummary.class), null, Collections.emptyList(), Collections.emptyList());
 
     private final RowMapper<Run> DETAIL_ROW_MAPPER = (rs, rowNum) -> new Run(
             rs.getString("id"), rs.getString("cycle_id"), rs.getString("driver"),
             RunStatus.valueOf(rs.getString("status")), rs.getString("started_at"), rs.getString("finished_at"),
-            readJson(rs.getString("definition_json"), ReliveCycle.class), null,
-            Collections.emptyList(),
+            readJson(rs.getString("definition_json"), ReliveCycle.class), rs.getString("from_step_key"),
+            readJsonList(rs.getString("seed_json"), VariableChange[].class),
             readJsonList(rs.getString("variables_json"), VariableChange[].class),
             readJson(rs.getString("summary_json"), RunSummary.class),
             readJson(rs.getString("hold_json"), Hold.class),

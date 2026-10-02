@@ -119,6 +119,15 @@ public class SqliteReliveRepository {
                 )
                 """);
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_relive_runs_cycle_id ON relive_runs(cycle_id)");
+        // "Run from here" needs both after a reload; they used to be dropped on the first write.
+        var runColumns = jdbcTemplate.queryForList("PRAGMA table_info(relive_runs)").stream()
+                .map(row -> (String) row.get("name")).toList();
+        if (!runColumns.contains("from_step_key")) {
+            jdbcTemplate.execute("ALTER TABLE relive_runs ADD COLUMN from_step_key TEXT");
+        }
+        if (!runColumns.contains("seed_json")) {
+            jdbcTemplate.execute("ALTER TABLE relive_runs ADD COLUMN seed_json TEXT");
+        }
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS relive_step_results (
                   run_id TEXT NOT NULL,

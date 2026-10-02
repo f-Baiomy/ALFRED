@@ -152,8 +152,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         cycle = persistIndexIfAbsent(cycle);
         String runId = UUID.randomUUID().toString();
         String now = Instant.now().toString();
-        List<VariableChange> seedVariables = command.seedFromRunId() == null ? List.of()
-                : runStore.findById(command.seedFromRunId()).map(Run::variableTimeline).orElse(List.of());
+        List<VariableChange> seedVariables = seedFor(cycle, command);
         String driver = command.driver() == null ? cycle.settings().defaultDriver() : command.driver();
         Run run = new Run(runId, cycleId, driver, RunStatus.RUNNING, now, null, cycle, command.fromStepKey(),
                 seedVariables, seedVariables, computeSummary(cycle, List.of()), null, List.of(), List.of());
@@ -165,6 +164,44 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         refreshInflightPresence();
         notifications.runChanged(cycleId, runId);
         return created;
+    }
+
+    /**
+     * FR-036: the variables the seed run had produced BEFORE {@code fromStepKey} - values set by
+     * that step or later ones would make the new run start from a state it never had. Values with
+     * no step (defined or seeded) always carry over.
+     */
+    private List<VariableChange> seedFor(ReliveCycle cycle, StartRunCommand command) {
+        if (command.seedFromRunId() == null) {
+            return List.of();
+        }
+        Run seed = runStore.findById(command.seedFromRunId())
+                .filter(run -> run.cycleId().equals(cycle.id()))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Run " + command.seedFromRunId() + " is not a run of cycle " + cycle.id()));
+        Set<String> before = new HashSet<>();
+        if (command.fromStepKey() != null) {
+            Map<String, String> parentOf = new LinkedHashMap<>();
+            cycle.steps().forEach(step -> parentOf.put(step.key(), step.parentKey()));
+            List<String> tops = cycle.steps().stream().filter(step -> step.parentKey() == null).map(Step::key).toList();
+            int fromIndex = tops.indexOf(command.fromStepKey());
+            if (fromIndex < 0) {
+                throw new IllegalArgumentException("Step " + command.fromStepKey() + " is not a top-level step of cycle " + cycle.id());
+            }
+            Set<String> earlierTops = Set.copyOf(tops.subList(0, fromIndex));
+            for (String key : parentOf.keySet()) {
+                String top = key;
+                while (parentOf.get(top) != null) {
+                    top = parentOf.get(top);
+                }
+                if (earlierTops.contains(top)) {
+                    before.add(key);
+                }
+            }
+        }
+        return seed.variableTimeline().stream()
+                .filter(change -> change.stepKey() == null || command.fromStepKey() == null || before.contains(change.stepKey()))
+                .toList();
     }
 
     /**

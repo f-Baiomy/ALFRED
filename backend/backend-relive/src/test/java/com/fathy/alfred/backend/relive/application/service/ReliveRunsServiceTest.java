@@ -31,6 +31,7 @@ import com.fathy.alfred.backend.relive.domain.model.RunStatus;
 import com.fathy.alfred.backend.relive.domain.model.Step;
 import com.fathy.alfred.backend.relive.domain.model.StepResult;
 import com.fathy.alfred.backend.relive.domain.model.StepState;
+import com.fathy.alfred.backend.relive.domain.model.VariableChange;
 import com.fathy.alfred.backend.relive.domain.model.UnexpectedCallsPolicy;
 import com.fathy.alfred.backend.relive.domain.model.ValidationFinding;
 import org.junit.jupiter.api.BeforeEach;
@@ -487,6 +488,22 @@ class ReliveRunsServiceTest {
         Run kept = service.updateDefinition(run.id(),
                 withSteps(stamped.definition(), List.of(stamped.definition().steps().get(0), omitted)), null);
         assertThat(kept.definition().steps().get(1).fingerprint()).isEqualTo(hash);
+    }
+
+    @Test
+    void runFromAStepSeedsOnlyTheValuesProducedBeforeIt() {
+        String cycleId = save(withSteps(bareCycle("seed", false),
+                List.of(step("s-1", true), step("s-2", true), step("s-3", true))));
+        Run first = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.setVariable(first.id(), "fromOne", "1", "s-1");
+        service.setVariable(first.id(), "fromTwo", "2", "s-2");
+        service.setVariable(first.id(), "fromThree", "3", "s-3");
+        service.stop(first.id());
+
+        Run second = service.start(cycleId, new StartRunCommand("AUTOMATIC", "s-2", first.id(), Map.of()));
+
+        assertThat(second.fromStepKey()).isEqualTo("s-2");
+        assertThat(second.seedVariables()).extracting(VariableChange::name).containsExactly("fromOne");
     }
 
     @Test

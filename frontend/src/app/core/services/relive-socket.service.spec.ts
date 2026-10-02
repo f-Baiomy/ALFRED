@@ -73,6 +73,14 @@ describe('ReliveSocketService', () => {
     expect(latest().sent).toContain({ type: 'lease', runId: 'r-1' });
   }));
 
+  it('tells the backend when a lease is released, once', fakeAsync(() => {
+    latest().open();
+    service.holdLease('r-1');
+    service.releaseLease('r-1');
+    service.releaseLease('r-1');
+    expect(latest().sent.filter((m) => (m as { type: string }).type === 'release')).toEqual([{ type: 'release', runId: 'r-1' }]);
+  }));
+
   it('re-sends every held lease after a reconnect', fakeAsync(() => {
     latest().open();
     service.holdLease('r-1');

@@ -59,8 +59,8 @@ export class ReliveSocketService {
         repeat({ delay: () => timer(RECONNECT_DELAY_MS) }),
       )
       .subscribe((event) => {
-        if (event.type !== 'lease') {
-          this.events$.next(event);
+        if (event.type !== 'lease' && event.type !== 'release') {
+          this.events$.next(event as ReliveSocketEvent);
         }
       });
   }

@@ -90,6 +90,21 @@ class SqliteReliveStoreAdaptersTest {
     }
 
     @Test
+    void aRunKeepsItsStartStepAndSeedVariables() {
+        // Review B5: both were dropped on write, so "Run from here" re-sent every earlier step.
+        var seed = List.of(new com.fathy.alfred.backend.relive.domain.model.VariableChange("searchId", "s-9", "s-search", "t0"));
+        var run = new com.fathy.alfred.backend.relive.domain.model.Run("r-1", "c-1", "AUTOMATIC",
+                com.fathy.alfred.backend.relive.domain.model.RunStatus.RUNNING, "t0", null, newCycle("c-1", false),
+                "s-book", seed, seed, null, null, List.of(), List.of());
+
+        var created = runStore.create(run);
+
+        assertThat(created.fromStepKey()).isEqualTo("s-book");
+        assertThat(created.seedVariables()).extracting(v -> v.value()).containsExactly("s-9");
+        assertThat(runStore.listByCycleId("c-1", 10).get(0).fromStepKey()).isEqualTo("s-book");
+    }
+
+    @Test
     void listDoesNotReadBodies() {
         cycleStore.save(cycleWithChildAndRule("c-1"));
         List<ReliveCycleSummary> summaries = cycleStore.listSummaries();

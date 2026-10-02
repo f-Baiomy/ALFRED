@@ -316,13 +316,14 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
    *  live one, or a past one opened from History) - never the run currently on screen unless
    *  that's the same one. */
   runFromHere(stepKey: string, seedFromRun: Run): void {
-    const cycle = this.state.saved();
-    if (!cycle) return;
-    this.historyRun.set(null);
-    void this.launchRun(cycle, { driver: 'AUTOMATIC', fromStepKey: stepKey, seedFromRunId: seedFromRun.id, unattributedChoices: {} }).catch((error: unknown) => {
-      this.actionError.set(error instanceof Error ? error.message : 'Could not start the run. Check the cycle and try again.');
-    });
+    if (!this.state.saved()) return;
+    // Same pre-run check as Run (FR-016/SC-003): a later step can still reach a real system.
+    this.pendingRunFrom.set({ fromStepKey: stepKey, seedFromRunId: seedFromRun.id });
+    this.openPrerun();
   }
+
+  /** Set while the pre-run dialog was opened by "Run from here". */
+  private readonly pendingRunFrom = signal<{ readonly fromStepKey: string; readonly seedFromRunId: string } | null>(null);
 
   /** The historical run's own variables, for the read-only timeline's "Run from here" check -
    *  seed values plus every value the run's timeline recorded, latest wins. */
@@ -548,6 +549,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   closePrerun(): void {
     this.prerunOpen.set(false);
+    this.pendingRunFrom.set(null);
   }
 
   /** A run loads the stored fingerprints. It does not compute the ones that are still missing. */
@@ -558,13 +560,16 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   async startRun(request: ReliveStartRequest): Promise<void> {
     this.actionError.set(null);
+    // Read before any await: the dialog's own close clears it.
+    const from = this.pendingRunFrom();
+    this.pendingRunFrom.set(null);
     try {
       const cycle = this.state.dirty() ? await this.state.saveAsync() : this.state.saved();
       if (!cycle) throw new Error('Cycle has not loaded yet.');
       if (!cycle.steps.some((step) => step.enabled)) throw new Error('Add calls before starting a run.');
       this.stopHistoryWatch();
       this.historyRun.set(null);
-      await this.launchRun(cycle, { driver: request.driver, unattributedChoices: {} });
+      await this.launchRun(cycle, { driver: from ? 'AUTOMATIC' : request.driver, unattributedChoices: {}, ...(from ?? {}) });
     } catch (error: any) {
       this.actionError.set(this.state.saveError() ?? error?.error?.message ?? error?.message ?? 'Could not start the run. Check the cycle and try again.');
     }
