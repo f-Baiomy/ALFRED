@@ -669,3 +669,54 @@ whole-file reads of `styles.scss` / `interception.py`.
 - [X] T089 [US1] Hydrate every selected session-cycle call through `SessionCyclesApiService.getDetail` before `freezeCalls` (T022/T026 incomplete; SC-002). Preserve full request and response headers and bodies for inbound roots and outbound children, and keep the original source cycle ID. Do not emit or append steps until all details are fetched; show a recoverable error if one cannot be fetched. Test that a recorded supplier response becomes the REPLAY call-rule answer with its original status, headers and body.
 - [X] T090 [US1] Complete the `Pick from anywhere` return path in `frontend/src/app/pages/relive-cycle/relive-cycle.component.ts` (FR-003a; T026 incorrect). Wait until `ReliveCycleEditorState.load` has loaded the matching cycle before consuming the one-shot picker result, preserve each `PickedCall.ref` origin, fetch full detail from Live Calls or the referenced session cycle, then append the picked calls in order with their outbound children. Test navigation back after an asynchronous load and a page reload; a failed fetch must retain the selection for retry.
 - [ ] T091 [US3] Make pre-run and Start use the same saved cycle definition in `frontend/src/app/pages/relive-cycle/relive-cycle.component.ts`, the pre-run dialog and validation (FR-030; T052 incorrect). When the draft is dirty, require a successful save or an explicit discard before starting; never preview draft steps then run an older saved version. Block cycles with zero enabled steps on both frontend and backend, and display actionable `startRun`/save failures in the run view. Test add calls → Run without a prior manual Save, empty cycle, and backend start failure; then complete the existing T082 end-to-end replay check against a running inbound app and stub supplier.
+
+## Phase 16: Review fixes (`review-fef121f-889db4d.md`)
+
+Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task names the review item it closes. One commit per task.
+
+### A. Safety
+
+- [ ] T092 B3: force a run-file refresh in `proxy/relive.py` when `inflight.json` or `X-Alfred-Relive` names a runId the proxy has not loaded yet. Test: run published inside the refresh window is still attributed.
+- [ ] T093 B1: only inbound calls create in-flight entries (`ReliveRunsService`), and the proxy ignores outbound entries. Test: two concurrent sibling supplier calls both replay.
+- [ ] T094 B2/B11: Guided runs match the expected inbound step in the proxy (real stepKey, inbound call rule and pauses apply, repeats stay on the same step). Test: supplier call during a Guided run replays.
+- [ ] T095 B4: `/ws/relive` handles `release`; holders dropped when a run leaves RUNNING; `interrupt`/`finish`/`stop` are no-ops on a final run.
+- [ ] T096 B22: create the run row before publishing its snapshot.
+
+### B. Broken flows
+
+- [ ] T097 B5: persist `fromStepKey` and seed variables; seed only up to the step; Run from here goes through the pre-run dialog.
+- [ ] T098 B6: only the call rule's request-differs pause is tagged CHANGED; checkpoints are tagged BEFORE/AFTER and continue on timeout.
+- [ ] T099 B7: "Save as cycle" for Relive now (`POST /relive-cycles/{id}/keep`).
+- [ ] T100 B8: a Relive-attributed inbound call is reported to the backend even when the project's logging toggle is off.
+- [ ] T101 B10: child matching falls back to endpoint + order when no fingerprint hits.
+- [ ] T102 B12: per-run lock around every run read-modify-write.
+
+### C. Missing spec features
+
+- [ ] T103 B9: pause box and request-changed box in the run view with countdown and in-place decisions; AFTER pauses tagged.
+- [ ] T104 FR-044a: "Apply to this run too / only next runs" dialog when editing during a run.
+- [ ] T105 FR-035b/c: Edit & replay, save edits to the cycle, every attempt persisted, children use the parent's attempt.
+- [ ] T106 FR-039-041c: per-field differences, EXPECTED labels, "Ignore this field" (step/cycle), "Count it".
+- [ ] T107 FR-014d/034a/035d/032/014f: requestChanged, pauses, timeouts, child durations, unexpected calls persisted, child failure holds.
+- [ ] T108 FR-038: execution log entries per step.
+- [ ] T109 T062: shared `call-step-strip` component.
+- [ ] T110 FR-015c: live-calls warning threshold from settings.
+
+### D. Performance
+
+- [ ] T111 P1/P2: column-level run updates, header-only run lookup, cheap summary recompute.
+- [ ] T112 P3: stable recorded-request answer ids, written once per run.
+- [ ] T113 P5: proxy caches evicted when a run ends.
+- [ ] T114 P6: snapshot load off the event loop; oversized mocks in answer files.
+- [ ] T115 P8-P11: child index by host, cheaper fingerprinting, split publisher locks, batch variable writes.
+- [ ] T116 P4: editor dirty check without full-cycle stringify per keystroke.
+
+### E. Medium/low bugs, existing features, style
+
+- [ ] T117 B14-B17, B19: WebSocket-driven reattach with a deadline, stop() crash, history delete lock, reachedUpstream at complete, orchestrator data gaps.
+- [ ] T118 B18: validator aligned with reachesHost, GLOBAL/CYCLE overlap, driver-aware Guided check.
+- [ ] T119 B20/B21: call-list skeleton effect fixed, no data hold-back.
+- [ ] T120 B23-B32: remaining low items.
+- [ ] T121 Style: inline styles and literal colours to `rl-` classes/variables, record `withX` helpers, dead code, `unknown` over `any`.
+- [ ] T122 Docs: `docs/relive.md` (fingerprint matching, RELIVE scope), corrected comments.
+- [ ] T123 Full suites green (backend Docker JDK 21, frontend test + build, proxy pytest); T091 closed; T082 steps prepared for the owner.
