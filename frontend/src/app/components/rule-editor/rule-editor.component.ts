@@ -1,3 +1,22 @@
+import {
+  COMBINE_OPTIONS,
+  ITEM_OPTIONS,
+  OPERATOR_OPTIONS,
+  PATHS_MODE_OPTIONS,
+  SUBJECT_OPTIONS,
+  TYPE_OPTIONS,
+  conditionHelp,
+  conditionNamePlaceholder,
+  isJsonCondition,
+  needsConditionName,
+  needsConditionValue,
+  operatorOptions,
+  recordedCallCriteria,
+  showsItemMode,
+  withOperator,
+  withSubject,
+} from '../../shared/utils/condition-edit';
+import { NameSuggestion, headerSuggestions, requestCookieSuggestions, responseCookieSuggestions } from '../../shared/utils/name-suggestions';
 import { CdkDrag, CdkDragDrop, CdkDropList, DragDropRegistry } from '@angular/cdk/drag-drop';
 import { Component, DestroyRef, ElementRef, EventEmitter, HostListener, Input, OnInit, Output, computed, effect, inject, signal, untracked } from '@angular/core';
 import {
@@ -138,16 +157,6 @@ const ON_TIMEOUT_OPTIONS: readonly SelectOption[] = [
 
 const METHOD_OPTIONS: readonly SelectOption[] = METHODS.map((m) => ({ value: m, label: m }));
 
-const SUBJECT_OPTIONS: readonly SelectOption[] = (Object.keys(SUBJECT_LABELS) as ConditionSubject[])
-  .map((subject) => ({ value: subject, label: SUBJECT_LABELS[subject] }));
-
-const OPERATOR_OPTIONS: readonly SelectOption[] = (Object.keys(OPERATOR_LABELS) as ConditionOperator[])
-  .map((operator) => ({ value: operator, label: OPERATOR_LABELS[operator] }));
-
-const COMBINE_OPTIONS: readonly SelectOption[] = [
-  { value: 'ALL', label: 'all of' },
-  { value: 'ANY', label: 'any of' },
-];
 
 /**
  * The action tree, edited immutably.
@@ -1201,73 +1210,69 @@ export class RuleEditorComponent implements OnInit {
     }));
   }
 
+  /** The whole edited condition from app-condition-row. */
+  replaceCondition(path: readonly number[], branchIndex: number, conditionIndex: number, condition: Condition): void {
+    this.patchBranch(path, branchIndex, (branch) => ({
+      ...branch,
+      conditions: branch.conditions.map((c, i) => (i === conditionIndex ? condition : c)),
+    }));
+  }
+
+  /** Header names a header condition's box offers - the sample call's request or response headers. */
+  conditionHeaderNames(condition: Condition): readonly NameSuggestion[] {
+    const call = this.sampleCall();
+    if (condition.subject === 'REQUEST_HEADER') return headerSuggestions(call?.request?.headers);
+    if (condition.subject === 'RESPONSE_HEADER') return headerSuggestions(call?.response?.headers);
+    return [];
+  }
+
+  conditionHeaderNamesTitle(condition: Condition): string {
+    return condition.subject === 'RESPONSE_HEADER' ? 'Headers in the call’s response' : 'Headers in the call’s request';
+  }
+
+  /** Names a header / cookie action's name box offers, from the sample call's matching half. */
+  actionNameSuggestions(action: RuleAction): readonly NameSuggestion[] {
+    const call = this.sampleCall();
+    const response = actionPhase(action.type) === 'response';
+    const headers = response ? call?.response?.headers : call?.request?.headers;
+    if (action.type.includes('COOKIE')) return response ? responseCookieSuggestions(headers) : requestCookieSuggestions(headers);
+    return headerSuggestions(headers);
+  }
+
+  actionNameTitle(action: RuleAction): string {
+    const response = actionPhase(action.type) === 'response';
+    const what = action.type.includes('COOKIE') ? (response ? 'Cookies the response sets' : 'Cookies in the request') : response ? 'Headers in the response' : 'Headers in the request';
+    return `${what} (the sample call)`;
+  }
+
   onSubjectChange(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
-    const subject = value as ConditionSubject;
-    const json = subject === 'REQUEST_JSON_FIELD' || subject === 'RESPONSE_JSON_FIELD';
     const current = this.conditionAt(path, branchIndex, conditionIndex);
-    // A subject that identifies nothing by name keeps no stale name: a leftover header name on a
-    // METHOD condition would be saved, ignored, and look like it was doing something. JSON-only
-    // parts (other fields, the item mode, a JSON-only operator) go the same way off a JSON field.
-    this.patchCondition(path, branchIndex, conditionIndex, {
-      subject,
-      name: SUBJECTS_NEEDING_NAME.has(subject) ? undefined : null,
-      items: json ? current?.items ?? 'ANY' : null,
-      ...(json ? {} : { paths: null, pathsMode: null }),
-      ...(!json && current && JSON_ONLY_OPERATORS.has(current.operator) ? { operator: 'EQUALS' as ConditionOperator, value: '' } : {}),
-    });
+    if (current) this.replaceCondition(path, branchIndex, conditionIndex, withSubject(current, value as ConditionSubject));
   }
 
   onOperatorChange(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
-    const operator = value as ConditionOperator;
-    const condition = this.conditionsOf(actionAt(this.actions(), path)!, branchIndex)[conditionIndex];
-    this.patchCondition(path, branchIndex, conditionIndex, {
-      operator,
-      value: OPERATORS_WITHOUT_VALUE.has(operator) ? null : operator === 'TYPE_IS' ? (JSON_TYPES.includes(condition?.value as never) ? condition?.value : 'text') : undefined,
-      values: LIST_VALUE_OPERATORS.has(operator) ? condition?.values ?? [] : null,
-      // An item mode means nothing for a whole-field test; the backend refuses the pair.
-      ...(WHOLE_FIELD_OPERATORS.has(operator) || operator.startsWith('NOT_') || operator === 'EXISTS' || operator === 'NOT_EXISTS'
-        ? { items: this.isJsonCondition(condition) ? 'ANY' : null }
-        : {}),
-    });
+    const current = this.conditionAt(path, branchIndex, conditionIndex);
+    if (current) this.replaceCondition(path, branchIndex, conditionIndex, withOperator(current, value as ConditionOperator));
   }
 
   // ---- JSON field conditions: several fields, item modes, list values (see Condition in the model) ----
 
   isJsonCondition(condition: Condition | undefined): boolean {
-    return !!condition && (condition.subject === 'REQUEST_JSON_FIELD' || condition.subject === 'RESPONSE_JSON_FIELD');
+    return isJsonCondition(condition);
   }
 
   /** The operators this condition may use - JSON-only ones only on a JSON field, and none an item mode would contradict. */
   conditionOperatorOptions(condition: Condition): readonly SelectOption[] {
-    if (condition.subject === 'RECORDED_CALL') {
-      return [{ value: 'MATCHES', label: 'matches' }];
-    }
-    const json = this.isJsonCondition(condition);
-    const moded = json && (condition.items === 'ALL' || condition.items === 'NONE');
-    return OPERATOR_OPTIONS.filter((o) => {
-      const op = o.value as ConditionOperator;
-      if (!json && JSON_ONLY_OPERATORS.has(op)) return false;
-      if (moded && (op.startsWith('NOT_') || WHOLE_FIELD_OPERATORS.has(op) || op === 'EXISTS' || op === 'NOT_EXISTS')) return false;
-      return true;
-    });
+    return operatorOptions(condition);
   }
 
-  readonly itemOptions: readonly SelectOption[] = [
-    { value: 'ANY', label: 'any item' },
-    { value: 'ALL', label: 'every item' },
-    { value: 'NONE', label: 'no item' },
-  ];
-
-  readonly pathsModeOptions: readonly SelectOption[] = [
-    { value: 'ANY', label: 'any of' },
-    { value: 'ALL', label: 'all of' },
-  ];
-
-  readonly typeOptions: readonly SelectOption[] = JSON_TYPES.map((t) => ({ value: t, label: t }));
+  readonly itemOptions = ITEM_OPTIONS;
+  readonly pathsModeOptions = PATHS_MODE_OPTIONS;
+  readonly typeOptions = TYPE_OPTIONS;
 
   /** An item mode only reads as something when an operator compares items one by one. */
   showsItemMode(condition: Condition): boolean {
-    return this.isJsonCondition(condition) && !WHOLE_FIELD_OPERATORS.has(condition.operator) && condition.operator !== 'IS_EMPTY';
+    return showsItemMode(condition);
   }
 
   onItemsChange(path: readonly number[], branchIndex: number, conditionIndex: number, value: string): void {
@@ -1599,13 +1604,11 @@ export class RuleEditorComponent implements OnInit {
   }
 
   needsConditionName(condition: Condition): boolean {
-    return SUBJECTS_NEEDING_NAME.has(condition.subject);
+    return needsConditionName(condition);
   }
 
   needsConditionValue(condition: Condition): boolean {
-    // RECORDED_CALL (Relive, FR-014d) compares against a frozen recording, not a literal value -
-    // see isRecordedCallCondition/recordedCallStepKey below for its own field.
-    return condition.subject !== 'RECORDED_CALL' && !OPERATORS_WITHOUT_VALUE.has(condition.operator);
+    return needsConditionValue(condition);
   }
 
   isRecordedCallCondition(condition: Condition): boolean {
@@ -1626,12 +1629,7 @@ export class RuleEditorComponent implements OnInit {
 
   /** URL, stable header names, and body note for the condition row. */
   recordedCallCriteria(): string {
-    const preview = this.recordedCallPreview;
-    if (!preview) {
-      return 'URL, method, headers that are not auto-generated, and the body (JSON or SOAP; spacing ignored)';
-    }
-    const headers = preview.headerNames.length ? preview.headerNames.join(', ') : 'none';
-    return `${preview.method} ${preview.url}\nheaders: ${headers}\nbody: ${preview.bodyNote}`;
+    return recordedCallCriteria(this.recordedCallPreview);
   }
 
   setRecordedCallCompareHeaders(path: readonly number[], branchIndex: number, conditionIndex: number, compare: boolean): void {
@@ -1639,10 +1637,7 @@ export class RuleEditorComponent implements OnInit {
   }
 
   conditionNamePlaceholder(condition: Condition): string {
-    if (condition.subject === 'REQUEST_JSON_FIELD' || condition.subject === 'RESPONSE_JSON_FIELD') {
-      return 'itinerary.seatsRemaining';
-    }
-    return condition.subject === 'QUERY_PARAM' ? 'currency' : 'x-api-key';
+    return conditionNamePlaceholder(condition);
   }
 
   describeBranch = describeBranch;
@@ -1669,7 +1664,7 @@ export class RuleEditorComponent implements OnInit {
 
   /** A condition row is a subject AND an operator - reading one without the other is half an answer. */
   conditionHelp(condition: Condition): readonly HelpEntry[] {
-    return [helpForSubject(condition.subject), helpForOperator(condition.operator)];
+    return conditionHelp(condition);
   }
 
   /** The card restated in the same words the call log will use for it. */

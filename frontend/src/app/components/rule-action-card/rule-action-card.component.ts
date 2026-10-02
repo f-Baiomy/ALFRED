@@ -12,6 +12,8 @@ import { JsonPathInputComponent } from '../json-path-input/json-path-input.compo
 import { CopyFromCallComponent } from '../copy-from-call/copy-from-call.component';
 import { ReplacePreviewComponent } from '../replace-preview/replace-preview.component';
 import { CaptureValuePreviewComponent } from './capture-value-preview.component';
+import { ConditionRowComponent } from '../condition-row/condition-row.component';
+import { NameSuggestComponent } from '../name-suggest/name-suggest.component';
 import type { RuleEditorComponent } from '../rule-editor/rule-editor.component';
 
 /**
@@ -64,6 +66,8 @@ export interface ActionStep {
     CopyFromCallComponent,
     ReplacePreviewComponent,
     CaptureValuePreviewComponent,
+    ConditionRowComponent,
+    NameSuggestComponent,
     HelpPopoverComponent,
     CdkDropList,
     CdkDrag,

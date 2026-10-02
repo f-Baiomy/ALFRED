@@ -99,6 +99,8 @@ export type ConditionSubject =
   | 'RESPONSE_HEADER'
   | 'RESPONSE_BODY'
   | 'RESPONSE_JSON_FIELD'
+  /** Milliseconds from the request reaching the proxy to the end of the response. */
+  | 'RESPONSE_TIME'
   /** Relive only (FR-014d, research D17): true when the request at this point in the pipeline
    *  equals a frozen recording, ignoring noise paths. See Condition's `recordedStepKey`/`answerId`. */
   | 'RECORDED_CALL';
@@ -807,6 +809,7 @@ export const SUBJECT_LABELS: Readonly<Record<ConditionSubject, string>> = {
   RESPONSE_HEADER: 'Response header',
   RESPONSE_BODY: 'Response body',
   RESPONSE_JSON_FIELD: 'Response JSON field',
+  RESPONSE_TIME: 'Response time (ms)',
   RECORDED_CALL: 'Recorded call',
 };
 
@@ -847,6 +850,7 @@ export const RESPONSE_SUBJECTS: ReadonlySet<ConditionSubject> = new Set<Conditio
   'RESPONSE_HEADER',
   'RESPONSE_BODY',
   'RESPONSE_JSON_FIELD',
+  'RESPONSE_TIME',
 ]);
 
 /** Operators that compare against nothing, so the value field is meaningless for them. */

@@ -1,0 +1,102 @@
+<div class="cond-row">
+  <span class="cond-and">{{ joiner() }}</span>
+  <app-select-picker [options]="subjectOptions()" [value]="condition().subject" (valueChange)="setSubject($event)" />
+  <app-help-popover [entries]="help()" [summary]="summary()" label="What does this condition check?" />
+  @if (json()) {
+    <!-- A JSON field: the smart path box (suggests from the call), more fields if wanted, and how a
+         list's items are read. -->
+    @if ((condition().paths ?? []).length) {
+      <app-select-picker [options]="pathsModeOptions" [value]="condition().pathsMode ?? 'ANY'" (valueChange)="patch({ pathsMode: $any($event) })" />
+    }
+    <app-json-path-input
+      class="cond-name"
+      [value]="condition().name ?? ''"
+      [index]="paths()"
+      [placeholder]="placeholder()"
+      (valueChange)="patch({ name: $event })"
+    />
+    @for (extra of condition().paths ?? []; track $index; let pi = $index) {
+      <span class="cond-extra-path">
+        <app-json-path-input [value]="extra" [index]="paths()" placeholder="another.field" (valueChange)="setPath(pi, $event)" />
+        <button type="button" class="icon-btn" title="Remove this field" (click)="removePath(pi)">×</button>
+      </span>
+    }
+    <button type="button" class="pill add cond-more" title="Test another field the same way - any of them, or all" (click)="addPath()">+ field</button>
+    @if (itemMode()) {
+      <app-select-picker [options]="itemOptions" [value]="condition().items ?? 'ANY'" (valueChange)="patch({ items: $any($event) })" />
+    }
+  } @else if (needsName()) {
+    @if (headerNamed()) {
+      <app-name-suggest
+        class="cond-name"
+        inputClass="cond-name-input"
+        [value]="condition().name ?? ''"
+        [placeholder]="placeholder()"
+        [suggestions]="headerNames()"
+        [title]="headerNamesTitle()"
+        (valueChange)="patch({ name: $event })"
+      />
+    } @else {
+      <input
+        type="text"
+        class="cond-name"
+        [value]="condition().name ?? ''"
+        [placeholder]="placeholder()"
+        (input)="patch({ name: $any($event.target).value })"
+      />
+    }
+  }
+  <app-select-picker [options]="operators()" [value]="condition().operator" (valueChange)="setOperator($event)" />
+  @if (condition().operator === 'IN' || condition().operator === 'CONTAINS_ALL') {
+    <span class="cond-chips">
+      @for (v of condition().values ?? []; track $index; let vi = $index) {
+        <span class="cond-chip">{{ v }}<button type="button" (click)="removeChip(vi)" aria-label="Remove">×</button></span>
+      }
+      <input type="text" class="cond-chip-input" [attr.list]="listId" placeholder="value, Enter" (keydown)="onChipKey($event)" />
+    </span>
+  } @else if (condition().operator === 'TYPE_IS') {
+    <app-select-picker [options]="typeOptions" [value]="condition().value ?? 'text'" (valueChange)="patch({ value: $event })" />
+  } @else if (condition().subject === 'RECORDED_CALL') {
+    <!-- Compares URL, method, stable headers and a format-insensitive body against the step's
+         recording. The step id stays on the condition; it is not the match value. -->
+    <span class="cond-recorded">{{ criteria() }}</span>
+    @if (!recordedCallPreview()) {
+      <input
+        type="text"
+        class="cond-value"
+        [value]="condition().recordedStepKey ?? ''"
+        placeholder="recorded step key"
+        title="The cycle step whose recorded request this compares the live request against"
+        (input)="patch({ recordedStepKey: $any($event.target).value || null })"
+      />
+    }
+    <label class="cond-case" title="Also compare headers a client generates per call, such as Content-Length and trace ids. URL, method, the other headers, and the body are always compared.">
+      <input type="checkbox" [checked]="condition().headers === true" (change)="patch({ headers: $any($event.target).checked || null })" />
+      auto-generated headers too
+    </label>
+  } @else if (needsValue()) {
+    <input
+      type="text"
+      class="cond-value"
+      [value]="condition().value ?? ''"
+      [attr.list]="listId"
+      [placeholder]="condition().operator.startsWith('COUNT_') ? 'items' : 'value'"
+      (input)="patch({ value: $any($event.target).value })"
+    />
+  }
+  @if (json()) {
+    <datalist [id]="listId">
+      @for (hint of valueHints(); track hint) {
+        <option [value]="hint"></option>
+      }
+    </datalist>
+  }
+  @if (needsValue() && condition().operator !== 'TYPE_IS' && !condition().operator.startsWith('COUNT_')) {
+    <label class="cond-case" title="Compare the value exactly as typed">
+      <input type="checkbox" [checked]="condition().caseSensitive === true" (change)="patch({ caseSensitive: $any($event.target).checked })" />
+      Aa
+    </label>
+  }
+  <ng-content select="[conditionExtra]" />
+  <button type="button" class="icon-btn danger" title="Remove this condition" (click)="remove.emit()">×</button>
+</div>

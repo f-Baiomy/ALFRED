@@ -7432,7 +7432,8 @@ h1.page-title {
     }
   }
 
-  input.cond-name {
+  input.cond-name,
+  .name-suggest-input {
     width: 140px;
   }
 
@@ -7506,7 +7507,8 @@ h1.page-title {
   margin-bottom: 0.3rem;
 }
 
-.rule-editor .cond-row app-select-picker .theme-picker-btn {
+/* Every condition row (app-condition-row): the rule editor's IF and Relive's step checks. */
+.cond-row app-select-picker .theme-picker-btn {
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -10226,3 +10228,66 @@ app-call-card.call-reveal {
 @import "styles/call-list-power";
 @import "styles/cycle-widget";
 @import "styles/relive";
+
+/* A header / cookie name box with the call's own names offered (NameSuggestComponent). Fixed, so a
+   card that clips its overflow cannot cut the list off. */
+app-name-suggest {
+  display: inline-block;
+}
+
+.name-suggest-panel {
+  position: fixed;
+  z-index: 300;
+  width: min(460px, calc(100vw - 16px));
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0.3rem;
+  background: var(--popover-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.name-suggest-title {
+  padding: 0.3rem 0.5rem 0.2rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.name-suggest-option {
+  display: grid;
+  grid-template-columns: minmax(120px, 42%) 1fr;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  text-align: left;
+  cursor: pointer;
+
+  b {
+    font-family: ui-monospace, Consolas, monospace;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  span {
+    font-family: ui-monospace, Consolas, monospace;
+    color: var(--text-faint);
+    font-size: 0.68rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &.on {
+    background: color-mix(in srgb, var(--purple) 22%, transparent);
+  }
+}

@@ -635,6 +635,16 @@ export const SUBJECT_HELP: Readonly<Record<ConditionSubject, HelpEntry>> = {
     ],
     warning: 'Available in the response half only — in the request half nothing has answered yet.',
   },
+  RESPONSE_TIME: {
+    title: 'Response time (ms)',
+    code: 'RESPONSE_TIME',
+    what: 'How long the host took to answer, in milliseconds - from the moment Alfred received the request to the end of the response.',
+    examples: [
+      { from: 'is at most 2000', to: 'answered within two seconds' },
+      { from: 'is at least 5000', to: 'a slow call worth flagging' },
+    ],
+    warning: 'Available in the response half only. Use "is at least" / "is at most" - it is a number.',
+  },
   RESPONSE_HEADER: {
     title: 'Response header',
     code: 'RESPONSE_HEADER',
