@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Relive - compare two runs (mock)</title>
+<style>
+  :root {
+    --bg: #0d1130; --card: #151b45; --card-2: #11163a; --inner: #0a0e28;
+    --border: rgba(139, 92, 246, .22); --border-strong: rgba(139, 92, 246, .45);
+    --text: #e5e9f5; --dim: #93a0c2; --faint: #5c6690;
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee; --orange: #fb923c;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --blue: #7aa2ff;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 28px 60px; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .note { color: var(--dim); max-width: 1180px; margin: 0 0 16px; }
+  .wrap { max-width: 1180px; min-width: 1050px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; }
+  .muted { color: var(--faint); }
+  .dim { color: var(--dim); }
+  .mono { font-family: var(--mono); }
+  .btn { background: transparent; border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px 11px; font-size: 12.5px; }
+  .btn.primary { background: var(--purple); border-color: var(--purple); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sp { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .ok { color: var(--green); border-color: rgba(52, 211, 153, .45); background: rgba(52, 211, 153, .1); }
+  .fail { color: var(--red); border-color: rgba(248, 113, 113, .5); background: rgba(248, 113, 113, .1); }
+  .diff { color: var(--amber); border-color: rgba(251, 191, 36, .5); background: rgba(251, 191, 36, .1); }
+  .wait { color: var(--dim); border-color: var(--border); }
+  .fixed { color: var(--cyan); border-color: rgba(34, 211, 238, .45); background: rgba(34, 211, 238, .1); }
+
+  /* History list with picking */
+  .hist-head { display: grid; grid-template-columns: 30px 30px 1fr 140px 170px 80px 230px; gap: 10px; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding: 0 8px 6px; }
+  .run { display: grid; grid-template-columns: 30px 30px 1fr 140px 170px 80px 230px; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 10px; border: 1px solid transparent; }
+  .run:hover { background: rgba(139, 92, 246, .06); }
+  .run.pickA { border-color: var(--blue); background: rgba(122, 162, 255, .08); }
+  .run.pickB { border-color: var(--purple); background: rgba(139, 92, 246, .1); }
+  .slot { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: var(--faint); }
+  .slot.A { color: #fff; background: var(--blue); border-color: var(--blue); }
+  .slot.B { color: #fff; background: var(--purple); border-color: var(--purple); }
+  .bar { height: 6px; border-radius: 3px; background: var(--inner); overflow: hidden; display: flex; }
+  .bar span { display: block; height: 100%; }
+  .pickbar { position: sticky; top: 8px; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 12px; background: #1b2257; margin-bottom: 12px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 8px; font-size: 12.5px; }
+  .chip.A { background: rgba(122, 162, 255, .15); color: var(--blue); }
+  .chip.B { background: rgba(139, 92, 246, .2); color: var(--purple-light); }
+
+  /* Comparison */
+  .cmp-head { display: grid; grid-template-columns: 1fr 50px 1fr; gap: 12px; align-items: stretch; }
+  .side { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--card-2); }
+  .side.A { border-color: rgba(122, 162, 255, .5); }
+  .side.B { border-color: rgba(139, 92, 246, .6); }
+  .side h3 { margin: 0 0 4px; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .vs { display: flex; align-items: center; justify-content: center; color: var(--faint); font-weight: 700; }
+  .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 12px; }
+  .stat { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--inner); cursor: pointer; }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { color: var(--dim); font-size: 12px; }
+  .stat.on { border-color: var(--purple); background: rgba(139, 92, 246, .14); }
+  .tools { display: flex; align-items: center; gap: 10px; margin: 14px 0 8px; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 4px 11px; font-size: 12.5px; color: var(--dim); }
+  .seg button.on { background: rgba(139, 92, 246, .25); color: var(--text); }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--dim); }
+  .search { background: var(--inner); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text); padding: 4px 10px; width: 220px; }
+
+  .srow-head, .srow { display: grid; grid-template-columns: 22px 34px minmax(0, 1fr) 190px 120px 200px 110px 120px; gap: 10px; align-items: center; padding: 0 10px; }
+  .srow-head { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; height: 28px; }
+  .srow { min-height: 42px; border-top: 1px solid var(--border); cursor: pointer; }
+  .srow:hover { background: rgba(139, 92, 246, .06); }
+  .srow.child .name { padding-left: 18px; }
+  .srow.open { background: rgba(139, 92, 246, .1); }
+  .name b { font-weight: 600; }
+  .name .path { color: var(--faint); font-family: var(--mono); font-size: 12px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .arrow { color: var(--faint); margin: 0 4px; }
+  .delta { font-family: var(--mono); font-size: 12px; }
+  .up { color: var(--red); } .down { color: var(--green); }
+  .tbar { position: relative; height: 8px; background: var(--inner); border-radius: 4px; margin-top: 3px; }
+  .tbar i { position: absolute; top: 0; height: 4px; border-radius: 2px; }
+  .tbar i.a { background: var(--blue); }
+  .tbar i.b { background: var(--purple); top: 4px; }
+  .verdict { font-size: 11.5px; }
+
+  .detail { border-top: 1px solid var(--border); background: var(--inner); padding: 12px 14px 14px 76px; }
+  .detail h4 { margin: 10px 0 6px; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .fdiff { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .fdiff .p { font-family: var(--mono); overflow-wrap: anywhere; }
+  .fdiff .a, .fdiff .b { font-family: var(--mono); border-radius: 5px; padding: 1px 6px; overflow-wrap: anywhere; }
+  .fdiff .a { background: rgba(122, 162, 255, .1); color: #bcd0ff; }
+  .fdiff .b { background: rgba(139, 92, 246, .14); color: var(--purple-light); }
+  .fdiff .tag { font-size: 11px; }
+  .noise { opacity: .5; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .box { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: var(--card-2); font-size: 12.5px; }
+  .box.A { border-color: rgba(122, 162, 255, .45); } .box.B { border-color: rgba(139, 92, 246, .5); }
+  .box b { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
+  pre { margin: 6px 0 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow: auto; }
+
+  .vars { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .vars td, .vars th { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; }
+  .vars th { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .legend { margin-top: 26px; color: var(--dim); font-size: 13px; max-width: 1180px; }
+  .legend h2 { font-size: 15px; color: var(--text); margin: 18px 0 8px; }
+  .legend li { margin: 5px 0; }
+  .legend code { font-family: var(--mono); font-size: 12px; }
+  /* Option switcher */
+  .options { display: flex; gap: 8px; margin-bottom: 16px; }
+  .opt { border: 1px solid var(--border-strong); border-radius: 12px; padding: 8px 14px; background: var(--card-2); text-align: left; max-width: 420px; }
+  .opt b { display: block; }
+  .opt span { color: var(--dim); font-size: 12px; }
+  .opt.on { border-color: var(--purple); background: rgba(139, 92, 246, .16); }
+
+  /* Option B: run matrix */
+  .m-grid { display: grid; gap: 4px; align-items: stretch; margin-top: 12px; }
+  .m-head { background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 4px; font-size: 11.5px; text-align: center; color: var(--dim); position: relative; }
+  .m-head:hover { border-color: var(--border-strong); }
+  .m-head .slot { position: absolute; top: -6px; right: -4px; }
+  .m-name { display: flex; align-items: center; padding: 0 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .m-name.child { padding-left: 24px; color: var(--dim); font-size: 12px; }
+  .m-name.on { background: rgba(139, 92, 246, .14); }
+  .m-cell { height: 30px; border-radius: 6px; border: 1px solid transparent; font-size: 12px; font-family: var(--mono); }
+  .m-ok { background: rgba(52, 211, 153, .14); color: var(--green); }
+  .m-diff { background: rgba(251, 191, 36, .16); color: var(--amber); }
+  .m-fail { background: rgba(248, 113, 113, .2); color: var(--red); }
+  .m-skip { background: var(--inner); color: var(--faint); }
+  .m-fast { background: rgba(52, 211, 153, .16); color: var(--green); }
+  .m-even { background: var(--inner); color: var(--dim); }
+  .m-slow { background: rgba(251, 191, 36, .16); color: var(--amber); }
+  .m-slow2 { background: rgba(248, 113, 113, .22); color: var(--red); }
+  .m-cell.m-colA { box-shadow: inset 0 0 0 1px rgba(122, 162, 255, .6); }
+  .m-cell.m-colB { box-shadow: inset 0 0 0 1px rgba(139, 92, 246, .8); }
+  .m-cell.m-sel { outline: 2px solid var(--text); outline-offset: -2px; }
+  .m-head.m-colA { border-color: var(--blue); }
+  .m-head.m-colB { border-color: var(--purple); }
+  .m-note { display: flex; align-items: center; font-size: 12px; color: var(--amber); padding-left: 6px; }
+  .m-key { padding: 1px 8px; border-radius: 6px; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<h1>Compare two runs - redesign</h1>
+<p class="note">Pick any two runs (A = before, B = after) from History - or one run and "Compare with the previous run" / "with the recording". The comparison opens as a page of its own: a summary of what changed, a step-by-step table that defaults to <b>changed steps only</b>, and each step expandable to its field changes, request changes, timing and variables. Noise rules apply by default. Click around: the A/B slots, the stat tiles, the filters and the rows.</p>
+
+<div class="options" id="options">
+  <button class="opt on" data-opt="A"><b>Option A · Pick two runs, then a comparison page</b><span>Summary first ("B is worse: …"), tiles, a step table of changes, expand a step for its fields, what it sent, variables.</span></button>
+  <button class="opt" data-opt="C"><b>Option C · Both: matrix on top, comparison below</b><span>The History tab IS the matrix; the two runs you pick (A / B) are compared right under it - summary, tiles, changed steps, values. A cell opens that step.</span></button>
+  <button class="opt" data-opt="B"><b>Option B · Run matrix</b><span>Every step across the last runs in one grid (outcome or time), see when something started, click a cell to diff that step between two runs.</span></button>
+</div>
+<div class="wrap" id="app"></div>
+
+<div class="legend">
+  <h2>Option C - both together</h2>
+  <ul>
+    <li>The History tab becomes the matrix: the runs are its columns (with their own Open / Export / Compare with recording / Delete on the column head), steps are its rows.</li>
+    <li>The two runs you pick - A by clicking a column head, B by shift-clicking (or the last two runs by default) - are compared directly under the grid with option A's page: verdict line, tiles, changed steps, expandable fields / what was sent / values, export.</li>
+    <li>Clicking a cell selects that run pair and opens that step's row in the comparison below, scrolled into view.</li>
+    <li>So one screen answers both questions: <i>since when?</i> (the grid) and <i>what exactly changed?</i> (the comparison).</li>
+  </ul>
+
+  <h2>Option B - run matrix (in short)</h2>
+  <ul>
+    <li>One grid: steps down, the last runs across (newest left), each cell the step's outcome (✓ ≠ ✗ –) or its time against that step's usual time (faster / usual / slower / much slower).</li>
+    <li>Answers "since when?" at a glance: a row that was ✓ ✓ ✓ ✓ ✓ and is ✗ in the newest run started failing between those two runs; a row that flips ≠ / ✓ is a flaky answer or an unignored noise field.</li>
+    <li>"What stands out" column names it in words (first failure in N runs, twice as slow, flaky).</li>
+    <li>Click a column head for A, shift-click for B; click a cell to diff THAT step between A and B underneath (fields that changed, both answers). "Open the full comparison" leads to option A's page for the whole run.</li>
+    <li>Better for trends and many runs; option A is better for one careful before / after.</li>
+  </ul>
+
+  <h2>Option A - what changes from today's "Compare with newest"</h2>
+  <ul>
+    <li><b>Any two runs</b>, not just "this one vs the newest": click A then B in the history list, or use a row's <i>Compare with ▾</i> - the previous run, the newest, or <b>the recording</b> (what each step's own differences already compare against, now for the whole run in one view).</li>
+    <li><b>An answer first:</b> verdict line ("B is worse: 1 new failure, 1 slower step") and tiles - new failures, fixed, changed answers, slower, faster, same. Clicking a tile filters the table to it.</li>
+    <li><b>Step table with outcome, status, time and fields side by side</b> as <span class="pill ok">✓</span> → <span class="pill fail">✗</span>, with a time bar (A blue, B purple) and the change in %. Children sit under their parent step.</li>
+    <li><b>Changed steps only by default</b>; "All steps", a search, and the step's own name / path.</li>
+    <li><b>Noise rules applied</b> (cycle + step + auto noise), so a timestamp or a session id does not make every step "changed"; "Show noise" brings those fields back, greyed, and each field has "Ignore in cycle" to add a noise rule from here.</li>
+    <li><b>Expanded step:</b> the response fields that changed (A value | B value), what the step <b>sent</b> differently (variables, edited body), status and timing, rules applied in each run, and "Open in run A / B" to jump to the step in that run's timeline.</li>
+    <li><b>Variables</b> section: every value each run captured, side by side - often the reason a later step differs.</li>
+    <li>Export the comparison (Markdown / HTML / JSON), like a run.</li>
+  </ul>
+  <h2>Reused</h2>
+  <ul>
+    <li>The field diff and noise handling of the run's own differences (<code>relive-canonical-body</code>, noise rules), the run's own step results and variable timeline - no new backend data, both runs are loaded with <code>getRun</code>.</li>
+    <li>The Request / Response halves of a step open the existing <code>app-interception-panel</code> diff (A vs B), as in the result panel.</li>
+  </ul>
+</div>
+
+<script>
+const runs = [
+  { id: 'r7', at: 'Oct 2, 7:16 PM', status: 'fail', label: '✕ failed', steps: '32/37', dur: '239s', mix: [32, 4, 1] },
+  { id: 'r6', at: 'Oct 2, 6:40 PM', status: 'diff', label: '⚠ differences', steps: '37/37', dur: '211s', mix: [33, 4, 0] },
+  { id: 'r5', at: 'Oct 2, 5:02 PM', status: 'ok', label: '✓ completed', steps: '37/37', dur: '205s', mix: [37, 0, 0] },
+  { id: 'r4', at: 'Oct 1, 11:20 AM', status: 'diff', label: '⚠ differences', steps: '37/37', dur: '230s', mix: [35, 2, 0] },
+];
+const steps = [
+  { key: 'login', name: 'Login', path: 'POST /odeysysadmin/Admin2/loginAction', a: ['ok', 200, 412], b: ['ok', 200, 398], fields: 0, noise: 2, verdict: 'same' },
+  { key: 'roles', name: 'Role permissions', path: 'GET /odeysysadmin/Admin2/userRolePermission', a: ['ok', 200, 210], b: ['diff', 200, 205], fields: 3, noise: 1, verdict: 'changed',
+    diffs: [['body.0.key', '"dashboard"', '"reports"'], ['body.0.submenuItems.0.tabs.0.permissions.isEdit', 'true', 'false'], ['body.0.submenuItems.0.tabs.1', '{ "key": "totalDueReport", … }', '(not present)']] },
+  { key: 'search', name: 'Flight search', path: 'POST /odeysysadmin/Booking2/flight-search/search', a: ['ok', 200, 22650], b: ['ok', 200, 48498], fields: 1, noise: 4, verdict: 'slower',
+    diffs: [['journeys.length', '14', '9']] },
+  { key: 'search.galileo', child: true, name: 'Galileo', path: 'POST ndc-supplier…/api/FlightSearch/Search', a: ['ok', 200, 22647], b: ['ok', 200, 48210], fields: 0, noise: 1, verdict: 'slower', mode: 'REPLAY → REPLAY' },
+  { key: 'pax', name: 'Pax details', path: 'GET /odeysysadmin/v2/booking/pax-details', a: ['ok', 200, 160], b: ['fail', 500, 178], fields: 2, noise: 0, verdict: 'new failure',
+    diffs: [['status', '200', '500'], ['body.errorCode', '(not present)', '500'], ['body.message', '(not present)', '"Failed to get pax details information"']],
+    sent: [['{{$.sessionId}}', 'GGnU6hZm…', 'LSucvGqN…']] },
+  { key: 'fare', name: 'Fare confirmation', path: 'POST /odeysysadmin/v2/booking/fare-confirmation', a: ['fail', 502, 90], b: ['ok', 200, 392], fields: 4, noise: 0, verdict: 'fixed' },
+  { key: 'branches', name: 'Branches', path: 'GET /odeysysadmin/Master2/Branch/country-pos-with-branches', a: ['ok', 200, 300], b: ['ok', 200, 120], fields: 0, noise: 0, verdict: 'faster' },
+];
+const VERDICT = { 'same': ['wait', 'same'], 'changed': ['diff', '≠ answer changed'], 'slower': ['diff', '▲ slower'], 'faster': ['ok', '▼ faster'], 'new failure': ['fail', '✗ new failure'], 'fixed': ['fixed', '✓ fixed'] };
+const OUT = { ok: ['ok', '✓'], diff: ['diff', '≠'], fail: ['fail', '✗'] };
+
+// ---- Option B: the run matrix - every step across the last runs at once ----
+const matrixRuns = [
+  { id: 'r7', at: 'Oct 2 · 7:16 PM', short: '7:16 PM', status: 'fail', ver: 13 },
+  { id: 'r6', at: 'Oct 2 · 6:40 PM', short: '6:40 PM', status: 'diff', ver: 12 },
+  { id: 'r5', at: 'Oct 2 · 5:02 PM', short: '5:02 PM', status: 'ok', ver: 12 },
+  { id: 'r4', at: 'Oct 1 · 11:20 AM', short: 'Oct 1', status: 'diff', ver: 11 },
+  { id: 'r3', at: 'Sep 30 · 4:10 PM', short: 'Sep 30', status: 'ok', ver: 11 },
+  { id: 'r2', at: 'Sep 29 · 9:05 AM', short: 'Sep 29', status: 'ok', ver: 10 },
+];
+// Each step: per run [outcome, ms], newest first.
+const matrixSteps = [
+  { key: 'login', name: 'Login', cells: [['ok', 398], ['ok', 412], ['ok', 405], ['ok', 450], ['ok', 390], ['ok', 401]] },
+  { key: 'details', name: 'User details', cells: [['ok', 120], ['ok', 118], ['ok', 121], ['ok', 119], ['ok', 117], ['ok', 122]] },
+  { key: 'roles', name: 'Role permissions', cells: [['diff', 205], ['diff', 210], ['ok', 199], ['diff', 230], ['ok', 201], ['ok', 198]], note: 'changes on and off - a flaky answer or a noise field' },
+  { key: 'search', name: 'Flight search', cells: [['ok', 48498], ['ok', 22650], ['ok', 21900], ['ok', 23120], ['ok', 22010], ['ok', 21500]], note: 'twice as slow since the newest run' },
+  { key: 'galileo', child: true, name: 'Galileo', cells: [['ok', 48210], ['ok', 22647], ['ok', 21880], ['ok', 23100], ['ok', 21990], ['ok', 21480]] },
+  { key: 'pax', name: 'Pax details', cells: [['fail', 178], ['ok', 160], ['ok', 155], ['ok', 170], ['ok', 158], ['ok', 161]], note: 'first failure in 6 runs' },
+  { key: 'fare', name: 'Fare confirmation', cells: [['ok', 392], ['fail', 90], ['ok', 380], ['ok', 401], ['ok', 377], ['ok', 390]] },
+  { key: 'book', name: 'Book', cells: [['skip', 0], ['ok', 820], ['ok', 790], ['diff', 860], ['ok', 801], ['ok', 795]] },
+];
+let mxMetric = 'outcome', mxA = 'r6', mxB = 'r7', mxStep = 'pax', mxOnlyChanged = false;
+
+function cellHtml(step, i) {
+  const [o, ms] = step.cells[i];
+  const run = matrixRuns[i];
+  const base = step.cells.slice(1).map((c) => c[1]).filter(Boolean);
+  const median = base.sort((x, y) => x - y)[Math.floor(base.length / 2)] || ms;
+  const ratio = ms && median ? ms / median : 1;
+  let cls, text;
+  if (mxMetric === 'outcome') {
+    cls = { ok: 'm-ok', diff: 'm-diff', fail: 'm-fail', skip: 'm-skip' }[o];
+    text = { ok: '✓', diff: '≠', fail: '✗', skip: '–' }[o];
+  } else {
+    cls = o === 'skip' ? 'm-skip' : ratio > 1.5 ? 'm-slow2' : ratio > 1.15 ? 'm-slow' : ratio < 0.85 ? 'm-fast' : 'm-even';
+    text = o === 'skip' ? '–' : ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms';
+  }
+  const pick = run.id === mxA ? ' m-colA' : run.id === mxB ? ' m-colB' : '';
+  const sel = mxStep === step.key && (run.id === mxA || run.id === mxB) ? ' m-sel' : '';
+  return `<button class="m-cell ${cls}${pick}${sel}" data-cell="${step.key}|${run.id}" title="${step.name} · ${run.at} · ${o} · ${ms} ms">${text}</button>`;
+}
+
+function matrixHtml(gridOnly = false) {
+  const rows = matrixSteps.filter((s) => !mxOnlyChanged || new Set(s.cells.map((c) => c[0])).size > 1 || s.note);
+  const step = matrixSteps.find((s) => s.key === mxStep);
+  const ia = matrixRuns.findIndex((r) => r.id === mxA), ib = matrixRuns.findIndex((r) => r.id === mxB);
+  return `
+  <div class="card">
+    <div class="row">
+      <b>Run matrix</b><span class="muted">every step across the last ${matrixRuns.length} runs - newest on the left</span>
+      <span class="sp"></span>
+      <div class="seg"><button data-mx="outcome" class="${mxMetric === 'outcome' ? 'on' : ''}">Outcome</button><button data-mx="time" class="${mxMetric === 'time' ? 'on' : ''}">Time vs usual</button></div>
+      <label class="toggle"><input type="checkbox" data-act="mxonly" ${mxOnlyChanged ? 'checked' : ''}> Only steps that changed</label>
+    </div>
+    <div class="m-grid" style="grid-template-columns: minmax(200px, 1.2fr) repeat(${matrixRuns.length}, 78px) minmax(180px, 1fr)">
+      <span></span>
+      ${matrixRuns.map((r) => `<button class="m-head ${r.id === mxA ? 'm-colA' : ''} ${r.id === mxB ? 'm-colB' : ''}" data-col="${r.id}" title="Click: make this A. Shift-click: make this B">
+        <span class="pill ${r.status}" style="padding:0 6px">${{ ok: '✓', diff: '≠', fail: '✗' }[r.status]}</span><br>${r.short}<br><span class="muted">v${r.ver}</span>
+        ${r.id === mxA ? '<span class="slot A" style="width:18px;height:18px;font-size:10px">A</span>' : r.id === mxB ? '<span class="slot B" style="width:18px;height:18px;font-size:10px">B</span>' : ''}</button>`).join('')}
+      <span class="muted" style="font-size:11px;align-self:end">what stands out</span>
+      ${rows.map((s) => `
+        <span class="m-name ${s.child ? 'child' : ''} ${mxStep === s.key ? 'on' : ''}" data-step="${s.key}">${s.child ? '↗ ' : ''}${s.name}</span>
+        ${matrixRuns.map((_, i) => cellHtml(s, i)).join('')}
+        <span class="m-note">${s.note ?? ''}</span>`).join('')}
+    </div>
+    <div class="row" style="margin-top:8px;font-size:12px">
+      <span class="muted">Legend:</span>
+      ${mxMetric === 'outcome'
+        ? '<span class="m-key m-ok">✓ passed</span><span class="m-key m-diff">≠ differences</span><span class="m-key m-fail">✗ failed</span><span class="m-key m-skip">– not run</span>'
+        : '<span class="m-key m-fast">faster</span><span class="m-key m-even">usual</span><span class="m-key m-slow">&gt;15% slower</span><span class="m-key m-slow2">&gt;50% slower</span>'}
+      <span class="sp"></span><span class="muted">Click a column head for A, shift-click for B. Click a cell to diff that step.</span>
+    </div>
+  </div>
+
+  ${gridOnly ? '' : `<div class="card">
+    <div class="row">
+      <b>${step.name}</b><span class="muted">${step.child ? 'supplier call' : 'step'} ·</span>
+      <span class="chip A">A · ${matrixRuns[ia].at}</span><span class="muted">→</span><span class="chip B">B · ${matrixRuns[ib].at}</span>
+      <span class="sp"></span><button class="btn">Open the full comparison (option A) ↗</button>
+    </div>
+    <div class="two" style="margin-top:10px">
+      <div class="box A"><b>A</b><div>${step.cells[ia][0]} · ${step.cells[ia][1]} ms</div>
+        <pre>{ "paxCount": 2, "passengers": [ … ] }</pre></div>
+      <div class="box B"><b>B</b><div>${step.cells[ib][0]} · ${step.cells[ib][1]} ms</div>
+        <pre>{ "errorCode": 500, "message": "Failed to get pax details information" }</pre></div>
+    </div>
+    <h4 style="margin:12px 0 6px;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em">Fields that changed A → B</h4>
+    <div class="fdiff"><span class="p">status</span><span class="a">200</span><span class="b">500</span><span></span></div>
+    <div class="fdiff"><span class="p">body.paxCount</span><span class="a">2</span><span class="b">(not present)</span><span><button class="btn" style="padding:1px 8px">Ignore in cycle</button></span></div>
+    <div class="fdiff"><span class="p">body.message</span><span class="a">(not present)</span><span class="b">"Failed to get pax details information"</span><span><button class="btn" style="padding:1px 8px">Ignore in cycle</button></span></div>
+    <div class="muted" style="margin-top:8px;font-size:12px">History of this step: ✓ ✓ ✓ ✓ ✓ then ✗ in the newest run - it started failing between ${matrixRuns[1].at} and ${matrixRuns[0].at}.</div>
+  </div>`}`;
+}
+
+let option = 'A';
+let view = 'history', A = 'r6', B = 'r7', filter = 'changed', showNoise = false, open = 'pax', q = '';
+
+function historyHtml() {
+  return `
+  <div class="pickbar">
+    <b>Compare runs</b>
+    <span class="chip A">A · ${A ? runs.find((r) => r.id === A).at : 'click a run'}</span>
+    <span class="muted">→</span>
+    <span class="chip B">B · ${B ? runs.find((r) => r.id === B).at : 'click a run'}</span>
+    <span class="sp"></span>
+    <span class="muted">Click a row's A or B to choose.</span>
+    <button class="btn" data-act="swap">⇄ Swap</button>
+    <button class="btn primary" data-act="compare" ${A && B && A !== B ? '' : 'disabled'}>Compare A → B</button>
+  </div>
+  <div class="card">
+    <div class="hist-head"><span>A</span><span>B</span><span>Run</span><span>Result</span><span>Steps</span><span>Took</span><span></span></div>
+    ${runs.map((r) => `<div class="run ${A === r.id ? 'pickA' : ''} ${B === r.id ? 'pickB' : ''}">
+      <button class="slot ${A === r.id ? 'A' : ''}" data-a="${r.id}">A</button>
+      <button class="slot ${B === r.id ? 'B' : ''}" data-b="${r.id}">B</button>
+      <span><b>${r.at}</b> ${r.id === 'r7' ? '<span class="pill wait">newest</span>' : ''}</span>
+      <span class="pill ${r.status}">${r.label}</span>
+      <span><span class="dim">${r.steps}</span><div class="bar">${r.mix.map((n, i) => `<span style="width:${n / 37 * 100}%;background:${['var(--green)', 'var(--amber)', 'var(--red)'][i]}"></span>`).join('')}</div></span>
+      <span class="dim">${r.dur}</span>
+      <span class="row"><button class="btn">Open</button><button class="btn" data-quick="${r.id}">Compare with ▾</button></span>
+    </div>`).join('')}
+    <div class="muted" style="margin-top:8px;font-size:12px">"Compare with ▾" offers: the previous run · the newest run · the recording.</div>
+  </div>`;
+}
+
+function stepRow(s) {
+  const [ac, as, at] = s.a, [bc, bs, bt] = s.b;
+  const pct = Math.round((bt - at) / at * 100);
+  const max = Math.max(at, bt);
+  const [vc, vt] = VERDICT[s.verdict];
+  return `<div class="srow ${s.child ? 'child' : ''} ${open === s.key ? 'open' : ''}" data-k="${s.key}">
+    <span class="muted">${open === s.key ? '▾' : '▸'}</span>
+    <span>${OUT[ac] ? `<span class="pill ${OUT[ac][0]}">${OUT[ac][1]}</span>` : ''}</span>
+    <span class="name">${s.child ? '<span class="muted">↗</span> ' : ''}<b>${s.name}</b><span class="path">${s.path}</span></span>
+    <span><span class="pill ${OUT[ac][0]}">${OUT[ac][1]} ${as}</span><span class="arrow">→</span><span class="pill ${OUT[bc][0]}">${OUT[bc][1]} ${bs}</span></span>
+    <span>${s.fields ? `<b>${s.fields}</b> field${s.fields === 1 ? '' : 's'}` : '<span class="muted">-</span>'}${showNoise && s.noise ? ` <span class="muted">+${s.noise} noise</span>` : ''}</span>
+    <span><span class="delta">${at} → ${bt} ms <span class="${pct > 0 ? 'up' : 'down'}">${pct > 0 ? '+' : ''}${pct}%</span></span><div class="tbar"><i class="a" style="width:${at / max * 100}%"></i><i class="b" style="width:${bt / max * 100}%"></i></div></span>
+    <span class="pill ${vc} verdict">${vt}</span>
+    <span class="row" style="justify-content:flex-end"><button class="btn" style="padding:1px 8px">Open in B ↗</button></span>
+  </div>${open === s.key ? detailHtml(s) : ''}`;
+}
+
+function detailHtml(s) {
+  const diffs = s.diffs || [];
+  const noiseRows = showNoise ? [['body.timestamp', '"2026-10-02T15:40:11Z"', '"2026-10-02T16:16:09Z"'], ['headers.Date', 'Fri, 02 Oct … 15:40', 'Fri, 02 Oct … 16:16']] : [];
+  return `<div class="detail">
+    <div class="two">
+      <div class="box A"><b>A · run of Oct 2, 6:40 PM</b><div>${OUT[s.a[0]][1]} ${s.a[1]} · ${s.a[2]} ms · LIVE · rules: none</div></div>
+      <div class="box B"><b>B · run of Oct 2, 7:16 PM</b><div>${OUT[s.b[0]][1]} ${s.b[1]} · ${s.b[2]} ms · LIVE · rules: none${s.verdict === 'new failure' ? ' · <span style="color:var(--red)">The host answered 500.</span>' : ''}</div></div>
+    </div>
+    <h4>Response fields that changed (${diffs.length})</h4>
+    ${diffs.length ? diffs.map(([p, a, b]) => `<div class="fdiff"><span class="p">${p}</span><span class="a">${a}</span><span class="b">${b}</span><span><button class="btn" style="padding:1px 8px">Ignore in cycle</button></span></div>`).join('') : '<div class="muted">No field changed.</div>'}
+    ${noiseRows.map(([p, a, b]) => `<div class="fdiff noise"><span class="p">${p}</span><span class="a">${a}</span><span class="b">${b}</span><span class="muted tag">noise · cycle rule</span></div>`).join('')}
+    <h4>What the step sent differently</h4>
+    ${s.sent ? s.sent.map(([p, a, b]) => `<div class="fdiff"><span class="p">${p}</span><span class="a">${a}</span><span class="b">${b}</span><span class="muted tag">variable</span></div>`).join('') : '<div class="muted">Sent the same request in both runs.</div>'}
+    <div class="row" style="margin-top:10px">
+      <button class="btn">Request A vs B</button><button class="btn">Response A vs B</button>
+      <span class="muted">opens the side-by-side diff (the interception panel)</span>
+      <span class="sp"></span><button class="btn">Open in run A ↗</button><button class="btn">Open in run B ↗</button>
+    </div>
+  </div>`;
+}
+
+function compareHtml(embedded = false) {
+  const counts = { 'new failure': 0, fixed: 0, changed: 0, slower: 0, faster: 0, same: 0 };
+  steps.forEach((s) => counts[s.verdict]++);
+  const tiles = [['changed', 'all changes', steps.filter((s) => s.verdict !== 'same').length], ['new failure', 'new failures', counts['new failure']], ['fixed', 'fixed', counts.fixed], ['changed-answer', 'answers changed', counts.changed], ['slower', 'slower (>25%)', counts.slower], ['same', 'same', counts.same]];
+  const shown = steps.filter((s) => {
+    if (q && !(s.name + s.path).toLowerCase().includes(q)) return false;
+    if (filter === 'all') return true;
+    if (filter === 'changed') return s.verdict !== 'same';
+    if (filter === 'changed-answer') return s.verdict === 'changed';
+    return s.verdict === filter;
+  });
+  return `
+  ${embedded ? `<div class="row" style="margin:4px 0 10px"><b style="font-size:15px">A → B</b><span class="muted">the two runs picked in the matrix - click a column head for A, shift-click for B</span><span class="sp"></span><button class="btn">⇄ Swap</button><button class="btn">Export ▾</button></div>`
+      : `<div class="row" style="margin-bottom:10px"><button class="btn" data-act="back">← History</button><b>Compare runs</b><span class="sp"></span><button class="btn">Export ▾</button></div>`}
+  <div class="card">
+    <div class="cmp-head">
+      <div class="side A"><h3><span class="slot A">A</span> Oct 2, 6:40 PM <span class="pill diff">⚠ differences</span></h3><div class="dim">37/37 steps · 211s · driver: Automatic · cycle version 12</div></div>
+      <div class="vs">→</div>
+      <div class="side B"><h3><span class="slot B">B</span> Oct 2, 7:16 PM <span class="pill fail">✕ failed</span></h3><div class="dim">32/37 steps · 239s · driver: Automatic · cycle version 13 <span style="color:var(--amber)">(edited since A)</span></div></div>
+    </div>
+    <div style="margin-top:12px;font-size:15px"><b style="color:var(--red)">B is worse:</b> 1 new failure (Pax details), 1 answer changed, 2 slower steps. 1 step fixed.</div>
+    <div class="stats">${tiles.map(([k, label, n]) => `<div class="stat ${filter === k ? 'on' : ''}" data-f="${k}"><b style="color:${k === 'new failure' ? 'var(--red)' : k === 'fixed' ? 'var(--cyan)' : k === 'same' ? 'var(--dim)' : 'var(--amber)'}">${n}</b><span>${label}</span></div>`).join('')}</div>
+  </div>
+
+  <div class="card" style="padding:0 0 4px">
+    <div class="tools" style="padding:10px 14px 0;margin:0 0 6px">
+      <div class="seg"><button data-f="changed" class="${filter !== 'all' ? 'on' : ''}">Changed only</button><button data-f="all" class="${filter === 'all' ? 'on' : ''}">All steps</button></div>
+      <label class="toggle"><input type="checkbox" data-act="noise" ${showNoise ? 'checked' : ''}> Show noise fields</label>
+      <span class="muted" style="font-size:12px">noise rules of the cycle and steps applied</span>
+      <span class="sp"></span>
+      <input class="search" placeholder="Search steps…" data-act="q" value="${q}">
+    </div>
+    <div class="srow-head"><span></span><span>A</span><span>Step</span><span>Outcome / status</span><span>Fields</span><span>Time A → B</span><span>Verdict</span><span></span></div>
+    ${shown.map(stepRow).join('') || '<div class="muted" style="padding:16px">Nothing matches.</div>'}
+  </div>
+
+  <div class="card">
+    <b>Values captured</b> <span class="muted">- often why a later step differs</span>
+    <table class="vars" style="margin-top:8px">
+      <tr><th>Variable</th><th>Saved by</th><th>A</th><th>B</th><th></th></tr>
+      <tr><td class="mono">{{$.sessionId}}</td><td>Login</td><td class="mono">GGnU6hZm…</td><td class="mono">LSucvGqN…</td><td class="pill diff" style="display:table-cell">changed</td></tr>
+      <tr><td class="mono">{{$.searchId}}</td><td>Flight search</td><td class="mono">S-99120</td><td class="mono">S-99877</td><td class="pill diff" style="display:table-cell">changed</td></tr>
+      <tr><td class="mono">{{$.pnr}}</td><td>Book</td><td class="mono">XK29QD</td><td class="muted">not set (step failed)</td><td class="pill fail" style="display:table-cell">missing</td></tr>
+    </table>
+  </div>`;
+}
+
+// ---- Option C: both - the matrix is History, the comparison sits under it ----
+const MX_TO_STEP = { galileo: 'search.galileo' };
+function combinedHtml() {
+  return `
+  <div class="row" style="margin-bottom:8px">
+    <b>History</b><span class="muted">${matrixRuns.length} of 50 runs shown · newest left</span><span class="sp"></span>
+    <button class="btn">Show older runs</button><button class="btn">Delete history…</button>
+  </div>
+  ${matrixHtml(true)}
+  <div class="muted" style="font-size:12px;margin:-6px 0 12px">Each column head also has the run's own actions on hover: Open · Export · Compare with recording · Delete.</div>
+  ${compareHtml(true)}`;
+}
+
+function render() {
+  document.getElementById('app').innerHTML = option === 'C' ? combinedHtml() : option === 'B' ? matrixHtml() : view === 'history' ? historyHtml() : compareHtml();
+}
+
+document.addEventListener('click', (ev) => {
+  const t = ev.target;
+  const opt = t.closest('[data-opt]');
+  if (opt) { option = opt.dataset.opt; document.querySelectorAll('#options .opt').forEach((o) => o.classList.toggle('on', o === opt)); render(); return; }
+  const mxm = t.closest('[data-mx]'); if (mxm) { mxMetric = mxm.dataset.mx; render(); return; }
+  if (t.closest('[data-act="mxonly"]')) { mxOnlyChanged = t.checked; render(); return; }
+  const col = t.closest('[data-col]');
+  if (col) { if (ev.shiftKey) { mxB = col.dataset.col; } else { mxA = col.dataset.col; } if (mxA === mxB) mxB = matrixRuns.find((r) => r.id !== mxA).id; render(); return; }
+  const cell = t.closest('[data-cell]');
+  if (cell) {
+    const [k, r] = cell.dataset.cell.split('|');
+    mxStep = k;
+    if (r !== mxA && r !== mxB) { mxA = mxB; mxB = r; }
+    // Option C: the cell opens that step in the comparison below, and scrolls to it.
+    if (option === 'C') { open = MX_TO_STEP[k] ?? k; filter = 'all'; render(); document.querySelector('.srow.open')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+    render(); return;
+  }
+  const stp = t.closest('[data-step]'); if (stp) { mxStep = stp.dataset.step; render(); return; }
+  const a = t.closest('[data-a]'); if (a) { A = a.dataset.a; if (B === A) B = null; render(); return; }
+  const b = t.closest('[data-b]'); if (b) { B = b.dataset.b; if (A === B) A = null; render(); return; }
+  const act = t.closest('[data-act]')?.dataset.act;
+  if (act === 'swap') { [A, B] = [B, A]; render(); return; }
+  if (act === 'compare') { view = 'compare'; render(); return; }
+  if (act === 'back') { view = 'history'; render(); return; }
+  if (act === 'noise') { showNoise = t.checked; render(); return; }
+  const qk = t.closest('[data-quick]'); if (qk) { const i = runs.findIndex((r) => r.id === qk.dataset.quick); A = runs[i + 1]?.id ?? null; B = qk.dataset.quick; view = 'compare'; render(); return; }
+  const f = t.closest('[data-f]'); if (f) { filter = f.dataset.f; render(); return; }
+  const row = t.closest('.srow'); if (row && !t.closest('button')) { open = open === row.dataset.k ? null : row.dataset.k; render(); }
+});
+document.addEventListener('input', (ev) => { if (ev.target.dataset.act === 'q') { q = ev.target.value.toLowerCase(); render(); const s = document.querySelector('[data-act="q"]'); s.focus(); s.setSelectionRange(q.length, q.length); } });
+render();
+</script>
+</body>
+</html>
