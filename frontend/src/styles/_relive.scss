@@ -1165,12 +1165,27 @@ button.rl-pill {
 
 .rl-drow {
   display: grid;
-  grid-template-columns: 118px 1fr 1fr auto;
+  // The path gets its own share of the width and wraps inside it - a fixed 118px let a long path
+  // run on over the recorded value. minmax(0, …) lets the value columns shrink rather than push.
+  grid-template-columns: minmax(130px, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 8px;
   align-items: start;
   padding: 6px 0;
   border-bottom: 1px solid rgba(139, 92, 246, 0.12);
   font-size: 12px;
+
+  > :first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  // The actions stay together, beside the values, never under them.
+  > :last-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: flex-end;
+  }
 
   .rl-old {
     color: var(--rl-red-soft);
@@ -1178,7 +1193,11 @@ button.rl-pill {
     border-radius: 5px;
     padding: 2px 6px;
     font-family: Consolas, monospace;
+    white-space: pre-wrap;
     word-break: break-all;
+    // A whole object as a value stays readable but bounded - it scrolls past a few lines.
+    max-height: 9.5em;
+    overflow: auto;
   }
   .rl-new {
     color: var(--rl-green-text);
@@ -1186,7 +1205,11 @@ button.rl-pill {
     border-radius: 5px;
     padding: 2px 6px;
     font-family: Consolas, monospace;
+    white-space: pre-wrap;
     word-break: break-all;
+    // A whole object as a value stays readable but bounded - it scrolls past a few lines.
+    max-height: 9.5em;
+    overflow: auto;
   }
   &.rl-noise {
     opacity: 0.5;
