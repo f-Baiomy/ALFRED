@@ -355,22 +355,73 @@ describe('ReliveRunTimelineComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('call-x');
   });
 
-  it('T056: shows a request-changed pause banner and emits openPausedCall for it', () => {
+  function held(at: 'CHANGED' | 'BEFORE' | 'AFTER', phase: 'request' | 'response' = 'request') {
+    return {
+      callId: 'call-y', phase, source: 'outbound', method: 'GET', url: 'https://api.supplier-a.com/fares',
+      timeoutSeconds: 30, pausedAt: Date.now(), relive: { runId: 'r-1', stepKey: null, at },
+    } as const;
+  }
+
+  function buttons(): HTMLButtonElement[] {
+    return Array.from(fixture.nativeElement.querySelectorAll('.rl-held button')) as HTMLButtonElement[];
+  }
+
+  function click(label: string): void {
+    const button = buttons().find((b) => b.textContent!.includes(label));
+    expect(button).withContext(label).toBeTruthy();
+    button!.click();
+    fixture.detectChanges();
+  }
+
+  it('T056/T103: decides a request-changed hold in the run view', () => {
     fixture.componentRef.setInput('run', run());
     fixture.componentRef.setInput('steps', []);
     fixture.componentRef.setInput('results', {});
-    fixture.componentRef.setInput('changedPauses', [
-      { callId: 'call-y', phase: 'request', source: 'outbound', method: 'GET', url: 'https://api.supplier-a.com/fares', timeoutSeconds: 30, pausedAt: Date.now() },
-    ]);
+    fixture.componentRef.setInput('changedPauses', [held('CHANGED')]);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('held - the request changed');
-    expect(fixture.nativeElement.textContent).toContain('api.supplier-a.com/fares');
+    expect(fixture.nativeElement.textContent).toContain('Request changed');
+    expect(fixture.nativeElement.textContent).toContain('mocked failure in');
+    const decisions: unknown[] = [];
+    fixture.componentInstance.decidePaused.subscribe((d) => decisions.push(d));
 
-    const openSpy = jasmine.createSpy();
-    fixture.componentInstance.openPausedCall.subscribe(openSpy);
-    fixture.nativeElement.querySelector('.rl-pausebox button').click();
-    expect(openSpy).toHaveBeenCalledWith('call-y');
+    click('Replay recorded answer');
+    click('Send to real');
+    expect(decisions.length).withContext('Send to real needs a second confirmation').toBe(1);
+    click('Yes, contact the real supplier');
+    click('Mock a failure');
+
+    expect(decisions).toEqual([
+      { callId: 'call-y', decision: { action: 'release', relive: 'REPLAY' } },
+      { callId: 'call-y', decision: { action: 'release', relive: 'SEND_REAL' } },
+      { callId: 'call-y', decision: { action: 'release', relive: 'FAIL' } },
+    ]);
+  });
+
+  it('T103: a held child checkpoint offers Continue and Skip, and answers can be edited', () => {
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', []);
+    fixture.componentRef.setInput('results', {});
+    fixture.componentRef.setInput('changedPauses', [held('BEFORE')]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('continues in');
+    const decisions: unknown[] = [];
+    fixture.componentInstance.decidePaused.subscribe((d) => decisions.push(d));
+    click('Continue');
+    click('Skip');
+    expect(decisions).toEqual([
+      { callId: 'call-y', decision: { action: 'release' } },
+      { callId: 'call-y', decision: { action: 'release', relive: 'FAIL' } },
+    ]);
+
+    fixture.componentRef.setInput('changedPauses', [held('CHANGED')]);
+    fixture.detectChanges();
+    click('Edit answer');
+    fixture.componentInstance.setEditStatus('201');
+    fixture.componentInstance.setEditBody('{"edited":true}');
+    fixture.detectChanges();
+    click('Answer with this');
+    expect(decisions[2]).toEqual({ callId: 'call-y', decision: { action: 'release', relive: 'ANSWER', status: 201, body: '{"edited":true}' } });
   });
 
   it('T058: shows the checkpoint pause box for a BEFORE pause (no Replay button) and emits decisions', () => {

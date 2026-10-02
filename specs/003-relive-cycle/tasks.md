@@ -693,7 +693,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 
 ### C. Missing spec features
 
-- [ ] T103 B9: pause box and request-changed box in the run view with countdown and in-place decisions; AFTER pauses tagged.
+- [X] T103 B9: pause box and request-changed box in the run view with countdown and in-place decisions; AFTER pauses tagged.
 - [ ] T104 FR-044a: "Apply to this run too / only next runs" dialog when editing during a run.
 - [ ] T105 FR-035b/c: Edit & replay, save edits to the cycle, every attempt persisted, children use the parent's attempt.
 - [ ] T106 FR-039-041c: per-field differences, EXPECTED labels, "Ignore this field" (step/cycle), "Count it".

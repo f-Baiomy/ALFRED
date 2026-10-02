@@ -2,7 +2,7 @@ import { DestroyRef, Component, ElementRef, computed, effect, inject, input, out
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
 import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.component';
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
-import { PausedCall } from '../../core/models/interception.model';
+import { PauseDecision, PausedCall } from '../../core/models/interception.model';
 import { maskRelive } from '../../shared/utils/relive-mask';
 import { isCollapsedResponseDifference, listResponseDifferences } from '../../shared/utils/relive-canonical-body';
 import { displayedState, explainStep, formatReasonDetail, StepReason, wholeDocumentCheckNote } from '../../shared/utils/relive-outcome';
@@ -126,11 +126,15 @@ export class ReliveRunTimelineComponent {
   readonly variables = input<Readonly<Record<string, string>>>({});
   readonly selectedKey = input<string | null>(null);
   readonly unexpectedCalls = input<readonly UnexpectedRunCall[]>([]);
-  /** Paused calls the host page already filtered to this run's own request-changed holds
-   *  (`relive.runId === run.id && relive.at === 'CHANGED'`) - deciding one is the existing Paused
-   *  Calls inspector's job (its release/abort/edit paths are the ones with the actual safety
-   *  guarantees), not reimplemented here; this only surfaces that they exist and links out. */
+  /** Calls of this run held in the proxy (`relive.runId === run.id`): a request that changed from
+   *  the recording ("Ask me", `at: 'CHANGED'`) or a child's checkpoint (`BEFORE`/`AFTER`). They are
+   *  decided here (FR-035e, FR-014d); the proxy applies the choice (relive.settle_request_pause). */
   readonly changedPauses = input<readonly PausedCall[]>([]);
+  readonly decidePaused = output<{ readonly callId: string; readonly decision: PauseDecision }>();
+  /** The held call whose answer is being edited ("Edit answer & replay"), and the call whose
+   *  "Send to real" is armed behind its second confirmation. */
+  readonly editingAnswer = signal<{ readonly callId: string; readonly status: number; readonly body: string } | null>(null);
+  readonly armedSendReal = signal<string | null>(null);
   /** An inbound step's own checkpoint, paused in the tab itself - not held in the proxy (research
    *  D11; see `ReliveRunService.pause`/`resolveCheckpoint`). Null when nothing is paused this way. */
   readonly pause = input<{ readonly stepKey: string; readonly at: 'BEFORE' | 'AFTER' } | null>(null);
@@ -138,7 +142,6 @@ export class ReliveRunTimelineComponent {
    *  and keeps only the banner at the top. */
   readonly pinnedDecision = input(false);
 
-  readonly openPausedCall = output<string>();
   readonly checkpointContinue = output<void>();
   readonly checkpointReplay = output<void>();
   readonly checkpointSkip = output<void>();
@@ -438,6 +441,66 @@ export class ReliveRunTimelineComponent {
     this.selectStep.emit(key);
   }
 
+  heldLabel(call: PausedCall): string {
+    const key = call.relive?.stepKey;
+    return (key && this.steps().find((s) => s.key === key)?.label) || `${call.method} ${call.url}`;
+  }
+
+  heldKind(call: PausedCall): 'CHANGED' | 'BEFORE' | 'AFTER' {
+    const at = call.relive?.at;
+    return at === 'BEFORE' || at === 'AFTER' ? at : 'CHANGED';
+  }
+
+  /** Seconds until the proxy decides on its own; null once someone took control. */
+  heldSecondsLeft(call: PausedCall): number | null {
+    if (call.heldAt) return null;
+    return Math.max(0, Math.ceil((call.pausedAt + call.timeoutSeconds * 1000 - this.now()) / 1000));
+  }
+
+  heldPreview(call: PausedCall): string {
+    const part = call.phase === 'response' ? call.response : call.request;
+    return this.mask(part?.body ?? '');
+  }
+
+  decideHeld(call: PausedCall, choice: 'REPLAY' | 'FAIL' | 'SEND_REAL' | 'CONTINUE'): void {
+    const decision: PauseDecision = choice === 'CONTINUE' || call.phase === 'response'
+      ? { action: 'release' }
+      : { action: 'release', relive: choice };
+    this.armedSendReal.set(null);
+    this.decidePaused.emit({ callId: call.callId, decision });
+  }
+
+  startEditAnswer(call: PausedCall): void {
+    const key = call.relive?.stepKey;
+    const recorded = key ? this.steps().find((s) => s.key === key)?.recording : undefined;
+    const current = call.phase === 'response' ? call.response : null;
+    this.editingAnswer.set({
+      callId: call.callId,
+      status: current?.status ?? recorded?.status ?? 200,
+      body: current?.body ?? recorded?.responseBody ?? '',
+    });
+  }
+
+  sendEditedAnswer(call: PausedCall): void {
+    const edit = this.editingAnswer();
+    if (!edit || edit.callId !== call.callId) return;
+    this.editingAnswer.set(null);
+    const decision: PauseDecision = call.phase === 'response'
+      ? { action: 'release', status: edit.status, body: edit.body }
+      : { action: 'release', relive: 'ANSWER', status: edit.status, body: edit.body };
+    this.decidePaused.emit({ callId: call.callId, decision });
+  }
+
+  setEditStatus(value: string): void {
+    const edit = this.editingAnswer();
+    if (edit) this.editingAnswer.set({ ...edit, status: Number(value) || 200 });
+  }
+
+  setEditBody(value: string): void {
+    const edit = this.editingAnswer();
+    if (edit) this.editingAnswer.set({ ...edit, body: value });
+  }
+
   pausePreview(): string {
     const p = this.pause();
     const row = this.pausedRow();
@@ -452,6 +515,11 @@ export class ReliveRunTimelineComponent {
               return String(row.result.actualResponse ?? '');
             }
           })();
+    return this.mask(text);
+  }
+
+  /** Secret variables and redacted headers masked (FR-022a); there is no reveal for held calls. */
+  private mask(text: string): string {
     const secretNames = this.variableDefs()
       .filter((v) => v.secret)
       .map((v) => v.name);

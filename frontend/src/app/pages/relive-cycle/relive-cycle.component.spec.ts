@@ -6,6 +6,7 @@ import { CallPickerService, PickResult } from '../../core/services/call-picker.s
 import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
 import { ReliveApiService } from '../../core/services/relive-api.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { InterceptionApiService } from '../../core/services/interception-api.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { ReliveRunService } from '../../core/state/relive-run.service';
 import { ReliveCycle, Step } from '../../shared/utils/relive-types';
@@ -68,6 +69,7 @@ describe('ReliveCycleComponent picker and run', () => {
         { provide: ConfirmDialogService, useValue: {} },
         { provide: ReliveApiService, useValue: api },
         { provide: InterceptionStateService, useValue: { pausedCalls: signal([]) } },
+        { provide: InterceptionApiService, useValue: { decide: jasmine.createSpy('decide').and.returnValue(of(undefined)) } },
         { provide: ReliveRuleDialogService, useValue: { request: signal(null) } },
       ],
     });

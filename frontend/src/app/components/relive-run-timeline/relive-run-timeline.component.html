@@ -48,19 +48,72 @@
     }
   }
 
-  @if (changedPauses().length) {
-    <div class="rl-pausebox">
-      <h3>⏸ {{ changedPauses().length }} call{{ changedPauses().length === 1 ? '' : 's' }} held - the request changed from the recording</h3>
-      <div class="rl-dim" style="font-size: 12.5px">
-        odeysys's call differs from what was recorded and is waiting on a decision. No decision = mocked failure; the supplier is never contacted without your yes.
+  @for (call of changedPauses(); track call.callId) {
+    @let kind = heldKind(call);
+    @let left = heldSecondsLeft(call);
+    <div class="rl-pausebox rl-held" [class.rl-held-changed]="kind === 'CHANGED'">
+      <div class="rl-row">
+        <span class="rl-pill" [class.rl-p-fail]="kind === 'CHANGED'" [class.rl-p-pause]="kind !== 'CHANGED'">
+          {{ kind === 'CHANGED' ? 'Request changed' : kind === 'BEFORE' ? '⏸ Pause before' : '⏸ Pause after' }}
+        </span>
+        <b>{{ heldLabel(call) }}</b>
+        <span class="rl-mono rl-dim">{{ call.method }} {{ call.url }}</span>
+        <span class="rl-spacer"></span>
+        @if (left !== null) {
+          <span class="rl-dim rl-held-clock">{{ kind === 'CHANGED' ? 'mocked failure in ' : 'continues in ' }}{{ left }} s</span>
+        } @else {
+          <span class="rl-dim rl-held-clock">held until you decide</span>
+        }
       </div>
-      @for (call of changedPauses(); track call.callId) {
-        <div class="rl-row" style="margin-top: 6px">
-          <span class="rl-mono">{{ call.method }} {{ call.url }}</span>
-          <span class="rl-spacer"></span>
-          <button class="rl-btn rl-sm" (click)="openPausedCall.emit(call.callId)">Review in Paused calls →</button>
-        </div>
+      <div class="rl-dim rl-held-hint">
+        @switch (kind) {
+          @case ('CHANGED') { The application's request differs from the recording. No decision = mocked failure; the supplier is never contacted without your yes. }
+          @case ('BEFORE') { The application's call is held before it leaves ALFRED. Continue answers it the way its call rule says (REPLAY or LIVE). }
+          @default { The answer is held before it reaches the application. }
+        }
+      </div>
+      <pre class="rl-held-preview">{{ heldPreview(call) }}</pre>
+
+      @if (editingAnswer(); as edit) {
+        @if (edit.callId === call.callId) {
+          <div class="rl-held-edit">
+            <label>Status <input type="number" [value]="edit.status" (input)="setEditStatus($any($event.target).value)" /></label>
+            <textarea rows="6" [value]="edit.body" (input)="setEditBody($any($event.target).value)"></textarea>
+            <div class="rl-row">
+              <button class="rl-btn rl-sm rl-primary" (click)="sendEditedAnswer(call)">Answer with this</button>
+              <button class="rl-btn rl-sm" (click)="editingAnswer.set(null)">Cancel</button>
+            </div>
+          </div>
+        }
       }
+
+      <div class="rl-row rl-held-actions">
+        @switch (kind) {
+          @case ('CHANGED') {
+            <button class="rl-btn rl-sm rl-primary" (click)="decideHeld(call, 'REPLAY')">Replay recorded answer</button>
+            <button class="rl-btn rl-sm" (click)="startEditAnswer(call)">Edit answer &amp; replay</button>
+            @if (armedSendReal() === call.callId) {
+              <button class="rl-btn rl-sm rl-danger" (click)="decideHeld(call, 'SEND_REAL')">⚠ Yes, contact the real supplier</button>
+              <button class="rl-btn rl-sm" (click)="armedSendReal.set(null)">Cancel</button>
+            } @else {
+              <button class="rl-btn rl-sm rl-danger" (click)="armedSendReal.set(call.callId)">⚠ Send to real…</button>
+            }
+            <button class="rl-btn rl-sm" (click)="decideHeld(call, 'FAIL')">✕ Mock a failure</button>
+            @if (call.relive?.stepKey; as key) {
+              <button class="rl-btn rl-sm" (click)="selectStep.emit(key)">Compare with the recording →</button>
+            }
+          }
+          @case ('BEFORE') {
+            <button class="rl-btn rl-sm rl-primary" (click)="decideHeld(call, 'CONTINUE')">▶ Continue</button>
+            <button class="rl-btn rl-sm" (click)="decideHeld(call, 'FAIL')">Skip (fail it)</button>
+          }
+          @default {
+            <button class="rl-btn rl-sm rl-primary" (click)="decideHeld(call, 'CONTINUE')">▶ Continue</button>
+            <button class="rl-btn rl-sm" (click)="startEditAnswer(call)">Edit answer</button>
+          }
+        }
+        <button class="rl-btn rl-sm rl-danger" (click)="stopRun.emit()">■ Stop run</button>
+      </div>
     </div>
   }
 

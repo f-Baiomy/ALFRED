@@ -538,6 +538,38 @@ button.rl-pill {
   }
 }
 
+// A call of the run held in the proxy (T103): request changed, or a child checkpoint.
+.rl-held {
+  &.rl-held-changed {
+    border-color: var(--red);
+  }
+
+  .rl-held-clock {
+    font-size: 12px;
+  }
+
+  .rl-held-hint {
+    font-size: 12.5px;
+    margin-top: 4px;
+  }
+
+  .rl-held-preview {
+    max-height: 110px;
+    margin-top: 6px;
+  }
+
+  .rl-held-edit {
+    display: grid;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .rl-held-actions {
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+}
+
 .rl-pausebox {
   border: 1px solid rgba(232, 121, 249, 0.55);
   background: rgba(232, 121, 249, 0.08);

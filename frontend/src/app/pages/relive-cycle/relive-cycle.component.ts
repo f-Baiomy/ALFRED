@@ -19,7 +19,8 @@ import { ReliveStepTreeComponent } from '../../components/relive-step-tree/reliv
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
-import { InterceptionRuleDraft } from '../../core/models/interception.model';
+import { InterceptionRuleDraft, PauseDecision } from '../../core/models/interception.model';
+import { InterceptionApiService } from '../../core/services/interception-api.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { ReliveRunService } from '../../core/state/relive-run.service';
 import { externalReach } from '../../shared/utils/relive-external-reach';
@@ -68,6 +69,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly callSource = inject(ReliveCallSourceService);
   private readonly api = inject(ReliveApiService);
   private readonly interceptionState = inject(InterceptionStateService);
+  private readonly interceptionApi = inject(InterceptionApiService);
   readonly state = inject(ReliveCycleEditorState);
   readonly reliveVariableHints = computed(() => {
     const draft = this.state.draft();
@@ -193,12 +195,19 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     return key ? (this.state.draft()?.steps.find((s) => s.key === key) ?? null) : null;
   });
 
-  /** Request-changed holds (T056) for THIS run only, out of the existing Paused Calls feed. */
+  /** Calls of THIS run held in the proxy - request-changed holds and child checkpoints - out of
+   *  the existing Paused Calls feed, decided in the run view (FR-035e). */
   readonly changedPauses = computed(() => {
     const runId = this.runService.run()?.id;
     if (!runId) return [];
-    return this.interceptionState.pausedCalls().filter((c) => c.relive?.runId === runId && c.relive?.at === 'CHANGED');
+    return this.interceptionState.pausedCalls().filter((c) => c.relive?.runId === runId);
   });
+
+  decidePaused(event: { readonly callId: string; readonly decision: PauseDecision }): void {
+    this.interceptionApi.decide(event.callId, event.decision).subscribe({
+      error: () => this.actionError.set('That call is no longer waiting - it was already decided or timed out.'),
+    });
+  }
 
   /** A past run opened from the History tab (T072), in the same timeline as a live run.
    *  One that is still RUNNING can be stopped from this view. */
@@ -297,12 +306,6 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   setVariables(variables: readonly CycleVariable[]): void {
     this.state.update((draft) => ({ ...draft, variables }));
-  }
-
-  /** Row-actions on a paused call currently only surface that a request-changed hold exists - the
-   *  release/abort/edit decision itself is the existing Paused Calls inspector's job. */
-  openPausedCallInInterception(_callId: string): void {
-    this.router.navigate(['/interception']);
   }
 
   resumeFromStep(afterStepKey: string): void {

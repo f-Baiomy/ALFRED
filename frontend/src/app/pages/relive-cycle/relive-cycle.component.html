@@ -174,7 +174,7 @@
               (checkpointContinue)="runService.resolveCheckpoint('CONTINUE')"
               (checkpointReplay)="runService.resolveCheckpoint('REPLAY')"
               (checkpointSkip)="runService.resolveCheckpoint('SKIP')"
-              (openPausedCall)="openPausedCallInInterception($event)"
+              (decidePaused)="decidePaused($event)"
             />
           } @else {
             <div class="rl-faint">Run this cycle to see its live execution timeline here.</div>
