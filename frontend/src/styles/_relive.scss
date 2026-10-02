@@ -1202,7 +1202,10 @@ button.rl-pill {
   margin: 0 auto;
   padding: 18px 24px 60px;
 
-  :where(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  // Not inside the Live Calls call card: its editors (body editor, rule editor, path input…)
+  // style their own fields, and the body editor paints its text on a layer under a transparent
+  // textarea - a different font or padding here put the caret off the visible text.
+  :where(input:not([type='checkbox']):not([type='radio']), select, textarea):not(app-call-card *) {
     font: inherit;
     color: var(--text);
     background: var(--card-inner);
@@ -1921,8 +1924,8 @@ h3.rl-caps-head-gap {
 }
 
 .rl-panel-detail {
-  select,
-  input:not([type='checkbox']) {
+  // Only the panel's own fields - the shared editors inside it keep their own styles.
+  :is(select, input:not([type='checkbox'])):not(app-body-editor *, app-rule-editor *, app-json-path-input *, app-scenario-assertion-editor *, app-json-browse *) {
     background: var(--card-inner);
     border: 1px solid var(--border-strong);
     border-radius: 6px;

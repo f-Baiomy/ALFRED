@@ -1,6 +1,10 @@
 import { FrozenCall, Step, StepResult } from '../../shared/utils/relive-types';
 import { defaultCallRule } from '../../shared/utils/relive-call-rule';
-import { stepCallDetail, stepCallRecord } from './relive-step-call.component';
+import { TestBed } from '@angular/core/testing';
+import { of } from 'rxjs';
+import { CallsApiService } from '../../core/services/calls-api.service';
+import { CallRecord } from '../../core/models/call.model';
+import { ReliveStepCallComponent, stepCallDetail, stepCallRecord } from './relive-step-call.component';
 
 const recording: FrozenCall = {
   method: 'GET',
@@ -102,5 +106,24 @@ describe('relive step call', () => {
     expect(cancelled.method).toBe('GET');
     expect(cancelled.url).toContain('/userDetails');
     expect(stepCallDetail(step(), result({ state: 'CANCELLED' }), 'request-body').request).toBeTruthy();
+  });
+});
+
+describe('ReliveStepCallComponent', () => {
+  it('editing the step does not look its call up again (the card would be rebuilt and lose focus)', () => {
+    const logged = { id: 'recorded-call', method: 'GET', url: recording.url, timestamp: recording.timestamp, source: 'internal' } as unknown as CallRecord;
+    const getSummary = jasmine.createSpy('getSummary').and.returnValue(of(logged));
+    TestBed.configureTestingModule({ providers: [{ provide: CallsApiService, useValue: { getSummary, getCalls: () => of({ calls: [] }) } }] });
+    TestBed.overrideComponent(ReliveStepCallComponent, { set: { template: '' } });
+    const fixture = TestBed.createComponent(ReliveStepCallComponent);
+    fixture.componentRef.setInput('step', step());
+    fixture.detectChanges();
+    expect(getSummary).toHaveBeenCalledTimes(1);
+
+    fixture.componentRef.setInput('step', step({ label: 'renamed', callRule: { ...step().callRule, name: 'edited' } }));
+    fixture.detectChanges();
+
+    expect(getSummary).toHaveBeenCalledTimes(1);
+    expect(fixture.componentInstance.record()).toBe(logged);
   });
 });

@@ -1,4 +1,4 @@
-import { Component, Injectable, computed, effect, forwardRef, inject, input, signal } from '@angular/core';
+import { Component, Injectable, computed, effect, forwardRef, inject, input, signal, untracked } from '@angular/core';
 import { Observable, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
 import { CallCardComponent } from '../call-card/call-card.component';
@@ -89,11 +89,22 @@ export class ReliveStepCallComponent {
     return result ? stepCallRecord(this.step(), result) : recordingCallRecord(this.step());
   });
 
+  /** What the logged-call lookup depends on. Not the whole step: editing the step (its label, call
+   *  rule, a body being typed) must not look the call up again - that emptied and rebuilt the card
+   *  on every keystroke, taking the focus out of the field being typed in. */
+  private readonly lookupKey = computed(() => {
+    const step = this.step();
+    const result = this.result();
+    return [step.key, step.direction, step.source.callId, step.source.direction,
+      result?.runId ?? '', result?.attempt ?? '', result?.state ?? '', result?.startedAt ?? ''].join('|');
+  });
+
   constructor() {
     inject(ReliveStepCallControls).host = this;
     effect((onCleanup) => {
-      const step = this.step();
-      const result = this.result();
+      this.lookupKey();
+      const step = untracked(this.step);
+      const result = untracked(this.result);
       this.logged.set(null);
       this.settled.set(false);
       const sub = resolveLoggedCall(this.callsApi, step, result).subscribe((call) => {
