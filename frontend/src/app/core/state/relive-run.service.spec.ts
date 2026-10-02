@@ -408,6 +408,21 @@ describe('ReliveRunService', () => {
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'COMPLETED');
   });
 
+  it('shows a step not called yet in its own mode: a LIVE child is not labelled REPLAY', async () => {
+    const live = { ...childStep(), callRule: { ...childStep().callRule, actions: [] } };
+    const steps = [inboundStep(), live];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(new Subject<ResendResult>());
+
+    void service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(service.results()['supplier-a'].state).toBe('WAITING');
+    expect(service.results()['supplier-a'].mode).toBe('LIVE');
+  });
+
   it('T068: maps the logged call\'s relive.ruleIds into the step result\'s rulesApplied', async () => {
     const steps = [inboundStep(), childStep()];
     reliveApi.startRun.and.returnValue(of(runOf(steps)));

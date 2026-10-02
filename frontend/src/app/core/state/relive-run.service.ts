@@ -269,13 +269,15 @@ function dependentsOf(step: Step, topOrder: readonly Step[], results: Readonly<R
     .filter((d) => d.needs.length > 0);
 }
 
-function emptyResult(runId: string, stepKey: string, state: StepState): StepResult {
+/** A step's result before any call of it is seen. Its mode is the step's own: a LIVE step that is
+ *  never called must not read as REPLAY (T082). */
+function emptyResult(runId: string, step: Step, state: StepState): StepResult {
   return {
     runId,
-    stepKey,
+    stepKey: step.key,
     attempt: 0,
     state,
-    mode: 'REPLAY',
+    mode: modeOf(step.callRule) === 'REPLAY' ? 'REPLAY' : 'LIVE',
     attribution: 'UNATTRIBUTED',
     differences: [],
     rulesApplied: [],
@@ -366,7 +368,7 @@ export class ReliveRunService {
     for (const step of this.steps) {
       const topKey = step.parentKey ?? step.key;
       const state: StepState = carriedOverTopKeys.has(topKey) ? 'NOT_CALLED' : step.enabled ? 'PENDING' : 'SKIPPED';
-      initialResults[step.key] = emptyResult(run.id, step.key, state);
+      initialResults[step.key] = emptyResult(run.id, step, state);
     }
     this.results.set(initialResults);
 
@@ -578,7 +580,7 @@ export class ReliveRunService {
     this.pause.set(null);
 
     const results: Record<string, StepResult> = {};
-    for (const step of this.steps) results[step.key] = emptyResult(full.id, step.key, step.enabled ? 'PENDING' : 'SKIPPED');
+    for (const step of this.steps) results[step.key] = emptyResult(full.id, step, step.enabled ? 'PENDING' : 'SKIPPED');
     for (const stepResult of full.stepResults) {
       const existing = results[stepResult.stepKey];
       if (!existing || stepResult.attempt >= existing.attempt) results[stepResult.stepKey] = stepResult;
@@ -632,7 +634,7 @@ export class ReliveRunService {
     this.status.set(resumed.status);
 
     const results: Record<string, StepResult> = {};
-    for (const step of this.steps) results[step.key] = emptyResult(full.id, step.key, step.enabled ? 'PENDING' : 'SKIPPED');
+    for (const step of this.steps) results[step.key] = emptyResult(full.id, step, step.enabled ? 'PENDING' : 'SKIPPED');
     for (const stepResult of full.stepResults) results[stepResult.stepKey] = stepResult;
 
     this.topOrder = topSteps(this.steps);
@@ -669,7 +671,7 @@ export class ReliveRunService {
 
     const results = { ...this.results() };
     for (const step of this.steps) {
-      if (!results[step.key]) results[step.key] = emptyResult(updated.id, step.key, step.enabled ? 'PENDING' : 'SKIPPED');
+      if (!results[step.key]) results[step.key] = emptyResult(updated.id, step, step.enabled ? 'PENDING' : 'SKIPPED');
     }
     this.results.set(results);
   }
@@ -876,7 +878,7 @@ export class ReliveRunService {
   /** Remember that this attempt is about to be sent, before `POST /resend` leaves the browser. */
   private async markDispatched(run: Run, step: Step, attempt: number): Promise<void> {
     const marked: StepResult = {
-      ...emptyResult(run.id, step.key, 'RUNNING'),
+      ...emptyResult(run.id, step, 'RUNNING'),
       attempt,
       startedAt: new Date().toISOString(),
     };
