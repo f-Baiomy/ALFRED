@@ -3,7 +3,6 @@
 // (--card/--border/--purple/--text-dim, .dialog-card/.dialog-btn, frosted()) rather than
 // introducing a parallel palette - see CLAUDE.md.
 
-.scenario-select,
 .scenario-input {
   background: var(--card-inner);
   border: 1px solid var(--border);

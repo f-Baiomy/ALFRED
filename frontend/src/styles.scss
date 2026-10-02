@@ -4051,6 +4051,37 @@ mark.hl.active {
   flex-direction: column;
 }
 
+/* SelectPickerComponent's trigger reads as a dropdown, not a button: a field's background and
+   weight, the current value, and a chevron. Hosts that size it differently (rule editor rows,
+   bulk resend group mode) only override padding and font-size. */
+.select-picker .theme-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  background: var(--card-inner);
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 400;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  white-space: nowrap;
+
+  &::after {
+    content: '▾';
+    margin-left: auto;
+    padding-left: 0.2rem;
+    color: var(--text-faint);
+    font-size: 0.75em;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
 .select-picker-panel {
   // Same fixed-positioning rationale as .emoji-picker-panel above - replaces a native <select>'s
   // OS-drawn dropdown list, which only inconsistently respects page theming across browsers.
