@@ -116,6 +116,19 @@ describe('ReliveRunTimelineComponent', () => {
     fixture.destroy();
   }));
 
+  it('opens and scrolls to a step asked for by a run comparison ("Open in run A / B")', fakeAsync(() => {
+    fixture.componentRef.setInput('run', run({ status: 'COMPLETED' }));
+    fixture.componentRef.setInput('steps', [makeStep('login', null), makeStep('search', null)]);
+    fixture.componentRef.setInput('results', { login: result('login', 'COMPLETED'), search: result('search', 'COMPLETED') });
+    fixture.componentRef.setInput('focusStep', { key: 'search' });
+    fixture.detectChanges();
+    tick(0);
+    expect(fixture.componentInstance.detailKey()).toBe('search');
+    const row = fixture.nativeElement.querySelector('[data-step-key="search"]') as HTMLElement;
+    expect(row.scrollIntoView).toHaveBeenCalled();
+    fixture.destroy();
+  }));
+
   it('after a reload interrupts the run, tracks the first step that was cancelled', fakeAsync(() => {
     const steps = [makeStep('login', null), makeStep('search', null)];
     fixture.componentRef.setInput('run', run({ status: 'INTERRUPTED' }));

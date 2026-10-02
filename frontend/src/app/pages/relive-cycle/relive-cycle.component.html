@@ -143,6 +143,7 @@
           </div>
           <app-relive-run-timeline
             [run]="h.run"
+            [focusStep]="historyFocus()"
             [steps]="h.run.definition.steps"
             [results]="h.results"
             [variableDefs]="h.run.definition.variables"
@@ -155,6 +156,7 @@
           @if (runService.run(); as run) {
             <app-relive-run-timeline
               [run]="run"
+              [focusStep]="historyFocus()"
               [steps]="draft.steps"
               [results]="runService.results()"
               [variableDefs]="draft.variables"
@@ -185,7 +187,17 @@
         }
       }
       @case ('history') {
-        <app-relive-history [cycleId]="draft.id" [steps]="draft.steps" [variables]="draft.variables" (openRun)="openHistoryRun($event)" (mockWith)="applyMockWith($event)" />
+        <app-relive-history
+          [cycleId]="draft.id"
+          [cycleName]="draft.name"
+          [steps]="draft.steps"
+          [variables]="draft.variables"
+          [cycleNoise]="draft.noise"
+          (openRun)="openFromHistory($event)"
+          (openRunStep)="openFromHistory($event.runId, $event.stepKey)"
+          (noiseChange)="applyNoiseChange($event)"
+          (mockWith)="applyMockWith($event)"
+        />
       }
     }
       </div>

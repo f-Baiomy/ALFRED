@@ -231,6 +231,8 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   /** A past run opened from the History tab (T072), in the same timeline as a live run.
    *  One that is still RUNNING can be stopped from this view. */
   readonly historyRun = signal<{ readonly run: Run; readonly results: Readonly<Record<string, StepResult>> } | null>(null);
+  /** The step a run opened from History is opened at, if any. */
+  readonly historyFocus = signal<{ readonly key: string } | null>(null);
   readonly stopping = signal(false);
   /** The run on screen when it is still going, otherwise the one this page is driving. */
   readonly stoppableRun = computed(() => {
@@ -400,6 +402,13 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
    *  the snapshot hides that driver and leaves the in-progress step on its last saved result.
    *  continueAdopted settles a step already sent from the logged call and does not send it again.
    *  A different run this page is actively driving is left alone. */
+  /** A run opened from the History tab: from a column's "Open", or at one step from the run
+   *  comparison's "Open in run A / B" (that step's row is opened and scrolled to). */
+  openFromHistory(runId: string, stepKey?: string): void {
+    this.historyFocus.set(stepKey ? { key: stepKey } : null);
+    this.openHistoryRun(runId);
+  }
+
   openHistoryRun(runId: string): void {
     const cycle = this.state.saved();
     if (!cycle) return;

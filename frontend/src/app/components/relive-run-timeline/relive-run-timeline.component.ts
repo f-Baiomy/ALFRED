@@ -1,4 +1,4 @@
-import { DestroyRef, Component, ElementRef, computed, effect, inject, input, output, signal } from '@angular/core';
+import { DestroyRef, Component, ElementRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
 import { ReliveRunLogComponent } from '../relive-run-log/relive-run-log.component';
 import { isCheckResults, tally } from '../../shared/utils/relive-checks';
@@ -133,6 +133,8 @@ export class ReliveRunTimelineComponent {
   readonly variableDefs = input<readonly CycleVariable[]>([]);
   readonly variables = input<Readonly<Record<string, string>>>({});
   readonly selectedKey = input<string | null>(null);
+  /** A step to open and scroll to ("Open in run A / B" from a run comparison). A new object each time. */
+  readonly focusStep = input<{ readonly key: string } | null>(null);
   readonly unexpectedCalls = input<readonly UnexpectedRunCall[]>([]);
   /** Calls of this run held in the proxy (`relive.runId === run.id`): a request that changed from
    *  the recording ("Ask me", `at: 'CHANGED'`) or a child's checkpoint (`BEFORE`/`AFTER`). They are
@@ -225,6 +227,15 @@ export class ReliveRunTimelineComponent {
       if (!key) return;
       setTimeout(() => {
         const row = this.host.nativeElement.querySelector(`[data-step-key="${CSS.escape(key)}"]`);
+        row?.scrollIntoView({ block: 'center' });
+      });
+    });
+    effect(() => {
+      const focus = this.focusStep();
+      if (!focus) return;
+      untracked(() => this.detailKey.set(focus.key));
+      setTimeout(() => {
+        const row = this.host.nativeElement.querySelector(`[data-step-key="${CSS.escape(focus.key)}"]`);
         row?.scrollIntoView({ block: 'center' });
       });
     });

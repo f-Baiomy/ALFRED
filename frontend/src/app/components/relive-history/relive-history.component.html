@@ -7,13 +7,19 @@
       (click)="toggleAll($event)"
     />
   }
-  <h2 class="rl-m-0">Runs</h2>
+  <h2 class="rl-m-0">History</h2>
+  @if (runs().length) {
+    <span class="rl-faint rl-t-125">{{ shownRuns().length }} of {{ runs().length }} runs shown · newest on the left</span>
+  }
   <span class="rl-spacer"></span>
   <span class="rl-hint">each run keeps exactly what it executed, even after you edit the cycle · newest 50 kept</span>
   @if (runningCount() > 0) {
     <button class="rl-btn rl-sm" [disabled]="busy()" (click)="stopAllRunning()">
       Stop all running ({{ runningCount() }})
     </button>
+  }
+  @if (shownRuns().length < runs().length) {
+    <button class="rl-btn rl-sm" (click)="showOlder()">Show older runs</button>
   }
   @if (runs().length) {
     <button class="rl-btn rl-sm rl-danger" [disabled]="busy()" (click)="askDeleteAll()">Delete history…</button>
@@ -35,39 +41,124 @@
 }
 
 @if (runs().length) {
-  @for (run of runs(); track run.id; let i = $index) {
-    <div class="rl-rulecard">
-      <input class="rl-check"
-        type="checkbox"
-        [attr.aria-label]="'Select run ' + run.startedAt"
-        [checked]="selected().has(run.id)"
-        (click)="toggle(run.id, $event)"
-      />
-      <span class="rl-mono" [title]="run.startedAt">{{ run.startedAt | date: 'medium' }}</span>
-      <span class="rl-pill" [class]="statusPill(run)[0]">{{ statusPill(run)[1] }}</span>
-      <span class="rl-dim rl-t-125">{{ summaryOf(run) }}</span>
-      <span class="rl-faint rl-t-115">{{ durationOf(run) }}</span>
+  <div class="rl-cmp-card rl-mx">
+    <div class="rl-row">
+      <b>Run matrix</b>
+      <span class="rl-faint rl-t-125">every step across the runs - click a cell to compare that step</span>
       <span class="rl-spacer"></span>
-      <button class="rl-btn rl-sm" (click)="open(run)">Open</button>
-      @if (i > 0) {
-        <button class="rl-btn rl-sm" [disabled]="comparing()" (click)="compareWithNewest(run)">Compare with newest</button>
-      }
-      <app-action-menu label="Export">
-        <button type="button" class="filter-option-item" (click)="exportRun(run, 'markdown')">Export report...</button>
-        <button type="button" class="filter-option-item" (click)="exportRun(run, 'json')">Export as JSON</button>
-        <button type="button" class="filter-option-item" (click)="exportRun(run, 'html')">Export as HTML</button>
-      </app-action-menu>
+      <div class="rl-seg">
+        <button type="button" [class.rl-on]="metric() === 'outcome'" (click)="metric.set('outcome')">Outcome</button>
+        <button type="button" [class.rl-on]="metric() === 'time'" (click)="metric.set('time')">Time vs usual</button>
+      </div>
+      <label class="rl-check-row rl-mx-only rl-t-125">
+        <input class="rl-check" type="checkbox" [checked]="onlyChanged()" (change)="onlyChanged.set($any($event.target).checked)" />
+        Only steps that changed
+      </label>
     </div>
+
+    <div class="rl-mx-grid" [style.grid-template-columns]="gridColumns()">
+      <span></span>
+      @for (run of columnRuns(); track run.id) {
+        <div class="rl-mx-head" [class.rl-mx-a]="isA(run.id)" [class.rl-mx-b]="isB(run.id)" [attr.data-run]="run.id" [title]="summaryOf(run)">
+          <div class="rl-row">
+            <input class="rl-check"
+              type="checkbox"
+              [attr.aria-label]="'Select run ' + run.startedAt"
+              [checked]="selected().has(run.id)"
+              (click)="toggle(run.id, $event)"
+            />
+            <span class="rl-pill" [class]="statusPill(run)[0]">{{ statusPill(run)[1] }}</span>
+          </div>
+          <button type="button" class="rl-mx-when" title="Click: make this A. Shift-click: make this B." (click)="pickColumn(run.id, $event)">
+            {{ run.startedAt | date: 'MMM d' }}<br />{{ run.startedAt | date: 'shortTime' }}
+          </button>
+          <div class="rl-row">
+            <button type="button" class="rl-slot" [class.rl-slot-a]="isA(run.id)" title="Compare from this run (A)" (click)="makeA(run.id)">A</button>
+            <button type="button" class="rl-slot" [class.rl-slot-b]="isB(run.id)" title="Compare to this run (B)" (click)="makeB(run.id)">B</button>
+            <app-action-menu label="⋯" [panelWidth]="230">
+              <button type="button" class="filter-option-item" (click)="open(run)">Open</button>
+              <button type="button" class="filter-option-item" (click)="compareWithPrevious(run.id)">Compare with the previous run</button>
+              <button type="button" class="filter-option-item" (click)="compareWithRecording(run.id)">Compare with the recording</button>
+              <button type="button" class="filter-option-item" (click)="exportRun(run, 'markdown')">Export report...</button>
+              <button type="button" class="filter-option-item" (click)="exportRun(run, 'json')">Export as JSON</button>
+              <button type="button" class="filter-option-item" (click)="exportRun(run, 'html')">Export as HTML</button>
+              @if (run.status === 'RUNNING') {
+                <button type="button" class="filter-option-item" [disabled]="busy()" (click)="stopRun(run)">Stop</button>
+              }
+              <button type="button" class="filter-option-item" [disabled]="busy()" (click)="askDeleteRun(run)">Delete…</button>
+            </app-action-menu>
+          </div>
+        </div>
+      }
+      <span class="rl-faint rl-t-115 rl-mx-note-head">what stands out</span>
+
+      @for (row of rows(); track row.key) {
+        <button type="button" class="rl-mx-name" [class.rl-child]="row.isChild" [title]="row.label" (click)="pickStep(row.key)">
+          @if (row.isChild) {<span class="rl-faint">↗</span>}{{ row.label }}
+        </button>
+        @for (cell of row.cells; track cell.runId) {
+          <button type="button"
+
+            [class]="'rl-mx-cell ' + cellClass(cell)"
+            [class.rl-mx-a]="isA(cell.runId)"
+            [class.rl-mx-b]="isB(cell.runId)"
+            [class.rl-mx-sel]="focus()?.key === row.key && (isA(cell.runId) || isB(cell.runId))"
+            [attr.data-cell]="row.key + '|' + cell.runId"
+            [title]="cellTitle(row.label, cell)"
+            (click)="pickCell(row.key, cell.runId)"
+          >{{ cellText(cell) }}</button>
+        }
+        <span class="rl-mx-note">{{ row.note ?? '' }}</span>
+      } @empty {
+        <span class="rl-faint rl-t-125">Loading the runs…</span>
+      }
+    </div>
+
+    <div class="rl-row rl-mx-legend">
+      <span class="rl-faint">Legend:</span>
+      @if (metric() === 'outcome') {
+        <span class="rl-mx-key rl-mx-ok">✓ passed</span><span class="rl-mx-key rl-mx-diff">≠ differences</span><span class="rl-mx-key rl-mx-fail">✗ failed</span><span class="rl-mx-key rl-mx-skip">– not run</span>
+      } @else {
+        <span class="rl-mx-key rl-mx-fast">faster</span><span class="rl-mx-key rl-mx-even">usual</span><span class="rl-mx-key rl-mx-slow">&gt;15% slower</span><span class="rl-mx-key rl-mx-slow2">&gt;50% slower</span>
+      }
+      <span class="rl-spacer"></span>
+      <span class="rl-faint">A / B on a column (or click / shift-click its date) picks the two runs compared below.</span>
+    </div>
+  </div>
+
+  <div class="rl-row rl-mx-pair">
+    <b>Compare</b>
+    <span class="rl-mx-chip">A ·
+      @if (aId() === 'recording') {
+        the recording
+      } @else {
+        {{ runById(aId())?.startedAt | date: 'medium' }}
+      }
+    </span>
+    <span class="rl-faint">→</span>
+    <span class="rl-mx-chip rl-mx-chip-b">B · {{ runById(bId())?.startedAt | date: 'medium' }}</span>
+    <button type="button" class="rl-btn rl-sm" [disabled]="aId() === 'recording'" (click)="swap()">⇄ Swap</button>
+    @if (bId() && aId() !== 'recording') {
+      <button type="button" class="rl-btn rl-sm" (click)="compareWithRecording(bId()!)">B against the recording</button>
+    }
+  </div>
+
+  @if (sideA() && sideB()) {
+    <app-relive-run-compare
+      [a]="sideA()!"
+      [b]="sideB()!"
+      [cycleName]="cycleName()"
+      [cycleNoise]="cycleNoise()"
+      [steps]="steps()"
+      [focus]="focus()"
+      (ignore)="onIgnore($event)"
+      (openRun)="openRunStep.emit($event)"
+    />
+  } @else if (runs().length > 0) {
+    <div class="rl-faint rl-t-125">Loading the comparison…</div>
   }
 } @else {
   <div class="rl-empty">No runs yet.</div>
-}
-
-@if (compareRuns(); as runs) {
-  <div class="rl-sect">
-    <h3>Compare runs</h3>
-    <app-scenario-run-compare [runs]="runs" />
-  </div>
 }
 
 @if (deleteDialog(); as dialog) {
