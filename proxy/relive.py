@@ -760,9 +760,6 @@ def _take_ordinal(by_signature, run_id, parent_step_key, runs, consume):
             if consume:
                 runs._ordinals[key] = used + 1
             return ordered[used]
-    if by_signature and consume:
-        first_key = (run_id, parent_step_key, next(iter(by_signature)))
-        runs._ordinals[first_key] = runs._ordinals.get(first_key, 0) + 1
     return None
 
 

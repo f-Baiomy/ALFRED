@@ -1,6 +1,6 @@
 <div class="rl-sect">
   <h3>Inbound calls</h3>
-  <p class="rl-hint" style="margin-bottom: 6px">Whether inbound steps run for real against the app, or are replayed by ALFRED.</p>
+  <p class="rl-hint rl-mb-6">Whether inbound steps run for real against the app, or are replayed by ALFRED.</p>
   <span class="rl-seg rl-mode">
     <button [class.rl-on]="cycle().settings.inboundMode === 'LIVE'" [class.rl-live]="cycle().settings.inboundMode === 'LIVE'" (click)="setInboundMode('LIVE')">LIVE - sent to the app</button>
     <button [class.rl-on]="cycle().settings.inboundMode === 'REPLAY'" [class.rl-replay]="cycle().settings.inboundMode === 'REPLAY'" (click)="setInboundMode('REPLAY')">REPLAY - ALFRED answers</button>
@@ -9,7 +9,7 @@
 
 <div class="rl-sect">
   <div class="rl-row">
-    <h3 style="margin: 0">Cycle rules</h3>
+    <h3 class="rl-m-0">Cycle rules</h3>
     <span class="rl-spacer"></span>
     <button class="rl-btn rl-sm" (click)="openCycleRule.emit(null)">＋ Add cycle rule</button>
   </div>
@@ -19,10 +19,10 @@
       <b>{{ ruleName(rule) }}</b>
       <span class="rl-pill" [class]="rule.enabled === false ? 'rl-p-wait' : 'rl-p-ok'">{{ rule.enabled === false ? 'disabled' : 'enabled' }}</span>
       @if (rule.match.source === 'inbound' || rule.match.source === 'outbound') {
-        <span class="rl-faint" style="font-size: 11px">{{ rule.match.source }} only</span>
+        <span class="rl-faint rl-t-11">{{ rule.match.source }} only</span>
       }
       @if (rule.copiedFrom) {
-        <span class="rl-faint" style="font-size: 11px">copied from "{{ rule.copiedFrom.name }}"</span>
+        <span class="rl-faint rl-t-11">copied from "{{ rule.copiedFrom.name }}"</span>
       }
       <span class="rl-spacer"></span>
       <button class="rl-btn rl-sm" [attr.aria-label]="(rule.enabled === false ? 'Enable ' : 'Disable ') + ruleName(rule)" (click)="toggleCycleRule($index)">{{ rule.enabled === false ? 'Enable' : 'Disable' }}</button>
@@ -46,8 +46,8 @@
 
 <div class="rl-sect">
   <h3>Global rules</h3>
-  <p class="rl-hint" style="margin-bottom: 6px">Whether ALFRED's existing global rules participate in this cycle's runs, and in what order (CYCLE rules always take priority - research D4).</p>
-  <div class="rl-choice" style="margin-bottom: 8px">
+  <p class="rl-hint rl-mb-6">Whether ALFRED's existing global rules participate in this cycle's runs, and in what order (CYCLE rules always take priority - research D4).</p>
+  <div class="rl-choice rl-mb-8">
     <button [class.rl-on]="cycle().globalRules.mode === 'NONE'" (click)="setGlobalRulesMode('NONE')">No global rules</button>
     <button [class.rl-on]="cycle().globalRules.mode === 'ALL'" (click)="setGlobalRulesMode('ALL')">All global rules</button>
     <button [class.rl-on]="cycle().globalRules.mode === 'SELECTED'" (click)="setGlobalRulesMode('SELECTED')">Selected global rules</button>
@@ -70,8 +70,8 @@
 
 <div class="rl-sect">
   <h3>Unexpected outbound calls</h3>
-  <p class="rl-hint" style="margin-bottom: 6px">Calls the application makes during this cycle's runs that match no step - a retry, a new endpoint, a call made by mistake.</p>
-  <div class="rl-choice" style="margin-bottom: 8px">
+  <p class="rl-hint rl-mb-6">Calls the application makes during this cycle's runs that match no step - a retry, a new endpoint, a call made by mistake.</p>
+  <div class="rl-choice rl-mb-8">
     <button [class.rl-on]="cycle().unexpectedCalls.policy === 'BLOCK'" (click)="setUnexpectedPolicy('BLOCK')">Block (default)</button>
     <button [class.rl-on]="cycle().unexpectedCalls.policy === 'SEND_REAL'" (click)="setUnexpectedPolicy('SEND_REAL')">Send to the real system ⚠</button>
     <button [class.rl-on]="cycle().unexpectedCalls.policy === 'RULES'" (click)="setUnexpectedPolicy('RULES')">Handle with my rules</button>
@@ -79,7 +79,7 @@
 
   @switch (cycle().unexpectedCalls.policy) {
     @case ('BLOCK') {
-      <div class="rl-dim" style="font-size: 12.5px">ALFRED answers <span class="rl-mono">502 Blocked by ALFRED Relive</span>; nothing leaves. Every blocked call shows in the run.</div>
+      <div class="rl-dim rl-t-125">ALFRED answers <span class="rl-mono">502 Blocked by ALFRED Relive</span>; nothing leaves. Every blocked call shows in the run.</div>
     }
     @case ('SEND_REAL') {
       <div class="rl-ext-banner">⚠ Any unexpected outbound call goes to the real system. Shown in the pre-run LIVE summary.</div>
@@ -96,8 +96,8 @@
       } @empty {
         <div class="rl-faint">No rules yet.</div>
       }
-      <button class="rl-btn rl-sm" style="margin-top: 6px" (click)="openUnexpectedRule.emit(null)">＋ Add rule for unexpected calls…</button>
-      <div class="rl-row" style="margin-top: 8px; font-size: 12.5px">
+      <button class="rl-btn rl-sm rl-mt-6" (click)="openUnexpectedRule.emit(null)">＋ Add rule for unexpected calls…</button>
+      <div class="rl-row rl-mt-8 rl-t-125">
         <span class="rl-spacer"></span>
         <span>A call none of these rules match:</span>
         <div class="rl-choice">
@@ -105,10 +105,10 @@
           <button [class.rl-on]="cycle().unexpectedCalls.fallback === 'SEND_REAL'" (click)="setUnexpectedFallback('SEND_REAL')">Send to real ⚠</button>
         </div>
       </div>
-      <p class="rl-hint" style="margin-top: 4px">Same rule editor, every action - e.g. mock a 200, answer with a file, delay, or pause and wait for you. First matching rule wins.</p>
+      <p class="rl-hint rl-mt-4">Same rule editor, every action - e.g. mock a 200, answer with a file, delay, or pause and wait for you. First matching rule wins.</p>
     }
   }
-  <div class="rl-sect" style="margin-top: 14px">
+  <div class="rl-sect rl-mt-14">
     <h3>Ignored fields in this cycle</h3>
     @for (rule of cycle().noise; track rule.part + rule.path) {
       <div class="rl-row">

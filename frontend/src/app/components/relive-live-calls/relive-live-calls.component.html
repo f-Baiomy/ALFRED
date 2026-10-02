@@ -1,5 +1,5 @@
 <div class="rl-row" style="margin-top: 18px">
-  <h2 style="margin: 0">Live calls log</h2>
+  <h2 class="rl-m-0">Live calls log</h2>
   <span class="rl-spacer"></span>
   <span class="rl-hint">calls that actually reached a real system - kept until you delete them</span>
   <a class="rl-link" (click)="toggleReveal()">{{ revealed() ? 'Hide secrets' : 'Reveal secrets' }}</a>
@@ -8,17 +8,17 @@
 @if (overWarnSize()) {
   <div class="rl-ext-banner">
     ⚠ This log is over 200 MB.
-    <button class="rl-btn rl-sm" style="margin-left: 8px" [disabled]="deleting()" (click)="deleteAll()">Delete all</button>
+    <button class="rl-btn rl-sm rl-ml-8" [disabled]="deleting()" (click)="deleteAll()">Delete all</button>
   </div>
 }
 
 @if (calls().length) {
   @for (call of calls(); track call.id) {
-    <div class="rl-rulecard" style="flex-wrap: wrap">
-      <span class="rl-mono" style="font-size: 11.5px">{{ call.at }}</span>
+    <div class="rl-rulecard rl-wrap">
+      <span class="rl-mono rl-t-115">{{ call.at }}</span>
       <b>{{ stepLabel(call) }}</b>
       <span class="rl-pill rl-p-mod">{{ call.reason }}</span>
-      <span class="rl-dim" style="font-size: 12.5px">{{ call.status }} · {{ call.durationMs }}ms</span>
+      <span class="rl-dim rl-t-125">{{ call.status }} · {{ call.durationMs }}ms</span>
       <span class="rl-spacer"></span>
       <button class="rl-btn rl-sm" (click)="openUseAsRecording(call)">Use as recording</button>
       <button class="rl-btn rl-sm" (click)="openMockWith(call)">Mock with it</button>
@@ -32,7 +32,7 @@
       <button class="icon-btn" (click)="remove(call)">✕</button>
 
       @if (comparingId() === call.id && compareData(); as interception) {
-        <div style="width: 100%; margin-top: 8px">
+        <div class="rl-w-full rl-mt-8">
           <app-interception-panel
             [interception]="interception"
             [phase]="'response'"
@@ -58,7 +58,7 @@
         [embedded]="true"
         [labels]="{ title: 'Recorded vs the live call', before: 'Recorded (kept)', after: 'Live call (new)', legend: 'Red is the current recording; green is what will replace it.' }"
       />
-      <div class="rl-row" style="margin-top: 12px">
+      <div class="rl-row rl-mt-12">
         <span class="rl-spacer"></span>
         <button class="rl-btn" (click)="cancelUseAsRecording()">Cancel</button>
         <button class="rl-btn rl-primary" (click)="confirmUseAsRecording()">Use as recording</button>
@@ -73,7 +73,7 @@
       <h2>Mock with this call's answer</h2>
       <p class="dialog-sub">Pick which step's Mock response should be overwritten with what {{ stepLabel(target) }} actually got back.</p>
       @for (step of mockableSteps(); track step.key) {
-        <button class="rl-rulecard" style="width: 100%; text-align: left" (click)="applyMockWith(step.key)">
+        <button class="rl-rulecard rl-w-full rl-left" (click)="applyMockWith(step.key)">
           <b>{{ step.label }}</b>
           <span class="rl-dim">{{ step.recording.url }}</span>
           <span class="rl-spacer"></span>
@@ -83,7 +83,7 @@
       @if (!mockableSteps().length) {
         <div class="rl-empty">No enabled step has a recording to mock.</div>
       }
-      <div class="rl-row" style="margin-top: 12px">
+      <div class="rl-row rl-mt-12">
         <span class="rl-spacer"></span>
         <button class="rl-btn" (click)="cancelMockWith()">Cancel</button>
       </div>

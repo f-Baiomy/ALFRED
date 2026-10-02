@@ -717,6 +717,6 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 - [X] T118 B18: validator aligned with reachesHost, GLOBAL/CYCLE overlap, driver-aware Guided check.
 - [X] T119 B20/B21: call-list skeleton effect fixed, no data hold-back.
 - [X] T120 B23-B32: remaining low items.
-- [ ] T121 Style: inline styles and literal colours to `rl-` classes/variables, record `withX` helpers, dead code, `unknown` over `any`.
+- [X] T121 Style: inline styles and literal colours to `rl-` classes/variables, record `withX` helpers, dead code, `unknown` over `any`.
 - [ ] T122 Docs: `docs/relive.md` (fingerprint matching, RELIVE scope), corrected comments.
 - [ ] T123 Full suites green (backend Docker JDK 21, frontend test + build, proxy pytest); T091 closed; T082 steps prepared for the owner.

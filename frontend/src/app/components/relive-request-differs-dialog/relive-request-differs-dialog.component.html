@@ -16,7 +16,7 @@
             [class.rl-current]="current() === choice.value"
             (click)="choose(choice.value)"
           >
-            <span class="rl-row" style="width: 100%">
+            <span class="rl-row rl-w-full">
               <b [style.color]="choice.danger ? '#fed7aa' : null">{{ choice.label }}</b>
               <span class="rl-spacer"></span>
               @if (current() === choice.value) {
@@ -36,7 +36,7 @@
           <input type="checkbox" [checked]="liveConfirmChecked()" (change)="liveConfirmChecked.set($any($event.target).checked)" />
           I understand the real supplier will be contacted
         </label>
-        <div class="rl-row" style="margin-top: 12px">
+        <div class="rl-row rl-mt-12">
           <span class="rl-spacer"></span>
           <button class="rl-btn" (click)="back()">Back</button>
           <button class="rl-btn rl-danger" [disabled]="!liveConfirmChecked()" (click)="confirmLive()">Yes, call live</button>

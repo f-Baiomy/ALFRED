@@ -1,5 +1,5 @@
-<div class="rl-row" style="margin-bottom: 8px">
-  <span class="rl-faint" style="font-size: 11.5px">Relive variables - reusable across calls as {{ '{{$.name}}' }}</span>
+<div class="rl-row rl-mb-8">
+  <span class="rl-faint rl-t-115">Relive variables - reusable across calls as {{ '{{$.name}}' }}</span>
   <span class="rl-spacer"></span>
   <button class="rl-btn rl-sm" (click)="add()">＋ Add variable</button>
 </div>
@@ -49,13 +49,13 @@
 
   @if (capturedValues().length) {
     <div class="rl-row" style="margin: 14px 0 8px">
-      <strong style="font-size: 12px">{{ capturedLabel() }}</strong>
-      <span class="rl-faint" style="font-size: 11px">Run-only values are available as {{ '{{$.name}}' }}.</span>
+      <strong class="rl-t-12">{{ capturedLabel() }}</strong>
+      <span class="rl-faint rl-t-11">Run-only values are available as {{ '{{$.name}}' }}.</span>
     </div>
     @for (row of capturedValues(); track row.name) {
       <div class="rl-step" style="align-items: center; gap: 10px">
         <code class="rl-mono" style="min-width: 150px">{{ row.name }}</code>
-        <code class="rl-mono" style="flex: 1">{{ maskedCapturedValue(row) }}</code>
+        <code class="rl-mono rl-grow">{{ maskedCapturedValue(row) }}</code>
         @if (!isRevealed(row.name)) {
           <button class="rl-btn rl-sm" (click)="toggleReveal(row.name)">Reveal</button>
         } @else {

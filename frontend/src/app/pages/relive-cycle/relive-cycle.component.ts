@@ -475,8 +475,8 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
       await firstValueFrom(this.api.stopRun(cycle.id, shown.id));
       const full = await firstValueFrom(this.api.getRun(cycle.id, shown.id));
       this.historyRun.set({ run: full, results: latestResults(full.stepResults) });
-    } catch (error: any) {
-      this.actionError.set(error?.error?.error ?? error?.message ?? 'Could not stop the run.');
+    } catch (error: unknown) {
+      this.actionError.set(errorText(error, 'Could not stop the run.'));
     } finally {
       this.stopping.set(false);
     }
@@ -631,8 +631,8 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
       this.stopHistoryWatch();
       this.historyRun.set(null);
       await this.launchRun(cycle, { driver: from ? 'AUTOMATIC' : request.driver, unattributedChoices: {}, ...(from ?? {}) });
-    } catch (error: any) {
-      this.actionError.set(this.state.saveError() ?? error?.error?.message ?? error?.message ?? 'Could not start the run. Check the cycle and try again.');
+    } catch (error: unknown) {
+      this.actionError.set(this.state.saveError() ?? errorText(error, 'Could not start the run. Check the cycle and try again.'));
     }
   }
 
@@ -640,6 +640,14 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     if (!this.state.dirty()) return true;
     return this.confirmDialog.confirm('Leave without saving your changes?', 'Leave');
   }
+}
+
+/** The message an HTTP error body or an Error carries, else `fallback`. */
+function errorText(error: unknown, fallback: string): string {
+  const body = (error as { error?: { error?: unknown; message?: unknown } } | null)?.error;
+  if (typeof body?.error === 'string') return body.error;
+  if (typeof body?.message === 'string') return body.message;
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function latestResults(results: readonly StepResult[]): Record<string, StepResult> {

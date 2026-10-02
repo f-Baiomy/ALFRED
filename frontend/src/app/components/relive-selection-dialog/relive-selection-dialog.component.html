@@ -13,10 +13,10 @@
         <div class="rl-ext-banner">
           {{ msg }}
           @if (undoVersion() !== null) {
-            <button class="rl-link" style="margin-left: 8px" (click)="undo()">Undo</button>
+            <button class="rl-link rl-ml-8" (click)="undo()">Undo</button>
           }
         </div>
-        <div class="rl-row" style="margin-top: 12px">
+        <div class="rl-row rl-mt-12">
           <span class="rl-spacer"></span>
           <button class="rl-btn" (click)="close()">Close</button>
         </div>
@@ -24,7 +24,7 @@
         @if (!pickedCycle()) {
           <div style="max-height: 320px; overflow: auto">
             @for (cycle of cyclesState.cycles(); track cycle.id) {
-              <button class="rl-rulecard" style="width: 100%; text-align: left" (click)="pick(cycle)">
+              <button class="rl-rulecard rl-w-full rl-left" (click)="pick(cycle)">
                 <b>{{ cycle.name }}</b>
                 <span class="rl-spacer"></span>
                 <span class="rl-faint">{{ cycle.description }}</span>
@@ -39,13 +39,13 @@
               <div class="rl-rulecard">
                 <span class="rl-pill" [class]="pillClass(row.kind)">{{ row.kind }}</span>
                 <b>{{ row.label }}</b>
-                <span class="rl-dim" style="font-size: 12.5px">{{ row.detail }}</span>
+                <span class="rl-dim rl-t-125">{{ row.detail }}</span>
                 <span class="rl-spacer"></span>
-                <span class="rl-faint" style="font-size: 11.5px">{{ row.config }}</span>
+                <span class="rl-faint rl-t-115">{{ row.config }}</span>
               </div>
             }
           }
-          <div class="rl-row" style="margin-top: 12px">
+          <div class="rl-row rl-mt-12">
             <button class="rl-link" (click)="pickedCycle.set(null); preview.set(null)">← choose a different cycle</button>
             <span class="rl-spacer"></span>
             <button class="rl-btn" (click)="close()">Cancel</button>

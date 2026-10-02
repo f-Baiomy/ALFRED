@@ -1,9 +1,9 @@
 @if (state.draft(); as draft) {
   <div class="rl-page" [attr.data-relive-variables]="reliveVariableHintsJson()">
     <div class="rl-row rl-cycle-head" style="align-items: flex-start">
-      <div style="flex: 1">
+      <div class="rl-grow">
         <a class="rl-link" routerLink="/relive">← Relive Cycles</a>
-        <div class="rl-row" style="margin-top: 4px">
+        <div class="rl-row rl-mt-4">
           <input class="rl-name-input" [value]="draft.name" (input)="setName($any($event.target).value)" />
           @if (state.dirty()) {
             <span class="rl-dirty">● unsaved changes</span>
@@ -134,7 +134,7 @@
       }
       @case ('run') {
         @if (historyRun(); as h) {
-          <div class="rl-row" style="margin-bottom: 8px">
+          <div class="rl-row rl-mb-8">
             <button class="rl-link" (click)="closeHistoryRun()">← back to the live run</button>
             @if (h.run.status === 'RUNNING') {
               <span class="rl-spacer"></span>

@@ -8,7 +8,7 @@
       (click)="toggleAll($event)"
     />
   }
-  <h2 style="margin: 0">Runs</h2>
+  <h2 class="rl-m-0">Runs</h2>
   <span class="rl-spacer"></span>
   <span class="rl-hint">each run keeps exactly what it executed, even after you edit the cycle · newest 50 kept</span>
   @if (runningCount() > 0) {
@@ -23,7 +23,7 @@
 
 @if (selectedCount() > 0) {
   <div class="rl-row" style="margin: 0 0 8px">
-    <span class="rl-dim" style="font-size: 12.5px">{{ selectedCount() }} selected</span>
+    <span class="rl-dim rl-t-125">{{ selectedCount() }} selected</span>
     <span class="rl-spacer"></span>
     @if (selectedRunningCount() > 0) {
       <button class="rl-btn rl-sm" [disabled]="busy()" (click)="stopSelected()">
@@ -47,8 +47,8 @@
       />
       <span class="rl-mono">{{ run.startedAt }}</span>
       <span class="rl-pill" [class]="statusPill(run)[0]">{{ statusPill(run)[1] }}</span>
-      <span class="rl-dim" style="font-size: 12.5px">{{ summaryOf(run) }}</span>
-      <span class="rl-faint" style="font-size: 11.5px">{{ durationOf(run) }}</span>
+      <span class="rl-dim rl-t-125">{{ summaryOf(run) }}</span>
+      <span class="rl-faint rl-t-115">{{ durationOf(run) }}</span>
       <span class="rl-spacer"></span>
       <button class="rl-btn rl-sm" (click)="open(run)">Open</button>
       @if (i > 0) {

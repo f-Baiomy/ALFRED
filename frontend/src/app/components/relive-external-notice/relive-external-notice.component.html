@@ -3,12 +3,12 @@
     <div class="rl-extnote">
       <div class="rl-row" style="align-items: flex-start; gap: 8px">
         <span style="font-size: 16px">⚠</span>
-        <div style="flex: 1">
+        <div class="rl-grow">
           @for (item of notice.items; track item.host) {
             <div style="margin-bottom: 3px"><b>{{ item.label }}</b> can now contact the real <b>{{ item.host }}</b> - {{ item.reason }}.</div>
           }
-          <div class="rl-faint" style="font-size: 11.5px; margin-top: 3px">It will be listed in the pre-run LIVE summary and needs your confirmation before a run.</div>
-          <div class="rl-row" style="margin-top: 6px">
+          <div class="rl-faint rl-t-115 rl-mt-3">It will be listed in the pre-run LIVE summary and needs your confirmation before a run.</div>
+          <div class="rl-row rl-mt-6">
             <button class="rl-btn rl-sm" (click)="undo.emit(notice.id)">↶ Undo</button>
             <button class="rl-btn rl-sm rl-primary" (click)="dismiss.emit(notice.id)">That's intended</button>
           </div>

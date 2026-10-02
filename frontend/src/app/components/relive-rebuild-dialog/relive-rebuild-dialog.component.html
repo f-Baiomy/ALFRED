@@ -3,7 +3,7 @@
     <div class="dialog-card wide" (click)="$event.stopPropagation()">
       @if (!preview()) {
         <div class="rl-row">
-          <h2 style="margin: 0">Rebuild "{{ cycle().name }}"</h2>
+          <h2 class="rl-m-0">Rebuild "{{ cycle().name }}"</h2>
           <span class="rl-spacer"></span>
           <button class="icon-btn" (click)="close()">✕</button>
         </div>
@@ -13,7 +13,7 @@
 
         <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%; margin-bottom: 8px" [disabled]="!refreshSourceCycleId()" (click)="chooseMode('REFRESH')">
           <b>⟳ Refresh from sources</b>
-          <div class="rl-faint" style="font-size: 12.5px; margin-top: 3px">
+          <div class="rl-faint rl-t-125 rl-mt-3">
             @if (refreshSourceCycleId()) {
               Re-read the session cycle these calls came from: pick up calls recorded since, re-link supplier calls under their parents, update the frozen copies. Your modes, variables, rules and checkpoints stay where the calls still match.
             } @else {
@@ -24,7 +24,7 @@
 
         <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%; margin-bottom: 8px" (click)="chooseMode('RECORDING')">
           <b>◉ Rebuild from a new recording</b>
-          <div class="rl-faint" style="font-size: 12.5px; margin-top: 3px">
+          <div class="rl-faint rl-t-125 rl-mt-3">
             Pick a session cycle to use as the new baseline. Your configuration is carried over wherever a step matches.
           </div>
         </button>
@@ -36,7 +36,7 @@
                 <option [value]="sc.id">{{ sc.name }}</option>
               }
             </select>
-            <p class="rl-hint" style="margin-top: 6px">
+            <p class="rl-hint rl-mt-6">
               "Run it once for real and capture" is not available yet - use the Guided driver or record a fresh session cycle first.
             </p>
           </div>
@@ -44,13 +44,13 @@
 
         <button class="rl-card" style="text-align: left; padding: 12px 14px; display: block; width: 100%" (click)="chooseMode('START_OVER')">
           <b>↺ Start over, keep settings</b>
-          <div class="rl-faint" style="font-size: 12.5px; margin-top: 3px">
+          <div class="rl-faint rl-t-125 rl-mt-3">
             Rebuild the step list exactly as first added from the original recording. Step edits are dropped; variables, cycle rules and settings stay.
           </div>
         </button>
       } @else {
         <div class="rl-row">
-          <h2 style="margin: 0">
+          <h2 class="rl-m-0">
             Preview -
             @switch (preview()!.mode) {
               @case ('REFRESH') { Refresh from sources }
@@ -65,12 +65,12 @@
           <div class="rl-rulecard">
             <span class="rl-pill" [class]="pillClass(row.kind)">{{ row.kind }}</span>
             <b>{{ row.label }}</b>
-            <span class="rl-dim" style="font-size: 12.5px">{{ row.detail }}</span>
+            <span class="rl-dim rl-t-125">{{ row.detail }}</span>
             <span class="rl-spacer"></span>
-            <span class="rl-faint" style="font-size: 11.5px">{{ row.config }}</span>
+            <span class="rl-faint rl-t-115">{{ row.config }}</span>
           </div>
         }
-        <div class="rl-row" style="margin-top: 14px">
+        <div class="rl-row rl-mt-14">
           <button class="rl-btn" (click)="backToModes()">← other mode</button>
           <span class="rl-spacer"></span>
           <button class="rl-btn" (click)="close()">Cancel</button>

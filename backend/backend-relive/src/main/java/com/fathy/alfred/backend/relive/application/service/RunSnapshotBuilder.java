@@ -305,18 +305,16 @@ public class RunSnapshotBuilder {
             if (!(actionNode instanceof ObjectNode action)) {
                 continue;
             }
-            for (String branchesField : new String[] {"branches"}) {
-                JsonNode branches = action.get(branchesField);
-                if (branches != null && branches.isArray()) {
-                    for (JsonNode branch : branches) {
-                        JsonNode conditions = branch.get("conditions");
-                        if (conditions != null && conditions.isArray()) {
-                            resolveConditions((ArrayNode) conditions, runId, owner);
-                        }
-                        JsonNode nestedActions = branch.get("actions");
-                        if (nestedActions != null && nestedActions.isArray()) {
-                            resolveActions((ArrayNode) nestedActions, runId, owner);
-                        }
+            JsonNode branches = action.get("branches");
+            if (branches != null && branches.isArray()) {
+                for (JsonNode branch : branches) {
+                    JsonNode conditions = branch.get("conditions");
+                    if (conditions != null && conditions.isArray()) {
+                        resolveConditions((ArrayNode) conditions, runId, owner);
+                    }
+                    JsonNode nestedActions = branch.get("actions");
+                    if (nestedActions != null && nestedActions.isArray()) {
+                        resolveActions((ArrayNode) nestedActions, runId, owner);
                     }
                 }
             }

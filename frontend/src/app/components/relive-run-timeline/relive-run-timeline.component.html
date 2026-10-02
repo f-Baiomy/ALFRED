@@ -28,7 +28,7 @@
     @if (pausedRow(); as row) {
       <div class="rl-pausebox">
         <h3>⏸ Paused {{ p.at === 'BEFORE' ? 'before' : 'after' }} <b>{{ row.step.label }}</b></h3>
-        <div class="rl-dim" style="font-size: 12.5px">
+        <div class="rl-dim rl-t-125">
           {{
             p.at === 'BEFORE'
               ? 'Nothing has been sent yet. Check the request below, then continue.'
@@ -49,7 +49,7 @@
             </div>
           </div>
         }
-        <div class="rl-row" style="margin-top: 8px; flex-wrap: wrap">
+        <div class="rl-row rl-mt-8 rl-wrap">
           <button class="rl-btn rl-sm rl-primary" (click)="checkpointContinue.emit()">▶ Continue</button>
           @if (p.at === 'AFTER') {
             <button class="rl-btn rl-sm" (click)="checkpointReplay.emit()">↻ Replay</button>
@@ -134,8 +134,8 @@
   @if (run()!.hold; as hold) {
     <div class="rl-haltbox" [class.rl-diff]="hold.reason === 'DIFFERENCES'">
       <h3>{{ hold.reason === 'FAILED' ? '✕' : '⚠' }} The run is holding</h3>
-      <div class="rl-dim" style="font-size: 12.5px">Nothing else is sent until you decide.</div>
-      <div class="rl-row" style="margin-top: 8px; flex-wrap: wrap">
+      <div class="rl-dim rl-t-125">Nothing else is sent until you decide.</div>
+      <div class="rl-row rl-mt-8 rl-wrap">
         <button class="rl-btn rl-sm" (click)="retryHeld.emit()">↻ Retry</button>
         <button class="rl-btn rl-sm rl-primary" (click)="continueRun.emit()">▶ Continue with the next calls</button>
         <button class="rl-btn rl-sm rl-danger" (click)="endRun.emit()">■ End run here</button>
@@ -143,7 +143,7 @@
     </div>
   }
 
-  <div class="rl-row" style="margin-bottom: 8px">
+  <div class="rl-row rl-mb-8">
     <div class="rl-filters">
       <button [class.rl-on]="filter() === 'all'" (click)="setFilter('all')">All</button>
       <button [class.rl-on]="filter() === 'running'" (click)="setFilter('running')">In progress</button>
@@ -265,7 +265,7 @@
         Unexpected outbound calls ({{ unexpectedCalls().length }}) - matched no step
       </h3>
       @for (u of unexpectedCalls(); track u.callId) {
-        <div class="rl-row" style="padding: 3px 0">
+        <div class="rl-row rl-py-3">
           <span class="rl-dir" [class.rl-out]="u.direction === 'outbound'" [class.rl-in]="u.direction === 'inbound'">{{ u.direction === 'outbound' ? '↗' : '↙' }}</span>
           <span class="rl-mono">{{ u.callId }}</span>
           <span class="rl-spacer"></span>
@@ -296,7 +296,7 @@
       <h3 style="margin: 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint)">Variables in this run</h3>
     </div>
     @for (def of variableDefs(); track def.name) {
-      <div class="rl-row" style="padding: 2px 0">
+      <div class="rl-row rl-py-2">
         <span class="rl-mono">{{ '{{' + def.name + '}}' }}</span>
         @if (variables()[def.name] === undefined) {
           <span class="rl-faint">not set yet</span>

@@ -4,6 +4,29 @@
 // --text, --text-dim, --text-faint, --card, --card-inner, --popover-solid) rather than
 // hard-coding new ones; see styles.scss's `:root` block for what each token means.
 
+// Relive colours with no match among the app-wide tokens in styles.scss (T005: add one only
+// when none fits). Kept here so every rule below names a token, never a literal.
+:root {
+  --rl-white: #fff;
+  --rl-orange-text: #fed7aa;
+  --rl-pause: #e879f9;
+  --rl-green-text: #86efac;
+  --rl-red-text: #fecaca;
+  --rl-amber-text: #fde68a;
+  --rl-red-soft: #fca5a5;
+  --rl-orange: #fb923c;
+  --rl-pause-text: #f5d0fe;
+  --rl-pause-soft: #f0abfc;
+  --rl-cyan-text: #a5f3fc;
+  --rl-blue-text: #93c5fd;
+  --rl-green: #4ade80;
+  --rl-amber-ink: #3b2a00;
+  --rl-pause-ink: #3b0a3b;
+  --rl-red-ink: #3b0a0a;
+  --rl-orange-ink: #2a1a10;
+  --rl-green-ink: #052e1f;
+}
+
 .rl-pill {
   display: inline-flex;
   align-items: center;
@@ -23,7 +46,7 @@ button.rl-pill {
   line-height: inherit;
 }
 .rl-p-live {
-  color: #fb923c;
+  color: var(--rl-orange);
   border-color: rgba(251, 146, 60, 0.6);
   background: rgba(251, 146, 60, 0.14);
 }
@@ -38,7 +61,7 @@ button.rl-pill {
   background: rgba(139, 92, 246, 0.15);
 }
 .rl-p-global {
-  color: #93c5fd;
+  color: var(--rl-blue-text);
   border-color: rgba(147, 197, 253, 0.45);
   background: rgba(147, 197, 253, 0.1);
 }
@@ -68,12 +91,12 @@ button.rl-pill {
   background: rgba(148, 163, 194, 0.1);
 }
 .rl-p-pause {
-  color: #f0abfc;
+  color: var(--rl-pause-soft);
   border-color: rgba(232, 121, 249, 0.5);
   background: rgba(232, 121, 249, 0.12);
 }
 .rl-p-new {
-  color: #86efac;
+  color: var(--rl-green-text);
   border-color: rgba(134, 239, 172, 0.5);
   background: rgba(134, 239, 172, 0.1);
 }
@@ -403,17 +426,17 @@ button.rl-pill {
     animation: rl-pulse 1.1s infinite;
   }
   &.rl-ok {
-    color: #052e1f;
+    color: var(--rl-green-ink);
     background: var(--green);
     border-color: var(--green);
   }
   &.rl-diff {
-    color: #3b2a00;
+    color: var(--rl-amber-ink);
     background: var(--amber);
     border-color: var(--amber);
   }
   &.rl-fail {
-    color: #3b0a0a;
+    color: var(--rl-red-ink);
     background: var(--red);
     border-color: var(--red);
   }
@@ -425,9 +448,9 @@ button.rl-pill {
     border-style: dotted;
   }
   &.rl-paused {
-    color: #3b0a3b;
-    background: #e879f9;
-    border-color: #e879f9;
+    color: var(--rl-pause-ink);
+    background: var(--rl-pause);
+    border-color: var(--rl-pause);
   }
 }
 @keyframes rl-pulse {
@@ -461,16 +484,16 @@ button.rl-pill {
 
     &.rl-on {
       background: rgba(139, 92, 246, 0.28);
-      color: #fff;
+      color: var(--rl-white);
     }
   }
   &.rl-mode button.rl-on.rl-live {
     background: rgba(251, 146, 60, 0.28);
-    color: #fed7aa;
+    color: var(--rl-orange-text);
   }
   &.rl-mode button.rl-on.rl-replay {
     background: rgba(34, 211, 238, 0.2);
-    color: #a5f3fc;
+    color: var(--rl-cyan-text);
   }
 }
 
@@ -494,7 +517,7 @@ button.rl-pill {
     &.rl-on {
       background: rgba(139, 92, 246, 0.28);
       border-color: var(--border-strong);
-      color: #fff;
+      color: var(--rl-white);
     }
   }
 }
@@ -526,7 +549,7 @@ button.rl-pill {
   border-radius: 9px;
   background: rgba(251, 146, 60, 0.1);
   border: 1px solid rgba(251, 146, 60, 0.4);
-  color: #fed7aa;
+  color: var(--rl-orange-text);
   margin-bottom: 10px;
   font-size: 12.5px;
 
@@ -615,7 +638,7 @@ button.rl-pill {
   h3 {
     margin: 0 0 6px;
     font-size: 13px;
-    color: #f5d0fe;
+    color: var(--rl-pause-text);
   }
 }
 
@@ -629,14 +652,14 @@ button.rl-pill {
   h3 {
     margin: 0 0 6px;
     font-size: 13px;
-    color: #fecaca;
+    color: var(--rl-red-text);
   }
   &.rl-diff {
     border-color: rgba(251, 191, 36, 0.55);
     background: rgba(251, 191, 36, 0.08);
 
     h3 {
-      color: #fde68a;
+      color: var(--rl-amber-text);
     }
   }
 }
@@ -723,7 +746,7 @@ button.rl-pill {
 
       &::before {
         content: '\2013 ';
-        color: #f87171;
+        color: var(--red);
       }
     }
     &.rl-add {
@@ -731,7 +754,7 @@ button.rl-pill {
 
       &::before {
         content: '+ ';
-        color: #4ade80;
+        color: var(--rl-green);
       }
     }
     &.rl-same::before {
@@ -749,14 +772,14 @@ button.rl-pill {
 
 .rl-extnote {
   border: 1px solid rgba(251, 146, 60, 0.7);
-  background: #2a1a10;
+  background: var(--rl-orange-ink);
   border-radius: 12px;
   padding: 10px 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   font-size: 12.5px;
 
   b {
-    color: #fed7aa;
+    color: var(--rl-orange-text);
   }
 }
 
@@ -816,7 +839,7 @@ button.rl-pill {
 
     &.rl-on {
       background: rgba(139, 92, 246, 0.25);
-      color: #fff;
+      color: var(--rl-white);
       border-color: var(--border-strong);
     }
   }
@@ -832,7 +855,7 @@ button.rl-pill {
   font-size: 12px;
 
   .rl-old {
-    color: #fca5a5;
+    color: var(--rl-red-soft);
     background: rgba(248, 113, 113, 0.08);
     border-radius: 5px;
     padding: 2px 6px;
@@ -840,7 +863,7 @@ button.rl-pill {
     word-break: break-all;
   }
   .rl-new {
-    color: #86efac;
+    color: var(--rl-green-text);
     background: rgba(52, 211, 153, 0.08);
     border-radius: 5px;
     padding: 2px 6px;
@@ -1008,7 +1031,7 @@ button.rl-pill {
   &.rl-primary {
     background: var(--purple);
     border-color: var(--purple);
-    color: #fff;
+    color: var(--rl-white);
   }
   &.rl-danger {
     border-color: rgba(248, 113, 113, 0.5);
@@ -1343,7 +1366,7 @@ button.rl-pill {
 .nav-new {
   font-size: 10px;
   background: var(--purple);
-  color: #fff;
+  color: var(--rl-white);
   border-radius: 6px;
   padding: 1px 5px;
   margin-left: 4px;
@@ -1353,4 +1376,69 @@ button.rl-pill {
 .relive-placeholder {
   padding: 24px;
   color: var(--text-dim);
+}
+
+// Small spacing and type utilities for Relive templates, replacing their inline styles (T121).
+.rl-t-125 {
+  font-size: 12.5px;
+}
+.rl-t-115 {
+  font-size: 11.5px;
+}
+.rl-t-12 {
+  font-size: 12px;
+}
+.rl-t-11 {
+  font-size: 11px;
+}
+.rl-mb-8 {
+  margin-bottom: 8px;
+}
+.rl-mb-6 {
+  margin-bottom: 6px;
+}
+.rl-m-0 {
+  margin: 0;
+}
+.rl-mt-2 {
+  margin-top: 2px;
+}
+.rl-mt-3 {
+  margin-top: 3px;
+}
+.rl-mt-4 {
+  margin-top: 4px;
+}
+.rl-mt-6 {
+  margin-top: 6px;
+}
+.rl-mt-8 {
+  margin-top: 8px;
+}
+.rl-mt-12 {
+  margin-top: 12px;
+}
+.rl-mt-14 {
+  margin-top: 14px;
+}
+.rl-ml-8 {
+  margin-left: 8px;
+}
+.rl-grow {
+  flex: 1;
+}
+.rl-wrap {
+  flex-wrap: wrap;
+}
+.rl-py-2 {
+  padding: 2px 0;
+}
+.rl-py-3 {
+  padding: 3px 0;
+}
+.rl-w-full {
+  width: 100%;
+}
+.rl-left {
+  text-align: left;
 }
