@@ -4,7 +4,7 @@
   "cli": {
     "packageManager": "npm",
     "cache": {
-      "enabled": false
+      "enabled": true
     }
   },
   "newProjectRoot": "projects",
