@@ -293,19 +293,23 @@ export function reachesHost(rule: InterceptionRuleDraft): { readonly reaches: bo
   return { reaches: true, reason: 'it is set to LIVE' };
 }
 
-function classify(action: RuleAction): 'BLOCK' | 'REACH' | 'IF' | 'PASS' {
+/** `nested`: inside an IF branch. A checkpoint (a top-level pause) carries on with the rule once
+ *  released or timed out, so it decides nothing; the "Ask me" pause of the request-differs branch
+ *  ends in a failure unless someone says yes, so it never reaches the host on its own (T082). */
+function classify(action: RuleAction, nested: boolean): 'BLOCK' | 'REACH' | 'IF' | 'PASS' {
   if (action.enabled === false) return 'PASS';
-  if (action.type === 'PAUSE_REQUEST') return 'BLOCK';
+  if (action.type === 'PAUSE_REQUEST') return nested ? 'BLOCK' : 'PASS';
   if (action.type === 'SEND_TO_HOST' || action.type === 'REWRITE_URL') return 'REACH';
   if (action.type === 'IF_REQUEST') return 'IF';
   if (isTerminalAction(action.type)) return 'BLOCK';
   return 'PASS';
 }
 
-function evalReaches(actions: readonly RuleAction[]): boolean {
+/** `nestedCount`: how many of the first `actions` come from inside an IF branch. */
+function evalReaches(actions: readonly RuleAction[], nestedCount = 0): boolean {
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i];
-    const kind = classify(action);
+    const kind = classify(action, i < nestedCount);
     if (kind === 'PASS') continue;
     if (kind === 'BLOCK') return false;
     if (kind === 'REACH') return true;
@@ -313,8 +317,10 @@ function evalReaches(actions: readonly RuleAction[]): boolean {
     // with whatever comes after this action in `actions` if it didn't itself decide anything.
     const rest = actions.slice(i + 1);
     const branches = action.branches ?? [];
-    const branchReaches = branches.some((b) => evalReaches([...b.actions, ...rest]));
-    const otherwiseReaches = evalReaches([...(action.otherwise ?? []), ...rest]);
+    const restNested = Math.max(0, nestedCount - (i + 1));
+    const branchReaches = branches.some((b) => evalReaches([...b.actions, ...rest], b.actions.length + restNested));
+    const otherwise = action.otherwise ?? [];
+    const otherwiseReaches = evalReaches([...otherwise, ...rest], otherwise.length + restNested);
     return branchReaches || otherwiseReaches;
   }
   return true; // nothing stopped it - the proxy's default behaviour is to forward upstream

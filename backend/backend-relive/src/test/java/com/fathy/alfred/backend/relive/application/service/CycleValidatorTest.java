@@ -30,6 +30,32 @@ class CycleValidatorTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Test
+    void aCheckpointDecidesNothingButAnAskPauseBlocks() throws Exception {
+        // T082: a LIVE child with "pause before" was reported as not reaching the host.
+        List<JsonNode> live = actions("""
+                [{"type":"PAUSE_REQUEST","timeoutSeconds":30,"onTimeout":"release"},
+                 {"type":"IF_REQUEST","branches":[{"conditions":[],"actions":[]}],
+                  "otherwise":[{"type":"MOCK_RESPONSE","status":502}]},
+                 {"type":"MOCK_RESPONSE","enabled":false,"status":200}]""");
+        List<JsonNode> replay = actions("""
+                [{"type":"PAUSE_REQUEST","timeoutSeconds":30,"onTimeout":"release"},
+                 {"type":"MOCK_RESPONSE","status":200}]""");
+        List<JsonNode> ask = actions("""
+                [{"type":"IF_REQUEST","branches":[],"otherwise":[{"type":"PAUSE_REQUEST","timeoutSeconds":30}]},
+                 {"type":"SEND_TO_HOST"}]""");
+
+        assertThat(CycleValidator.reachesHost(live)).isTrue();
+        assertThat(CycleValidator.reachesHost(replay)).isFalse();
+        assertThat(CycleValidator.reachesHost(ask)).isFalse();
+    }
+
+    private List<JsonNode> actions(String json) throws Exception {
+        List<JsonNode> out = new ArrayList<>();
+        objectMapper.readTree(json).forEach(out::add);
+        return out;
+    }
+
     /** Mutable in-memory fake - only `findAllRunning` is ever exercised by CycleValidator; every
      *  other method is unused by these tests but must exist to satisfy the port. */
     private static final class FakeRunStore implements ReliveRunStorePort {

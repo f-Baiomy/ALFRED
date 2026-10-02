@@ -185,13 +185,21 @@ public class CycleValidator {
             "ABORT_REQUEST", "MOCK_RESPONSE", "SIMULATE_FAILURE", "ANSWER_WITH_RECORDED_CALL", "ANSWER_WITH_FILE");
 
     static boolean reachesHost(List<JsonNode> actions) {
+        return reachesHost(actions, 0);
+    }
+
+    /** {@code nestedCount}: how many of the first {@code actions} come from inside an IF branch. A
+     *  checkpoint (a top-level pause) carries on with the rule once released or timed out; the
+     *  "Ask me" pause of the request-differs branch ends in a failure unless someone says yes, so
+     *  only that one stops the call from reaching the host (T082). */
+    private static boolean reachesHost(List<JsonNode> actions, int nestedCount) {
         for (int i = 0; i < actions.size(); i++) {
             JsonNode action = actions.get(i);
             if (action.path("enabled").isBoolean() && !action.path("enabled").asBoolean()) {
                 continue;
             }
             String type = action.path("type").asText();
-            if ("PAUSE_REQUEST".equals(type) || TERMINAL.contains(type)) {
+            if (TERMINAL.contains(type) || ("PAUSE_REQUEST".equals(type) && i < nestedCount)) {
                 return false;
             }
             if ("SEND_TO_HOST".equals(type) || "REWRITE_URL".equals(type)) {
@@ -199,12 +207,15 @@ public class CycleValidator {
             }
             if ("IF_REQUEST".equals(type)) {
                 List<JsonNode> rest = actions.subList(i + 1, actions.size());
+                int restNested = Math.max(0, nestedCount - (i + 1));
                 for (JsonNode branch : action.path("branches")) {
-                    if (reachesHost(concat(toList(branch.path("actions")), rest))) {
+                    List<JsonNode> branchActions = toList(branch.path("actions"));
+                    if (reachesHost(concat(branchActions, rest), branchActions.size() + restNested)) {
                         return true;
                     }
                 }
-                return reachesHost(concat(toList(action.path("otherwise")), rest));
+                List<JsonNode> otherwise = toList(action.path("otherwise"));
+                return reachesHost(concat(otherwise, rest), otherwise.size() + restNested);
             }
         }
         return true;

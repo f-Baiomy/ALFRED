@@ -230,6 +230,14 @@ describe('relive-call-rule: reachesHost', () => {
     expect(reachesHost(rule).reaches).toBeFalse();
   });
 
+  it('a checkpoint before the call decides nothing: LIVE still reaches the host, REPLAY still does not', () => {
+    let live = applyMode(defaultCallRule(child, settingsLive), 'LIVE', recording);
+    live = setCheckpoint(live, 'before', true, 10);
+    expect(reachesHost(live).reaches).toBeTrue();
+    const replay = setCheckpoint(defaultCallRule(child, settingsLive), 'before', true, 10);
+    expect(reachesHost(replay).reaches).toBeFalse();
+  });
+
   it('is false when the request-differs branch is a PAUSE (ASK)', () => {
     let rule = defaultCallRule(child, settingsLive);
     rule = setOnRequestChanged(rule, 'ASK', child.key);
