@@ -1,3 +1,7 @@
+import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
+import { PickedCall } from '../../core/models/call-ref.model';
+import { freezeCalls } from '../../shared/utils/relive-freeze';
+import { ReliveSettings } from '../../shared/utils/relive-types';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed, fakeAsync, flushMicrotasks } from '@angular/core/testing';
@@ -41,6 +45,12 @@ describe('BulkActionsBarComponent - resend selected', () => {
           useValue: { getCallDetail: () => of({}), getCallOverlaps: () => of([]) },
         },
         { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
+        // Inbound roots bring their children through the call source (FR-003b); its own
+        // correlation is tested in relive-call-source.service.spec.ts.
+        {
+          provide: ReliveCallSourceService,
+          useValue: { freezePicked: (picked: readonly PickedCall[], settings: ReliveSettings) => Promise.resolve(freezeCalls(picked.map((p) => p.call), new Map(), settings, null)) },
+        },
       ],
     });
     http = TestBed.inject(HttpTestingController);

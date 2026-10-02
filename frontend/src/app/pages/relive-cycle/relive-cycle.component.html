@@ -15,7 +15,7 @@
           (input)="setDescription($any($event.target).value)"
         />
         <div class="rl-row rl-wrap rl-gap-6 rl-mt-8">
-          <span class="rl-pill rl-p-wait">{{ topSteps().length }} steps · {{ childSteps().length }} outbound children</span>
+          <span class="rl-pill rl-p-wait">{{ topSteps().length }} step{{ topSteps().length === 1 ? '' : 's' }} · {{ childSteps().length }} outbound {{ childSteps().length === 1 ? 'child' : 'children' }}</span>
           <span class="rl-pill" [class]="externalCount() ? 'rl-p-live' : 'rl-p-replay'">
             {{ externalCount() ? '⚠ ' + externalCount() + ' can reach an external system' : '✓ nothing external - all replayed' }}
           </span>

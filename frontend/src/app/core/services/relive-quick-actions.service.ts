@@ -2,7 +2,9 @@ import { Injectable, inject } from '@angular/core';
 import { CallRecord } from '../models/call.model';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { ReliveSettings, Step } from '../../shared/utils/relive-types';
+import { refOf } from '../models/call-ref.model';
 import { ReliveWriteRequest } from './relive-api.service';
+import { ReliveCallSourceService } from './relive-call-source.service';
 import { ReliveFingerprintFlow } from './relive-fingerprint-flow.service';
 import { ReliveSelectionDialogService } from './relive-selection-dialog.service';
 
@@ -32,6 +34,15 @@ function baseCycle(name: string, description: string | null, steps: readonly Ste
 export class ReliveQuickActionsService {
   private readonly fingerprints = inject(ReliveFingerprintFlow);
   private readonly picker = inject(ReliveSelectionDialogService);
+  private readonly callSource = inject(ReliveCallSourceService);
+
+  /** FR-003b: an inbound call always brings its correlated outbound children, whether or not they
+   *  were selected too (T082: "Relive now" on one inbound call replayed it without its suppliers,
+   *  which then all ran into the unexpected-call policy). */
+  private async stepsOf(calls: readonly CallRecord[]): Promise<Step[]> {
+    if (!calls.some((call) => call.source === 'internal')) return freezeCalls(calls, new Map(), DEFAULT_SETTINGS, null);
+    return this.callSource.freezePicked(calls.map((call) => ({ ref: refOf(call, null), call, originLabel: 'Live Calls' })), DEFAULT_SETTINGS);
+  }
 
   addToCycle(calls: readonly CallRecord[]): void {
     this.picker.open(calls, 'ADD');
@@ -43,15 +54,16 @@ export class ReliveQuickActionsService {
 
   /** "New cycle from selection": creates a saved cycle from the picked calls and opens it. */
   newCycleFromSelection(calls: readonly CallRecord[], onError?: () => void): void {
-    const steps = freezeCalls(calls, new Map(), DEFAULT_SETTINGS, null);
     const name = `New cycle from ${calls.length} call${calls.length === 1 ? '' : 's'}`;
-    void this.fingerprints.createAndOpen(baseCycle(name, null, steps)).catch(() => onError?.());
+    void this.stepsOf(calls)
+      .then((steps) => this.fingerprints.createAndOpen(baseCycle(name, null, steps)))
+      .catch(() => onError?.());
   }
 
   /** "⚡ Relive now": a transient (not saved) cycle, run immediately - every supplier call REPLAY
    *  by default (`defaultCallRule`'s own default for an outbound step). */
   reliveNow(calls: readonly CallRecord[]): void {
-    const steps = freezeCalls(calls, new Map(), DEFAULT_SETTINGS, null);
-    void this.fingerprints.createAndOpen(baseCycle('Quick run', 'From a Live Calls selection', steps), { transient: true, start: true });
+    void this.stepsOf(calls).then((steps) =>
+      this.fingerprints.createAndOpen(baseCycle('Quick run', 'From a Live Calls selection', steps), { transient: true, start: true }));
   }
 }

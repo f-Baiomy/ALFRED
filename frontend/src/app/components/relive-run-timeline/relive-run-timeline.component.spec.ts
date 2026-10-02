@@ -192,6 +192,17 @@ describe('ReliveRunTimelineComponent', () => {
     expect(offered.length).toBe(2);
   });
 
+  it('a Guided run whose steps were all called still offers End run', () => {
+    const login = makeStep('login', null);
+    fixture.componentRef.setInput('run', { ...run(), driver: 'GUIDED' });
+    fixture.componentRef.setInput('steps', [login]);
+    fixture.componentRef.setInput('results', { login: result('login', 'COMPLETED') });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('every step has been called');
+    expect([...fixture.nativeElement.querySelectorAll('button')].some((b: HTMLElement) => b.textContent?.includes('■ End run'))).toBeTrue();
+  });
+
   it('shows a placeholder when there is no run', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('No run yet');

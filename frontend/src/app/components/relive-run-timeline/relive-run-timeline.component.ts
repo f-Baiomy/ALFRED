@@ -312,6 +312,13 @@ export class ReliveRunTimelineComponent {
     return this.rows().find((r) => !r.isChild && r.result.state === 'PENDING')?.step ?? null;
   });
 
+  /** A Guided run whose every step has been called stays open for repeats; End run is still
+   *  offered (T082: it disappeared with the last step, leaving only Stop). */
+  readonly guidedAllCalled = computed(() => {
+    const run = this.run();
+    return run?.driver === 'GUIDED' && run.status === 'RUNNING' && !this.nextGuidedStep();
+  });
+
   readonly titlePill = computed<readonly [string, string]>(() => {
     const run = this.run();
     if (!run) return ['rl-p-wait', ''];

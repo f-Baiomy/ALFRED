@@ -22,6 +22,12 @@
       <span class="rl-spacer"></span>
       <button class="rl-btn rl-sm" (click)="endGuidedRun.emit()">■ End run</button>
     </div>
+  } @else if (guidedAllCalled()) {
+    <div class="rl-ext-banner">
+      Guided - every step has been called. Repeat any of them in your browser, or end the run.
+      <span class="rl-spacer"></span>
+      <button class="rl-btn rl-sm" (click)="endGuidedRun.emit()">■ End run</button>
+    </div>
   }
 
   @if (pause(); as p) {
