@@ -223,6 +223,12 @@ export function recordingCallRecord(step: Step): CallRecord {
   };
 }
 
+/** The recording with both bodies - what a rule editor browses and suggests paths from for this step. */
+export function recordingSampleCall(step: Step): CallRecord {
+  const rec = step.recording;
+  return { ...recordingCallRecord(step), request: { headers: rec.requestHeaders, body: rec.requestBody ?? undefined } };
+}
+
 export function recordingCallDetail(step: Step, part?: CallDetailPart): CallDetail {
   const rec = step.recording;
   const request = { headers: rec.requestHeaders, body: rec.requestBody ?? undefined };

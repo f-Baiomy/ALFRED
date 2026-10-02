@@ -6,7 +6,7 @@ import { ReliveSocketService } from '../../core/services/relive-socket.service';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
 import { ReliveStepPanelComponent } from '../../components/relive-step-panel/relive-step-panel.component';
-import { ReliveStepCallComponent } from '../../components/relive-step-call/relive-step-call.component';
+import { ReliveStepCallComponent, recordingSampleCall } from '../../components/relive-step-call/relive-step-call.component';
 import { ReliveRequestDiffersDialogComponent } from '../../components/relive-request-differs-dialog/relive-request-differs-dialog.component';
 import { ReliveExternalNoticeComponent } from '../../components/relive-external-notice/relive-external-notice.component';
 import { ReliveRulesTabComponent } from '../../components/relive-rules-tab/relive-rules-tab.component';
@@ -155,6 +155,13 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     if (!req || req.scope !== 'CALL' || !draft) return null;
     const step = draft.steps.find((s) => s.key === req.targetKey);
     return recordedCallPreviewOf(step?.recording);
+  });
+
+  /** The open call rule's step recording, so its browse and path suggestions read it straight away. */
+  readonly callRuleSample = computed(() => {
+    const req = this.ruleDialog.request();
+    const step = req?.scope === 'CALL' ? this.state.draft()?.steps.find((s) => s.key === req.targetKey) : undefined;
+    return step ? recordingSampleCall(step) : null;
   });
 
   openCallRule(stepKey: string): void {

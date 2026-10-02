@@ -462,6 +462,9 @@ export class RuleEditorComponent implements OnInit {
   /** Embedded in a page rather than opened as a dialog (Relive's step card): no backdrop or head,
    *  no name or match section - the host fixes both - and the footer applies the rule to `target`. */
   @Input() inline = false;
+  /** The call the rule is for, when the host already has it (a Relive step's recording): browse
+   *  and path suggestions read it straight away instead of asking to pick a call first. */
+  @Input() sampleRecording: CallRecord | null = null;
   @Input() applyLabel = 'Apply';
   @Input() applyHint = '';
 
@@ -601,6 +604,7 @@ export class RuleEditorComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    if (this.sampleRecording && !this.sampleCall()) this.sampleCall.set(this.sampleRecording);
     this.projectsApi.getServices().subscribe((services) => {
       // The reserved "unknown" entry (null ports) is a bucket for traffic that arrived on no
       // configured listener, not a project anybody would scope a rule to.

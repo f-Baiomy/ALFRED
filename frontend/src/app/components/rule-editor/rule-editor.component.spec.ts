@@ -395,6 +395,17 @@ describe('RuleEditorComponent', () => {
     expect(component.samplePicking()).toBe('response');
   });
 
+  it('browses the recording the host gives at once - a Relive step needs no call picked first', () => {
+    component.sampleRecording = { id: 'rec', url: 'http://h/x', method: 'POST', request: { body: '{"a":1}' }, response: { status: 200, body: '{"b":2}' } } as never;
+    open(null);
+    component.openBrowse('request');
+    expect(component.browseOpen()).toBe('request');
+    component.openBrowse('response');
+    expect(component.browseOpen()).toBe('response');
+    expect(component.samplePicking()).toBeNull();
+    expect(component.responsePaths()?.map((e) => e.path)).toContain('b');
+  });
+
   it('offers JSON-only operators on JSON fields only, and none an item mode contradicts', () => {
     open(null);
     const ops = (c: object) => component.conditionOperatorOptions(c as never).map((o) => o.value);

@@ -11,6 +11,7 @@ import { ScenarioAssertionEditorComponent } from '../scenario-assertion-editor/s
 import { CallFocusService } from '../../core/services/call-focus.service';
 import { CallInterception, InterceptionRuleDraft, OriginalHttp } from '../../core/models/interception.model';
 import { recordedCallPreviewOf } from '../../shared/utils/recorded-call-match';
+import { recordingSampleCall } from '../relive-step-call/relive-step-call.component';
 import { PathEntry, jsonPathIndex, parseJson } from '../../shared/utils/json-paths';
 import { applyMode, checkpointOf, modeOf, onRequestChangedOf, requestBodyOf, setCheckpoint, setMockResponse, setRequestBody } from '../../shared/utils/relive-call-rule';
 import { maskRelive } from '../../shared/utils/relive-mask';
@@ -221,6 +222,7 @@ export class ReliveStepPanelComponent {
   /** Recreates the inline rule editor whenever the step's rule changes outside it (mode, edits, Undo). */
   readonly ruleEditorKey = computed(() => [this.step().key, this.step().callRule, this.ruleEditorRevision()]);
   readonly recordedPreview = computed(() => recordedCallPreviewOf(this.step().recording));
+  readonly recordingSample = computed(() => recordingSampleCall(this.step()));
 
   /** What the inline rule editor's footer saves into: this step's call rule, never the global rules. */
   readonly ruleTarget: RuleEditorTarget = {
