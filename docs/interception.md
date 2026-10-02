@@ -280,9 +280,16 @@ runs, with an optional `otherwise`. That makes `else if` a list rather than a tr
 
 **Subjects:** `REQUEST_HEADER`, `REQUEST_BODY`, `REQUEST_JSON_FIELD`, `QUERY_PARAM`, `URL`,
 `METHOD`, and in the response half also `RESPONSE_STATUS`, `RESPONSE_HEADER`, `RESPONSE_BODY`,
-`RESPONSE_JSON_FIELD`. A response subject in an `IF_REQUEST` is **refused at save time** — there
+`RESPONSE_JSON_FIELD` and `RESPONSE_TIME` (milliseconds from the request reaching the proxy to the
+end of the response - use `AT_LEAST` / `AT_MOST`). A response subject in an `IF_REQUEST` is **refused at save time** — there
 is no response yet, so the branch could only ever be false. The reverse is allowed and is one of
 the main reasons to have conditions at all: *"we sent X and got back Y"*.
+
+**One row, two editors.** The IF row is `app-condition-row` (logic in
+`shared/utils/condition-edit.ts`); Relive's step checks render the same component, so a subject,
+operator or list mode added here shows up there too. Header name boxes - in conditions and in the
+set / remove header and cookie actions - offer the names the sample call had
+(`app-name-suggest`, `shared/utils/name-suggestions.ts`).
 
 **Operators:** `EXISTS`, `NOT_EXISTS`, `EQUALS`, `NOT_EQUALS`, `CONTAINS`, `NOT_CONTAINS`,
 `MATCHES`, `NOT_MATCHES`, `AT_LEAST`, `AT_MOST`. Comparison ignores case unless

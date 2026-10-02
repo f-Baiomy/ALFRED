@@ -1,3 +1,4 @@
+import { CheckGroupResult } from '../../shared/utils/relive-checks';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
@@ -117,6 +118,11 @@ export class ReliveApiService {
 
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/${encodeURIComponent(id)}`);
+  }
+
+  /** A step's checks against one answer, evaluated by the proxy (relive-checks.ts). */
+  evaluateChecks(request: unknown): Observable<{ readonly groups: readonly CheckGroupResult[] }> {
+    return this.http.post<{ readonly groups: readonly CheckGroupResult[] }>(`${this.base}/checks/evaluate`, request);
   }
 
   validate(id: string): Observable<ValidationFinding[]> {

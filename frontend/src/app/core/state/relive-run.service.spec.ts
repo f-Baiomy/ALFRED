@@ -245,6 +245,7 @@ describe('ReliveRunService', () => {
       'getRun',
       'getRunVariables',
       'updateRunDefinition',
+      'evaluateChecks',
     ]);
     resendApi = jasmine.createSpyObj('ResendApiService', ['resend']);
     callsApi = jasmine.createSpyObj('CallsApiService', ['getDetail', 'getCalls']);
@@ -718,6 +719,47 @@ describe('ReliveRunService', () => {
     expect(service.results()['login'].state).toBe('FAILED');
     expect(service.results()['login'].error).toBe('unresolved {{$.bookingId}}');
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'FAILED');
+  });
+
+  describe('step checks (rule conditions, evaluated by the proxy)', () => {
+    const checks = (onMiss: 'FAIL' | 'WARN') => ({ version: 2 as const, onMiss, groups: [
+      { combine: 'ALL' as const, onMiss: 'DEFAULT' as const, conditions: [{ subject: 'RESPONSE_STATUS' as const, operator: 'EQUALS' as const, value: '201' }] },
+    ] });
+
+    function runWith(onMiss: 'FAIL' | 'WARN', onFailure: 'HOLD' | 'CONTINUE') {
+      const login = inboundStep({ assertions: checks(onMiss) });
+      const cycle = cycleOf([login, logoutStep()]);
+      const run1 = { ...runOf([login, logoutStep()]), definition: { ...cycle, settings: { ...cycle.settings, onFailure } } };
+      reliveApi.startRun.and.returnValue(of(run1));
+      reliveApi.finishRun.and.returnValue(of({ ...run1, status: 'COMPLETED' }));
+      reliveApi.setHold.and.returnValue(of(run1));
+      resendApi.resend.and.returnValue(of<ResendResult>({ newCallId: 'n', status: 200, durationMs: 40, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }));
+      reliveApi.evaluateChecks.and.returnValue(of({ groups: [{ passed: false, rows: [{ holds: false, found: { values: ['200'] } }] }] }));
+      return { cycle, login };
+    }
+
+    it('asks the proxy with the answer the step got, and a missed FAIL check fails the step and holds the run', async () => {
+      const { cycle } = runWith('FAIL', 'CONTINUE');
+      await service.start(cycle, { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+      const request = reliveApi.evaluateChecks.calls.mostRecent().args[0] as { answer: { status: number }; responseTimeMs: number; groups: unknown[] };
+      expect(request.answer.status).toBe(200);
+      expect(request.responseTimeMs).toBe(40);
+      expect(service.results()['login'].state).toBe('FAILED');
+      // Held even though the cycle says "continue on failure": a FAIL check stops the run.
+      expect(reliveApi.setHold).toHaveBeenCalledWith('cy-1', 'run-1', { stepKey: 'login', reason: 'FAILED' });
+      expect(resendApi.resend).toHaveBeenCalledTimes(1);
+    });
+
+    it('a missed WARN check leaves the step passing and the run going on', async () => {
+      const { cycle } = runWith('WARN', 'HOLD');
+      await service.start(cycle, { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+      expect(service.results()['login'].state).toBe('COMPLETED');
+      expect(reliveApi.setHold).not.toHaveBeenCalled();
+      expect(resendApi.resend).toHaveBeenCalledTimes(2);
+      expect((service.results()['login'].assertions as { groups: { onMiss: string; passed: boolean }[] }).groups[0]).toEqual(jasmine.objectContaining({ onMiss: 'WARN', passed: false }));
+    });
   });
 
   it('resolves global and Relive variables from separate scopes before resending', async () => {

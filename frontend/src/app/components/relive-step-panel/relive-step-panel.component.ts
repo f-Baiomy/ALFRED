@@ -7,7 +7,8 @@ import { JsonBrowseComponent, BrowsePick } from '../json-browse/json-browse.comp
 import { JsonPathInputComponent } from '../json-path-input/json-path-input.component';
 import { RuleEditorComponent } from '../rule-editor/rule-editor.component';
 import { RuleEditorTarget } from '../rule-editor/rule-editor-target';
-import { ScenarioAssertionEditorComponent } from '../scenario-assertion-editor/scenario-assertion-editor.component';
+import { ReliveChecksEditorComponent } from '../relive-checks-editor/relive-checks-editor.component';
+import { NameSuggestComponent } from '../name-suggest/name-suggest.component';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { CallFocusService } from '../../core/services/call-focus.service';
 import { CallInterception, InterceptionRuleDraft, OriginalHttp } from '../../core/models/interception.model';
@@ -18,8 +19,9 @@ import { applyMode, checkpointOf, modeOf, onRequestChangedOf, requestBodyOf, set
 import { maskRelive } from '../../shared/utils/relive-mask';
 import { CycleRule, CycleVariable, OnRequestChanged, Step, StepMode } from '../../shared/utils/relive-types';
 import { extractValues } from '../../shared/utils/resend-draft-chain';
-import { evaluate } from '../../shared/utils/scenario-assertions';
-import { Assertion, AssertionResult, ExtractRule } from '../../shared/utils/scenario-types';
+import { StepChecks, checkCount, stepChecks } from '../../shared/utils/relive-checks';
+import { NameSuggestion, headerSuggestions, responseCookieSuggestions } from '../../shared/utils/name-suggestions';
+import { ExtractRule } from '../../shared/utils/scenario-types';
 
 type Box = 'recorded' | 'mode' | 'edits' | 'variables' | 'rule' | 'answer' | 'values';
 
@@ -55,7 +57,8 @@ export interface ExtractPreview {
     JsonBrowseComponent,
     JsonPathInputComponent,
     RuleEditorComponent,
-    ScenarioAssertionEditorComponent,
+    ReliveChecksEditorComponent,
+    NameSuggestComponent,
     SelectPickerComponent,
   ],
   templateUrl: './relive-step-panel.component.html',
@@ -143,21 +146,15 @@ export class ReliveStepPanelComponent {
     });
   });
 
-  /** The checks run against the recording, so a wrong check shows before a run. */
-  readonly assertionPreview = computed<readonly AssertionResult[]>(() => {
-    const step = this.step();
-    if (!step.assertions.length) return [];
-    return evaluate(step.assertions, {
-      key: step.key,
-      attempt: 1,
-      status: step.recording.status,
-      durationMs: step.recording.durationMs,
-      newCallId: null,
-      error: null,
-      response: responseOf(step),
-      extracted: {},
-    });
-  });
+  /** The step's checks (groups of rule conditions) - an older Assertion[] read as one group. */
+  readonly checks = computed<StepChecks>(() => stepChecks(this.step().assertions));
+  readonly checkTotal = computed(() => checkCount(this.checks()));
+
+  /** Names a header / cookie "Save a value" box offers - from the recorded response. */
+  extractNames(from: ExtractRule['from']): readonly NameSuggestion[] {
+    const headers = this.step().recording.responseHeaders;
+    return from === 'COOKIE' ? responseCookieSuggestions(headers) : headerSuggestions(headers);
+  }
 
   readonly extractIndex = computed<readonly PathEntry[] | null>(() => {
     const doc = parseJson(this.step().recording.responseBody);
@@ -171,7 +168,7 @@ export class ReliveStepPanelComponent {
     const cp = this.checkpoint();
     const ruleCount = step.callRule.actions.filter((a) => a.enabled !== false).length;
     const pauses = [cp.before ? 'pause before' : '', cp.after ? 'pause after' : ''].filter(Boolean).join(' · ');
-    const checks = step.assertions.length;
+    const checks = this.checkTotal();
     return [
       { key: 'recorded', title: 'Recorded call', line: `${step.recording.method} · ${step.recording.status} · ${step.recording.durationMs} ms` },
       { key: 'mode', title: 'Mode', line: modeLine(mode, this.isChild()) },
@@ -197,7 +194,7 @@ export class ReliveStepPanelComponent {
     if (cp.before) parts.push('pause before');
     if (cp.after) parts.push('pause after');
     if (this.step().extract.length) parts.push(`saves ${this.step().extract.map((r) => r.as || '?').join(', ')}`);
-    if (this.step().assertions.length) parts.push(`${this.step().assertions.length} checks`);
+    if (this.checkTotal()) parts.push(`${this.checkTotal()} check${this.checkTotal() === 1 ? '' : 's'}`);
     return parts.join(' · ');
   });
 
@@ -326,8 +323,8 @@ export class ReliveStepPanelComponent {
     this.stepChange.emit({ ...this.step(), extract: this.step().extract.filter((_, i) => i !== index) });
   }
 
-  setAssertions(assertions: readonly Assertion[]): void {
-    this.stepChange.emit({ ...this.step(), assertions });
+  setChecks(checks: StepChecks): void {
+    this.stepChange.emit({ ...this.step(), assertions: checks });
   }
 
   /** Fields ticked in the response browser become saved values or checks on them. */
@@ -338,8 +335,10 @@ export class ReliveStepPanelComponent {
       const added = picks.map((pick) => ({ from: 'JSON' as const, path: pick.path, as: uniqueName(nameOf(pick.path), taken), missing: 'SKIP' as const }));
       this.stepChange.emit({ ...step, extract: [...step.extract, ...added] });
     } else {
-      const added = picks.map((pick): Assertion => ({ kind: 'JSON', path: pick.path, operator: 'EQUALS', value: pick.value }));
-      this.stepChange.emit({ ...step, assertions: [...step.assertions, ...added] });
+      // Each ticked field becomes a check of its own, equal to its recorded value.
+      const checks = this.checks();
+      const added = picks.map((pick) => ({ combine: 'ALL' as const, onMiss: 'DEFAULT' as const, conditions: [{ subject: 'RESPONSE_JSON_FIELD' as const, name: pick.path, operator: 'EQUALS' as const, value: pick.value }] }));
+      this.stepChange.emit({ ...step, assertions: { ...checks, groups: [...checks.groups, ...added] } });
     }
     this.browsing.set(false);
   }

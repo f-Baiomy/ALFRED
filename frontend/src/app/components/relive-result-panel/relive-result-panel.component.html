@@ -156,7 +156,53 @@
                 }
               </table>
             }
-            @if (!values().length && !assertions().length) {
+            @if (checks(); as results) {
+              <div class="rl-row rl-wrap rl-mb-6">
+                <b>Checks</b>
+                <span class="rl-ok-text">{{ checkTally().passed }} passed</span>
+                @if (checkTally().failed) {
+                  <span class="rl-bad-text">{{ checkTally().failed }} failed - run stopped</span>
+                }
+                @if (checkTally().warned) {
+                  <span class="rl-warn-text">{{ checkTally().warned }} warning{{ checkTally().warned === 1 ? '' : 's' }} - run continued</span>
+                }
+                @if (results.error) {
+                  <span class="muted">({{ results.error }})</span>
+                }
+              </div>
+              @for (group of results.groups; track $index; let gi = $index) {
+                <div class="rl-check-group" [class.rl-check-failed]="!group.passed && group.onMiss === 'FAIL'" [class.rl-check-warned]="!group.passed && group.onMiss === 'WARN'">
+                  <div class="rl-row rl-wrap rl-check-group-head">
+                    <span class="rl-check-tag">CHECK{{ results.groups.length > 1 ? ' ' + (gi + 1) : '' }}</span>
+                    <span class="muted">{{ group.combine === 'ANY' ? 'any of' : 'all of' }} these</span>
+                    <span class="rl-spacer"></span>
+                    @if (group.passed) {
+                      <span class="rl-ok-text">✓ passed{{ group.combine === 'ANY' && group.conditions.length > 1 ? ' - one of them holds' : '' }}</span>
+                    } @else if (group.onMiss === 'FAIL') {
+                      <span class="rl-bad-text">✗ failed · run stopped</span>
+                    } @else {
+                      <span class="rl-warn-text">⚠ warning · continued</span>
+                    }
+                  </div>
+                  @for (row of group.rows; track $index; let ci = $index) {
+                    <div class="rl-check-result-row">
+                      <span class="muted rl-check-joiner">{{ ci === 0 ? '' : (group.combine === 'ANY' ? 'or' : 'and') }}</span>
+                      <span [class.rl-ok-text]="row.holds" [class.rl-bad-text]="!row.holds">{{ row.holds ? '✓' : '✗' }}</span>
+                      <span>{{ group.conditions[ci] ? describe(group.conditions[ci]) : '' }}</span>
+                      <span class="muted">{{ foundLine(row) }}</span>
+                    </div>
+                    @if (items(row).length) {
+                      <div class="rl-check-items">
+                        @for (item of items(row); track $index) {
+                          <span class="rl-check-item" [class.rl-check-item-bad]="!item.holds">{{ item.value }}</span>
+                        }
+                      </div>
+                    }
+                  }
+                </div>
+              }
+            }
+            @if (!values().length && !assertions().length && !checks()) {
               <div class="muted">This step saves no values and has no checks.</div>
             }
           }

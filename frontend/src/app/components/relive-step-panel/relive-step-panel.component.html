@@ -176,7 +176,13 @@
                   @if (rule.from === 'JSON') {
                     <app-json-path-input [value]="rule.path" [index]="extractIndex()" (valueChange)="updateExtractRule($index, { path: $event })" />
                   } @else {
-                    <input [value]="rule.path" (change)="updateExtractRule($index, { path: $any($event.target).value })" placeholder="header/cookie name" />
+                    <app-name-suggest
+                      [value]="rule.path"
+                      [placeholder]="rule.from === 'COOKIE' ? 'cookie name' : 'header name'"
+                      [suggestions]="extractNames(rule.from)"
+                      [title]="rule.from === 'COOKIE' ? 'Cookies the recorded response sets' : 'Headers in the recorded response'"
+                      (valueChange)="updateExtractRule($index, { path: $event })"
+                    />
                   }
                   <span class="muted">as</span>
                   <input class="rl-mono" [value]="rule.as" (change)="updateExtractRule($index, { as: $any($event.target).value })" placeholder="variableName" />
@@ -222,21 +228,7 @@
               <span class="rl-spacer"></span>
               <button class="rl-btn rl-sm" (click)="browseAs.set('check'); browsing.set(true)">Browse response body…</button>
             </div>
-            <app-scenario-assertion-editor [assertions]="step().assertions" (assertionsChange)="setAssertions($event)" />
-            @if (assertionPreview().length) {
-              <div class="rl-mt-4">
-                <span class="muted">On the recording:</span>
-                @for (r of assertionPreview(); track $index) {
-                  <div [class.rl-ok-text]="r.passed" [class.rl-warn-text]="!r.passed">
-                    {{ r.passed ? '✓' : '✗' }} {{ r.assertion.kind }} {{ r.assertion.path ?? '' }} {{ r.assertion.operator }} {{ r.assertion.value ?? '' }}
-                    @if (!r.passed) {
-                      - {{ r.message }}
-                    }
-                  </div>
-                }
-              </div>
-            }
-            <div class="muted rl-mt-4">Without checks a step passes when its response matches the recording (after noise). A failed check fails the step unless it is optional.</div>
+            <app-relive-checks-editor [checks]="checks()" [recording]="step().recording" (checksChange)="setChecks($event)" />
           }
         }
       </div>

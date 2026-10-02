@@ -1,0 +1,76 @@
+<div class="rl-checks">
+  <div class="rl-row rl-wrap rl-checks-head">
+    <span class="muted">When a check misses (default)</span>
+    <app-select-picker
+      class="rl-onmiss"
+      [class.rl-onmiss-fail]="checks().onMiss === 'FAIL'"
+      [class.rl-onmiss-warn]="checks().onMiss === 'WARN'"
+      [options]="defaultOptions"
+      [value]="checks().onMiss"
+      ariaLabel="When a check misses"
+      (valueChange)="setDefault($event)"
+    />
+    @if (previewError(); as error) {
+      <span class="rl-spacer"></span>
+      <span class="muted">{{ error }}</span>
+    }
+  </div>
+
+  @for (group of checks().groups; track $index; let gi = $index) {
+    <div class="rl-check-group">
+      <div class="rl-row rl-wrap rl-check-group-head">
+        <span class="rl-check-tag">CHECK{{ checks().groups.length > 1 ? ' ' + (gi + 1) : '' }}</span>
+        <span class="muted">passes when</span>
+        <app-select-picker [options]="combineOptions" [value]="group.combine" ariaLabel="All or any of these" (valueChange)="setCombine(gi, $event)" />
+        <span class="muted">these hold</span>
+        <span class="rl-spacer"></span>
+        <span class="muted">On a miss</span>
+        <app-select-picker
+          class="rl-onmiss"
+          [class.rl-onmiss-fail]="group.onMiss === 'FAIL'"
+          [class.rl-onmiss-warn]="group.onMiss === 'WARN'"
+          [class.rl-onmiss-default]="group.onMiss === 'DEFAULT'"
+          [options]="groupOptions()"
+          [value]="group.onMiss"
+          ariaLabel="On a miss"
+          (valueChange)="setGroupOnMiss(gi, $event)"
+        />
+        <button type="button" class="icon-btn danger" title="Remove this check group" (click)="removeGroup(gi)">×</button>
+      </div>
+
+      @for (condition of group.conditions; track $index; let ci = $index) {
+        <app-condition-row
+          [condition]="condition"
+          [subjectOptions]="subjectOptions"
+          [joiner]="ci === 0 ? '' : (group.combine === 'ANY' ? 'or' : 'and')"
+          [paths]="paths()"
+          [valueHints]="valueHints(condition)"
+          [headerNames]="headerNames()"
+          headerNamesTitle="Headers in the recorded response"
+          (conditionChange)="setCondition(gi, ci, $event)"
+          (remove)="removeCondition(gi, ci)"
+        />
+        <div class="rl-check-preview">
+          @if (rowPreview(gi, ci); as p) {
+            On the recording:
+            <span [class.rl-ok-text]="p.holds" [class.rl-bad-text]="!p.holds">{{ p.holds ? '✓ holds' : '✗ does not hold' }}</span>
+            <span class="muted">{{ ' · ' + p.text }}</span>
+          } @else if (!previewError()) {
+            <span class="muted">On the recording: …</span>
+          }
+        </div>
+      }
+      <button type="button" class="pill add cond-add" (click)="addCondition(gi)">+ Add {{ group.combine === 'ANY' ? 'OR' : 'AND' }} check</button>
+    </div>
+  }
+
+  <div class="rl-row rl-wrap rl-mt-4">
+    <button type="button" class="rl-btn rl-sm" (click)="addGroup('ALL')">＋ Add check</button>
+    <button type="button" class="rl-btn rl-sm" (click)="addGroup('ANY')">＋ Add OR group</button>
+  </div>
+  <div class="muted rl-mt-4">
+    Every group must pass. Inside a group the checks are joined by AND (all of) or OR (any of), and the
+    group's "On a miss" says what a miss means: fail stops the run, warn carries on. Without checks a
+    step passes when its answer matches the recording (after noise).
+  </div>
+</div>

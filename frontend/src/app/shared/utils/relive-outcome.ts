@@ -7,6 +7,7 @@
  */
 import { type Assertion, AssertionResult } from './scenario-types';
 import { DifferenceEntry, FrozenCall, StepResult, StepState } from './relive-types';
+import { isCheckResults, missLines } from './relive-checks';
 
 export type StepOutcome = 'COMPLETED' | 'COMPLETED_WITH_DIFFERENCES' | 'FAILED';
 
@@ -131,6 +132,12 @@ function explainFailure(
   const gzip = isGzip(result.actualResponse);
   for (const failed of failedAssertions(result.assertions)) {
     lines.push(explainAssertion(failed, gzip, status));
+  }
+  // Checks (groups of rule conditions) that missed with "fail" - see relive-checks.ts.
+  if (isCheckResults(result.assertions)) {
+    for (const miss of missLines(result.assertions)) {
+      if (miss.failed) lines.push(brief(miss.text));
+    }
   }
   if (!lines.length) lines.push(brief('This step failed.'));
   return lines;

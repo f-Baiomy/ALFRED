@@ -2047,3 +2047,100 @@ h3.rl-caps-head-gap {
     gap: 0.45rem;
   }
 }
+
+// A step's checks (ReliveChecksEditorComponent) and their results (ReliveResultPanelComponent):
+// groups of the rule editor's own condition rows, each with what a miss means.
+.rl-checks-head {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.rl-check-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-inner);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+
+  &.rl-check-failed {
+    border-left: 3px solid var(--red);
+  }
+
+  &.rl-check-warned {
+    border-left: 3px solid var(--amber);
+  }
+}
+
+.rl-check-group-head {
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.rl-check-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 6px;
+  color: var(--cyan);
+  border: 1px solid color-mix(in srgb, var(--cyan) 50%, transparent);
+  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+}
+
+.rl-check-preview {
+  margin: -2px 0 8px 34px;
+  font-size: 11.5px;
+
+  .muted {
+    margin-left: 6px;
+  }
+}
+
+.rl-onmiss.rl-onmiss-fail .theme-picker-btn {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+}
+
+.rl-onmiss.rl-onmiss-warn .theme-picker-btn {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+}
+
+.rl-onmiss.rl-onmiss-default .theme-picker-btn {
+  border-style: dashed;
+}
+
+.rl-check-result-row {
+  display: grid;
+  grid-template-columns: 30px 18px minmax(0, auto) 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+
+.rl-check-joiner {
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+
+.rl-check-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 6px 56px;
+}
+
+.rl-check-item {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+
+  &.rl-check-item-bad {
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 50%, transparent);
+  }
+}

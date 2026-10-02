@@ -192,13 +192,36 @@ embedded):
   optional), 2 Mode, 3 Your edits (`app-body-editor`), 4 Variables (who saves what this step
   uses), 5 Call rule (the Interception page's `app-rule-editor` in `inline` mode: no match or
   name section, its footer applies the rule to this step), 6 Answer (ALFRED's mock), 7 Values
-  (saved values previewed against the recording, the field browser `app-json-browse`, and
-  `app-scenario-assertion-editor` with each check run on the recording). The diff is the
-  recording against what this step sends / answers.
+  (saved values previewed against the recording, the field browser `app-json-browse`, and the
+  checks - see below). The diff is the recording against what this step sends / answers.
 - **`app-relive-result-panel`** (run view, "Relived from the recording") - the same strip for one
   attempt plus box 8 Values (each saved value and check result). The card is the call the run
   logged, so its ⚡ panel and error banner work as for any call; the diff is the recording
   against this run. Ignore / count a differing field from the Response box.
+
+### Step checks
+
+A step's "Check the response" is groups of rule conditions (`shared/utils/relive-checks.ts`),
+edited with the rule editor's own row (`app-condition-row`, inside `app-relive-checks-editor`).
+Each group is one IF block - its conditions joined **all of** (AND) or **any of** (OR) - and every
+group must pass. What a miss means belongs to the group, with one default per step: **fail** marks
+the step failed and holds the run there even when the cycle says "continue on failure" (an
+optional step is only marked failed), **warn** leaves the step's state alone, shows a warning pill
+and carries on.
+
+Checks are evaluated by the **proxy**, with the same `Condition` class every rule uses - never a
+browser copy. The backend's `POST /relive-cycles/checks/evaluate` sends the groups and an answer
+through the forward proxy to the reserved host `alfred-checks.internal`, which the addon answers
+itself (`interception.evaluate_check_groups` / `answer_check_request`) and never forwards or logs.
+The editor uses it for the "On the recording" line under each row (refreshed shortly after an
+edit), and a run uses it on the answer each step got (`ReliveRunService.withChecks`); the result
+is stored on the step result (`assertions`, `kind: 'checks'`) with what each condition found.
+
+Checks are stored in the step's `assertions` field, which the backend treats as opaque. A step
+saved before checks existed holds the older `Assertion[]` there; `stepChecks` reads it as one
+all-of group with fail on a miss (GT n becomes at least n+1, LATENCY becomes Response time), so
+an old cycle behaves as before until it is edited. Resend scenarios keep their own simpler
+assertions and editor.
 
 Mode, pauses, the edited request and ALFRED's answer are all actions of the one call rule; boxes
 2, 3 and 6 are shortcuts that edit them, so box 5 always shows the whole rule.

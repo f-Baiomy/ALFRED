@@ -1,6 +1,7 @@
 import { DestroyRef, Component, ElementRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
 import { ReliveRunLogComponent } from '../relive-run-log/relive-run-log.component';
+import { isCheckResults, tally } from '../../shared/utils/relive-checks';
 import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.component';
 import { ReliveResultPanelComponent, ShownDifference } from '../relive-result-panel/relive-result-panel.component';
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
@@ -396,6 +397,11 @@ export class ReliveRunTimelineComponent {
     event.stopPropagation();
     this.differencePopup.set(null);
     this.reasonPopup.set(reason);
+  }
+
+  /** Checks set to "warn" that missed in this result - shown as a pill on the row. */
+  checkWarnings(row: TimelineRow): number {
+    return isCheckResults(row.result.assertions) ? tally(row.result.assertions).warned : 0;
   }
 
   /** From the result panel inside the step's card (no click event to stop there). */

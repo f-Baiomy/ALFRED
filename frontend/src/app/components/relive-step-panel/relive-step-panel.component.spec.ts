@@ -176,14 +176,20 @@ describe('ReliveStepPanelComponent', () => {
       expect(emitted.at(-1)!.extract).toEqual([]);
     });
 
-    it('checks run against the recording before a run', () => {
-      panel.setAssertions([
+    it('reads older checks as one group of conditions, and edits them with the checks editor', () => {
+      fixture.componentRef.setInput('step', makeStep({ assertions: [
         { kind: 'STATUS', operator: 'EQUALS', value: '200' },
-        { kind: 'JSON', path: 'results', operator: 'EQUALS', value: '13' },
-      ]);
+        { kind: 'JSON', path: '$.results', operator: 'GT', value: '10' },
+      ] }));
       open('values');
-      expect(panel.assertionPreview().map((r) => r.passed)).toEqual([true, false]);
-      expect(fixture.nativeElement.querySelector('app-scenario-assertion-editor')).toBeTruthy();
+      expect(panel.checks().groups).toEqual([{ combine: 'ALL', onMiss: 'DEFAULT', conditions: [
+        { subject: 'RESPONSE_STATUS', operator: 'EQUALS', value: '200' },
+        { subject: 'RESPONSE_JSON_FIELD', name: 'results', operator: 'AT_LEAST', value: '11' },
+      ] }]);
+      expect(fixture.nativeElement.querySelectorAll('app-relive-checks-editor app-condition-row').length).toBe(2);
+
+      panel.setChecks({ ...panel.checks(), onMiss: 'WARN' });
+      expect(emitted.at(-1)!.assertions).toEqual(jasmine.objectContaining({ version: 2, onMiss: 'WARN' }));
     });
 
     it('fields ticked in the response browser become saved values, or checks', () => {
@@ -192,7 +198,9 @@ describe('ReliveStepPanelComponent', () => {
 
       panel.browseAs.set('check');
       panel.onBrowsePicked([{ path: 'results', value: '12', as: 'test', type: 'number' }]);
-      expect(emitted.at(-1)!.assertions).toEqual([{ kind: 'JSON', path: 'results', operator: 'EQUALS', value: '12' }]);
+      expect(emitted.at(-1)!.assertions).toEqual({ version: 2, onMiss: 'FAIL', groups: [
+        { combine: 'ALL', onMiss: 'DEFAULT', conditions: [{ subject: 'RESPONSE_JSON_FIELD', name: 'results', operator: 'EQUALS', value: '12' }] },
+      ] });
     });
   });
 

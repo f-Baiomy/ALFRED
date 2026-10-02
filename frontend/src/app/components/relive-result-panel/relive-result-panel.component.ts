@@ -1,7 +1,8 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { CallStepStripComponent, CallStripStep } from '../call-step-strip/call-step-strip.component';
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
-import { CallInterception, OriginalHttp } from '../../core/models/interception.model';
+import { CallInterception, Condition, OriginalHttp, describeCondition } from '../../core/models/interception.model';
+import { CheckRowResult, StepCheckResults, foundLine, isCheckResults, tally } from '../../shared/utils/relive-checks';
 import { requestBodyOf } from '../../shared/utils/relive-call-rule';
 import { maskRelive } from '../../shared/utils/relive-mask';
 import { StepReason, formatReasonDetail } from '../../shared/utils/relive-outcome';
@@ -79,7 +80,29 @@ export class ReliveResultPanelComponent {
   readonly status = computed(() => toHttp(this.result().actualResponse)?.status ?? null);
   readonly edited = computed(() => requestBodyOf(this.step().callRule) !== null);
   readonly assertions = computed(() => assertionResultsOf(this.result().assertions));
-  readonly failedChecks = computed(() => this.assertions().filter((a) => !a.passed).length);
+  /** Checks as groups of rule conditions, evaluated by the proxy (relive-checks.ts). */
+  readonly checks = computed<StepCheckResults | null>(() => {
+    const raw = this.result().assertions;
+    return isCheckResults(raw) ? raw : null;
+  });
+  readonly checkTally = computed(() => tally(this.checks()));
+  readonly failedChecks = computed(() => this.assertions().filter((a) => !a.passed).length + this.checkTally().failed);
+  readonly warnedChecks = computed(() => this.checkTally().warned);
+
+  describe(condition: Condition): string {
+    return describeCondition(condition);
+  }
+
+  foundLine(row: CheckRowResult): string {
+    return this.mask(foundLine(row));
+  }
+
+  /** Each item a list condition looked at, with whether it held - the chips under a row. */
+  items(row: CheckRowResult): readonly { readonly value: string; readonly holds: boolean }[] {
+    const field = row.found?.fields?.[0];
+    if (!field?.itemHolds) return [];
+    return field.itemHolds.map((holds, i) => ({ value: this.mask(String(field.values[i] ?? 'null')), holds }));
+  }
 
   /** Each saved value of this step: what this run got next to what the recording had. */
   readonly values = computed(() => {
@@ -97,7 +120,8 @@ export class ReliveResultPanelComponent {
     const answered = result.mode === 'REPLAY' ? 'ALFRED answered (recording)' : result.reachedUpstream === false ? 'answered by ALFRED' : 'real host contacted';
     const values = this.values();
     const missing = values.filter((v) => v.value === null).length;
-    const checks = this.assertions().length;
+    const checks = this.assertions().length + (this.checks()?.groups.length ?? 0);
+    const warned = this.warnedChecks();
     return [
       { key: 'recorded', title: 'Recorded call', line: `${step().recording.method} · ${step().recording.status}` },
       { key: 'edits', title: 'Your edits', line: this.edited() ? 'request body replaced' : 'none' },
@@ -109,7 +133,7 @@ export class ReliveResultPanelComponent {
       {
         key: 'values',
         title: 'Values',
-        line: [values.length ? (missing ? `${missing} missing` : `${values.length} saved`) : '', checks ? (this.failedChecks() ? `${this.failedChecks()} of ${checks} checks failed` : `${checks} checks passed`) : '']
+        line: [values.length ? (missing ? `${missing} missing` : `${values.length} saved`) : '', checks ? (this.failedChecks() ? `${this.failedChecks()} of ${checks} checks failed` : `${checks - warned} checks passed`) : '', warned ? `${warned} warning${warned === 1 ? '' : 's'}` : '']
           .filter(Boolean).join(' · ') || 'none',
       },
     ];
@@ -121,6 +145,7 @@ export class ReliveResultPanelComponent {
     if (result.rulesApplied.length) parts.push(`${result.rulesApplied.length} rule${result.rulesApplied.length === 1 ? '' : 's'}`);
     if (this.differences().length) parts.push(`${this.differences().length} difference${this.differences().length === 1 ? '' : 's'}`);
     if (this.failedChecks()) parts.push(`${this.failedChecks()} check${this.failedChecks() === 1 ? '' : 's'} failed`);
+    if (this.warnedChecks()) parts.push(`${this.warnedChecks()} warning${this.warnedChecks() === 1 ? '' : 's'}`);
     return parts.join(' · ');
   });
 

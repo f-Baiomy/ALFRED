@@ -7,7 +7,8 @@
  * knows how to render and the proxy already knows how to evaluate - see FR-029a.
  */
 import type { InterceptionRuleDraft } from '../../core/models/interception.model';
-import type { Assertion, ExtractRule } from './scenario-types';
+import type { ExtractRule } from './scenario-types';
+import type { StepAssertions } from './relive-checks';
 
 export type ReliveDriver = 'AUTOMATIC' | 'GUIDED';
 export type GlobalRulesMode = 'NONE' | 'ALL' | 'SELECTED';
@@ -90,7 +91,8 @@ export interface Step {
   readonly recording: FrozenCall;
   readonly source: { readonly callId: string; readonly cycleId: string | null; readonly direction: 'outbound' | 'inbound' };
   readonly extract: readonly ExtractRule[];
-  readonly assertions: readonly Assertion[];
+  /** The step's checks (relive-checks.ts `StepChecks`); an older Assertion[] in a step saved before them - read with `stepChecks`. */
+  readonly assertions: StepAssertions;
   readonly noise: readonly NoiseRule[];
   /** Persisted SEMANTIC_V1 hash of an outbound request. Absent until the cycle is saved. */
   readonly fingerprint?: string | null;

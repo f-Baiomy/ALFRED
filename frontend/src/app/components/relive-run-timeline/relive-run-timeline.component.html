@@ -195,6 +195,9 @@
         @if (row.result.unexpectedCalls.length) {
           <span class="rl-pill rl-p-diff" title="Calls during this step that matched no recorded child">{{ row.result.unexpectedCalls.length }} unexpected</span>
         }
+        @if (checkWarnings(row); as warned) {
+          <span class="rl-pill rl-p-diff" title="Checks set to warn that missed - the run carried on">⚠ {{ warned }} warning{{ warned === 1 ? '' : 's' }}</span>
+        }
         @if (row.result.attempt > 1) {
           <span class="rl-pill rl-p-wait">attempt {{ row.result.attempt }}</span>
         }

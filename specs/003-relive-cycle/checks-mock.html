@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Relive - step checks as rule conditions (mock)</title>
+<style>
+  :root {
+    --bg: #1c2128; --card: #242a31; --card-2: #20252c; --inner: #181c22;
+    --border: #353c45; --border-strong: #47505b;
+    --text: #e6e9ee; --dim: #a6aebb; --faint: #6e7886;
+    --blue: #7aa2ff; --blue-bg: #263450; --green: #34d399; --amber: #fbbf24; --red: #f87171;
+    --purple: #a78bfa; --teal: #2dd4bf;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 28px 60px; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  button { font: inherit; color: inherit; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .note { color: var(--dim); max-width: 1240px; margin: 0 0 16px; }
+  .tabs { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
+  .tabs button { background: transparent; border: 0; padding: 7px 14px; color: var(--dim); cursor: pointer; }
+  .tabs button.on { background: var(--blue-bg); color: var(--text); }
+  .wrap { max-width: 1240px; min-width: 1100px; }
+
+  .panel { border: 1px solid rgba(45, 212, 191, .35); background: rgba(45, 212, 191, .04); border-radius: 12px; padding: 12px 16px 16px; }
+  .panel.run { border-color: rgba(167, 139, 250, .4); background: rgba(167, 139, 250, .04); }
+  .phead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .phead .ico { color: var(--teal); }
+  .run .phead .ico { color: var(--purple); }
+  .phead em { font-style: normal; color: var(--faint); font-family: var(--mono); font-size: 12.5px; }
+  .strip { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .sbox { border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; background: var(--card-2); font-size: 12.5px; }
+  .sbox b { display: block; font-weight: 600; }
+  .sbox span { color: var(--faint); font-size: 11.5px; }
+  .sbox.on { border-color: var(--blue); background: #24304a; }
+  .sbox.bad span { color: var(--red); }
+  .sbox.warn span { color: var(--amber); }
+
+  h3 { font-size: 13px; margin: 14px 0 8px; display: flex; align-items: center; gap: 10px; }
+  h3 .sp { flex: 1; }
+  .hint { color: var(--faint); font-size: 12px; margin: 6px 0 0; }
+  .btn { background: transparent; border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
+
+  .ifblock { border: 1px solid var(--border); border-radius: 10px; background: var(--card-2); padding: 8px 10px 10px; }
+  .ifhead { display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: 12.5px; margin-bottom: 8px; flex-wrap: wrap; }
+  .ifhead .sp { flex: 1; }
+  .tag { font-weight: 700; font-size: 11.5px; padding: 2px 8px; border-radius: 6px; border: 1px solid; }
+  .tag.check { color: var(--teal); border-color: rgba(45, 212, 191, .5); background: rgba(45, 212, 191, .1); }
+  .crow { display: grid; grid-template-columns: 34px auto 20px auto minmax(0, 1fr) auto auto auto minmax(90px, 170px) auto 24px; gap: 8px; align-items: center; background: var(--inner); border-radius: 8px; padding: 7px 8px; }
+  .crow + .preview, .crow + .result { margin-bottom: 8px; }
+  .and { color: var(--faint); font-size: 11.5px; text-align: center; }
+  .dd { display: inline-flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 4px 9px; font-size: 13px; white-space: nowrap; cursor: pointer; }
+  .dd::after { content: '▾'; color: var(--faint); font-size: 10px; }
+  .dd.small { padding: 3px 8px; font-size: 12.5px; }
+  .dd.fail { color: var(--red); border-color: rgba(248, 113, 113, .45); background: rgba(248, 113, 113, .08); }
+  .dd.warn { color: var(--amber); border-color: rgba(251, 191, 36, .45); background: rgba(251, 191, 36, .08); }
+  .dd.inherit { color: var(--faint); border-style: dashed; }
+  .i { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border-strong); color: var(--faint); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; font-style: italic; }
+  .fields { display: flex; gap: 6px; min-width: 0; flex-wrap: wrap; }
+  .field { background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 4px 9px; font-family: var(--mono); font-size: 12.5px; min-width: 110px; }
+  .field.ph { color: var(--faint); }
+  .addf { border: 1px dashed var(--border-strong); border-radius: 7px; padding: 3px 8px; color: var(--faint); font-size: 12px; white-space: nowrap; }
+  .val { background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 4px 9px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .x { color: var(--faint); border: 1px solid var(--border); border-radius: 6px; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
+  .addc { display: block; width: 100%; text-align: center; border: 1px dashed var(--border-strong); border-radius: 8px; padding: 6px; color: var(--dim); background: transparent; margin-top: 2px; cursor: pointer; }
+  .menu { position: relative; }
+  .menu-list { position: absolute; top: 30px; right: 0; z-index: 3; background: #2b323b; border: 1px solid var(--border-strong); border-radius: 10px; padding: 6px; width: 290px; box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 13px; }
+  .menu-list div { padding: 6px 9px; border-radius: 6px; }
+  .menu-list div small { display: block; color: var(--faint); font-size: 11.5px; }
+  .menu-list div.on { background: var(--blue-bg); }
+  .new { color: var(--amber); font-size: 10.5px; border: 1px solid rgba(251, 191, 36, .5); border-radius: 5px; padding: 0 5px; margin-left: 6px; }
+
+  /* "On the recording" - kept, one line under each row */
+  .preview { display: flex; gap: 8px; align-items: center; margin: 3px 0 0 42px; font-size: 12px; color: var(--faint); }
+  .preview .ok { color: var(--green); } .preview .bad { color: var(--red); }
+  .preview code, .result code { font-family: var(--mono); font-size: 11.5px; background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+
+  .result { display: flex; gap: 10px; align-items: flex-start; padding: 6px 10px; border-left: 3px solid var(--green); background: rgba(52, 211, 153, .05); border-radius: 0 8px 8px 0; margin: 3px 0 0 42px; font-size: 12.5px; }
+  .result.fail { border-left-color: var(--red); background: rgba(248, 113, 113, .06); }
+  .result.warn { border-left-color: var(--amber); background: rgba(251, 191, 36, .06); }
+  .result b { white-space: nowrap; }
+  .ok { color: var(--green); } .bad { color: var(--red); } .wrn { color: var(--amber); }
+  .items { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .item { font-family: var(--mono); font-size: 11.5px; border-radius: 4px; padding: 0 5px; border: 1px solid var(--border); }
+  .item.okv { color: var(--green); border-color: rgba(52, 211, 153, .4); }
+  .item.badv { color: var(--red); border-color: rgba(248, 113, 113, .5); }
+  .summary { display: flex; gap: 14px; font-size: 13px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+  .halt { border: 1px solid rgba(248, 113, 113, .5); background: rgba(248, 113, 113, .08); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+  .halt b { color: var(--red); }
+
+  /* Header / cookie name suggestions - one shared dropdown under a name box */
+  .sug-wrap { position: relative; display: inline-block; }
+  .namebox { background: var(--card); border: 1px solid var(--blue); border-radius: 7px; padding: 4px 9px; font-family: var(--mono); font-size: 12.5px; min-width: 190px; display: inline-block; }
+  .namebox .caret { border-left: 1px solid var(--text); margin-left: 1px; }
+  .sug { position: absolute; top: 32px; left: 0; z-index: 4; width: 470px; background: #2b323b; border: 1px solid var(--border-strong); border-radius: 10px; padding: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 12.5px; }
+  .sug .grp { color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; padding: 6px 8px 3px; }
+  .sug .opt { display: grid; grid-template-columns: 190px 1fr; gap: 10px; padding: 5px 8px; border-radius: 6px; align-items: baseline; }
+  .sug .opt.on { background: var(--blue-bg); }
+  .sug .opt b { font-family: var(--mono); font-weight: 600; }
+  .sug .opt b mark { background: none; color: var(--blue); }
+  .sug .opt span { font-family: var(--mono); color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sug .foot { color: var(--faint); font-size: 11px; padding: 6px 8px 2px; border-top: 1px solid var(--border); margin-top: 4px; }
+  .sbox-demo { border: 1px solid var(--border); border-radius: 12px; background: var(--card-2); padding: 12px 14px 260px; margin-bottom: 16px; }
+  .sbox-demo h4 { margin: 0 0 10px; font-size: 13px; display: flex; gap: 10px; align-items: center; }
+  .sbox-demo h4 em { font-style: normal; color: var(--faint); font-weight: 400; font-size: 12px; }
+  .demo-row { display: flex; gap: 8px; align-items: center; background: var(--inner); border-radius: 8px; padding: 7px 8px; flex-wrap: wrap; }
+  .lane-tag { font-size: 11.5px; font-weight: 700; color: var(--blue); border: 1px solid rgba(122,162,255,.45); border-radius: 6px; padding: 1px 7px; }
+
+  .legend { margin-top: 26px; color: var(--dim); font-size: 13px; max-width: 1240px; }
+  .legend h2 { font-size: 15px; color: var(--text); margin: 18px 0 8px; }
+  .legend li { margin: 5px 0; }
+  .legend code { font-family: var(--mono); font-size: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  table { border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+  td, th { border: 1px solid var(--border); padding: 5px 9px; text-align: left; vertical-align: top; }
+  th { background: var(--card); color: var(--text); }
+</style>
+</head>
+<body>
+
+<h1>Step checks as rule conditions - with fail / warn</h1>
+<p class="note">"Check the response" is the rule editor's own IF block: the same condition row component, subjects, list modes and operators, evaluated by the same proxy <code>Condition</code> code as a rule. Each check says what a miss means - <b style="color:var(--red)">fail and stop the run</b> or <b style="color:var(--amber)">warn and carry on</b> - with one default for the whole block. The "On the recording" preview stays. Resend scenarios are not touched. Click the tabs, and the "on fail" dropdowns.</p>
+
+<div class="tabs" id="tabs">
+  <button class="on" data-t="setup">Steps tab - box 7 · Values</button>
+  <button data-t="run">Run tab - this run stopped</button>
+  <button data-t="warn">Run tab - passed with warnings</button>
+  <button data-t="suggest">Header &amp; cookie suggestions</button>
+</div>
+
+<div class="wrap" id="app"></div>
+
+<div class="legend">
+  <h2>AND / OR</h2>
+  <ul>
+    <li>Checks come in <b>groups</b>. Each group is the rule IF block itself, with its existing <b>all of / any of</b> switch: rows joined by <b>AND</b> or <b>OR</b> (click "all of" in the mock to flip it).</li>
+    <li>Every group must pass. A group with one row is a single check.</li>
+    <li>"On a miss" (fail / warn) belongs to the group - inside an OR group there is no single row to blame, the group as a whole passes or not.</li>
+    <li>The proxy already evaluates a branch as "all of / any of" its conditions, so a check group is evaluated by exactly that code - no new combining logic.</li>
+  </ul>
+
+  <h2>Fail or warn</h2>
+  <ul>
+    <li><b>Default</b> ("When a check misses (default): …") applies to every group set to <i>as block default</i>. Each group can override it.</li>
+    <li><b style="color:var(--red)">Fail · stop the run</b>: the step is marked <b>failed</b> and the run holds there (the same hold box as today: Retry / Continue with the next calls / End run). An optional step only gets marked failed - it never stops the run, as today.</li>
+    <li><b style="color:var(--amber)">Warn · continue</b>: the step is marked <b>passed with warnings</b>, the run goes on, and the run summary and run log count the warnings.</li>
+    <li>A step with no checks behaves as today (passes when the answer matches the recording after noise).</li>
+  </ul>
+
+  <h2>One editor, one evaluator - and the preview kept</h2>
+  <ul>
+    <li><b>Editor:</b> the condition row moves out of <code>app-rule-editor</code> into <code>app-condition-row</code>, used by the rule editor's IF and by step checks. A subject, operator or list mode added there shows up in both. The fail / warn dropdown is a check-only extra at the end of the row.</li>
+    <li><b>Evaluator in a run:</b> the proxy's <code>Condition</code> class runs a step's checks when its call answers and reports each result (and what it found), next to the rules it already reports.</li>
+    <li><b>"On the recording" preview:</b> evaluated by the <b>same proxy code</b>, not a browser copy. The page asks the backend, which sends the checks and the recorded response through the proxy to a reserved internal address the addon answers itself (never forwarded anywhere). Refreshed as you edit, after a short pause. If the proxy is down the line says "preview unavailable".</li>
+    <li><b>Response time (ms)</b> <span class="new">new</span> becomes a condition subject - rules get it too. Checks offer only response subjects; request subjects stay rule-only.</li>
+  </ul>
+
+  <h2>Existing checks are converted on load (all default to "as block" = fail, like today)</h2>
+  <table>
+    <tr><th>Today</th><th>Becomes</th></tr>
+    <tr><td>STATUS equals 200</td><td>Response status · equals · 200</td></tr>
+    <tr><td>JSON <code>journeys</code> greater than 1</td><td>Response JSON field · <code>journeys</code> · at least · 2 (GT n → AT_LEAST n+1 for whole numbers)</td></tr>
+    <tr><td>HEADER <code>X-Ref</code> exists</td><td>Response header · <code>X-Ref</code> · exists</td></tr>
+    <tr><td>LATENCY less than 2000</td><td>Response time (ms) · at most · 1999</td></tr>
+  </table>
+
+  <h2>Header and cookie suggestions (tab 4)</h2>
+  <ul>
+    <li>One name-suggestion dropdown (<code>app-name-suggest</code>) under every header or cookie name box: step checks, the rule editor's IF conditions and header / cookie actions (inline in box 5 and in the rule dialog - the same component), and Values' "Save a value" from Header / Cookie.</li>
+    <li>Where the names come from: the step's <b>recording</b> - request headers and the request <code>Cookie</code> header for request-side boxes, response headers and <code>Set-Cookie</code> for response-side boxes. On the Interception page (no step) the rule editor's sample call is used the same way.</li>
+    <li>Each suggestion shows the recorded value as a preview (secrets masked), filters as you type (case-insensitive, match highlighted), ↑↓ / Enter / Esc, and any other name can still be typed.</li>
+    <li>Cookie parsing reuses the existing <code>parseCookieHeader</code> / <code>parseSetCookieHeader</code> (<code>shared/utils/capture-preview.ts</code>).</li>
+  </ul>
+
+  <h2>Not changed</h2>
+  <ul><li>Resend scenarios keep their own checks and editor (<code>app-scenario-assertion-editor</code>) exactly as they are.</li></ul>
+</div>
+
+<script>
+// Checks come in groups. Each group is one IF-style block: its rows joined by AND ("all of") or OR
+// ("any of") - the rule editor's own combine - and one "on a miss" for the whole group. A group with
+// one row is a single check with its own fail / warn.
+const groups = [
+  { combine: 'all', onFail: 'block', rows: [
+    { subject: 'Response status', op: 'equals', value: '200',
+      preview: [true, 'got <code>200</code>'], run: [true, 'got <code>200</code>'] },
+    { subject: 'Response JSON field', fields: ['journeys'], op: 'count at least', value: '1',
+      preview: [true, 'found <code>14</code> items'], run: [true, 'found <code>14</code> items'] },
+  ] },
+  { combine: 'any', onFail: 'fail', rows: [
+    { subject: 'Response JSON field', fields: ['journeys[*].numberOfStops'], mode: 'any item', op: 'at most', value: '0',
+      preview: [true, 'item 1 has <code>0</code>'], run: [false, 'lowest is <code>1</code>'], warnRun: [false, 'lowest is <code>1</code>'] },
+    { subject: 'Response JSON field', fields: ['journeys[*].origin'], mode: 'every item', op: 'equals', value: 'CAI',
+      preview: [true, 'all <code>14</code> items are <code>CAI</code>'],
+      run: [false, '2 of 14 items are not <code>CAI</code>', [['CAI', 1], ['CAI', 1], ['AUH', 0], ['CAI', 1], ['DXB', 0], ['… 9 more CAI', 1]]],
+      warnRun: [true, 'all <code>14</code> items are <code>CAI</code>'] },
+  ] },
+  { combine: 'all', onFail: 'warn', rows: [
+    { subject: 'Response time (ms)', isNew: true, op: 'at most', value: '5000',
+      preview: [true, 'recorded <code>1 310 ms</code>'], run: [false, 'took <code>6 214 ms</code>'] },
+  ] },
+];
+
+let tab = 'setup', blockDefault = 'fail', menuRow = null;
+
+const label = { fail: '✗ Fail · stop the run', warn: '⚠ Warn · continue' };
+function effective(g) { return g.onFail === 'block' ? blockDefault : g.onFail; }
+function rowRun(r, warnRun) { return warnRun && r.warnRun ? r.warnRun : r.run; }
+function groupPassed(g, warnRun) {
+  const oks = g.rows.map((r) => rowRun(r, warnRun)[0]);
+  return g.combine === 'all' ? oks.every(Boolean) : oks.some(Boolean);
+}
+
+function onFailDd(g, gi) {
+  const cls = g.onFail === 'block' ? 'inherit' : g.onFail;
+  const text = g.onFail === 'block' ? `as block (${blockDefault})` : label[g.onFail];
+  return `<span class="menu"><span class="dd small ${cls}" data-row="${gi}">${text}</span>${menuRow === gi ? menu(g.onFail, true) : ''}</span>`;
+}
+
+function menu(current, row) {
+  const items = [
+    ...(row ? [['block', 'As the block default', `currently: ${blockDefault === 'fail' ? 'fail · stop the run' : 'warn · continue'}`]] : []),
+    ['fail', '✗ Fail · stop the run', 'step marked failed, the run holds here'],
+    ['warn', '⚠ Warn · continue', 'step passes with a warning, the run goes on'],
+  ];
+  return `<div class="menu-list">${items.map(([v, t, s]) => `<div class="${v === current ? 'on' : ''}" data-pick="${v}">${t}<small>${s}</small></div>`).join('')}</div>`;
+}
+
+function rowHtml(r, i, g) {
+  const json = r.subject === 'Response JSON field';
+  const joiner = i ? (g.combine === 'all' ? 'AND' : '<b style="color:var(--amber)">OR</b>') : '';
+  return `<div class="crow" style="grid-template-columns: 34px auto 20px auto minmax(0, 1fr) auto auto auto minmax(90px, 170px) 24px">
+    <span class="and">${joiner}</span>
+    <span class="dd">${r.subject}${r.isNew ? '<span class="new">new</span>' : ''}</span>
+    <span class="i">i</span>
+    ${json ? '<span class="dd small">all of</span>' : '<span></span>'}
+    ${json ? `<span class="fields">${r.fields.map((f) => `<span class="field">${f}</span>`).join('')}<span class="field ph">another.field</span></span>` : '<span></span>'}
+    ${json ? '<span class="addf">＋ field</span>' : '<span></span>'}
+    ${r.mode ? `<span class="dd small">${r.mode}</span>` : '<span></span>'}
+    <span class="dd">${r.op}</span>
+    <span class="val">${r.value}</span>
+    <span class="x">×</span>
+  </div>`;
+}
+
+function previewHtml(r) {
+  const [ok, text] = r.preview;
+  return `<div class="preview">On the recording: <span class="${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</span> ${text}</div>`;
+}
+
+function rowResultHtml(r, warnRun) {
+  const [ok, text, items] = rowRun(r, warnRun);
+  return `<div class="preview"><span class="${ok ? 'ok' : 'bad'}">${ok ? '✓ holds' : '✗ does not hold'}</span> ${text}${items ? ` <span class="items" style="display:inline-flex;margin:0">${items.map(([v, good]) => `<span class="item ${good ? 'okv' : 'badv'}">${v}</span>`).join('')}</span>` : ''}</div>`;
+}
+
+function groupVerdict(g, warnRun) {
+  if (groupPassed(g, warnRun)) {
+    const why = g.combine === 'any' ? ' - one of them holds, which is enough' : '';
+    return `<div class="result"><b class="ok">✓ group passed</b><span>${why}</span></div>`;
+  }
+  const kind = effective(g);
+  const why = g.combine === 'any' ? 'none of them holds' : 'not all of them hold';
+  return kind === 'fail'
+    ? `<div class="result fail"><b class="bad">✗ group failed · run stopped</b><span>${why}</span></div>`
+    : `<div class="result warn"><b class="wrn">⚠ warning · continued</b><span>${why}</span></div>`;
+}
+
+function groupHtml(g, gi, run, warnRun) {
+  return `<div class="ifblock" style="margin-bottom:10px">
+    <div class="ifhead">
+      <span class="tag check">CHECK${groups.length > 1 ? ' ' + (gi + 1) : ''}</span> passes when
+      <span class="dd small" ${run ? '' : `data-combine="${gi}"`}>${g.combine === 'all' ? 'all of' : 'any of'}</span> these hold
+      <span class="sp"></span>
+      ${run ? `<span class="dd small ${effective(g)}" style="cursor:default">${label[effective(g)]}</span>` : `On a miss: ${onFailDd(g, gi)}`}
+    </div>
+    ${g.rows.map((r, i) => rowHtml(r, i, g) + (run ? rowResultHtml(r, warnRun) : previewHtml(r))).join('<div style="height:6px"></div>')}
+    ${run ? groupVerdict(g, warnRun) : `<button class="addc" style="margin-top:8px">＋ Add ${g.combine === 'all' ? 'AND' : 'OR'} check</button>`}
+  </div>`;
+}
+
+function sugList(groupsList, typed, foot) {
+  const hi = (name) => typed ? name.replace(new RegExp(typed, 'i'), (m) => `<mark>${m}</mark>`) : name;
+  return `<div class="sug">${groupsList.map(([title, opts]) => `<div class="grp">${title}</div>${opts.map(([n, v], i) => `<div class="opt ${i === 0 && title === groupsList[0][0] ? 'on' : ''}"><b>${hi(n)}</b><span>${v}</span></div>`).join('')}`).join('')}<div class="foot">${foot}</div></div>`;
+}
+
+function renderSuggest() {
+  document.getElementById('app').innerHTML = `
+  <div class="sbox-demo">
+    <h4>1 · Step check - Response header <em>(box 7, Check the response)</em></h4>
+    <div class="demo-row">
+      <span class="dd">Response header</span><span class="i">i</span>
+      <span class="sug-wrap"><span class="namebox">x-<span class="caret"></span></span>
+        ${sugList([
+          ['Headers in the recorded response', [['X-Request-Id', '5f1c0a9e-…'], ['X-Ratelimit-Remaining', '58'], ['X-Content-Type-Options', 'nosniff'], ['X-Frame-Options', 'DENY']]],
+        ], 'x-', 'From this step’s recorded response · ↑↓ to move · Enter to pick · any name can still be typed')}
+      </span>
+      <span class="dd">exists</span><span class="dd small warn">⚠ Warn · continue</span>
+    </div>
+  </div>
+
+  <div class="sbox-demo">
+    <h4>2 · Call rule IF - Request cookie <em>(box 5 and the rule dialog - the same component)</em></h4>
+    <div class="demo-row">
+      <span class="lane-tag">IF</span><span class="dd">Request cookie</span><span class="i">i</span>
+      <span class="sug-wrap"><span class="namebox"><span class="caret"></span></span>
+        ${sugList([
+          ['Cookies in the recorded request', [['JSESSIONID', 'LSucvGqNzjArli3-0YN_qKML…'], ['wondertravel-_zldp', 'gP%2BemR5%2BBFcz0JVP…'], ['Idea-40b05d7f', '544670d3-9a70-4409-a7ab-…']]],
+        ], '', 'Read from the Cookie header of the step’s recorded request · values are previews, secrets masked')}
+      </span>
+      <span class="dd">exists</span>
+    </div>
+  </div>
+
+  <div class="sbox-demo">
+    <h4>3 · Call rule action - Set request header <em>(lane 1, request headers suggested)</em></h4>
+    <div class="demo-row">
+      <span class="lane-tag">THEN</span><b style="font-size:13px">Set request header</b>
+      <span class="sug-wrap"><span class="namebox">acc<span class="caret"></span></span>
+        ${sugList([
+          ['Headers in the recorded request', [['Accept', 'application/json, text/plain, */*'], ['Accept-Encoding', 'gzip, deflate, br, zstd'], ['Accept-Language', 'en-EG,en;q=0.9,ar-EG;q=0.8,…']]],
+          ['Common', [['Access-Control-Request-Method', ''], ['Accept-Charset', '']]],
+        ], 'acc', 'A response action lists the recorded response’s headers instead')}
+      </span>
+      <span class="val">application/xml</span>
+    </div>
+  </div>
+
+  <div class="sbox-demo">
+    <h4>4 · Values - Save a value from a Cookie <em>(box 7, Save values from the response)</em></h4>
+    <div class="demo-row">
+      <span class="dd">Cookie</span>
+      <span class="sug-wrap"><span class="namebox">J<span class="caret"></span></span>
+        ${sugList([
+          ['Cookies the recorded response sets (Set-Cookie)', [['JSESSIONID', 'GGnU6hZmi4_rtQ_FwQ6-AWPD3YUxE6Cf… · path=/odeysysadmin']]],
+        ], 'J', 'Picking one fills "as" with the name and shows the preview: ✓ Found in the recording')}
+      </span>
+      <span style="color:var(--faint)">as</span><span class="val">JSESSIONID</span><span class="dd small">Skip if missing</span>
+    </div>
+  </div>
+
+  <div class="sbox-demo" style="padding-bottom:230px">
+    <h4>5 · Values - Save a value from a Header <em>(same list as the check row)</em></h4>
+    <div class="demo-row">
+      <span class="dd">Header</span>
+      <span class="sug-wrap"><span class="namebox"><span class="caret"></span></span>
+        ${sugList([
+          ['Headers in the recorded response', [['Set-Cookie', 'JSESSIONID=GGnU6hZmi4_rtQ…'], ['Content-Type', 'application/json;charset=UTF-8'], ['Access-Control-Allow-Origin', 'http://localhost:8500'], ['Vary', 'Origin']]],
+        ], '', 'Empty box: every header, most useful first (non-standard and auth-like first, transport headers last)')}
+      </span>
+      <span style="color:var(--faint)">as</span><span class="val ph" style="color:var(--faint)">variableName</span>
+    </div>
+  </div>`;
+}
+
+function render() {
+  if (tab === 'suggest') { renderSuggest(); return; }
+  const run = tab !== 'setup';
+  const warnRun = tab === 'warn';
+  const failed = run ? groups.filter((g) => !groupPassed(g, warnRun) && effective(g) === 'fail').length : 0;
+  const warned = run ? groups.filter((g) => !groupPassed(g, warnRun) && effective(g) === 'warn').length : 0;
+  const passed = run ? groups.length - failed - warned : 0;
+  const strip = run
+    ? ['1 · Recorded call|POST · 200', '4 · Sent|attempt 1', '7 · Response|200 (recorded 200)', `8 · Values|${failed ? failed + ' failed · ' : ''}${warned} warning${warned === 1 ? '' : 's'}`]
+    : ['1 · Recorded call|POST · 200 · 1310 ms', '2 · Mode|LIVE', '5 · Call rule|1 action', `7 · Values|${groups.length} check groups`];
+  document.getElementById('app').innerHTML = `
+  ${failed ? `<div class="halt"><b>✕ The run is holding</b> - step 4 "Flight search" failed check 2: none of <code style="font-family:var(--mono)">numberOfStops at most 0</code> OR <code style="font-family:var(--mono)">every origin equals CAI</code> holds. Nothing else is sent until you decide.
+    <div style="margin-top:8px;display:flex;gap:8px"><button class="btn">↻ Retry</button><button class="btn">▶ Continue with the next calls</button><button class="btn" style="color:var(--red)">■ End run here</button></div></div>` : ''}
+  <div class="panel ${run ? 'run' : ''}">
+    <div class="phead"><span class="ico">${run ? '▶' : '⚙'}</span><b>${run ? 'Relived from the recording' : 'How this step runs'}</b>
+      <em>${run ? (failed ? `attempt 1 · LIVE · failed a check · ${warned} warning` : `attempt 1 · LIVE · passed with ${warned} warning`) : 'LIVE · sent to your app · 3 check groups'}</em></div>
+    <div class="strip">${strip.map((s, i) => { const [t, l] = s.split('|'); return `<div class="sbox ${i === strip.length - 1 ? 'on' : ''} ${run && i === 3 ? (failed ? 'bad' : 'warn') : ''}"><b>${t}</b><span>${l}</span></div>`; }).join('')}</div>
+
+    ${run ? '' : `<h3>Save values from the response<span class="sp"></span><button class="btn">Browse response body…</button></h3><div class="hint" style="margin-bottom:6px">(unchanged)</div>`}
+
+    <h3>${run ? 'Checks' : 'Check the response'}<span class="sp"></span>
+      ${run ? '' : `When a check misses (default): <span class="menu"><span class="dd small ${blockDefault}" data-block="1">${label[blockDefault]}</span>${menuRow === 'block' ? menu(blockDefault, false) : ''}</span>
+      <button class="btn">Browse response body…</button>`}
+    </h3>
+    ${run ? `<div class="summary"><span><b class="ok">${passed}</b> passed</span>${failed ? `<span><b class="bad">${failed}</b> failed - run stopped</span>` : ''}<span><b class="wrn">${warned}</b> warning${warned === 1 ? '' : 's'} - run continued</span><span style="color:var(--faint)">evaluated by the proxy on the answer this run got</span></div>` : ''}
+    ${groups.map((g, gi) => groupHtml(g, gi, run, warnRun)).join('')}
+    ${run ? '' : '<div style="display:flex;gap:8px"><button class="addc" style="flex:1">＋ Add check (its own group)</button><button class="addc" style="flex:1">＋ Add OR group</button></div>'}
+    ${run ? '' : '<p class="hint">Groups are checked one by one and must all pass; inside a group the rows are joined by AND (all of) or OR (any of) - the rule IF block’s own switch. Each group has one "on a miss", so a single-row group is a single check with its own fail / warn.</p>'}
+  </div>`;
+}
+
+document.addEventListener('click', (ev) => {
+  const t = ev.target.closest('[data-t]');
+  if (t) { tab = t.dataset.t; menuRow = null; document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b === t)); render(); return; }
+  const pick = ev.target.closest('[data-pick]');
+  if (pick) {
+    if (menuRow === 'block') blockDefault = pick.dataset.pick; else groups[menuRow].onFail = pick.dataset.pick;
+    menuRow = null; render(); return;
+  }
+  const c = ev.target.closest('[data-combine]');
+  if (c) { const g = groups[+c.dataset.combine]; g.combine = g.combine === 'all' ? 'any' : 'all'; render(); return; }
+  const r = ev.target.closest('[data-row]');
+  if (r) { menuRow = menuRow === +r.dataset.row ? null : +r.dataset.row; render(); return; }
+  if (ev.target.closest('[data-block]')) { menuRow = menuRow === 'block' ? null : 'block'; render(); return; }
+  if (menuRow !== null) { menuRow = null; render(); }
+});
+render();
+</script>
+</body>
+</html>

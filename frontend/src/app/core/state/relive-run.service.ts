@@ -34,7 +34,7 @@ import { CycleRule, DifferenceEntry, NoiseRule, PauseEntry, ReliveCycle, Request
 import { DraftResult } from '../../shared/utils/resend-draft';
 import { extractValues, substituteTokens } from '../../shared/utils/resend-draft-chain';
 import { allResponseDifferences } from '../../shared/utils/relive-canonical-body';
-import { evaluate } from '../../shared/utils/scenario-assertions';
+import { checkResults, evaluationRequest, isCheckResults, stepChecks, tally, StepCheckResults } from '../../shared/utils/relive-checks';
 
 /** How long to keep collecting `run-call` events after the inbound resend settles, before deciding
  *  a still-missing enabled child was never called - the reverse proxy handles a child's outbound
@@ -831,6 +831,8 @@ export class ReliveRunService {
     releaseEvents();
 
     let own: StepResult = { ...this.buildOwnResult(step, substituted, resendResult, error, startedAt, attempt), unexpectedCalls: unexpected, pauses };
+    // Only a step with checks waits on the proxy - the others settle exactly as before.
+    if (stepChecks(step.assertions).groups.length) own = await this.withChecks(step, own);
 
     if (checkpoint.after) {
       this.setResult(step.key, () => own); // show the result while paused, same as mock's pauseBox
@@ -1023,7 +1025,8 @@ export class ReliveRunService {
   private async applyFailurePolicy(run: Run, step: Step, result: StepResult): Promise<void> {
     const settings = run.definition.settings;
     if (result.state === 'FAILED' && !step.optional) {
-      if (settings.onFailure === 'HOLD') return this.enterHold(run, step.key, 'FAILED');
+      const checkFailed = isCheckResults(result.assertions) && tally(result.assertions).failed > 0;
+      if (settings.onFailure === 'HOLD' || checkFailed) return this.enterHold(run, step.key, 'FAILED');
       await this.skipDependents(step);
       return;
     }
@@ -1085,22 +1088,11 @@ export class ReliveRunService {
       noAnswer: !response,
       status: response?.status ?? null,
     };
-    const draftResult: DraftResult = {
-      key: step.key,
-      attempt,
-      status: response?.status ?? null,
-      durationMs: resendResult?.durationMs ?? null,
-      newCallId: resendResult?.newCallId ?? null,
-      error,
-      response,
-      extracted: {},
-    };
-    const assertionResults = evaluate(step.assertions, draftResult);
     const variablesUsed = usedVarsOf(step, this.variables(), this.runEdits.get(step.key));
     const variablesProduced = extractedVars(response, step.extract);
     const noiseRules = [...this.run()!.definition.noise, ...step.noise];
     const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced, this.run()!.definition.cycleRules);
-    const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, differences);
+    const outcome = outcomeOf(actual, { status: step.recording.status }, [], differences);
     const effective = { method: substituted.method, url: substituted.url, headers: substituted.headers, body: substituted.body };
     return {
       runId: this.run()!.id,
@@ -1116,7 +1108,7 @@ export class ReliveRunService {
       rulesApplied: [],
       variablesUsed,
       variablesProduced,
-      assertions: assertionResults,
+      assertions: [],
       startedAt: new Date(startedAt).toISOString(),
       finishedAt: new Date(finishedAt).toISOString(),
       durationMs: resendResult?.durationMs ?? finishedAt - startedAt,
@@ -1128,6 +1120,37 @@ export class ReliveRunService {
   }
 
   private async buildChildResult(step: Step, event: RunCallEvent): Promise<StepResult> {
+    return this.withChecks(step, await this.buildChildResultUnchecked(step, event));
+  }
+
+  /**
+   * The step's checks (relive-checks.ts), evaluated by the proxy - the rule engine's own condition
+   * code - against the answer this call got. A group set to FAIL that misses fails the step; one
+   * set to WARN leaves its state alone and is counted as a warning. Checks that could not be
+   * evaluated at all count as missed, each by its own setting.
+   */
+  private async withChecks(step: Step, result: StepResult): Promise<StepResult> {
+    const checks = stepChecks(step.assertions);
+    if (!checks.groups.length) return result;
+    const response = result.actualResponse as { status?: number; headers?: Record<string, string>; body?: string | null } | null | undefined;
+    let evaluated: StepCheckResults;
+    if (!response) {
+      evaluated = checkResults(checks, null, 'no answer to check');
+    } else {
+      const request = evaluationRequest(checks, { status: response.status ?? null, headers: response.headers ?? {}, body: response.body ?? null },
+        result.durationMs ?? null);
+      try {
+        const answer = await firstValueFrom(this.api.evaluateChecks(request));
+        evaluated = checkResults(checks, answer.groups);
+      } catch {
+        evaluated = checkResults(checks, null, 'the proxy could not evaluate the checks');
+      }
+    }
+    const failed = tally(evaluated).failed > 0;
+    return { ...result, assertions: evaluated, state: failed && result.state !== 'FAILED' ? 'FAILED' : result.state };
+  }
+
+  private async buildChildResultUnchecked(step: Step, event: RunCallEvent): Promise<StepResult> {
     const source: CallEndpointSource = event.direction === 'inbound' ? 'internal' : 'external';
     let response: ResendResponseSnapshot | null = null;
     let actualRequest: { readonly headers: Readonly<Record<string, string>>; readonly body: string | null } | null = null;
@@ -1142,23 +1165,12 @@ export class ReliveRunService {
     } catch {
       response = null;
     }
-    const draftResult: DraftResult = {
-      key: step.key,
-      attempt: 1,
-      status: response?.status ?? null,
-      durationMs: null,
-      newCallId: event.callId,
-      error: null,
-      response,
-      extracted: {},
-    };
-    const assertionResults = evaluate(step.assertions, draftResult);
     const actual: ActualCallOutcome = { transportError: false, timedOut: false, noAnswer: !response, status: response?.status ?? null };
     const variablesUsed = usedVarsOf(step, this.variables());
     const variablesProduced = extractedVars(response, step.extract);
     const noiseRules = [...this.run()!.definition.noise, ...step.noise];
     const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced, this.run()!.definition.cycleRules);
-    const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, differences);
+    const outcome = outcomeOf(actual, { status: step.recording.status }, [], differences);
     const changed = event.requestChanged === true;
     return {
       runId: this.run()!.id,
@@ -1179,7 +1191,7 @@ export class ReliveRunService {
       rulesApplied,
       variablesUsed,
       variablesProduced,
-      assertions: assertionResults,
+      assertions: [],
       durationMs: event.durationMs ?? null,
       finishedAt: new Date().toISOString(),
       error: changed && response?.status === 502 ? 'Request differs from the recording - answered with a mocked failure' : null,
