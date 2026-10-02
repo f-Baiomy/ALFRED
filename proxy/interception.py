@@ -70,6 +70,7 @@ _PROMOTE_URL = (os.environ.get('INTERCEPTION_API_URL', '').rstrip('/')
                 + '/settings/variables/promoted') if os.environ.get('INTERCEPTION_API_URL') else ''
 _RELIVE_API_URL = os.environ.get('INTERCEPTION_API_URL', '').rstrip('/')
 _NOTIFY_TIMEOUT_SECONDS = 3
+_RELIVE_WRITE_TIMEOUT_SECONDS = 1
 _notify_queue: queue.Queue = queue.Queue()
 _relive_overlays = {}  # runId -> name -> (snapshot mtime, text), until backend republishes
 
@@ -109,7 +110,9 @@ def _post_relive_variable(item):
     request = urllib.request.Request(
         url, data=json.dumps({'name': name, 'value': value, 'stepKey': step_key}).encode('utf-8'),
         headers={'Content-Type': 'application/json'}, method='POST')
-    with urllib.request.urlopen(request, timeout=_NOTIFY_TIMEOUT_SECONDS):
+    # Awaited (the other proxy container reads the value from the backend's republish), but
+    # bounded tightly: a backend that is down costs a call 1 s, not 3 (review B23).
+    with urllib.request.urlopen(request, timeout=_RELIVE_WRITE_TIMEOUT_SECONDS):
         pass
 
 
@@ -665,7 +668,8 @@ def _canonical_xml(text):
     def render(el):
         attrs = ''.join(f' {name}="{esc(value)}"' for name, value in sorted(el.attrib.items()))
         text = (el.text or '').strip()
-        inner = text + ''.join(render(child) for child in list(el))
+        # Text after a child (mixed content) is part of the document too (review B31).
+        inner = text + ''.join(render(child) + (child.tail or '').strip() for child in list(el))
         return f'<{el.tag}{attrs}>{inner}</{el.tag}>'
 
     return render(root)

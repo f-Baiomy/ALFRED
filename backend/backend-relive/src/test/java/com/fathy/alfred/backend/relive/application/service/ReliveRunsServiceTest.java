@@ -601,6 +601,31 @@ class ReliveRunsServiceTest {
     }
 
     @Test
+    void aResultArrivingAfterTheRunEndedIsRefused() {
+        String cycleId = save(withSteps(bareCycle("late", false), List.of(step("s-1", true))));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.stop(run.id());
+
+        assertThatThrownBy(() -> service.recordStepResult(run.id(), stepResult(run.id(), "s-1", 1, StepState.COMPLETED)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(runStore.listStepResults(run.id())).extracting(StepResult::state).containsExactly(StepState.CANCELLED);
+    }
+
+    @Test
+    void aRunThatRanToTheEndCancelsNothing() {
+        Step disabled = new Step("s-off", null, "off", false, false, "inbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
+        String cycleId = save(withSteps(bareCycle("done", false), List.of(step("s-1", true), disabled)));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        service.finish(run.id(), RunStatus.COMPLETED);
+
+        assertThat(runStore.listStepResults(run.id())).extracting(StepResult::state)
+                .containsExactlyInAnyOrder(StepState.NOT_CALLED, StepState.SKIPPED);
+    }
+
+    @Test
     void eachHandledCallAndVariableIsInTheRunLog() {
         // FR-038: what ALFRED did per step, viewable from the run.
         String cycleId = save(bareCycle("log", false));

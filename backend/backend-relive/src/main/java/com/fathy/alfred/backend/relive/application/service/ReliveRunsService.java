@@ -264,8 +264,13 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     }
 
     private void recordStepResultLocked(String runId, StepResult result) {
-        runStore.putStepResult(result);
         Run run = getOrThrow(runId);
+        if (run.status() != RunStatus.RUNNING) {
+            // A late write from a page that has not noticed the run ended must not replace the
+            // CANCELLED/settled results of a finished run (review B24).
+            throw new IllegalStateException("Run " + runId + " has ended (" + run.status() + ")");
+        }
+        runStore.putStepResult(result);
         Run summarized = withSummary(run, computeSummary(run.definition(), runStore.listStepOutcomes(runId)));
         runStore.updateState(withLog(summarized, stepLog(result)));
     }
@@ -586,7 +591,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     private Run finalizeRun(Run run, RunStatus status) {
         leaseQuery.forget(run.id());
-        cancelRemainingSteps(run);
+        cancelRemainingSteps(run, status);
         Run finalized = new Run(run.id(), run.cycleId(), run.driver(), status, run.startedAt(),
                 Instant.now().toString(), run.definition(), run.fromStepKey(), run.seedVariables(),
                 run.variableTimeline(), computeSummary(run.definition(), runStore.listStepOutcomes(run.id())),
@@ -638,12 +643,17 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         });
     }
 
-    private void cancelRemainingSteps(Run run) {
-        Set<String> resultKeys = runStore.listStepResults(run.id()).stream().map(StepResult::stepKey).collect(Collectors.toSet());
+    private void cancelRemainingSteps(Run run, RunStatus status) {
+        Set<String> resultKeys = runStore.listStepOutcomes(run.id()).stream()
+                .map(ReliveRunStorePort.StepOutcome::stepKey).collect(Collectors.toSet());
         String now = Instant.now().toString();
+        boolean ranToTheEnd = status == RunStatus.COMPLETED || status == RunStatus.COMPLETED_WITH_DIFFERENCES;
         for (Step step : run.definition().steps()) {
             if (!resultKeys.contains(step.key())) {
-                runStore.putStepResult(new StepResult(run.id(), step.key(), 1, StepState.CANCELLED,
+                // Review B26: a run that ran to the end cancelled nothing - a disabled step was
+                // skipped, anything else was never called.
+                StepState state = !ranToTheEnd ? StepState.CANCELLED : step.enabled() ? StepState.NOT_CALLED : StepState.SKIPPED;
+                runStore.putStepResult(new StepResult(run.id(), step.key(), 1, state,
                         null, null, null, null, null, List.of(), List.of(), List.of(), List.of(), null,
                         now, now, 0L, null, List.of(), null, List.of(), null));
             }

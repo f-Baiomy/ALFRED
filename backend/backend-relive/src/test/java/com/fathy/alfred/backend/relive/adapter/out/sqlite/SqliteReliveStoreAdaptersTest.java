@@ -198,18 +198,27 @@ class SqliteReliveStoreAdaptersTest {
 
     @Test
     void runPruningKeepsNewestFiftyAndSizeCap() {
+        runStore.create(newRun("r-going", "c-1"));
         for (int i = 1; i <= 55; i++) {
-            runStore.create(newRun("r-" + i, "c-1"));
+            runStore.create(finished(newRun("r-" + i, "c-1")));
         }
         List<Run> listed = runStore.listByCycleId("c-1", 100);
-        assertThat(listed).hasSize(55);
+        assertThat(listed).hasSize(56);
 
         runStore.pruneRuns("c-1", 50, Long.MAX_VALUE);
-        assertThat(runStore.listByCycleId("c-1", 100)).hasSize(50);
+        assertThat(runStore.listByCycleId("c-1", 100)).hasSize(51);
 
         // Size cap: each run's definition body is ~30 KB: cap far below that forces heavy pruning.
         runStore.pruneRuns("c-1", 50, 50_000);
-        assertThat(runStore.listByCycleId("c-1", 100).size()).isLessThan(50);
+        List<Run> kept = runStore.listByCycleId("c-1", 100);
+        assertThat(kept.size()).isLessThan(50);
+        // Review B27: the run still going and the newest finished run always survive.
+        assertThat(kept).extracting(Run::id).contains("r-going", "r-55");
+    }
+
+    private Run finished(Run run) {
+        return new Run(run.id(), run.cycleId(), run.driver(), RunStatus.COMPLETED, run.startedAt(), "t9",
+                run.definition(), null, List.of(), List.of(), run.summary(), null, List.of(), List.of());
     }
 
     @Test

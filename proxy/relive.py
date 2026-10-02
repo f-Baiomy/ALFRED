@@ -1500,6 +1500,7 @@ async def _apply_matched_step(flow, service_name, engine, run, step_key, attribu
     flow.metadata['relive_rulesets'] = rulesets
     _set_flow_context(flow, run, step.get('stepKey'), step)
     verdict = await engine.apply_request(flow, service_name, extra_rulesets=rulesets)
+    _guard_replay(verdict, step, run_id, step.get('stepKey'))  # FR-018 holds for inbound REPLAY too
     _tag_changed_pause(verdict, run_id, step.get('stepKey'))
     info = {'runId': run_id, 'stepKey': step.get('stepKey'), 'attribution': attribution,
             'choice': step.get('mode'), 'ruleIds': _rule_applications(flow, rulesets)}

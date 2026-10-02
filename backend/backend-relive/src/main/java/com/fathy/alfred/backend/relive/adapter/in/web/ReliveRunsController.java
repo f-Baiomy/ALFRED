@@ -145,11 +145,16 @@ public class ReliveRunsController {
     public ResponseEntity<Void> recordStepResult(@PathVariable String id, @PathVariable String runId,
                                                   @PathVariable String stepKey, @PathVariable int attempt,
                                                   @RequestBody StepResult body) {
+        if (!runId.equals(body.runId()) || !stepKey.equals(body.stepKey()) || attempt != body.attempt()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The result does not belong to this run, step and attempt");
+        }
         try {
             recordStepResult.recordStepResult(runId, body);
             return ResponseEntity.ok().build();
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
         }
     }
 
@@ -268,9 +273,11 @@ public class ReliveRunsController {
                 existing.isTransient(), existing.lastRun());
         try {
             String reason = "Edits from run " + runId + ", step " + stepKey;
-            return ResponseEntity.ok(manageCycles.update(id, updated, null, reason));
+            return ResponseEntity.ok(manageCycles.update(id, updated, existing.updatedAt(), reason));
         } catch (CycleValidationException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        } catch (com.fathy.alfred.backend.relive.application.port.in.StaleCycleException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "The cycle changed while saving - reload it and save the edits again", e);
         }
     }
 

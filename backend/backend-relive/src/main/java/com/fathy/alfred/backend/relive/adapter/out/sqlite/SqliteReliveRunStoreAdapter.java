@@ -168,15 +168,16 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
 
     @Override
     public void pruneRuns(String cycleId, int keep, long maxBytes) {
+        // A RUNNING run is never pruned, whatever its age (review B27).
         jdbc.update("""
                 DELETE FROM relive_step_results WHERE run_id IN (
-                    SELECT id FROM relive_runs WHERE cycle_id = ? AND id NOT IN (
+                    SELECT id FROM relive_runs WHERE cycle_id = ? AND status <> 'RUNNING' AND id NOT IN (
                         SELECT id FROM relive_runs WHERE cycle_id = ? ORDER BY rowid DESC LIMIT ?
                     )
                 )
                 """, cycleId, cycleId, keep);
         jdbc.update("""
-                DELETE FROM relive_runs WHERE cycle_id = ? AND id NOT IN (
+                DELETE FROM relive_runs WHERE cycle_id = ? AND status <> 'RUNNING' AND id NOT IN (
                     SELECT id FROM relive_runs WHERE cycle_id = ? ORDER BY rowid DESC LIMIT ?
                 )
                 """, cycleId, cycleId, keep);
@@ -186,9 +187,15 @@ public class SqliteReliveRunStoreAdapter implements ReliveRunStorePort {
             return;
         }
         List<String> oldestFirst = jdbc.query("""
-                SELECT id, size_bytes FROM relive_runs WHERE cycle_id = ? ORDER BY rowid ASC
+                SELECT id, size_bytes FROM relive_runs WHERE cycle_id = ? AND status <> 'RUNNING'
+                ORDER BY rowid ASC
                 """, (rs, n) -> rs.getString("id") + ":" + rs.getLong("size_bytes"), cycleId);
         long remaining = total;
+        // The newest finished run is kept even when it alone is over the cap: it is the one the
+        // user just looked at.
+        if (!oldestFirst.isEmpty()) {
+            oldestFirst = oldestFirst.subList(0, oldestFirst.size() - 1);
+        }
         for (String entry : oldestFirst) {
             if (remaining <= maxBytes) {
                 break;
