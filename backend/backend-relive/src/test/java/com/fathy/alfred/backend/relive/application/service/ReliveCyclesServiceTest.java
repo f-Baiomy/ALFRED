@@ -176,6 +176,17 @@ class ReliveCyclesServiceTest {
     }
 
     @Test
+    void keepTurnsAQuickRunIntoASavedCycle() {
+        ReliveCycle quick = service.createTransient(bareCycle("quick"));
+        assertThat(quick.isTransient()).isTrue();
+
+        ReliveCycle kept = service.keep(quick.id());
+
+        assertThat(kept.isTransient()).isFalse();
+        assertThat(cycleStore.findById(quick.id()).orElseThrow().isTransient()).isFalse();
+    }
+
+    @Test
     void duplicateGetsANewIdAndCopySuffix() {
         ReliveCycle saved = service.create(bareCycle("orig"));
         ReliveCycle copy = service.duplicate(saved.id(), null);

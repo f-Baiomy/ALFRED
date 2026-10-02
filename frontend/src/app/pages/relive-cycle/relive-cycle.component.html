@@ -44,8 +44,10 @@
     }
 
     @if (draft.transient) {
-      <div class="rl-ext-banner" style="background: rgba(139, 92, 246, 0.12); border-color: var(--border-strong); color: var(--purple-light)">
+      <div class="rl-ext-banner rl-quick-banner">
         ⚡ Quick run from your selection - <b>not saved</b>. Every supplier call is REPLAY.
+        <span class="rl-spacer"></span>
+        <button class="rl-btn rl-sm rl-primary" (click)="keepQuickRun()" [disabled]="keeping()">Save as cycle</button>
       </div>
     }
 

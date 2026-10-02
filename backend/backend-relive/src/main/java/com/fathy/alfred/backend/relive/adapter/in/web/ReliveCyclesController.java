@@ -115,6 +115,16 @@ public class ReliveCyclesController {
         }
     }
 
+    /** "Save as cycle" for a Relive now quick run (FR-003c). */
+    @PostMapping("/{id}/keep")
+    public ResponseEntity<ReliveCycle> keep(@PathVariable String id) {
+        try {
+            return ResponseEntity.ok(manageCycles.keep(id));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
+        }
+    }
+
     @PostMapping("/{id}/validate")
     public List<ValidationFinding> validate(@PathVariable String id) {
         return validateCycle.validate(id);

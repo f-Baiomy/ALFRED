@@ -42,4 +42,8 @@ public interface ManageReliveCyclesUseCase {
     ReliveCycle duplicate(String id, String name);
 
     void delete(String id);
+
+    /** "Save as cycle" for a "Relive now" quick run (FR-003c): it stops being transient and is
+     *  kept, with its runs, from now on. */
+    ReliveCycle keep(String id);
 }

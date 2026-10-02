@@ -529,6 +529,13 @@ button.rl-pill {
   color: #fed7aa;
   margin-bottom: 10px;
   font-size: 12.5px;
+
+  // "Relive now" quick run that is not saved yet.
+  &.rl-quick-banner {
+    background: rgba(139, 92, 246, 0.12);
+    border-color: var(--border-strong);
+    color: var(--purple-light);
+  }
 }
 
 .rl-pausebox {

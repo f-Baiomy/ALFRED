@@ -190,6 +190,18 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
     }
 
     @Override
+    public ReliveCycle keep(String id) {
+        ReliveCycle existing = cycleStore.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Cycle " + id + " does not exist"));
+        if (!existing.isTransient()) {
+            return existing;
+        }
+        ReliveCycle saved = cycleStore.save(existing.withTransient(false, Instant.now().toString()));
+        notifications.cycleChanged();
+        return saved;
+    }
+
+    @Override
     public List<CycleVersion> list(String cycleId) {
         return cycleStore.listVersions(cycleId);
     }

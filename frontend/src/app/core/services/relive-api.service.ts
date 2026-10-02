@@ -110,6 +110,11 @@ export class ReliveApiService {
     return this.http.post<ReliveCycle>(`${this.base}/${encodeURIComponent(id)}/duplicate`, name ? { name } : {}).pipe(map(fromWireCycle));
   }
 
+  /** "Save as cycle" for a Relive now quick run: it stops being transient (FR-003c). */
+  keep(id: string): Observable<ReliveCycle> {
+    return this.http.post<ReliveCycle>(`${this.base}/${encodeURIComponent(id)}/keep`, {}).pipe(map(fromWireCycle));
+  }
+
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/${encodeURIComponent(id)}`);
   }

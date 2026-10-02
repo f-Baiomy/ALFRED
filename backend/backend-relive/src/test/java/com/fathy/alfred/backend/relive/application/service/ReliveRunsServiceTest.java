@@ -293,14 +293,31 @@ class ReliveRunsServiceTest {
     }
 
     @Test
-    void finishDeletesAnUnsavedTransientCycleAndItsRun() {
+    void anUnsavedTransientCycleIsDeletedOnlyAfterTheSaveWindow() {
         String cycleId = save(bareCycle("quick run", true));
         Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
 
         service.finish(run.id(), RunStatus.COMPLETED);
 
+        // Review B7: "Save as cycle" must still be possible after the run ended.
+        assertThat(cycleStore.findById(cycleId)).isPresent();
+        scheduler.tasks.stream().filter(t -> t.delay == ReliveRunsService.TRANSIENT_KEEP_MS)
+                .forEach(t -> t.runnable.run());
         assertThat(cycleStore.findById(cycleId)).isEmpty();
         assertThat(runStore.findById(run.id())).isEmpty();
+    }
+
+    @Test
+    void aQuickRunSavedAfterItEndedIsKept() {
+        String cycleId = save(bareCycle("quick run", true));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        service.finish(run.id(), RunStatus.COMPLETED);
+
+        ReliveCycle stored = cycleStore.findById(cycleId).orElseThrow();
+        cycleStore.save(stored.withTransient(false, "t1"));
+        scheduler.tasks.forEach(t -> t.runnable.run());
+
+        assertThat(cycleStore.findById(cycleId)).isPresent();
     }
 
     @Test

@@ -99,6 +99,9 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     static final long STOPPING_DRAIN_TIMEOUT_MS = 30_000;
 
+    /** How long an ended, unsaved quick run stays around for "Save as cycle". */
+    static final long TRANSIENT_KEEP_MS = 30L * 60 * 1000;
+
     private final ReliveRunStorePort runStore;
     private final ReliveCycleStorePort cycleStore;
     private final RunSnapshotPublisherPort publisher;
@@ -477,16 +480,23 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         refreshInflightPresence();
     }
 
-    /** FR-003c: checked against the CURRENT stored cycle, not the run's frozen definition snapshot -
-     *  a cycle explicitly saved mid-run already has its transient flag cleared by
-     *  ManageReliveCyclesUseCase.update, and must be kept even though this run's own definition()
-     *  still remembers it as transient. ReliveRunStorePort has no delete-single-run method, so a
-     *  transient cycle's entire (throwaway) run history is removed with it. */
+    /** FR-003c: an unsaved "Relive now" is offered "Save as cycle" after its run ends, so it is
+     *  removed only TRANSIENT_KEEP_MS later, and only if it is still transient (Save as cycle,
+     *  ManageReliveCyclesUseCase.keep, clears the flag) and no other run of it is going. The check
+     *  reads the CURRENT stored cycle, never the run's frozen definition. */
     private void cleanupIfTransient(Run run) {
-        cycleStore.findById(run.cycleId()).ifPresent(current -> {
-            if (current.isTransient()) {
-                runStore.deleteByCycleId(run.cycleId());
-                cycleStore.deleteById(run.cycleId());
+        if (cycleStore.findById(run.cycleId()).map(ReliveCycle::isTransient).orElse(false)) {
+            scheduler.schedule(() -> deleteIfStillTransient(run.cycleId()), TRANSIENT_KEEP_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    void deleteIfStillTransient(String cycleId) {
+        cycleStore.findById(cycleId).ifPresent(current -> {
+            boolean running = runStore.findAllRunning().stream().anyMatch(r -> r.cycleId().equals(cycleId));
+            if (current.isTransient() && !running) {
+                runStore.deleteByCycleId(cycleId);
+                cycleStore.deleteById(cycleId);
+                notifications.cycleChanged();
             }
         });
     }

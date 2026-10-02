@@ -481,6 +481,26 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.state.save();
   }
 
+  readonly keeping = signal(false);
+
+  /** "Save as cycle" on a Relive now quick run, during or after its run (FR-003c). Pending edits
+   *  are saved first so nothing typed is lost. */
+  async keepQuickRun(): Promise<void> {
+    const saved = this.state.saved();
+    if (!saved || this.keeping()) return;
+    this.keeping.set(true);
+    this.actionError.set(null);
+    try {
+      if (this.state.dirty()) await this.state.saveAsync();
+      await firstValueFrom(this.api.keep(saved.id));
+      this.state.load(saved.id);
+    } catch (error: unknown) {
+      this.actionError.set(error instanceof Error ? error.message : 'Could not save this quick run as a cycle.');
+    } finally {
+      this.keeping.set(false);
+    }
+  }
+
   duplicate(): void {
     this.state.duplicateCycle()?.subscribe();
   }

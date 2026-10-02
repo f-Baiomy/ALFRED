@@ -51,4 +51,14 @@ public record ReliveCycle(
         this(id, name, description, steps, variables, cycleRules, globalRules, settings, noise,
                 unexpectedCalls, createdAt, updatedAt, isTransient, lastRun, null);
     }
+
+    public ReliveCycle withTransient(boolean value, String newUpdatedAt) {
+        return new ReliveCycle(id, name, description, steps, variables, cycleRules, globalRules, settings, noise,
+                unexpectedCalls, createdAt, newUpdatedAt, value, lastRun, fingerprintIndex);
+    }
+
+    public ReliveCycle withSteps(List<Step> newSteps, Map<String, Map<String, List<String>>> newIndex) {
+        return new ReliveCycle(id, name, description, newSteps, variables, cycleRules, globalRules, settings, noise,
+                unexpectedCalls, createdAt, updatedAt, isTransient, lastRun, newIndex);
+    }
 }
