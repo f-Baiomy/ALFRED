@@ -1,11 +1,13 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { DraftDiff, diffRuns } from '../../shared/utils/scenario-assertions';
 import { ScenarioRun } from '../../shared/utils/scenario-types';
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 
 /** D1 - pick two runs of the same scenario, show diffRuns() (status/latency/JSON field deltas per draft). */
 @Component({
   selector: 'app-scenario-run-compare',
   standalone: true,
+  imports: [SelectPickerComponent],
   templateUrl: './scenario-run-compare.component.html',
 })
 export class ScenarioRunCompareComponent {
@@ -14,6 +16,12 @@ export class ScenarioRunCompareComponent {
 
   readonly beforeId = signal<string | null>(null);
   readonly afterId = signal<string | null>(null);
+
+  private readonly runOptions = computed<readonly SelectOption[]>(() =>
+    this.runs().map((run) => ({ value: run.id, label: `${run.startedAt} (${run.summary.passed}/${run.summary.total})` })),
+  );
+  readonly beforeOptions = computed(() => [{ value: '', label: 'Before run…' }, ...this.runOptions()]);
+  readonly afterOptions = computed(() => [{ value: '', label: 'After run…' }, ...this.runOptions()]);
 
   readonly beforeRun = computed(() => this.runs().find((r) => r.id === this.beforeId()) ?? null);
   readonly afterRun = computed(() => this.runs().find((r) => r.id === this.afterId()) ?? null);

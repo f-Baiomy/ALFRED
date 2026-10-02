@@ -172,11 +172,7 @@
             @for (rule of step().extract; track $index) {
               <div class="rl-capture-card">
                 <div class="rl-row rl-wrap">
-                  <select [value]="rule.from" (change)="updateExtractRule($index, { from: $any($event.target).value })">
-                    <option value="JSON">JSON field</option>
-                    <option value="HEADER">Header</option>
-                    <option value="COOKIE">Cookie</option>
-                  </select>
+                  <app-select-picker [options]="extractFromOptions" [value]="rule.from" ariaLabel="Save from" (valueChange)="updateExtractRule($index, { from: $any($event) })" />
                   @if (rule.from === 'JSON') {
                     <app-json-path-input [value]="rule.path" [index]="extractIndex()" (valueChange)="updateExtractRule($index, { path: $event })" />
                   } @else {
@@ -184,10 +180,7 @@
                   }
                   <span class="muted">as</span>
                   <input class="rl-mono" [value]="rule.as" (change)="updateExtractRule($index, { as: $any($event.target).value })" placeholder="variableName" />
-                  <select [value]="rule.missing" (change)="updateExtractRule($index, { missing: $any($event.target).value })">
-                    <option value="SKIP">Skip if missing</option>
-                    <option value="FALLBACK">Fallback if missing</option>
-                  </select>
+                  <app-select-picker [options]="extractMissingOptions" [value]="rule.missing" ariaLabel="If missing" (valueChange)="updateExtractRule($index, { missing: $any($event) })" />
                   @if (rule.missing === 'FALLBACK') {
                     <input [value]="rule.fallback ?? ''" (change)="updateExtractRule($index, { fallback: $any($event.target).value })" placeholder="fallback value" />
                   }

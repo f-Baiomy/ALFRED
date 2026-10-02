@@ -33,6 +33,8 @@ export class SelectPickerComponent {
   readonly options = input.required<readonly SelectOption[]>();
   readonly value = input<string>('');
   readonly valueChange = output<string>();
+  readonly disabled = input(false);
+  readonly ariaLabel = input<string | null>(null);
 
   readonly panelOpen = signal(false);
   readonly panelPosition = signal({ top: 0, left: 0 });

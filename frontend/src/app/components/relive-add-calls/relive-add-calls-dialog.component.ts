@@ -3,6 +3,7 @@ import { CallRecord } from '../../core/models/call.model';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { buildCallTree } from '../../shared/utils/call-tree';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { ReliveSettings, Step } from '../../shared/utils/relive-types';
@@ -23,12 +24,17 @@ export interface ReliveAddCallsResume {
 @Component({
   selector: 'app-relive-add-calls-dialog',
   standalone: true,
+  imports: [SelectPickerComponent],
   templateUrl: './relive-add-calls-dialog.component.html',
 })
 export class ReliveAddCallsDialogComponent {
   private readonly source = inject(ReliveCallSourceService);
   private readonly picker = inject(CallPickerService);
   readonly sessionCycles = inject(SessionCyclesStateService);
+  readonly sessionCycleOptions = computed<readonly SelectOption[]>(() => [
+    { value: '', label: 'Choose a session cycle…' },
+    ...this.sessionCycles.cycles().map((sc) => ({ value: sc.id, label: sc.name })),
+  ]);
 
   readonly open = input.required<boolean>();
   readonly cycleId = input.required<string | null>();

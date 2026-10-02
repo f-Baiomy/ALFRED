@@ -51,6 +51,7 @@ import {
 import { ResendCallEditorComponent } from '../resend-call-editor/resend-call-editor.component';
 import { ResendPanelComponent } from '../resend-panel/resend-panel.component';
 import { ScenarioAssertionEditorComponent } from '../scenario-assertion-editor/scenario-assertion-editor.component';
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 
 const PICK_REQUESTER = 'bulk-resend';
 
@@ -79,10 +80,15 @@ type DragPayload =
  * anywhere…" sends the user to other tabs, and so a send keeps going if the dialog is closed.
  * Mounted once, in the main layout.
  */
+/** A picked option (SelectPickerComponent), or a native change event from older callers and tests. */
+function valueOf(choice: string | Event): string {
+  return typeof choice === 'string' ? choice : (choice.target as HTMLSelectElement).value;
+}
+
 @Component({
   selector: 'app-bulk-resend-dialog',
   standalone: true,
-  imports: [CdkDropList, CdkDrag, CdkDragHandle, KeyValuePipe, ResendCallEditorComponent, ResendPanelComponent, ScenarioAssertionEditorComponent],
+  imports: [CdkDropList, CdkDrag, CdkDragHandle, KeyValuePipe, ResendCallEditorComponent, ResendPanelComponent, ScenarioAssertionEditorComponent, SelectPickerComponent],
   templateUrl: './bulk-resend-dialog.component.html',
 })
 export class BulkResendDialogComponent {
@@ -114,6 +120,23 @@ export class BulkResendDialogComponent {
   readonly host = signal('');
 
   // C1: a new "Pass on" row being drafted for the selected call.
+  readonly groupModeOptions: readonly SelectOption[] = [
+    { value: 'sequential', label: 'sequential' },
+    { value: 'parallel', label: 'parallel' },
+  ];
+  readonly extractFromOptions: readonly SelectOption[] = [
+    { value: 'JSON', label: 'JSON body' },
+    { value: 'HEADER', label: 'header' },
+    { value: 'COOKIE', label: 'cookie' },
+  ];
+  readonly extractMissingOptions: readonly SelectOption[] = [
+    { value: 'SKIP', label: 'skip if missing' },
+    { value: 'FALLBACK', label: 'fall back to…' },
+  ];
+  readonly rowFailureOptions: readonly SelectOption[] = [
+    { value: 'SKIP', label: 'skip the failed row' },
+    { value: 'STOP', label: "stop this group's rows" },
+  ];
   readonly extractFrom = signal<ExtractRule['from']>('JSON');
   readonly extractPath = signal('');
   readonly extractAs = signal('');
@@ -222,8 +245,16 @@ export class BulkResendDialogComponent {
     return `Sending ${name} ${settled + 1}/${run.drafts.length}…`;
   });
 
-  setScope(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
+  readonly scopeOptions = computed<readonly SelectOption[]>(() => {
+    const count = this.included().length;
+    return [
+      { value: 'all', label: `all ${count} ticked call${count === 1 ? '' : 's'}` },
+      ...this.groupChoices().map((choice) => ({ value: choice.id, label: `${choice.name} (${choice.count})` })),
+    ];
+  });
+
+  setScope(choice: string | Event): void {
+    const value = valueOf(choice);
     this.scopeGroupId.set(value === 'all' ? null : value);
   }
 
@@ -555,8 +586,8 @@ export class BulkResendDialogComponent {
     (event.target as HTMLInputElement).blur();
   }
 
-  setGroupMode(groupId: string, event: Event): void {
-    const mode = (event.target as HTMLSelectElement).value as GroupMode;
+  setGroupMode(groupId: string, choice: string | Event): void {
+    const mode = valueOf(choice) as GroupMode;
     this.service.groups.update((all) => ({ ...all, [groupId]: { ...all[groupId], mode } }));
   }
 
@@ -776,8 +807,8 @@ export class BulkResendDialogComponent {
     this.service.datasets.update(({ [groupId]: _removed, ...rest }) => rest);
   }
 
-  setDatasetRowFailure(groupId: string, event: Event): void {
-    const value = (event.target as HTMLSelectElement).value as 'SKIP' | 'STOP';
+  setDatasetRowFailure(groupId: string, choice: string | Event): void {
+    const value = valueOf(choice) as 'SKIP' | 'STOP';
     const current = this.datasetOf(groupId);
     if (!current) return;
     this.service.datasets.update((all) => ({ ...all, [groupId]: { ...current, onRowFailure: value } }));

@@ -2,6 +2,7 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import { CallsQuery } from '../../core/state/call-list-view';
 import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { defaultCallRule } from '../../shared/utils/relive-call-rule';
 import { freezeCalls } from '../../shared/utils/relive-freeze';
 import { RebuildPreviewRow, rebuildPillClass, rebuildReport } from '../../shared/utils/relive-rebuild-preview';
@@ -28,11 +29,16 @@ const QUERY: CallsQuery = { search: '', supplier: '', sort: 'newest', offset: 0,
 @Component({
   selector: 'app-relive-rebuild-dialog',
   standalone: true,
+  imports: [SelectPickerComponent],
   templateUrl: './relive-rebuild-dialog.component.html',
 })
 export class ReliveRebuildDialogComponent {
   private readonly sessionCyclesApi = inject(SessionCyclesApiService);
   readonly sessionCycles = inject(SessionCyclesStateService);
+  readonly sessionCycleOptions = computed<readonly SelectOption[]>(() => [
+    { value: '', label: 'Choose a session cycle…' },
+    ...this.sessionCycles.cycles().map((sc) => ({ value: sc.id, label: sc.name })),
+  ]);
 
   readonly open = input.required<boolean>();
   readonly cycle = input.required<ReliveCycle>();

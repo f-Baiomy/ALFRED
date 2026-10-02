@@ -5,12 +5,7 @@
       <p class="dialog-sub">Calls are copied into the cycle - the recording itself is never modified.</p>
 
       <div class="rl-row relive-add-source-row">
-        <select (change)="selectSessionCycle($any($event.target).value)">
-          <option value="">Choose a session cycle…</option>
-          @for (sc of sessionCycles.cycles(); track sc.id) {
-            <option [value]="sc.id">{{ sc.name }}</option>
-          }
-        </select>
+        <app-select-picker [options]="sessionCycleOptions()" [value]="selectedSessionCycleId() ?? ''" ariaLabel="Session cycle" (valueChange)="selectSessionCycle($event)" />
         <span class="rl-spacer"></span>
         <button class="rl-btn rl-sm" (click)="pickFromAnywhere()">📌 Pick from anywhere…</button>
       </div>

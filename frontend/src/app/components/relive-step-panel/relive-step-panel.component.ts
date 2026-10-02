@@ -8,6 +8,7 @@ import { JsonPathInputComponent } from '../json-path-input/json-path-input.compo
 import { RuleEditorComponent } from '../rule-editor/rule-editor.component';
 import { RuleEditorTarget } from '../rule-editor/rule-editor-target';
 import { ScenarioAssertionEditorComponent } from '../scenario-assertion-editor/scenario-assertion-editor.component';
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { CallFocusService } from '../../core/services/call-focus.service';
 import { CallInterception, InterceptionRuleDraft, OriginalHttp } from '../../core/models/interception.model';
 import { recordedCallPreviewOf } from '../../shared/utils/recorded-call-match';
@@ -55,6 +56,7 @@ export interface ExtractPreview {
     JsonPathInputComponent,
     RuleEditorComponent,
     ScenarioAssertionEditorComponent,
+    SelectPickerComponent,
   ],
   templateUrl: './relive-step-panel.component.html',
 })
@@ -76,6 +78,16 @@ export class ReliveStepPanelComponent {
   readonly openRequestDiffers = output<string>();
   /** A REPLAY child's request was edited for the first time (FR-014d) - asked once the edit is done. */
   readonly requestEdited = output<string>();
+
+  readonly extractFromOptions: readonly SelectOption[] = [
+    { value: 'JSON', label: 'JSON field' },
+    { value: 'HEADER', label: 'Header' },
+    { value: 'COOKIE', label: 'Cookie' },
+  ];
+  readonly extractMissingOptions: readonly SelectOption[] = [
+    { value: 'SKIP', label: 'Skip if missing' },
+    { value: 'FALLBACK', label: 'Fallback if missing' },
+  ];
 
   readonly open = signal(true);
   readonly box = signal<Box>('mode');

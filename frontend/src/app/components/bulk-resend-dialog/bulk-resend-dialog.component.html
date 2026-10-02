@@ -77,19 +77,17 @@
                         (change)="renameGroup(g.id, $event)"
                         (keydown.enter)="commitName($event)"
                       />
-                      <select
+                      <app-select-picker
                         class="br-group-mode"
                         [class.parallel]="g.mode === 'parallel'"
+                        [options]="groupModeOptions"
                         [value]="g.mode"
-                        [attr.aria-label]="'How ' + g.name + ' sends'"
+                        [ariaLabel]="'How ' + g.name + ' sends'"
                         [title]="modeHelp(g.mode)"
                         [disabled]="service.running()"
                         (click)="$event.stopPropagation()"
-                        (change)="setGroupMode(g.id, $event)"
-                      >
-                        <option value="sequential">sequential</option>
-                        <option value="parallel">parallel</option>
-                      </select>
+                        (valueChange)="setGroupMode(g.id, $event)"
+                      />
                     </div>
                     <div class="br-group-line br-group-meta">
                       <small class="muted">{{ run.drafts.length }} call{{ run.drafts.length === 1 ? '' : 's' }} · {{ runProgress(run) }}</small>
@@ -214,18 +212,11 @@
                   </div>
                 }
                 <div class="br-tool-row">
-                  <select aria-label="Extract from" [value]="extractFrom()" (change)="extractFrom.set($any($event.target).value)">
-                    <option value="JSON">JSON body</option>
-                    <option value="HEADER">header</option>
-                    <option value="COOKIE">cookie</option>
-                  </select>
+                  <app-select-picker ariaLabel="Extract from" [options]="extractFromOptions" [value]="extractFrom()" (valueChange)="extractFrom.set($any($event))" />
                   <input type="text" placeholder="path, header or cookie name" aria-label="Path" [value]="extractPath()" (input)="text(extractPath.set, $event)" />
                   <span class="muted">as</span>
                   <input type="text" placeholder="token" aria-label="Name" [value]="extractAs()" (input)="text(extractAs.set, $event)" />
-                  <select aria-label="If missing" [value]="extractMissing()" (change)="extractMissing.set($any($event.target).value)">
-                    <option value="SKIP">skip if missing</option>
-                    <option value="FALLBACK">fall back to…</option>
-                  </select>
+                  <app-select-picker ariaLabel="If missing" [options]="extractMissingOptions" [value]="extractMissing()" (valueChange)="extractMissing.set($any($event))" />
                   @if (extractMissing() === 'FALLBACK') {
                     <input type="text" placeholder="fallback value" aria-label="Fallback value" [value]="extractFallback()" (input)="text(extractFallback.set, $event)" />
                   }
@@ -266,12 +257,7 @@
             @if (groupChoices().length > 0) {
               <div class="br-scope">
                 <small class="muted">Applies to</small>
-                <select class="br-scope-select" [value]="scopeValue()" aria-label="What these tools apply to" (change)="setScope($event)">
-                  <option value="all">all {{ included().length }} ticked call{{ included().length === 1 ? '' : 's' }}</option>
-                  @for (choice of groupChoices(); track choice.id) {
-                    <option [value]="choice.id">{{ choice.name }} ({{ choice.count }})</option>
-                  }
-                </select>
+                <app-select-picker class="br-scope-select" [options]="scopeOptions()" [value]="scopeValue()" ariaLabel="What these tools apply to" (valueChange)="setScope($event)" />
                 <small class="muted">Each stays editable on its own afterwards.</small>
               </div>
             } @else {
@@ -360,10 +346,7 @@
                   ></textarea>
                 </div>
                 <div class="br-tool-row">
-                  <select aria-label="On a row's failure" [value]="datasetOf(groupId)?.onRowFailure ?? 'SKIP'" (change)="setDatasetRowFailure(groupId, $event)">
-                    <option value="SKIP">skip the failed row</option>
-                    <option value="STOP">stop this group's rows</option>
-                  </select>
+                  <app-select-picker ariaLabel="On a row's failure" [options]="rowFailureOptions" [value]="datasetOf(groupId)?.onRowFailure ?? 'SKIP'" (valueChange)="setDatasetRowFailure(groupId, $event)" />
                   <button type="button" class="pill" [disabled]="!datasetText().trim()" (click)="applyDataset(groupId, groupName(groupId), datasetOf(groupId)?.onRowFailure ?? 'SKIP')">Load rows</button>
                   @if (datasetOf(groupId)) {
                     <button type="button" class="pill" (click)="clearDataset(groupId)">Clear</button>

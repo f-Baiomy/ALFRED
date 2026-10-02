@@ -177,7 +177,7 @@ describe('BulkResendDialogComponent', () => {
       expect(headers.length).toBe(1);
       expect(headers[0].querySelector('.br-group-name').value).toBe('Searches');
       expect(headers[0].textContent).toContain('3 calls');
-      expect(headers[0].querySelector('.br-group-mode').value).toBe('sequential');
+      expect(headers[0].querySelector('.br-group-mode').textContent.trim()).toBe('sequential');
     });
     it('puts the name and the mode on separate lines, so neither can squeeze the other out', () => {
       threeTicked();
@@ -196,7 +196,7 @@ describe('BulkResendDialogComponent', () => {
       component.renameGroup(Object.keys(service.groups())[0], input('Searches'));
       fixture.detectChanges();
       const head = fixture.nativeElement.querySelector('.br-group-head');
-      expect(head.querySelectorAll('select')).toHaveSize(1);
+      expect(head.querySelectorAll('app-select-picker')).toHaveSize(1);
       // No second, read-only badge repeating the word the select already shows.
       expect(head.querySelectorAll('.br-badge')).toHaveSize(0);
     });
@@ -207,7 +207,7 @@ describe('BulkResendDialogComponent', () => {
       component.setGroupMode(id, input('parallel'));
       fixture.detectChanges();
       const select = fixture.nativeElement.querySelector('.br-group-mode');
-      expect(select.value).toBe('parallel');
+      expect(select.textContent.trim()).toBe('parallel');
       expect(select.classList).toContain('parallel');
     });
     it('registers one draggable per RUN outside, and one per member inside the group', () => {
@@ -354,10 +354,10 @@ describe('BulkResendDialogComponent', () => {
       });
       const byId = (id: string) => editsOf(service.drafts().find((d) => d.ref.callId === id)!);
       it('offers every group with a ticked call, and counts it', () => {
-        const options = fixture.nativeElement.querySelectorAll('.br-scope-select option');
+        const options = component.scopeOptions();
         expect(options.length).toBe(2);
-        expect(options[0].textContent).toContain('all 2 ticked calls');
-        expect(options[1].textContent).toContain('Searches (2)');
+        expect(options[0].label).toContain('all 2 ticked calls');
+        expect(options[1].label).toContain('Searches (2)');
       });
       it('applies a header to the scoped group only, leaving the loose call alone', () => {
         component.text(component.headerName.set, input('X-Env'));

@@ -30,12 +30,7 @@
         </button>
         @if (pickedSessionCycleId() === null) {
           <div class="rl-sect rl-pl-16">
-            <select (change)="pickRecordingSource($any($event.target).value)">
-              <option value="">Choose a session cycle…</option>
-              @for (sc of sessionCycles.cycles(); track sc.id) {
-                <option [value]="sc.id">{{ sc.name }}</option>
-              }
-            </select>
+            <app-select-picker [options]="sessionCycleOptions()" [value]="pickedSessionCycleId() ?? ''" ariaLabel="Session cycle" (valueChange)="pickRecordingSource($event)" />
             <p class="rl-hint rl-mt-6">
               "Run it once for real and capture" is not available yet - use the Guided driver or record a fresh session cycle first.
             </p>

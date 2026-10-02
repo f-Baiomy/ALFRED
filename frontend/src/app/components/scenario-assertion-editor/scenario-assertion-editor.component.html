@@ -1,11 +1,7 @@
 <div class="scenario-assertion-editor">
   @for (assertion of assertions(); track $index) {
     <div class="scenario-assertion-row">
-      <select class="scenario-select" [value]="assertion.kind" (change)="updateKind($index, $any($event.target).value)">
-        @for (kind of kinds; track kind) {
-          <option [value]="kind">{{ kind }}</option>
-        }
-      </select>
+      <app-select-picker class="scenario-select" [options]="kindOptions" [value]="assertion.kind" ariaLabel="What to check" (valueChange)="updateKind($index, $event)" />
       @if (needsPath(assertion.kind)) {
         <input
           class="scenario-input"
@@ -15,11 +11,7 @@
           (input)="updatePath($index, $any($event.target).value)"
         />
       }
-      <select class="scenario-select" [value]="assertion.operator" (change)="updateOperator($index, $any($event.target).value)">
-        @for (op of operators; track op) {
-          <option [value]="op">{{ op }}</option>
-        }
-      </select>
+      <app-select-picker class="scenario-select" [options]="operatorOptions" [value]="assertion.operator" ariaLabel="How to compare" (valueChange)="updateOperator($index, $event)" />
       @if (needsValue(assertion.operator)) {
         <input
           class="scenario-input"

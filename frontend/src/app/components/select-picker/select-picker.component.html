@@ -1,5 +1,5 @@
 <div class="assigned-to-filter select-picker">
-  <button type="button" class="theme-picker-btn" (click)="togglePanel()">
+  <button type="button" class="theme-picker-btn" [disabled]="disabled()" [attr.aria-label]="ariaLabel()" (click)="togglePanel()">
     {{ currentLabel() }}
   </button>
 

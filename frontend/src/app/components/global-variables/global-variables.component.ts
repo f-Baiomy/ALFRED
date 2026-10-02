@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { GlobalVariablesService, VariableExport } from '../../core/services/global-variables.service';
 import { insertToken, suggestionRange, tokenNames, tokenParts, VARIABLE_NAME } from '../../shared/utils/variable-tokens';
 import { resolveDynamicTokens } from '../../shared/utils/dynamic-tokens';
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 
 interface LocalVariableHint { readonly name: string; readonly available: boolean; readonly reason?: string; }
 interface AutocompleteEntry { readonly name: string; readonly value: string; readonly available: boolean; }
@@ -13,7 +14,7 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
 @Component({
   selector: 'app-global-variables',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, SelectPickerComponent],
   template: `
     <button class="variables-launch" type="button" (click)="toggleOpen()" [attr.aria-expanded]="open()" title="Global variables">
       {{ open() ? '×' : '{{…}}' }}
@@ -158,12 +159,9 @@ interface PendingImport { readonly environment: string; readonly variables: Reco
       <div class="dialog-backdrop variables-own-backdrop" (click)="cancelCreateEnv()"><section class="dialog-card variables-env-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
         <h2>New environment</h2>
         <label>Name<input [value]="newEnvName()" (input)="newEnvName.set(inputValue($event))" placeholder="Staging" autocomplete="off" /></label>
-        <label>Copy variables from
-          <select [ngModel]="newEnvCopyFrom()" (ngModelChange)="newEnvCopyFrom.set($event)">
-            <option value="">None</option>
-            @for (env of environments(); track env) { <option [value]="env">{{ env }}</option> }
-          </select>
-        </label>
+        <div class="variables-env-copy">Copy variables from
+          <app-select-picker [options]="copyFromOptions()" [value]="newEnvCopyFrom()" ariaLabel="Copy variables from" (valueChange)="newEnvCopyFrom.set($event)" />
+        </div>
         <footer><button type="button" class="dialog-btn secondary" (click)="cancelCreateEnv()">Cancel</button><button type="button" class="dialog-btn primary" [disabled]="!validNewEnvName()" (click)="confirmCreateEnv()">Create</button></footer>
       </section></div>
     }
@@ -247,6 +245,7 @@ export class GlobalVariablesComponent {
   private undoTimer?: ReturnType<typeof setTimeout>;
 
   readonly environments = computed(() => this.variables.state().environments ?? ['Default']);
+  readonly copyFromOptions = computed<readonly SelectOption[]>(() => [{ value: '', label: 'None' }, ...this.environments().map((env) => ({ value: env, label: env }))]);
   readonly activeEnvironment = computed(() => this.variables.state().activeEnvironment ?? 'Default');
   readonly showFilter = computed(() => this.variables.entries().length > 8);
 

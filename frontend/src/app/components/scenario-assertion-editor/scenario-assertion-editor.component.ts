@@ -1,11 +1,24 @@
 import { Component, input, output } from '@angular/core';
 import { Assertion } from '../../shared/utils/scenario-types';
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 
 type AssertionKind = Assertion['kind'];
 type AssertionOperator = Assertion['operator'];
 
 const KINDS: readonly AssertionKind[] = ['STATUS', 'JSON', 'HEADER', 'LATENCY'];
 const OPERATORS: readonly AssertionOperator[] = ['EQUALS', 'NOT_EQUALS', 'EXISTS', 'NOT_EXISTS', 'CONTAINS', 'GT', 'LT', 'MATCHES'];
+
+const KIND_LABELS: Readonly<Record<AssertionKind, string>> = { STATUS: 'Status', JSON: 'JSON field', HEADER: 'Header', LATENCY: 'Latency (ms)' };
+const OPERATOR_LABELS: Readonly<Record<AssertionOperator, string>> = {
+  EQUALS: 'equals',
+  NOT_EQUALS: 'not equals',
+  EXISTS: 'exists',
+  NOT_EXISTS: 'does not exist',
+  CONTAINS: 'contains',
+  GT: 'greater than',
+  LT: 'less than',
+  MATCHES: 'matches regex',
+};
 
 function defaultAssertion(): Assertion {
   return { kind: 'STATUS', operator: 'EQUALS', value: '200' };
@@ -18,6 +31,7 @@ function defaultAssertion(): Assertion {
 @Component({
   selector: 'app-scenario-assertion-editor',
   standalone: true,
+  imports: [SelectPickerComponent],
   templateUrl: './scenario-assertion-editor.component.html',
 })
 export class ScenarioAssertionEditorComponent {
@@ -26,6 +40,8 @@ export class ScenarioAssertionEditorComponent {
 
   readonly kinds = KINDS;
   readonly operators = OPERATORS;
+  readonly kindOptions: readonly SelectOption[] = KINDS.map((kind) => ({ value: kind, label: KIND_LABELS[kind] }));
+  readonly operatorOptions: readonly SelectOption[] = OPERATORS.map((op) => ({ value: op, label: OPERATOR_LABELS[op] }));
 
   needsPath(kind: AssertionKind): boolean {
     return kind === 'JSON' || kind === 'HEADER';

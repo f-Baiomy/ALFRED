@@ -1,18 +1,8 @@
 <div class="scenario-run-compare">
   <div class="scenario-run-compare-pickers">
-    <select class="scenario-select" (change)="selectBefore($any($event.target).value)">
-      <option value="">Before run…</option>
-      @for (run of runs(); track run.id) {
-        <option [value]="run.id">{{ run.startedAt }} ({{ run.summary.passed }}/{{ run.summary.total }})</option>
-      }
-    </select>
+    <app-select-picker class="scenario-select" [options]="beforeOptions()" [value]="beforeId() ?? ''" ariaLabel="Before run" (valueChange)="selectBefore($event)" />
     <span>vs.</span>
-    <select class="scenario-select" (change)="selectAfter($any($event.target).value)">
-      <option value="">After run…</option>
-      @for (run of runs(); track run.id) {
-        <option [value]="run.id">{{ run.startedAt }} ({{ run.summary.passed }}/{{ run.summary.total }})</option>
-      }
-    </select>
+    <app-select-picker class="scenario-select" [options]="afterOptions()" [value]="afterId() ?? ''" ariaLabel="After run" (valueChange)="selectAfter($event)" />
   </div>
 
   @if (beforeRun() && afterRun()) {
