@@ -157,8 +157,10 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         String driver = command.driver() == null ? cycle.settings().defaultDriver() : command.driver();
         Run run = new Run(runId, cycleId, driver, RunStatus.RUNNING, now, null, cycle, command.fromStepKey(),
                 seedVariables, seedVariables, computeSummary(cycle, List.of()), null, List.of(), List.of());
-        publisher.publish(runId, snapshotBuilder.build(run));
+        // Stored first: a snapshot published for a run that then failed to save would apply its
+        // REPLAY and BLOCK rules forever, with no row for the startup sweep or a drain to find.
         Run created = runStore.create(run);
+        publisher.publish(runId, snapshotBuilder.build(run));
         activeRunIds.add(runId);
         refreshInflightPresence();
         notifications.runChanged(cycleId, runId);
