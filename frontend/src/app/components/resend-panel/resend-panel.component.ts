@@ -1,3 +1,4 @@
+import { CallStepStripComponent } from '../call-step-strip/call-step-strip.component';
 import { Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, map, of, switchMap } from 'rxjs';
@@ -40,7 +41,7 @@ interface Loaded {
 @Component({
   selector: 'app-resend-panel',
   standalone: true,
-  imports: [InterceptionPanelComponent],
+  imports: [InterceptionPanelComponent, CallStepStripComponent],
   templateUrl: './resend-panel.component.html',
 })
 export class ResendPanelComponent {

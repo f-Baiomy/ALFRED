@@ -12,24 +12,7 @@
 
   @if (open()) {
     <div class="intercept-panel-body">
-      <div class="resend-flow" role="tablist" aria-label="The cycle of this resend">
-        @for (s of steps(); track s.key; let i = $index) {
-          @if (i > 0) {
-            <span class="resend-flow-arrow" aria-hidden="true">→</span>
-          }
-          <button
-            type="button"
-            role="tab"
-            class="resend-flow-node"
-            [class.on]="step() === s.key"
-            [attr.aria-selected]="step() === s.key"
-            (click)="select(s.key)"
-          >
-            <span class="rfn-title">{{ i + 1 }} · {{ s.title }}</span>
-            <span class="rfn-line">{{ s.line }}</span>
-          </button>
-        }
-      </div>
+      <app-call-step-strip [steps]="steps()" [selected]="step()" ariaLabel="The cycle of this resend" (select)="select($any($event))" />
 
       <div class="resend-step-detail">
         @switch (step()) {

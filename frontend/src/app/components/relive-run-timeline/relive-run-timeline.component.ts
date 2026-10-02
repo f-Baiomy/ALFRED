@@ -3,6 +3,8 @@ import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
 import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.component';
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
 import { PauseDecision, PausedCall } from '../../core/models/interception.model';
+import { CallStepStripComponent, CallStripStep } from '../call-step-strip/call-step-strip.component';
+import { requestBodyOf } from '../../shared/utils/relive-call-rule';
 import { maskRelive } from '../../shared/utils/relive-mask';
 import { isCollapsedResponseDifference, listResponseDifferences } from '../../shared/utils/relive-canonical-body';
 import { displayedState, explainStep, formatReasonDetail, StepReason, wholeDocumentCheckNote } from '../../shared/utils/relive-outcome';
@@ -126,7 +128,7 @@ function emptyResult(): StepResult {
 @Component({
   selector: 'app-relive-run-timeline',
   standalone: true,
-  imports: [ReliveStepCallComponent],
+  imports: [ReliveStepCallComponent, CallStepStripComponent],
   templateUrl: './relive-run-timeline.component.html',
 })
 export class ReliveRunTimelineComponent {
@@ -503,6 +505,24 @@ export class ReliveRunTimelineComponent {
   setCheckpointSave(saveToCycle: boolean): void {
     const edit = this.editingCheckpoint();
     if (edit) this.editingCheckpoint.set({ ...edit, saveToCycle });
+  }
+
+  /** The resend-style strip for one step (FR-014g/T062): recorded call → edits → variables →
+   *  sent → rules → who answered → response. */
+  stripOf(row: TimelineRow): readonly CallStripStep[] {
+    const { step, result } = row;
+    const edited = requestBodyOf(step.callRule) !== null;
+    const answered = result.mode === 'REPLAY' ? 'ALFRED answered (recording)' : result.mode === 'LIVE' ? 'real host contacted' : '-';
+    const status = (result.actualResponse as { status?: number } | null | undefined)?.status;
+    return [
+      { key: 'recorded', title: 'Recorded call', line: `${step.recording.method} · ${step.recording.status}` },
+      { key: 'edits', title: 'Your edits', line: edited ? 'request body replaced' : 'none' },
+      { key: 'variables', title: 'Variables', line: result.variablesUsed.length ? result.variablesUsed.map((v) => v.name).join(', ') : 'none' },
+      { key: 'sent', title: 'Sent', line: result.requestChanged ? 'differs from the recording' : 'as recorded' },
+      { key: 'rules', title: 'Rules', line: result.rulesApplied.length ? result.rulesApplied.map((r) => `${r.tier} ${r.name || r.ruleId}`).join(', ') : 'none' },
+      { key: 'answered', title: result.mode === 'REPLAY' ? 'ALFRED' : 'Upstream', line: answered },
+      { key: 'response', title: 'Response', line: status == null ? 'none' : `${status} (recorded ${step.recording.status})` },
+    ];
   }
 
   /** FR-038: the run's execution log, secrets masked. */

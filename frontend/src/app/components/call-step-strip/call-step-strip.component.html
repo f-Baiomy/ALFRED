@@ -1,0 +1,18 @@
+<div class="resend-flow" role="tablist" [attr.aria-label]="ariaLabel()">
+  @for (s of steps(); track s.key; let i = $index) {
+    @if (i > 0) {
+      <span class="resend-flow-arrow" aria-hidden="true">→</span>
+    }
+    <button
+      type="button"
+      role="tab"
+      class="resend-flow-node"
+      [class.on]="selected() === s.key"
+      [attr.aria-selected]="selected() === s.key"
+      (click)="select.emit(s.key)"
+    >
+      <span class="rfn-title">{{ i + 1 }} · {{ s.title }}</span>
+      <span class="rfn-line">{{ s.line }}</span>
+    </button>
+  }
+</div>

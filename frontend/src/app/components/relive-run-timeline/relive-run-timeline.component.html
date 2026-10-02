@@ -250,6 +250,7 @@
               </ul>
             }
           }
+          <app-call-step-strip [steps]="stripOf(row)" ariaLabel="What happened to this call" />
           <app-relive-step-call [step]="row.step" [result]="row.result" />
         </div>
       }

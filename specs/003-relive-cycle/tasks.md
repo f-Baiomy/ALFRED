@@ -699,7 +699,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 - [X] T106 FR-039-041c: per-field differences, EXPECTED labels, "Ignore this field" (step/cycle), "Count it".
 - [X] T107 FR-014d/034a/035d/032/014f: requestChanged, pauses, timeouts, child durations, unexpected calls persisted, child failure holds.
 - [X] T108 FR-038: execution log entries per step.
-- [ ] T109 T062: shared `call-step-strip` component.
+- [X] T109 T062: shared `call-step-strip` component.
 - [ ] T110 FR-015c: live-calls warning threshold from settings.
 
 ### D. Performance
