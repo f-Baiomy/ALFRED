@@ -4,8 +4,8 @@ import { CycleVariable, Step } from '../../shared/utils/relive-types';
 
 export interface VariableRow {
   readonly variable: CycleVariable;
-  /** Extraction source when some step produces this name; otherwise absent. */
-  readonly source: string | null;
+  /** "defined", or the step and path that extract this name. */
+  readonly source: string;
   readonly liveValue: string | undefined;
 }
 
@@ -53,12 +53,12 @@ export class ReliveVariablesComponent {
       .sort((a, b) => a.name.localeCompare(b.name));
   });
 
-  private sourceOf(name: string): string | null {
+  private sourceOf(name: string): string {
     for (const step of this.steps()) {
       const rule = step.extract.find((e) => e.as === name);
-      if (rule) return `${step.label} → ${rule.path}`;
+      if (rule) return `extracted · ${step.label} → ${rule.path}`;
     }
-    return null;
+    return 'defined'; // FR-023: where a value comes from is always shown
   }
 
   isRevealed(name: string): boolean {

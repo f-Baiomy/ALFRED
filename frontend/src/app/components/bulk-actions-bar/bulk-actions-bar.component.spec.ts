@@ -1,6 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, flushMicrotasks } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { of } from 'rxjs';
 import { AppConfigService } from '../../core/services/app-config.service';
@@ -71,21 +71,28 @@ describe('BulkActionsBarComponent - resend selected', () => {
     expect(component.reliveLoading()).toBeFalse();
   });
 
-  it('creates a Relive cycle from selected calls and navigates to it', () => {
+  it('creates a Relive cycle from selected calls, stores its fingerprints and navigates to it', fakeAsync(() => {
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
     component.reliveNewCycle();
-    const req = http.expectOne(`${BACKEND}/relive-cycles`);
+    flushMicrotasks();
+    // Supplier steps: the cycle is created without hashes, then fingerprinted (efca3ff).
+    const req = http.expectOne(`${BACKEND}/relive-cycles?deferFingerprint=true`);
     expect(req.request.method).toBe('POST');
     expect(req.request.body.steps.length).toBe(3);
     expect(req.request.body.steps[0].callRule.rule.actions).toEqual(jasmine.any(Array));
     req.flush({ id: 'relive-1', steps: [], cycleRules: [], unexpectedCalls: { policy: 'BLOCK', rules: [], fallback: 'BLOCK' } });
+    flushMicrotasks();
+    http.expectOne((r) => r.url.startsWith(`${BACKEND}/relive-cycles/relive-1/fingerprints`)).flush({ id: 'relive-1', steps: [] });
+    flushMicrotasks();
     expect(navigate).toHaveBeenCalledWith(['/relive', 'relive-1']);
-  });
+  }));
 
-  it('shows a recoverable error when cycle creation fails', () => {
+  it('shows a recoverable error when cycle creation fails', fakeAsync(() => {
     component.reliveNewCycle();
-    http.expectOne(`${BACKEND}/relive-cycles`).flush({ message: 'invalid' }, { status: 400, statusText: 'Bad Request' });
+    flushMicrotasks();
+    http.expectOne(`${BACKEND}/relive-cycles?deferFingerprint=true`).flush({ message: 'invalid' }, { status: 400, statusText: 'Bad Request' });
+    flushMicrotasks();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain('Could not create a Relive cycle');
-  });
+  }));
 });

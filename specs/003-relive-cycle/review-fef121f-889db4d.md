@@ -575,3 +575,49 @@ Each bug has: **where**, **what happens**, **why**, and **fix**.
 | B37 | With tombstoned relive calls in the inbound log, compaction kept the newest N *lines*, so tombstoned lines pushed live calls out of the file | MEDIUM | T117 |
 
 Correction: B19's "bare `{{name}}` falls back to Relive variables" is not a bug - `substituteTokens` only fills `{{this.x}}` and base64 tokens.
+
+---
+
+## 10. Fix status (branch `fix/003-relive-review`)
+
+Every finding above is fixed and covered by a test unless noted. One commit per task (`tasks.md` Phase 16).
+
+| Review items | Task | Notes |
+|---|---|---|
+| B3 | T092 | |
+| B1 | T093 | |
+| B2, B11 | T094 | |
+| B4, B35 | T095 | also restored the backend-app / backend-relive test builds |
+| B22 | T096 | |
+| B5 | T097 | |
+| B6, B33, B34 | T098 | released pauses resume the call rule |
+| B7 | T099 | |
+| B8 | T100 | |
+| B10 | T101 | |
+| B12 | T102 | |
+| B9 | T103 | |
+| FR-044a | T104 | |
+| FR-035b/c, T037 request/response editing | T105 | |
+| FR-039–041c | T106 | |
+| FR-014d/034a/035d/032/014f, child holds | T107 | |
+| FR-038 | T108 | |
+| T062 step strip | T109 | |
+| FR-015c | T110 | |
+| P1, P2 | T111 | |
+| P3 | T112 | |
+| P5 | T113 | |
+| P6, B28 | T114 | snapshot parse still runs on the event loop, but no longer carries large bodies |
+| P8, P9, P10, P11 | T115 | |
+| P4 | T116 | |
+| B14, B15, B16, B17, B36, B37, B19 (grace, mode) | T117 | |
+| B18 | T118 | |
+| B20, B21 | T119 | |
+| B23–B27, B30, B31 | T120 | B23 bounded to 1 s rather than removed: the other proxy needs the backend's republish |
+| Style (§6) | T121 | 53 one-off layout inline styles remain |
+| Docs | T122 | |
+| Suites | T123 | backend, 1910 frontend specs, 404 proxy tests, `ng build` all green |
+
+Not done here:
+- **B29** (response-phase rule applications in "rules applied"): the proxy reports request-phase rules only.
+- **B32** (binary recorded request bodies always compare as "differs").
+- **T082** (manual end-to-end, SC-002/SC-010 on a real app): steps in [e2e-checklist.md](./e2e-checklist.md) for the owner to run.
