@@ -191,6 +191,12 @@ class RunSnapshotBuilderTest {
         assertThat(recorded.get("scheme").asText()).isEqualTo("https");
         assertThat(recorded.get("path").asText()).isEqualTo("/v2/search");
         assertThat(writtenAnswers.get(answerId)[0].get("host").asText()).isEqualTo("api.supplier-a.com");
+
+        // Review P3: republishing the same run names the same answer file.
+        JsonNode again = builder.build(run(cycle));
+        assertThat(again.get("steps").get(0).get("children").get(0).get("callRule").get("actions").get(0)
+                .get("branches").get(0).get("conditions").get(0).get("answerId").asText()).isEqualTo(answerId);
+        assertThat(writtenAnswers).hasSize(1);
     }
 
     @Test

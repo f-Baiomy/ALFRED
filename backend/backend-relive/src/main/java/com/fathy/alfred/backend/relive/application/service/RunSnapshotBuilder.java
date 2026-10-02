@@ -343,7 +343,12 @@ public class RunSnapshotBuilder {
         // recording) - recordedStepKey is still carried explicitly in the definition so a future
         // condition could name a DIFFERENT step's recording without a format change here.
         FrozenCall recording = owner.recording();
-        String answerId = UUID.randomUUID().toString();
+        // Named by the run, the step and the recorded request itself: every republish of the run
+        // (a variable, an edit, stopping) names the same file, which is written once, instead of a
+        // new copy of every recorded body each time (review P3).
+        String answerId = UUID.nameUUIDFromBytes((runId + "|" + owner.key() + "|" + recording.method() + " "
+                + recording.url() + "|" + recording.requestHeaders() + "|" + recording.requestBody())
+                .getBytes(StandardCharsets.UTF_8)).toString();
         ObjectNode meta = objectMapper.createObjectNode();
         meta.put("kind", "RECORDED_REQUEST");
         meta.put("method", recording.method());
