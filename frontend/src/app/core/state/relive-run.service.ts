@@ -362,8 +362,19 @@ export class ReliveRunService {
       return;
     }
 
+    // The reverse proxy names the step it matched (it also applied that step's call rule), so its
+    // choice wins. A repeat of the step just matched is a new attempt, not the next step.
+    const lastMatched = this.topIdx > 0 ? this.topOrder[this.topIdx - 1] : undefined;
+    if (event.stepKey && lastMatched?.key === event.stepKey) {
+      const attempt = (this.results()[lastMatched.key]?.attempt ?? 1) + 1;
+      await this.settleResult(run, lastMatched, { ...(await this.buildChildResult(lastMatched, event)), attempt });
+      await this.refreshRunVariables(run);
+      return;
+    }
     const remaining = this.topOrder.slice(this.topIdx);
-    const matchIdx = remaining.findIndex((s) => endpointMatches(s, event));
+    const matchIdx = event.stepKey
+      ? remaining.findIndex((s) => s.key === event.stepKey)
+      : remaining.findIndex((s) => s.enabled && endpointMatches(s, event));
     if (matchIdx < 0) {
       if (!this.unexpectedCalls().some((u) => u.callId === event.callId)) {
         this.unexpectedCalls.set([...this.unexpectedCalls(), { callId: event.callId, direction: 'inbound', at: new Date().toISOString() }]);

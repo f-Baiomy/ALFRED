@@ -114,6 +114,14 @@ public class RunSnapshotBuilder {
             stepNode.put("stepKey", top.key());
             stepNode.put("direction", top.direction());
             stepNode.put("serviceName", top.serviceName());
+            stepNode.put("enabled", top.enabled());
+            // A Guided run has no header to name the step, so the reverse proxy matches an arriving
+            // inbound call to the next expected step by this endpoint.
+            if (top.recording() != null) {
+                ObjectNode recorded = stepNode.putObject("recordedRequest");
+                recorded.put("method", top.recording().method());
+                putUrl(recorded, safeUri(top.recording().url()), top.recording().url());
+            }
             JsonNode topRule = top.callRule() == null ? null : top.callRule().rule();
             stepNode.set("callRule", resolveRecordedCallConditions(run.id(), topRule, top));
             ArrayNode childrenNode = stepNode.putArray("children");

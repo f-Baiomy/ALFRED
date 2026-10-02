@@ -82,6 +82,7 @@ class ReliveRuns:
         self._ordinal_epoch = {}  # (run_id, parent_step_key) -> inflight callId
         self._steps_by_run = {}   # runId -> {stepKey: step node}, built when the snapshot is loaded
         self._forced_for = set()  # unknown run ids already given a forced scan this window
+        self._guided = {}         # runId -> (top-step index, stepKey, monotonic time) last matched
 
     def _stale(self):
         now = time.monotonic()
@@ -165,6 +166,7 @@ class ReliveRuns:
 
     def _forget_ordinals(self, run_id):
         interception.clear_relive_overlay(run_id)
+        self._guided.pop(run_id, None)
         for key in [k for k in self._ordinals if k[0] == run_id]:
             del self._ordinals[key]
         for key in [k for k in self._ordinal_epoch if k[0] == run_id]:
@@ -494,7 +496,13 @@ def attribute(flow, source, service_name, backend_addresses, runs=None):
         # are compared below; the rest of the cycle is not scanned.
         run_id = next(iter(in_flight_run_ids))
         run = active[run_id]
-        chosen = _deepest_inflight_entry(run, [e for e in with_run if e.get('runId') == run_id])
+        own = [e for e in with_run if e.get('runId') == run_id]
+        keyed = [e for e in own if e.get('stepKey')]
+        if not keyed:
+            # A Guided inbound call that matched no step is still this run's: its outbound calls
+            # are unexpected calls of the run (its policy decides), not claimed by several runs.
+            return AttributionResult('INFLIGHT', run, None)
+        chosen = _deepest_inflight_entry(run, keyed)
         if chosen is None:
             return AttributionResult('AMBIGUOUS', ambiguous_run_ids=[run_id])
         return AttributionResult('INFLIGHT', run, chosen.get('stepKey'))
@@ -1236,9 +1244,56 @@ async def apply_inbound(flow, service_name, backend_addresses, engine, runs=None
     guided = [r for r in runs.active_runs().values()
               if (r.get('driver') or '').upper() == 'GUIDED' and service_name in (r.get('projects') or [])]
     if len(guided) == 1:
-        return await _apply_matched_step(flow, service_name, engine, guided[0], None, 'GUIDED', runs)
+        step_key = guided_step_for(flow, guided[0], runs)
+        return await _apply_matched_step(flow, service_name, engine, guided[0], step_key, 'GUIDED', runs)
 
     return None, None
+
+
+# A Guided step performed twice this quickly (double-click, page refresh) is a repeat of the same
+# step, not the next step with the same endpoint.
+GUIDED_REPEAT_SECONDS = 5.0
+
+
+def _inbound_endpoint_matches(step, request):
+    recorded = step.get('recordedRequest') if isinstance(step.get('recordedRequest'), dict) else None
+    if not recorded or not recorded.get('path'):
+        return False
+    if (recorded.get('method') or '').upper() != (getattr(request, 'method', '') or '').upper():
+        return False
+    # The browser calls the app through ALFRED's own listener, so only the path is comparable.
+    return _path_only(recorded.get('path')) == _path_only(getattr(request, 'path', ''))
+
+
+def _path_only(path):
+    path = (path or '').partition('?')[0] or '/'
+    return path if path.startswith('/') else '/' + path
+
+
+def guided_step_for(flow, run, runs):
+    """The top-level step an untagged inbound call of a Guided run performs (FR-030b).
+
+    The next enabled step after the last one matched, by method + path. A call matching the last
+    matched step again within GUIDED_REPEAT_SECONDS is that step repeated. Skipped steps are the
+    frontend's to mark. None when nothing matches: the call is the run's, but unexpected.
+    """
+    tops = [s for s in (run.get('steps') or []) if isinstance(s, dict) and s.get('enabled') is not False]
+    run_id = run.get('runId')
+    cursor = runs._guided.get(run_id)
+    now = time.monotonic()
+    request = flow.request
+    if cursor is not None:
+        last_index, last_key, at = cursor
+        if now - at <= GUIDED_REPEAT_SECONDS and last_index < len(tops) \
+                and tops[last_index].get('stepKey') == last_key and _inbound_endpoint_matches(tops[last_index], request):
+            runs._guided[run_id] = (last_index, last_key, now)
+            return last_key
+    start = 0 if cursor is None else cursor[0] + 1
+    for index in range(start, len(tops)):
+        if _inbound_endpoint_matches(tops[index], request):
+            runs._guided[run_id] = (index, tops[index].get('stepKey'), now)
+            return tops[index].get('stepKey')
+    return None
 
 
 async def _apply_matched_step(flow, service_name, engine, run, step_key, attribution, runs):

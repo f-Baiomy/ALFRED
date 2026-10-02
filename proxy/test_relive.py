@@ -1093,6 +1093,63 @@ class ReviewFixesTest(unittest.TestCase):
             self.assertEqual(200, verdict.mock['status'])
             self.assertEqual('c-b', info['stepKey'])
 
+    def _guided_run(self, tmp):
+        h = {'Content-Type': 'application/json'}
+        child = supplier_step('s-search', 'c-a', '/a', '{"a":1}', h,
+                              answer_id='11111111-1111-4111-8111-111111111111')['children'][0]
+        write_recorded_request(tmp, 'run-g', '11111111-1111-4111-8111-111111111111', '{"a":1}', h, path='/a')
+        steps = [
+            {'stepKey': 's-login', 'direction': 'inbound', 'serviceName': 'odeysys', 'children': [],
+             'recordedRequest': {'method': 'POST', 'path': '/login'}, 'callRule': {'match': {}, 'actions': []}},
+            {'stepKey': 's-search', 'direction': 'inbound', 'serviceName': 'odeysys', 'children': [child],
+             'recordedRequest': {'method': 'POST', 'path': '/search'},
+             'callRule': {'match': {}, 'actions': [{'type': 'SET_REQUEST_HEADER', 'name': 'X-Step', 'value': 'search'}]}},
+        ]
+        write_run(tmp, 'run-g', driver='GUIDED', projects=['odeysys'], steps=steps)
+        return h
+
+    def test_guided_inbound_call_is_matched_to_its_step_and_its_call_rule_applies(self):
+        # B2/B11
+        with tempfile.TemporaryDirectory() as tmp:
+            self._guided_run(tmp)
+            engine = make_engine(tmp, source='inbound')
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            flow = FakeFlow(request=FakeRequest(method='POST', host='localhost', path='/search?x=1'))
+            verdict, info = run(relive.apply_inbound(flow, 'odeysys', (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual('s-search', info['stepKey'])
+            self.assertEqual('search', flow.request.headers.get('X-Step'))
+
+    def test_guided_repeat_within_the_window_stays_on_the_same_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._guided_run(tmp)
+            engine = make_engine(tmp, source='inbound')
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            for _ in range(2):
+                flow = FakeFlow(request=FakeRequest(method='POST', host='localhost', path='/login'))
+                verdict, info = run(relive.apply_inbound(flow, 'odeysys', (BACKEND_PEER[0],), engine, runs))
+                self.assertEqual('s-login', info['stepKey'])
+
+    def test_supplier_call_during_a_guided_step_replays(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            h = self._guided_run(tmp)
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            write_inflight(tmp, {'odeysys': [{'callId': 'in', 'runId': 'run-g', 'stepKey': 's-search'}]})
+            flow = FakeFlow(request=FakeRequest(method='POST', host='ndc.example', path='/a', text='{"a":1}', headers=h))
+            verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual(200, verdict.mock['status'])
+            self.assertEqual('c-a', info['stepKey'])
+
+    def test_supplier_call_of_an_unmatched_guided_call_is_unexpected_not_ambiguous(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            h = self._guided_run(tmp)
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            write_inflight(tmp, {'odeysys': [{'callId': 'in', 'runId': 'run-g', 'stepKey': None}]})
+            flow = FakeFlow(request=FakeRequest(method='POST', host='ndc.example', path='/a', text='{"a":1}', headers=h))
+            verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual('UNEXPECTED', info['attribution'])
+
 
 if __name__ == '__main__':
     unittest.main()
