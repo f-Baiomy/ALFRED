@@ -607,12 +607,12 @@ describe('ReliveRunService', () => {
     expect(resendApi.resend).toHaveBeenCalledTimes(1);
 
     service.resolveCheckpoint('REPLAY');
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
 
     expect(resendApi.resend).toHaveBeenCalledTimes(2);
+    // FR-035b: attempt 1 was stored before attempt 2 was sent.
+    const stored = reliveApi.putStepAttempt.calls.allArgs().map((args: unknown[]) => args[3]);
+    expect(stored).toContain(1);
     expect(service.pause()).toEqual({ stepKey: 'login', at: 'AFTER' });
 
     service.resolveCheckpoint('CONTINUE');

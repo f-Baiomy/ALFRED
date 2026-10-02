@@ -26,7 +26,7 @@ import { ReliveApiService, StartRunRequest } from '../services/relive-api.servic
 import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socket.service';
 import { ResendApiService, ResendResponseSnapshot, ResendResult } from '../services/resend-api.service';
 import { resolveDynamicTokens } from '../../shared/utils/dynamic-tokens';
-import { checkpointOf, modeOf } from '../../shared/utils/relive-call-rule';
+import { checkpointOf, modeOf, setRequestBody } from '../../shared/utils/relive-call-rule';
 import { RawDifference, classify } from '../../shared/utils/relive-noise';
 import { ActualCallOutcome, outcomeOf } from '../../shared/utils/relive-outcome';
 import type { CallsQuery } from '../state/call-list-view';
@@ -49,6 +49,13 @@ const DISPATCH_CLOCK_SKEW_MS = 2000;
 
 type RunCallEvent = ReliveSocketEvent & { readonly type: 'run-call' };
 type CheckpointDecision = 'CONTINUE' | 'REPLAY' | 'SKIP';
+
+/** "Edit" / "Edit & replay" at a checkpoint (FR-035b/c): the request body this run sends for the
+ *  step from now on, and whether to also save it to the cycle. */
+export interface CheckpointEdit {
+  readonly body: string;
+  readonly saveToCycle: boolean;
+}
 type RunHold = NonNullable<Run['hold']>;
 
 export interface UnexpectedRunCall {
@@ -75,22 +82,25 @@ function substituteVars(text: string, vars: Readonly<Record<string, string>>, gl
   return substituteTokens(withGlobal, vars).text;
 }
 
-function effectiveRequestBody(step: Step): string {
+function effectiveRequestBody(step: Step, runEdit?: string): string {
+  if (runEdit !== undefined) return runEdit;
   const override = step.callRule.actions.find((a: RuleAction) => a.type === 'SET_REQUEST_BODY' && a.enabled !== false);
   return override?.body ?? step.recording.requestBody ?? '';
 }
 
-function substituteStepRequest(step: Step, vars: Readonly<Record<string, string>>, globals: Readonly<Record<string, string>>): SubstitutedRequest {
+function substituteStepRequest(step: Step, vars: Readonly<Record<string, string>>, globals: Readonly<Record<string, string>>, runEdit?: string): SubstitutedRequest {
   return {
     method: step.recording.method,
     url: substituteVars(step.recording.url, vars, globals),
     headers: Object.fromEntries(Object.entries(step.recording.requestHeaders).map(([name, value]) => [name, substituteVars(value, vars, globals)])),
-    body: substituteVars(effectiveRequestBody(step), vars, globals),
+    body: substituteVars(effectiveRequestBody(step, runEdit), vars, globals),
   };
 }
 
-function varRefsOf(step: Step): string[] {
-  const text = `${step.recording.url} ${Object.values(step.recording.requestHeaders).join(' ')} ${step.recording.requestBody ?? ''}`;
+/** Relive variables the step's request uses - the body it really sends (an edited body included),
+ *  not only the recording's, or a dependent step was sent with a gap instead of being skipped. */
+function varRefsOf(step: Step, runEdit?: string): string[] {
+  const text = `${step.recording.url} ${Object.values(step.recording.requestHeaders).join(' ')} ${effectiveRequestBody(step, runEdit)}`;
   return [...new Set([...text.matchAll(RELIVE_VAR_TOKEN)].map((m) => m[1]))];
 }
 
@@ -104,8 +114,8 @@ function unresolvedNames(substituted: SubstitutedRequest): string[] {
 }
 
 /** Variable names this step's recorded request actually references, with their current value - for `StepResult.variablesUsed`. */
-function usedVarsOf(step: Step, vars: Readonly<Record<string, string>>): readonly { readonly name: string; readonly value: string }[] {
-  return varRefsOf(step)
+function usedVarsOf(step: Step, vars: Readonly<Record<string, string>>, runEdit?: string): readonly { readonly name: string; readonly value: string }[] {
+  return varRefsOf(step, runEdit)
     .filter((name) => name in vars)
     .map((name) => ({ name, value: vars[name] }));
 }
@@ -148,6 +158,12 @@ function differencesOf(
   );
 }
 
+/** The backend stores a call rule as {rule, copiedFrom}; the browser keeps it flat. */
+function toWireRuleDoc(rule: Step['callRule']): { readonly rule: object; readonly copiedFrom: unknown } {
+  const { copiedFrom, ...document } = rule;
+  return { rule: document, copiedFrom: copiedFrom ?? null };
+}
+
 function topSteps(steps: readonly Step[]): Step[] {
   return steps.filter((s) => !s.parentKey);
 }
@@ -182,7 +198,8 @@ interface Dependent {
  * own `extract` rules produce and which has no value yet - i.e. `step` failing before it could
  * extract left them with nothing to send (FR-034c, mock's `dependents`/`PRODUCES`).
  */
-function dependentsOf(step: Step, topOrder: readonly Step[], results: Readonly<Record<string, StepResult>>, vars: Readonly<Record<string, string>>): Dependent[] {
+function dependentsOf(step: Step, topOrder: readonly Step[], results: Readonly<Record<string, StepResult>>, vars: Readonly<Record<string, string>>,
+                      runEdits: ReadonlyMap<string, string>): Dependent[] {
   const produced = step.extract.map((e) => e.as);
   const lost = produced.filter((name) => !(name in vars));
   if (!lost.length) return [];
@@ -190,7 +207,7 @@ function dependentsOf(step: Step, topOrder: readonly Step[], results: Readonly<R
   return topOrder
     .slice(fromIndex + 1)
     .filter((s) => s.enabled && results[s.key]?.state === 'PENDING')
-    .map((s) => ({ step: s, needs: varRefsOf(s).filter((name) => lost.includes(name)) }))
+    .map((s) => ({ step: s, needs: varRefsOf(s, runEdits.get(s.key)).filter((name) => lost.includes(name)) }))
     .filter((d) => d.needs.length > 0);
 }
 
@@ -264,6 +281,8 @@ export class ReliveRunService {
   private eventsSub: Subscription | null = null;
   private runEventsSub: Subscription | null = null;
   private pauseResolve: ((decision: CheckpointDecision) => void) | null = null;
+  /** Run-only request bodies set at a checkpoint (FR-035c), by step key. */
+  private readonly runEdits = new Map<string, string>();
   /** True once this instance is driving, so a second reattach cannot start another loop. */
   private loopStarted = false;
   /** The first step `runLoop` takes was already sent by the page a reload destroyed. */
@@ -599,12 +618,32 @@ export class ReliveRunService {
 
   /** Answers the currently open inbound-step checkpoint (mock `pContinue`/`pReplay`/`pSkip`) - a
    *  no-op when nothing is paused. */
-  resolveCheckpoint(decision: CheckpointDecision): void {
-    if (!this.pause()) return;
+  resolveCheckpoint(decision: CheckpointDecision, edit?: CheckpointEdit): void {
+    const paused = this.pause();
+    if (!paused) return;
+    if (edit) {
+      this.runEdits.set(paused.stepKey, edit.body);
+      if (edit.saveToCycle) void this.saveEditToCycle(paused.stepKey, edit.body);
+    }
     this.pause.set(null);
     const resolve = this.pauseResolve;
     this.pauseResolve = null;
     resolve?.(decision);
+  }
+
+  /** "Also save these edits to the cycle" (FR-035c): the step's call rule gets the body as its
+   *  "Replace the request body"; the run itself already uses it. */
+  private async saveEditToCycle(stepKey: string, body: string): Promise<void> {
+    const run = this.run();
+    const step = this.stepByKey(stepKey);
+    if (!run || !step) return;
+    const edited = { ...step, callRule: setRequestBody(step.callRule, body) };
+    await firstValueFrom(this.api.saveStepEdits(run.cycleId, run.id, stepKey, { ...edited, callRule: toWireRuleDoc(edited.callRule) }));
+  }
+
+  /** The edited body this run sends for a step, if one was set at a checkpoint. */
+  runEditOf(stepKey: string): string | undefined {
+    return this.runEdits.get(stepKey);
   }
 
   private awaitCheckpoint(stepKey: string, at: 'BEFORE' | 'AFTER'): Promise<CheckpointDecision> {
@@ -667,7 +706,7 @@ export class ReliveRunService {
     const substituted = substituteStepRequest(step, vars, {
       ...this.globalVariables.state().fallbacks,
       ...this.globalVariables.state().variables,
-    });
+    }, this.runEdits.get(step.key));
     const unresolved = unresolvedNames(substituted);
     const startedAt = Date.now();
     let resendResult: ResendResult | null = null;
@@ -714,24 +753,34 @@ export class ReliveRunService {
       this.setResult(step.key, () => own); // show the result while paused, same as mock's pauseBox
       const decision = await this.awaitCheckpoint(step.key, 'AFTER');
       if (this.stopped) return;
-      if (decision === 'REPLAY') return this.runInboundStep(step, attempt + 1);
+      if (decision === 'REPLAY') {
+        // FR-035b: every try is kept. This attempt and its children are stored before the next.
+        await this.settleAttempt(run, step, own, kids, collected, attempt);
+        return this.runInboundStep(step, attempt + 1);
+      }
       if (decision === 'SKIP') return this.skipStep(step);
     }
 
-    await this.settleResult(run, step, own);
-
-    for (const kid of kids) {
-      const event = collected.get(kid.key);
-      if (!event) {
-        this.setResult(kid.key, (r) => ({ ...r, state: 'NOT_CALLED' }));
-        continue;
-      }
-      await this.settleResult(run, kid, await this.buildChildResult(kid, event));
-    }
+    await this.settleAttempt(run, step, own, kids, collected, attempt);
 
     await this.refreshRunVariables(run);
 
     await this.applyFailurePolicy(run, step, own);
+  }
+
+  /** Stores one attempt of an inbound step and of the children it caused, all under the same
+   *  attempt number, so a retried step never overwrites its children's earlier results. */
+  private async settleAttempt(run: Run, step: Step, own: StepResult, kids: readonly Step[],
+                              collected: ReadonlyMap<string, RunCallEvent>, attempt: number): Promise<void> {
+    await this.settleResult(run, step, own);
+    for (const kid of kids) {
+      const event = collected.get(kid.key);
+      if (!event) {
+        this.setResult(kid.key, (r) => ({ ...r, attempt, state: 'NOT_CALLED' }));
+        continue;
+      }
+      await this.settleResult(run, kid, { ...(await this.buildChildResult(kid, event)), attempt });
+    }
   }
 
   /** A reload's step was already posted when the server has a RUNNING attempt, or when the proxy
@@ -866,7 +915,7 @@ export class ReliveRunService {
   }
 
   private skipDependents(step: Step): void {
-    const deps = dependentsOf(step, this.topOrder, this.results(), this.variables());
+    const deps = dependentsOf(step, this.topOrder, this.results(), this.variables(), this.runEdits);
     for (const dep of deps) {
       this.setResult(dep.step.key, (r) => ({
         ...r,
@@ -925,7 +974,7 @@ export class ReliveRunService {
       extracted: {},
     };
     const assertionResults = evaluate(step.assertions, draftResult);
-    const variablesUsed = usedVarsOf(step, this.variables());
+    const variablesUsed = usedVarsOf(step, this.variables(), this.runEdits.get(step.key));
     const variablesProduced = extractedVars(response, step.extract);
     const noiseRules = [...this.run()!.definition.noise, ...step.noise];
     const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced);

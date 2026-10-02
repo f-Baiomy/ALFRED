@@ -10,6 +10,8 @@ import {
   setCheckpoint,
   setMockResponse,
   setOnRequestChanged,
+  requestBodyOf,
+  setRequestBody,
 } from './relive-call-rule';
 import { CycleRule, FrozenCall, ReliveSettings, Step } from './relive-types';
 
@@ -137,6 +139,22 @@ describe('relive-call-rule: setMockResponse (T074 "Mock with it")', () => {
     const mock = rule.actions.find((a) => a.type === 'MOCK_RESPONSE');
     expect(mock?.status).toBe(500);
     expect(mock?.body).toBe('{"error":"boom"}');
+  });
+});
+
+describe('relive-call-rule: setRequestBody (edited request, FR-014d)', () => {
+  it('puts the edit before the request-differs condition and clears it again', () => {
+    let rule = defaultCallRule(child, settingsLive);
+    expect(requestBodyOf(rule)).toBeNull();
+
+    rule = setRequestBody(rule, '{"date":"2026-10-12"}');
+    expect(requestBodyOf(rule)).toBe('{"date":"2026-10-12"}');
+    const types = rule.actions.map((a) => a.type);
+    expect(types.indexOf('SET_REQUEST_BODY')).toBeLessThan(types.indexOf('IF_REQUEST'));
+    expect(modeOf(rule)).toBe('REPLAY');
+
+    rule = setRequestBody(rule, null);
+    expect(requestBodyOf(rule)).toBeNull();
   });
 });
 

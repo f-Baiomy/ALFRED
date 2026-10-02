@@ -145,6 +145,9 @@ export class ReliveRunTimelineComponent {
   readonly checkpointContinue = output<void>();
   readonly checkpointReplay = output<void>();
   readonly checkpointSkip = output<void>();
+  /** "Edit" (before) / "Edit & replay" (after) at an inbound checkpoint (FR-035b/c). */
+  readonly checkpointEdit = output<{ readonly body: string; readonly saveToCycle: boolean }>();
+  readonly editingCheckpoint = signal<{ body: string; saveToCycle: boolean } | null>(null);
   readonly stopRun = output<void>();
 
   readonly selectStep = output<string>();
@@ -439,6 +442,30 @@ export class ReliveRunTimelineComponent {
   select(key: string): void {
     this.detailKey.update((current) => (current === key ? null : key));
     this.selectStep.emit(key);
+  }
+
+  startCheckpointEdit(): void {
+    const row = this.pausedRow();
+    if (!row) return;
+    const edited = row.step.callRule.actions.find((a) => a.type === 'SET_REQUEST_BODY' && a.enabled !== false)?.body;
+    this.editingCheckpoint.set({ body: edited ?? row.step.recording.requestBody ?? '', saveToCycle: false });
+  }
+
+  submitCheckpointEdit(): void {
+    const edit = this.editingCheckpoint();
+    if (!edit) return;
+    this.editingCheckpoint.set(null);
+    this.checkpointEdit.emit({ body: edit.body, saveToCycle: edit.saveToCycle });
+  }
+
+  setCheckpointBody(body: string): void {
+    const edit = this.editingCheckpoint();
+    if (edit) this.editingCheckpoint.set({ ...edit, body });
+  }
+
+  setCheckpointSave(saveToCycle: boolean): void {
+    const edit = this.editingCheckpoint();
+    if (edit) this.editingCheckpoint.set({ ...edit, saveToCycle });
   }
 
   heldLabel(call: PausedCall): string {

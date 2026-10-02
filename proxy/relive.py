@@ -1125,6 +1125,8 @@ def tag_response_pause(flow, response_verdict):
     info = (getattr(flow, 'metadata', None) or {}).get('relive') or {}
     if response_verdict.pause and info.get('runId'):
         response_verdict.pause['relive'] = {'runId': info.get('runId'), 'stepKey': info.get('stepKey'), 'at': 'AFTER'}
+        # FR-035d: a held answer nobody decides on reaches the application, never a dropped call.
+        response_verdict.pause['onTimeout'] = 'release'
 
 
 def _answer(flow, verdict, status, headers, body):
@@ -1162,7 +1164,9 @@ async def settle_request_pause(flow, verdict, decision, service_name, engine):
     if choice == 'ANSWER':
         _answer(flow, verdict, int(decision.get('status') or 200), decision.get('headers') or {}, decision.get('body') or '')
         return True
-    if choice == 'SEND_REAL' or (decision.get('action') or '').lower() == 'abort':
+    if nobody and meta.get('at') != 'CHANGED':
+        choice = 'REPLAY'  # FR-035d: an unanswered checkpoint carries on with the call's own mode
+    elif choice == 'SEND_REAL' or (decision.get('action') or '').lower() == 'abort':
         return False
     resume = flow.metadata.pop('_relive_resume', None)
     rulesets = flow.metadata.get('relive_rulesets')

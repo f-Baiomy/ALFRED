@@ -840,6 +840,20 @@ button.rl-pill {
     }
   }
 
+  // Editable request and answer bodies in the step drawer and at checkpoints.
+  .rl-textarea,
+  .rl-held-edit textarea {
+    width: 100%;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 12px;
+    resize: vertical;
+  }
+
+  .rl-input-sm {
+    width: 80px;
+    margin-left: 6px;
+  }
+
   .rl-name-input,
   .rl-description-input {
     background: transparent;

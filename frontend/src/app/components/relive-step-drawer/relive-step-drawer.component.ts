@@ -4,7 +4,7 @@ import { CallInterception, OriginalHttp, RuleAction } from '../../core/models/in
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
 import { JsonPathInputComponent } from '../json-path-input/json-path-input.component';
 import { ScenarioAssertionEditorComponent } from '../scenario-assertion-editor/scenario-assertion-editor.component';
-import { applyMode, checkpointOf, modeOf, onRequestChangedOf, setCheckpoint } from '../../shared/utils/relive-call-rule';
+import { applyMode, checkpointOf, modeOf, onRequestChangedOf, requestBodyOf, setCheckpoint, setMockResponse, setRequestBody } from '../../shared/utils/relive-call-rule';
 import { ActionLine, HostCardInfo, describeAction, hostCard } from '../../shared/utils/relive-call-rule-describe';
 import { recordedCallPreviewOf } from '../../shared/utils/recorded-call-match';
 import { PathEntry, jsonPathIndex, parseJson } from '../../shared/utils/json-paths';
@@ -67,6 +67,9 @@ export class ReliveStepDrawerComponent {
   readonly duplicateRequested = output<string>();
   readonly openCallRule = output<string>();
   readonly openRequestDiffers = output<string>();
+  /** The request of a REPLAY child was edited for the first time (FR-014d: ask right away what
+   *  happens when it differs from the recording). */
+  readonly requestEdited = output<string>();
 
   /** Set once a run has settled this step - switches the drawer into T061's run tabs. */
   readonly result = input<StepResult | null>(null);
@@ -85,6 +88,33 @@ export class ReliveStepDrawerComponent {
   readonly revealed = signal(false);
 
   readonly log = computed(() => this.runLog().filter((e) => e.stepKey === this.step().key));
+
+  /** The body this step sends: the edit saved in its call rule, else the recording's. */
+  readonly requestBody = computed(() => requestBodyOf(this.step().callRule) ?? this.step().recording.requestBody ?? '');
+  readonly requestEditedFlag = computed(() => requestBodyOf(this.step().callRule) !== null);
+  /** The answer the call rule gives instead of the host (REPLAY mock or LIVE-mocked reply). */
+  readonly mockAnswer = computed(() => {
+    const action = this.step().callRule.actions.find((a) => (a.type === 'MOCK_RESPONSE' || a.type === 'REPLACE_RESPONSE') && a.enabled !== false);
+    return action ? { status: action.status ?? 200, body: action.body ?? '' } : null;
+  });
+
+  /** "Saved as 'Replace the request body' in the call rule" (T037). Blank or unchanged text
+   *  goes back to the recording. */
+  saveRequestBody(text: string): void {
+    const step = this.step();
+    const recorded = step.recording.requestBody ?? '';
+    const next = text === recorded ? null : text;
+    if (next === requestBodyOf(step.callRule)) return;
+    const firstEdit = requestBodyOf(step.callRule) === null && next !== null;
+    this.stepChange.emit({ ...step, callRule: setRequestBody(step.callRule, next) });
+    if (firstEdit && step.parentKey && modeOf(step.callRule) === 'REPLAY') this.requestEdited.emit(step.key);
+  }
+
+  /** Edits the enabled mock's (or reply's) status and body - kept even when switched to LIVE and back. */
+  saveMockAnswer(status: number, body: string): void {
+    const step = this.step();
+    this.stepChange.emit({ ...step, callRule: setMockResponse(step.callRule, step.recording, status, body) });
+  }
 
   /** T062 (research D16): recorded vs this run, built once so `InterceptionPanelComponent` can
    *  reuse the exact diff/highlight machinery a rule-edited call already gets. */

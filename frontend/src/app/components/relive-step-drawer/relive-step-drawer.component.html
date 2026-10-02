@@ -130,6 +130,11 @@
       }
       @case ('request') {
         <div class="rl-sect">
+          <h3>Request body {{ requestEditedFlag() ? '· edited' : '· as recorded' }}</h3>
+          <textarea class="rl-textarea" rows="10" [value]="requestBody()" (blur)="saveRequestBody($any($event.target).value)"></textarea>
+          <p class="rl-hint">Saved as "Replace the request body" in the call rule. Clear your edit by pasting the recorded body back.</p>
+        </div>
+        <div class="rl-sect">
           <h3>Recorded request (reference)</h3>
           <pre>{{ mask(step().recording.requestBody || '') || '(empty)' }}</pre>
         </div>
@@ -141,6 +146,18 @@
         }
       }
       @case ('response') {
+        @if (mockAnswer(); as answer) {
+          <div class="rl-sect">
+            <h3>Answer ALFRED gives</h3>
+            <label class="rl-hint">Status
+              <input #mockStatus class="rl-input-sm" type="number" [value]="answer.status"
+                     (change)="saveMockAnswer(+mockStatus.value, mockBody.value)" />
+            </label>
+            <textarea #mockBody class="rl-textarea" rows="10" [value]="answer.body"
+                      (blur)="saveMockAnswer(+mockStatus.value, mockBody.value)"></textarea>
+            <p class="rl-hint">Your edits stay even if you switch to LIVE and back.</p>
+          </div>
+        }
         <div class="rl-sect">
           <h3>Recorded response · {{ step().recording.status }}</h3>
           <pre>{{ mask(step().recording.responseBody || '') || '(empty)' }}</pre>

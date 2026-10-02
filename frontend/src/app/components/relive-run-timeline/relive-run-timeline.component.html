@@ -36,11 +36,25 @@
           }}
         </div>
         <pre style="max-height: 110px; margin-top: 6px">{{ pausePreview() }}</pre>
+        @if (editingCheckpoint(); as edit) {
+          <div class="rl-held-edit">
+            <textarea rows="8" [value]="edit.body" (input)="setCheckpointBody($any($event.target).value)"></textarea>
+            <label class="rl-hint">
+              <input type="checkbox" [checked]="edit.saveToCycle" (change)="setCheckpointSave($any($event.target).checked)" />
+              Also save these edits to the cycle
+            </label>
+            <div class="rl-row">
+              <button class="rl-btn rl-sm rl-primary" (click)="submitCheckpointEdit()">{{ p.at === 'AFTER' ? '↻ Replay with this' : '▶ Send this' }}</button>
+              <button class="rl-btn rl-sm" (click)="editingCheckpoint.set(null)">Cancel</button>
+            </div>
+          </div>
+        }
         <div class="rl-row" style="margin-top: 8px; flex-wrap: wrap">
           <button class="rl-btn rl-sm rl-primary" (click)="checkpointContinue.emit()">▶ Continue</button>
           @if (p.at === 'AFTER') {
             <button class="rl-btn rl-sm" (click)="checkpointReplay.emit()">↻ Replay</button>
           }
+          <button class="rl-btn rl-sm" (click)="startCheckpointEdit()">✎ {{ p.at === 'AFTER' ? 'Edit &amp; replay' : 'Edit' }}</button>
           <button class="rl-btn rl-sm" (click)="checkpointSkip.emit()">Skip</button>
           <button class="rl-btn rl-sm rl-danger" (click)="stopRun.emit()">■ Stop run</button>
         </div>

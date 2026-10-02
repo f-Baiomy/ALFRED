@@ -103,7 +103,10 @@ function mockAction(type: 'MOCK_RESPONSE' | 'REPLACE_RESPONSE', recording: Froze
 }
 
 function pauseAction(type: 'PAUSE_REQUEST' | 'PAUSE_RESPONSE', timeoutSeconds: number): RuleAction {
-  return { type, enabled: true, timeoutSeconds, onTimeout: 'abort' };
+  // A checkpoint that nobody answers carries on with the call's own mode (FR-035d); the proxy
+  // resumes the call rule after the pause, so 'release' never skips a REPLAY mock. The ASK pause
+  // of the request-differs branch is a failure on timeout whatever this says (relive.py).
+  return { type, enabled: true, timeoutSeconds, onTimeout: 'release' };
 }
 
 function conditionAction(recordedStepKey: string, otherwise: readonly RuleAction[]): RuleAction {
@@ -192,6 +195,21 @@ export function setMockResponse(rule: CycleRule, recording: FrozenCall, status: 
   if (!mock) return replayed;
   const updated = { ...mock, status, body };
   return withActions(replayed, replayed.actions.map((a) => (a === mock ? updated : a)));
+}
+
+/** The edited request body ("Replace the request body", FR-014d), or null when the recording's
+ *  body is sent as recorded. */
+export function requestBodyOf(rule: InterceptionRuleDraft): string | null {
+  const action = findBody(rule);
+  return action && action.enabled !== false ? (action.body ?? '') : null;
+}
+
+/** Sets or clears the edited request body. It sits before the request-differs condition, so the
+ *  comparison with the recording sees the user's own edit (FR-014d). */
+export function setRequestBody(rule: CycleRule, body: string | null): CycleRule {
+  const owned = currentOwned(rule);
+  const bodyOwned = body === null ? undefined : { ...(owned.body ?? bodyAction(body)), body, enabled: true };
+  return withActions(rule, reinsertOwned(rule, { ...owned, body: bodyOwned }));
 }
 
 export function modeOf(rule: InterceptionRuleDraft): StepMode {

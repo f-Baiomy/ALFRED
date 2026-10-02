@@ -695,7 +695,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 
 - [X] T103 B9: pause box and request-changed box in the run view with countdown and in-place decisions; AFTER pauses tagged.
 - [X] T104 FR-044a: "Apply to this run too / only next runs" dialog when editing during a run.
-- [ ] T105 FR-035b/c: Edit & replay, save edits to the cycle, every attempt persisted, children use the parent's attempt.
+- [X] T105 FR-035b/c: Edit & replay, save edits to the cycle, every attempt persisted, children use the parent's attempt.
 - [ ] T106 FR-039-041c: per-field differences, EXPECTED labels, "Ignore this field" (step/cycle), "Count it".
 - [ ] T107 FR-014d/034a/035d/032/014f: requestChanged, pauses, timeouts, child durations, unexpected calls persisted, child failure holds.
 - [ ] T108 FR-038: execution log entries per step.

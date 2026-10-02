@@ -62,6 +62,27 @@ describe('ReliveStepDrawerComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('"origin":"DXB"');
   });
 
+  it('T037: a first request edit is saved in the call rule and asks what happens when it differs', () => {
+    const changes: Step[] = [];
+    const asked: string[] = [];
+    fixture.componentInstance.stepChange.subscribe((s) => changes.push(s));
+    fixture.componentInstance.requestEdited.subscribe((k) => asked.push(k));
+
+    fixture.componentInstance.saveRequestBody('{"origin":"CAI"}');
+
+    expect(changes[0].callRule.actions.some((a) => a.type === 'SET_REQUEST_BODY' && a.body === '{"origin":"CAI"}')).toBeTrue();
+    expect(asked).toEqual(['c-supA']);
+  });
+
+  it('T037: the Response tab edits the mock answer', () => {
+    const changes: Step[] = [];
+    fixture.componentInstance.stepChange.subscribe((s) => changes.push(s));
+    fixture.componentInstance.saveMockAnswer(201, '{"edited":true}');
+    const mock = changes[0].callRule.actions.find((a) => a.type === 'MOCK_RESPONSE');
+    expect(mock?.status).toBe(201);
+    expect(mock?.body).toBe('{"edited":true}');
+  });
+
   it('shows the recorded response on the Response tab', () => {
     fixture.componentInstance.setTab('response');
     fixture.detectChanges();
