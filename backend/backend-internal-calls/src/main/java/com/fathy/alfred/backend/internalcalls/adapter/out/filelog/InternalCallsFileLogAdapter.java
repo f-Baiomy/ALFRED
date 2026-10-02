@@ -252,7 +252,12 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
      * a second time. A crash mid-write leaves the previous file intact.
      */
     private int writeCompacted(Path path, int linesFromFile, String newCallJson) throws IOException {
-        List<LineSpan> spans = lastNonEmptySpans(path, linesFromFile);
+        boolean tombstones = !reliveDeletedCallIds.isEmpty();
+        List<LineSpan> spans = tombstones
+                // Tombstoned lines leave the file here: keep the newest live lines, not the newest
+                // lines - the retained window counts only calls that are still visible.
+                ? withoutTombstoned(path, lastNonEmptySpans(path, linesFromFile + reliveDeletedCallIds.size()), linesFromFile)
+                : lastNonEmptySpans(path, linesFromFile);
         Path temp = path.resolveSibling(path.getFileName() + ".compacting");
         byte[] newline = System.lineSeparator().getBytes(StandardCharsets.UTF_8);
         try (SeekableByteChannel src = Files.newByteChannel(path, StandardOpenOption.READ);
@@ -277,7 +282,46 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             }
         }
         moveIntoPlace(temp, path);
+        if (tombstones) {
+            // Every tombstoned call is gone from the file now - dropped above, or older than what
+            // was kept - so the journal has nothing left to hide (it used to grow forever).
+            reliveDeletedCallIds.clear();
+            try {
+                Files.deleteIfExists(deletedJournal());
+            } catch (IOException e) {
+                log.warn("Could not remove the relive deleted-ids journal: {}", e.getMessage());
+            }
+        }
         return spans.size() + (newCallJson == null ? 0 : 1);
+    }
+
+    /** The newest {@code keep} of {@code spans} whose call is not tombstoned. Only lines that
+     *  mention a relive attribution are parsed. */
+    private List<LineSpan> withoutTombstoned(Path path, List<LineSpan> spans, int keep) throws IOException {
+        List<LineSpan> live = new ArrayList<>(spans.size());
+        byte[] needle = "\"relive\":{".getBytes(StandardCharsets.UTF_8);
+        try (SeekableByteChannel src = Files.newByteChannel(path, StandardOpenOption.READ)) {
+            for (LineSpan span : spans) {
+                ByteBuffer buffer = ByteBuffer.allocate(span.length());
+                src.position(span.start());
+                while (buffer.hasRemaining() && src.read(buffer) > 0) {
+                    // read the whole line
+                }
+                byte[] bytes = buffer.array();
+                if (indexOf(bytes, bytes.length, new Needle(needle)) >= 0) {
+                    try {
+                        com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(bytes);
+                        if (node.hasNonNull("id") && reliveDeletedCallIds.contains(node.get("id").asText())) {
+                            continue;
+                        }
+                    } catch (IOException e) {
+                        // Unparseable: kept, exactly like every other read path keeps it.
+                    }
+                }
+                live.add(span);
+            }
+        }
+        return live.size() <= keep ? live : live.subList(live.size() - keep, live.size());
     }
 
     /** Byte range of one line's content, excluding its terminator. */
@@ -631,17 +675,24 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
      *  this delete take the better part of a minute. Still-pending two-phase calls of those runs
      *  are dropped from memory; they were never on disk to begin with. */
     @Override
-    public synchronized int deleteByReliveRunIds(java.util.Collection<String> runIds) {
+    public int deleteByReliveRunIds(java.util.Collection<String> runIds) {
         if (runIds == null || runIds.isEmpty()) {
             return 0;
         }
         java.util.Set<String> ids = java.util.Set.copyOf(runIds);
-        loadDeletedJournal();
+        synchronized (this) {
+            loadDeletedJournal();
+        }
+        // The scan reads the whole log - hundreds of MB - and holds no lock while it does: every
+        // inbound webhook (save/complete) takes this adapter's monitor, and a delete used to stall
+        // them all for its full duration (review B16). Only the bookkeeping below is locked.
         Needle attributed = new Needle("\"relive\":{\"runId\":\"".getBytes(StandardCharsets.UTF_8));
         Needle ambiguous = new Needle("\"relive\":{\"ambiguousRunIds\":[".getBytes(StandardCharsets.UTF_8));
         Path path = Path.of(internalCallsFile);
         if (!Files.exists(path)) {
-            pendingById.values().removeIf(call -> belongsToRun(call, ids));
+            synchronized (this) {
+                pendingById.values().removeIf(call -> belongsToRun(call, ids));
+            }
             return 0;
         }
         List<String> deletedIds = new ArrayList<>();
@@ -668,13 +719,15 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
             log.error("Failed to scan {} for relive-attributed calls: {}", internalCallsFile, e.getMessage());
             throw new UncheckedIOException(e);
         }
-        if (deletedIds.isEmpty()) {
-            return 0;
+        synchronized (this) {
+            pendingById.values().removeIf(call -> belongsToRun(call, ids));
+            if (deletedIds.isEmpty()) {
+                return 0;
+            }
+            reliveDeletedCallIds.addAll(deletedIds);
+            appendDeletedJournal(deletedIds);
+            return deletedIds.size();
         }
-        reliveDeletedCallIds.addAll(deletedIds);
-        appendDeletedJournal(deletedIds);
-        pendingById.values().removeIf(call -> reliveDeletedCallIds.contains(call.id()));
-        return deletedIds.size();
     }
 
     /** Parses a scanned line only when its bytes mention run attribution at all, and collects the

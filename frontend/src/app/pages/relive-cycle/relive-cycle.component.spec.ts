@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { Subject, of } from 'rxjs';
+import { ReliveSocketService } from '../../core/services/relive-socket.service';
 import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { CallPickerService, PickResult } from '../../core/services/call-picker.service';
 import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
@@ -69,6 +70,7 @@ describe('ReliveCycleComponent picker and run', () => {
         { provide: ConfirmDialogService, useValue: {} },
         { provide: ReliveApiService, useValue: api },
         { provide: InterceptionStateService, useValue: { pausedCalls: signal([]) } },
+        { provide: ReliveSocketService, useValue: { events$: new Subject() } },
         { provide: InterceptionApiService, useValue: { decide: jasmine.createSpy('decide').and.returnValue(of(undefined)) } },
         { provide: ReliveRuleDialogService, useValue: { request: signal(null) } },
       ],

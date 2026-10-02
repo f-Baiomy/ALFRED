@@ -1308,6 +1308,24 @@ class ReviewFixesTest(unittest.TestCase):
             self.assertNotIn('run-a', relive._TIER_CACHE)
             self.assertFalse(any(k[0] == answers for k in interception._RECORDED_REQUEST_CACHE))
 
+    def test_completion_says_whether_the_real_host_answered(self):
+        # B17/B36: the Live calls log is filled from the completion, which never carried it.
+        flow = FakeFlow(request=FakeRequest(method='GET', host='api.supplier.com', path='/x'))
+        flow.metadata['relive'] = {'runId': 'run-a', 'stepKey': 'c-1'}
+        flow.response = object()
+        mocked = interception.Verdict()
+        mocked.terminal = 'MOCK_RESPONSE'
+        data = {}
+        relive.mark_reached_upstream(flow, mocked, data)
+        self.assertEqual({'reached_upstream': False}, data)
+        data = {}
+        relive.mark_reached_upstream(flow, interception.Verdict(), data)
+        self.assertEqual({'reached_upstream': True}, data)
+        flow.metadata.pop('relive')
+        data = {}
+        relive.mark_reached_upstream(flow, interception.Verdict(), data)
+        self.assertEqual({}, data)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1246,6 +1246,21 @@ def _rule_applications(flow, rulesets):
     return out
 
 
+def mark_reached_upstream(flow, verdict, data):
+    """Adds `reached_upstream` to a run call's completion: whether the real host really answered.
+
+    The backend fills the Live calls log (FR-015b) from this field of the completion only, and it
+    used to be sent with the prepare webhook alone - a guess made before any pause was decided, and
+    overwritten with nothing at completion, so the log stayed empty. A call ALFRED answered (a mock,
+    a pause resolved to a mock, a block) is not upstream; a call that never got a response is not
+    either.
+    """
+    if not (getattr(flow, 'metadata', None) or {}).get('relive'):
+        return
+    answered_here = bool(getattr(verdict, 'terminal', None)) if verdict is not None else False
+    data['reached_upstream'] = flow.response is not None and not answered_here
+
+
 def failure_payload(relive_meta):
     """The body for the 502 an unattended "request differs" pause resolves to - see
     force_failure_mock, called from the addon once `breakpoints.wait_for_decision` comes back

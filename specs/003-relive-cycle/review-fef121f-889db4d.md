@@ -571,3 +571,7 @@ Each bug has: **where**, **what happens**, **why**, and **fix**.
 | B33 | Releasing a request-phase pause sent the request to the host and skipped the rest of the call rule. A REPLAY child with "pause before" reached the real supplier on Continue or timeout | CRITICAL | T098 |
 | B34 | `_guard_replay` turned every paused REPLAY child into an immediate 502, so "Ask me" and child checkpoints never held | HIGH | T098 |
 | B35 | `backend-app` tests did not compile after `CallDetail` gained `relive`; two `ReliveCyclesControllerTest` cases failed after `create()` gained `deferFingerprint` | MEDIUM | T095 |
+| B36 | The proxy never sent `reached_upstream` with the completion, which is the only place the backend reads it, so the Live calls log (FR-015b) stayed empty | HIGH | T117 |
+| B37 | With tombstoned relive calls in the inbound log, compaction kept the newest N *lines*, so tombstoned lines pushed live calls out of the file | MEDIUM | T117 |
+
+Correction: B19's "bare `{{name}}` falls back to Relive variables" is not a bug - `substituteTokens` only fills `{{this.x}}` and base64 tokens.

@@ -1,7 +1,8 @@
 import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Observable, Subscription, catchError, firstValueFrom, interval, of, switchMap, takeWhile } from 'rxjs';
+import { Observable, Subscription, catchError, debounceTime, filter, firstValueFrom, of, switchMap, takeWhile } from 'rxjs';
+import { ReliveSocketService } from '../../core/services/relive-socket.service';
 import { ReliveAddCallsDialogComponent, RELIVE_ADD_CALLS_REQUESTER, ReliveAddCallsResume } from '../../components/relive-add-calls/relive-add-calls-dialog.component';
 import { RuleEditorComponent } from '../../components/rule-editor/rule-editor.component';
 import { ReliveStepDrawerComponent } from '../../components/relive-step-drawer/relive-step-drawer.component';
@@ -70,6 +71,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   private readonly api = inject(ReliveApiService);
   private readonly interceptionState = inject(InterceptionStateService);
   private readonly interceptionApi = inject(InterceptionApiService);
+  private readonly reliveSocket = inject(ReliveSocketService);
   readonly state = inject(ReliveCycleEditorState);
   readonly reliveVariableHints = computed(() => {
     const draft = this.state.draft();
@@ -433,7 +435,10 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.historyRun.set({ run, results: latestResults(run.stepResults) });
     this.setTab('run');
     if (run.status !== 'RUNNING') return;
-    this.historyWatch = interval(1000).pipe(
+    // Refetched when /ws/relive says this run changed or a call of it completed - not on a timer.
+    this.historyWatch = this.reliveSocket.events$.pipe(
+      filter((e) => (e.type === 'run-changed' || e.type === 'run-call') && e.runId === run.id),
+      debounceTime(300),
       switchMap(() => this.api.getRun(cycleId, run.id).pipe(catchError(() => of(null)))),
       takeWhile((next) => next?.status === 'RUNNING', true),
       takeUntilDestroyed(this.destroyRef),

@@ -432,6 +432,7 @@ class RouteAndLog:
         applied = verdict.as_log()
         if applied:
             data['interception'] = applied
+        relive.mark_reached_upstream(flow, verdict, data)
         self._write(call_id, data)
 
         # Ties this addon's own per-call line to mitmdump's own -q/-v flags
@@ -475,6 +476,7 @@ class RouteAndLog:
                 'headers': dict(flow.response.headers),
                 'body': self._safe_body(flow.response),
             }
+        relive.mark_reached_upstream(flow, verdict, data)
         self._write(call_id, data)
 
     async def websocket_start(self, flow):

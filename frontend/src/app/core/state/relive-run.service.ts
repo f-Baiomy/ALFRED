@@ -17,7 +17,7 @@
  */
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Subscription, filter, firstValueFrom } from 'rxjs';
+import { Subscription, filter, firstValueFrom, race, timer } from 'rxjs';
 import { CallEndpointSource, CallRecord } from '../models/call.model';
 import { RuleAction } from '../models/interception.model';
 import { CallsApiService } from '../services/calls-api.service';
@@ -40,9 +40,12 @@ import { evaluate } from '../../shared/utils/scenario-assertions';
  *  a still-missing enabled child was never called - the reverse proxy handles a child's outbound
  *  call synchronously while the inbound request is in flight, so by the time the resend response
  *  comes back every child has already happened; this only covers the WS broadcast's own lag. */
-const CHILD_EVENTS_GRACE_MS = 500;
-/** How often a reattached page looks for the call a previous page already sent. */
-const DISPATCH_POLL_MS = 400;
+const CHILD_EVENTS_GRACE_MS = 1500; // outbound completions are queued in the proxy; 500 ms marked busy children NOT_CALLED
+/** A reattached page waits this long for the call a previous page already sent, re-checking the
+ *  logged call when the run signals a change (or at the latest every RECHECK_MS), then gives up
+ *  and settles the step as failed instead of waiting forever. */
+const RECOVER_DEADLINE_MS = 120_000;
+const RECHECK_MS = 10_000;
 /** Proxy and browser clocks can disagree by a little. A call logged just after the dispatch
  *  marker still belongs to that attempt; a retry's previous call is much older. */
 const DISPATCH_CLOCK_SKEW_MS = 2000;
@@ -757,7 +760,7 @@ export class ReliveRunService {
     // NOT_CALLED just because its own COMPLETED event hasn't arrived within the grace window yet.
     const collected = new Map<string, RunCallEvent>();
     const unexpected: UnexpectedCallEntry[] = [];
-    this.eventsSub = this.socket.events$
+    const stepEvents = this.socket.events$
       .pipe(filter((e): e is RunCallEvent => e.type === 'run-call' && e.runId === run.id && e.state === 'COMPLETED'))
       .subscribe((e) => {
         // FR-014f: an unexpected call is part of the step it happened during, and of its history.
@@ -767,6 +770,12 @@ export class ReliveRunService {
         }
         if (e.stepKey) collected.set(e.stepKey, e);
       });
+    this.eventsSub = stepEvents;
+    // Local handle: stop() clears this.eventsSub while the resend is still in flight.
+    const releaseEvents = () => {
+      stepEvents.unsubscribe();
+      if (this.eventsSub === stepEvents) this.eventsSub = null;
+    };
 
     const vars = this.variables();
     const substituted = substituteStepRequest(step, vars, {
@@ -780,8 +789,7 @@ export class ReliveRunService {
     if (recover) {
       const waited = await this.waitForLoggedCall(step, dispatchedAt);
       if (this.stopped) {
-        this.eventsSub?.unsubscribe();
-        this.eventsSub = null;
+        releaseEvents();
         return;
       }
       resendResult = waited.result;
@@ -807,11 +815,15 @@ export class ReliveRunService {
         error = errorMessage(e);
       }
     }
+    if (this.stopped) {
+      // Stopped while the step was in flight: its result is CANCELLED already, never overwritten.
+      releaseEvents();
+      return;
+    }
 
     if (kids.length > 0) await sleep(CHILD_EVENTS_GRACE_MS);
     if (recover) await this.absorbLoggedChildren(run, kids, collected);
-    this.eventsSub.unsubscribe();
-    this.eventsSub = null;
+    releaseEvents();
 
     let own: StepResult = { ...this.buildOwnResult(step, substituted, resendResult, error, startedAt, attempt), unexpectedCalls: unexpected, pauses };
 
@@ -883,6 +895,7 @@ export class ReliveRunService {
   }
 
   private async waitForLoggedCall(step: Step, startedAt: string | null): Promise<{ result: ResendResult | null; error: string | null }> {
+    const deadline = Date.now() + RECOVER_DEADLINE_MS;
     for (;;) {
       if (this.stopped) return { result: null, error: null };
       try {
@@ -891,8 +904,22 @@ export class ReliveRunService {
       } catch {
         // A list blip while reattaching must not turn into a second send.
       }
-      await sleep(DISPATCH_POLL_MS);
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        return { result: null, error: 'This step was sent before the page reloaded and its call never reached ALFRED.' };
+      }
+      await this.nextRunSignal(Math.min(left, RECHECK_MS));
     }
+  }
+
+  /** Resolves on the next event about this run, or after `ms` - whichever is first. Driven by the
+   *  socket, not a timer loop (no polling, CLAUDE.md). */
+  private nextRunSignal(ms: number): Promise<unknown> {
+    const runId = this.run()?.id;
+    return firstValueFrom(race(
+      this.socket.events$.pipe(filter((e) => 'runId' in e && (e as { runId?: string }).runId === runId)),
+      timer(ms),
+    ));
   }
 
   private async resendResultFrom(call: CallRecord, step: Step): Promise<{ result: ResendResult | null; error: string | null }> {
@@ -1080,11 +1107,13 @@ export class ReliveRunService {
     let response: ResendResponseSnapshot | null = null;
     let actualRequest: { readonly headers: Readonly<Record<string, string>>; readonly body: string | null } | null = null;
     let rulesApplied: RuleApplied[] = [];
+    let proxyChoice: string | null = null;
     try {
       const detail = await firstValueFrom(this.callsApi.getDetail(event.callId, source));
       response = detail.response ? { status: detail.response.status, headers: detail.response.headers ?? {}, body: detail.response.body ?? null } : null;
       actualRequest = detail.request ? { headers: detail.request.headers ?? {}, body: detail.request.body ?? null } : null;
       rulesApplied = (detail.relive?.ruleIds ?? []).map((r) => ({ ruleId: r.ruleId, name: r.ruleName, tier: r.tier }));
+      proxyChoice = (detail.relive as { choice?: string | null } | null | undefined)?.choice ?? null;
     } catch {
       response = null;
     }
@@ -1116,7 +1145,8 @@ export class ReliveRunService {
       // The event carries a lifecycle state, not the mode (see the events$ filter above) - the
       // proxy's own "choice" for a matched child is its configured mode verbatim (proxy/relive.py),
       // which `modeOf` already reads back from the same call rule the run was built from.
-      mode: modeOf(step.callRule) === 'REPLAY' ? 'REPLAY' : 'LIVE',
+      // What the proxy actually did for this call (its logged choice), else what the rule says.
+      mode: (proxyChoice ? proxyChoice === 'REPLAY' : modeOf(step.callRule) === 'REPLAY') ? 'REPLAY' : 'LIVE',
       attribution: event.attribution as StepResult['attribution'],
       actualRequest,
       actualResponse: response,

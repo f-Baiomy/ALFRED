@@ -333,7 +333,11 @@ describe('ReliveRunService', () => {
     reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
 
     service.adopt(full);
-    await service.continueAdopted();
+    const following = service.continueAdopted();
+    // Re-checked when the run signals a change, not on a timer (review B14).
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    events$.next({ type: 'run-call', runId: 'run-1', stepKey: 'search', callId: 'replay-search', direction: 'inbound', attribution: 'HEADER', state: 'COMPLETED' });
+    await following;
 
     expect(resendApi.resend).not.toHaveBeenCalled();
     expect(polls).toBeGreaterThan(1);

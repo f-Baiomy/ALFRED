@@ -713,7 +713,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 
 ### E. Medium/low bugs, existing features, style
 
-- [ ] T117 B14-B17, B19: WebSocket-driven reattach with a deadline, stop() crash, history delete lock, reachedUpstream at complete, orchestrator data gaps.
+- [X] T117 B14-B17, B19: WebSocket-driven reattach with a deadline, stop() crash, history delete lock, reachedUpstream at complete, orchestrator data gaps.
 - [ ] T118 B18: validator aligned with reachesHost, GLOBAL/CYCLE overlap, driver-aware Guided check.
 - [ ] T119 B20/B21: call-list skeleton effect fixed, no data hold-back.
 - [ ] T120 B23-B32: remaining low items.

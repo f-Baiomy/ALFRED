@@ -465,6 +465,31 @@ class InternalCallsFileLogAdapterTest {
                 .containsExactly("internal-calls.log");
     }
 
+    /** Review B16/B37: compaction drops tombstoned relive calls instead of letting them take the
+     *  place of live ones, and the journal is emptied once they are gone. */
+    @Test
+    void compactionDropsTombstonedCallsAndEmptiesTheJournal() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        StringBuilder seeded = new StringBuilder();
+        for (int i = 1; i <= 50; i++) {
+            seeded.append("{\"id\":\"f").append(i).append("\"}\n");
+        }
+        seeded.append("{\"id\":\"keep-old\"}\n");
+        seeded.append("{\"id\":\"gone\",\"relive\":{\"runId\":\"run-x\"}}\n");
+        seeded.append("{\"id\":\"keep-new\"}\n");
+        Files.writeString(file, seeded.toString());
+        InternalCallsFileLogAdapter adapter = adapterFor(file, 3);
+
+        assertThat(adapter.deleteByReliveRunIds(List.of("run-x"))).isEqualTo(1);
+        adapter.prepare(prepared("newest"));
+        adapter.complete("newest", new ResponseData(200, null, "ok"), null, 1.0);
+
+        String rewritten = Files.readString(file);
+        assertThat(rewritten).doesNotContain("\"gone\"").contains("keep-old").contains("keep-new");
+        assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly("keep-old", "keep-new", "newest");
+        assertThat(Files.exists(tempDir.resolve("internal-calls.log.relive-deleted"))).isFalse();
+    }
+
     private static Object getField(InternalCallsFileLogAdapter adapter, String name) throws Exception {
         Field field = InternalCallsFileLogAdapter.class.getDeclaredField(name);
         field.setAccessible(true);
