@@ -109,6 +109,13 @@ describe('ReliveLiveCallsComponent', () => {
     expect(fixture.componentInstance.totalBytes()).toBe(1000);
   });
 
+  it('FR-015c: warns above the threshold the backend configures', () => {
+    listSpy.and.returnValue(of({ calls: [liveCall()], totalBytes: 5000, warnBytes: 4000 }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.warnBytes()).toBe(4000);
+    expect(fixture.componentInstance.overWarnSize()).toBeTrue();
+  });
+
   it('T074: opening "Use as recording" previews recorded vs the live call', () => {
     fixture.detectChanges();
     fixture.componentInstance.openUseAsRecording(liveCall());

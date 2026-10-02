@@ -17,9 +17,9 @@ import { setMockResponse } from '../../shared/utils/relive-call-rule';
 import { CycleRule, CycleVariable, LiveCall, Step } from '../../shared/utils/relive-types';
 
 /** Above this many bytes stored, the Live calls log shows a size warning with bulk delete
- *  (FR-015c) - `alfred.relive.live-calls.warn-bytes`, no settings endpoint exposes it yet, so this
- *  mirrors the backend's own default (200 MB). */
-const WARN_BYTES = 200 * 1024 * 1024;
+ *  (FR-015c) - `alfred.relive.live-calls.warn-bytes`, sent by the backend with the list; this is
+ *  only the fallback for an older backend that does not send it. */
+const DEFAULT_WARN_BYTES = 200 * 1024 * 1024;
 const UNDO_MS = 8000;
 
 function toOriginalHttp(value: unknown): OriginalHttp | null {
@@ -80,7 +80,8 @@ export class ReliveLiveCallsComponent implements OnInit {
    *  which step's mock it should overwrite. */
   readonly mockWithTarget = signal<LiveCall | null>(null);
 
-  readonly overWarnSize = computed(() => this.totalBytes() > WARN_BYTES);
+  readonly warnBytes = signal(DEFAULT_WARN_BYTES);
+  readonly overWarnSize = computed(() => this.totalBytes() > this.warnBytes());
 
   ngOnInit(): void {
     this.load();
@@ -93,9 +94,10 @@ export class ReliveLiveCallsComponent implements OnInit {
   }
 
   private load(): void {
-    this.api.listLiveCalls(this.cycleId()).subscribe(({ calls, totalBytes }) => {
+    this.api.listLiveCalls(this.cycleId()).subscribe(({ calls, totalBytes, warnBytes }) => {
       this.calls.set(calls);
       this.totalBytes.set(totalBytes);
+      if (warnBytes) this.warnBytes.set(warnBytes);
     });
   }
 

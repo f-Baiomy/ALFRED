@@ -700,7 +700,7 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 - [X] T107 FR-014d/034a/035d/032/014f: requestChanged, pauses, timeouts, child durations, unexpected calls persisted, child failure holds.
 - [X] T108 FR-038: execution log entries per step.
 - [X] T109 T062: shared `call-step-strip` component.
-- [ ] T110 FR-015c: live-calls warning threshold from settings.
+- [X] T110 FR-015c: live-calls warning threshold from settings.
 
 ### D. Performance
 

@@ -226,10 +226,14 @@ export class ReliveApiService {
 
   /** `totalBytes` is read off the `X-Live-Calls-Bytes` response header (contracts/rest-api.md,
    *  FR-015c) - the size warning needs it without a separate request. */
-  listLiveCalls(cycleId: string, limit = 100): Observable<{ readonly calls: readonly LiveCall[]; readonly totalBytes: number }> {
+  listLiveCalls(cycleId: string, limit = 100): Observable<{ readonly calls: readonly LiveCall[]; readonly totalBytes: number; readonly warnBytes: number | null }> {
     return this.http
       .get<LiveCall[]>(`${this.base}/${encodeURIComponent(cycleId)}/live-calls?limit=${limit}`, { observe: 'response' })
-      .pipe(map((res) => ({ calls: res.body ?? [], totalBytes: Number(res.headers.get('X-Live-Calls-Bytes') ?? 0) })));
+      .pipe(map((res) => ({
+        calls: res.body ?? [],
+        totalBytes: Number(res.headers.get('X-Live-Calls-Bytes') ?? 0),
+        warnBytes: Number(res.headers.get('X-Live-Calls-Warn-Bytes') ?? 0) || null,
+      })));
   }
 
   getLiveCall(cycleId: string, liveId: string): Observable<LiveCall> {

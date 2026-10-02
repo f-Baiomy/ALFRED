@@ -9,6 +9,7 @@ import com.fathy.alfred.backend.relive.domain.model.CycleVariable;
 import com.fathy.alfred.backend.relive.domain.model.LiveCall;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
 import com.fathy.alfred.backend.relive.domain.model.ReliveLimits;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,11 +32,16 @@ public class LiveCallsController {
     private final ManageReliveCyclesUseCase manageCycles;
     private final UseLiveCallAsRecordingUseCase useAsRecording;
 
+    /** FR-015c: above this size per cycle the History tab warns and offers bulk delete or export. */
+    private final long warnBytes;
+
     public LiveCallsController(LiveCallStorePort liveCallStore, ManageReliveCyclesUseCase manageCycles,
-                                UseLiveCallAsRecordingUseCase useAsRecording) {
+                                UseLiveCallAsRecordingUseCase useAsRecording,
+                                @Value("${alfred.relive.live-calls.warn-bytes:209715200}") long warnBytes) {
         this.liveCallStore = liveCallStore;
         this.manageCycles = manageCycles;
         this.useAsRecording = useAsRecording;
+        this.warnBytes = warnBytes;
     }
 
     @GetMapping("/{id}/live-calls")
@@ -43,6 +49,7 @@ public class LiveCallsController {
         List<LiveCall> calls = liveCallStore.list(id, Math.min(Math.max(limit, 0), ReliveLimits.MAX_LIST_LIMIT));
         return ResponseEntity.ok()
                 .header("X-Live-Calls-Bytes", String.valueOf(liveCallStore.totalBytes(id)))
+                .header("X-Live-Calls-Warn-Bytes", String.valueOf(warnBytes))
                 .body(calls);
     }
 
