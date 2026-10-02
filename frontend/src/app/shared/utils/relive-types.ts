@@ -181,11 +181,14 @@ export interface RuleApplied {
   readonly actions?: readonly string[];
 }
 
+/** Same shape as backend `UnexpectedCallEntry`. */
 export interface UnexpectedCallEntry {
   readonly callId: string;
-  readonly method: string;
-  readonly url: string;
-  readonly handledBy: 'BLOCK' | 'SEND_REAL' | { readonly ruleId: string; readonly name: string };
+  readonly method: string | null;
+  readonly url: string | null;
+  readonly handledBy: 'BLOCK' | 'SEND_REAL' | 'RULES' | null;
+  readonly handledByRuleId?: string | null;
+  readonly handledByRuleName?: string | null;
   readonly reachedExternal: boolean;
 }
 

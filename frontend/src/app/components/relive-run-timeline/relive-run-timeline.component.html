@@ -183,6 +183,12 @@
         @if (viewState(row) === 'FAILED') {
           <span class="rl-pill rl-p-fail" [title]="whyOf(row)[0]?.summary ?? ''">✕ failed</span>
         }
+        @if (row.result.requestChanged) {
+          <button type="button" class="rl-pill rl-p-fail" title="Compare the request with the recording" (click)="selectStep.emit(row.step.key)">request changed…</button>
+        }
+        @if (row.result.unexpectedCalls.length) {
+          <span class="rl-pill rl-p-diff" title="Calls during this step that matched no recorded child">{{ row.result.unexpectedCalls.length }} unexpected</span>
+        }
         @if (row.result.attempt > 1) {
           <span class="rl-pill rl-p-wait">attempt {{ row.result.attempt }}</span>
         }

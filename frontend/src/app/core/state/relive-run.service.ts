@@ -30,7 +30,7 @@ import { checkpointOf, modeOf, setRequestBody } from '../../shared/utils/relive-
 import { ExpectedCause, RawDifference, classify } from '../../shared/utils/relive-noise';
 import { ActualCallOutcome, outcomeOf } from '../../shared/utils/relive-outcome';
 import type { CallsQuery } from '../state/call-list-view';
-import { CycleRule, DifferenceEntry, NoiseRule, ReliveCycle, RuleApplied, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
+import { CycleRule, DifferenceEntry, NoiseRule, PauseEntry, ReliveCycle, RequestChangedEntry, RuleApplied, Run, RunStatus, Step, StepResult, StepState, UnexpectedCallEntry } from '../../shared/utils/relive-types';
 import { DraftResult } from '../../shared/utils/resend-draft';
 import { extractValues, substituteTokens } from '../../shared/utils/resend-draft-chain';
 import { allResponseDifferences } from '../../shared/utils/relive-canonical-body';
@@ -72,6 +72,8 @@ interface SubstitutedRequest {
 }
 
 const PLAIN_VAR_TOKEN = /\{\{([A-Za-z][A-Za-z0-9_.-]*)\}\}/g;
+/** A resend or call error that says it gave up waiting (FR-034a "timeout"). */
+const TIMEOUT_TEXT = /time(d)?[ -]?out|deadline/i;
 const RELIVE_VAR_TOKEN = /\{\{\$\.([A-Za-z][A-Za-z0-9_.-]*)\}\}/g;
 
 function substituteVars(text: string, vars: Readonly<Record<string, string>>, globals: Readonly<Record<string, string>>): string {
@@ -201,6 +203,20 @@ function differencesOf(
 function toWireRuleDoc(rule: Step['callRule']): { readonly rule: object; readonly copiedFrom: unknown } {
   const { copiedFrom, ...document } = rule;
   return { rule: document, copiedFrom: copiedFrom ?? null };
+}
+
+/** What changed in a child's request compared with its recording, for the "request changed" pill
+ *  and Compare (FR-014d): the body, field by field when both are JSON. */
+function requestChangesOf(
+  step: Step,
+  actual: { readonly headers: Readonly<Record<string, string>>; readonly body: string | null } | null,
+): RequestChangedEntry['changes'] {
+  if (!actual) return [];
+  return allResponseDifferences(
+    { status: 0, headers: {}, body: step.recording.requestBody ?? null },
+    { status: 0, headers: {}, body: actual.body },
+    { noiseRules: [], variablesUsed: [], variablesProduced: [] },
+  ).map((d) => ({ part: d.part, path: d.path.replace(/^body/, 'request'), recorded: d.recorded, actual: d.actual }));
 }
 
 function topSteps(steps: readonly Step[]): Step[] {
@@ -722,8 +738,11 @@ export class ReliveRunService {
     this.setResult(step.key, (r) => ({ ...r, state: 'RUNNING' }));
 
     const checkpoint = checkpointOf(step.callRule);
+    const pauses: PauseEntry[] = [];
     if (checkpoint.before && !recover) {
+      const since = new Date().toISOString();
       const decision = await this.awaitCheckpoint(step.key, 'BEFORE');
+      pauses.push({ at: 'BEFORE', since, resolvedAt: new Date().toISOString(), choice: this.stopped ? 'STOP' : decision });
       if (this.stopped) return;
       if (decision === 'SKIP') return this.skipStep(step);
       this.setResult(step.key, (r) => ({ ...r, state: 'RUNNING' }));
@@ -737,9 +756,17 @@ export class ReliveRunService {
     // to fetch; an IN_PROGRESS sighting is dropped so a still-running LIVE child isn't mistaken for
     // NOT_CALLED just because its own COMPLETED event hasn't arrived within the grace window yet.
     const collected = new Map<string, RunCallEvent>();
+    const unexpected: UnexpectedCallEntry[] = [];
     this.eventsSub = this.socket.events$
       .pipe(filter((e): e is RunCallEvent => e.type === 'run-call' && e.runId === run.id && e.state === 'COMPLETED'))
-      .subscribe((e) => collected.set(e.stepKey, e));
+      .subscribe((e) => {
+        // FR-014f: an unexpected call is part of the step it happened during, and of its history.
+        if (e.attribution === 'UNEXPECTED') {
+          unexpected.push({ callId: e.callId, method: e.method ?? null, url: e.url ?? null, handledBy: null, reachedExternal: false });
+          return;
+        }
+        if (e.stepKey) collected.set(e.stepKey, e);
+      });
 
     const vars = this.variables();
     const substituted = substituteStepRequest(step, vars, {
@@ -786,11 +813,13 @@ export class ReliveRunService {
     this.eventsSub.unsubscribe();
     this.eventsSub = null;
 
-    const own = this.buildOwnResult(step, substituted, resendResult, error, startedAt, attempt);
+    let own: StepResult = { ...this.buildOwnResult(step, substituted, resendResult, error, startedAt, attempt), unexpectedCalls: unexpected, pauses };
 
     if (checkpoint.after) {
       this.setResult(step.key, () => own); // show the result while paused, same as mock's pauseBox
+      const since = new Date().toISOString();
       const decision = await this.awaitCheckpoint(step.key, 'AFTER');
+      own = { ...own, pauses: [...pauses, { at: 'AFTER', since, resolvedAt: new Date().toISOString(), choice: this.stopped ? 'STOP' : decision }] };
       if (this.stopped) return;
       if (decision === 'REPLAY') {
         // FR-035b: every try is kept. This attempt and its children are stored before the next.
@@ -804,7 +833,9 @@ export class ReliveRunService {
 
     await this.refreshRunVariables(run);
 
-    await this.applyFailurePolicy(run, step, own);
+    // FR-034: a failed non-optional child holds the run too, at its parent (the step ALFRED sends).
+    const childFailed = kids.some((kid) => !kid.optional && this.results()[kid.key]?.state === 'FAILED');
+    await this.applyFailurePolicy(run, step, childFailed && own.state !== 'FAILED' ? { ...own, state: 'FAILED' } : own);
   }
 
   /** Stores one attempt of an inbound step and of the children it caused, all under the same
@@ -997,8 +1028,8 @@ export class ReliveRunService {
     const finishedAt = Date.now();
     const response = resendResult?.response ?? null;
     const actual: ActualCallOutcome = {
-      transportError: !!error,
-      timedOut: false,
+      transportError: !!error && !TIMEOUT_TEXT.test(error),
+      timedOut: !!error && TIMEOUT_TEXT.test(error),
       noAnswer: !response,
       status: response?.status ?? null,
     };
@@ -1074,11 +1105,14 @@ export class ReliveRunService {
     const noiseRules = [...this.run()!.definition.noise, ...step.noise];
     const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced, this.run()!.definition.cycleRules);
     const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, differences);
+    const changed = event.requestChanged === true;
     return {
       runId: this.run()!.id,
       stepKey: step.key,
       attempt: 1,
-      state: outcome,
+      // FR-014d: a REPLAY child whose request differs is answered by its "request differs" choice;
+      // when that answer is the failure mock the step is Failed with that reason.
+      state: changed && response?.status === 502 ? 'FAILED' : outcome,
       // The event carries a lifecycle state, not the mode (see the events$ filter above) - the
       // proxy's own "choice" for a matched child is its configured mode verbatim (proxy/relive.py),
       // which `modeOf` already reads back from the same call rule the run was built from.
@@ -1091,10 +1125,11 @@ export class ReliveRunService {
       variablesUsed,
       variablesProduced,
       assertions: assertionResults,
-      durationMs: null,
-      error: null,
+      durationMs: event.durationMs ?? null,
+      finishedAt: new Date().toISOString(),
+      error: changed && response?.status === 502 ? 'Request differs from the recording - answered with a mocked failure' : null,
       unexpectedCalls: [],
-      requestChanged: null,
+      requestChanged: changed ? { changes: requestChangesOf(step, actualRequest), decision: response?.status === 502 ? 'FAIL' : 'REPLAY' } : null,
       pauses: [],
     };
   }

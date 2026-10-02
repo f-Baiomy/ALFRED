@@ -674,6 +674,13 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         // it by endpoint - method/url are the only fields it needs for that.
         event.put("method", call.method());
         event.put("url", call.url());
+        // A child's own duration (FR-032): the browser has no other cheap way to learn it.
+        if (call.durationMs() != null) {
+            event.put("durationMs", call.durationMs());
+        }
+        if (relive.has("requestChanged")) {
+            event.put("requestChanged", relive.path("requestChanged").asBoolean());
+        }
         notifications.runCall(event);
     }
 

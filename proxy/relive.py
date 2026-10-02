@@ -603,6 +603,22 @@ def _child_endpoint(child):
     return interception.canonical_endpoint(method, rec.get('scheme'), host, path, rec.get('query') or '')
 
 
+def _request_differs(flow, child, runs, run):
+    """Whether this call's request (as it stands after the call rule's own edits) differs from the
+    child's recording - the same test as the call rule's "request differs" condition. None when the
+    child has no such condition to answer it."""
+    answer_id = _recorded_answer_id(child)
+    if not answer_id:
+        return None
+    condition = interception.Condition({'subject': 'RECORDED_CALL', 'operator': 'MATCHES', 'answerId': answer_id})
+    saved = flow.metadata.get('_interception_answer_dir')
+    flow.metadata['_interception_answer_dir'] = _relive_answers_dir(run.get('runId'), runs)
+    try:
+        return not condition._recorded_call_holds(flow)
+    finally:
+        flow.metadata['_interception_answer_dir'] = saved
+
+
 def _recorded_answer_id(child):
     rule = child.get('callRule') if isinstance(child.get('callRule'), dict) else None
     for action in (rule or {}).get('actions') or []:
@@ -1269,6 +1285,9 @@ async def apply_outbound(flow, service_name, backend_addresses, engine, runs=Non
     _tag_changed_pause(verdict, run_id, child.get('stepKey'))
     info = {'runId': run_id, 'stepKey': child.get('stepKey'), 'attribution': result.kind,
             'choice': child.get('mode'), 'ruleIds': _rule_applications(flow, rulesets)}
+    differs = _request_differs(flow, child, runs, run)
+    if differs is not None:
+        info['requestChanged'] = differs
     return verdict, info
 
 

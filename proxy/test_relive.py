@@ -1269,6 +1269,23 @@ class ReviewFixesTest(unittest.TestCase):
                 keys.append(info.get('stepKey') or info.get('attribution'))
             self.assertEqual(['c-1', 'c-2', 'UNEXPECTED'], keys)
 
+    def test_a_child_reports_whether_its_request_changed(self):
+        # T107 / FR-014d: the run shows "request changed" from what the proxy compared.
+        with tempfile.TemporaryDirectory() as tmp:
+            h = {'Content-Type': 'application/json'}
+            step = supplier_step('s', 'c-1', '/a', '{"a":1}', h, answer_id='11111111-1111-4111-8111-111111111111')
+            write_recorded_request(tmp, 'run-a', '11111111-1111-4111-8111-111111111111', '{"a":1}', h, path='/a')
+            write_run(tmp, 'run-a', projects=['odeysys'], steps=[step])
+            write_inflight(tmp, {'odeysys': [{'callId': 'in', 'runId': 'run-a', 'stepKey': 's'}]})
+            engine = make_engine(tmp)
+            seen = []
+            for body in ('{"a":1}', '{"a":2}'):
+                runs = relive.ReliveRuns(relive_dir(tmp))
+                flow = FakeFlow(request=FakeRequest(method='POST', host='ndc.example', path='/a', text=body, headers=h))
+                verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+                seen.append(info.get('requestChanged'))
+            self.assertEqual([False, True], seen)
+
 
 if __name__ == '__main__':
     unittest.main()

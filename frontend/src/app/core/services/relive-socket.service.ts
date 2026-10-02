@@ -21,6 +21,10 @@ export type ReliveSocketEvent =
        *  the frontend matches it by this. */
       readonly method?: string | null;
       readonly url?: string | null;
+      /** The call's own duration, once COMPLETED (FR-032). */
+      readonly durationMs?: number | null;
+      /** Whether the request differed from the recording (proxy's request-differs test, FR-014d). */
+      readonly requestChanged?: boolean | null;
     };
 
 /**
