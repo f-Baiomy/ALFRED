@@ -505,6 +505,8 @@ describe('ReliveRunService', () => {
     expect(service.results()['booking-details'].error).toContain('{{$.bookingId}}');
     expect(service.results()['logout'].state).toBe('COMPLETED');
     expect(reliveApi.finishRun).toHaveBeenCalledWith('cy-1', 'run-1', 'FAILED');
+    // T082: stored, or the run's end marks it CANCELLED in History.
+    expect(reliveApi.putStepAttempt).toHaveBeenCalledWith('cy-1', 'run-1', 'booking-details', 1, jasmine.objectContaining({ state: 'SKIPPED' }));
   });
 
   it('T054: resume re-fetches the run, resets a cancelled step after the resume point to pending, and continues', async () => {
@@ -608,6 +610,7 @@ describe('ReliveRunService', () => {
 
     expect(resendApi.resend).not.toHaveBeenCalled();
     expect(service.results()['login'].state).toBe('SKIPPED');
+    expect(reliveApi.putStepAttempt).toHaveBeenCalledWith('cy-1', 'run-1', 'login', 1, jasmine.objectContaining({ state: 'SKIPPED' }));
   });
 
   it('T057: an "after" checkpoint holds the result; Replay re-sends at attempt 2, Continue then commits it', async () => {

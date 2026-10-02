@@ -39,19 +39,19 @@ public class SqliteLiveCallStoreAdapter implements LiveCallStorePort {
         long size = requestJson.length() + responseJson.length();
         jdbc.update("""
                         INSERT INTO relive_live_calls (id, cycle_id, run_id, step_key, reason, method, url, status,
-                            duration_ms, at, request_json, response_json, size_bytes)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            duration_ms, at, request_json, response_json, size_bytes, logged_call_id)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                 call.id(), call.cycleId(), call.runId(), call.stepKey(), call.reason(),
                 requestMethod(call), requestUrl(call), call.status(), call.durationMs(), call.at(),
-                requestJson, responseJson, size);
+                requestJson, responseJson, size, call.loggedCallId());
         return findById(call.id()).orElseThrow(() -> new IllegalStateException("Live call " + call.id() + " vanished immediately after being added"));
     }
 
     @Override
     public List<LiveCall> list(String cycleId, int limit) {
         return jdbc.query("""
-                SELECT id, cycle_id, run_id, step_key, reason, method, url, status, duration_ms, at
+                SELECT id, cycle_id, run_id, step_key, reason, method, url, status, duration_ms, at, logged_call_id
                 FROM relive_live_calls WHERE cycle_id = ? ORDER BY rowid DESC LIMIT ?
                 """, SUMMARY_ROW_MAPPER, cycleId, limit);
     }
@@ -59,7 +59,7 @@ public class SqliteLiveCallStoreAdapter implements LiveCallStorePort {
     @Override
     public Optional<LiveCall> findById(String id) {
         return jdbc.query("""
-                SELECT id, cycle_id, run_id, step_key, reason, status, duration_ms, at, request_json, response_json
+                SELECT id, cycle_id, run_id, step_key, reason, status, duration_ms, at, request_json, response_json, logged_call_id
                 FROM relive_live_calls WHERE id = ?
                 """, DETAIL_ROW_MAPPER, id).stream().findFirst();
     }
@@ -113,10 +113,10 @@ public class SqliteLiveCallStoreAdapter implements LiveCallStorePort {
 
     private final RowMapper<LiveCall> SUMMARY_ROW_MAPPER = (rs, rowNum) -> new LiveCall(
             rs.getString("id"), rs.getString("cycle_id"), rs.getString("run_id"), rs.getString("step_key"),
-            rs.getString("reason"), null, null, null, rs.getInt("status"), rs.getLong("duration_ms"), rs.getString("at"));
+            rs.getString("reason"), rs.getString("logged_call_id"), null, null, rs.getInt("status"), rs.getLong("duration_ms"), rs.getString("at"));
 
     private final RowMapper<LiveCall> DETAIL_ROW_MAPPER = (rs, rowNum) -> new LiveCall(
             rs.getString("id"), rs.getString("cycle_id"), rs.getString("run_id"), rs.getString("step_key"),
-            rs.getString("reason"), null, readJson(rs.getString("request_json")), readJson(rs.getString("response_json")),
+            rs.getString("reason"), rs.getString("logged_call_id"), readJson(rs.getString("request_json")), readJson(rs.getString("response_json")),
             rs.getInt("status"), rs.getLong("duration_ms"), rs.getString("at"));
 }

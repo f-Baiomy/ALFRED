@@ -250,6 +250,15 @@ class SqliteReliveStoreAdaptersTest {
     }
 
     @Test
+    void aLiveCallKeepsTheIdOfItsLoggedCall() {
+        // T082: Resend and Export on a Live calls row open the logged call by this id.
+        liveCallStore.add(new LiveCall("lv-3", "c-1", "r-1", "s-search", "LIVE", "call-42",
+                objectMapper.createObjectNode(), objectMapper.createObjectNode(), 200, 10, "2026-09-27T10:00:00Z"));
+        assertThat(liveCallStore.list("c-1", 10)).extracting(LiveCall::loggedCallId).containsExactly("call-42");
+        assertThat(liveCallStore.findById("lv-3").orElseThrow().loggedCallId()).isEqualTo("call-42");
+    }
+
+    @Test
     void liveCallDeletedOnlyByUser() {
         LiveCall call = new LiveCall("lv-2", "c-1", "r-1", null, "UNEXPECTED", null,
                 objectMapper.createObjectNode(), objectMapper.createObjectNode(), 502, 10, "2026-09-27T10:00:00Z");

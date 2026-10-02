@@ -158,6 +158,13 @@ public class SqliteReliveRepository {
                 )
                 """);
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_relive_live_calls_cycle_id ON relive_live_calls(cycle_id)");
+        // The logged call a live call came from: Resend and Export on a Live calls row open it by
+        // this id, and without the column both did nothing (T082).
+        var liveCallColumns = jdbcTemplate.queryForList("PRAGMA table_info(relive_live_calls)").stream()
+                .map(row -> (String) row.get("name")).toList();
+        if (!liveCallColumns.contains("logged_call_id")) {
+            jdbcTemplate.execute("ALTER TABLE relive_live_calls ADD COLUMN logged_call_id TEXT");
+        }
     }
 
     @PreDestroy

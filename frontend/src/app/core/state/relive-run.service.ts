@@ -526,7 +526,7 @@ export class ReliveRunService {
     const run = this.run();
     if (!held || !run) return;
     const step = this.stepByKey(held.stepKey);
-    if (step) this.skipDependents(step);
+    if (step) await this.skipDependents(step);
     await this.clearHold(run);
     this.topIdx++;
     await this.runLoop();
@@ -749,7 +749,7 @@ export class ReliveRunService {
       const decision = await this.awaitCheckpoint(step.key, 'BEFORE');
       pauses.push({ at: 'BEFORE', since, resolvedAt: new Date().toISOString(), choice: this.stopped ? 'STOP' : decision });
       if (this.stopped) return;
-      if (decision === 'SKIP') return this.skipStep(step);
+      if (decision === 'SKIP') return await this.skipStep(step);
       this.setResult(step.key, (r) => ({ ...r, state: 'RUNNING' }));
     }
 
@@ -840,7 +840,7 @@ export class ReliveRunService {
         await this.settleAttempt(run, step, own, kids, collected, attempt);
         return this.runInboundStep(step, attempt + 1);
       }
-      if (decision === 'SKIP') return this.skipStep(step);
+      if (decision === 'SKIP') return await this.skipStep(step);
     }
 
     await this.settleAttempt(run, step, own, kids, collected, attempt);
@@ -991,10 +991,26 @@ export class ReliveRunService {
 
   /** Marks a step SKIPPED at the user's own request (a checkpoint's Skip, not a dependency skip -
    *  see `skipDependents` for that one) and its children NOT_CALLED, same as mock `pSkip`. */
-  private skipStep(step: Step): void {
+  private async skipStep(step: Step): Promise<void> {
     this.setResult(step.key, (r) => ({ ...r, state: 'SKIPPED' }));
     for (const kid of childSteps(this.steps, step.key)) {
       this.setResult(kid.key, (r) => ({ ...r, state: 'NOT_CALLED' }));
+    }
+    await this.storeLocal([step.key, ...childSteps(this.steps, step.key).map((k) => k.key)]);
+  }
+
+  /** Stores results decided here without a call (a skip): only stored ones survive the run's end,
+   *  which marks every step without a result CANCELLED or NOT_CALLED (T082 - a skipped step read
+   *  Cancelled in History). */
+  private async storeLocal(keys: readonly string[]): Promise<void> {
+    const run = this.run();
+    if (!run) return;
+    for (const key of keys) {
+      const result = this.results()[key];
+      if (!result) continue;
+      const stored: StepResult = { ...result, attempt: Math.max(1, result.attempt), finishedAt: result.finishedAt ?? new Date().toISOString() };
+      this.setResult(key, () => stored);
+      await firstValueFrom(this.api.putStepAttempt(run.cycleId, run.id, key, stored.attempt, stored)).catch(() => undefined);
     }
   }
 
@@ -1005,7 +1021,7 @@ export class ReliveRunService {
     const settings = run.definition.settings;
     if (result.state === 'FAILED' && !step.optional) {
       if (settings.onFailure === 'HOLD') return this.enterHold(run, step.key, 'FAILED');
-      this.skipDependents(step);
+      await this.skipDependents(step);
       return;
     }
     if (result.state === 'COMPLETED_WITH_DIFFERENCES' && settings.onDifferences === 'HOLD') {
@@ -1013,18 +1029,22 @@ export class ReliveRunService {
     }
   }
 
-  private skipDependents(step: Step): void {
+  private async skipDependents(step: Step): Promise<void> {
     const deps = dependentsOf(step, this.topOrder, this.results(), this.variables(), this.runEdits);
+    const keys: string[] = [];
     for (const dep of deps) {
       this.setResult(dep.step.key, (r) => ({
         ...r,
         state: 'SKIPPED',
         error: `Skipped - needs {{$.${dep.needs.join('}}, {{$.')}}}, which ${step.label} did not produce`,
       }));
+      keys.push(dep.step.key);
       for (const kid of childSteps(this.steps, dep.step.key)) {
         this.setResult(kid.key, (r) => ({ ...r, state: 'NOT_CALLED' }));
+        keys.push(kid.key);
       }
     }
+    await this.storeLocal(keys);
   }
 
   private async enterHold(run: Run, stepKey: string, reason: 'FAILED' | 'DIFFERENCES'): Promise<void> {
