@@ -243,6 +243,11 @@ describe('ReliveRunTimelineComponent', () => {
     expect(text).not.toContain('reached a real system');
   });
 
+  it('a LIVE child still waiting does not claim it contacted the host', () => {
+    expect(fixture.componentInstance.modePill(result('supplier-b', 'WAITING', { mode: 'LIVE' }))).toBe('LIVE');
+    expect(fixture.componentInstance.modePill(result('supplier-b', 'COMPLETED', { mode: 'LIVE', reachedUpstream: true }))).toBe('LIVE · contacted host');
+  });
+
   it('a REPLAY child sent to the real host by a decision says so', () => {
     const login = makeStep('login', null);
     const supplierA = makeStep('supplier-a', 'login');

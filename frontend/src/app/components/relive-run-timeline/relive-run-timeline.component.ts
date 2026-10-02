@@ -375,7 +375,11 @@ export class ReliveRunTimelineComponent {
   modePill(result: StepResult): string {
     // A REPLAY child sent to the real host by a decision ("Send to real", FR-014d).
     if (result.mode !== 'LIVE') return result.reachedUpstream === true ? 'REPLAY · sent to real host' : 'REPLAY';
-    return result.reachedUpstream === false ? 'LIVE · answered by ALFRED' : 'LIVE · contacted host';
+    if (result.reachedUpstream === false) return 'LIVE · answered by ALFRED';
+    // Nothing is known yet while it waits or runs; afterwards a result without the proxy's answer
+    // (an older run) keeps the old reading.
+    if (result.reachedUpstream == null && ['PENDING', 'WAITING', 'RUNNING', 'PAUSED'].includes(result.state)) return 'LIVE';
+    return 'LIVE · contacted host';
   }
 
   /** First line is the row; the opened step lists every line. Empty unless the step failed, was skipped, or was never sent. */

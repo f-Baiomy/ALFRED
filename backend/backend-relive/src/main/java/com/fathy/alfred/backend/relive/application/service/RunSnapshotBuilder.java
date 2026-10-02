@@ -127,6 +127,12 @@ public class RunSnapshotBuilder {
                 putUrl(recorded, safeUri(top.recording().url()), top.recording().url());
             }
             JsonNode topRule = top.callRule() == null ? null : top.callRule().rule();
+            if (!"GUIDED".equalsIgnoreCase(run.driver())) {
+                // The tab that sends an Automatic run's step holds its checkpoints itself (Replay,
+                // Edit & replay, Continue - research D11). Left in the snapshot, the reverse proxy
+                // held the same step a second time first (T082).
+                topRule = withoutPauses(topRule);
+            }
             stepNode.put("mode", modeOf(topRule));
             stepNode.set("callRule", outlineLargeMocks(run.id(), top.key(), resolveRecordedCallConditions(run.id(), topRule, top)));
             ArrayNode childrenNode = stepNode.putArray("children");
@@ -365,6 +371,21 @@ public class RunSnapshotBuilder {
         byte[] body = recording.requestBody() == null ? new byte[0] : recording.requestBody().getBytes(StandardCharsets.UTF_8);
         publisher.writeAnswer(runId, answerId, meta, body);
         return answerId;
+    }
+
+    private static JsonNode withoutPauses(JsonNode ruleDoc) {
+        if (ruleDoc == null || !(ruleDoc.get("actions") instanceof ArrayNode actions)) {
+            return ruleDoc;
+        }
+        ObjectNode copy = ((ObjectNode) ruleDoc).deepCopy();
+        ArrayNode kept = copy.putArray("actions");
+        for (JsonNode action : actions) {
+            String type = action.path("type").asText();
+            if (!"PAUSE_REQUEST".equals(type) && !"PAUSE_RESPONSE".equals(type)) {
+                kept.add(action.deepCopy());
+            }
+        }
+        return copy;
     }
 
     /** REPLAY when an enabled MOCK_RESPONSE answers, LIVE_MOCKED when an enabled REPLACE_RESPONSE

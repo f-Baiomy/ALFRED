@@ -83,6 +83,26 @@ class RunSnapshotBuilderTest {
     }
 
     @Test
+    void anAutomaticRunLeavesInboundCheckpointsToTheTab() throws Exception {
+        // T082: the reverse proxy held a step's "pause after", then the tab held it again.
+        JsonNode rule = objectMapper.readTree("""
+                { "name": "book", "enabled": true, "priority": 0, "stopProcessing": false, "match": {},
+                  "actions": [ { "type": "PAUSE_RESPONSE", "enabled": true, "timeoutSeconds": 30 },
+                               { "type": "SET_REQUEST_HEADER", "enabled": true, "name": "X-A", "value": "1" } ] }
+                """);
+        Step book = child("s-book", null, recording("https://app.local/book", "POST", "{}"), rule);
+        ReliveCycle cycle = cycle(List.of(book), new GlobalRulesSelection("NONE", List.of()), List.of());
+
+        JsonNode automatic = builder.build(run(cycle)).get("steps").get(0).get("callRule").get("actions");
+        Run guidedRun = new Run("r-1", cycle.id(), "GUIDED", RunStatus.RUNNING, "t0", null, cycle, null,
+                List.of(), List.of(), null, null, List.of(), List.of());
+        JsonNode guided = builder.build(guidedRun).get("steps").get(0).get("callRule").get("actions");
+
+        assertThat(automatic).extracting(a -> a.get("type").asText()).containsExactly("SET_REQUEST_HEADER");
+        assertThat(guided).extracting(a -> a.get("type").asText()).containsExactly("PAUSE_RESPONSE", "SET_REQUEST_HEADER");
+    }
+
+    @Test
     void ordinalsAreCorrectForSiblingsSharingTheSameEndpoint() throws Exception {
         FrozenCall recA1 = recording("https://api.supplier-a.com/v2/search", "POST", "{\"a\":1}");
         FrozenCall recA2 = recording("https://api.supplier-a.com/v2/search", "POST", "{\"a\":2}");
