@@ -34,7 +34,7 @@ export class ReliveSocketService {
   private readonly config = inject(AppConfigService);
   readonly events$ = new Subject<ReliveSocketEvent>();
 
-  private socket: WebSocketSubject<ReliveSocketEvent | { type: 'lease'; runId: string }> | null = null;
+  private socket: WebSocketSubject<ReliveSocketEvent | { type: 'lease' | 'release'; runId: string }> | null = null;
   private subscription: Subscription | null = null;
   private readonly heldLeases = new Set<string>();
 
@@ -44,7 +44,7 @@ export class ReliveSocketService {
 
   private connect(): void {
     const url = `${this.config.backendUrl.replace(/^http/, 'ws')}/ws/relive`;
-    this.socket = webSocket<ReliveSocketEvent | { type: 'lease'; runId: string }>({
+    this.socket = webSocket<ReliveSocketEvent | { type: 'lease' | 'release'; runId: string }>({
       url,
       openObserver: {
         // Every lease still held is re-sent on every (re)connect (contracts/rest-api.md) -
@@ -70,7 +70,10 @@ export class ReliveSocketService {
     this.socket?.next({ type: 'lease', runId });
   }
 
+  /** Tells the backend this tab stopped driving the run. Without it the lease outlived the run,
+   *  so closing the tab later re-ended a finished run as INTERRUPTED and resume answered 409. */
   releaseLease(runId: string): void {
-    this.heldLeases.delete(runId);
+    if (!this.heldLeases.delete(runId)) return;
+    this.socket?.next({ type: 'release', runId });
   }
 }

@@ -30,4 +30,9 @@ public class ReliveLeaseBridge implements LeaseListener {
     public void onSessionClosed(String sessionId) {
         runLeaseRegistry.onSessionClosed(sessionId);
     }
+
+    @Override
+    public void onLeaseReleased(String runId, String sessionId) {
+        runLeaseRegistry.onLeaseReleased(runId, sessionId);
+    }
 }

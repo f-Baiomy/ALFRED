@@ -229,7 +229,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     @Override
     public Run stop(String runId) {
-        return finalizeRun(getOrThrow(runId), RunStatus.STOPPED);
+        return finalizeIfRunning(getOrThrow(runId), RunStatus.STOPPED);
     }
 
     @Override
@@ -300,13 +300,22 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
 
     @Override
     public Run finish(String runId, RunStatus status) {
-        return finalizeRun(getOrThrow(runId), status);
+        return finalizeIfRunning(getOrThrow(runId), status);
     }
 
     /** T047's RunLeaseRegistry calls this once the last lease holder is gone for 15s - same
      *  drain-safe path as stop/finish, just a different terminal status. */
     public Run interrupt(String runId) {
-        return finalizeRun(getOrThrow(runId), RunStatus.INTERRUPTED);
+        return runStore.findById(runId).map(run -> finalizeIfRunning(run, RunStatus.INTERRUPTED)).orElse(null);
+    }
+
+    /** A run ends once. Ending it again (a late interrupt after the tab closed, a second stop)
+     *  would overwrite its real outcome and finish time, so it is returned unchanged. */
+    private Run finalizeIfRunning(Run run, RunStatus status) {
+        if (run.status() != RunStatus.RUNNING) {
+            return run;
+        }
+        return finalizeRun(run, status);
     }
 
     @Override
@@ -397,6 +406,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     }
 
     private Run finalizeRun(Run run, RunStatus status) {
+        leaseQuery.forget(run.id());
         cancelRemainingSteps(run);
         Run finalized = new Run(run.id(), run.cycleId(), run.driver(), status, run.startedAt(),
                 Instant.now().toString(), run.definition(), run.fromStepKey(), run.seedVariables(),

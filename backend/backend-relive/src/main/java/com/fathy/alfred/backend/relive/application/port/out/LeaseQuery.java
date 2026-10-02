@@ -7,4 +7,8 @@ package com.fathy.alfred.backend.relive.application.port.out;
 public interface LeaseQuery {
 
     boolean hasActiveLease(String runId);
+
+    /** The run left RUNNING: forget its holders and any pending interrupt, so a closed tab can't
+     *  re-end a run that already ended, and the same tab can resume it. */
+    void forget(String runId);
 }

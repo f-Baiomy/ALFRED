@@ -55,6 +55,24 @@ public class RunLeaseRegistry implements LeaseQuery {
         }
     }
 
+    /** A deliberate release. While the run is still RUNNING this is the same as the tab going away. */
+    public void onLeaseReleased(String runId, String sessionId) {
+        Set<String> holders = holdersByRunId.get(runId);
+        if (holders != null && holders.remove(sessionId) && holders.isEmpty()) {
+            holdersByRunId.remove(runId);
+            scheduleInterrupt(runId);
+        }
+    }
+
+    @Override
+    public void forget(String runId) {
+        holdersByRunId.remove(runId);
+        ScheduledFuture<?> pending = interruptTimers.remove(runId);
+        if (pending != null) {
+            pending.cancel(false);
+        }
+    }
+
     public void onSessionClosed(String sessionId) {
         for (Map.Entry<String, Set<String>> entry : holdersByRunId.entrySet()) {
             if (entry.getValue().remove(sessionId) && entry.getValue().isEmpty()) {
@@ -64,9 +82,14 @@ public class RunLeaseRegistry implements LeaseQuery {
     }
 
     private void scheduleInterrupt(String runId) {
-        ScheduledFuture<?> future = scheduler.schedule(() -> { runsService.interrupt(runId); },
-                INTERRUPT_DELAY_MS, TimeUnit.MILLISECONDS);
-        interruptTimers.put(runId, future);
+        ScheduledFuture<?> future = scheduler.schedule(() -> {
+            interruptTimers.remove(runId);
+            runsService.interrupt(runId);
+        }, INTERRUPT_DELAY_MS, TimeUnit.MILLISECONDS);
+        ScheduledFuture<?> previous = interruptTimers.put(runId, future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
     }
 
     /** Every run left RUNNING across a restart never had the chance to reach a final status -

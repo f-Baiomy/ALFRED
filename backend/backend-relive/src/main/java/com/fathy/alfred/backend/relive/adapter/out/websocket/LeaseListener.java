@@ -8,4 +8,7 @@ public interface LeaseListener {
     void onLeaseHeld(String runId, String sessionId);
 
     void onSessionClosed(String sessionId);
+
+    /** The tab stopped driving the run on purpose (it finished, stopped, or the page moved on). */
+    void onLeaseReleased(String runId, String sessionId);
 }

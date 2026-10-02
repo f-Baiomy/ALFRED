@@ -51,11 +51,15 @@ public class ReliveEventsWebSocketHandler extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         try {
             JsonNode node = objectMapper.readTree(message.getPayload());
-            if ("lease".equals(node.path("type").asText())) {
-                String runId = node.path("runId").asText(null);
-                if (runId != null) {
-                    leaseListeners.forEach(l -> l.onLeaseHeld(runId, session.getId()));
-                }
+            String type = node.path("type").asText();
+            String runId = node.path("runId").asText(null);
+            if (runId == null) {
+                return;
+            }
+            if ("lease".equals(type)) {
+                leaseListeners.forEach(l -> l.onLeaseHeld(runId, session.getId()));
+            } else if ("release".equals(type)) {
+                leaseListeners.forEach(l -> l.onLeaseReleased(runId, session.getId()));
             }
         } catch (Exception e) {
             log.warn("Ignoring malformed /ws/relive message: {}", e.getMessage());

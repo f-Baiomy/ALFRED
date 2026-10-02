@@ -639,7 +639,9 @@ class ReliveRunsServiceTest {
 
     static class FakeLeaseQuery implements LeaseQuery {
         boolean active;
+        final List<String> forgotten = new ArrayList<>();
         @Override public boolean hasActiveLease(String runId) { return active; }
+        @Override public void forget(String runId) { forgotten.add(runId); active = false; }
     }
 
     static class FakeLiveCallStore implements LiveCallStorePort {

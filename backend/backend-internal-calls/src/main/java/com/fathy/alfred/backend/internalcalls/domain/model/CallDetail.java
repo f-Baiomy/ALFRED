@@ -7,6 +7,11 @@ import com.fasterxml.jackson.databind.JsonNode;
  *  without this slice needing to know backend-relive's shape. */
 public record CallDetail(RequestData request, ResponseData response, JsonNode relive) {
 
+    /** A call with no Relive tag - every call logged outside a Relive run. */
+    public CallDetail(RequestData request, ResponseData response) {
+        this(request, response, null);
+    }
+
     public static CallDetail of(CallRecord call) {
         return new CallDetail(call.request(), call.response(), call.relive());
     }

@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -68,7 +69,7 @@ class ReliveCyclesControllerTest {
 
     @Test
     void createReturns201() throws Exception {
-        when(manageCycles.create(any())).thenReturn(cycle("c-1"));
+        when(manageCycles.create(any(), anyBoolean())).thenReturn(cycle("c-1"));
 
         mockMvc.perform(post("/relive-cycles")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -91,7 +92,7 @@ class ReliveCyclesControllerTest {
 
     @Test
     void createWithInvalidRuleReturns400() throws Exception {
-        when(manageCycles.create(any())).thenThrow(new CycleValidationException(List.of("bad")));
+        when(manageCycles.create(any(), anyBoolean())).thenThrow(new CycleValidationException(List.of("bad")));
 
         mockMvc.perform(post("/relive-cycles")
                         .contentType(MediaType.APPLICATION_JSON)

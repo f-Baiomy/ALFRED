@@ -60,7 +60,10 @@ class RunLeaseRegistryTest {
             @Override public void runChanged(String cycleId, String runId) { }
             @Override public void runCall(JsonNode eventJson) { }
         };
-        LeaseQuery neverHeld = runId -> false;
+        LeaseQuery neverHeld = new LeaseQuery() {
+            @Override public boolean hasActiveLease(String runId) { return false; }
+            @Override public void forget(String runId) { }
+        };
         LiveCallStorePort liveCallStore = new LiveCallStorePort() {
             @Override public LiveCall add(LiveCall call) { return call; }
             @Override public List<LiveCall> list(String cycleId, int limit) { return List.of(); }
@@ -114,6 +117,39 @@ class RunLeaseRegistryTest {
 
         assertThat(scheduler.tasks.get(0).cancelled).isTrue();
         assertThat(registry.hasActiveLease("r-1")).isTrue();
+    }
+
+    @Test
+    void aClosedTabNeverReEndsARunThatAlreadyFinished() {
+        // Review B4: the lease outlived the run, and the late interrupt overwrote FINISHED.
+        Run run = runningRun("r-1", "c-1");
+        runStore.byId.put(run.id(), run);
+        registry.onLeaseHeld("r-1", "session-a");
+        runsService.finish("r-1", RunStatus.COMPLETED);
+
+        registry.onSessionClosed("session-a");
+        scheduler.tasks.forEach(t -> t.runnable.run());
+
+        assertThat(runStore.findById("r-1").orElseThrow().status()).isEqualTo(RunStatus.COMPLETED);
+    }
+
+    @Test
+    void anExplicitReleaseOfARunningRunSchedulesTheInterrupt() {
+        Run run = runningRun("r-1", "c-1");
+        runStore.byId.put(run.id(), run);
+        registry.onLeaseHeld("r-1", "session-a");
+
+        registry.onLeaseReleased("r-1", "session-a");
+
+        assertThat(registry.hasActiveLease("r-1")).isFalse();
+        assertThat(scheduler.tasks).hasSize(1);
+    }
+
+    @Test
+    void forgetDropsHoldersSoTheSameTabCanResume() {
+        registry.onLeaseHeld("r-1", "session-a");
+        registry.forget("r-1");
+        assertThat(registry.hasActiveLease("r-1")).isFalse();
     }
 
     @Test
