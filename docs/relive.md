@@ -159,7 +159,8 @@ recorded-request answer file (for any `MATCHES_RECORDED_CALL` condition - if tha
 or unreadable the condition evaluates to "differs", never to a false match). Answer files are
 named from the run, the step and the recorded request, so republishing writes nothing new. A mock
 body over 64 KB is written as a stored answer and referenced with `ANSWER_WITH_FILE`, keeping the
-snapshot - which the proxy parses on its event loop - small. The addon's only Relive-specific
+snapshot small. The proxy reads and parses a changed snapshot in a worker thread
+(`ReliveRuns.prepare`), never on mitmproxy's event loop. The addon's only Relive-specific
 logic left is attribution and step matching; everything else is the existing rule-evaluation
 engine.
 

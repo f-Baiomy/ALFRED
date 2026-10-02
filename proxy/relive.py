@@ -12,6 +12,7 @@ reach the real supplier without an explicit human "yes". When in doubt, this mod
 _guard_replay, _match_unattributed_all's STOPPING branch, and force_failure_mock.
 """
 
+import asyncio
 import hashlib
 import json
 import os
@@ -102,7 +103,48 @@ class ReliveRuns:
         # does not, or a retry inside the throttle window still sees the previous execution.
         self._reload_inflight_if_changed()
 
+    async def prepare(self, flow=None):
+        """The file work of refresh(), with the snapshots parsed off the event loop (review P6).
+
+        Called at the top of the async request hooks. A run snapshot carries every step's rules
+        and recorded requests; json-parsing it on mitmproxy's one event loop held every proxied
+        connection for the parse. Listing and stat-ing stay here (cheap); reading and parsing the
+        changed files runs in a worker thread, and the result is applied back on the loop. The
+        synchronous refresh() that follows within the same throttle window then has nothing to
+        do. A run id named by the Relive header or by inflight.json that is not loaded yet forces
+        a scan, exactly like ensure_known.
+        """
+        self._reload_inflight_if_changed()
+        wanted = {e.get('runId') for entries in (self._inflight or {}).values()
+                  if isinstance(entries, list) for e in entries if isinstance(e, dict)}
+        headers = getattr(getattr(flow, 'request', None), 'headers', None)
+        raw = headers.get(RELIVE_HEADER) if headers is not None else None
+        if raw:
+            wanted.add(raw.partition('/')[0])
+        missing = {r for r in wanted if r and r not in self._runs and r not in self._forced_for}
+        due = self._last_check is None or time.monotonic() - self._last_check >= REFRESH_INTERVAL_SECONDS
+        if not due and not missing:
+            return
+        if due:
+            self._last_check = time.monotonic()
+            self._forced_for = set()
+        self._forced_for |= missing
+        listing = self._list_run_files()
+        if listing is None:
+            return
+        seen, changed = listing
+        loaded = await asyncio.to_thread(_parse_snapshots, changed) if changed else []
+        self._apply_run_files(seen, loaded)
+
     def _refresh_run_files(self):
+        listing = self._list_run_files()
+        if listing is None:
+            return
+        seen, changed = listing
+        self._apply_run_files(seen, _parse_snapshots(changed))
+
+    def _list_run_files(self):
+        """(names seen, [(name, path, mtime)] changed since loaded), or None with no directory."""
         try:
             names = os.listdir(self._dir)
         except OSError:
@@ -116,9 +158,10 @@ class ReliveRuns:
                 self._ordinals = {}
                 self._ordinal_epoch = {}
                 self._steps_by_run = {}
-            return
+            return None
 
         seen = set()
+        changed = []
         for name in names:
             if not name.endswith('.json') or name == 'inflight.json':
                 continue
@@ -128,11 +171,16 @@ class ReliveRuns:
             except OSError:
                 continue
             seen.add(name)
-            if self._file_mtimes.get(name) == mtime:
+            if self._file_mtimes.get(name) != mtime:
+                changed.append((name, path, mtime))
+        return seen, changed
+
+    def _apply_run_files(self, seen, loaded):
+        for name, mtime, snapshot, steps in loaded:
+            if name not in seen:
                 continue
             self._file_mtimes[name] = mtime
             run_id = name[:-len('.json')]
-            snapshot = self._load_json(path)
             if not isinstance(snapshot, dict) or snapshot.get('state') not in ACTIVE_STATES:
                 self._runs.pop(run_id, None)
                 self._steps_by_run.pop(run_id, None)
@@ -141,7 +189,7 @@ class ReliveRuns:
             snapshot.setdefault('runId', run_id)
             snapshot['_mtime'] = mtime
             self._runs[run_id] = snapshot
-            self._steps_by_run[run_id] = _step_index(snapshot)
+            self._steps_by_run[run_id] = steps
 
         for stale_name in [n for n in self._file_mtimes if n != 'inflight.json' and n not in seen]:
             del self._file_mtimes[stale_name]
@@ -184,11 +232,7 @@ class ReliveRuns:
         self._used.pop((run_id, parent_step_key), None)
 
     def _load_json(self, path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return None
+        return _load_json(path)
 
     def active_runs(self):
         self.refresh()
@@ -239,6 +283,25 @@ def _walk_steps(steps):
     for step in steps or []:
         yield step
         yield from _walk_steps(step.get('children'))
+
+
+def _load_json(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _parse_snapshots(changed):
+    """[(name, mtime, snapshot, step index)] for each changed run file. Touches no shared state,
+    so ReliveRuns.prepare runs it in a worker thread."""
+    out = []
+    for name, path, mtime in changed:
+        snapshot = _load_json(path)
+        steps = _step_index(snapshot) if isinstance(snapshot, dict) and snapshot.get('state') in ACTIVE_STATES else {}
+        out.append((name, mtime, snapshot, steps))
+    return out
 
 
 def _step_index(run):
@@ -1294,6 +1357,7 @@ async def apply_outbound(flow, service_name, backend_addresses, engine, runs=Non
     `info`, when not None, is the `relive` dict for flow.metadata / the logged call (FR-051).
     """
     runs = runs or _default_runs()
+    await runs.prepare(flow)
     result = attribute(flow, 'outbound', service_name, backend_addresses, runs)
 
     if result.kind == 'AMBIGUOUS':
@@ -1423,6 +1487,7 @@ async def apply_inbound(flow, service_name, backend_addresses, engine, runs=None
     than one Guided run for the project) is left to the caller's ordinary, non-Relive handling.
     """
     runs = runs or _default_runs()
+    await runs.prepare(flow)
     header_run_id, header_step_key = _take_header(flow, backend_addresses)
     if header_run_id:
         runs.ensure_known({header_run_id})

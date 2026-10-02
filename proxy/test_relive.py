@@ -108,6 +108,35 @@ class ReliveRunsLoaderTest(unittest.TestCase):
             runs.refresh(force=True)
             self.assertNotIn('run-a', runs.active_runs())
 
+    def test_prepare_parses_snapshots_off_the_event_loop(self):
+        import threading
+        with tempfile.TemporaryDirectory() as tmp:
+            write_run(tmp, 'run-a', steps=[replay_step()])
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            parsed_on = []
+            real_load = relive._load_json
+
+            def recording_load(path):
+                if path.endswith('run-a.json'):
+                    parsed_on.append(threading.current_thread())
+                return real_load(path)
+
+            with patch.object(relive, '_load_json', side_effect=recording_load):
+                run(runs.prepare(outbound_flow()))
+                self.assertIn('run-a', runs.active_runs())  # loaded, and no second parse
+            self.assertEqual(1, len(parsed_on))
+            self.assertIsNot(threading.main_thread(), parsed_on[0])
+            self.assertIn('s-search', runs._steps_by_run['run-a'])
+
+    def test_prepare_scans_at_once_for_a_run_named_by_the_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(relive_dir(tmp))
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            run(runs.prepare(outbound_flow()))
+            write_run(tmp, 'run-new')
+            run(runs.prepare(outbound_flow(headers={'X-Alfred-Relive': 'run-new/s-search'})))
+            self.assertIn('run-new', runs._runs)
+
 
 class AttributionHeaderTest(unittest.TestCase):
     def test_header_trusted_from_backend_peer(self):
