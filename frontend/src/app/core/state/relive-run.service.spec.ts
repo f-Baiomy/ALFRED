@@ -646,15 +646,35 @@ describe('ReliveRunService', () => {
     await service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
 
     const differences = service.results()['login'].differences;
+    // One row per field (FR-039/040): the real change counts, the trace id is noise.
     expect(differences).toEqual([
-      jasmine.objectContaining({
-        path: 'response',
-        kind: 'UNEXPECTED',
-        recorded: 'recorded response',
-        actual: 'different response',
-      }),
+      jasmine.objectContaining({ path: 'body.total', kind: 'UNEXPECTED', recorded: '450', actual: '455' }),
+      jasmine.objectContaining({ path: 'body.traceId', kind: 'NOISE_AUTO', cause: 'trace id' }),
     ]);
     expect(service.results()['login'].state).toBe('COMPLETED_WITH_DIFFERENCES');
+  });
+
+  it('T106: a value the edited answer in the call rule gives is an expected difference', async () => {
+    const supplier = inboundStep({
+      recording: { ...inboundStep().recording, responseBody: '{"total":450}' },
+    });
+    const edited = { ...supplier, callRule: { ...supplier.callRule, actions: [
+      { type: 'REPLACE_RESPONSE', enabled: true, status: 200, headers: {}, body: '{"total":999}' },
+    ] } } as Step;
+    const steps = [edited];
+    reliveApi.startRun.and.returnValue(of(runOf(steps)));
+    reliveApi.finishRun.and.returnValue(of({ ...runOf(steps), status: 'COMPLETED' }));
+    resendApi.resend.and.returnValue(of<ResendResult>({
+      newCallId: 'n', status: 200, durationMs: 5, sessionValuesUsed: [],
+      response: { status: 200, headers: {}, body: '{"total":999}' },
+    }));
+
+    await service.start(cycleOf(steps), { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+    expect(service.results()[edited.key].differences).toEqual([
+      jasmine.objectContaining({ path: 'body.total', kind: 'EXPECTED', cause: 'answer edited in the call rule' }),
+    ]);
+    expect(service.results()[edited.key].state).toBe('COMPLETED');
   });
 
   it('T066: refuses to send a step with an unresolved {{$.name}} reference and marks it FAILED', async () => {

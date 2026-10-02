@@ -69,9 +69,23 @@ interface ShownDifference {
   readonly path: string;
   readonly recorded: string | null;
   readonly actual: string | null;
+  readonly part?: string;
+  readonly kind?: DifferenceEntry['kind'];
+  readonly cause?: string | null;
+}
+
+/** "Ignore this field" / "Count it" / "Un-ignore" from a step's differences (FR-041b/c). */
+export interface NoiseChange {
+  readonly stepKey: string;
+  readonly rule: NoiseRule;
+  readonly scope: 'STEP' | 'CYCLE';
+  readonly remove: boolean;
 }
 
 interface DifferencePopup {
+  readonly stepKey: string;
+  readonly expected: readonly ShownDifference[];
+  readonly noise: readonly ShownDifference[];
   readonly label: string;
   readonly headline: string | null;
   readonly note: string | null;
@@ -160,6 +174,25 @@ export class ReliveRunTimelineComponent {
   readonly resumeFromStep = output<string>();
   readonly runFromStep = output<string>();
   readonly retryFailedStep = output<string>();
+  readonly noiseChange = output<NoiseChange>();
+  /** Fields marked in this view; they count from the next comparison (FR-041b). */
+  readonly markedFields = signal<ReadonlySet<string>>(new Set());
+
+  ignoreField(stepKey: string, diff: ShownDifference, scope: 'STEP' | 'CYCLE'): void {
+    this.noiseChange.emit({ stepKey, scope, remove: false, rule: { part: noisePart(diff.part), path: diff.path, auto: false, count: false } });
+    this.markedFields.set(new Set([...this.markedFields(), `${stepKey}|${diff.path}`]));
+  }
+
+  /** Overrides an automatic noise decision (FR-041c), or takes back a user's own "ignore". */
+  countField(stepKey: string, diff: ShownDifference): void {
+    const user = diff.kind === 'NOISE_USER';
+    this.noiseChange.emit({ stepKey, scope: 'STEP', remove: user, rule: { part: noisePart(diff.part), path: diff.path, auto: false, count: !user } });
+    this.markedFields.set(new Set([...this.markedFields(), `${stepKey}|${diff.path}`]));
+  }
+
+  isMarked(stepKey: string, path: string): boolean {
+    return this.markedFields().has(`${stepKey}|${path}`);
+  }
 
   readonly filter = signal<Filter>('all');
   /** The row whose call card is open. The live run and a history snapshot share this timeline, so either click opens the same card. */
@@ -371,7 +404,11 @@ export class ReliveRunTimelineComponent {
     this.reasonPopup.set(null);
     const rows = this.visibleDiffs(row);
     const concrete = concreteDifferences(row.result.differences);
+    const classified = row.result.differences.filter((d) => !isCollapsedResponseDifference(d));
     this.differencePopup.set({
+      stepKey: row.step.key,
+      expected: classified.filter((d) => d.kind === 'EXPECTED'),
+      noise: classified.filter((d) => d.kind === 'NOISE_AUTO' || d.kind === 'NOISE_USER'),
       label: row.step.label,
       headline: concrete || !rows.length
         ? null
@@ -565,7 +602,11 @@ function differenceCacheKey(row: TimelineRow): string {
 function concreteDifferences(differences: readonly DifferenceEntry[]): ShownDifference[] | null {
   const unexpected = differences.filter((diff) => diff.kind === 'UNEXPECTED' && !isCollapsedResponseDifference(diff));
   if (!unexpected.length) return null;
-  return unexpected.map((diff) => ({ path: diff.path, recorded: diff.recorded, actual: diff.actual }));
+  return unexpected.map((diff) => ({ path: diff.path, recorded: diff.recorded, actual: diff.actual, part: diff.part, kind: diff.kind }));
+}
+
+function noisePart(part: string | undefined): NoiseRule['part'] {
+  return part === 'status' || part === 'header' || part === 'query' ? part : 'body';
 }
 
 function computedDifferences(row: TimelineRow, noiseRules: readonly NoiseRule[]): readonly ShownDifference[] {

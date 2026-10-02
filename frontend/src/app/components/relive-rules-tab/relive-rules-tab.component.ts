@@ -65,6 +65,11 @@ export class ReliveRulesTabComponent {
     this.cycleChange.emit({ ...cycle, unexpectedCalls: { ...cycle.unexpectedCalls, rules } });
   }
 
+  /** FR-041b: marked fields are listed here and can be un-ignored. */
+  removeNoiseRule(index: number): void {
+    this.cycleChange.emit({ ...this.cycle(), noise: this.cycle().noise.filter((_, i) => i !== index) });
+  }
+
   removeCycleRule(index: number): void {
     const cycle = this.cycle();
     this.cycleChange.emit({ ...cycle, cycleRules: cycle.cycleRules.filter((_, i) => i !== index) });

@@ -14,6 +14,8 @@ export interface ResponseGradeContext {
   readonly noiseRules: readonly NoiseRule[];
   readonly variablesUsed: readonly { readonly name: string; readonly value: string }[];
   readonly variablesProduced: readonly { readonly name: string; readonly value: string }[];
+  /** Keep every differing field, noise and substitutions included, for classification. */
+  readonly keepAll?: boolean;
 }
 
 export interface GradedResponse {
@@ -40,6 +42,16 @@ export interface ResponseFieldDifference {
   readonly path: string;
   readonly recorded: string | null;
   readonly actual: string | null;
+}
+
+/** Every field that differs, noise included, each one row (FR-039/040): what the run stores,
+ *  so a step shows "4 differences", which of them are expected, and which are noise. */
+export function allResponseDifferences(
+  recorded: GradedResponse,
+  actual: GradedResponse,
+  ctx: ResponseGradeContext,
+): ResponseFieldDifference[] {
+  return listResponseDifferences(recorded, actual, { ...ctx, keepAll: true });
 }
 
 /** The stored grade is one collapsed row. This is that same comparison, field by field, for display. */
@@ -201,7 +213,7 @@ function collectHeaders(
     const act = right.get(name) ?? null;
     if (rec === act) continue;
     const diff: ResponseFieldDifference = { part: 'header', path: name, recorded: rec, actual: act };
-    if (countsAsUnexpected(diff, ctx.noiseRules, ctx.variablesUsed, ctx.variablesProduced)) found.push(diff);
+    if (ctx.keepAll || countsAsUnexpected(diff, ctx.noiseRules, ctx.variablesUsed, ctx.variablesProduced)) found.push(diff);
   }
 }
 
@@ -219,7 +231,7 @@ function collectBody(
     return;
   }
   const diff: ResponseFieldDifference = { part: 'body', path: 'body', recorded: recorded ?? null, actual: actual ?? null };
-  if (countsAsUnexpected(diff, ctx.noiseRules, ctx.variablesUsed, ctx.variablesProduced)) found.push(diff);
+  if (ctx.keepAll || countsAsUnexpected(diff, ctx.noiseRules, ctx.variablesUsed, ctx.variablesProduced)) found.push(diff);
 }
 
 function collectJson(left: unknown, right: unknown, path: string, ctx: ResponseGradeContext, found: ResponseFieldDifference[]): void {
@@ -256,7 +268,7 @@ function collectJson(left: unknown, right: unknown, path: string, ctx: ResponseG
   if (Object.is(left, right)) return;
   const recorded = leafText(left);
   const actual = leafText(right);
-  if (!countsAsUnexpected({ part: 'body', path, recorded, actual }, ctx.noiseRules, ctx.variablesUsed, ctx.variablesProduced)) return;
+  if (!ctx.keepAll && !countsAsUnexpected({ part: 'body', path, recorded, actual }, ctx.noiseRules, ctx.variablesUsed, ctx.variablesProduced)) return;
   found.push({ part: 'body', path, recorded, actual });
 }
 
@@ -271,7 +283,7 @@ function collectMissing(
   found: ResponseFieldDifference[],
   present: 'recorded' | 'actual',
 ): void {
-  if (subtreeIsHarmless(value, path, ctx)) return;
+  if (!ctx.keepAll && subtreeIsHarmless(value, path, ctx)) return;
   pushSide(path, present, jsonText(value), found);
 }
 

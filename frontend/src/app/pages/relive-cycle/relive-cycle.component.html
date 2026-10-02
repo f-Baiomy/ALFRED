@@ -147,6 +147,7 @@
             [results]="h.results"
             [variableDefs]="h.run.definition.variables"
             [variables]="finalVariablesOf(h.run)"
+            (noiseChange)="applyNoiseChange($event)"
             (runFromStep)="runFromHere($event, h.run)"
             (stopRun)="stopDisplayedRun()"
           />
@@ -169,6 +170,7 @@
               (endRun)="runService.endRun()"
               (endGuidedRun)="runService.endGuidedRun()"
               (resumeFromStep)="resumeFromStep($event)"
+              (noiseChange)="applyNoiseChange($event)"
               (runFromStep)="runFromHere($event, run)"
               (stopRun)="runService.stop()"
               (checkpointContinue)="runService.resolveCheckpoint('CONTINUE')"

@@ -27,13 +27,13 @@ import { ReliveSocketEvent, ReliveSocketService } from '../services/relive-socke
 import { ResendApiService, ResendResponseSnapshot, ResendResult } from '../services/resend-api.service';
 import { resolveDynamicTokens } from '../../shared/utils/dynamic-tokens';
 import { checkpointOf, modeOf, setRequestBody } from '../../shared/utils/relive-call-rule';
-import { RawDifference, classify } from '../../shared/utils/relive-noise';
+import { ExpectedCause, RawDifference, classify } from '../../shared/utils/relive-noise';
 import { ActualCallOutcome, outcomeOf } from '../../shared/utils/relive-outcome';
 import type { CallsQuery } from '../state/call-list-view';
-import { DifferenceEntry, NoiseRule, ReliveCycle, RuleApplied, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
+import { CycleRule, DifferenceEntry, NoiseRule, ReliveCycle, RuleApplied, Run, RunStatus, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 import { DraftResult } from '../../shared/utils/resend-draft';
 import { extractValues, substituteTokens } from '../../shared/utils/resend-draft-chain';
-import { finishedResponseDifference } from '../../shared/utils/relive-canonical-body';
+import { allResponseDifferences } from '../../shared/utils/relive-canonical-body';
 import { evaluate } from '../../shared/utils/scenario-assertions';
 
 /** How long to keep collecting `run-call` events after the inbound resend settles, before deciding
@@ -126,23 +126,63 @@ function extractedVars(response: ResendResponseSnapshot | null, rules: Step['ext
   return Object.entries(extractValues(response, rules)).map(([name, value]) => ({ name, value }));
 }
 
-/** One MATCH or one DIFFERENT for the completed response. Field assertions stay on `evaluate`.
- *  This grade does not choose the supplier step. A noise-only body leaves no row. */
-function rawDifferences(
-  step: Step,
-  response: ResendResponseSnapshot | null,
-  noiseRules: readonly NoiseRule[],
-  variablesUsed: readonly { readonly name: string; readonly value: string }[],
-  variablesProduced: readonly { readonly name: string; readonly value: string }[],
-): RawDifference[] {
+/** Every field of the response that differs from the recording, one row each (FR-039/040).
+ *  Classification (expected / noise / unexpected) is separate, so the step can show all three. */
+function rawDifferences(step: Step, response: ResendResponseSnapshot | null): RawDifference[] {
   if (!response) return [];
-  const verdict = finishedResponseDifference(
+  return allResponseDifferences(
     { status: step.recording.status, headers: step.recording.responseHeaders, body: step.recording.responseBody },
     { status: response.status, headers: response.headers, body: response.body },
-    { noiseRules, variablesUsed, variablesProduced },
+    { noiseRules: [], variablesUsed: [], variablesProduced: [] },
   );
-  if (!verdict) return [];
-  return [{ part: 'body', path: 'response', recorded: verdict.recorded, actual: verdict.actual }];
+}
+
+/** Differences the cycle itself caused (FR-041/028a): an answer edited in the call rule, and a
+ *  response header a rule sets. Each names its cause. */
+function expectedCausesOf(step: Step, cycleRules: readonly CycleRule[], raw: readonly RawDifference[]): ExpectedCause[] {
+  const causes: ExpectedCause[] = [];
+  const answer = step.callRule.actions.find((a: RuleAction) => (a.type === 'MOCK_RESPONSE' || a.type === 'REPLACE_RESPONSE') && a.enabled !== false);
+  const answerJson = answer ? parseJson(answer.body ?? '') : undefined;
+  for (const diff of raw) {
+    if (!answer) break;
+    if (diff.part === 'status' && answer.status != null && String(answer.status) === diff.actual && answer.status !== step.recording.status) {
+      causes.push({ path: diff.path, cause: 'answer edited in the call rule' });
+    } else if (diff.part === 'body' && answerJson !== undefined && diff.actual !== null && jsonAt(answerJson, diff.path) === diff.actual) {
+      causes.push({ path: diff.path, cause: 'answer edited in the call rule' });
+    }
+  }
+  const rules: { readonly name: string; readonly actions: readonly RuleAction[] }[] = [
+    { name: 'the call rule', actions: step.callRule.actions },
+    ...cycleRules.filter((r) => r.enabled !== false).map((r) => ({ name: `CYCLE rule "${r.name}"`, actions: r.actions })),
+  ];
+  for (const rule of rules) {
+    for (const action of rule.actions) {
+      if (action.enabled === false || action.type !== 'SET_RESPONSE_HEADER' || !action.name) continue;
+      const path = action.name.toLowerCase();
+      if (raw.some((d) => d.part === 'header' && d.path.toLowerCase() === path)) causes.push({ path: raw.find((d) => d.part === 'header' && d.path.toLowerCase() === path)!.path, cause: rule.name });
+    }
+  }
+  return causes;
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The leaf text at a `body.a.0.b` path, as the difference lister writes it. */
+function jsonAt(root: unknown, path: string): string | null {
+  const parts = path.split('.').slice(1);
+  let node: unknown = root;
+  for (const part of parts) {
+    if (node === null || typeof node !== 'object') return null;
+    node = (node as Record<string, unknown>)[part];
+  }
+  if (node === undefined) return null;
+  return typeof node === 'string' ? node : JSON.stringify(node);
 }
 
 function differencesOf(
@@ -151,11 +191,10 @@ function differencesOf(
   noiseRules: readonly NoiseRule[],
   variablesUsed: readonly { readonly name: string; readonly value: string }[],
   variablesProduced: readonly { readonly name: string; readonly value: string }[],
+  cycleRules: readonly CycleRule[] = [],
 ): readonly DifferenceEntry[] {
-  return classify(
-    rawDifferences(step, response, noiseRules, variablesUsed, variablesProduced),
-    { noiseRules, expected: [], variablesUsed, variablesProduced },
-  );
+  const raw = rawDifferences(step, response);
+  return classify(raw, { noiseRules, expected: expectedCausesOf(step, cycleRules, raw), variablesUsed, variablesProduced });
 }
 
 /** The backend stores a call rule as {rule, copiedFrom}; the browser keeps it flat. */
@@ -977,7 +1016,7 @@ export class ReliveRunService {
     const variablesUsed = usedVarsOf(step, this.variables(), this.runEdits.get(step.key));
     const variablesProduced = extractedVars(response, step.extract);
     const noiseRules = [...this.run()!.definition.noise, ...step.noise];
-    const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced);
+    const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced, this.run()!.definition.cycleRules);
     const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, differences);
     const effective = { method: substituted.method, url: substituted.url, headers: substituted.headers, body: substituted.body };
     return {
@@ -1033,7 +1072,7 @@ export class ReliveRunService {
     const variablesUsed = usedVarsOf(step, this.variables());
     const variablesProduced = extractedVars(response, step.extract);
     const noiseRules = [...this.run()!.definition.noise, ...step.noise];
-    const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced);
+    const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced, this.run()!.definition.cycleRules);
     const outcome = outcomeOf(actual, { status: step.recording.status }, assertionResults, differences);
     return {
       runId: this.run()!.id,

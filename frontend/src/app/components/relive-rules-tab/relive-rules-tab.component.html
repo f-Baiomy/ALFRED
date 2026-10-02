@@ -108,4 +108,17 @@
       <p class="rl-hint" style="margin-top: 4px">Same rule editor, every action - e.g. mock a 200, answer with a file, delay, or pause and wait for you. First matching rule wins.</p>
     }
   }
+  <div class="rl-sect" style="margin-top: 14px">
+    <h3>Ignored fields in this cycle</h3>
+    @for (rule of cycle().noise; track rule.part + rule.path) {
+      <div class="rl-row">
+        <span class="rl-mono">{{ rule.path }}</span>
+        <span class="rl-faint">{{ rule.count ? 'always counted' : 'ignored' }}</span>
+        <span class="rl-spacer"></span>
+        <button class="rl-btn rl-sm" (click)="removeNoiseRule($index)">{{ rule.count ? 'Back to automatic' : 'Un-ignore' }}</button>
+      </div>
+    } @empty {
+      <div class="rl-faint">None. Use "Ignore in the whole cycle" on a step's differences.</div>
+    }
+  </div>
 </div>

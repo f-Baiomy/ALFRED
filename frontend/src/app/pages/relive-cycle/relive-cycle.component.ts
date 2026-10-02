@@ -11,7 +11,7 @@ import { ReliveRulesTabComponent } from '../../components/relive-rules-tab/reliv
 import { ReliveRerunSummaryComponent, ReliveStartRequest } from '../../components/relive-prerun-summary/relive-prerun-summary.component';
 import { ReliveRebuildDialogComponent } from '../../components/relive-rebuild-dialog/relive-rebuild-dialog.component';
 import { ReliveVariablesComponent } from '../../components/relive-variables/relive-variables.component';
-import { ReliveRunTimelineComponent } from '../../components/relive-run-timeline/relive-run-timeline.component';
+import { NoiseChange, ReliveRunTimelineComponent } from '../../components/relive-run-timeline/relive-run-timeline.component';
 import { ReliveHistoryComponent } from '../../components/relive-history/relive-history.component';
 import { ReliveApiService, StartRunRequest } from '../../core/services/relive-api.service';
 import { outboundMissingFingerprint, outboundOnOldFingerprint } from '../../core/services/relive-fingerprint';
@@ -24,7 +24,7 @@ import { InterceptionApiService } from '../../core/services/interception-api.ser
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { ReliveRunService } from '../../core/state/relive-run.service';
 import { externalReach } from '../../shared/utils/relive-external-reach';
-import { CycleRule, CycleVariable, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
+import { CycleRule, CycleVariable, NoiseRule, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
 import { reliveVariableNames } from '../../shared/utils/relive-variable-names';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
@@ -202,6 +202,16 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     if (!runId) return [];
     return this.interceptionState.pausedCalls().filter((c) => c.relive?.runId === runId);
   });
+
+  /** FR-041b/c: a field marked from a step's differences goes to that step's or the cycle's noise
+   *  rules (a draft edit; Save keeps it). Marking replaces any earlier rule for the same field. */
+  applyNoiseChange(change: NoiseChange): void {
+    const same = (rule: NoiseRule) => rule.part === change.rule.part && rule.path === change.rule.path;
+    const next = (rules: readonly NoiseRule[]) => change.remove ? rules.filter((r) => !same(r)) : [...rules.filter((r) => !same(r)), change.rule];
+    this.state.update((cycle) => change.scope === 'CYCLE'
+      ? { ...cycle, noise: next(cycle.noise) }
+      : { ...cycle, steps: cycle.steps.map((s) => (s.key === change.stepKey ? { ...s, noise: next(s.noise) } : s)) });
+  }
 
   decidePaused(event: { readonly callId: string; readonly decision: PauseDecision }): void {
     this.interceptionApi.decide(event.callId, event.decision).subscribe({

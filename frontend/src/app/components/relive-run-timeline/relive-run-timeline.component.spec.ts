@@ -398,6 +398,18 @@ describe('ReliveRunTimelineComponent', () => {
     ]);
   });
 
+  it('T106: Ignore this field and Count it emit noise rules for the step or the cycle', () => {
+    const changes: unknown[] = [];
+    fixture.componentInstance.noiseChange.subscribe((c) => changes.push(c));
+    fixture.componentInstance.ignoreField('s-1', { path: 'body.total', recorded: '450', actual: '455', part: 'body' }, 'CYCLE');
+    fixture.componentInstance.countField('s-1', { path: 'headers.date', recorded: 'a', actual: 'b', part: 'header', kind: 'NOISE_AUTO' });
+    expect(changes).toEqual([
+      { stepKey: 's-1', scope: 'CYCLE', remove: false, rule: { part: 'body', path: 'body.total', auto: false, count: false } },
+      { stepKey: 's-1', scope: 'STEP', remove: false, rule: { part: 'header', path: 'headers.date', auto: false, count: true } },
+    ]);
+    expect(fixture.componentInstance.isMarked('s-1', 'body.total')).toBeTrue();
+  });
+
   it('T103: a held child checkpoint offers Continue and Skip, and answers can be edited', () => {
     fixture.componentRef.setInput('run', run());
     fixture.componentRef.setInput('steps', []);

@@ -319,12 +319,45 @@
                     <pre class="rl-diff-value rl-new">{{ formatDiffValue(item.actual) }}</pre>
                   </div>
                 </div>
+                @if (isMarked(diff.stepKey, item.path)) {
+                  <div class="rl-faint">Marked - counts from the next comparison. Save the cycle to keep it.</div>
+                } @else {
+                  <div class="rl-row rl-diff-actions">
+                    <button type="button" class="rl-btn rl-sm" (click)="ignoreField(diff.stepKey, item, 'STEP')">Ignore this field (this step)</button>
+                    <button type="button" class="rl-btn rl-sm" (click)="ignoreField(diff.stepKey, item, 'CYCLE')">Ignore in the whole cycle</button>
+                  </div>
+                }
               </div>
             }
             @if (diff.more) {
               <div class="rl-faint">{{ diff.more }} more fields differ.</div>
             }
           </div>
+        }
+        @if (diff.expected.length) {
+          <details class="rl-diff-group" open>
+            <summary>Expected ({{ diff.expected.length }})</summary>
+            @for (item of diff.expected; track item.path) {
+              <div class="rl-drow"><span class="rl-mono">{{ item.path }}</span><span class="rl-old">{{ formatDiffValue(item.recorded) }}</span><span class="rl-new">{{ formatDiffValue(item.actual) }}</span><span class="rl-faint">{{ item.cause }}</span></div>
+            }
+          </details>
+        }
+        @if (diff.noise.length) {
+          <details class="rl-diff-group">
+            <summary>Ignored as noise ({{ diff.noise.length }})</summary>
+            @for (item of diff.noise; track item.path) {
+              <div class="rl-drow rl-noise">
+                <span class="rl-mono">{{ item.path }}</span>
+                <span class="rl-faint">{{ item.cause }}</span>
+                <span class="rl-spacer"></span>
+                @if (isMarked(diff.stepKey, item.path)) {
+                  <span class="rl-faint">counts from the next comparison</span>
+                } @else {
+                  <button type="button" class="rl-btn rl-sm" (click)="countField(diff.stepKey, item)">{{ item.kind === 'NOISE_USER' ? 'Un-ignore' : 'Count it' }}</button>
+                }
+              </div>
+            }
+          </details>
         }
       </div>
     </div>
