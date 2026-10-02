@@ -106,7 +106,14 @@
             </div>
           }
 
-          <div class="intercept-sub">Headers</div>
+          @if (collapsibleSections()) {
+            <button type="button" class="intercept-sub intercept-sub-toggle" [attr.aria-expanded]="headersShown()" (click)="toggleHeaders()">
+              {{ headersShown() ? '▾' : '▸' }} Headers <span class="intercept-sub-count">{{ headerSummary() }}</span>
+            </button>
+          } @else {
+            <div class="intercept-sub">Headers</div>
+          }
+          @if (headersShown()) {
           <div class="intercept-headers">
             @for (row of searchedHeaders(); track $index) {
               <div class="ih-row" [class.removed]="row.kind === 'removed'" [class.added]="row.kind === 'added'">
@@ -118,8 +125,16 @@
               <div class="intercept-empty">No headers.</div>
             }
           </div>
+          }
 
-          <div class="intercept-sub">Body</div>
+          @if (collapsibleSections()) {
+            <button type="button" class="intercept-sub intercept-sub-toggle" [attr.aria-expanded]="bodyShown()" (click)="toggleBody()">
+              {{ bodyShown() ? '▾' : '▸' }} Body <span class="intercept-sub-count">{{ bodySummary() }}</span>
+            </button>
+          } @else {
+            <div class="intercept-sub">Body</div>
+          }
+          @if (bodyShown()) {
           <!-- The same tokens the call cards render, so a SOAP envelope here looks exactly like
                the one on the card above it. A line with no tokens is interpolated as plain text
                rather than wrapped in a single token - one DOM node instead of several, which is
@@ -150,6 +165,7 @@
               <div class="il-spacer" [style.height.px]="spacerBottomPx()" aria-hidden="true"></div>
             }
           </div>
+          }
 
           <p class="intercept-legend">
             @if (labels(); as custom) {

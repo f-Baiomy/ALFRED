@@ -168,7 +168,7 @@
         <button type="button" [class.on]="half() === 'response'" (click)="half.set('response')">Response</button>
       </div>
       @if (half() === 'request' ? hasRequest() : hasResponse()) {
-        <app-interception-panel [interception]="compare()" [phase]="half()" [embedded]="true" [labels]="half() === 'request' ? requestLabels : responseLabels" />
+        <app-interception-panel [interception]="compare()" [phase]="half()" [embedded]="true" [collapsibleSections]="true" [labels]="half() === 'request' ? requestLabels : responseLabels" />
       } @else {
         <div class="intercept-empty">Nothing {{ half() === 'request' ? 'was sent' : 'came back' }} in this attempt yet.</div>
       }

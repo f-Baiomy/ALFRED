@@ -53,6 +53,31 @@ describe('InterceptionPanelComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Replaced by Alfred');
   });
 
+  it('folds Headers and Body by default when asked, each opened by its heading; a search opens them', () => {
+    fixture.componentRef.setInput('embedded', true);
+    fixture.componentRef.setInput('collapsibleSections', true);
+    render({
+      applied,
+      originalResponse: { status: 200, headers: { 'x-upstream': 'yes' }, body: '{"offers":[1]}' },
+      finalResponse: { status: 200, headers: { 'x-upstream': 'yes' }, body: '{"offers":[2]}' },
+    });
+    const el: HTMLElement = fixture.nativeElement;
+    const toggles = () => Array.from(el.querySelectorAll('.intercept-sub-toggle')) as HTMLButtonElement[];
+
+    expect(toggles().map((b) => b.textContent!.replace(/\s+/g, ' ').trim())).toEqual(['▸ Headers 1', '▸ Body 6 lines · 2 changed']);
+    expect(el.querySelector('.intercept-headers')).toBeNull();
+    expect(el.querySelector('.intercept-body')).toBeNull();
+
+    toggles()[1].click();
+    fixture.detectChanges();
+    expect(el.querySelector('.intercept-body')).not.toBeNull();
+    expect(el.querySelector('.intercept-headers')).toBeNull();
+
+    component.query.set('upstream');
+    fixture.detectChanges();
+    expect(el.querySelector('.intercept-headers')).not.toBeNull();
+  });
+
   it('reports a mocked response as one-sided rather than as a diff', () => {
     // There is no "before": upstream was never contacted. Claiming the host answered and that we
     // changed its answer would describe a call that never happened.

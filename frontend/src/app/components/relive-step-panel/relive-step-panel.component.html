@@ -257,9 +257,9 @@
         }
       </div>
       @if (half() === 'request') {
-        <app-interception-panel [interception]="compare()" phase="request" [embedded]="true" [labels]="requestLabels" />
+        <app-interception-panel [interception]="compare()" phase="request" [embedded]="true" [collapsibleSections]="true" [labels]="requestLabels" />
       } @else if (mockAnswer()) {
-        <app-interception-panel [interception]="compare()" phase="response" [embedded]="true" [labels]="responseLabels()" />
+        <app-interception-panel [interception]="compare()" phase="response" [embedded]="true" [collapsibleSections]="true" [labels]="responseLabels()" />
       } @else {
         <div class="intercept-empty">{{ isChild() ? 'The real supplier' : 'Your app' }} answers live - its answer is compared with the recording after a run.</div>
       }

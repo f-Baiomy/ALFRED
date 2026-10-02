@@ -84,6 +84,32 @@ export class InterceptionPanelComponent {
    * own: no head, no action list, always open - just the before/after/diff viewer with its tools.
    */
   readonly embedded = input(false);
+  /** Headers and Body start folded, each opened by its own heading (Relive's step panels, where
+   *  the diff sits under every box and a full header list pushed everything else off screen).
+   *  A search opens whichever section it looks in, so a match is never hidden. */
+  readonly collapsibleSections = input(false);
+  private readonly headersOpen = signal<boolean | null>(null);
+  private readonly bodyOpen = signal<boolean | null>(null);
+  readonly headersShown = computed(() => this.headersOpen() ?? (!this.collapsibleSections() || (!!this.query() && this.scope() !== 'body')));
+  readonly bodyShown = computed(() => this.bodyOpen() ?? (!this.collapsibleSections() || (!!this.query() && this.scope() !== 'headers')));
+  readonly headerSummary = computed(() => {
+    const rows = this.shownHeaders();
+    const changed = rows.filter((row) => row.kind === 'added' || row.kind === 'removed').length;
+    return `${rows.length}${changed ? ` · ${changed} changed` : ''}`;
+  });
+  readonly bodySummary = computed(() => {
+    const lines = this.shownBody();
+    const changed = lines.filter((line) => line.kind === 'added' || line.kind === 'removed').length;
+    return `${lines.length} line${lines.length === 1 ? '' : 's'}${changed ? ` · ${changed} changed` : ''}`;
+  });
+
+  toggleHeaders(): void {
+    this.headersOpen.set(!this.headersShown());
+  }
+
+  toggleBody(): void {
+    this.bodyOpen.set(!this.bodyShown());
+  }
 
   /** Replaces the default before/after words and legend - the Resent panel's sides are two calls, not a rule's in and out. */
   readonly labels = input<{ readonly title: string; readonly before: string; readonly after: string; readonly legend: string } | null>(null);

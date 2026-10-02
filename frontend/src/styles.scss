@@ -6767,6 +6767,31 @@ h1.page-title {
   margin: 0.7rem 0 0.3rem;
 }
 
+/* A folding section heading (InterceptionPanelComponent `collapsibleSections`). */
+.intercept-sub-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.3rem 0.2rem;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text);
+  }
+}
+
+.intercept-sub-count {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
 /* Find / copy, acting on whichever view is on screen. */
 .intercept-tools {
   display: flex;
