@@ -367,7 +367,10 @@ export class ReliveRunService {
     const initialResults: Record<string, StepResult> = {};
     for (const step of this.steps) {
       const topKey = step.parentKey ?? step.key;
-      const state: StepState = carriedOverTopKeys.has(topKey) ? 'NOT_CALLED' : step.enabled ? 'PENDING' : 'SKIPPED';
+      const parentEnabled = !step.parentKey || this.steps.find((s) => s.key === step.parentKey)?.enabled !== false;
+      const enabled = step.enabled && parentEnabled;
+      // A disabled step is skipped whether or not the run starts after it (as the backend stores it).
+      const state: StepState = !enabled ? 'SKIPPED' : carriedOverTopKeys.has(topKey) ? 'NOT_CALLED' : 'PENDING';
       initialResults[step.key] = emptyResult(run.id, step, state);
     }
     this.results.set(initialResults);

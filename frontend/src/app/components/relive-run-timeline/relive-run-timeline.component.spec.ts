@@ -257,6 +257,7 @@ describe('ReliveRunTimelineComponent', () => {
 
   it('a LIVE child still waiting does not claim it contacted the host', () => {
     expect(fixture.componentInstance.modePill(result('supplier-b', 'WAITING', { mode: 'LIVE' }))).toBe('LIVE');
+    expect(fixture.componentInstance.modePill(result('supplier-b', 'NOT_CALLED', { mode: 'LIVE' }))).toBe('LIVE');
     expect(fixture.componentInstance.modePill(result('supplier-b', 'COMPLETED', { mode: 'LIVE', reachedUpstream: true }))).toBe('LIVE · contacted host');
   });
 

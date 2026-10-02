@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { Component, OnInit, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { forkJoin } from 'rxjs';
 import { ReliveApiService } from '../../core/services/relive-api.service';
@@ -34,7 +35,7 @@ const STATUS_PILL: Readonly<Record<Run['status'], readonly [string, string]>> = 
 @Component({
   selector: 'app-relive-history',
   standalone: true,
-  imports: [ScenarioRunCompareComponent, ReliveLiveCallsComponent, ActionMenuComponent],
+  imports: [DatePipe, ScenarioRunCompareComponent, ReliveLiveCallsComponent, ActionMenuComponent],
   templateUrl: './relive-history.component.html',
 })
 export class ReliveHistoryComponent implements OnInit {

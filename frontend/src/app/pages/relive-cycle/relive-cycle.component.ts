@@ -341,6 +341,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   /** Set while the pre-run dialog was opened by "Run from here". */
   private readonly pendingRunFrom = signal<{ readonly fromStepKey: string; readonly seedFromRunId: string } | null>(null);
+  readonly runFromKey = computed(() => this.pendingRunFrom()?.fromStepKey ?? null);
 
   /** The historical run's own variables, for the read-only timeline's "Run from here" check -
    *  seed values plus every value the run's timeline recorded, latest wins. */

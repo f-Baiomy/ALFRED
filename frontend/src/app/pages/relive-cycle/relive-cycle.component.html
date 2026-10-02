@@ -234,7 +234,7 @@
 
   <app-relive-external-notice [notices]="state.notices()" (undo)="state.undoNotice($event)" (dismiss)="state.dismissNotice($event)" />
 
-  <app-relive-prerun-summary [open]="prerunOpen()" [cycle]="draft" (closed)="closePrerun()" (cycleChange)="setCycle($event)" (start)="startRun($event)" />
+  <app-relive-prerun-summary [open]="prerunOpen()" [cycle]="draft" [fromStepKey]="runFromKey()" (closed)="closePrerun()" (cycleChange)="setCycle($event)" (start)="startRun($event)" />
 
   <app-relive-rebuild-dialog [open]="rebuildOpen()" [cycle]="draft" (closed)="rebuildOpen.set(false)" (rebuild)="state.rebuild($event.steps, $event.reason)" />
 

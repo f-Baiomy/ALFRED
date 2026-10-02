@@ -97,6 +97,17 @@ describe('ReliveRerunSummaryComponent', () => {
     expect(fixture.componentInstance.canStart()).toBeTrue();
   });
 
+  it('Run from here: a LIVE call under a step the run starts after is not listed', () => {
+    const child = makeStep('c-1', 's-1');
+    const liveChild = { ...child, callRule: applyMode(child.callRule, 'LIVE', recording) };
+    fixture.componentRef.setInput('cycle', cycle({ steps: [makeStep('s-1', null), liveChild, makeStep('s-2', null)] }));
+    fixture.componentRef.setInput('fromStepKey', 's-2');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.externalItems()).toEqual([]);
+    expect(fixture.componentInstance.canStart()).toBeTrue();
+  });
+
   it('requestStart() does nothing when Start should be disabled', () => {
     const missingRecordingStep = { ...makeStep('s-1', null), recording: null as unknown as FrozenCall };
     fixture.componentRef.setInput('cycle', cycle({ steps: [missingRecordingStep] }));

@@ -43,7 +43,7 @@
         [checked]="selected().has(run.id)"
         (click)="toggle(run.id, $event)"
       />
-      <span class="rl-mono">{{ run.startedAt }}</span>
+      <span class="rl-mono" [title]="run.startedAt">{{ run.startedAt | date: 'medium' }}</span>
       <span class="rl-pill" [class]="statusPill(run)[0]">{{ statusPill(run)[1] }}</span>
       <span class="rl-dim rl-t-125">{{ summaryOf(run) }}</span>
       <span class="rl-faint rl-t-115">{{ durationOf(run) }}</span>

@@ -378,7 +378,7 @@ export class ReliveRunTimelineComponent {
     if (result.reachedUpstream === false) return 'LIVE · answered by ALFRED';
     // Nothing is known yet while it waits or runs; afterwards a result without the proxy's answer
     // (an older run) keeps the old reading.
-    if (result.reachedUpstream == null && ['PENDING', 'WAITING', 'RUNNING', 'PAUSED'].includes(result.state)) return 'LIVE';
+    if (result.reachedUpstream == null && !['COMPLETED', 'COMPLETED_WITH_DIFFERENCES', 'FAILED'].includes(result.state)) return 'LIVE';
     return 'LIVE · contacted host';
   }
 

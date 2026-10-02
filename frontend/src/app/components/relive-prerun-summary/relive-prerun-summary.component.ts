@@ -21,6 +21,9 @@ export interface ReliveStartRequest {
 export class ReliveRerunSummaryComponent {
   readonly open = input.required<boolean>();
   readonly cycle = input<ReliveCycle | null>(null);
+  /** "Run from here" (FR-036): the run starts at this top-level step, so nothing before it - nor
+   *  its children - is sent, and none of it can reach an external system. */
+  readonly fromStepKey = input<string | null>(null);
 
   readonly closed = output<void>();
   readonly start = output<ReliveStartRequest>();
@@ -32,9 +35,19 @@ export class ReliveRerunSummaryComponent {
   readonly driver = signal<ReliveDriver>('AUTOMATIC');
   readonly liveConfirmed = signal(false);
 
+  private readonly notSent = computed(() => {
+    const cycle = this.cycle();
+    const from = this.fromStepKey();
+    if (!cycle || !from) return new Set<string>();
+    const tops = cycle.steps.filter((s) => !s.parentKey);
+    const before = new Set(tops.slice(0, Math.max(0, tops.findIndex((s) => s.key === from))).map((s) => s.key));
+    return new Set(cycle.steps.filter((s) => before.has(s.parentKey ?? s.key)).map((s) => s.key));
+  });
+
   readonly findings = computed(() => {
     const cycle = this.cycle();
-    return cycle ? validateCycle(cycle) : [];
+    const notSent = this.notSent();
+    return cycle ? validateCycle(cycle).filter((f) => !f.stepKey || !notSent.has(f.stepKey)) : [];
   });
 
   readonly blockingFindings = computed(() => this.findings().filter((f) => f.severity === 'BLOCK'));
@@ -42,7 +55,12 @@ export class ReliveRerunSummaryComponent {
 
   readonly externalItems = computed(() => {
     const cycle = this.cycle();
-    return cycle ? [...externalReach(cycle).entries()].map(([key, entry]) => ({ key, ...entry })) : [];
+    const notSent = this.notSent();
+    return cycle
+      ? [...externalReach(cycle).entries()]
+          .filter(([key]) => !notSent.has(key.replace(/^__unattributed_/, '')))
+          .map(([key, entry]) => ({ key, ...entry }))
+      : [];
   });
 
   readonly canStart = computed(() => this.blockingFindings().length === 0 && (this.externalItems().length === 0 || this.liveConfirmed()));
