@@ -480,8 +480,31 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     this.state.update((draft) => ({ ...draft, description }));
   }
 
-  save(): void {
-    this.state.save();
+  /** FR-044a: an edit saved while a run of this cycle is going asks whether it applies to that
+   *  run too (steps it has not run yet; the run's snapshot is republished) or only to next runs. */
+  async save(): Promise<void> {
+    let saved: ReliveCycle;
+    try {
+      saved = await this.state.saveAsync();
+    } catch {
+      return; // saveError is already shown
+    }
+    const live = this.runService.run();
+    if (live?.status !== 'RUNNING' || live.cycleId !== saved.id) return;
+    const thisRun = await this.confirmDialog.confirm(
+      'A run of this cycle is in progress. Apply these changes to this run too? Steps it already ran never change.',
+      'Apply to this run too',
+      'Only next runs',
+    );
+    if (!thisRun) return;
+    try {
+      await this.runService.applyDefinitionEdit(saved, 'Edited while the run was going');
+    } catch (error: unknown) {
+      const conflict = (error as { status?: number })?.status === 409;
+      this.actionError.set(conflict
+        ? 'A changed step already ran in this run, so the change applies to next runs only.'
+        : 'Could not apply the change to this run. It applies to next runs.');
+    }
   }
 
   readonly keeping = signal(false);

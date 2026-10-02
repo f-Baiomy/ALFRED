@@ -479,9 +479,13 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
                 definition.settings(), definition.noise(), definition.unexpectedCalls(),
                 run.definition().createdAt(), run.definition().updatedAt(), run.definition().isTransient(),
                 run.definition().lastRun(), StepFingerprints.indexes(mergedSteps));
+        // FR-044a: the change is part of the run's own record.
+        List<LogEntry> log = new ArrayList<>(run.log());
+        log.add(new LogEntry(Instant.now().toString(), null, "DEFINITION_UPDATED",
+                reason == null || reason.isBlank() ? "Cycle edited during the run" : reason));
         Run updated = new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(), run.finishedAt(),
                 mergedDefinition, run.fromStepKey(), run.seedVariables(), run.variableTimeline(), run.summary(),
-                run.hold(), run.resumed(), run.log());
+                run.hold(), run.resumed(), log);
         runStore.update(updated);
         publisher.publish(runId, snapshotBuilder.build(updated));
         notifications.runChanged(run.cycleId(), runId);

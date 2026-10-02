@@ -127,6 +127,33 @@ describe('ReliveCycleComponent picker and run', () => {
     expect(run.start).toHaveBeenCalledWith(savedCycle, jasmine.objectContaining({ driver: 'AUTOMATIC' }));
   });
 
+  it('FR-044a: a save during a run of this cycle asks, and applies to that run on yes', async () => {
+    run.run.set({ id: 'r-live', status: 'RUNNING', cycleId: 'c-1' });
+    run.applyDefinitionEdit = jasmine.createSpy('applyDefinitionEdit').and.resolveTo(undefined);
+    const confirm = TestBed.inject(ConfirmDialogService) as unknown as { confirm: jasmine.Spy };
+    confirm.confirm = jasmine.createSpy('confirm').and.resolveTo(true);
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+
+    await fixture.componentInstance.save();
+
+    expect(confirm.confirm).toHaveBeenCalledWith(jasmine.any(String), 'Apply to this run too', 'Only next runs');
+    expect(run.applyDefinitionEdit).toHaveBeenCalledWith(savedCycle, jasmine.any(String));
+  });
+
+  it('FR-044a: "Only next runs" leaves the running run alone', async () => {
+    run.run.set({ id: 'r-live', status: 'RUNNING', cycleId: 'c-1' });
+    run.applyDefinitionEdit = jasmine.createSpy('applyDefinitionEdit');
+    const confirm = TestBed.inject(ConfirmDialogService) as unknown as { confirm: jasmine.Spy };
+    confirm.confirm = jasmine.createSpy('confirm').and.resolveTo(false);
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    fixture.detectChanges();
+
+    await fixture.componentInstance.save();
+
+    expect(run.applyDefinitionEdit).not.toHaveBeenCalled();
+  });
+
   function runningRun(id: string) {
     return {
       id,

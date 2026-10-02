@@ -3,6 +3,8 @@ import { Injectable, signal } from '@angular/core';
 export interface ConfirmDialogState {
   readonly message: string;
   readonly confirmLabel: string;
+  /** The other choice's label. Both are real answers when the question is not "are you sure". */
+  readonly cancelLabel?: string;
 }
 
 /**
@@ -16,8 +18,8 @@ export class ConfirmDialogService {
 
   private resolve: ((confirmed: boolean) => void) | null = null;
 
-  confirm(message: string, confirmLabel = 'Delete'): Promise<boolean> {
-    this.state.set({ message, confirmLabel });
+  confirm(message: string, confirmLabel = 'Delete', cancelLabel?: string): Promise<boolean> {
+    this.state.set({ message, confirmLabel, cancelLabel });
     return new Promise<boolean>((resolve) => {
       this.resolve = resolve;
     });
