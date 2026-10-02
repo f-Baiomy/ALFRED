@@ -22,6 +22,7 @@ import com.fathy.alfred.backend.relive.domain.model.UnexpectedCallsPolicy;
 import com.fathy.alfred.backend.relive.domain.model.ValidationFinding;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -45,17 +46,22 @@ class RunLeaseRegistryTest {
     private FakeScheduler scheduler;
     private ReliveRunsService runsService;
     private RunLeaseRegistry registry;
+    private FakeCycleStore cycleStore;
+    private RunSnapshotBuilder snapshotBuilder;
+    private ValidateCycleUseCase validator;
+    private ReliveNotificationPort notifications;
+    private LiveCallStorePort liveCallStore;
 
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
-        FakeCycleStore cycleStore = new FakeCycleStore();
+        cycleStore = new FakeCycleStore();
         runStore = new FakeRunStore();
         publisher = new FakePublisher();
         scheduler = new FakeScheduler();
-        RunSnapshotBuilder snapshotBuilder = new RunSnapshotBuilder(publisher, objectMapper);
-        ValidateCycleUseCase validator = cycleId -> List.<ValidationFinding>of();
-        ReliveNotificationPort notifications = new ReliveNotificationPort() {
+        snapshotBuilder = new RunSnapshotBuilder(publisher, objectMapper);
+        validator = cycleId -> List.<ValidationFinding>of();
+        notifications = new ReliveNotificationPort() {
             @Override public void cycleChanged() { }
             @Override public void runChanged(String cycleId, String runId) { }
             @Override public void runCall(JsonNode eventJson) { }
@@ -64,7 +70,7 @@ class RunLeaseRegistryTest {
             @Override public boolean hasActiveLease(String runId) { return false; }
             @Override public void forget(String runId) { }
         };
-        LiveCallStorePort liveCallStore = new LiveCallStorePort() {
+        liveCallStore = new LiveCallStorePort() {
             @Override public LiveCall add(LiveCall call) { return call; }
             @Override public List<LiveCall> list(String cycleId, int limit) { return List.of(); }
             @Override public Optional<LiveCall> findById(String id) { return Optional.empty(); }
@@ -162,6 +168,34 @@ class RunLeaseRegistryTest {
         assertThat(runStore.findById("r-1").orElseThrow().status()).isEqualTo(RunStatus.INTERRUPTED);
         assertThat(publisher.published.get("r-1").get("state").asText()).isEqualTo("STOPPING");
         assertThat(publisher.unpublished).doesNotContain("r-1");
+    }
+
+    @Test
+    void theBackendStartsWhenARunWasLeftRunning() {
+        // T082: the sweep ran in @PostConstruct, interrupting a run forgot its lease through the
+        // LeaseQuery that is the registry itself, and the backend failed to start with a bean
+        // dependency cycle every time a run had been left RUNNING.
+        Run run = runningRun("r-1", "c-1");
+        runStore.byId.put(run.id(), run);
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.setAllowCircularReferences(false); // as Spring Boot does
+            context.registerBean(ReliveRunStorePort.class, () -> runStore);
+            context.registerBean(ReliveCycleStorePort.class, () -> cycleStore);
+            context.registerBean(RunSnapshotPublisherPort.class, () -> publisher);
+            context.registerBean(ReliveNotificationPort.class, () -> notifications);
+            context.registerBean(ValidateCycleUseCase.class, () -> validator);
+            context.registerBean(RunSnapshotBuilder.class, () -> snapshotBuilder);
+            context.registerBean(ScheduledExecutorService.class, () -> scheduler);
+            context.registerBean(LiveCallStorePort.class, () -> liveCallStore);
+            context.registerBean(com.fathy.alfred.backend.relive.application.port.out.RelatedCallsPort.class, () -> runIds -> 0);
+            context.registerBean("reliveCallsCleanupExecutor", java.util.concurrent.Executor.class, () -> Runnable::run);
+            context.registerBean(ReliveRunsService.class);
+            context.registerBean(RunLeaseRegistry.class);
+
+            context.refresh();
+
+            assertThat(runStore.findById("r-1").orElseThrow().status()).isEqualTo(RunStatus.INTERRUPTED);
+        }
     }
 
     static class FakeCycleStore implements ReliveCycleStorePort {

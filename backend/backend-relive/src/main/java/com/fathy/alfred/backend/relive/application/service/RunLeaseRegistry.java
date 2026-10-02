@@ -2,7 +2,8 @@ package com.fathy.alfred.backend.relive.application.service;
 
 import com.fathy.alfred.backend.relive.application.port.out.LeaseQuery;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
-import jakarta.annotation.PostConstruct;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -94,8 +95,13 @@ public class RunLeaseRegistry implements LeaseQuery {
 
     /** Every run left RUNNING across a restart never had the chance to reach a final status -
      *  interrupt() re-runs the exact STOPPING-drain path so its snapshot is republished (blocking
-     *  in-flight calls) and removed 30s later, the same as any other interrupt (T046). */
-    @PostConstruct
+     *  in-flight calls) and removed 30s later, the same as any other interrupt (T046).
+     *
+     *  <p>Once the context is ready, not in @PostConstruct: interrupting a run forgets its lease
+     *  through the LeaseQuery that is this very bean, and asking for it while it was still being
+     *  created failed the whole backend start with a dependency cycle - whenever a run had been
+     *  left RUNNING (T082). */
+    @EventListener(ContextRefreshedEvent.class)
     void sweepRunningOnStartup() {
         runStore.findAllRunning().forEach(run -> runsService.interrupt(run.id()));
     }
