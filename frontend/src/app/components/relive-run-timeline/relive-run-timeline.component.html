@@ -274,6 +274,22 @@
     </div>
   }
 
+  @if (run()!.log.length) {
+    <details class="rl-card rl-run-log">
+      <summary>Run log ({{ run()!.log.length }})</summary>
+      @for (entry of run()!.log; track $index) {
+        <div class="rl-row rl-run-log-row">
+          <span class="rl-faint">{{ entry.at }}</span>
+          <span class="rl-mono">{{ entry.kind }}</span>
+          @if (entry.stepKey) {
+            <span class="rl-dim">{{ stepLabel(entry.stepKey) }}</span>
+          }
+          <span>{{ logMessage(entry.message) }}</span>
+        </div>
+      }
+    </details>
+  }
+
   <div class="rl-card" style="padding: 10px 12px">
     <div class="rl-row">
       <h3 style="margin: 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint)">Variables in this run</h3>

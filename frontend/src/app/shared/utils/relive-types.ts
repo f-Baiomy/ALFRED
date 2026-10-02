@@ -244,6 +244,7 @@ export type LogEntryKind =
   | 'HELD'
   | 'CONTINUED'
   | 'RESUMED'
+  | 'DEFINITION_UPDATED'
   | 'ERROR';
 
 export interface LogEntry {

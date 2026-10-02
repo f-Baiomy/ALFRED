@@ -505,6 +505,11 @@ export class ReliveRunTimelineComponent {
     if (edit) this.editingCheckpoint.set({ ...edit, saveToCycle });
   }
 
+  /** FR-038: the run's execution log, secrets masked. */
+  logMessage(message: string): string {
+    return this.mask(message);
+  }
+
   heldLabel(call: PausedCall): string {
     const key = call.relive?.stepKey;
     return (key && this.steps().find((s) => s.key === key)?.label) || `${call.method} ${call.url}`;

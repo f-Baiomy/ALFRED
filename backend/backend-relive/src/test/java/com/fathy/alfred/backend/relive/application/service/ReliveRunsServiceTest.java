@@ -30,6 +30,7 @@ import com.fathy.alfred.backend.relive.domain.model.Run;
 import com.fathy.alfred.backend.relive.domain.model.RunStatus;
 import com.fathy.alfred.backend.relive.domain.model.Step;
 import com.fathy.alfred.backend.relive.domain.model.StepResult;
+import com.fathy.alfred.backend.relive.domain.model.LogEntry;
 import com.fathy.alfred.backend.relive.domain.model.StepState;
 import com.fathy.alfred.backend.relive.domain.model.VariableChange;
 import com.fathy.alfred.backend.relive.domain.model.UnexpectedCallsPolicy;
@@ -597,6 +598,23 @@ class ReliveRunsServiceTest {
                 "call-1", "odeysys", relive, false, null, null, null, null, null));
 
         assertThat(publisher.unpublished).contains(run.id());
+    }
+
+    @Test
+    void eachHandledCallAndVariableIsInTheRunLog() {
+        // FR-038: what ALFRED did per step, viewable from the run.
+        String cycleId = save(bareCycle("log", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        com.fasterxml.jackson.databind.node.ObjectNode relive = objectMapper.createObjectNode()
+                .put("runId", run.id()).put("stepKey", "c-1").put("attribution", "INFLIGHT").put("requestChanged", true);
+        relive.putArray("ruleIds").addObject().put("tier", "CYCLE").put("ruleId", "r1").put("ruleName", "X-Debug");
+
+        service.onOutboundCallCompleted(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+                "call-1", "odeysys", relive, false, null, null, 200, 4L, "t1"));
+        service.setVariable(run.id(), "searchId", "s-1", "c-1");
+
+        assertThat(runStore.findById(run.id()).orElseThrow().log()).extracting(LogEntry::kind)
+                .contains("REPLAYED", "REQUEST_CHANGED", "RULE_APPLIED", "VARIABLE_SET");
     }
 
     @Test

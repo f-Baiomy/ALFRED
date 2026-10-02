@@ -264,7 +264,61 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
     private void recordStepResultLocked(String runId, StepResult result) {
         runStore.putStepResult(result);
         Run run = getOrThrow(runId);
-        runStore.update(withSummary(run, computeSummary(run.definition(), runStore.listStepResults(runId))));
+        Run summarized = withSummary(run, computeSummary(run.definition(), runStore.listStepResults(runId)));
+        runStore.update(withLog(summarized, stepLog(result)));
+    }
+
+    /** FR-038: what happened to a step, in the run's own log - only once it has an outcome. */
+    private static List<LogEntry> stepLog(StepResult result) {
+        if (result.state() == null || result.state() == StepState.RUNNING || result.state() == StepState.PENDING
+                || result.state() == StepState.WAITING || result.state() == StepState.PAUSED) {
+            return List.of();
+        }
+        String at = result.finishedAt() != null ? result.finishedAt() : Instant.now().toString();
+        String message = "Attempt " + result.attempt() + ": " + result.state()
+                + (result.error() == null ? "" : " - " + result.error());
+        return List.of(new LogEntry(at, result.stepKey(), result.state() == StepState.FAILED ? "ERROR" : "SENT", message));
+    }
+
+    private static Run withLog(Run run, List<LogEntry> entries) {
+        if (entries.isEmpty()) {
+            return run;
+        }
+        List<LogEntry> log = new ArrayList<>(run.log());
+        log.addAll(entries);
+        return new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(), run.finishedAt(),
+                run.definition(), run.fromStepKey(), run.seedVariables(), run.variableTimeline(), run.summary(),
+                run.hold(), run.resumed(), log);
+    }
+
+    /** One call the proxy handled for this run (FR-038): matched where, replayed or forwarded,
+     *  which rules applied, and whether its request differed from the recording. */
+    private void logCall(ObservedCall call, JsonNode relive, String direction) {
+        String runId = runIdOf(relive);
+        String attribution = relive.path("attribution").asText("");
+        String target = (call.method() == null ? "" : call.method() + " ") + (call.url() == null ? call.callId() : call.url());
+        List<LogEntry> entries = new ArrayList<>();
+        String at = call.at() == null ? Instant.now().toString() : call.at();
+        String stepKey = stepKeyOf(relive);
+        if (relive.path("unexpected").asBoolean(false) || "UNEXPECTED".equals(attribution)) {
+            entries.add(new LogEntry(at, stepKey, "UNEXPECTED_CALL", target + " matched no step"
+                    + (call.reachedUpstream() ? " - sent to the real system" : " - answered by ALFRED")));
+        } else {
+            String how = "STOPPING".equals(relive.path("choice").asText()) ? "BLOCKED"
+                    : call.reachedUpstream() ? "FORWARDED_LIVE" : "REPLAYED";
+            entries.add(new LogEntry(at, stepKey, how, direction + " " + target + " (" + attribution.toLowerCase()
+                    + (call.status() == null ? "" : ", " + call.status()) + ")"));
+        }
+        if (relive.path("requestChanged").asBoolean(false)) {
+            entries.add(new LogEntry(at, stepKey, "REQUEST_CHANGED", target + " differs from the recording"));
+        }
+        for (JsonNode rule : relive.path("ruleIds")) {
+            entries.add(new LogEntry(at, stepKey, "RULE_APPLIED",
+                    rule.path("tier").asText() + " rule \"" + rule.path("ruleName").asText(rule.path("ruleId").asText()) + "\""));
+        }
+        synchronized (lockFor(runId)) {
+            runStore.findById(runId).ifPresent(run -> runStore.update(withLog(run, entries)));
+        }
     }
 
     @Override
@@ -281,6 +335,8 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         Run updated = new Run(run.id(), run.cycleId(), run.driver(), run.status(), run.startedAt(), run.finishedAt(),
                 run.definition(), run.fromStepKey(), run.seedVariables(), timeline, run.summary(), run.hold(),
                 run.resumed(), run.log());
+        updated = withLog(updated, List.of(new LogEntry(Instant.now().toString(), stepKey, "VARIABLE_SET",
+                "{{$." + name + "}} set" + (stepKey == null ? "" : " by this step"))));
         runStore.update(updated);
         if (isReferencedByARule(updated.definition(), name)) {
             publisher.publish(runId, snapshotBuilder.build(updated));
@@ -597,6 +653,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
             return;
         }
         broadcastRunCall(call, relive, "outbound", "COMPLETED");
+        logCall(call, relive, "outbound");
         maybeAddLiveCall(call, relive);
     }
 
@@ -626,6 +683,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
             return;
         }
         broadcastRunCall(call, relive, "inbound", "COMPLETED");
+        logCall(call, relive, "inbound");
         maybeAddLiveCall(call, relive);
     }
 

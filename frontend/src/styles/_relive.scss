@@ -538,6 +538,26 @@ button.rl-pill {
   }
 }
 
+// The run's execution log under the timeline (FR-038).
+.rl-run-log {
+  padding: 10px 12px;
+  margin: 10px 0;
+
+  summary {
+    cursor: pointer;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .rl-run-log-row {
+    padding: 2px 0;
+    font-size: 12px;
+    gap: 8px;
+  }
+}
+
 // Per-field differences (T106): actions under a field, and the expected / noise groups.
 .rl-diff-actions {
   margin-top: 4px;
