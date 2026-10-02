@@ -14,8 +14,10 @@
   </div>
 </main>
 
-<app-export-dialog />
 <app-copy-to-cycles-dialog />
+<!-- Loaded once the page is idle, outside the initial bundle; their state lives in services, so one
+     asked for before it has loaded opens as soon as it has. -->
 @defer (on idle) {
+  <app-export-dialog />
   <app-relive-selection-dialog />
 }

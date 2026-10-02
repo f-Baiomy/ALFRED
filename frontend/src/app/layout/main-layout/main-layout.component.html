@@ -22,13 +22,17 @@
 <!-- Both follow the user across tabs: picking is done by moving between pages, and a resend can
      be started from a call on any page (Live Calls or a session cycle). -->
 <app-pick-bar />
-<app-resend-dialog />
-<app-bulk-resend-dialog>
-  <app-scenario-toolbar br-scenario-toolbar />
-</app-bulk-resend-dialog>
-<!-- "⚡+ Rule" on a call card: the rule editor as a popup, on whatever page the call is. -->
-<app-rule-dialog />
-<!-- The two right-edge tabs: the cycle widget's, stacked above the global variables one. -->
-<app-cycle-widget-launch />
-<app-global-variables />
-<app-relive-fingerprint-screen />
+<!-- Loaded once the page is idle, outside the initial bundle (each holds its state in a service, so
+     one asked for before it has loaded opens as soon as it has). -->
+@defer (on idle) {
+  <app-resend-dialog />
+  <app-bulk-resend-dialog>
+    <app-scenario-toolbar br-scenario-toolbar />
+  </app-bulk-resend-dialog>
+  <!-- "⚡+ Rule" on a call card: the rule editor as a popup, on whatever page the call is. -->
+  <app-rule-dialog />
+  <!-- The two right-edge tabs: the cycle widget's, stacked above the global variables one. -->
+  <app-cycle-widget-launch />
+  <app-global-variables />
+  <app-relive-fingerprint-screen />
+}
