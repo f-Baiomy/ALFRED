@@ -1787,6 +1787,9 @@ class _RulesCache:
 SUBJECTS = {
     'REQUEST_HEADER', 'REQUEST_BODY', 'REQUEST_JSON_FIELD', 'QUERY_PARAM', 'URL', 'METHOD',
     'RESPONSE_STATUS', 'RESPONSE_HEADER', 'RESPONSE_BODY', 'RESPONSE_JSON_FIELD',
+    # How long the host took to answer, in milliseconds - from the moment the proxy received the
+    # request to the end of the response. Absent in the request phase, like every response subject.
+    'RESPONSE_TIME',
     # Relive (research D15/D17): "does the live request match its frozen recording". Evaluated
     # entirely differently from every other subject - see Condition._recorded_call_holds - so it
     # is excluded from the generic value-based paths below wherever they would otherwise apply.
@@ -1971,6 +1974,8 @@ class Condition:
         if self.subject == 'RESPONSE_STATUS':
             status = getattr(response, 'status_code', None)
             return _one(None if status is None else str(status))
+        if self.subject == 'RESPONSE_TIME':
+            return _one(_response_time_ms(flow))
         return []
 
     def holds(self, flow):
@@ -2161,6 +2166,133 @@ class Condition:
         if _sensitive(self.name):
             return f'{subject} {operator} (value not logged)'
         return f'{subject} {operator} {self.value}'
+
+
+def _response_time_ms(flow):
+    """Milliseconds from the request reaching the proxy to the end of the response, as text.
+
+    A check evaluated away from a live flow (evaluate_check_groups) passes the time it was given in
+    `metadata['_response_time_ms']`; a live flow measures it from the addon's own start time (or
+    mitmproxy's request timestamp) to the response's end.
+    """
+    response = getattr(flow, 'response', None)
+    if response is None:
+        return None
+    metadata = getattr(flow, 'metadata', None) or {}
+    given = metadata.get('_response_time_ms')
+    if given is not None:
+        return str(round(float(given)))
+    start = metadata.get('start_time') or getattr(getattr(flow, 'request', None), 'timestamp_start', None)
+    end = getattr(response, 'timestamp_end', None) or time.time()
+    if not start:
+        return None
+    return str(max(0, round((end - start) * 1000)))
+
+
+# ---------------------------------------------------------------------------------------------
+# Relive step checks. A step's "Check the response" is a list of groups, each one IF block -
+# conditions joined ALL (and) or ANY (or) - evaluated by the very Condition class above, so a rule
+# and a check can never disagree about what an operator means. Evaluated away from a live flow,
+# against an answer the caller supplies (the recording for the editor's preview, the answer a run
+# got for its result) - see answer_check_request for how the backend asks.
+# ---------------------------------------------------------------------------------------------
+
+CHECKS_HOST = 'alfred-checks.internal'
+_ITEM_LIMIT = 20
+
+
+class _CheckFlow:
+    """Just enough of a flow for Condition: no request (checks only read the response)."""
+
+    def __init__(self, response, response_time_ms):
+        self.request = None
+        self.response = response
+        self.metadata = {'_response_time_ms': response_time_ms}
+
+
+def _check_response(answer):
+    from mitmproxy import http  # here, so this module still loads without mitmproxy installed
+    answer = answer or {}
+    headers = [(str(k).encode(), str(v).encode()) for k, v in (answer.get('headers') or {}).items()
+               # The body handed over is already the decoded text, whatever the header said.
+               if str(k).lower() != 'content-encoding']
+    body = answer.get('body')
+    content = b'' if body is None else str(body).encode('utf-8')
+    return http.Response.make(int(answer.get('status') or 0), content, headers)
+
+
+def _explain(condition, flow):
+    """What a condition found - shown beside its result, so a miss says why."""
+    if condition.subject in _JSON_SUBJECTS:
+        fields = []
+        for path in condition.paths:
+            found = _json_field(flow.response, path)
+            items = found[0] if len(found) == 1 and isinstance(found[0], list) else found
+            per_item = None
+            if condition.items and condition.operator not in _WHOLE_FIELD and condition.operator not in (
+                    'EXISTS', 'NOT_EXISTS', 'IS_EMPTY', 'TYPE_IS'):
+                per_item = [condition._one_holds(_as_text(v)) for v in items[:_ITEM_LIMIT] if v is not None]
+            fields.append({
+                'path': path,
+                'count': len(items),
+                'values': [_as_text(v) for v in items[:_ITEM_LIMIT]],
+                'itemHolds': per_item,
+            })
+        return {'fields': fields}
+    values = condition.values(flow)
+    return {'values': [None if v is None else str(v)[:300] for v in values[:_ITEM_LIMIT]]}
+
+
+def evaluate_check_groups(groups, answer, response_time_ms=None):
+    """Every group's verdict and every condition's, against one answer.
+
+    `groups` is the step's checks: [{"combine": "ALL"|"ANY", "conditions": [Condition json...]}].
+    A group passes when all (ALL) or any (ANY) of its conditions hold; a group with no conditions
+    passes. A condition the engine does not understand never holds and says so.
+    """
+    flow = _CheckFlow(_check_response(answer), response_time_ms)
+    results = []
+    for group in groups or []:
+        rows = []
+        for raw in (group or {}).get('conditions') or []:
+            condition = Condition(raw)
+            if not condition.valid:
+                rows.append({'holds': False, 'error': 'not a valid check'})
+                continue
+            try:
+                holds = condition.holds(flow)
+                found = _explain(condition, flow)
+            except Exception as error:  # a bad regex, a body that cannot be decoded
+                rows.append({'holds': False, 'error': str(error)[:200]})
+                continue
+            rows.append({'holds': bool(holds), 'found': found})
+        any_mode = str((group or {}).get('combine') or 'ALL').upper() == 'ANY'
+        holds = [row['holds'] for row in rows]
+        passed = (any(holds) if any_mode else all(holds)) if rows else True
+        results.append({'passed': passed, 'rows': rows})
+    _forget(flow.response)
+    return results
+
+
+def answer_check_request(flow):
+    """The backend's "evaluate these checks" request, answered here and never forwarded.
+
+    The backend sends it through this proxy to CHECKS_HOST (a name that resolves nowhere), so the
+    editor's "On the recording" preview and a run's results are evaluated by the same code as a
+    rule. Returns True when the flow was such a request and now carries its answer.
+    """
+    request = getattr(flow, 'request', None)
+    if request is None or (request.pretty_host or '').lower() != CHECKS_HOST:
+        return False
+    from mitmproxy import http
+    try:
+        payload = json.loads(request.get_text(strict=False) or '{}')
+        results = evaluate_check_groups(payload.get('groups'), payload.get('answer'), payload.get('responseTimeMs'))
+        status, body = 200, {'groups': results}
+    except Exception as error:
+        status, body = 400, {'error': str(error)[:300]}
+    flow.response = http.Response.make(status, json.dumps(body).encode('utf-8'), {'Content-Type': 'application/json'})
+    return True
 
 
 def _one(value):

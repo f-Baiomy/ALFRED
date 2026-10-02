@@ -26,6 +26,8 @@ public enum ConditionSubject {
     RESPONSE_HEADER(true, true),
     RESPONSE_BODY(false, true),
     RESPONSE_JSON_FIELD(true, true),
+    /** Milliseconds from the request reaching the proxy to the end of the response (AT_LEAST / AT_MOST). */
+    RESPONSE_TIME(false, true),
     /**
      * Relive only (FR-014d, research D17): true when the request at this point in the pipeline
      * equals a frozen recording, ignoring noise paths - see {@link Condition#recordedStepKey()} /

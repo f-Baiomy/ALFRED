@@ -154,6 +154,11 @@ ENGINE = interception.InterceptionEngine('outbound')
 class RouteAndLog:
 
     async def request(self, flow):
+        # The backend asking this proxy to evaluate Relive step checks (interception.CHECKS_HOST):
+        # answered here with the rule engine's own Condition code, never forwarded or logged.
+        if interception.answer_check_request(flow):
+            flow.metadata['alfred_internal'] = True
+            return
         flow.metadata['start_time'] = time.time()
 
         # Which of this process's listeners the flow arrived on - the default/shared listener
@@ -387,6 +392,8 @@ class RouteAndLog:
             breakpoints.report_completed(flow, call_id, outcome, note)
 
     async def response(self, flow):
+        if flow.metadata.get('alfred_internal'):
+            return
         call_id = flow.metadata.get('call_id')
         verdict = flow.metadata.get('interception') or interception.Verdict()
 

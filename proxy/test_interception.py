@@ -3756,3 +3756,80 @@ class PowerFeaturesTest(unittest.TestCase):
         with open(self.variables_path, encoding='utf-8') as f:
             state = json.load(f)
         self.assertEqual(state['promotedBy']['token'], {'ruleId': 'r9', 'ruleName': 'Login token'})
+
+
+class CheckGroupsTest(unittest.TestCase):
+    """Relive step checks: one IF block per group, evaluated by the rule engine's own Condition."""
+
+    ANSWER = {
+        'status': 200,
+        'headers': {'Content-Type': 'application/json', 'X-Ref': 'R-9', 'Content-Encoding': 'gzip'},
+        'body': json.dumps({'journeys': [
+            {'origin': 'CAI', 'numberOfStops': 0},
+            {'origin': 'AUH', 'numberOfStops': 1},
+            {'origin': 'CAI', 'numberOfStops': 2},
+        ]}),
+    }
+
+    def evaluate(self, groups, response_time_ms=None):
+        return interception.evaluate_check_groups(groups, self.ANSWER, response_time_ms)
+
+    def test_all_of_needs_every_condition_and_any_of_needs_one(self):
+        status_ok = {'subject': 'RESPONSE_STATUS', 'operator': 'EQUALS', 'value': '200'}
+        every_cai = {'subject': 'RESPONSE_JSON_FIELD', 'name': 'journeys[*].origin', 'operator': 'EQUALS', 'value': 'CAI', 'items': 'ALL'}
+        results = self.evaluate([
+            {'combine': 'ALL', 'conditions': [status_ok, every_cai]},
+            {'combine': 'ANY', 'conditions': [status_ok, every_cai]},
+        ])
+        self.assertEqual([g['passed'] for g in results], [False, True])
+        self.assertEqual([r['holds'] for r in results[0]['rows']], [True, False])
+
+    def test_a_list_condition_reports_what_each_item_was(self):
+        every_cai = {'subject': 'RESPONSE_JSON_FIELD', 'name': 'journeys[*].origin', 'operator': 'EQUALS', 'value': 'CAI', 'items': 'ALL'}
+        row = self.evaluate([{'combine': 'ALL', 'conditions': [every_cai]}])[0]['rows'][0]
+        field = row['found']['fields'][0]
+        self.assertEqual(field['count'], 3)
+        self.assertEqual(field['values'], ['CAI', 'AUH', 'CAI'])
+        self.assertEqual(field['itemHolds'], [True, False, True])
+
+    def test_counts_headers_and_a_gzip_header_on_already_decoded_text(self):
+        results = self.evaluate([{'combine': 'ALL', 'conditions': [
+            {'subject': 'RESPONSE_JSON_FIELD', 'name': 'journeys', 'operator': 'COUNT_AT_LEAST', 'value': '3'},
+            {'subject': 'RESPONSE_HEADER', 'name': 'x-ref', 'operator': 'EQUALS', 'value': 'R-9'},
+        ]}])
+        self.assertTrue(results[0]['passed'])
+        self.assertEqual(results[0]['rows'][1]['found'], {'values': ['R-9']})
+
+    def test_response_time_is_a_subject(self):
+        slow = {'subject': 'RESPONSE_TIME', 'operator': 'AT_MOST', 'value': '5000'}
+        self.assertTrue(self.evaluate([{'conditions': [slow]}], 1310)[0]['passed'])
+        self.assertFalse(self.evaluate([{'conditions': [slow]}], 6214)[0]['passed'])
+
+    def test_an_invalid_condition_never_holds_and_says_so(self):
+        row = self.evaluate([{'conditions': [{'subject': 'NOPE', 'operator': 'EQUALS'}]}])[0]['rows'][0]
+        self.assertEqual(row, {'holds': False, 'error': 'not a valid check'})
+
+    def test_the_backend_request_is_answered_here_and_never_forwarded(self):
+        from mitmproxy.test import tflow
+        flow = tflow.tflow()
+        flow.request.host = interception.CHECKS_HOST
+        flow.request.text = json.dumps({'groups': [{'conditions': [{'subject': 'RESPONSE_STATUS', 'operator': 'EQUALS', 'value': '200'}]}], 'answer': self.ANSWER})
+        self.assertTrue(interception.answer_check_request(flow))
+        self.assertEqual(flow.response.status_code, 200)
+        self.assertTrue(json.loads(flow.response.get_text())['groups'][0]['passed'])
+
+        other = tflow.tflow()
+        self.assertFalse(interception.answer_check_request(other))
+        self.assertIsNone(other.response)
+
+    def test_a_live_rule_reads_response_time_from_the_flow(self):
+        condition = interception.Condition({'subject': 'RESPONSE_TIME', 'operator': 'AT_LEAST', 'value': '100'})
+
+        class Flow:
+            request = None
+            metadata = {'start_time': 1000.0}
+
+            class response:
+                timestamp_end = 1000.25
+        self.assertEqual(condition.values(Flow), ['250'])
+        self.assertTrue(condition.holds(Flow))
