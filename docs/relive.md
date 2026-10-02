@@ -191,6 +191,8 @@ The History tab (`relive-history` component) lists runs and can open one read-on
 timeline component the live run uses (`relive-run-timeline` is pure input/output - it never talks
 to the run engine directly, so viewing a past run needs no separate component).
 
+The run's execution log (`Run.log`, FR-038) is append-only and written from two places: the run page writes a `SENT`/`ERROR` line when a step settles, and the proxy observer writes `FORWARDED_LIVE`/`REPLAYED`/`BLOCKED` (plus `REQUEST_CHANGED`/`RULE_APPLIED`) for the call itself. Lines are stored in arrival order, not time order. The run view never shows them raw: `buildRunLog` (`shared/utils/relive-run-log.ts`) sorts them by time and merges each step attempt into one row, with its other lines as events under it. It nests outbound child steps under the parent attempt they ran in. The `relive-run-log` component renders those rows with filters (problems, rules, variables, holds) and search. The grouping parses the backend's message formats (`ReliveRunsService.stepLog`/`logCall`), so a change to those formats needs the parser and its spec changed too. A line it cannot parse is still shown as a plain event.
+
 The **Live calls log** (`relive_live_calls` table, `LiveCallStorePort`) is a permanent record of
 every call that actually reached a real system while a run was active (the proxy reports
 `reached_upstream` with each run call's completion, after any pause was decided) - deliberately **never

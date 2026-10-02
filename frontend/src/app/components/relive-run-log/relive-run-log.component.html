@@ -1,0 +1,107 @@
+<details class="rl-card rl-run-log">
+  <summary>
+    <span class="rl-log-title">Run log</span>
+    <span class="rl-log-count">{{ rows().length }} {{ rows().length === 1 ? 'entry' : 'entries' }} · {{ log().length }} events</span>
+    @if (outcomes().ok) {
+      <span class="rl-log-sum"><b class="rl-log-ok">{{ outcomes().ok }}</b> ok</span>
+    }
+    @if (outcomes().diff) {
+      <span class="rl-log-sum"><b class="rl-log-diff">{{ outcomes().diff }}</b> differs</span>
+    }
+    @if (outcomes().fail) {
+      <span class="rl-log-sum"><b class="rl-log-fail">{{ outcomes().fail }}</b> failed</span>
+    }
+  </summary>
+
+  <div class="rl-log-tools">
+    <div class="rl-log-chips">
+      @for (f of filters; track f.key) {
+        <button type="button" class="rl-log-chip" [class.rl-on]="filter() === f.key"
+                [class.rl-log-chip-alert]="f.key === 'problem' && counts().problem > 0"
+                (click)="filter.set(f.key)">
+          {{ f.label }}<span class="rl-log-n">{{ counts()[f.key] }}</span>
+        </button>
+      }
+    </div>
+    <span class="rl-spacer"></span>
+    <input class="rl-log-search" type="search" placeholder="Search path, rule, variable…" aria-label="Search the run log"
+           [value]="query()" (input)="onSearch($event)">
+    <button type="button" class="rl-btn rl-sm" (click)="newestFirst.set(!newestFirst())">
+      ⇅ {{ newestFirst() ? 'Newest first' : 'Oldest first' }}
+    </button>
+    <button type="button" class="rl-btn rl-sm" (click)="toggleAll()">{{ allOpen() ? 'Collapse all' : 'Expand all' }}</button>
+  </div>
+
+  <div class="rl-log-scroll">
+    <div class="rl-log-table">
+      <div class="rl-log-grid rl-log-cols">
+        <span></span><span>Time</span><span class="rl-log-right">Since start</span><span></span>
+        <span>Call</span><span>Answered by</span><span class="rl-log-center">HTTP</span><span>Result</span>
+        <span class="rl-log-right">Attempt</span>
+      </div>
+
+      @for (row of shown(); track row.id) {
+        <ng-container *ngTemplateOutlet="rowTpl; context: { $implicit: row, child: false }"></ng-container>
+        @for (child of row.children; track child.id) {
+          <ng-container *ngTemplateOutlet="rowTpl; context: { $implicit: child, child: true }"></ng-container>
+        }
+      } @empty {
+        <div class="rl-log-empty">Nothing in the log matches.</div>
+      }
+    </div>
+  </div>
+</details>
+
+<ng-template #rowTpl let-row let-child="child">
+  <div class="rl-log-grid rl-log-row {{ rowClass(row) }}" [class.rl-log-child]="child"
+       [class.rl-log-open]="isOpen(row)" [class.rl-log-expandable]="row.events.length > 0" (click)="toggle(row)">
+    <span class="rl-log-caret">{{ row.events.length ? '▶' : '' }}</span>
+    <span class="rl-log-time" [title]="row.at">{{ time(row) }}</span>
+    <span class="rl-log-offset">{{ offset(row) }}</span>
+    <span class="rl-log-dir" [class.rl-log-in]="row.direction === 'inbound'" [class.rl-log-out]="row.direction === 'outbound'"
+          [title]="row.direction === 'inbound' ? 'Inbound - into your app' : row.direction === 'outbound' ? 'Outbound - to a supplier' : ''">
+      {{ row.direction === 'inbound' ? '↓' : row.direction === 'outbound' ? '↑' : '' }}
+    </span>
+    <span class="rl-log-target" [title]="(row.method ? row.method + ' ' : '') + (row.url ?? row.target)">
+      @if (row.method) {
+        <span class="rl-log-method">{{ row.method }}</span>
+      }
+      <span class="rl-log-path">{{ row.target }}</span>
+      @if (showsLabel(row)) {
+        <span class="rl-log-step">{{ row.stepLabel }}</span>
+      }
+    </span>
+    <span>
+      @if (row.answeredBy) {
+        <span class="rl-pill {{ answeredClass(row) }}">{{ row.answeredBy }}</span>
+      }
+    </span>
+    <span class="rl-log-status {{ row.status != null ? statusClass(row.status) : '' }}">{{ row.status ?? '' }}</span>
+    <span class="rl-log-outcome rl-log-{{ row.outcome?.kind }}">{{ row.outcome?.label ?? '…' }}</span>
+    <span class="rl-log-attempt" [class.rl-log-again]="(row.attempt ?? 0) > 1">{{ row.attempt ? 'attempt ' + row.attempt : '' }}</span>
+  </div>
+  @if (isOpen(row)) {
+    <div class="rl-log-details" [class.rl-log-child]="child">
+      @for (ev of row.events; track $index) {
+        <div class="rl-log-ev">
+          <span class="rl-log-ev-icon">{{ ev.icon }}</span>
+          <span class="rl-log-ev-label">{{ ev.label }}</span>
+          <span>{{ ev.text }}</span>
+        </div>
+      }
+      @if (row.url) {
+        <div class="rl-log-ev">
+          <span class="rl-log-ev-icon">🌐</span>
+          <span class="rl-log-ev-label">Full URL</span>
+          <span class="rl-log-url">{{ row.method }} {{ row.url }}</span>
+        </div>
+      }
+      @if (row.stepKey) {
+        <div class="rl-log-ev">
+          <span></span><span></span>
+          <a class="rl-link" (click)="selectStep.emit(row.stepKey!); $event.stopPropagation()">Open step "{{ row.stepLabel }}" in the timeline →</a>
+        </div>
+      }
+    </div>
+  }
+</ng-template>

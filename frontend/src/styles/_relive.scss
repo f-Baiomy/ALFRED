@@ -561,24 +561,342 @@ button.rl-pill {
   }
 }
 
-// The run's execution log under the timeline (FR-038).
+// The run's execution log under the timeline (FR-038): one row per step attempt, fixed columns.
 .rl-run-log {
-  padding: 10px 12px;
+  padding: 0;
   margin: 10px 0;
+  overflow: hidden;
 
-  summary {
+  > summary {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
     cursor: pointer;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-faint);
+    font-size: 12.5px;
+    color: var(--text-dim);
   }
 
-  .rl-run-log-row {
-    padding: 2px 0;
-    font-size: 12px;
-    gap: 8px;
+  &[open] > summary {
+    border-bottom: 1px solid var(--border);
   }
+}
+
+.rl-log-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.rl-log-count {
+  color: var(--text-faint);
+}
+
+.rl-log-sum b {
+  font-weight: 700;
+}
+
+.rl-log-ok {
+  color: var(--green);
+}
+
+.rl-log-diff {
+  color: var(--amber);
+}
+
+.rl-log-fail {
+  color: var(--red);
+}
+
+.rl-log-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rl-log-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rl-log-chip {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 3px 11px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text);
+  }
+
+  &.rl-on {
+    color: var(--text);
+    border-color: var(--purple);
+    background: rgba(139, 92, 246, 0.18);
+  }
+}
+
+.rl-log-n {
+  margin-left: 6px;
+  color: var(--text-faint);
+
+  .rl-on & {
+    color: var(--purple-light);
+  }
+
+  .rl-log-chip-alert & {
+    color: var(--red);
+  }
+}
+
+.rl-log-search {
+  width: 220px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--card-inner);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.rl-log-scroll {
+  overflow-x: auto;
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.rl-log-table {
+  min-width: 960px;
+}
+
+.rl-log-grid {
+  display: grid;
+  grid-template-columns: 18px 96px 58px 18px minmax(240px, 1fr) 104px 42px 104px 72px;
+  align-items: center;
+  column-gap: 10px;
+  padding: 0 16px;
+}
+
+.rl-log-cols {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 30px;
+  background: var(--popover-solid);
+  border-bottom: 1px solid var(--border);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.rl-log-row {
+  min-height: 36px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+
+  &.rl-log-expandable {
+    cursor: pointer;
+  }
+
+  &:hover {
+    background: rgba(139, 92, 246, 0.07);
+  }
+
+  &.rl-log-child {
+    min-height: 30px;
+    background: rgba(255, 255, 255, 0.015);
+  }
+
+  &.rl-log-problem {
+    box-shadow: inset 3px 0 0 var(--red);
+  }
+
+  &.rl-log-warn {
+    box-shadow: inset 3px 0 0 var(--amber);
+  }
+}
+
+.rl-log-caret {
+  color: var(--text-faint);
+  font-size: 10px;
+  text-align: center;
+  transition: transform 0.15s;
+
+  .rl-log-open & {
+    transform: rotate(90deg);
+    color: var(--text);
+  }
+}
+
+.rl-log-time,
+.rl-log-offset,
+.rl-log-status,
+.rl-log-target,
+.rl-log-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.rl-log-time {
+  color: var(--text-dim);
+}
+
+.rl-log-offset {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  text-align: right;
+}
+
+.rl-log-dir {
+  font-size: 14px;
+  text-align: center;
+}
+
+.rl-log-in {
+  color: var(--purple-light);
+}
+
+.rl-log-out {
+  color: var(--cyan);
+}
+
+.rl-log-target {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+
+  .rl-log-child & {
+    position: relative;
+    padding-left: 18px;
+    color: var(--text-dim);
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: -9px;
+      width: 9px;
+      height: 17px;
+      border-left: 1px solid var(--border-strong);
+      border-bottom: 1px solid var(--border-strong);
+      border-bottom-left-radius: 4px;
+    }
+  }
+}
+
+.rl-log-method {
+  display: inline-block;
+  min-width: 44px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.rl-log-step {
+  margin-left: 8px;
+  font-family: system-ui, sans-serif;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.rl-log-center,
+.rl-log-status {
+  text-align: center;
+}
+
+.rl-log-right {
+  text-align: right;
+}
+
+.rl-log-s2 {
+  color: var(--green);
+}
+
+.rl-log-s4 {
+  color: var(--amber);
+}
+
+.rl-log-s5 {
+  color: var(--red);
+}
+
+.rl-log-outcome {
+  white-space: nowrap;
+  color: var(--text-faint);
+
+  &.rl-log-ok {
+    color: var(--green);
+  }
+
+  &.rl-log-diff,
+  &.rl-log-warn {
+    color: var(--amber);
+  }
+
+  &.rl-log-fail {
+    color: var(--red);
+  }
+
+  &.rl-log-skip,
+  &.rl-log-info {
+    color: var(--text-dim);
+  }
+}
+
+.rl-log-attempt {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-align: right;
+
+  &.rl-log-again {
+    color: var(--amber);
+  }
+}
+
+.rl-log-details {
+  padding: 8px 16px 12px 210px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-inner);
+  font-size: 12.5px;
+}
+
+.rl-log-ev {
+  display: grid;
+  grid-template-columns: 18px 120px 1fr;
+  gap: 8px;
+  padding: 3px 0;
+  align-items: baseline;
+}
+
+.rl-log-ev-icon {
+  text-align: center;
+}
+
+.rl-log-ev-label {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.rl-log-url {
+  color: var(--text-faint);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.rl-log-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-faint);
 }
 
 // Per-field differences (T106): actions under a field, and the expected / noise groups.

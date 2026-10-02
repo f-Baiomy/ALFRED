@@ -730,3 +730,4 @@ Source: [review-fef121f-889db4d.md](./review-fef121f-889db4d.md). Each task name
 - [X] T128 P12: Angular CLI cache re-enabled with a size-capped prune before start/build/test.
 - [X] T129 Bundle: initial bundle 1.30 MB to 939 kB (lazy routes, `@defer (on idle)` overlays); warning budget 1 MB.
 - [X] T130 T082 findings fixed (see e2e-checklist.md "Run on 2026-10-02"): 13 bugs, one a safety bug, each with a regression test.
+- [X] T131 Run log readability: one row per step attempt in time order, outbound children nested, local times and time since start, plain-word badges, filters and search (`buildRunLog`, `relive-run-log`). Mock: run-log-mock.html.

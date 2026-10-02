@@ -287,19 +287,7 @@
   }
 
   @if (run()!.log.length) {
-    <details class="rl-card rl-run-log">
-      <summary>Run log ({{ run()!.log.length }})</summary>
-      @for (entry of run()!.log; track $index) {
-        <div class="rl-row rl-run-log-row">
-          <span class="rl-faint">{{ entry.at }}</span>
-          <span class="rl-mono">{{ entry.kind }}</span>
-          @if (entry.stepKey) {
-            <span class="rl-dim">{{ stepLabel(entry.stepKey) }}</span>
-          }
-          <span>{{ logMessage(entry.message) }}</span>
-        </div>
-      }
-    </details>
+    <app-relive-run-log [log]="maskedLog()" [steps]="steps()" [startedAt]="run()!.startedAt" (selectStep)="select($event)" />
   }
 
   <div class="rl-card rl-card-pad">

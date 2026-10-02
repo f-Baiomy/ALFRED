@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Relive - Run log redesign (mock)</title>
+<style>
+  :root {
+    --bg: #111214;
+    --card: #18191d;
+    --card-2: #1f2126;
+    --row-hover: #23252b;
+    --border: #2a2d34;
+    --border-strong: #3a3e47;
+    --text: #e6e8ee;
+    --dim: #9aa1b2;
+    --faint: #626877;
+    --blue: #60a5fa;
+    --cyan: #22d3ee;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --purple: #a78bfa;
+    --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .note { color: var(--dim); margin: 0 0 24px; max-width: 900px; }
+
+  .log { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .scroll { overflow-x: auto; }
+  .scroll-inner { min-width: 980px; }
+
+  /* Header */
+  .log-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 18px; border-bottom: 1px solid var(--border); background: var(--card-2);
+  }
+  .log-title { font-weight: 600; letter-spacing: .06em; font-size: 12px; color: var(--dim); text-transform: uppercase; }
+  .log-title b { color: var(--text); font-weight: 600; }
+  .summary { display: flex; gap: 14px; color: var(--dim); font-size: 13px; }
+  .summary span b { color: var(--text); font-weight: 600; }
+  .spacer { flex: 1; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    border: 1px solid var(--border-strong); background: transparent; color: var(--dim);
+    border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer;
+  }
+  .chip .n { margin-left: 6px; color: var(--faint); }
+  .chip.on { background: #26354d; border-color: var(--blue); color: var(--text); }
+  .chip.on .n { color: var(--blue); }
+  .chip.problems.has .n { color: var(--red); }
+  .btn {
+    border: 1px solid var(--border-strong); background: transparent; color: var(--dim);
+    border-radius: 8px; padding: 4px 10px; font-size: 12.5px; cursor: pointer;
+  }
+  .btn:hover, .chip:hover { color: var(--text); }
+  .search {
+    background: var(--bg); border: 1px solid var(--border-strong); color: var(--text);
+    border-radius: 8px; padding: 5px 10px; font-size: 13px; width: 200px;
+  }
+
+  /* Rows */
+  .cols, .row {
+    display: grid;
+    grid-template-columns: 22px 104px 58px 24px minmax(220px, 1fr) 96px 46px 120px 76px;
+    align-items: center; column-gap: 10px; padding: 0 18px;
+  }
+  .cols {
+    height: 32px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--faint); border-bottom: 1px solid var(--border);
+  }
+  .row { min-height: 40px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .row:hover { background: var(--row-hover); }
+  .row.child { min-height: 34px; background: rgba(255,255,255,.012); }
+  .row.child .path { padding-left: 18px; position: relative; color: var(--dim); }
+  .row.child .path::before {
+    content: ""; position: absolute; left: 4px; top: -10px; width: 9px; height: 18px;
+    border-left: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); border-bottom-left-radius: 4px;
+  }
+  .row.problem { box-shadow: inset 3px 0 0 var(--red); }
+  .row.warn { box-shadow: inset 3px 0 0 var(--amber); }
+
+  .caret { color: var(--faint); font-size: 11px; transition: transform .15s; text-align: center; }
+  .row.open .caret { transform: rotate(90deg); color: var(--text); }
+  .caret.none { visibility: hidden; }
+  .time { font-family: var(--mono); font-size: 12.5px; color: var(--dim); }
+  .rel { font-family: var(--mono); font-size: 12px; color: var(--faint); text-align: right; }
+  .dir { font-size: 15px; text-align: center; }
+  .dir.in { color: var(--purple); }
+  .dir.out { color: var(--cyan); }
+  .path { font-family: var(--mono); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .path .m { display: inline-block; width: 44px; font-weight: 600; color: var(--dim); }
+  .path .step { color: var(--faint); font-family: "Segoe UI", system-ui, sans-serif; font-size: 12px; margin-left: 8px; }
+
+  .badge {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    border-radius: 6px; padding: 2px 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .03em; white-space: nowrap;
+  }
+  .b-live { background: rgba(96,165,250,.14); color: var(--blue); }
+  .b-replay { background: rgba(167,139,250,.14); color: var(--purple); }
+  .b-blocked { background: rgba(248,113,113,.14); color: var(--red); }
+  .b-skip { background: rgba(255,255,255,.06); color: var(--dim); }
+  .status { font-family: var(--mono); font-size: 12.5px; text-align: center; }
+  .s2 { color: var(--green); } .s4 { color: var(--amber); } .s5 { color: var(--red); }
+  .out-ok { color: var(--green); } .out-diff { color: var(--amber); } .out-fail { color: var(--red); } .out-skip { color: var(--dim); }
+  .outcome { font-size: 13px; white-space: nowrap; }
+  .attempt { font-size: 12px; color: var(--faint); text-align: right; }
+  .attempt.again { color: var(--amber); }
+
+  /* Expanded details */
+  .details { display: none; border-bottom: 1px solid var(--border); background: #141518; padding: 10px 18px 14px 182px; }
+  .row.open + .details { display: block; }
+  .ev { display: grid; grid-template-columns: 18px 130px 1fr; gap: 8px; padding: 4px 0; font-size: 13px; align-items: baseline; }
+  .ev .i { text-align: center; }
+  .ev .k { color: var(--dim); font-size: 12px; }
+  .ev code { font-family: var(--mono); font-size: 12.5px; background: var(--card-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .ev .host { color: var(--faint); font-family: var(--mono); font-size: 12px; }
+  .ev a { color: var(--blue); text-decoration: none; }
+
+  .group-gap { height: 6px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .unexpected .path { color: var(--amber); }
+  .empty { padding: 30px; text-align: center; color: var(--faint); }
+
+  .legend { margin-top: 26px; color: var(--dim); font-size: 13px; max-width: 980px; }
+  .legend h2 { font-size: 14px; color: var(--text); margin: 0 0 8px; }
+  .legend li { margin: 4px 0; }
+  .before { margin-top: 28px; }
+  .before img { display: none; }
+  .old {
+    margin-top: 8px; border: 1px dashed var(--border-strong); border-radius: 10px; padding: 12px 16px;
+    font-size: 13px; color: var(--dim); font-family: var(--mono); white-space: pre; overflow-x: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>Run log - proposed redesign</h1>
+<p class="note">Mock with data shaped like your run. Click a row to open its events. Try the filter chips, the search box and the sort button. Hover a time for the full timestamp, hover a path for the full URL.</p>
+
+<div class="log">
+  <div class="log-head">
+    <span class="log-title">Run log <b>· 9 steps, 79 events</b></span>
+    <span class="summary">
+      <span><b class="out-ok">7</b> ok</span>
+      <span><b class="out-diff">1</b> differs</span>
+      <span><b class="out-fail">1</b> failed</span>
+    </span>
+    <span class="spacer"></span>
+    <div class="chips" id="chips">
+      <button class="chip on" data-f="all">All<span class="n">9</span></button>
+      <button class="chip problems has" data-f="problem">Problems<span class="n">3</span></button>
+      <button class="chip" data-f="rule">Rules<span class="n">2</span></button>
+      <button class="chip" data-f="var">Variables<span class="n">2</span></button>
+      <button class="chip" data-f="hold">Holds<span class="n">1</span></button>
+    </div>
+    <input class="search" id="search" placeholder="Search path, rule, variable…">
+    <button class="btn" id="sort">⇅ Oldest first</button>
+    <button class="btn" id="toggleAll">Expand all</button>
+  </div>
+
+  <div class="scroll"><div class="scroll-inner">
+  <div class="cols">
+    <span></span><span>Time</span><span style="text-align:right">Since start</span><span></span>
+    <span>Call</span><span>Answered by</span><span style="text-align:center">HTTP</span><span>Result</span><span style="text-align:right">Attempt</span>
+  </div>
+
+  <div id="rows"></div>
+  </div></div>
+</div>
+
+<div class="legend">
+  <h2>What changed from today's log</h2>
+  <ul>
+    <li><b>One row per step attempt.</b> Today a call shows twice: the page's <code>SENT</code> line and the proxy's <code>FORWARDED_LIVE</code> line. They become one row. Request changes, rules, variables and holds open under it.</li>
+    <li><b>Rows in time order.</b> Today the log lists events as they arrived, so a proxy line comes after the page line that followed it.</li>
+    <li><b>Short local time plus time since the run started.</b> The full ISO timestamp moves to the hover. Today two formats are mixed (<code>…19.967Z</code> and <code>…19.634926+00:00</code>).</li>
+    <li><b>Words instead of codes:</b> <code>FORWARDED_LIVE</code> becomes a LIVE badge, <code>COMPLETED_WITH_DIFFERENCES</code> becomes "≠ differs", <code>(header, 200)</code> becomes the HTTP column.</li>
+    <li><b>Path only, with a direction arrow:</b> <span style="color:var(--purple)">↓</span> inbound into your app, <span style="color:var(--cyan)">↑</span> outbound to a supplier. The host (<code>host.docker.internal:9001</code>) is in the hover and in the opened row.</li>
+    <li><b>Fixed columns on one line</b>, so nothing wraps and the eye can scan straight down a column.</li>
+    <li><b>Problems</b> = failed, differs, blocked or unexpected, with a red or amber edge. "Open step" jumps to the step in the timeline.</li>
+  </ul>
+  <div class="before">
+    <h2>Today (for comparison)</h2>
+    <div class="old">2026-10-02T16:16:19.967Z  SENT  POST /odeysysadmin/Admin2/loginAction  Attempt 1: COMPLETED
+2026-10-02T16:16:19.634926+00:00  FORWARDED_LIVE  POST /odeysysadmin/Admin2/loginAction  inbound POST http://host.docker.internal:9001/odeysysadmin/Admin2/loginAction (header, 200)
+2026-10-02T16:16:22.113Z  SENT  GET /odeysysadmin/Admin2/userDetails  Attempt 1: COMPLETED
+2026-10-02T16:16:22.087022+00:00  FORWARDED_LIVE  GET /odeysysadmin/Admin2/userDetails  inbound GET http://host.docker.internal:9001/odeysysadmin/Admin2/userDetails (header, 200)</div>
+  </div>
+</div>
+
+<script>
+const HOST = 'http://host.docker.internal:9001';
+const START = Date.parse('2026-10-02T16:16:19.634Z');
+// Each entry is one step attempt (or an unexpected call), already merged from the SENT + proxy lines.
+const data = [
+  { at: '2026-10-02T16:16:19.634Z', dir: 'in', m: 'POST', path: '/odeysysadmin/Admin2/loginAction', step: 'Login', by: 'live', http: 200, out: 'ok', attempt: 1,
+    ev: [ ['🔗', 'Matched', 'by <code>X-Alfred-Run</code> header'], ['📦', 'Variable set', '<code>{{token}}</code> = <code>eyJhbGciOi…</code> from <code>$.token</code>'] ], tags: ['var'] },
+  { at: '2026-10-02T16:16:22.087Z', dir: 'in', m: 'GET', path: '/odeysysadmin/Admin2/userDetails', step: 'User details', by: 'live', http: 200, out: 'ok', attempt: 1,
+    ev: [ ['🔗', 'Matched', 'by <code>X-Alfred-Run</code> header'] ] },
+  { at: '2026-10-02T16:16:24.348Z', dir: 'in', m: 'GET', path: '/odeysysadmin/Admin2/userRolePermission', step: 'Role permissions', by: 'live', http: 200, out: 'diff', attempt: 1,
+    ev: [ ['🔗', 'Matched', 'by <code>X-Alfred-Run</code> header'],
+          ['≠', 'Response differs', '2 fields: <code>$.roles[3]</code> added, <code>$.updatedAt</code> changed · <a href="#">Open differences</a>'],
+          ['⚙', 'Rule applied', 'cycle rule "Ignore timestamps"'] ], tags: ['problem', 'rule'] },
+  { at: '2026-10-02T16:16:26.647Z', dir: 'in', m: 'GET', path: '/odeysysadmin/Master2/Branch/country-pos-with-branches', step: 'Branches', by: 'live', http: 200, out: 'ok', attempt: 1,
+    ev: [ ['🔗', 'Matched', 'by <code>X-Alfred-Run</code> header'] ] },
+  { at: '2026-10-02T16:16:31.021Z', dir: 'in', m: 'GET', path: '/odeysysadmin/Master2/airline/?status=1', step: 'Airlines', by: 'live', http: 200, out: 'ok', attempt: 1,
+    ev: [ ['🔗', 'Matched', 'by <code>X-Alfred-Run</code> header'] ] },
+  { at: '2026-10-02T16:16:33.410Z', dir: 'in', m: 'POST', path: '/odeysysadmin/Flight/search', step: 'Search', by: 'live', http: 200, out: 'ok', attempt: 1,
+    ev: [ ['🔗', 'Matched', 'by <code>X-Alfred-Run</code> header'], ['⏸', 'Paused before', 'you pressed Continue after 4.2s'] ], tags: ['hold'],
+    children: [
+      { at: '2026-10-02T16:16:33.902Z', dir: 'out', m: 'POST', path: 'supplier-a.example/api/search', by: 'replay', http: 200, out: 'ok', host: 'https://supplier-a.example' },
+      { at: '2026-10-02T16:16:33.915Z', dir: 'out', m: 'POST', path: 'supplier-b.example/api/search', by: 'live', http: 200, out: 'ok', host: 'https://supplier-b.example' },
+      { at: '2026-10-02T16:16:33.921Z', dir: 'out', m: 'POST', path: 'supplier-c.example/api/search', by: 'replay', http: 200, out: 'ok', host: 'https://supplier-c.example' },
+    ] },
+  { at: '2026-10-02T16:16:36.118Z', dir: 'in', m: 'POST', path: '/odeysysadmin/Flight/price', step: 'Price', by: 'live', http: 200, out: 'ok', attempt: 1,
+    ev: [ ['🔗', 'Matched', 'by operation id'], ['📦', 'Variable set', '<code>{{priceId}}</code> = <code>PR-88213</code> from <code>$.priceId</code>'] ], tags: ['var'],
+    children: [
+      { at: '2026-10-02T16:16:36.402Z', dir: 'out', m: 'POST', path: 'supplier-b.example/api/price', by: 'replay', http: 200, out: 'ok', host: 'https://supplier-b.example', note: 'request differs from recording' },
+    ] },
+  { at: '2026-10-02T16:16:39.770Z', dir: 'in', m: 'POST', path: '/odeysysadmin/Flight/book', step: 'Book', by: 'live', http: 502, out: 'fail', attempt: 2,
+    ev: [ ['🔗', 'Matched', 'by <code>X-Alfred-Run</code> header'],
+          ['✗', 'Failed', 'supplier answered 502 · attempt 1 failed the same way at 16:16:38'],
+          ['⚙', 'Rule applied', 'call rule "Book with priceId" set the request body'] ], tags: ['problem', 'rule'],
+    children: [
+      { at: '2026-10-02T16:16:39.991Z', dir: 'out', m: 'POST', path: 'supplier-b.example/api/book', by: 'blocked', http: 502, out: 'fail', host: 'https://supplier-b.example', note: 'blocked: request changed and no answer within 30s' },
+    ] },
+  { at: '2026-10-02T16:16:40.205Z', dir: 'out', m: 'GET', path: 'cdn.analytics.example/collect', unexpected: true, by: 'live', http: 204, out: 'warn', attempt: null,
+    ev: [ ['⚠', 'Unexpected', 'matched no step · sent to the real system (policy: Allow)'] ], tags: ['problem'], host: 'https://cdn.analytics.example' },
+];
+
+const BY = { live: ['b-live', 'LIVE'], replay: ['b-replay', 'REPLAYED'], blocked: ['b-blocked', 'BLOCKED'] };
+const OUT = { ok: ['out-ok', '✓ OK'], diff: ['out-diff', '≠ differs'], fail: ['out-fail', '✗ failed'], warn: ['out-diff', '⚠ unexpected'] };
+
+let filter = 'all', newest = false, query = '', allOpen = false;
+
+function time(iso) {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+function rel(iso) { return '+' + ((Date.parse(iso) - START) / 1000).toFixed(1) + 's'; }
+function sClass(h) { return h >= 500 ? 's5' : h >= 400 ? 's4' : 's2'; }
+
+function rowHtml(e, child) {
+  const [bc, bt] = BY[e.by]; const [oc, ot] = OUT[e.out];
+  const full = (e.host || HOST) + (e.path.startsWith('/') ? e.path : e.path.replace(/^[^/]+/, ''));
+  const cls = ['row', child ? 'child' : '', e.out === 'fail' ? 'problem' : '', (e.out === 'diff' || e.out === 'warn') ? 'warn' : '', e.unexpected ? 'unexpected' : ''].join(' ');
+  const hasEv = !child && e.ev && e.ev.length;
+  return `<div class="${cls}" ${hasEv ? 'data-x' : ''}>
+    <span class="caret ${hasEv ? '' : 'none'}">▶</span>
+    <span class="time" title="${e.at}">${time(e.at)}</span>
+    <span class="rel">${rel(e.at)}</span>
+    <span class="dir ${e.dir}" title="${e.dir === 'in' ? 'inbound - into your app' : 'outbound - to a supplier'}">${e.dir === 'in' ? '↓' : '↑'}</span>
+    <span class="path" title="${e.m} ${full}"><span class="m">${e.m}</span>${e.path}${e.step ? `<span class="step">${e.step}</span>` : ''}${e.note ? `<span class="step" style="color:var(--amber)">· ${e.note}</span>` : ''}</span>
+    <span><span class="badge ${bc}">${bt}</span></span>
+    <span class="status ${sClass(e.http)}">${e.http}</span>
+    <span class="outcome ${oc}">${ot}</span>
+    <span class="attempt ${e.attempt > 1 ? 'again' : ''}">${e.attempt ? 'attempt ' + e.attempt : ''}</span>
+  </div>`;
+}
+
+function detailsHtml(e) {
+  const full = (e.host || HOST) + (e.path.startsWith('/') ? e.path : e.path.replace(/^[^/]+/, ''));
+  return `<div class="details">
+    ${e.ev.map(([i, k, v]) => `<div class="ev"><span class="i">${i}</span><span class="k">${k}</span><span>${v}</span></div>`).join('')}
+    <div class="ev"><span class="i">🌐</span><span class="k">Full URL</span><span class="host">${e.m} ${full}</span></div>
+    ${e.step ? `<div class="ev"><span class="i"></span><span class="k"></span><span><a href="#">Open step "${e.step}" in the timeline →</a></span></div>` : ''}
+  </div>`;
+}
+
+function matches(e) {
+  if (filter !== 'all' && !(e.tags || []).includes(filter)) return false;
+  if (!query) return true;
+  const hay = (e.path + ' ' + (e.step || '') + ' ' + (e.ev || []).map((x) => x.join(' ')).join(' ') + ' ' + (e.children || []).map((c) => c.path).join(' ')).toLowerCase();
+  return hay.includes(query);
+}
+
+function render() {
+  const list = data.filter(matches);
+  if (newest) list.reverse();
+  const html = list.map((e) => rowHtml(e, false) + (e.ev ? detailsHtml(e) : '') + (e.children || []).map((c) => rowHtml(c, true)).join('')).join('');
+  document.getElementById('rows').innerHTML = html || '<div class="empty">No events match this filter.</div>';
+  if (allOpen) document.querySelectorAll('.row[data-x]').forEach((r) => r.classList.add('open'));
+}
+
+document.getElementById('rows').addEventListener('click', (ev) => {
+  const row = ev.target.closest('.row[data-x]');
+  if (row && !ev.target.closest('a')) row.classList.toggle('open');
+});
+document.getElementById('chips').addEventListener('click', (ev) => {
+  const chip = ev.target.closest('.chip'); if (!chip) return;
+  filter = chip.dataset.f;
+  document.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === chip));
+  render();
+});
+document.getElementById('search').addEventListener('input', (ev) => { query = ev.target.value.trim().toLowerCase(); render(); });
+document.getElementById('sort').addEventListener('click', (ev) => { newest = !newest; ev.target.textContent = newest ? '⇅ Newest first' : '⇅ Oldest first'; render(); });
+document.getElementById('toggleAll').addEventListener('click', (ev) => {
+  allOpen = !allOpen; ev.target.textContent = allOpen ? 'Collapse all' : 'Expand all';
+  document.querySelectorAll('.row[data-x]').forEach((r) => r.classList.toggle('open', allOpen));
+});
+render();
+</script>
+</body>
+</html>

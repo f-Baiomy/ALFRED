@@ -1,5 +1,6 @@
 import { DestroyRef, Component, ElementRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { toBlocks } from '../relive-step-tree/relive-step-tree.component';
+import { ReliveRunLogComponent } from '../relive-run-log/relive-run-log.component';
 import { ReliveStepCallComponent } from '../relive-step-call/relive-step-call.component';
 import { UnexpectedRunCall } from '../../core/state/relive-run.service';
 import { PauseDecision, PausedCall } from '../../core/models/interception.model';
@@ -8,7 +9,7 @@ import { requestBodyOf } from '../../shared/utils/relive-call-rule';
 import { maskRelive } from '../../shared/utils/relive-mask';
 import { isCollapsedResponseDifference, listResponseDifferences } from '../../shared/utils/relive-canonical-body';
 import { displayedState, explainStep, formatReasonDetail, StepReason, wholeDocumentCheckNote } from '../../shared/utils/relive-outcome';
-import { CycleVariable, DifferenceEntry, NoiseRule, Run, Step, StepResult, StepState } from '../../shared/utils/relive-types';
+import { CycleVariable, DifferenceEntry, LogEntry, NoiseRule, Run, Step, StepResult, StepState } from '../../shared/utils/relive-types';
 
 type Filter = 'all' | 'running' | 'diff' | 'failed' | 'live' | 'replayed';
 
@@ -128,7 +129,7 @@ function emptyResult(): StepResult {
 @Component({
   selector: 'app-relive-run-timeline',
   standalone: true,
-  imports: [ReliveStepCallComponent, CallStepStripComponent],
+  imports: [ReliveStepCallComponent, CallStepStripComponent, ReliveRunLogComponent],
   templateUrl: './relive-run-timeline.component.html',
 })
 export class ReliveRunTimelineComponent {
@@ -547,9 +548,9 @@ export class ReliveRunTimelineComponent {
   }
 
   /** FR-038: the run's execution log, secrets masked. */
-  logMessage(message: string): string {
-    return this.mask(message);
-  }
+  readonly maskedLog = computed<readonly LogEntry[]>(() =>
+    (this.run()?.log ?? []).map((entry) => ({ ...entry, message: this.mask(entry.message) }))
+  );
 
   heldLabel(call: PausedCall): string {
     const key = call.relive?.stepKey;
