@@ -170,6 +170,22 @@ class RunSnapshotBuilderTest {
     }
 
     @Test
+    void aLargeMockIsWrittenAsAStoredAnswerAndTheChildStaysReplay() throws Exception {
+        String big = "x".repeat(RunSnapshotBuilder.INLINE_BODY_LIMIT + 1);
+        Step root = child("s-search", null, recording("https://app.local/search", "POST", "{}"), objectMapper.createObjectNode());
+        Step c1 = child("c-supA", "s-search", recording("https://api.supplier-a.com/v2/search", "POST", "{}"),
+                ruleWithRecordedCallCondition("c-supA", "200", big));
+        JsonNode snapshot = builder.build(run(cycle(List.of(root, c1), new GlobalRulesSelection("NONE", List.of()), List.of())));
+
+        JsonNode child = snapshot.get("steps").get(0).get("children").get(0);
+        assertThat(child.get("mode").asText()).isEqualTo("REPLAY");
+        JsonNode answer = child.get("callRule").get("actions").get(1);
+        assertThat(answer.get("type").asText()).isEqualTo("ANSWER_WITH_FILE");
+        assertThat(writtenAnswers.get(answer.get("answerId").asText())[1].asText()).isEqualTo(big);
+        assertThat(snapshot.toString()).doesNotContain(big);
+    }
+
+    @Test
     void everyReplayChildsConditionGetsAnAnswerIdWithTheRecordedBodyUnchangedAndNoRecordedStepKeyLeft() throws Exception {
         FrozenCall recA = recording("https://api.supplier-a.com/v2/search", "POST", "{\"origin\":\"DXB\"}");
         Step root = child("s-search", null, recording("https://app.local/search", "POST", "{}"), objectMapper.createObjectNode());

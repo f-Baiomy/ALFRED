@@ -48,6 +48,10 @@ public class RunSnapshotBuilder {
 
     private static final int SNAPSHOT_VERSION = 1;
 
+    /** A mock body above this is written as a stored answer and referenced, not inlined: the proxy
+     *  parses the whole snapshot on every republish, on the event loop that carries all traffic. */
+    static final int INLINE_BODY_LIMIT = 64 * 1024;
+
     private final RunSnapshotPublisherPort publisher;
     private final ObjectMapper objectMapper;
 
@@ -123,7 +127,8 @@ public class RunSnapshotBuilder {
                 putUrl(recorded, safeUri(top.recording().url()), top.recording().url());
             }
             JsonNode topRule = top.callRule() == null ? null : top.callRule().rule();
-            stepNode.set("callRule", resolveRecordedCallConditions(run.id(), topRule, top));
+            stepNode.put("mode", modeOf(topRule));
+            stepNode.set("callRule", outlineLargeMocks(run.id(), top.key(), resolveRecordedCallConditions(run.id(), topRule, top)));
             ArrayNode childrenNode = stepNode.putArray("children");
             Map<String, Integer> counters = ordinalCounters.computeIfAbsent(top.key(), k -> new LinkedHashMap<>());
             appendChildren(childrenNode, top.key(), definition.steps(), run.id(), counters, projects, fingerprintIndex);
@@ -175,7 +180,10 @@ public class RunSnapshotBuilder {
         JsonNode match = ruleDoc == null ? null : ruleDoc.get("match");
         node.set("match", hasCustomMatch(match) ? match : defaultMatch(child.recording()));
 
-        JsonNode resolvedRule = resolveRecordedCallConditions(runId, ruleDoc, child);
+        // The mode the call rule gives (REPLAY / LIVE_MOCKED / LIVE): what the proxy logs as the
+        // call's choice, and what keeps the REPLAY guard on when a large mock is moved to a file.
+        node.put("mode", modeOf(ruleDoc));
+        JsonNode resolvedRule = outlineLargeMocks(runId, child.key(), resolveRecordedCallConditions(runId, ruleDoc, child));
         node.set("callRule", resolvedRule);
         node.put("unattributed", child.unattributed());
         if (child.fingerprint() != null && child.fingerprintVersion() != null) {
@@ -359,6 +367,70 @@ public class RunSnapshotBuilder {
         byte[] body = recording.requestBody() == null ? new byte[0] : recording.requestBody().getBytes(StandardCharsets.UTF_8);
         publisher.writeAnswer(runId, answerId, meta, body);
         return answerId;
+    }
+
+    /** REPLAY when an enabled MOCK_RESPONSE answers, LIVE_MOCKED when an enabled REPLACE_RESPONSE
+     *  replies, LIVE otherwise - the frontend's modeOf over the same top-level actions. */
+    static String modeOf(JsonNode ruleDoc) {
+        JsonNode actions = ruleDoc == null ? null : ruleDoc.get("actions");
+        if (actions == null || !actions.isArray()) {
+            return "LIVE";
+        }
+        boolean replace = false;
+        for (JsonNode action : actions) {
+            if (action.path("enabled").isBoolean() && !action.path("enabled").asBoolean()) {
+                continue;
+            }
+            String type = action.path("type").asText();
+            if ("MOCK_RESPONSE".equals(type)) {
+                return "REPLAY";
+            }
+            replace |= "REPLACE_RESPONSE".equals(type);
+        }
+        return replace ? "LIVE_MOCKED" : "LIVE";
+    }
+
+    /** Replaces each MOCK_RESPONSE whose body is over INLINE_BODY_LIMIT with an ANSWER_WITH_FILE of
+     *  the same answer, written once under the run's answers directory (T033, review P6). */
+    private JsonNode outlineLargeMocks(String runId, String stepKey, JsonNode ruleDoc) {
+        if (ruleDoc == null || !(ruleDoc.get("actions") instanceof ArrayNode actions)) {
+            return ruleDoc;
+        }
+        outlineActions(runId, stepKey, actions);
+        return ruleDoc;
+    }
+
+    private void outlineActions(String runId, String stepKey, ArrayNode actions) {
+        for (int i = 0; i < actions.size(); i++) {
+            if (!(actions.get(i) instanceof ObjectNode action)) {
+                continue;
+            }
+            for (JsonNode branch : action.path("branches")) {
+                if (branch.get("actions") instanceof ArrayNode nested) {
+                    outlineActions(runId, stepKey, nested);
+                }
+            }
+            if (action.get("otherwise") instanceof ArrayNode otherwise) {
+                outlineActions(runId, stepKey, otherwise);
+            }
+            String body = action.path("body").asText("");
+            if (!"MOCK_RESPONSE".equals(action.path("type").asText()) || body.length() <= INLINE_BODY_LIMIT) {
+                continue;
+            }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            String answerId = UUID.nameUUIDFromBytes((runId + "|" + stepKey + "|mock|" + body).getBytes(StandardCharsets.UTF_8)).toString();
+            ObjectNode meta = objectMapper.createObjectNode();
+            meta.put("id", answerId);
+            meta.put("kind", "FILE");
+            meta.put("status", action.path("status").asInt(200));
+            meta.set("headers", action.has("headers") ? action.get("headers") : objectMapper.createObjectNode());
+            publisher.writeAnswer(runId, answerId, meta, bytes);
+            ObjectNode file = objectMapper.createObjectNode();
+            file.put("type", "ANSWER_WITH_FILE");
+            file.put("enabled", !action.path("enabled").isBoolean() || action.path("enabled").asBoolean());
+            file.put("answerId", answerId);
+            actions.set(i, file);
+        }
     }
 
     private static String textOrNull(JsonNode node, String field) {
