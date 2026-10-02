@@ -25,6 +25,8 @@ export type ReliveSocketEvent =
       readonly durationMs?: number | null;
       /** Whether the request differed from the recording (proxy's request-differs test, FR-014d). */
       readonly requestChanged?: boolean | null;
+      /** On COMPLETED: whether the call really reached the real host (the proxy's own answer). */
+      readonly reachedUpstream?: boolean | null;
     };
 
 /**

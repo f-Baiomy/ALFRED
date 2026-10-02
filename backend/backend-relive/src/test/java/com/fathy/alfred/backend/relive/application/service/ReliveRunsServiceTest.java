@@ -585,6 +585,37 @@ class ReliveRunsServiceTest {
     }
 
     @Test
+    void aCompletedRunCallSaysWhetherItReachedTheRealHost() {
+        // T082: a LIVE child answered here (request differed) read as "contacted host".
+        String cycleId = save(bareCycle("reached", false));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+        JsonNode relive = objectMapper.createObjectNode().put("runId", run.id()).put("stepKey", "s-1").put("attribution", "INFLIGHT");
+
+        service.onOutboundCallCompleted(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+                "mocked", "odeysys", relive, false, null, null, 502, 5L, null));
+        service.onOutboundCallCompleted(new com.fathy.alfred.backend.relive.application.port.in.ObserveRunCallUseCase.ObservedCall(
+                "sent", "odeysys", relive, true, null, null, 200, 5L, null));
+
+        assertThat(notifications.runCallEvents).extracting(e -> e.get("reachedUpstream").asBoolean())
+                .containsExactly(false, true);
+    }
+
+    @Test
+    void aDisabledStepIsSkippedEvenWhenTheRunIsStopped() {
+        Step disabled = new Step("s-off", null, "off", false, false, "inbound", "svc",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK", null, null,
+                objectMapper.createArrayNode(), objectMapper.createArrayNode(), List.of(), null, null);
+        String cycleId = save(withSteps(bareCycle("stopped", false), List.of(step("s-1", true), disabled)));
+        Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));
+
+        service.stop(run.id());
+
+        assertThat(runStore.listStepResults(run.id())).extracting(StepResult::stepKey, StepResult::state)
+                .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple("s-1", StepState.CANCELLED),
+                        org.assertj.core.groups.Tuple.tuple("s-off", StepState.SKIPPED));
+    }
+
+    @Test
     void inboundCallCompletedRemovesInflightEntryAndDrainsAStoppingRun() {
         String cycleId = save(bareCycle("drain", false));
         Run run = service.start(cycleId, new StartRunCommand("AUTOMATIC", null, null, Map.of()));

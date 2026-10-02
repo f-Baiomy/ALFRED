@@ -364,8 +364,17 @@ export class ReliveRunTimelineComponent {
   /** A LIVE child that got an actual response really contacted the real system, and the backend's
    *  own observer (T050) saves that answer into the Live calls log - mock.html's `res.savedLive`,
    *  the "💾 saved" badge (T074). */
+  /** Whether the call reached the real host. The proxy says so on a child's result; a result without
+   *  that answer (an inbound step, an older run) falls back to its mode. */
   wasSavedLive(result: StepResult): boolean {
-    return result.mode === 'LIVE' && result.actualResponse != null;
+    return result.reachedUpstream ?? (result.mode === 'LIVE' && result.actualResponse != null);
+  }
+
+  /** A child's mode pill: a LIVE child answered here (its request differed, a pause failed it) did
+   *  not contact the host. */
+  modePill(result: StepResult): string {
+    if (result.mode !== 'LIVE') return 'REPLAY';
+    return result.reachedUpstream === false ? 'LIVE · answered by ALFRED' : 'LIVE · contacted host';
   }
 
   /** First line is the row; the opened step lists every line. Empty unless the step failed, was skipped, or was never sent. */

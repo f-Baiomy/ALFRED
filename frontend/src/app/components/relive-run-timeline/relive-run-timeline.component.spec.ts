@@ -223,6 +223,26 @@ describe('ReliveRunTimelineComponent', () => {
     expect(text).toContain('1 call reached a real system');
   });
 
+  it('a LIVE child answered by ALFRED is neither "contacted host" nor saved as a real call', () => {
+    const login = makeStep('login', null);
+    const supplierB = makeStep('supplier-b', 'login');
+    const results = {
+      login: result('login', 'COMPLETED'),
+      'supplier-b': result('supplier-b', 'FAILED', { mode: 'LIVE', reachedUpstream: false, actualResponse: { status: 502, headers: {}, body: '{}' } }),
+    };
+
+    fixture.componentRef.setInput('run', run());
+    fixture.componentRef.setInput('steps', [login, supplierB]);
+    fixture.componentRef.setInput('results', results);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.savedLiveCount()).toBe(0);
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('LIVE · answered by ALFRED');
+    expect(text).not.toContain('contacted host');
+    expect(text).not.toContain('reached a real system');
+  });
+
   it('shows the hold box for a FAILED hold and emits continueRun/retryHeld/endRun', () => {
     fixture.componentRef.setInput('run', run({ hold: { stepKey: 'book', reason: 'FAILED', since: '2026-09-27T10:00:30Z' } }));
     fixture.componentRef.setInput('steps', [makeStep('book', null)]);

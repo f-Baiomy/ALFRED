@@ -648,11 +648,19 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
                 .map(ReliveRunStorePort.StepOutcome::stepKey).collect(Collectors.toSet());
         String now = Instant.now().toString();
         boolean ranToTheEnd = status == RunStatus.COMPLETED || status == RunStatus.COMPLETED_WITH_DIFFERENCES;
+        Set<String> disabled = new HashSet<>();
+        for (Step step : run.definition().steps()) {
+            if (!step.enabled() || (step.parentKey() != null && disabled.contains(step.parentKey()))) {
+                disabled.add(step.key());
+            }
+        }
         for (Step step : run.definition().steps()) {
             if (!resultKeys.contains(step.key())) {
                 // Review B26: a run that ran to the end cancelled nothing - a disabled step was
-                // skipped, anything else was never called.
-                StepState state = !ranToTheEnd ? StepState.CANCELLED : step.enabled() ? StepState.NOT_CALLED : StepState.SKIPPED;
+                // skipped, anything else was never called. A disabled step (or a child of one) is
+                // skipped however the run ended; it was never going to be sent (T082).
+                StepState state = disabled.contains(step.key()) ? StepState.SKIPPED
+                        : ranToTheEnd ? StepState.NOT_CALLED : StepState.CANCELLED;
                 runStore.putStepResult(new StepResult(run.id(), step.key(), 1, state,
                         null, null, null, null, null, List.of(), List.of(), List.of(), List.of(), null,
                         now, now, 0L, null, List.of(), null, List.of(), null));
@@ -769,6 +777,11 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         }
         if (relive.has("requestChanged")) {
             event.put("requestChanged", relive.path("requestChanged").asBoolean());
+        }
+        if ("COMPLETED".equals(state)) {
+            // Only the completion knows whether a pause or a request-differs branch answered the
+            // call here; the run view must not call a mocked LIVE child "contacted host".
+            event.put("reachedUpstream", call.reachedUpstream());
         }
         notifications.runCall(event);
     }

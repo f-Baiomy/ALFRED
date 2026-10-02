@@ -168,7 +168,7 @@
         </span>
         @if (row.isChild) {
           <span class="rl-pill" [class]="row.result.mode === 'LIVE' ? 'rl-p-live' : 'rl-p-replay'">
-            {{ row.result.mode === 'LIVE' ? 'LIVE · contacted host' : 'REPLAY' }}
+            {{ modePill(row.result) }}
           </span>
         }
         @if (wasSavedLive(row.result)) {

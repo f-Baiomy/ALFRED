@@ -1163,6 +1163,7 @@ export class ReliveRunService {
       unexpectedCalls: [],
       requestChanged: changed ? { changes: requestChangesOf(step, actualRequest), decision: response?.status === 502 ? 'FAIL' : 'REPLAY' } : null,
       pauses: [],
+      reachedUpstream: event.reachedUpstream ?? null,
     };
   }
 

@@ -228,6 +228,8 @@ export interface StepResult {
   readonly requestChanged?: RequestChangedEntry | null;
   readonly pauses: readonly PauseEntry[];
   readonly editsApplied?: unknown;
+  /** Whether the call really reached the real host; a mocked LIVE child did not. Null when unknown. */
+  readonly reachedUpstream?: boolean | null;
 }
 
 export type LogEntryKind =
