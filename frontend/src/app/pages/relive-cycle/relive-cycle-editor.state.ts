@@ -22,6 +22,23 @@ function toWritable(cycle: ReliveCycle): ReliveWriteRequest {
   return rest;
 }
 
+/** Same JSON, short-circuiting on shared references: an edit replaces only the objects it changes,
+ *  so a 200-step cycle compares one step's text, not every recorded body, per keystroke (review P4). */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, i) => sameJson(item, b[i]));
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    const keys = Object.keys(left).filter((k) => left[k] !== undefined);
+    if (keys.length !== Object.keys(right).filter((k) => right[k] !== undefined).length) return false;
+    return keys.every((k) => sameJson(left[k], right[k]));
+  }
+  return false;
+}
+
 /**
  * Component-provided (one instance per open cycle page) - `saved` is the last definition the
  * backend confirmed, `draft` is what the user is editing; `dirty` compares the two so Save can
@@ -77,7 +94,7 @@ export class ReliveCycleEditorState {
     const saved = this.saved();
     const draft = this.draft();
     if (!saved || !draft) return false;
-    return JSON.stringify(toWritable(saved)) !== JSON.stringify(toWritable(draft));
+    return !sameJson(toWritable(saved), toWritable(draft));
   });
 
   load(id: string): void {
