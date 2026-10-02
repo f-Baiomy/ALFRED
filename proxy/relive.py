@@ -83,6 +83,7 @@ class ReliveRuns:
         self._steps_by_run = {}   # runId -> {stepKey: step node}, built when the snapshot is loaded
         self._forced_for = set()  # unknown run ids already given a forced scan this window
         self._guided = {}         # runId -> (top-step index, stepKey, monotonic time) last matched
+        self._used = {}           # (runId, parent stepKey) -> child stepKeys already matched this execution
 
     def _stale(self):
         now = time.monotonic()
@@ -171,10 +172,13 @@ class ReliveRuns:
             del self._ordinals[key]
         for key in [k for k in self._ordinal_epoch if k[0] == run_id]:
             del self._ordinal_epoch[key]
+        for key in [k for k in self._used if k[0] == run_id]:
+            del self._used[key]
 
     def _forget_step_ordinals(self, run_id, parent_step_key):
         for key in [k for k in self._ordinals if k[0] == run_id and k[1] == parent_step_key]:
             del self._ordinals[key]
+        self._used.pop((run_id, parent_step_key), None)
 
     def _load_json(self, path):
         try:
@@ -831,14 +835,36 @@ def _finish_scan(by_signature, endpoint_only, run_id, parent_step_key, runs, con
     chosen = _take_ordinal(by_signature, run_id, parent_step_key, runs, consume)
     if chosen is not None:
         return chosen
-    # Same URL as exactly one child, but the body or headers differ: hand it to that child's
-    # call rule, whose "request differs" branch answers instead of the real host.
-    if len(endpoint_only) == 1 and not by_signature:
-        return endpoint_only[0]
-    return None
+    if by_signature:
+        return None
+    return _take_by_endpoint(endpoint_only, run_id, parent_step_key, runs)
+
+
+def _take_by_endpoint(endpoint_only, run_id, parent_step_key, runs):
+    """Same URL, but the body or headers differ from every recording: endpoint + order (FR-014a).
+
+    The next same-URL child not matched yet in this execution, in recorded order, gets the call;
+    its call rule's "request differs" branch then decides. Several suppliers behind one SOAP URL
+    used to make every such call unexpected (blocked) instead. A lone same-URL child keeps taking
+    repeats, so a retry still reaches that child's rule.
+    """
+    if not endpoint_only:
+        return None
+    used = runs._used.get((run_id, parent_step_key), set()) if runs is not None else set()
+    for child in endpoint_only:
+        if child.get('stepKey') not in used:
+            return child
+    return endpoint_only[0] if len(endpoint_only) == 1 else None
 
 
 def match_child(flow, source, service_name, run, parent_step_key, runs, consume=True):
+    child = _match_child(flow, source, service_name, run, parent_step_key, runs, consume)
+    if child is not None and consume and runs is not None:
+        runs._used.setdefault((run.get('runId'), parent_step_key), set()).add(child.get('stepKey'))
+    return child
+
+
+def _match_child(flow, source, service_name, run, parent_step_key, runs, consume=True):
     """The outbound child of the in-flight inbound this call matches.
 
     Only that inbound's outbound children are considered — never every outbound call in the

@@ -920,14 +920,17 @@ class StoredFingerprintMatchTest(unittest.TestCase):
                     fingerprint_flow('{"a":2}'), 'outbound', None, doc, 's-search', runs)
             self.assertEqual('c-search', matched['stepKey'])
 
-    def test_two_fingerprint_misses_are_unexpected(self):
+    def test_fingerprint_misses_fall_back_to_endpoint_and_order(self):
+        # FR-014a (review B10): a changed request still goes to the next same-URL child, whose
+        # "request differs" branch decides; only a call past the recorded count is unexpected.
         with tempfile.TemporaryDirectory() as tmp:
             runs, doc = self._doc(tmp, [
                 fingerprinted_child('c-1', '{"a":1}', ordinal=1),
                 fingerprinted_child('c-2', '{"a":2}', ordinal=2),
             ])
-            self.assertIsNone(relive.match_child(
-                fingerprint_flow('{"a":3}'), 'outbound', None, doc, 's-search', runs))
+            picked = [relive.match_child(fingerprint_flow('{"a":3}'), 'outbound', None, doc, 's-search', runs)
+                      for _ in range(3)]
+            self.assertEqual(['c-1', 'c-2', None], [c['stepKey'] if c else None for c in picked])
 
     def test_same_fingerprint_is_taken_in_ordinal_order(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -969,7 +972,7 @@ class StoredFingerprintMatchTest(unittest.TestCase):
                     fingerprint_flow('{"a":2}'), 'outbound', None, doc, 's-search', runs)
             self.assertEqual('c-search', matched['stepKey'])
 
-    def test_two_index_misses_are_unexpected(self):
+    def test_an_index_miss_takes_the_first_same_url_child(self):
         with tempfile.TemporaryDirectory() as tmp:
             first = fingerprinted_child('c-1', '{"a":1}', ordinal=1)
             second = fingerprinted_child('c-2', '{"a":2}', ordinal=2)
@@ -981,8 +984,8 @@ class StoredFingerprintMatchTest(unittest.TestCase):
                 _semantic_fingerprint('{"a":2}'): ['c-2'],
             })
             with patch.object(relive, '_recorded_for_child', side_effect=AssertionError('stored body was read')):
-                self.assertIsNone(relive.match_child(
-                    fingerprint_flow('{"a":3}'), 'outbound', None, doc, 's-search', runs))
+                picked = relive.match_child(fingerprint_flow('{"a":3}'), 'outbound', None, doc, 's-search', runs)
+            self.assertEqual('c-1', picked['stepKey'])
 
     def test_index_takes_the_same_hash_in_stored_order(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1243,6 +1246,28 @@ class ReviewFixesTest(unittest.TestCase):
             run(addon.request(flow))
         self.assertEqual(['prepare'], [a[0] for a in sent])
         self.assertEqual('run-a', sent[0][2]['relive']['runId'])
+
+    def test_same_url_suppliers_with_changed_requests_match_by_endpoint_and_order(self):
+        # B10: one SOAP URL, two operations, both requests edited -> each call goes to the next
+        # child in order, whose request-differs branch then decides; never 'unexpected'.
+        with tempfile.TemporaryDirectory() as tmp:
+            h = {'Content-Type': 'text/xml'}
+            first = supplier_step('s', 'c-1', '/soap', '<a>1</a>', h, answer_id='11111111-1111-4111-8111-111111111111')['children'][0]
+            second = supplier_step('s', 'c-2', '/soap', '<b>2</b>', h, answer_id='22222222-2222-4222-8222-222222222222')['children'][0]
+            second['ordinal'] = 2
+            write_recorded_request(tmp, 'run-a', '11111111-1111-4111-8111-111111111111', '<a>1</a>', h, path='/soap')
+            write_recorded_request(tmp, 'run-a', '22222222-2222-4222-8222-222222222222', '<b>2</b>', h, path='/soap')
+            write_run(tmp, 'run-a', projects=['odeysys'], steps=[
+                {'stepKey': 's', 'direction': 'inbound', 'serviceName': 'odeysys', 'children': [first, second]}])
+            write_inflight(tmp, {'odeysys': [{'callId': 'in', 'runId': 'run-a', 'stepKey': 's'}]})
+            engine = make_engine(tmp)
+            runs = relive.ReliveRuns(relive_dir(tmp))
+            keys = []
+            for body in ('<a>changed</a>', '<b>changed</b>', '<c>extra</c>'):
+                flow = FakeFlow(request=FakeRequest(method='POST', host='ndc.example', path='/soap', text=body, headers=h))
+                verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+                keys.append(info.get('stepKey') or info.get('attribution'))
+            self.assertEqual(['c-1', 'c-2', 'UNEXPECTED'], keys)
 
 
 if __name__ == '__main__':
