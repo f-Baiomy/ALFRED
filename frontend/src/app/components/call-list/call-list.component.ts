@@ -116,11 +116,9 @@ export class CallListComponent {
 
   /**
    * Whether the loading skeleton shows: the store still has nothing on screen. Initialized from the
-   * state itself (a fresh dashboard starts empty, so the skeleton is up before the first frame) and
-   * held for a beat before swapping to real data or the empty-state text - a local backend answers
-   * in tens of milliseconds, which flashed it by before anyone could read it. Presentation-only:
-   * the shared view's loading flag, and the latency of live WebSocket pushes and load-more
-   * fetches, are untouched.
+   * state itself (a fresh dashboard starts empty, so the skeleton is up before the first frame).
+   * Real calls replace it at once; only an empty result is held back for a beat, so a local backend
+   * answering in tens of milliseconds does not flash the skeleton into the empty-state text.
    */
   readonly skeletonVisible = signal(!this.hasAnyData());
   private hideSkeletonTimer: ReturnType<typeof setTimeout> | null = null;
@@ -198,19 +196,23 @@ export class CallListComponent {
     // lives in this constructor alongside the sentinel effect so both share the component's
     // injection context and cleanup.
     effect(() => {
-      if (this.state.loading() && !this.hasAnyData()) {
+      const loading = this.state.loading();
+      const empty = !this.hasAnyData();
+      if (!empty || loading) {
         if (this.hideSkeletonTimer !== null) {
           clearTimeout(this.hideSkeletonTimer);
           this.hideSkeletonTimer = null;
         }
-        this.skeletonVisible.set(true);
+        // Data on screen never waits behind the skeleton; an empty load shows it.
+        this.skeletonVisible.set(empty);
       } else if (this.skeletonVisible() && this.hideSkeletonTimer === null) {
         this.hideSkeletonTimer = setTimeout(() => {
           this.hideSkeletonTimer = null;
           this.skeletonVisible.set(false);
         }, this.skeletonHoldMs);
       }
-    });
+      // Angular 18 refuses signal writes inside an effect without this (NG0600).
+    }, { allowSignalWrites: true });
     inject(DestroyRef).onDestroy(() => {
       if (this.hideSkeletonTimer !== null) {
         clearTimeout(this.hideSkeletonTimer);
