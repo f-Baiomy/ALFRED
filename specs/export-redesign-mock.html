@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Call &amp; report exports - redesign (mock)</title>
+<style>
+  body { margin: 0; background: #0b0b0d; color: #f2f2f5; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  .chrome { position: sticky; top: 0; z-index: 20; background: #101012; border-bottom: 1px solid #26262a; padding: 12px 20px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .chrome h1 { font-size: 15px; margin: 0 12px 0 0; }
+  .seg { display: inline-flex; border: 1px solid #333; border-radius: 9px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: #9a9aa2; padding: 6px 14px; font: inherit; cursor: pointer; }
+  .seg button.on { background: #5b8def; color: #fff; }
+  .notes { max-width: 1180px; margin: 18px auto 0; padding: 0 20px; color: #9a9aa2; font-size: 13px; }
+  .notes h2 { color: #f2f2f5; font-size: 14px; margin: 14px 0 4px; }
+  .notes li { margin: 3px 0; }
+  .keep { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 4px 20px; margin: 6px 0 0; padding: 0; list-style: none; }
+  .keep li::before { content: '✓ '; color: #7ee3a0; }
+  .frame { max-width: 1240px; margin: 16px auto 60px; padding: 0 20px; }
+  .src { background: #0e0e10; border: 1px solid #26262a; border-radius: 10px; padding: 18px 20px; font: 12.5px/1.6 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; color: #dcdce2; }
+  .src .h { color: #8fb2f7; font-weight: 700; } .src .q { color: #9a9aa2; } .src .c { color: #6b6b73; }
+
+  /* ---- the exported document (same slate palette and parts as the Relive exports) ---- */
+  .doc { --bg: #141416; --card: #1b1b1d; --card-inner: #0e0e10; --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.18);
+    --blue: #5b8def; --blue-light: #8fb2f7; --cyan: #7ee3d8; --orange: #fb923c; --text: #f2f2f5; --dim: #8b8b93; --faint: #5b5b63;
+    --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a; --mono: "SFMono-Regular", Consolas, monospace;
+    background: var(--bg); color: var(--text); border-radius: 12px; border: 1px solid #26262a; display: grid; grid-template-columns: 230px minmax(0, 1fr); line-height: 1.55; }
+  .doc a { color: var(--blue-light); text-decoration: none; }
+  .toc { position: sticky; top: 64px; align-self: start; padding: 22px 14px; border-right: 1px solid var(--border); font-size: 12.5px; max-height: calc(100vh - 80px); overflow: auto; }
+  .toc b { display: block; color: var(--faint); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; margin: 14px 0 6px; }
+  .toc a { display: flex; gap: 7px; align-items: center; padding: 3px 6px; border-radius: 6px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .toc a.n1 { padding-left: 20px; } .toc a.n2 { padding-left: 34px; }
+  .toc .tag { color: var(--amber); font-size: 11px; padding: 6px 6px 2px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--green); } .dot.fail { background: var(--red); } .dot.sent { background: var(--faint); }
+  .main { padding: 26px 30px 40px; min-width: 0; }
+  .kicker { color: var(--faint); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+  h1.t { font-size: 24px; margin: 2px 0 6px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--dim); font-size: 13px; } .meta b { color: var(--text); font-weight: 600; }
+  .verdict { margin: 16px 0 0; padding: 13px 16px; border-radius: 10px; background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--red); font-size: 15px; }
+  .verdict .lead { font-weight: 700; color: var(--red); } .verdict.good { border-left-color: var(--green); } .verdict.good .lead { color: var(--green); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin: 12px 0 4px; }
+  .tile { background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; } .tile b { display: block; font-size: 22px; } .tile span { color: var(--dim); font-size: 12px; }
+  .section { margin-top: 30px; } .section > h2 { font-size: 17px; margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; } .section > h2 small { color: var(--faint); font-weight: 400; font-size: 12.5px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; } .card p { margin: 0 0 10px; }
+  pre.tree { background: var(--card-inner); border-radius: 8px; padding: 10px 14px; font: 12.5px/1.65 var(--mono); margin: 4px 0 10px; }
+  .gantt { background: var(--card-inner); border-radius: 8px; padding: 10px 12px; font: 11px var(--mono); margin: 6px 0 10px; }
+  .grow { display: grid; grid-template-columns: 210px 1fr 70px; gap: 8px; align-items: center; height: 20px; }
+  .track { position: relative; height: 8px; background: rgba(255,255,255,.04); border-radius: 4px; } .track i { position: absolute; height: 8px; border-radius: 4px; background: var(--blue); } .track i.out { background: var(--orange); } .track i.bad { background: var(--red); } .track i.wait { background: transparent; border: 1px solid var(--blue); }
+  table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.t th { text-align: left; color: var(--faint); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border-strong); }
+  table.t td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: break-word; }
+  .url-sm { display: block; color: var(--faint); font: 11.5px var(--mono); overflow-wrap: anywhere; }
+  .mono { font-family: var(--mono); font-size: 12px; } .dim { color: var(--dim); } .faint { color: var(--faint); }
+  .pill { display: inline-flex; gap: 4px; font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .ok { color: var(--green); border-color: rgba(126,227,160,.45); } .fail { color: var(--red); border-color: rgba(227,106,106,.5); } .skip { color: var(--dim); border-color: var(--border-strong); } .flag { color: var(--amber); border-color: rgba(227,162,74,.5); } .in { color: var(--blue-light); border-color: rgba(91,141,239,.5); } .out { color: var(--orange); border-color: rgba(251,146,60,.5); }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; } .filters button { font: inherit; font-size: 12px; background: var(--card-inner); color: var(--dim); border: 1px solid var(--border); border-radius: 999px; padding: 2px 11px; } .filters button.on { border-color: var(--blue); color: var(--text); }
+  .spacer { display: flex; align-items: center; gap: 10px; margin: 18px 0 6px; color: var(--amber); font-weight: 600; font-size: 13px; } .spacer::after { content: ''; flex: 1; border-top: 1px dashed rgba(227,162,74,.4); }
+  .call { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin: 12px 0; overflow: hidden; }
+  .call.d1 { margin-left: 28px; border-left: 3px solid rgba(91,141,239,.35); } .call.d2 { margin-left: 56px; border-left: 3px solid rgba(91,141,239,.35); }
+  .call-head { display: flex; gap: 10px; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .call-head .num { color: var(--faint); font: 12px var(--mono); } .call-head h3 { margin: 0; font-size: 15px; }
+  .url-line { flex-basis: 100%; color: var(--dim); font: 12px var(--mono); overflow-wrap: anywhere; }
+  .call-body { padding: 12px 16px 14px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .fact { background: var(--card-inner); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; overflow-wrap: anywhere; } .fact span { display: block; color: var(--faint); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+  .err { border-left: 3px solid var(--red); background: rgba(227,106,106,.06); padding: 8px 12px; border-radius: 0 8px 8px 0; margin: 0 0 10px; font-size: 13.5px; }
+  .flagged { border: 1px solid rgba(227,162,74,.4); background: rgba(227,162,74,.06); border-radius: 10px; padding: 10px 14px; margin: 0 0 10px; font-size: 13px; }
+  .flagged b.h { color: var(--amber); } .flagged blockquote { margin: 3px 0 8px; padding-left: 10px; border-left: 2px solid var(--amber); color: var(--dim); }
+  h4 { margin: 14px 0 6px; font-size: 11.5px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+  details { border: 1px solid var(--border); border-radius: 8px; margin: 6px 0; background: var(--card-inner); }
+  summary { cursor: pointer; padding: 7px 12px; font-size: 13px; color: var(--dim); display: flex; gap: 10px; align-items: center; } summary b { color: var(--text); } summary .sp { flex: 1; }
+  .tool { display: flex; gap: 6px; padding: 6px 12px; border-top: 1px solid var(--border); } .tool input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 3px 8px; font-size: 12px; } .tool button, .copy { font: inherit; font-size: 11.5px; background: none; border: 1px solid var(--border-strong); color: var(--dim); border-radius: 6px; padding: 1px 8px; }
+  pre.code { margin: 0; padding: 10px 14px; border-top: 1px solid var(--border); font: 12px/1.6 var(--mono); white-space: pre-wrap; max-height: 260px; overflow: auto; color: #dcdce2; }
+  .tk { color: #8fb2f7; } .ts { color: #7ee3a0; } .tn { color: #e3a24a; }
+  .fcard { display: block; margin: 2px 0 6px 28px; background: rgba(227,162,74,.1); border: 1px solid rgba(227,162,74,.35); border-radius: 6px; padding: 4px 8px; color: var(--text); font-family: "Segoe UI", sans-serif; }
+  .changed { border: 1px solid rgba(91,141,239,.35); border-radius: 10px; padding: 8px 12px; margin: 8px 0; font-size: 13px; }
+  .gloss dt { font-weight: 600; margin-top: 8px; } .gloss dd { margin: 0; color: var(--dim); }
+  .foot { margin-top: 34px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+</style>
+</head>
+<body>
+<div class="chrome">
+  <h1>Call &amp; report exports - redesign</h1>
+  <div class="seg" id="kind"><button data-k="bulk" class="on">Calls / session cycle export</button><button data-k="one">Single call export</button><button data-k="scn">Scenario run report</button></div>
+  <div class="seg" id="fmt"><button data-f="html" class="on">.html</button><button data-f="md">.md</button></div>
+</div>
+
+<div class="notes">
+  <h2>Same design as the Relive exports</h2>
+  <ul>
+    <li><b>An answer first</b> (verdict: "2 of 8 calls failed - POST /price answered 502…") and count tiles, then the existing <b>About This Document</b> - kept word for word, just laid out as a card.</li>
+    <li>Sticky contents on the left (every call with its status dot, nested like the call tree, with spacer labels), filter chips (All / Failed / Flagged / Inbound / Outbound), every call one card with its full URL, facts grid, and folds that start closed. Bodies keep today's searchable, copyable, flag-annotated block, now height-capped with its own scrollbar.</li>
+    <li>A short <b>glossary</b> at the end (inbound/outbound, split request · response, spacer, flagged line, Changed by Alfred) for a reader who was not there - or an AI agent.</li>
+    <li>.md gets the same order and the same parts (verdict quote, tiles row, full URL in the summary table, closed folds, glossary).</li>
+  </ul>
+  <h2>Kept exactly - nothing from today's .md / .html is dropped</h2>
+  <ul class="keep">
+    <li>Title with call count; "Exported" time, Succeeded, Failed, Total duration</li>
+    <li>About: What this is, Who called whom (depth sentence + tree), flow summary</li>
+    <li>About: "When each call ran" waterfall (HTML gantt / .md ASCII bands) with legend and up/down links</li>
+    <li>About: Caveats, Where the time went table + note, ordering note, flagged-lines note</li>
+    <li>Metadata table: Supplier, Credentials used, Environment, URL, API Key, Description</li>
+    <li>Summary table: #, Method, URL/Path, Status, Duration, Flagged count, anchors</li>
+    <li>Split internal calls: separate request / response blocks, "➡️ sent", Received time</li>
+    <li>Nesting by call depth (indent + rail), spacers placed by layoutSpacers, trailing spacers</li>
+    <li>Per call: Method, URL, Timestamp, Status, Duration, Error ("No response was received…")</li>
+    <li>Flagged Issues per block (Request/Response · Headers/Body), line number, line text, comment</li>
+    <li>Inline flag markers in bodies (.md "// ⚠ FLAGGED:", .html comment cards)</li>
+    <li>Headers + Body, pretty JSON/XML, never truncated; HTML find-in-block, prev/next, copy, lazy + virtual rendering</li>
+    <li>🛠️ Changed by Alfred (request/response): rule · label · action · detail, synthetic note, Before / After</li>
+    <li>🔌 WebSocket messages: direction, seq, time, action badge, content, binary size, original content</li>
+    <li>Footer: call count and flagged issue total; file names unchanged</li>
+    <li>Scenario report: per draft label, status, duration, error, every assertion with message, full body of failed drafts (redacted)</li>
+  </ul>
+</div>
+
+<div class="frame" id="out"></div>
+
+<script>
+const body = `{
+  <span class="tk">"price"</span>: {
+    <span class="tk">"supplier"</span>: <span class="ts">"supplierB"</span>,
+    <span class="tk">"total"</span>: <span class="tn">105</span>,<span class="fcard">⚠ FLAGGED: total should include the 15 AED fee - Fathy</span>    <span class="tk">"currency"</span>: <span class="ts">"AED"</span>
+  }
+}`;
+const fold = (title, meta, open, inner) => `<details${open ? ' open' : ''}><summary><b>${title}</b> ${meta}<span class="sp"></span><button class="copy">Copy</button></summary><div class="tool"><input placeholder="Find in block..."><button>‹</button><button>›</button></div>${inner}</details>`;
+
+function bulkHtml() {
+  return `<div class="doc"><nav class="toc">
+    <b>This export</b><a href="#">Summary</a><a href="#">About this document</a><a href="#">Metadata</a><a href="#">Flagged issues (2)</a><a href="#">All calls</a><a href="#">Glossary</a>
+    <b>Calls</b>
+    <div class="tag">🏷️ Login</div>
+    <a href="#"><i class="dot"></i>1 POST /login</a>
+    <div class="tag">🏷️ Search &amp; price</div>
+    <a href="#"><i class="dot sent"></i>2 · request POST /search</a>
+    <a href="#" class="n1"><i class="dot"></i>3 POST supplierA /search</a>
+    <a href="#" class="n1"><i class="dot"></i>4 POST supplierB /search</a>
+    <a href="#"><i class="dot"></i>2 · response POST /search</a>
+    <a href="#"><i class="dot fail"></i>5 POST /price</a>
+    <a href="#" class="n1"><i class="dot fail"></i>6 POST supplierB /price</a>
+  </nav><div class="main">
+    <div class="kicker">ALFRED · API calls export</div>
+    <h1 class="t">Booking flow - EGP search <span class="dim" style="font-size:16px;font-weight:400">· 6 calls</span></h1>
+    <div class="meta"><span>Exported <b>Oct 3, 2026, 9:12 AM</b></span><span>Succeeded <b>4 ✅</b></span><span>Failed <b>2 ❌</b></span><span>Total duration <b>1 min 5 s</b></span><span>Flagged <b>2 🚩</b></span></div>
+    <div class="verdict"><span class="lead">2 of 6 calls failed:</span> 5 · POST /price answered <b>502</b> because its supplier call 6 · supplierB /price answered <b>500</b>. 2 lines flagged in call 5.</div>
+    <div class="tiles"><div class="tile"><b>6</b><span>calls</span></div><div class="tile"><b style="color:var(--green)">4</b><span>succeeded</span></div><div class="tile"><b style="color:var(--red)">2</b><span>failed</span></div><div class="tile"><b style="color:var(--blue-light)">3</b><span>inbound (into the app)</span></div><div class="tile"><b style="color:var(--orange)">3</b><span>outbound (to suppliers)</span></div><div class="tile"><b style="color:var(--amber)">2</b><span>flagged lines</span></div></div>
+
+    <div class="section"><h2>📖 About This Document <small>same text as today</small></h2><div class="card">
+      <p><b>What this is.</b> 6 HTTP calls captured by ALFRED in session cycle "Booking flow - EGP search": 3 requests into odeysys and the 3 calls it made to supplierA and supplierB while handling them…</p>
+      <p><b>Who called whom.</b> The calls nest 2 levels deep.</p>
+      <pre class="tree">1. POST /login → odeysys · 200 · 412 ms
+2. POST /search → odeysys · 200 · 3.1 s
+   ├─ 3. POST /search → supplierA · 200 · 198 ms
+   └─ 4. POST /search → supplierB · 200 · 218 ms
+5. POST /price → odeysys · 502 · 114 ms
+   └─ 6. POST /price → supplierB · 500 · 35 ms</pre>
+      <p><b>When each call ran.</b> One chart per call that caused others…</p>
+      <div class="gantt"><div class="grow"><span>2. POST /search</span><span class="track"><i style="left:0;width:8%"></i><i class="wait" style="left:8%;width:80%"></i><i style="left:88%;width:12%"></i></span><span>3.1 s</span></div>
+        <div class="grow"><span>3. supplierA /search</span><span class="track"><i class="out" style="left:9%;width:35%"></i></span><span>198 ms</span></div>
+        <div class="grow"><span>4. supplierB /search</span><span class="track"><i class="out" style="left:12%;width:40%"></i></span><span>218 ms</span></div></div>
+      <p><b>⚠️ Caveats for this capture.</b> …</p><p><b>Where the time went.</b> (table, as today) · <b>How the list below is ordered.</b> … · <b>Flagged lines (comments).</b> …</p>
+    </div></div>
+
+    <div class="section"><h2>🧾 Metadata</h2><table class="t"><tr><th>Field</th><th>Value</th></tr><tr><td>Supplier Name</td><td>supplierB</td></tr><tr><td>Supplier Credentials Used</td><td>agency-eg-01</td></tr><tr><td>Environment</td><td>staging</td></tr><tr><td>URL</td><td>https://supplier-b.example/api</td></tr><tr><td>API Key</td><td class="faint">(none provided)</td></tr><tr><td>Description</td><td>Price fails after search in EGP</td></tr></table></div>
+
+    <div class="section"><h2>🚩 Flagged issues <small>2 lines in 1 call</small></h2><div class="flagged"><b class="h">5 · POST /price - Response · Body</b><br>Line 4: <code>"total": 105,</code><blockquote>total should include the 15 AED fee - Fathy</blockquote>…</div></div>
+
+    <div class="section"><h2>📊 All calls <small>in time order · click to jump</small></h2>
+      <div class="filters"><button class="on">All 6</button><button>Failed 2</button><button>Flagged 1</button><button>Inbound 3</button><button>Outbound 3</button></div>
+      <table class="t"><tr><th>#</th><th>Call</th><th>Status</th><th>Duration</th><th>Flagged</th></tr>
+        <tr><td>1</td><td><a href="#">POST /login</a><span class="url-sm">POST http://odeysys:8080/odeysysadmin/Admin2/loginAction</span></td><td><span class="pill ok">200</span></td><td class="mono">412 ms</td><td class="faint">-</td></tr>
+        <tr><td>2 · request</td><td><a href="#">POST /search</a><span class="url-sm">POST http://odeysys:8080/odeysysadmin/Booking2/flight-search/search?currency=EGP</span></td><td><span class="pill skip">➡️ sent</span></td><td class="faint">-</td><td class="faint">-</td></tr>
+        <tr><td style="padding-left:22px">3</td><td><a href="#">↳ POST supplierA /search</a><span class="url-sm">POST http://supplier-a:9001/api/FlightSearch/Search</span></td><td><span class="pill ok">200</span></td><td class="mono">198 ms</td><td class="faint">-</td></tr>
+        <tr><td>5</td><td><a href="#">POST /price</a><span class="url-sm">POST http://odeysys:8080/odeysysadmin/v2/price</span></td><td><span class="pill fail">502</span></td><td class="mono">114 ms</td><td><span class="pill flag">🚩 2</span></td></tr>
+      </table></div>
+
+    <div class="section"><h2>🔗 Calls</h2>
+      <div class="spacer">🏷️ Search &amp; price</div>
+      <div class="call"><div class="call-head"><span class="num">5</span><h3>POST /price</h3><span class="pill in">inbound · odeysys</span><span class="pill fail">502</span><span class="pill flag">🚩 2</span><div class="url-line">POST http://odeysys:8080/odeysysadmin/v2/price</div></div>
+        <div class="call-body">
+          <div class="facts"><div class="fact"><span>Method</span>POST</div><div class="fact"><span>Status</span>502</div><div class="fact"><span>Timestamp</span>2026-10-02T16:33:44.700Z</div><div class="fact"><span>Duration</span>114 ms</div><div class="fact"><span>Caused</span>call 6 (supplierB)</div><div class="fact"><span>Changed by Alfred</span>1 rule (request)</div></div>
+          <div class="flagged"><b class="h">🚩 Flagged in this call</b> - Response · Body, line 4: <code>"total": 105,</code><blockquote>total should include the 15 AED fee - Fathy</blockquote></div>
+          <h4>📤 Request</h4>
+          ${fold('Headers', '6 headers', false, '')}
+          ${fold('Body', 'JSON · 182 B', false, '')}
+          <div class="changed"><b>🛠️ Changed by Alfred (request)</b><br>• <b>Price - EGP</b> · Set header (<code>SET_REQUEST_HEADER</code>) - x-currency: EGP</div>
+          ${fold('Before (as the client sent it)', '', false, '')}${fold('After (as it actually went out)', '', false, '')}
+          <h4>📥 Response</h4>
+          ${fold('Headers', '4 headers', false, '')}
+          ${fold('Body', 'JSON · 96 B · 1 flagged line', true, `<pre class="code">${body}</pre>`)}
+          <h4>🔌 WebSocket messages</h4><div class="dim" style="font-size:13px">(when the call has any: → #1 time action-badge, content fold, original fold - as today)</div>
+        </div></div>
+      <div class="call d1"><div class="call-head"><span class="num">6</span><h3>↳ POST supplierB /price</h3><span class="pill out">outbound · supplierB</span><span class="pill fail">500</span><div class="url-line">POST http://supplier-b:9003/price</div></div>
+        <div class="call-body dim">… same card, indented under call 5 with a rail …</div></div>
+    </div>
+
+    <div class="section"><h2>Glossary</h2><dl class="gloss card">
+      <dt>Inbound · outbound</dt><dd>Inbound: a request INTO your application (logged by the reverse proxy). Outbound: a call your application made to a supplier (logged by the forward proxy).</dd>
+      <dt>Request · response blocks</dt><dd>An inbound call that caused others is shown as two blocks - when it was sent and when it answered - with the calls it made in between, so the list reads in real time order.</dd>
+      <dt>Spacer (🏷️)</dt><dd>A label the user placed between calls in the session cycle, to name a part of the flow.</dd>
+      <dt>Flagged line (🚩)</dt><dd>A line of a header or body a person marked with a comment. Listed in Flagged issues and shown next to the line itself.</dd>
+      <dt>Changed by Alfred (🛠️)</dt><dd>An interception rule changed this call; the before and after are both included.</dd>
+    </dl></div>
+    <div class="foot">Exported from Alfred/Frontend - 6 calls, 2 flagged issues total · every header and body is included in full, never shortened.</div>
+  </div></div>`;
+}
+
+function bulkMd() {
+  return `<span class="h"># 📋 API Calls Export — Booking flow - EGP search (6 calls)</span>
+
+<span class="q">> **2 of 6 calls failed:** 5 · POST /price answered **502** because its supplier call 6 · supplierB /price answered **500**. 2 lines flagged in call 5.</span>
+
+| Exported | Calls | Succeeded | Failed | Inbound | Outbound | Total duration | Flagged |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Oct 3, 2026, 9:12 AM | 6 | 4 ✅ | 2 ❌ | 3 | 3 | 1 min 5 s | 2 🚩 |
+
+<span class="h">## 📖 About This Document</span>
+<span class="c">(unchanged: What this is · Who called whom + tree · When each call ran (ASCII bands) · Caveats · Where the time went · ordering · flagged lines)</span>
+
+<span class="h">## 🧾 Metadata</span>
+| Field | Value |
+|---|---|
+| Supplier Name | supplierB |
+| …          | … |
+
+<span class="h">## 🚩 Flagged Issues</span>
+<span class="c">(as today, grouped Request/Response · Headers/Body, line number, line text, comment - now naming the call: "5 · POST /price")</span>
+
+<span class="h">## 📊 Summary</span>
+| # | Call | Status | Duration | Flagged |
+|---|---|---|---|---|
+| [1](#call-1) | \`POST /login\`<br>POST http://odeysys:8080/odeysysadmin/Admin2/loginAction | 200 ✅ | 412 ms | — |
+| [2 · request](#call-2) | \`POST /search\`<br>POST http://odeysys:8080/…/search?currency=EGP | ➡️ sent | — | — |
+| [3](#call-3) | ↳ \`POST /search\` supplierA<br>POST http://supplier-a:9001/api/FlightSearch/Search | 200 ✅ | 198 ms | — |
+| [5](#call-5) | \`POST /price\`<br>POST http://odeysys:8080/odeysysadmin/v2/price | 502 ❌ | 114 ms | 🚩 2 issues |
+
+<span class="h">## 🔗 Calls</span>
+
+<span class="h">### 🏷️ Search &amp; price</span>
+
+&lt;a id="call-5"&gt;&lt;/a&gt;
+<span class="h">### 5 · POST /price — 502 ❌ 🚩 2</span>
+
+\`POST http://odeysys:8080/odeysysadmin/v2/price\` · inbound · odeysys · caused call 6
+
+| Method | Status | Timestamp | Duration |
+| --- | --- | --- | --- |
+| POST | 502 | 2026-10-02T16:33:44.700Z | 114 ms |
+
+<span class="c">(🚩 Flagged Issues for this call, as today)</span>
+
+<span class="h">#### 📤 Request</span>
+&lt;details&gt;&lt;summary&gt;Headers - 6 headers&lt;/summary&gt; … &lt;/details&gt;
+&lt;details&gt;&lt;summary&gt;Body - JSON · 182 B&lt;/summary&gt; … &lt;/details&gt;
+<span class="h">#### 🛠️ Changed by Alfred (request)</span>  <span class="c">(rules, Before / After folds - as today)</span>
+
+<span class="h">#### 📥 Response</span>
+&lt;details&gt;&lt;summary&gt;Body - JSON · 96 B · 1 flagged line&lt;/summary&gt;
+\`\`\`json
+  "total": 105,  // ⚠ FLAGGED: total should include the 15 AED fee - Fathy
+\`\`\`
+&lt;/details&gt;
+<span class="h">#### 🔌 WebSocket messages</span>  <span class="c">(as today)</span>
+
+<span class="h">## Glossary</span>
+- **Inbound · outbound** - …
+- **Request · response blocks** - …
+- **Spacer (🏷️)** · **Flagged line (🚩)** · **Changed by Alfred (🛠️)** - …
+
+---
+*Exported from Alfred/Frontend — 6 calls, 2 flagged issues total*`;
+}
+
+function oneHtml() {
+  return `<div class="doc"><nav class="toc"><b>This export</b><a href="#">Summary</a><a href="#">About this document</a><a href="#">Metadata</a><a href="#">Flagged issues (1)</a><a href="#">📤 Request</a><a href="#">📥 Response</a><a href="#">Glossary</a></nav><div class="main">
+    <div class="kicker">ALFRED · API call export</div>
+    <h1 class="t">POST /price</h1>
+    <div class="meta"><span>Exported <b>Oct 3, 2026, 9:12 AM</b></span><span>status <span class="pill fail">502</span></span><span>took <b>114 ms</b></span><span>inbound · <b>odeysys</b></span></div>
+    <div class="url-line" style="margin-top:6px">POST http://odeysys:8080/odeysysadmin/v2/price</div>
+    <div class="verdict"><span class="lead">Failed:</span> the application answered <b>502 Bad gateway</b>. 1 line flagged in the response body.</div>
+    <div class="section"><h2>📖 About This Document</h2><div class="card"><p><b>What this is.</b> … (as today, including what this call sat inside and what ran inside it)</p></div></div>
+    <div class="section"><h2>🧾 Metadata</h2><div class="dim">(table, as today)</div></div>
+    <div class="section"><h2>🚩 Flagged issues</h2><div class="flagged">Response · Body, line 4 … (as today)</div></div>
+    <div class="section"><h2>📤 Request</h2><div class="facts"><div class="fact"><span>Method</span>POST</div><div class="fact"><span>URL</span>http://odeysys:8080/odeysysadmin/v2/price</div><div class="fact"><span>Timestamp</span>2026-10-02T16:33:44.700Z</div><div class="fact"><span>Duration</span>114 ms</div></div>${fold('Headers', '6 headers', false, '')}${fold('Body', 'JSON · 182 B', false, '')}</div>
+    <div class="section"><h2>📥 Response</h2><div class="err"><b>Error:</b> (when there is one, as today)</div><div class="facts"><div class="fact"><span>Status</span>502</div></div>${fold('Headers', '4 headers', false, '')}${fold('Body', 'JSON · 96 B · 1 flagged line', false, '')}</div>
+    <div class="section"><h2>Glossary</h2><div class="dim">(same as the calls export)</div></div>
+    <div class="foot">Exported from Alfred/Frontend</div></div></div>`;
+}
+
+function oneMd() {
+  return `<span class="h"># 📄 API Call Export — POST /price</span>
+
+<span class="q">> **Failed:** the application answered **502 Bad gateway**. 1 line flagged in the response body.</span>
+
+| Method | URL | Status | Duration | Direction | Exported |
+| --- | --- | --- | --- | --- | --- |
+| POST | http://odeysys:8080/odeysysadmin/v2/price | 502 ❌ | 114 ms | inbound · odeysys | Oct 3, 2026, 9:12 AM |
+
+<span class="h">## 📖 About This Document</span>   <span class="c">(as today)</span>
+<span class="h">## 🧾 Metadata</span>              <span class="c">(as today)</span>
+<span class="h">## 🚩 Flagged Issues</span>        <span class="c">(as today)</span>
+<span class="h">## 📤 Request</span>               <span class="c">Method · URL · Timestamp · Duration, Headers/Body folds, Changed by Alfred</span>
+<span class="h">## 📥 Response</span>              <span class="c">Error, Status, Headers/Body folds, Changed by Alfred, WebSocket messages</span>
+<span class="h">## Glossary</span>
+---
+*Exported from Alfred/Frontend*`;
+}
+
+function scnHtml() {
+  return `<div class="doc"><nav class="toc"><b>This report</b><a href="#">Summary</a><a href="#">About this document</a><a href="#">Needs attention (2)</a><a href="#">All drafts</a><a href="#">Glossary</a><b>Drafts</b><a href="#"><i class="dot"></i>1 POST /login</a><a href="#"><i class="dot fail"></i>2 POST /search</a><a href="#"><i class="dot fail"></i>3 GET /pax</a></nav><div class="main">
+    <div class="kicker">ALFRED · Scenario run report</div>
+    <h1 class="t">Login and search</h1>
+    <div class="meta"><span>Run <b>Oct 3, 2026, 9:05 AM</b></span><span>exported Oct 3, 2026, 9:12 AM</span></div>
+    <div class="verdict"><span class="lead">1 of 3 drafts passed:</span> 2 · POST /search failed 1 of 2 assertions; 3 · GET /pax got no answer (timeout).</div>
+    <div class="tiles"><div class="tile"><b>3</b><span>drafts</span></div><div class="tile"><b style="color:var(--green)">1</b><span>passed</span></div><div class="tile"><b style="color:var(--red)">2</b><span>failed</span></div><div class="tile"><b>5</b><span>assertions · 4 passed</span></div></div>
+    <div class="section"><h2>About this document</h2><div class="card"><p><b>What this is.</b> The result of one run of the resend scenario "Login and search" in ALFRED: 3 saved requests (drafts) sent again in order, each answer checked against its assertions.</p><p><b>What happened.</b> …</p><p><b>How to read it.</b> … Secret values are masked.</p></div></div>
+    <div class="section"><h2>All drafts</h2><table class="t"><tr><th>#</th><th>Draft</th><th>Outcome</th><th>Status</th><th>Duration</th><th>Assertions</th></tr>
+      <tr><td>2</td><td><a href="#">POST /search</a><span class="url-sm">POST https://api.example/search?currency=EGP</span></td><td><span class="pill fail">✗ failed</span></td><td class="mono">200</td><td class="mono">812 ms</td><td>1 of 2 passed</td></tr></table></div>
+    <div class="section"><h2>Drafts</h2><div class="call"><div class="call-head"><span class="num">2</span><h3>POST /search</h3><span class="pill fail">✗ failed</span><div class="url-line">POST https://api.example/search?currency=EGP</div></div><div class="call-body">
+      <div class="facts"><div class="fact"><span>Status</span>200</div><div class="fact"><span>Duration</span>812 ms</div><div class="fact"><span>Error</span>none</div></div>
+      <h4>Assertions</h4><table class="t"><tr><th></th><th>Check</th><th>Result</th></tr><tr><td><span class="pill ok">✓</span></td><td class="mono">STATUS equals "200"</td><td class="dim">status was 200</td></tr><tr><td><span class="pill fail">✗</span></td><td class="mono">JSON <code>journeys.length</code> greater than "10"</td><td>was 9</td></tr></table>
+      ${fold('Full response body', 'JSON · 4.1 KB (secrets masked)', false, '')}
+    </div></div></div>
+    <div class="foot">Generated by ALFRED · every body included in full · secrets masked.</div></div></div>`;
+}
+
+function scnMd() {
+  return `<span class="h"># Scenario run report: Login and search</span>
+
+<span class="q">> **1 of 3 drafts passed:** 2 · POST /search failed 1 of 2 assertions; 3 · GET /pax got no answer (timeout).</span>
+
+<span class="h">## About this document</span>  …
+<span class="h">## All drafts</span>
+| # | Draft | Outcome | Status | Duration | Assertions |
+| --- | --- | --- | --- | --- | --- |
+| 2 | POST /search<br>POST https://api.example/search?currency=EGP | ✗ failed | 200 | 812 ms | 1 of 2 passed |
+
+<span class="h">### 2 · POST /search - ✗ failed</span>
+| | Check | Result |
+| --- | --- | --- |
+| ✓ | STATUS equals "200" | status was 200 |
+| ✗ | JSON \`journeys.length\` greater than "10" | was 9 |
+
+&lt;details&gt;&lt;summary&gt;Full response body - JSON · 4.1 KB&lt;/summary&gt; … &lt;/details&gt;`;
+}
+
+let kind = 'bulk', fmt = 'html';
+function render() {
+  const f = { bulk: [bulkHtml, bulkMd], one: [oneHtml, oneMd], scn: [scnHtml, scnMd] }[kind];
+  document.getElementById('out').innerHTML = fmt === 'html' ? f[0]() : `<div class="src">${f[1]()}</div>`;
+}
+document.querySelectorAll('#kind button').forEach((b) => b.onclick = () => { kind = b.dataset.k; document.querySelectorAll('#kind button').forEach((x) => x.classList.toggle('on', x === b)); render(); });
+document.querySelectorAll('#fmt button').forEach((b) => b.onclick = () => { fmt = b.dataset.f; document.querySelectorAll('#fmt button').forEach((x) => x.classList.toggle('on', x === b)); render(); });
+render();
+</script>
+</body>
+</html>
