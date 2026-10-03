@@ -10,6 +10,7 @@
  * and response body is included in full (folded in .html/.md, never shortened). .md and .html mask
  * secrets with `maskRelive`; .json keeps them (it is the data format).
  */
+import { diffLines } from './interception-diff';
 import { maskRelive } from './relive-mask';
 import { FieldChange, HttpShape, StepSide } from './relive-run-compare';
 import { CompareReport, CompareSideInfo, GlossaryEntry, ReportOutcome, ReportStep, ReportVerdict, RunReport, VERDICT_WORDS, formatMs, formatWhen } from './relive-run-report';
@@ -58,6 +59,13 @@ function bodyValue(body: string | null | undefined): unknown {
     }
   }
   return body ?? null;
+}
+
+/** Past this a value is folded in .html and written below the table in .md. */
+const LONG_VALUE = 120;
+
+function isLongValue(text: string): boolean {
+  return text.length > LONG_VALUE || text.includes('\n');
 }
 
 function sizeOf(text: string | null | undefined): string {
@@ -153,7 +161,7 @@ dl.facts-list { display: grid; grid-template-columns: 160px 1fr; gap: 4px 14px; 
 dl.facts-list dt { color: var(--dim); } dl.facts-list dd { margin: 0; overflow-wrap: anywhere; }
 table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.t th { text-align: left; color: var(--faint); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border-strong); }
-table.t td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+table.t td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: break-word; }
 table.t tr.child td.name { padding-left: 26px; }
 table.t tr.quiet td { color: var(--dim); }
 .dim { color: var(--dim); } .faint { color: var(--faint); }
@@ -176,7 +184,29 @@ table.t tr.quiet td { color: var(--dim); }
 .step-head { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .step-head .num { color: var(--faint); font-family: var(--mono); font-size: 12px; }
 .step-head h3 { margin: 0; font-size: 15px; }
-.step-head .url { color: var(--dim); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.url-line { flex-basis: 100%; color: var(--dim); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.url-sm { display: block; margin-top: 2px; color: var(--faint); font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; font-weight: 400; }
+details.fold { margin: 8px 0; }
+details.fold > table { border-top: 1px solid var(--border); }
+table.fields { table-layout: fixed; }
+table.fields col.c-field { width: 28%; } table.fields col.c-val { width: 29%; } table.fields col.c-last { width: 14%; }
+table.fields td.field { font-family: var(--mono); font-size: 12px; color: var(--text); overflow-wrap: break-word; word-break: normal; }
+.val-note { display: block; margin-top: 3px; color: var(--faint); font-size: 11px; }
+tr.has-long td { border-bottom: 0; }
+tr.long td { padding: 0 8px 10px; }
+details.long-fold { margin: 0; }
+details.long-fold > summary { font-size: 12px; }
+.long-box { padding: 0 10px 10px; display: grid; gap: 10px; }
+.views { display: flex; gap: 6px; flex-wrap: wrap; }
+.views button { font: inherit; font-size: 12px; background: var(--card-inner); color: var(--dim); border: 1px solid var(--border); border-radius: 999px; padding: 2px 11px; cursor: pointer; }
+.views button.on { border-color: var(--blue); color: var(--text); }
+.long-side { min-width: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.long-box[data-view="both"] [data-side="diff"], .long-box[data-view="a"] [data-side]:not([data-side="a"]),
+.long-box[data-view="b"] [data-side]:not([data-side="b"]), .long-box[data-view="diff"] [data-side]:not([data-side="diff"]) { display: none; }
+pre.code.diff { white-space: pre-wrap; }
+.dl { display: block; } .dl.removed { background: rgba(227,106,106,.12); color: #f2b8b8; } .dl.added { background: rgba(126,227,160,.10); color: #b9f0cc; }
+.long-head .dl { display: inline; padding: 0 4px; border-radius: 4px; }
+.long-head { padding: 5px 12px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); background: var(--card); }
 .step-body { padding: 12px 16px 14px; }
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-bottom: 10px; }
 .fact { background: var(--card-inner); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; overflow-wrap: anywhere; }
@@ -193,9 +223,11 @@ summary { cursor: pointer; padding: 7px 12px; font-size: 13px; color: var(--dim)
 summary b { color: var(--text); font-weight: 600; }
 summary .sp { flex: 1; }
 .copy { font: inherit; font-size: 11.5px; background: none; border: 1px solid var(--border-strong); color: var(--dim); border-radius: 6px; padding: 1px 8px; cursor: pointer; }
-.hdrs { border-top: 1px solid var(--border); padding: 6px 14px; font-size: 12px; }
+.hdrs { border-top: 1px solid var(--border); padding: 6px 14px; font-size: 12px; max-height: 220px; overflow: auto; }
 .hdrs div { font-family: var(--mono); overflow-wrap: anywhere; } .hdrs span { color: var(--blue-light); }
-pre.code { margin: 0; padding: 10px 14px; border-top: 1px solid var(--border); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: #dcdce2; }
+/* Bodies and headers keep a fixed, medium height and scroll inside - a page of steps stays a page. */
+pre.code { margin: 0; padding: 10px 14px; border-top: 1px solid var(--border); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: #dcdce2; max-height: 420px; overflow: auto; resize: vertical; }
+pre.code.empty { max-height: none; }
 pre.code.empty { color: var(--faint); }
 .tk { color: #8fb2f7; } .ts { color: #7ee3a0; } .tn { color: #e3a24a; } .tb { color: #e37ec4; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -210,7 +242,7 @@ dl.gloss dt { font-weight: 600; margin-top: 8px; } dl.gloss dt:first-child { mar
 .foot { margin-top: 36px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
 .hidden { display: none !important; }
 @media (max-width: 900px) { .doc { display: block; } .toc { display: none; } main { padding: 20px 16px; } .two { grid-template-columns: 1fr; } }
-@media print { .toc, .filters, .copy { display: none; } .doc { display: block; } body { background: #fff; color: #000; } details { break-inside: avoid; } }
+@media print { .toc, .filters, .copy, .views { display: none; } .doc { display: block; } body { background: #fff; color: #000; } details { break-inside: avoid; } pre.code, .hdrs { height: auto; max-height: none; overflow: visible; } }
 `;
 
 /** Filter chips and copy buttons. The document reads fine without it (print, no-JS viewers). */
@@ -222,6 +254,13 @@ document.querySelectorAll('[data-filter]').forEach(function (btn) {
     document.querySelectorAll('[data-outcome]').forEach(function (el) {
       el.classList.toggle('hidden', want !== 'all' && el.getAttribute('data-outcome') !== want);
     });
+  });
+});
+document.querySelectorAll('[data-view-btn]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var box = btn.closest('.long-box');
+    box.setAttribute('data-view', btn.getAttribute('data-view-btn'));
+    box.querySelectorAll('[data-view-btn]').forEach(function (b) { b.classList.toggle('on', b === btn); });
   });
 });
 document.querySelectorAll('.copy').forEach(function (btn) {
@@ -297,12 +336,54 @@ function outcomePill(outcome: ReportOutcome): string {
 
 // ---------------------------------------------------------------- run report: .html
 
-function differencesHtml(diffs: readonly FieldChange[], mask: Mask, a = 'Recorded', b = 'This run'): string {
+/** A short value whole; a long one as a preview - its whole value is in the full-width row below. */
+function valueHtml(value: string | null, cls: string, mask: Mask): string {
+  const text = mask(valueText(value));
+  if (!isLongValue(text)) return `<span class="val ${cls}">${escapeHtml(text)}</span>`;
+  return `<span class="val ${cls}">${escapeHtml(text.slice(0, 60))}…</span><span class="val-note">${text.length.toLocaleString('en-US')} characters - full value below</span>`;
+}
+
+/** Both sides of one long difference, full width and side by side, folded until asked for. */
+/** The two values as one line diff (the interception panel's own `diffLines`): - removed, + added. */
+function diffHtml(a: string | null, b: string | null, mask: Mask): string {
+  const lines = diffLines(mask(prettyBody(a ?? '')), mask(prettyBody(b ?? '')), undefined, false);
+  if (!lines.some((l) => l.kind !== 'same')) return '<pre class="code empty">The two values are the same text.</pre>';
+  return `<pre class="code diff">${lines.map((l) => `<span class="dl ${l.kind}">${l.kind === 'removed' ? '-' : l.kind === 'added' ? '+' : ' '} ${escapeHtml(l.text)}</span>`).join('')}</pre>`;
+}
+
+/**
+ * Both values of one long difference, full width, folded until asked for. A switch shows them one
+ * under the other (the default, and what prints), one side only, or as a line diff.
+ */
+function longValuesRow(d: FieldChange, heads: readonly [string, string, string, string], mask: Mask): string {
+  const side = (which: 'a' | 'b', label: string, value: string | null) => `<div class="long-side" data-side="${which}"><div class="long-head">${escapeHtml(label)}</div>${value == null ? '<pre class="code empty">(not present)</pre>' : codeHtml(value, mask)}</div>`;
+  const views: readonly [string, string][] = [['both', 'Both'], ['a', `${heads[1]} only`], ['b', `${heads[2]} only`], ['diff', 'Diff']];
+  return `<tr class="long${d.noise ? ' noise' : ''}"><td colspan="4"><details class="long-fold"><summary>Show the full values of <b>${escapeHtml(d.path)}</b></summary>
+  <div class="long-box" data-view="both"><div class="views">${views.map(([v, label]) => `<button type="button" data-view-btn="${v}"${v === 'both' ? ' class="on"' : ''}>${escapeHtml(label)}</button>`).join('')}</div>
+  ${side('a', heads[1], d.a)}${side('b', heads[2], d.b)}<div class="long-side" data-side="diff"><div class="long-head">Diff - <span class="dl removed">- ${escapeHtml(heads[1])}</span> <span class="dl added">+ ${escapeHtml(heads[2])}</span></div>${diffHtml(d.a, d.b, mask)}</div></div></details></td></tr>`;
+}
+
+/** A folded table of field differences: closed by default, field names on one readable column. */
+function fieldsHtml(title: string, diffs: readonly FieldChange[], heads: readonly [string, string, string, string], classes: readonly [string, string], mask: Mask, last: (d: FieldChange) => string): string {
   if (!diffs.length) return '';
-  const rows = diffs.map((d) => `<tr${d.noise ? ' class="noise"' : ''}><td class="mono">${escapeHtml(d.path)}</td><td><span class="val ${a === 'Recorded' ? 'rec' : 'a'}">${escapeHtml(mask(valueText(d.a)))}</span></td><td><span class="val ${a === 'Recorded' ? 'act' : 'b'}">${escapeHtml(mask(valueText(d.b)))}</span></td><td>${d.noise ? `<span class="pill skip">no - noise${d.cause ? ` · ${escapeHtml(d.cause)}` : ''}</span>` : '<span class="pill fail">yes</span>'}</td></tr>`).join('');
   const real = diffs.filter((d) => !d.noise).length;
-  return `<h4>Differences from the recording (${real}${diffs.length > real ? ` + ${diffs.length - real} noise` : ''})</h4>
-  <table class="t"><tr><th>Field</th><th>${a}</th><th>${b}</th><th>Counts?</th></tr>${rows}</table>`;
+  const rows = diffs.map((d) => {
+    const long = isLongValue(mask(valueText(d.a))) || isLongValue(mask(valueText(d.b)));
+    return `<tr class="${d.noise ? 'noise' : ''}${long ? ' has-long' : ''}"><td class="field">${escapeHtml(d.path).replace(/\./g, '.<wbr>')}</td><td>${valueHtml(d.a, classes[0], mask)}</td><td>${valueHtml(d.b, classes[1], mask)}</td><td>${last(d)}</td></tr>${long ? longValuesRow(d, heads, mask) : ''}`;
+  }).join('');
+  return `<details class="fold"><summary><b>${escapeHtml(title)}</b> ${real}${diffs.length > real ? ` + ${diffs.length - real} noise` : ''}</summary>
+  <table class="t fields"><colgroup><col class="c-field"><col class="c-val"><col class="c-val"><col class="c-last"></colgroup><tr><th>${heads[0]}</th><th>${heads[1]}</th><th>${heads[2]}</th><th>${heads[3]}</th></tr>${rows}</table></details>`;
+}
+
+function differencesHtml(diffs: readonly FieldChange[], mask: Mask): string {
+  return fieldsHtml('Differences from the recording', diffs, ['Field', 'Recorded', 'This run', 'Counts?'], ['rec', 'act'], mask,
+    (d) => (d.noise ? `<span class="pill skip">no - noise${d.cause ? ` · ${escapeHtml(d.cause)}` : ''}</span>` : '<span class="pill fail">yes</span>'));
+}
+
+/** The full method + URL of a step, small, under its name. */
+function urlOf(report: RunReport, number: string, mask: Mask): string {
+  const step = report.steps.find((s) => s.number === number);
+  return step ? `<span class="url-sm">${escapeHtml(`${step.method} ${mask(step.url)}`)}</span>` : '';
 }
 
 function stepCardHtml(s: ReportStep, mask: Mask): string {
@@ -320,10 +401,10 @@ function stepCardHtml(s: ReportStep, mask: Mask): string {
     ['Values saved', s.variablesSaved.length ? s.variablesSaved.map((v) => `{{${v.name}}} = ${v.value}`).join(', ') : 'none'],
   ];
   const bodies = ran
-    ? `${httpHtml('Request sent', s.request, 'request', mask)}${httpHtml('Response received', s.response, 'response', mask, s.outcome === 'failed' || s.outcome === 'differences')}${httpHtml('Recorded response', s.recorded.response, 'response', mask, false, '- what this run was compared with')}${httpHtml('Recorded request', s.recorded.request, 'request', mask)}`
+    ? `${httpHtml('Request sent', s.request, 'request', mask)}${httpHtml('Response received', s.response, 'response', mask)}${httpHtml('Recorded response', s.recorded.response, 'response', mask, false, '- what this run was compared with')}${httpHtml('Recorded request', s.recorded.request, 'request', mask)}`
     : `${httpHtml('Recorded request', s.recorded.request, 'request', mask)}${httpHtml('Recorded response', s.recorded.response, 'response', mask)}`;
   return `<div class="step${s.isChild ? ' child' : ''}" id="${anchor(s.number)}" data-outcome="${s.outcome}">
-  <div class="step-head"><span class="num">${s.number}</span><h3>${s.isChild ? '↗ ' : ''}${escapeHtml(s.label)}</h3><span class="url">${escapeHtml(`${s.method} ${mask(s.url)}`)}</span>${modePill(s.mode)}<span class="pill ${cls}">${OUTCOME_ICON[s.outcome]} ${s.outcome}</span></div>
+  <div class="step-head"><span class="num">${s.number}</span><h3>${s.isChild ? '↗ ' : ''}${escapeHtml(s.label)}</h3>${modePill(s.mode)}<span class="pill ${cls}">${OUTCOME_ICON[s.outcome]} ${s.outcome}</span><div class="url-line">${escapeHtml(`${s.method} ${mask(s.url)}`)}</div></div>
   <div class="step-body">${why}
   <div class="facts">${facts.map(([k, v]) => `<div class="fact"><span>${k}</span>${escapeHtml(mask(v))}</div>`).join('')}</div>
   ${differencesHtml(s.differences, mask)}
@@ -353,7 +434,7 @@ export function buildHtmlRunReport(report: RunReport): string {
     <dl class="facts-list"><dt>Cycle</dt><dd>${escapeHtml(report.cycle.name)}${report.cycle.versionSavedAt ? ` · version saved ${escapeHtml(formatWhen(report.cycle.versionSavedAt))}` : ''}</dd><dt>Cycle id</dt><dd class="mono">${escapeHtml(report.cycle.id)}</dd><dt>Run id</dt><dd class="mono">${escapeHtml(r.id)}</dd><dt>Driver</dt><dd>${escapeHtml(r.driver)}</dd><dt>Started from</dt><dd>${escapeHtml(r.startedFrom ?? 'the first step')}</dd><dt>Finished</dt><dd>${escapeHtml(formatWhen(r.finishedAt))}</dd></dl>
   </div></section>
 
-  ${report.needsAttention.length ? `<section id="attention"><h2>Needs attention <small>${c.failed} failed · ${c.differences} with differences</small></h2><div class="attn">${report.needsAttention.map((n) => `<div class="item"><span class="pill ${OUTCOME_CLASS[n.outcome]}">${OUTCOME_ICON[n.outcome]}</span><div><b>${n.number} · ${escapeHtml(n.label)}</b>${n.mode ? ` <span class="faint mono">${n.mode}</span>` : ''}<div class="why">${escapeHtml(mask(n.reason))}</div></div><a href="#${anchor(n.number)}">step ${n.number} ↓</a></div>`).join('')}</div></section>` : ''}
+  ${report.needsAttention.length ? `<section id="attention"><h2>Needs attention <small>${c.failed} failed · ${c.differences} with differences</small></h2><div class="attn">${report.needsAttention.map((n) => `<div class="item"><span class="pill ${OUTCOME_CLASS[n.outcome]}">${OUTCOME_ICON[n.outcome]}</span><div><b>${n.number} · ${escapeHtml(n.label)}</b>${n.mode ? ` <span class="faint mono">${n.mode}</span>` : ''}${urlOf(report, n.number, mask)}<div class="why">${escapeHtml(mask(n.reason))}</div></div><a href="#${anchor(n.number)}">step ${n.number} ↓</a></div>`).join('')}</div></section>` : ''}
 
   <section id="all-steps"><h2>All steps <small>status and time as recorded → in this run</small></h2>
   <div class="filters"><button type="button" class="on" data-filter="all">All ${c.steps}</button>${c.failed ? `<button type="button" data-filter="failed">Failed ${c.failed}</button>` : ''}${c.differences ? `<button type="button" data-filter="differences">Differences ${c.differences}</button>` : ''}${c.passed ? `<button type="button" data-filter="passed">Passed ${c.passed}</button>` : ''}${c.notRun ? `<button type="button" data-filter="not run">Not run ${c.notRun}</button>` : ''}</div>
@@ -361,7 +442,7 @@ export function buildHtmlRunReport(report: RunReport): string {
   ${report.steps.map((s) => {
     const real = s.differences.filter((d) => !d.noise).length;
     const noise = s.differences.length - real;
-    return `<tr class="${s.isChild ? 'child' : ''}" data-outcome="${s.outcome}"><td>${s.number}</td><td class="name"><a href="#${anchor(s.number)}">${s.isChild ? '↗ ' : ''}${escapeHtml(s.label)}</a></td><td>${modePill(s.mode)}</td><td>${outcomePill(s.outcome)}</td><td class="mono">${s.status.recorded} → ${s.outcome === 'not run' ? '-' : s.status.run ?? 'none'}</td><td class="mono">${formatMs(s.durationMs.recorded)} → ${formatMs(s.durationMs.run)} <span class="${(s.durationMs.run ?? 0) > s.durationMs.recorded ? 'up' : 'down'}">${percent(s.durationMs.recorded, s.durationMs.run)}</span></td><td>${real || '<span class="faint">-</span>'}${noise ? ` <span class="faint">+${noise} noise</span>` : ''}</td></tr>`;
+    return `<tr class="${s.isChild ? 'child' : ''}" data-outcome="${s.outcome}"><td>${s.number}</td><td class="name"><a href="#${anchor(s.number)}">${s.isChild ? '↗ ' : ''}${escapeHtml(s.label)}</a><span class="url-sm">${escapeHtml(`${s.method} ${mask(s.url)}`)}</span></td><td>${modePill(s.mode)}</td><td>${outcomePill(s.outcome)}</td><td class="mono">${s.status.recorded} → ${s.outcome === 'not run' ? '-' : s.status.run ?? 'none'}</td><td class="mono">${formatMs(s.durationMs.recorded)} → ${formatMs(s.durationMs.run)} <span class="${(s.durationMs.run ?? 0) > s.durationMs.recorded ? 'up' : 'down'}">${percent(s.durationMs.recorded, s.durationMs.run)}</span></td><td>${real || '<span class="faint">-</span>'}${noise ? ` <span class="faint">+${noise} noise</span>` : ''}</td></tr>`;
   }).join('')}</table></section>
 
   <section id="steps"><h2>Steps <small>what was sent, what came back, and the recording it was compared with</small></h2>
@@ -399,17 +480,37 @@ function mdHttp(title: string, http: HttpShape | null, kind: 'request' | 'respon
   ];
 }
 
-function mdDifferences(diffs: readonly FieldChange[], mask: Mask, a = 'Recorded', b = 'This run'): string[] {
+/**
+ * A folded table of field differences. A value too long for a table cell is named in the cell and
+ * written out in full under the table - a table row stays one readable line, nothing is cut.
+ */
+function mdFields(title: string, diffs: readonly FieldChange[], heads: readonly [string, string, string, string], mask: Mask, last: (d: FieldChange) => string): string[] {
   if (!diffs.length) return [];
   const real = diffs.filter((d) => !d.noise).length;
+  const long: string[] = [];
+  const shown = (d: FieldChange, side: 'a' | 'b', label: string) => {
+    const value = d[side];
+    const text = mask(valueText(value));
+    if (!isLongValue(text)) return cell(text);
+    long.push(`<details><summary>${cell(d.path)} - ${label} (${text.length.toLocaleString('en-US')} characters)</summary>`, '', fence(mask(prettyBody(value)), bodyLanguage(value)), '', '</details>', '');
+    return `*long value - see "${cell(d.path)} - ${label}" below*`;
+  };
+  const rows = diffs.map((d) => `| \`${cell(d.path)}\` | ${shown(d, 'a', heads[1])} | ${shown(d, 'b', heads[2])} | ${last(d)} |`);
   return [
-    `**Differences from the recording (${real}${diffs.length > real ? ` + ${diffs.length - real} noise` : ''})**`,
+    `<details><summary>${title} (${real}${diffs.length > real ? ` + ${diffs.length - real} noise` : ''})</summary>`,
     '',
-    `| Field | ${a} | ${b} | Counts? |`,
+    `| ${heads[0]} | ${heads[1]} | ${heads[2]} | ${heads[3]} |`,
     '| --- | --- | --- | --- |',
-    ...diffs.map((d) => `| \`${cell(d.path)}\` | ${cell(mask(valueText(d.a)))} | ${cell(mask(valueText(d.b)))} | ${d.noise ? `no - noise${d.cause ? ` (${cell(d.cause)})` : ''}` : '**yes**'} |`),
+    ...rows,
+    '',
+    ...long,
+    '</details>',
     '',
   ];
+}
+
+function mdDifferences(diffs: readonly FieldChange[], mask: Mask): string[] {
+  return mdFields('Differences from the recording', diffs, ['Field', 'Recorded', 'This run', 'Counts?'], mask, (d) => (d.noise ? `no - noise${d.cause ? ` (${cell(d.cause)})` : ''}` : '**yes**'));
 }
 
 /** GitHub's heading anchor: lower case, punctuation dropped, each space a hyphen. */
@@ -462,7 +563,7 @@ export function buildMarkdownRunReport(report: RunReport): string {
     ...report.steps.map((s) => {
       const real = s.differences.filter((d) => !d.noise).length;
       const noise = s.differences.length - real;
-      return `| ${s.number} | ${s.isChild ? '↳ ' : ''}${cell(s.label)} | ${s.mode ?? '-'} | ${OUTCOME_ICON[s.outcome]} ${s.outcome} | ${s.status.recorded} → ${s.outcome === 'not run' ? '-' : s.status.run ?? 'none'} | ${formatMs(s.durationMs.recorded)} → ${formatMs(s.durationMs.run)} ${percent(s.durationMs.recorded, s.durationMs.run)} | ${real || '-'}${noise ? ` (+${noise} noise)` : ''} |`;
+      return `| ${s.number} | ${s.isChild ? '↳ ' : ''}${cell(s.label)}<br>${cell(`${s.method} ${mask(s.url)}`)} | ${s.mode ?? '-'} | ${OUTCOME_ICON[s.outcome]} ${s.outcome} | ${s.status.recorded} → ${s.outcome === 'not run' ? '-' : s.status.run ?? 'none'} | ${formatMs(s.durationMs.recorded)} → ${formatMs(s.durationMs.run)} ${percent(s.durationMs.recorded, s.durationMs.run)} | ${real || '-'}${noise ? ` (+${noise} noise)` : ''} |`;
     }),
     '',
     '## Steps',
@@ -489,7 +590,7 @@ export function buildMarkdownRunReport(report: RunReport): string {
     if (ran) {
       lines.push(
         ...mdHttp('Request sent', s.request, 'request', mask),
-        ...mdHttp('Response received', s.response, 'response', mask, s.outcome === 'failed' || s.outcome === 'differences'),
+        ...mdHttp('Response received', s.response, 'response', mask),
         ...mdHttp('Recorded response', s.recorded.response, 'response', mask, false, '(what this run was compared with)'),
         ...mdHttp('Recorded request', s.recorded.request, 'request', mask),
       );
@@ -610,22 +711,22 @@ function sideCell(s: StepSide): string {
 
 function sentHtml(row: CompareRow, mask: Mask): string {
   if (!row.sent.length) return '<div class="dim">Sent the same request in both.</div>';
-  return `<table class="t"><tr><th>What</th><th>A</th><th>B</th></tr>${row.sent.map((f) => `<tr><td class="mono">${escapeHtml(f.path)}</td><td><span class="val a">${escapeHtml(mask(valueText(f.a)))}</span></td><td><span class="val b">${escapeHtml(mask(valueText(f.b)))}</span></td></tr>`).join('')}</table>`;
+  return fieldsHtml('What it sent differently', row.sent, ['What', 'A', 'B', ''], ['a', 'b'], mask, (f) => `<span class="faint">${escapeHtml(f.cause ?? '')}</span>`);
 }
 
 function compareCardHtml(row: CompareRow, report: CompareReport, mask: Mask): string {
   const side = (slot: 'a' | 'b', s: StepSide) => `<div class="side ${slot}"><span class="slot ${slot}">${slot.toUpperCase()}</span> ${escapeHtml(sideCell(s))} · ${formatMs(s.durationMs)}${s.mode ? ` · ${s.mode}` : ''}${s.result?.rulesApplied?.length ? ` · rules: ${escapeHtml(s.result.rulesApplied.map((x) => x.name).join(', '))}` : ''}${s.error ? `<div class="up">${escapeHtml(mask(s.error))}</div>` : ''}</div>`;
-  const fieldRows = row.fields.map((d) => `<tr${d.noise ? ' class="noise"' : ''}><td class="mono">${escapeHtml(d.path)}</td><td><span class="val a">${escapeHtml(mask(valueText(d.a)))}</span></td><td><span class="val b">${escapeHtml(mask(valueText(d.b)))}</span></td><td>${d.noise ? `<span class="pill skip">noise${d.cause ? ` · ${escapeHtml(d.cause)}` : ''}</span>` : ''}</td></tr>`).join('');
-  const real = row.fields.filter((f) => !f.noise).length;
+  const fields = row.fields.length
+    ? fieldsHtml('Response fields that changed', row.fields, ['Field', 'A', 'B', ''], ['a', 'b'], mask, (d) => (d.noise ? `<span class="pill skip">noise${d.cause ? ` · ${escapeHtml(d.cause)}` : ''}</span>` : ''))
+    : '<div class="dim">No field of the answer changed.</div>';
   return `<div class="step${row.isChild ? ' child' : ''}" id="${anchor(row.number)}">
-  <div class="step-head"><span class="num">${row.number}</span><h3>${row.isChild ? '↗ ' : ''}${escapeHtml(row.label)}</h3><span class="url">${escapeHtml(mask(`${row.step.recording.method} ${row.step.recording.url}`))}</span><span class="pill ${VERDICT_CLASS[row.verdict]}">${VERDICT_ICON[row.verdict]} ${VERDICT_WORDS[row.verdict]}</span></div>
+  <div class="step-head"><span class="num">${row.number}</span><h3>${row.isChild ? '↗ ' : ''}${escapeHtml(row.label)}</h3><span class="pill ${VERDICT_CLASS[row.verdict]}">${VERDICT_ICON[row.verdict]} ${VERDICT_WORDS[row.verdict]}</span><div class="url-line">${escapeHtml(mask(`${row.step.recording.method} ${row.step.recording.url}`))}</div></div>
   <div class="step-body">
   <div class="two">${side('a', row.a)}${side('b', row.b)}</div>
-  <h4>Response fields that changed (${real}${row.fields.length > real ? ` + ${row.fields.length - real} noise` : ''})</h4>
-  ${row.fields.length ? `<table class="t"><tr><th>Field</th><th>A</th><th>B</th><th></th></tr>${fieldRows}</table>` : '<div class="dim">No field of the answer changed.</div>'}
-  <h4>What it sent differently</h4>${sentHtml(row, mask)}
+  <h4>Differences</h4>${fields}
+  ${sentHtml(row, mask)}
   <h4>Request and response of both, in full</h4>
-  ${httpHtml(`Response A (${report.a.label})`, row.a.response, 'response', mask, false)}${httpHtml(`Response B (${report.b.label})`, row.b.response, 'response', mask, row.verdict !== 'SAME')}${httpHtml('Request A', row.a.request, 'request', mask)}${httpHtml('Request B', row.b.request, 'request', mask)}
+  ${httpHtml(`Response A (${report.a.label})`, row.a.response, 'response', mask, false)}${httpHtml(`Response B (${report.b.label})`, row.b.response, 'response', mask)}${httpHtml('Request A', row.a.request, 'request', mask)}${httpHtml('Request B', row.b.request, 'request', mask)}
   </div></div>`;
 }
 
@@ -659,7 +760,7 @@ export function buildHtmlCompareReport(report: CompareReport): string {
   ${report.rows.map((r) => {
     const real = r.fields.filter((f) => !f.noise).length;
     const link = r.verdict === 'SAME' ? escapeHtml(r.label) : `<a href="#${anchor(r.number)}">${escapeHtml(r.label)}</a>`;
-    return `<tr class="${r.isChild ? 'child' : ''}${r.verdict === 'SAME' ? ' quiet' : ''}"><td>${r.number}</td><td class="name">${r.isChild ? '↗ ' : ''}${link}</td><td><span class="pill ${SIDE_CLASS[r.a.outcome]}">${escapeHtml(sideCell(r.a))}</span> → <span class="pill ${SIDE_CLASS[r.b.outcome]}">${escapeHtml(sideCell(r.b))}</span></td><td>${real || '<span class="faint">-</span>'}</td><td class="mono">${formatMs(r.a.durationMs)} → ${formatMs(r.b.durationMs)} <span class="${(r.timeChangePct ?? 0) > 0 ? 'up' : 'down'}">${r.timeChangePct != null ? `${r.timeChangePct > 0 ? '+' : ''}${r.timeChangePct}%` : ''}</span><div class="bar"><i class="a" style="width:${((r.a.durationMs ?? 0) / maxMs(r)) * 100}%"></i><i class="b" style="width:${((r.b.durationMs ?? 0) / maxMs(r)) * 100}%"></i></div></td><td><span class="pill ${VERDICT_CLASS[r.verdict]}">${VERDICT_ICON[r.verdict]} ${VERDICT_WORDS[r.verdict]}</span></td></tr>`;
+    return `<tr class="${r.isChild ? 'child' : ''}${r.verdict === 'SAME' ? ' quiet' : ''}"><td>${r.number}</td><td class="name">${r.isChild ? '↗ ' : ''}${link}<span class="url-sm">${escapeHtml(mask(`${r.step.recording.method} ${r.step.recording.url}`))}</span></td><td><span class="pill ${SIDE_CLASS[r.a.outcome]}">${escapeHtml(sideCell(r.a))}</span> → <span class="pill ${SIDE_CLASS[r.b.outcome]}">${escapeHtml(sideCell(r.b))}</span></td><td>${real || '<span class="faint">-</span>'}</td><td class="mono">${formatMs(r.a.durationMs)} → ${formatMs(r.b.durationMs)} <span class="${(r.timeChangePct ?? 0) > 0 ? 'up' : 'down'}">${r.timeChangePct != null ? `${r.timeChangePct > 0 ? '+' : ''}${r.timeChangePct}%` : ''}</span><div class="bar"><i class="a" style="width:${((r.a.durationMs ?? 0) / maxMs(r)) * 100}%"></i><i class="b" style="width:${((r.b.durationMs ?? 0) / maxMs(r)) * 100}%"></i></div></td><td><span class="pill ${VERDICT_CLASS[r.verdict]}">${VERDICT_ICON[r.verdict]} ${VERDICT_WORDS[r.verdict]}</span></td></tr>`;
   }).join('')}</table></section>
 
   ${changed.length ? `<section id="changed"><h2>What changed <small>each changed step, with both answers in full</small></h2>${changed.map((r) => compareCardHtml(r, report, mask)).join('\n')}</section>` : ''}
@@ -707,7 +808,7 @@ export function buildMarkdownCompareReport(report: CompareReport): string {
     '',
     '| # | Step | A → B | Fields | Time A → B | Verdict |',
     '| --- | --- | --- | --- | --- | --- |',
-    ...report.rows.map((r) => `| ${r.number} | ${r.isChild ? '↳ ' : ''}${cell(r.label)} | ${sideCell(r.a)} → ${sideCell(r.b)} | ${r.fields.filter((f) => !f.noise).length || '-'} | ${formatMs(r.a.durationMs)} → ${formatMs(r.b.durationMs)}${r.timeChangePct != null ? ` (${r.timeChangePct > 0 ? '+' : ''}${r.timeChangePct}%)` : ''} | ${VERDICT_ICON[r.verdict]} ${VERDICT_WORDS[r.verdict]} |`),
+    ...report.rows.map((r) => `| ${r.number} | ${r.isChild ? '↳ ' : ''}${cell(r.label)}<br>${cell(mask(`${r.step.recording.method} ${r.step.recording.url}`))} | ${sideCell(r.a)} → ${sideCell(r.b)} | ${r.fields.filter((f) => !f.noise).length || '-'} | ${formatMs(r.a.durationMs)} → ${formatMs(r.b.durationMs)}${r.timeChangePct != null ? ` (${r.timeChangePct > 0 ? '+' : ''}${r.timeChangePct}%)` : ''} | ${VERDICT_ICON[r.verdict]} ${VERDICT_WORDS[r.verdict]} |`),
     '',
   ];
   const card = (r: CompareRow) => {
@@ -725,14 +826,14 @@ export function buildMarkdownCompareReport(report: CompareReport): string {
       '',
     ];
     if (r.fields.length) {
-      out.push('**Response fields that changed**', '', '| Field | A | B | |', '| --- | --- | --- | --- |', ...r.fields.map((f) => `| \`${cell(f.path)}\` | ${cell(mask(valueText(f.a)))} | ${cell(mask(valueText(f.b)))} | ${f.noise ? `noise${f.cause ? ` (${cell(f.cause)})` : ''}` : ''} |`), '');
+      out.push(...mdFields('Response fields that changed', r.fields, ['Field', 'A', 'B', ''], mask, (f) => (f.noise ? `noise${f.cause ? ` (${cell(f.cause)})` : ''}` : '')));
     }
     if (r.sent.length) {
-      out.push('**What it sent differently**', '', '| What | A | B |', '| --- | --- | --- |', ...r.sent.map((f) => `| \`${cell(f.path)}\` | ${cell(mask(valueText(f.a)))} | ${cell(mask(valueText(f.b)))} |`), '');
+      out.push(...mdFields('What it sent differently', r.sent, ['What', 'A', 'B', ''], mask, (f) => f.cause ?? ''));
     }
     out.push(
       ...mdHttp(`Response A (${report.a.label})`, r.a.response, 'response', mask),
-      ...mdHttp(`Response B (${report.b.label})`, r.b.response, 'response', mask, r.verdict !== 'SAME'),
+      ...mdHttp(`Response B (${report.b.label})`, r.b.response, 'response', mask),
       ...mdHttp('Request A', r.a.request, 'request', mask),
       ...mdHttp('Request B', r.b.request, 'request', mask),
     );

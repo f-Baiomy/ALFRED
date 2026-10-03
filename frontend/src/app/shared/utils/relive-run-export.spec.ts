@@ -55,7 +55,7 @@ describe('relive-run-export', () => {
       expect(md).toContain('**What this is.**');
       expect(md).toContain('| # | Step | Mode | Outcome |');
       expect(md).toContain('### 2 · GET /pax - ✗ failed');
-      expect(md).toContain('<details open><summary>Response received');
+      expect(md).toContain('<details><summary>Response received');
       expect(md).toContain('```json');
       expect(md).toContain(big);
       expect(md).toContain(recordedBig);
@@ -111,6 +111,40 @@ describe('relive-run-export', () => {
       expect(pax.a.response.body).toEqual({ paxCount: 2 });
       expect(pax.b.response.body.blob).toBe(big);
       expect(pax.b.response.body.message).toContain('S3CRET');
+    });
+  });
+
+  describe('readability', () => {
+    // pax's answer lost a long "note" field: one long value in its differences.
+    const html = buildHtmlRunReport(report);
+    const md = buildMarkdownRunReport(report);
+
+    it('every fold starts closed: differences, requests and responses', () => {
+      expect(html).not.toContain('<details open');
+      expect(md).not.toContain('<details open');
+      expect(html).toContain('<details class="fold"><summary><b>Differences from the recording</b>');
+      expect(md).toContain('<details><summary>Differences from the recording (');
+    });
+
+    it('a long value is folded in .html and written out in full under the table in .md', () => {
+      // The cell holds a preview; the whole value opens full width in the row below, never in the cell.
+      expect(html).toContain(`${recordedBig.length.toLocaleString('en-US')} characters - full value below`);
+      expect(html).toContain('<tr class="long"><td colspan="4"><details class="long-fold"><summary>Show the full values of <b>body.note</b>');
+      // Both one under the other by default; one side only, or a line diff, on request.
+      expect(html).toContain('<div class="long-box" data-view="both">');
+      for (const view of ['both', 'a', 'b', 'diff']) expect(html).toContain(`data-view-btn="${view}"`);
+      expect(html).toContain('<pre class="code diff"><span class="dl removed">');
+      expect(md).toContain('*long value - see "body.note - Recorded" below*');
+      expect(md).toContain(`<details><summary>body.note - Recorded (${recordedBig.length.toLocaleString('en-US')} characters)</summary>`);
+      expect(md).toContain(recordedBig);
+    });
+
+    it('field names keep their own column and every step shows its full URL', () => {
+      expect(html).toContain('<td class="field">body.<wbr>note</td>');
+      expect(html).toContain('<col class="c-field">');
+      expect(html).toContain('<span class="url-sm">POST https://app.local/api/pax</span>');
+      expect(html).toContain('<div class="url-line">POST https://app.local/api/pax</div>');
+      expect(md).toContain('GET /pax<br>POST https://app.local/api/pax');
     });
   });
 

@@ -335,7 +335,7 @@ for a reader who was not there - a colleague, a supplier, an AI agent asked to f
 The model lives in `shared/utils/relive-run-report.ts` (`buildRunReport`, `buildCompareReport`);
 `relive-run-export.ts` renders it. The .html is one self-contained page (slate palette of the
 other exports, sticky contents, filter chips, copy buttons, prints cleanly); the .md is
-GitHub-flavoured with `<details>` folds. .html and .md mask secret values; the .json
+GitHub-flavoured with `<details>` folds. Every fold starts closed - differences, requests, responses. A value too long for its table cell shows a preview there; its whole value opens in a full-width row under it, one under the other by default, with a switch for one side only or a line diff (the interception panel's own `diffLines`). In .md that value is written out in full under the table. Bodies and headers keep a medium height (420 px / 220 px) and scroll inside, so a step with a big answer stays one screen; printing drops the cap. .html and .md mask secret values; the .json
 (`alfred.relive.run-report/v1`, `alfred.relive.run-comparison/v1`) keeps them, embeds JSON bodies
 as JSON, and keeps each step's stored checks, request-changed decision, pauses and unexpected calls.
 Exports never truncate call data - guarded by `relive-run-export.spec.ts`.
