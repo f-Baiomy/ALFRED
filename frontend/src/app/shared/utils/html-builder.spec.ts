@@ -527,7 +527,8 @@ describe('buildBulkExportHtml with a whole session cycle', () => {
   it('renders a spacer with no anchor above every call', () => {
     const html = buildBulkExportHtml([makeCall()], makeForm(), new Map(), 'now', [], 'all', makeCycle(), [{ label: 'Start of repro', afterCallId: null }]);
 
-    const headingIndex = html.indexOf('Start of repro');
+    // The label is also in the contents column (before the body); this is the heading in the Calls list.
+    const headingIndex = html.indexOf('🏷️ Start of repro</h3>');
     expect(headingIndex).toBeGreaterThan(html.indexOf('<h2>🔗 Calls</h2>'));
     expect(headingIndex).toBeLessThan(html.indexOf('id="call-1"'));
   });

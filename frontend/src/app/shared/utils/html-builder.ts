@@ -5,8 +5,9 @@ import { detectAndFormatBody } from './body-format';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
-import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
+import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative, NarrativeCallNode } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
+import { CallExportOverview, GlossaryUse, glossaryFor, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -343,6 +344,65 @@ summary.call-summary::-webkit-details-marker { display: none; }
 .json-line-content { white-space: pre; }
 .json-comment-card { margin: 4px 0.9rem 8px 3.4em; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 8px; padding: 6px 9px; font-size: 12px; color: var(--text); }
 mark.json-hl { background: var(--amber); color: #1a1400; border-radius: 2px; padding: 0 1px; }
+/* ---- Layout (specs/export-redesign-mock.html): contents on the left, an answer first, one collapsed
+   card per call, a split parent's two halves framed together, a glossary at the end. ---- */
+body { padding: 0; }
+.doc { max-width: 1320px; margin: 0 auto; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+.doc-main { padding: 2rem 2.2rem 3rem; min-width: 0; }
+.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 1.6rem 0.8rem 1.6rem 1rem; border-right: 1px solid var(--border); font-size: 12.5px; }
+.toc b { display: block; color: var(--text-faint); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; margin: 1rem 0 0.4rem; }
+.toc a { display: flex; gap: 7px; align-items: center; padding: 3px 6px; border-radius: 6px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; }
+.toc a:hover { background: var(--card); color: var(--text); }
+.toc .toc-spacer { color: var(--amber); font-size: 11.5px; padding: 6px 6px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--green); }
+.dot.dot-bad { background: var(--red); } .dot.dot-sent { background: var(--text-faint); } .dot.dot-wait { background: var(--amber); }
+.kicker { color: var(--text-faint); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 0.2rem; }
+.subtitle { font-size: 1.05rem; color: var(--text-dim); margin: 0 0 0.4rem; }
+.exported-line { margin-bottom: 0.6rem; }
+.verdict { margin: 0.9rem 0 0; padding: 0.8rem 1rem; border-radius: 10px; background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--text-faint); font-size: 15px; }
+.verdict .lead { font-weight: 700; }
+.verdict-bad { border-left-color: var(--red); } .verdict-bad .lead { color: var(--red); }
+.verdict-good { border-left-color: var(--green); } .verdict-good .lead { color: var(--green); }
+.verdict-neutral { border-left-color: var(--amber); } .verdict-neutral .lead { color: var(--amber); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin: 0.8rem 0 0.4rem; }
+.tile { background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+.tile b { display: block; font-size: 22px; } .tile span { color: var(--text-dim); font-size: 12px; }
+.flag-index { font-size: 13px; color: var(--text-dim); margin: 0.3rem 0 0; }
+.url-line { display: block; color: var(--text-dim); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; margin-top: 4px; }
+.url-sm { display: block; color: var(--text-faint); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-strong); white-space: nowrap; color: var(--text-dim); vertical-align: middle; }
+.pill-in { color: var(--purple-light); border-color: rgba(91, 141, 239, 0.5); }
+.pill-out { color: #fb923c; border-color: rgba(251, 146, 60, 0.5); }
+.pill-flag { color: var(--amber); border-color: rgba(227, 162, 74, 0.5); }
+.dur { color: var(--text-dim); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; font-weight: 400; }
+table.summary-table td { vertical-align: top; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 0.7rem; }
+.filters button, .card-tools button { font: inherit; font-size: 12px; background: var(--card-inner); color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 2px 11px; cursor: pointer; }
+.filters button.on { border-color: var(--purple); color: var(--text); }
+.card-tools { display: flex; gap: 6px; margin: 0 0 0.6rem; }
+.call-card { border-radius: 12px; margin-bottom: 0.6rem; }
+.call-card:hover { border-color: var(--border-strong); }
+.call-card > summary.call-summary { color: var(--text); padding: 0.7rem 1rem; }
+.call-card > summary.call-summary::before { content: "▸ "; color: var(--text-faint); }
+.call-card[open] > summary.call-summary { border-bottom: 1px solid var(--border); margin-bottom: 0.8rem; }
+.call-card[open] > summary.call-summary::before { content: "▾ "; }
+.call-card > summary.call-summary code { color: var(--purple-light); }
+.call-card > summary .half-link { font-size: 12px; font-weight: 400; margin-left: 6px; }
+.call-card .field-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.call-card .field-list li { background: var(--card-inner); border-radius: 8px; padding: 6px 10px; margin: 0; overflow-wrap: anywhere; }
+.call-card h2 { font-size: 0.95rem; margin: 1.2rem 0 0.6rem; }
+.parent-frame { border: 1px solid rgba(91, 141, 239, 0.35); border-radius: 14px; padding: 0.6rem 0.7rem 0.1rem; margin: 0.4rem 0 0.8rem; background: rgba(91, 141, 239, 0.03); }
+.parent-title { font-size: 13px; padding: 0 0.2rem 0.5rem; }
+.parent-title .parent-why { display: block; color: var(--text-faint); font-size: 12px; }
+.spacer-label { display: flex; align-items: center; gap: 10px; color: var(--amber); font-size: 0.9rem; margin: 1.2rem 0 0.5rem; }
+.spacer-label::after { content: ''; flex: 1; border-top: 1px dashed rgba(227, 162, 74, 0.4); }
+.gloss { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 1.1rem; margin: 0; }
+.gloss dt { font-weight: 600; margin-top: 0.6rem; } .gloss dt:first-child { margin-top: 0; } .gloss dd { margin: 0; color: var(--text-dim); font-size: 0.9rem; }
+.json-lines { max-height: 440px; overflow-y: auto; }
+.json-lines-virtual { max-height: 440px; }
+.is-hidden { display: none !important; }
+@media (max-width: 900px) { .doc { display: block; } .toc { display: none; } .doc-main { padding: 1.2rem 1rem; } }
+@media print { .toc, .filters, .card-tools, .json-toolbar { display: none; } .doc { display: block; } .json-lines, .json-lines-virtual { max-height: none; } }
 .copy-toast { position: fixed; bottom: 20px; right: 20px; background: var(--card); border: 1px solid var(--border-strong); color: var(--text); padding: 8px 14px; border-radius: 8px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 10; }
 .copy-toast.show { opacity: 1; }
 `;
@@ -659,9 +719,33 @@ function initJsonBlock(config) {
   }
 }
 JSON_BLOCKS.forEach(initJsonBlock);
+document.querySelectorAll('[data-filter]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var want = btn.getAttribute('data-filter');
+    document.querySelectorAll('[data-filter]').forEach(function (b) { b.classList.toggle('on', b === btn); });
+    document.querySelectorAll('[data-kinds]').forEach(function (el) {
+      var kinds = ' ' + el.getAttribute('data-kinds') + ' ';
+      el.classList.toggle('is-hidden', want !== 'all' && kinds.indexOf(' ' + want + ' ') < 0);
+    });
+  });
+});
+document.querySelectorAll('[data-cards]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var open = btn.getAttribute('data-cards') === 'open';
+    document.querySelectorAll('details.call-card').forEach(function (d) { d.open = open; });
+  });
+});
+function openTarget() {
+  var id = decodeURIComponent(location.hash.slice(1));
+  var anchor = id && document.getElementById(id);
+  var card = anchor && anchor.nextElementSibling;
+  if (card && card.tagName === 'DETAILS') { card.open = true; }
+}
+window.addEventListener('hashchange', openTarget);
+openTarget();
 `;
 
-function documentShell(title: string, bodyHtml: string, blocks: readonly JsonBlockConfig[]): string {
+function documentShell(title: string, tocHtml: string, bodyHtml: string, blocks: readonly JsonBlockConfig[]): string {
   // "</" inside the JSON payload (e.g. a URL in a header value) would otherwise prematurely close the <script> tag.
   const blocksJson = JSON.stringify(blocks).replace(/<\//g, '<\\/');
   return `<!DOCTYPE html>
@@ -673,7 +757,10 @@ function documentShell(title: string, bodyHtml: string, blocks: readonly JsonBlo
 </head>
 <body>
   <div class="doc">
+<nav class="toc">${tocHtml}</nav>
+<main class="doc-main">
 ${bodyHtml}
+</main>
   </div>
   <div class="copy-toast" id="copy-toast"></div>
 <script>
@@ -756,7 +843,7 @@ function requestPartHtml(call: CallRecord, comments: readonly Comment[], idPrefi
   const reqBody = jsonBlockConfig(`${idPrefix}-req-body`, call.request?.body, commentsForBlock(comments, 'request-body'));
 
   const parts: string[] = [];
-  parts.push('<h2>📤 Request</h2>');
+  parts.push(`<h2 id="${idPrefix}-req">📤 Request</h2>`);
   parts.push('<ul class="field-list">');
   parts.push(`<li><b>Method:</b> ${escapeHtml(call.method)}</li>`);
   parts.push(`<li><b>URL:</b> ${escapeHtml(call.url)}</li>`);
@@ -780,7 +867,7 @@ function responsePartHtml(call: CallRecord, comments: readonly Comment[], idPref
 
   const parts: string[] = [];
   if (leadingHr) parts.push('<hr />');
-  parts.push('<h2>📥 Response</h2>');
+  parts.push(`<h2 id="${idPrefix}-res">📥 Response</h2>`);
   if (call.error) {
     const suffix = call.response ? '' : ' No response was received for this call.';
     parts.push(`<p>⚠️ <b>Error:</b> ${escapeHtml(call.error)}${suffix}</p>`);
@@ -835,19 +922,62 @@ export function buildExportHtml(
     overlapCandidates,
   });
 
+  const overview = callExportOverview([call], new Map([[call.id, comments]]), narrative.topology);
+
+  const toc = [
+    '<b>This export</b>',
+    '<a href="#summary">Summary</a>',
+    '<a href="#about">About This Document</a>',
+    '<a href="#export-details">Supplier &amp; environment</a>',
+    comments.length ? `<a href="#flagged">Flagged issues (${comments.length})</a>` : '',
+    '<a href="#call-req">📤 Request</a>',
+    '<a href="#call-res">📥 Response</a>',
+    '<a href="#glossary">Glossary</a>',
+  ].join('');
+
   const body = [
+    '<div id="summary"><div class="kicker">ALFRED · API call export</div>',
     '<h1>📄 API Call Export</h1>',
+    `<div class="subtitle"><code>${escapeHtml(callLabel(call))}</code> &nbsp; ${statusHtml(call)} &nbsp; ${pillHtml(call)}${call.duration_ms != null ? ` &nbsp; <span class="dur">${formatMs(call.duration_ms)}</span>` : ''}</div>`,
+    `<span class="url-line">${escapeHtml(`${call.method} ${call.url}`)}</span>`,
     `<div class="exported-line">Exported from Alfred/Frontend</div>`,
+    verdictHtml(overview),
+    '</div>',
+    '<a id="about"></a>',
     aboutSectionHtml(narrative),
-    '<h2>🧾 Metadata</h2>',
+    '<a id="export-details"></a><h2>🧾 Metadata</h2>',
     metadataTableHtml(form),
-    flaggedIssuesHtml(comments),
+    comments.length ? `<div id="flagged">${flaggedIssuesHtml(comments)}</div>` : '',
     sectionHtml,
+    glossaryHtml({ flagged: comments.length > 0, changed: !!call.interception }),
     '<hr />',
     '<footer>Exported from Alfred/Frontend</footer>',
   ].join('');
 
-  return documentShell('API Call Export', body, blocks);
+  return documentShell('API Call Export', toc, body, blocks);
+}
+
+// ---- Parts shared by the single and the bulk export (specs/export-redesign-mock.html)
+
+function pillHtml(call: CallRecord): string {
+  return `<span class="pill ${callDirection(call) === 'inbound' ? 'pill-in' : 'pill-out'}">${escapeHtml(directionText(call))}</span>`;
+}
+
+/** The answer first - the same sentence the .md export opens with (call-export-summary.ts). */
+function verdictHtml(overview: CallExportOverview): string {
+  const { verdict } = overview;
+  return `<div class="verdict verdict-${verdict.tone}"><span class="lead">${escapeHtml(verdict.lead)}</span> ${escapeHtml(verdict.text)}</div>`;
+}
+
+function tilesHtml(overview: CallExportOverview): string {
+  const tile = (n: number, label: string, color: string) => `<div class="tile"><b style="color:${color}">${n}</b><span>${label}</span></div>`;
+  return `<div class="tiles">${tile(overview.total, 'calls', 'var(--text)')}${tile(overview.succeeded, 'succeeded', 'var(--green)')}${tile(overview.failed, 'failed', 'var(--red)')}${
+    overview.inProgress ? tile(overview.inProgress, 'in progress', 'var(--amber)') : ''
+  }${tile(overview.inbound, 'inbound (into the app)', 'var(--purple-light)')}${tile(overview.outbound, 'outbound (to suppliers)', '#fb923c')}${tile(overview.flagged, 'flagged lines', 'var(--amber)')}</div>`;
+}
+
+function glossaryHtml(use: GlossaryUse): string {
+  return `<h2 id="glossary">Glossary</h2><dl class="gloss">${glossaryFor(use).map((g) => `<dt>${escapeHtml(g.term)}</dt><dd>${escapeHtml(g.meaning)}</dd>`).join('')}</dl>`;
 }
 
 /**
@@ -1047,6 +1177,12 @@ export function buildBulkExportHtml(
   const allBlocks: JsonBlockConfig[] = [];
   const summaryRows: string[] = [];
   const callSections: string[] = [];
+  const tocRows: string[] = [];
+  const overview = callExportOverview(sortedCalls, commentsByCallId, narrative.topology);
+  const framed = framedParents(blocks);
+  const childNumbers = childNumbersByCallId(narrative.topology);
+  // Split parents whose frame is open at this point in the list, innermost last, with their depth.
+  const openFrames: { callId: string; depth: number }[] = [];
 
   // Placed by the same merge the call list uses, over these blocks in time order - so a spacer sits
   // where it does on screen whatever this export includes (OPTIONS preflights, a filtered subset):
@@ -1054,7 +1190,7 @@ export function buildBulkExportHtml(
   const { before: spacersBeforeBlock, tail: trailingSpacers } = spacerSlots(
     layoutSpacers(blocks, (block) => block.call, spacers, { descending: false, byTime: true }).merged
   );
-  const spacerHtml = (spacer: ExportedSpacer) => `<h3 class="spacer-heading">🏷️ ${escapeHtml(spacer.label)}</h3>`;
+  const spacerHtml = (spacer: ExportedSpacer) => `<h3 class="spacer-heading spacer-label">🏷️ ${escapeHtml(spacer.label)}</h3>`;
 
   blocks.forEach((block) => {
     const { call } = block;
@@ -1062,12 +1198,14 @@ export function buildBulkExportHtml(
     const comments = commentsForVariant(allComments, block.variant);
     for (const spacer of spacersBeforeBlock.get(block) ?? []) {
       callSections.push(spacerHtml(spacer));
+      tocRows.push(`<div class="toc-spacer">🏷️ ${escapeHtml(spacer.label)}</div>`);
     }
     const flaggedCount = comments.length;
     const duration = block.variant !== 'request' && call.duration_ms != null ? formatMs(call.duration_ms) : '—';
     const anchor = blockAnchorId(block);
+    const kinds = blockKinds(block, flaggedCount);
     summaryRows.push(
-      `<tr><td><a href="#${anchor}">${block.n}${blockSuffixHtml(block)}</a></td><td>${escapeHtml(call.method)}</td><td>${escapeHtml(
+      `<tr data-kinds="${kinds}"><td><a href="#${anchor}">${block.n}${blockSuffixHtml(block)}</a></td><td>${escapeHtml(call.method)}</td><td>${escapeHtml(
         call.url
       )}</td><td>${blockStatusHtml(block)}</td><td>${duration}</td><td>${flaggedCount > 0 ? `🚩 ${flaggedCount}` : '—'}</td></tr>`
     );
@@ -1091,36 +1229,151 @@ export function buildBulkExportHtml(
     allBlocks.push(...sectionBlocks);
 
     // Indented to match the topology, so the Calls list reads as the tree it already is: a split
-    // parent's request and response sit at one level with everything it caused nested between them.
-    // The rail makes the relationship readable when a parent's two halves are screens apart.
+    // parent's request and response sit at one level with everything it caused nested between them,
+    // inside one frame that names the whole call. Inside a frame the indent counts from the frame.
     const depth = depthsByCallId.get(call.id) ?? 0;
-    const nestAttrs = depth > 0 ? ` class="json-block call-nested" style="margin-left:${depth * 26}px"` : ' class="json-block"';
-
-    callSections.push(
-      `<a id="${anchor}"></a><details${nestAttrs}><summary class="call-summary"><b>Call ${block.n}</b>${blockSuffixHtml(
-        block
-      )} &nbsp; <code>${escapeHtml(call.method)} ${escapeHtml(uriPath(call.url))}</code> &nbsp; ${blockStatusHtml(
-        block
-      )}</summary><div class="call-summary-body">${flaggedIssuesHtml(comments)}${sectionHtml}</div></details>`
+    if (block.variant === 'request' && framed.has(call.id)) {
+      const base = openFrames.length ? openFrames[openFrames.length - 1].depth : 0;
+      openFrames.push({ callId: call.id, depth });
+      callSections.push(
+        `<div class="parent-frame"${depth - base > 0 ? ` style="margin-left:${(depth - base) * 26}px"` : ''}>${parentTitleHtml(block, childNumbers.get(call.id) ?? [])}`
+      );
+    }
+    const base = openFrames.length ? openFrames[openFrames.length - 1].depth : 0;
+    const indent = depth - base;
+    const nestAttrs = indent > 0 ? ` class="json-block call-card call-nested" style="margin-left:${indent * 26}px"` : ' class="json-block call-card"';
+    tocRows.push(
+      `<a href="#${anchor}" style="padding-left:${6 + depth * 14}px" title="${escapeHtml(`${call.method} ${call.url}`)}"><i class="dot ${dotClass(block)}"></i>${block.n}${
+        block.variant === 'full' ? '' : ` · ${block.variant}`
+      } ${escapeHtml(callLabel(call))}</a>`
     );
+
+    const halfLink =
+      block.variant === 'request' ? ` <a class="half-link" href="#call-${block.n}-response">↓ response</a>` : block.variant === 'response' ? ` <a class="half-link" href="#call-${block.n}">↑ request</a>` : '';
+    callSections.push(
+      `<a id="${anchor}"></a><details${nestAttrs} data-kinds="${kinds}"><summary class="call-summary"><b>Call ${block.n}</b>${blockSuffixHtml(
+        block
+      )} &nbsp; <code>${escapeHtml(call.method)} ${escapeHtml(uriPath(call.url))}</code> &nbsp; ${blockStatusHtml(block)} &nbsp; ${pillHtml(call)}${
+        duration !== '—' ? ` <span class="dur">${duration}</span>` : ''
+      }${flaggedCount > 0 ? ` <span class="pill pill-flag">🚩 ${flaggedCount}</span>` : ''}${halfLink}<span class="url-line">${escapeHtml(
+        `${call.method} ${call.url}`
+      )}</span></summary><div class="call-summary-body">${flaggedIssuesHtml(comments)}${sectionHtml}</div></details>`
+    );
+
+    if (block.variant === 'response' && openFrames.length && openFrames[openFrames.length - 1].callId === call.id) {
+      openFrames.pop();
+      callSections.push('</div>');
+    }
   });
+  // A frame is only opened for a parent whose response closes it (framedParents), so none is left open.
+
+  const flagIndex = overview.flaggedCalls.length
+    ? `<div class="flag-index">🚩 Flagged lines in ${overview.flaggedCalls
+        .map((f) => `<a href="#call-${f.number}">call ${f.number}</a> (${f.count})`)
+        .join(', ')}</div>`
+    : '';
+  const filterButton = (kind: string, label: string, count: number) => (count > 0 ? `<button type="button" data-filter="${kind}">${label} ${count}</button>` : '');
+  const filters = `<div class="filters"><button type="button" class="on" data-filter="all">All ${blocks.length}</button>${filterButton('failed', 'Failed', overview.failed)}${filterButton(
+    'flagged',
+    'Flagged',
+    overview.flaggedCalls.length
+  )}${filterButton('inbound', 'Inbound', overview.inbound)}${filterButton('outbound', 'Outbound', overview.outbound)}</div>`;
+
+  const toc = [
+    '<b>This export</b>',
+    '<a href="#summary">Summary</a>',
+    '<a href="#about">About This Document</a>',
+    '<a href="#export-details">Supplier &amp; environment</a>',
+    '<a href="#all-calls">All calls</a>',
+    '<a href="#calls">Calls</a>',
+    '<a href="#glossary">Glossary</a>',
+    `<b>Calls (${calls.length})</b>`,
+    tocRows.join(''),
+    ...trailingSpacers.map((spacer) => `<div class="toc-spacer">🏷️ ${escapeHtml(spacer.label)}</div>`),
+  ].join('');
 
   const body = [
+    '<div id="summary"><div class="kicker">ALFRED · API calls export</div>',
     `<h1>📋 API Calls Export — ${calls.length} ${callWord}</h1>`,
+    cycle ? `<div class="subtitle">Session cycle "${escapeHtml(cycle.name)}"</div>` : '',
     `<div class="exported-line">Exported: ${escapeHtml(exportedAt)} &nbsp;•&nbsp; Succeeded: ${succeeded} ✅ &nbsp;•&nbsp; Failed: ${failed} ❌ &nbsp;•&nbsp; Total duration: ${formatMs(totalDurationMs)}</div>`,
+    verdictHtml(overview),
+    tilesHtml(overview),
+    flagIndex,
+    '</div>',
+    '<a id="about"></a>',
     aboutSectionHtml(narrative),
-    '<h2>🧾 Metadata</h2>',
+    '<a id="export-details"></a><h2>🧾 Metadata</h2>',
     metadataTableHtml(form),
-    '<h2>📊 Summary</h2>',
-    `<table class="metadata"><tr><td>#</td><td>Method</td><td>URL</td><td>Status</td><td>Duration</td><td>Flagged</td></tr>${summaryRows.join('')}</table>`,
-    '<h2>🔗 Calls</h2>',
+    '<a id="all-calls"></a><h2>📊 Summary</h2>',
+    filters,
+    `<table class="metadata summary-table"><tr><td>#</td><td>Method</td><td>URL</td><td>Status</td><td>Duration</td><td>Flagged</td></tr>${summaryRows.join('')}</table>`,
+    '<a id="calls"></a><h2>🔗 Calls</h2>',
+    '<div class="card-tools"><button type="button" data-cards="open">Open all</button><button type="button" data-cards="close">Close all</button></div>',
     callSections.join(''),
     ...trailingSpacers.map(spacerHtml),
+    glossaryHtml({ split: staysSplitIds.size > 0, spacers: spacers.length > 0, flagged: totalFlagged > 0, changed: calls.some((c) => !!c.interception), cycle: !!cycle }),
     '<hr />',
     `<footer>Exported from Alfred/Frontend — ${calls.length} call${calls.length === 1 ? '' : 's'}, ${totalFlagged} flagged issue${totalFlagged === 1 ? '' : 's'} total</footer>`,
   ].join('');
 
-  return documentShell(`API Calls Export - ${calls.length} ${callWord}`, body, allBlocks);
+  return documentShell(`API Calls Export - ${calls.length} ${callWord}`, toc, body, allBlocks);
+}
+
+/**
+ * The split parents whose request and response halves can be framed together: a parent qualifies
+ * when nothing opened after its request is still open at its response, so frames always nest.
+ * One that interleaves with another split parent keeps today's two separate halves, unframed.
+ */
+function framedParents(blocks: readonly RenderBlock[]): ReadonlySet<string> {
+  const open: string[] = [];
+  const framed = new Set<string>();
+  for (const block of blocks) {
+    if (block.variant === 'request') open.push(block.call.id);
+    if (block.variant !== 'response') continue;
+    const at = open.lastIndexOf(block.call.id);
+    if (at === -1) continue;
+    if (at === open.length - 1) framed.add(block.call.id);
+    open.splice(at, 1);
+  }
+  return framed;
+}
+
+/** Each call's direct children in the narrative tree, by their export numbers ("caused calls 3 and 4"). */
+function childNumbersByCallId(topology: readonly NarrativeCallNode[]): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  const walk = (nodes: readonly NarrativeCallNode[]) => {
+    for (const node of nodes) {
+      out.set(node.callId, node.children.map((c) => c.number));
+      walk(node.children);
+    }
+  };
+  walk(topology);
+  return out;
+}
+
+function parentTitleHtml(block: RenderBlock, children: readonly number[]): string {
+  const { call } = block;
+  const outcome = call.error ? `error: ${call.error}` : call.response ? String(call.response.status) : 'no answer';
+  const caused = children.length ? ` · caused call${children.length === 1 ? '' : 's'} ${children.length === 1 ? children[0] : `${children.slice(0, -1).join(', ')} and ${children[children.length - 1]}`}` : '';
+  return `<div class="parent-title"><b>${block.n} · ${escapeHtml(callLabel(call))}</b> <span class="dur">${escapeHtml(directionText(call))} · ${escapeHtml(outcome)}${
+    call.duration_ms != null ? ` · ${formatMs(call.duration_ms)}` : ''
+  }${caused}</span><span class="parent-why">Shown as two halves - when it was sent and when it answered - with the calls it made in between.</span></div>`;
+}
+
+/** What the filter chips match a block on. A request half has no outcome yet - it is "sent". */
+function blockKinds(block: RenderBlock, flaggedCount: number): string {
+  const { call } = block;
+  const kinds: string[] = [callDirection(call)];
+  if (block.variant !== 'request') kinds.push(callSucceeded(call) ? 'succeeded' : isInProgress(call) ? 'in-progress' : 'failed');
+  if (flaggedCount > 0) kinds.push('flagged');
+  return kinds.join(' ');
+}
+
+function dotClass(block: RenderBlock): string {
+  if (block.variant === 'request') return 'dot-sent';
+  if (isInProgress(block.call)) return 'dot-wait';
+  return callSucceeded(block.call) ? '' : 'dot-bad';
 }
 
 export function exportHtmlFilename(call: CallRecord): string {
