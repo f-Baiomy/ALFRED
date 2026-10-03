@@ -155,6 +155,36 @@ class RunSnapshotBuilderTest {
     }
 
     @Test
+    void extractionsThatRememberTheRecordedValueArePublishedAsSwaps() throws Exception {
+        JsonNode extract = objectMapper.readTree("""
+                [{"from":"COOKIE","path":"JSESSIONID","as":"JSESSIONID","missing":"SKIP","recordedValue":"5BHTcx"},
+                 {"from":"JSON","path":"data.id","as":"bookingId","missing":"SKIP"}]
+                """);
+        Step login = new Step("s-login", null, "login", true, false, "inbound", "odeysys",
+                new CycleRule(objectMapper.createObjectNode(), null), "BLOCK",
+                recording("http://localhost/loginAction", "POST", "{}"),
+                new StepSource("s-login", null, "inbound"),
+                extract, objectMapper.createArrayNode(), List.of(), null, null);
+
+        JsonNode published = builder.build(run(cycleWithVariables(List.of(login), List.of())));
+
+        assertThat(published.path("swaps")).hasSize(1);
+        assertThat(published.path("swaps").get(0).path("name").asText()).isEqualTo("JSESSIONID");
+        assertThat(published.path("swaps").get(0).path("recorded").asText()).isEqualTo("5BHTcx");
+        assertThat(published.path("replayIgnoresCredentials").asBoolean()).isTrue();
+    }
+
+    @Test
+    void credentialsCountInAReplayMatchWhenTheCycleTurnsItOff() {
+        ReliveCycle base = cycleWithVariables(List.of(), List.of());
+        ReliveCycle strict = new ReliveCycle(base.id(), base.name(), null, base.steps(), base.variables(), List.of(),
+                base.globalRules(), new ReliveSettings("LIVE", "HOLD", "CONTINUE", "AUTOMATIC", List.of(), true, false),
+                List.of(), base.unexpectedCalls(), "t0", "t0", false, null);
+
+        assertThat(builder.build(run(strict)).path("replayIgnoresCredentials").asBoolean()).isFalse();
+    }
+
+    @Test
     void inboundStepRuleIsPublishedSoItsResponseCaptureCanRun() throws Exception {
         JsonNode captureRule = objectMapper.readTree("""
                 {"name":"capture session","enabled":true,"match":{},"actions":[

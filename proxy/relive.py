@@ -1134,8 +1134,27 @@ def _relive_answers_dir(run_id, runs=None):
     return os.path.join(base_dir, 'answers', run_id)
 
 
+def _match_context(run):
+    """What a REPLAY call's "matches the recording" test needs from the run (snapshot `swaps` and
+    `replayIgnoresCredentials`): each value this run produced in place of the one the recording had
+    - read at call time from the run's variables and this process's overlay, so a value extracted
+    a moment ago already counts - and whether credentials are left out of the comparison."""
+    values = run.get('variables') if isinstance(run.get('variables'), dict) else {}
+    overlay = interception.relive_overlay(run.get('runId'), run.get('_mtime'))
+    swaps = []
+    for entry in run.get('swaps') or []:
+        if not isinstance(entry, dict):
+            continue
+        name, recorded = entry.get('name'), entry.get('recorded')
+        current = overlay.get(name, values.get(name))
+        if isinstance(recorded, str) and recorded and isinstance(current, str) and current and current != recorded:
+            swaps.append((current, recorded))
+    return {'swaps': swaps, 'ignoreCredentials': run.get('replayIgnoresCredentials') is not False}
+
+
 def _set_flow_context(flow, run, step_key, step=None):
     flow.metadata['_relive_step'] = step
+    flow.metadata['_relive_match'] = _match_context(run)
     flow.metadata['_relive_context'] = {
         'cycleId': run.get('cycleId'), 'runId': run.get('runId'), 'stepKey': step_key,
         'mtime': run.get('_mtime'),

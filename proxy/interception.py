@@ -571,6 +571,28 @@ def _generated_header(name):
             or folded.startswith('x-alfred-') or _TRACE_HEADER.search(folded) is not None)
 
 
+# Left out of a Relive replay match when the cycle says so (ReliveSettings.replayIgnoresCredentials):
+# the application authenticates to its supplier with a token it obtained itself, after the recording.
+CREDENTIAL_HEADERS = ('authorization', 'proxy-authorization')
+
+
+def unswap_values(text, swaps):
+    """`text` with each (run value, recorded value) pair put back to the recorded value - also in its
+    URL-encoded form, since the same token travels raw in a header and encoded in a query string.
+    Longest run value first, so a value that contains a shorter one is replaced whole."""
+    if not text or not swaps:
+        return text
+    result = text
+    for current, recorded in sorted(swaps, key=lambda pair: -len(pair[0])):
+        if not current or current == recorded:
+            continue
+        result = result.replace(current, recorded)
+        encoded = urllib.parse.quote(current, safe='')
+        if encoded != current:
+            result = result.replace(encoded, urllib.parse.quote(recorded, safe=''))
+    return result
+
+
 def stable_header_items(headers, ignore_names=()):
     """(name, value) pairs that are part of the call, not stamped per request.
 
@@ -2008,19 +2030,27 @@ class Condition:
         if not recorded or recorded.get('kind') not in (None, 'RECORDED_REQUEST'):
             return False
         try:
-            return self._recorded_call_matches(flow.request, recorded)
+            return self._recorded_call_matches(flow.request, recorded, metadata.get('_relive_match'))
         except Exception:
             # Never let a malformed recording or an unexpected request shape turn "we could not
             # tell" into "it matches" - see the safety invariant above.
             return False
 
-    def _recorded_call_matches(self, request, recorded):
+    def _recorded_call_matches(self, request, recorded, relive_match=None):
         """URL, method, the headers the application set, and the body.
 
         Pretty-printed JSON and SOAP match their compact form, and JSON key order does not
         matter. Headers a client or proxy generates per call (Content-Length, trace ids, …)
         are not part of the comparison unless the condition asks for every header.
+
+        `relive_match` (a Relive run's call, `relive._match_context`) carries the run's value
+        swaps - each value this run produced in place of one the recording had - which are put
+        back to the recorded value before comparing, and whether credentials are left out. The
+        application sending a fresh token is the run working, not the request changing.
         """
+        swaps = tuple((relive_match or {}).get('swaps') or ())
+        unswap = (lambda text: unswap_values(text, swaps)) if swaps else (lambda text: text)
+        extra_ignored = list(CREDENTIAL_HEADERS) if (relive_match or {}).get('ignoreCredentials') else []
         try:
             live_query = getattr(request, 'query', None) or {}
         except Exception:
@@ -2039,13 +2069,18 @@ class Condition:
             recorded.get('path'),
             recorded.get('query') or '',
         )
+        if swaps:
+            live = (live[0], live[1], live[2], unswap(live[3]), unswap(live[4]))
         if not endpoints_match(live, recorded_ep):
             return False
-        if not _bodies_match(_body(request) or '', recorded.get('body') or '', self.ignore_paths,
+        if not _bodies_match(unswap(_body(request) or ''), recorded.get('body') or '', self.ignore_paths,
                              recorded.get('body_canonical')):
             return False
-        ignore_names = [p[8:] for p in self.ignore_paths if p.startswith('headers.')]
-        live_headers = stable_header_items(getattr(request, 'headers', {}) or {}, ignore_names)
+        ignore_names = [p[8:] for p in self.ignore_paths if p.startswith('headers.')] + extra_ignored
+        live_header_map = getattr(request, 'headers', {}) or {}
+        if swaps:
+            live_header_map = {key: unswap(str(value)) for key, value in live_header_map.items()}
+        live_headers = stable_header_items(live_header_map, ignore_names)
         if ignore_names or recorded.get('stable_headers') is None:
             recorded_headers = stable_header_items(recorded.get('headers') or {}, ignore_names)
         else:
@@ -2054,8 +2089,9 @@ class Condition:
             return False
         if self.compare_headers:
             # Opt-in: also the generated headers, still minus any ignore path.
-            live_all = _strip_ignored_headers(dict(request.headers), self.ignore_paths)
-            recorded_all = _strip_ignored_headers(recorded.get('headers') or {}, self.ignore_paths)
+            all_ignored = tuple(self.ignore_paths) + tuple('headers.' + name for name in extra_ignored)
+            live_all = _strip_ignored_headers(dict(live_header_map), all_ignored)
+            recorded_all = _strip_ignored_headers(recorded.get('headers') or {}, all_ignored)
             if live_all != recorded_all:
                 return False
         return True

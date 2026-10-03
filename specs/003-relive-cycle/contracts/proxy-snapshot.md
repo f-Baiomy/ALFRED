@@ -17,6 +17,8 @@ loader in `interception.py`; the directory mtime is checked at most once per sec
   "projects": ["odeysys", "core-service"],
   "variables": { "searchId": "xyz", "token": "•secret•" },
   "secrets": ["token"],
+  "swaps": [{ "name": "sessionId", "recorded": "5BHTcxqCqUWJL0Fe" }],
+  "replayIgnoresCredentials": true,
   "steps": [
     {
       "stepKey": "s-search",
@@ -81,6 +83,12 @@ loader in `interception.py`; the directory mtime is checked at most once per sec
   evaluates `unexpectedCalls.rules` with the same evaluator (first match wins, `stopProcessing` implied), then
   `fallback`. Cycle rules and participating global rules still apply after, as in D4.
 - `secrets` lists variable names whose values must be masked in anything the proxy logs.
+- `swaps` lists step extractions that remember the value their recording had (`recordedValue`). When the
+  variable now holds another value, a `MATCHES_RECORDED_CALL` test puts the recorded value back in the live
+  request (raw and URL-encoded) before comparing - the app sending the token this run obtained is not a
+  changed request. The current value is read from `variables` and the proxy's own overlay at call time.
+- `replayIgnoresCredentials` (default true when absent) leaves `Authorization` and `Proxy-Authorization` out
+  of that test.
 - `state` is `RUNNING` or `STOPPING` (FR-033). While `STOPPING`, the addon ignores every call rule, unexpected-call
   policy and unattributed choice of the run: every call attributed to the run, and every unattributed call that
   would match one of its REPLAY children, is answered `502 {"error":"Blocked by ALFRED Relive - run stopping","runId":…}`

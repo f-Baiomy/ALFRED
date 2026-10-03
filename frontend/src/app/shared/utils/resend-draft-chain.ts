@@ -53,7 +53,49 @@ function extractOne(response: ResendResponseSnapshot, rule: ExtractRule): string
     }
     return undefined;
   }
+  if (rule.from === 'XML') return xmlValue(response.body, path);
+  if (rule.from === 'REGEX') return regexValue(response.body, rule.path);
   return cookieValue(response.headers, path);
+}
+
+/** The first element (or `@attribute` of it) whose own name and the names of the elements above
+ *  it end with `path`'s segments - so `token`, `LoginResponse.token` and the full
+ *  `Envelope.Body.LoginResponse.token` all find the same SOAP field. Prefixes never count. */
+export function xmlValue(body: string | null | undefined, path: string): string | undefined {
+  if (!body || typeof DOMParser === 'undefined') return undefined;
+  const doc = new DOMParser().parseFromString(body, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) return undefined;
+  const segments = path.split('.').map((s) => s.trim()).filter(Boolean);
+  const attribute = segments.length && segments[segments.length - 1].startsWith('@') ? segments.pop()!.slice(1) : null;
+  if (!segments.length) return undefined;
+  const all = doc.getElementsByTagName('*');
+  for (let i = 0; i < all.length; i++) {
+    let el: Element | null = all[i];
+    let matched = true;
+    for (let s = segments.length - 1; s >= 0; s--) {
+      if (!el || el.localName !== segments[s]) { matched = false; break; }
+      el = el.parentElement;
+    }
+    if (!matched) continue;
+    if (attribute === null) return (all[i].textContent ?? '').trim();
+    for (const attr of Array.from(all[i].attributes)) {
+      if (attr.localName === attribute) return attr.value;
+    }
+  }
+  return undefined;
+}
+
+/** The pattern's first group (or the whole match) in the body. An invalid pattern finds nothing. */
+export function regexValue(body: string | null | undefined, pattern: string): string | undefined {
+  if (!body || !pattern) return undefined;
+  let found: RegExpExecArray | null;
+  try {
+    found = new RegExp(pattern).exec(body);
+  } catch {
+    return undefined;
+  }
+  if (!found) return undefined;
+  return found.length > 1 ? found[1] ?? undefined : found[0];
 }
 
 /**
@@ -62,15 +104,43 @@ function extractOne(response: ResendResponseSnapshot, rule: ExtractRule): string
  * so a new cookie only starts where a comma is followed by a bare `name=`, not by an attribute.
  */
 function cookieValue(headers: Readonly<Record<string, string>>, name: string): string | undefined {
+  return setCookies(headers).find((c) => c.name === name)?.value;
+}
+
+/** One cookie a response sets. `cleared`: Max-Age=0 or an Expires in the past - the server
+ *  deleting it (a logout), so a browser would stop sending it. */
+export interface SetCookie {
+  readonly name: string;
+  readonly value: string;
+  readonly cleared: boolean;
+}
+
+export function setCookies(headers: Readonly<Record<string, string>>): SetCookie[] {
   const raw = Object.entries(headers).find(([h]) => h.toLowerCase() === 'set-cookie')?.[1];
-  if (!raw) return undefined;
+  if (!raw) return [];
+  const out: SetCookie[] = [];
   for (const part of raw.split(/,(?=\s*[^=;,\s]+=)/)) {
     const eq = part.indexOf('=');
     if (eq < 0) continue;
-    const cookieName = part.slice(0, eq).trim();
-    if (cookieName === name) return part.slice(eq + 1).split(';')[0].trim();
+    const [pair, ...attributes] = part.split(';');
+    const name = pair.slice(0, pair.indexOf('=')).trim();
+    if (!name) continue;
+    const value = pair.slice(pair.indexOf('=') + 1).trim();
+    out.push({ name, value, cleared: attributes.some(isClearingAttribute) });
   }
-  return undefined;
+  return out;
+}
+
+function isClearingAttribute(attribute: string): boolean {
+  const [key, ...rest] = attribute.split('=');
+  const name = key.trim().toLowerCase();
+  const value = rest.join('=').trim();
+  if (name === 'max-age') return Number(value) <= 0;
+  if (name === 'expires') {
+    const at = Date.parse(value);
+    return !Number.isNaN(at) && at < Date.now();
+  }
+  return false;
 }
 
 const THIS_TOKEN = /\{\{this\.([A-Za-z0-9_.-]+)\}\}/g;

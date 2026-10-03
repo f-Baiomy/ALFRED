@@ -34,9 +34,19 @@
           }
           @case ('variables') {
             @for (v of result().variablesUsed; track v.name) {
-              <div><code>{{ '{{$.' + v.name + '}}' }}</code> = <code>{{ mask(v.value) }}</code></div>
+              <div>
+                <code>{{ '{{$.' + v.name + '}}' }}</code> = <code>{{ mask(v.value) }}</code>
+                @if (session()?.swapped?.includes(v.name)) {
+                  <span class="muted"> - sent in place of the recorded value</span>
+                }
+              </div>
             } @empty {
-              <div class="muted">No variables were used.</div>
+              @if (!session()?.cookies?.length) {
+                <div class="muted">No variables were used.</div>
+              }
+            }
+            @if (session()?.cookies?.length) {
+              <div>Cookies from earlier steps' responses: <code>{{ session()!.cookies.join(', ') }}</code></div>
             }
           }
           @case ('sent') {

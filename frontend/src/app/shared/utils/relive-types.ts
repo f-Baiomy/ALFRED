@@ -50,6 +50,12 @@ export interface ReliveSettings {
   readonly defaultDriver: ReliveDriver;
   /** Hosts (or suffixes, e.g. ".internal") that never count as "reaching an external system". */
   readonly internalHosts: readonly string[];
+  /** Automatic runs: each Set-Cookie a step receives replaces that cookie in later steps' Cookie
+   *  header (relive-session.ts). Absent (a cycle saved before it) reads as on. */
+  readonly carryCookies?: boolean;
+  /** A REPLAY supplier call still matches its recording when only its Authorization header is
+   *  new - the app authenticating itself. Read by the proxy; absent reads as on. */
+  readonly replayIgnoresCredentials?: boolean;
 }
 
 /** The recorded call as ALFRED already serves it in call detail (data-model.md "FrozenCall"). */

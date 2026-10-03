@@ -762,6 +762,50 @@ describe('ReliveRunService', () => {
     });
   });
 
+  describe('keeping the run logged in', () => {
+    function loginAndNext(settings?: Partial<ReliveCycle['settings']>) {
+      const login = inboundStep({
+        recording: { ...inboundStep().recording, responseHeaders: { 'Set-Cookie': 'JSESSIONID=OLD-SESSION-1; Path=/' }, responseBody: '{"token":"OLD-TOKEN-0001"}' },
+        extract: [{ from: 'JSON', path: 'token', as: 'token', missing: 'SKIP', recordedValue: 'OLD-TOKEN-0001' }],
+      });
+      const next = { ...logoutStep(), recording: { ...logoutStep().recording,
+        requestHeaders: { Cookie: 'lang=en; JSESSIONID=OLD-SESSION-1', Authorization: 'Bearer OLD-TOKEN-0001' },
+        requestBody: '{"token":"OLD-TOKEN-0001"}' } };
+      const cycle = { ...cycleOf([login, next]), settings: { ...cycleOf([]).settings, ...settings } };
+      const run = { ...runOf([login, next]), definition: cycle };
+      reliveApi.startRun.and.returnValue(of(run));
+      reliveApi.finishRun.and.returnValue(of({ ...run, status: 'COMPLETED' }));
+      resendApi.resend.and.returnValues(
+        of<ResendResult>({ newCallId: 'new-login', status: 200, durationMs: 1, sessionValuesUsed: [],
+          response: { status: 200, headers: { 'Set-Cookie': 'JSESSIONID=NEW-SESSION-9; Path=/; HttpOnly' }, body: '{"token":"NEW-TOKEN-7777"}' } }),
+        of<ResendResult>({ newCallId: 'new-next', status: 200, durationMs: 1, sessionValuesUsed: [], response: { status: 200, headers: {}, body: '{}' } }),
+      );
+      return cycle;
+    }
+
+    it('sends the session cookie and token the earlier step got, not the recorded ones', async () => {
+      const cycle = loginAndNext();
+
+      await service.start(cycle, { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+      const sent = resendApi.resend.calls.argsFor(1)[0].edits!;
+      expect(sent.headers!['Cookie']).toBe('lang=en; JSESSIONID=NEW-SESSION-9');
+      expect(sent.headers!['Authorization']).toBe('Bearer NEW-TOKEN-7777');
+      expect(sent.body).toBe('{"token":"NEW-TOKEN-7777"}');
+      const result = service.results()['logout'];
+      expect(result.variablesUsed).toContain({ name: 'token', value: 'NEW-TOKEN-7777' });
+      expect(result.editsApplied).toEqual({ session: { swapped: ['token'], cookies: ['JSESSIONID'] } });
+    });
+
+    it('sends the recorded cookie when the cycle turns carrying cookies off', async () => {
+      const cycle = loginAndNext({ carryCookies: false });
+
+      await service.start(cycle, { driver: 'AUTOMATIC', unattributedChoices: {} });
+
+      expect(resendApi.resend.calls.argsFor(1)[0].edits!.headers!['Cookie']).toBe('lang=en; JSESSIONID=OLD-SESSION-1');
+    });
+  });
+
   it('resolves global and Relive variables from separate scopes before resending', async () => {
     globalState.set({ variables: { globalId: 'G-1' }, fallbacks: {} });
     const login = inboundStep({ recording: { ...inboundStep().recording,

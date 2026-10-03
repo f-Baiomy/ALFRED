@@ -22,6 +22,7 @@ import { extractValues } from '../../shared/utils/resend-draft-chain';
 import { StepChecks, checkCount, stepChecks } from '../../shared/utils/relive-checks';
 import { NameSuggestion, headerSuggestions, responseCookieSuggestions } from '../../shared/utils/name-suggestions';
 import { ExtractRule } from '../../shared/utils/scenario-types';
+import { recordedValueOf } from '../../shared/utils/relive-chains';
 
 type Box = 'recorded' | 'mode' | 'edits' | 'variables' | 'rule' | 'answer' | 'values';
 
@@ -86,6 +87,8 @@ export class ReliveStepPanelComponent {
     { value: 'JSON', label: 'JSON field' },
     { value: 'HEADER', label: 'Header' },
     { value: 'COOKIE', label: 'Cookie' },
+    { value: 'XML', label: 'XML / SOAP element' },
+    { value: 'REGEX', label: 'Pattern (regex)' },
   ];
   readonly extractMissingOptions: readonly SelectOption[] = [
     { value: 'SKIP', label: 'Skip if missing' },
@@ -140,7 +143,9 @@ export class ReliveStepPanelComponent {
     const later = this.steps().slice(index + 1);
     return step.extract.map((rule) => {
       const found = rule.path.trim() ? extractValues(responseOf(step), [{ ...rule, missing: 'SKIP' }])[rule.as] : undefined;
-      const usedBy = rule.as ? later.filter((s) => variablesUsedBy(s).includes(rule.as)).map((s) => s.label) : [];
+      const swapped = rule.recordedValue;
+      const sendsRecorded = (s: Step) => !!swapped && [s.recording.url, s.recording.requestBody ?? '', ...Object.values(s.recording.requestHeaders)].some((text) => text.includes(swapped));
+      const usedBy = rule.as ? later.filter((s) => variablesUsedBy(s).includes(rule.as) || sendsRecorded(s)).map((s) => s.label) : [];
       if (found !== undefined) return { found: true, value: found, fallback: false, usedBy };
       return { found: false, value: rule.missing === 'FALLBACK' ? (rule.fallback ?? '') : null, fallback: rule.missing === 'FALLBACK', usedBy };
     });
@@ -316,7 +321,17 @@ export class ReliveStepPanelComponent {
   }
 
   updateExtractRule(index: number, patch: Partial<ExtractRule>): void {
-    this.stepChange.emit({ ...this.step(), extract: this.step().extract.map((r, i) => (i === index ? { ...r, ...patch } : r)) });
+    const step = this.step();
+    this.stepChange.emit({ ...step, extract: step.extract.map((r, i) => {
+      if (i !== index) return r;
+      const next: ExtractRule = { ...r, ...patch };
+      // A value a run swaps in must stand for what THIS path found in the recording - re-read it,
+      // or a rule pointed somewhere else would keep replacing the old value.
+      if (r.recordedValue === undefined || (patch.from === undefined && patch.path === undefined)) return next;
+      const recordedValue = recordedValueOf(step, next);
+      const { recordedValue: _stale, ...rest } = next;
+      return recordedValue ? { ...rest, recordedValue } : rest;
+    }) });
   }
 
   removeExtractRule(index: number): void {

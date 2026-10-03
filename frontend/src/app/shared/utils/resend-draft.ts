@@ -17,11 +17,17 @@ export interface DraftHeader {
  * which also reads `as` names when building assertions) and resend-draft-chain.ts for evaluation.
  */
 export interface ExtractRule {
-  readonly from: 'JSON' | 'HEADER' | 'COOKIE';
+  /** JSON: a dotted field path. HEADER / COOKIE: a name. XML: element names from the outside in,
+   *  namespace prefixes ignored, `@name` last for an attribute (`Body.LoginResponse.token`).
+   *  REGEX: a pattern run on the body - its first group, or the whole match without one. */
+  readonly from: 'JSON' | 'HEADER' | 'COOKIE' | 'XML' | 'REGEX';
   readonly path: string;
   readonly as: string;
   readonly missing: 'SKIP' | 'FALLBACK';
   readonly fallback?: string;
+  /** Relive only: the value the recording had. A run puts its own value wherever this one
+   *  appears in a later step (relive-session.ts `swapRecordedValues`) - no edit to those steps. */
+  readonly recordedValue?: string;
 }
 
 /** D1/F-SCENARIO: an assertion evaluated against a DraftResult. Owned by F-SCENARIO; the type is

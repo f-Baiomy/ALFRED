@@ -1,0 +1,75 @@
+<div class="rl-capture-card rl-session-card">
+  <div class="rl-row rl-wrap rl-gap-6">
+    <b>Session</b>
+    @if (pending().length) {
+      <span class="rl-pill rl-p-live">{{ pending().length }} value{{ pending().length === 1 ? '' : 's' }} passed between steps not used yet</span>
+    } @else if (chains().length) {
+      <span class="rl-pill rl-p-replay">✓ values passed between steps are carried</span>
+    }
+    <span class="rl-pill rl-p-wait">cookies {{ carryCookies() ? 'carried' : 'as recorded' }}</span>
+    <span class="rl-pill rl-p-wait">replay {{ ignoreCredentials() ? 'ignores' : 'compares' }} fresh credentials</span>
+    <span class="rl-spacer"></span>
+    @if (pending().length) {
+      <button class="rl-btn rl-sm rl-primary" (click)="use(pending())">Use all {{ pending().length }}</button>
+    }
+    @if (used().length) {
+      <button class="rl-btn rl-sm" (click)="stopUsing(used())">Clear all {{ used().length }}</button>
+    }
+    <button class="rl-btn rl-sm" (click)="expanded.set(!expanded())">{{ expanded() ? 'Hide' : 'Review' }}</button>
+  </div>
+
+  @if (expanded()) {
+    @if (chains().length) {
+      <div class="rl-dim rl-mt-8 rl-mb-6">
+        Values an earlier step's response handed back and a later step sent again. Without them a run re-sends the recorded
+        session and token, and the app answers "please log in".
+      </div>
+      @for (chain of chains(); track chain.fromStepKey + chain.kind + chain.path) {
+        <label class="rl-row rl-wrap rl-gap-6 rl-session-chain">
+          <input
+            class="rl-check"
+            type="checkbox"
+            [checked]="chain.applied || carriedByJar(chain)"
+            [disabled]="carriedByJar(chain)"
+            [title]="carriedByJar(chain) ? 'Carried by the cookie jar - turn off Carry cookies below to choose it yourself' : chain.applied ? 'Stop swapping this value' : 'Swap in this run value'"
+            (change)="toggle(chain, $any($event.target).checked)"
+          />
+          <span class="rl-pill rl-p-wait">{{ chain.kind === 'JSON' ? 'JSON' : chain.kind === 'XML' ? 'XML' : chain.kind === 'COOKIE' ? 'Cookie' : 'Header' }}</span>
+          <code class="rl-mono">{{ chain.path }}</code>
+          <span class="rl-dim">from</span> <b>{{ label(chain.fromStepKey) }}</b>
+          <span class="rl-dim">→ {{ whereText(chain) }}</span>
+          <code class="rl-mono rl-dim" title="The recorded value">{{ masked(chain.recordedValue) }}</code>
+          <span class="rl-spacer"></span>
+          @if (chain.applied) {
+            <span class="rl-pill rl-p-replay">{{ '{{$.' + chain.name + '}}' }}</span>
+          } @else if (carriedByJar(chain)) {
+            <span class="rl-pill rl-p-replay" title="The run's cookie jar sends the value the earlier step's response set">carried automatically</span>
+          } @else {
+            <span class="rl-pill rl-p-wait">as {{ '{{$.' + chain.name + '}}' }}</span>
+          }
+        </label>
+      }
+      <div class="rl-dim rl-mt-8">
+        Ticking a value adds an extraction to the step it came from; unticking removes it. Later steps keep their recording - a run sends its own value
+        wherever the recorded one appears (URL, headers, body).
+      </div>
+    } @else {
+      <div class="rl-dim rl-mt-8">No value from one step's response is sent again by a later step.</div>
+    }
+
+    <label class="rl-check-row rl-mt-8">
+      <input class="rl-check" type="checkbox" [checked]="carryCookies()" (change)="setCarryCookies($any($event.target).checked)" />
+      <span>
+        <b>Carry cookies between steps</b><br />
+        <span class="rl-dim">Each Set-Cookie a step receives replaces that cookie in later steps, as a browser would. Automatic runs only - a Guided run uses your browser's cookies.</span>
+      </span>
+    </label>
+    <label class="rl-check-row">
+      <input class="rl-check" type="checkbox" [checked]="ignoreCredentials()" (change)="setIgnoreCredentials($any($event.target).checked)" />
+      <span>
+        <b>Replayed supplier calls ignore fresh credentials</b><br />
+        <span class="rl-dim">A REPLAY call whose only change is a new Authorization header, or a value this run swapped in, still matches its recording. It is still answered by ALFRED - nothing reaches the supplier.</span>
+      </span>
+    </label>
+  }
+</div>

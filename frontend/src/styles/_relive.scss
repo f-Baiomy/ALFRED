@@ -1991,6 +1991,15 @@ h3.rl-caps-head-gap {
   background: var(--card-inner);
 }
 
+.rl-session-card {
+  margin-bottom: 10px;
+}
+.rl-session-chain {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-strong);
+  font-size: 12.5px;
+}
+
 .rl-capture-card {
   border: 1px solid var(--border-strong);
   border-radius: 9px;

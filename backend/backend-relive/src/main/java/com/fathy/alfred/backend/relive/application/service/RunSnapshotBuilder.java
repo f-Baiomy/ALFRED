@@ -77,6 +77,29 @@ public class RunSnapshotBuilder {
         return projects;
     }
 
+    /** Every step extraction that remembers the value its recording had ({@code recordedValue}),
+     *  by variable name - what a run swaps for the value it produced itself. */
+    public static Map<String, String> swapsOf(ReliveCycle cycle) {
+        Map<String, String> swaps = new LinkedHashMap<>();
+        if (cycle.steps() == null) {
+            return swaps;
+        }
+        for (Step step : cycle.steps()) {
+            JsonNode extract = step.extract();
+            if (extract == null || !extract.isArray()) {
+                continue;
+            }
+            for (JsonNode rule : extract) {
+                String name = textOrNull(rule, "as");
+                String recorded = textOrNull(rule, "recordedValue");
+                if (name != null && recorded != null && !recorded.isEmpty()) {
+                    swaps.putIfAbsent(name, recorded);
+                }
+            }
+        }
+        return swaps;
+    }
+
     public ObjectNode build(Run run) {
         ReliveCycle definition = run.definition();
         ObjectNode snapshot = objectMapper.createObjectNode();
@@ -105,6 +128,12 @@ public class RunSnapshotBuilder {
         variables.forEach(variablesNode::put);
         ArrayNode secretsNode = snapshot.putArray("secrets");
         secrets.forEach(secretsNode::add);
+        // Values the recording handed from one step to a later one, and what the recording had: a
+        // REPLAY call that now carries this run's value instead still matches its recording.
+        ArrayNode swapsNode = snapshot.putArray("swaps");
+        swapsOf(definition).forEach((name, recorded) -> swapsNode.addObject().put("name", name).put("recorded", recorded));
+        snapshot.put("replayIgnoresCredentials",
+                definition.settings() == null || definition.settings().replayIgnoresCredentialsOrDefault());
 
         List<Step> tops = definition.steps().stream().filter(s -> s.parentKey() == null).toList();
         Map<String, Map<String, List<String>>> fingerprintIndex = definition.fingerprintIndex();

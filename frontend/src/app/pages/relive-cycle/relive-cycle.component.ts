@@ -13,6 +13,7 @@ import { ReliveRulesTabComponent } from '../../components/relive-rules-tab/reliv
 import { ReliveRerunSummaryComponent, ReliveStartRequest } from '../../components/relive-prerun-summary/relive-prerun-summary.component';
 import { ReliveRebuildDialogComponent } from '../../components/relive-rebuild-dialog/relive-rebuild-dialog.component';
 import { ReliveVariablesComponent } from '../../components/relive-variables/relive-variables.component';
+import { ReliveSessionPanelComponent } from '../../components/relive-session-panel/relive-session-panel.component';
 import { NoiseChange, ReliveRunTimelineComponent } from '../../components/relive-run-timeline/relive-run-timeline.component';
 import { ReliveHistoryComponent } from '../../components/relive-history/relive-history.component';
 import { ReliveApiService, StartRunRequest } from '../../core/services/relive-api.service';
@@ -26,7 +27,7 @@ import { InterceptionApiService } from '../../core/services/interception-api.ser
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { ReliveRunService } from '../../core/state/relive-run.service';
 import { externalReach } from '../../shared/utils/relive-external-reach';
-import { CycleRule, CycleVariable, NoiseRule, ReliveCycle, Run, Step, StepResult } from '../../shared/utils/relive-types';
+import { CycleRule, CycleVariable, NoiseRule, ReliveCycle, ReliveSettings, Run, Step, StepResult } from '../../shared/utils/relive-types';
 import { CanDeactivateRelive } from './relive-unsaved-changes.guard';
 import { reliveVariableNames } from '../../shared/utils/relive-variable-names';
 import { ReliveCycleEditorState } from './relive-cycle-editor.state';
@@ -57,6 +58,7 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
     ReliveRerunSummaryComponent,
     ReliveRebuildDialogComponent,
     ReliveVariablesComponent,
+    ReliveSessionPanelComponent,
     ReliveRunTimelineComponent,
     ReliveHistoryComponent,
   ],
@@ -311,6 +313,10 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
 
   setSteps(steps: readonly Step[]): void {
     this.state.update((draft) => ({ ...draft, steps: [...steps] }));
+  }
+
+  setSettings(settings: ReliveSettings): void {
+    this.state.update((draft) => ({ ...draft, settings }));
   }
 
   setCycle(updated: ReliveCycle): void {

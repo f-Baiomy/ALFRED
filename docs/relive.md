@@ -68,6 +68,35 @@ proxy container sees it once the backend republishes the run), with a 1 s timeou
 proxied Relive call waits on the backend besides a pause. The same process keeps the value in a
 local overlay at once, so later calls through that proxy never wait for the republish.
 
+## Staying logged in: cookies, tokens and values passed between steps
+
+A recording carries the session of the day it was made: a `JSESSIONID` cookie, a bearer token, a CSRF
+token, a created id. Replayed as recorded, the steps after Login send yesterday's values and the app
+answers "please log in". Three things keep a run going (`shared/utils/relive-session.ts`):
+
+- **Cookie jar** (Automatic runs, cycle setting `carryCookies`, on by default). Before each top-level step
+  is sent, `ReliveRunService.prepareSession` rebuilds the jar from the steps already settled - every
+  `Set-Cookie` their responses carried, per host - and rewrites the step's `Cookie` header: held cookies
+  replace the recorded ones, cleared ones (`Max-Age=0`, past `Expires`) are dropped, new ones are added.
+  Rebuilt from results, never kept in memory, so a reattached page or a resumed run sends the same. A
+  Guided run is the user's own browser, which keeps its own cookies.
+- **Value swaps.** A step extraction may remember the value its recording had (`ExtractRule.recordedValue`).
+  When the run's variable holds another value, every later step sends it wherever the recorded one
+  appears - URL, headers, raw body, also URL-encoded - with no edit to those steps. The step result
+  records what was swapped and carried (`editsApplied.session`), shown in the run view's Variables box.
+- **Replay match.** The proxy's `MATCHES_RECORDED_CALL` test puts swapped values back before comparing
+  (snapshot `swaps`), and with `replayIgnoresCredentials` (on by default) leaves out `Authorization`: a
+  REPLAY supplier call whose only change is the token the app obtained itself is still replayed, never
+  "request differs". It is still answered by ALFRED, so nothing reaches the supplier. A swapped variable
+  republishes the snapshot like a variable a rule references.
+
+The Steps tab's **Session** card (`relive-session-panel`) lists the values the recording handed from one
+step to a later one (`relive-chains.ts` `detectStepChains`: response cookies, headers, JSON and XML
+leaves found again in a later top-level request, searched as text) and "Use" adds the extraction with
+its `recordedValue`. Editing an extraction's source or path re-reads `recordedValue` from the recording.
+Extractions read JSON, headers, cookies, XML/SOAP (`Body.LoginResponse.token`, prefixes ignored,
+`@name` for an attribute) and a regex's first group (an HTML form's hidden CSRF field).
+
 ## Attribution: how a call is known to belong to a run
 
 Decided entirely inside the mitmproxy addons, at request time, with no backend round trip

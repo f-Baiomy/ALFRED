@@ -104,6 +104,13 @@
               <span class="rl-hint">Drag ⋮⋮ to reorder · click a step to open its call and how it runs</span>
               <button class="rl-btn rl-sm" (click)="resetCycle()">Reset to recording</button>
             </div>
+            <app-relive-session-panel
+              [steps]="draft.steps"
+              [settings]="draft.settings"
+              [variables]="draft.variables"
+              (stepsChange)="setSteps($event)"
+              (settingsChange)="setSettings($event)"
+            />
             <app-relive-step-tree
               #stepTree
               [steps]="draft.steps"

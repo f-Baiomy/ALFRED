@@ -913,7 +913,9 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         if (definition.unexpectedCalls() != null && definition.unexpectedCalls().rules() != null) {
             definition.unexpectedCalls().rules().forEach(r -> collectTokens(r.rule(), used));
         }
-        return used.contains(variableName);
+        // A swapped value is read by the proxy's replay match, not by a rule - it needs the
+        // republish too, or a supplier call made with the new token is judged on the old one.
+        return used.contains(variableName) || RunSnapshotBuilder.swapsOf(definition).containsKey(variableName);
     }
 
     private void collectTokens(com.fasterxml.jackson.databind.JsonNode node, Set<String> into) {

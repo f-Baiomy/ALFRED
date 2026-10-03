@@ -5,6 +5,7 @@ import { CallInterception, Condition, OriginalHttp, describeCondition } from '..
 import { CheckRowResult, StepCheckResults, foundLine, isCheckResults, tally } from '../../shared/utils/relive-checks';
 import { requestBodyOf } from '../../shared/utils/relive-call-rule';
 import { maskRelive } from '../../shared/utils/relive-mask';
+import { sessionAppliedOf } from '../../shared/utils/relive-session';
 import { StepReason, formatReasonDetail } from '../../shared/utils/relive-outcome';
 import { CycleVariable, DifferenceEntry, Step, StepResult } from '../../shared/utils/relive-types';
 import { AssertionResult } from '../../shared/utils/scenario-types';
@@ -61,6 +62,17 @@ export class ReliveResultPanelComponent {
   readonly variables = input<Readonly<Record<string, string>>>({});
   /** A field already ignored or counted from this run (the timeline keeps the set). */
   readonly markedPaths = input<ReadonlySet<string>>(new Set());
+
+  /** Values the run swapped in and cookies it carried for this attempt (relive-session.ts). */
+  readonly session = computed(() => sessionAppliedOf(this.result()));
+
+  variablesLine(): string {
+    const result = this.result();
+    const parts = result.variablesUsed.map((v) => v.name);
+    const cookies = this.session()?.cookies ?? [];
+    if (cookies.length) parts.push(`cookie${cookies.length === 1 ? '' : 's'} ${cookies.join(', ')}`);
+    return parts.length ? parts.join(', ') : 'none';
+  }
 
   readonly ignore = output<{ readonly diff: ShownDifference; readonly scope: 'STEP' | 'CYCLE' }>();
   readonly count = output<ShownDifference>();
@@ -125,7 +137,7 @@ export class ReliveResultPanelComponent {
     return [
       { key: 'recorded', title: 'Recorded call', line: `${step().recording.method} · ${step().recording.status}` },
       { key: 'edits', title: 'Your edits', line: this.edited() ? 'request body replaced' : 'none' },
-      { key: 'variables', title: 'Variables', line: result.variablesUsed.length ? result.variablesUsed.map((v) => v.name).join(', ') : 'none' },
+      { key: 'variables', title: 'Variables', line: this.variablesLine() },
       { key: 'sent', title: 'Sent', line: `attempt ${result.attempt}${result.requestChanged ? ' · differs from the recording' : ''}` },
       { key: 'rules', title: 'Rules', line: result.rulesApplied.length ? `${result.rulesApplied.length} applied` : 'none' },
       { key: 'answered', title: result.mode === 'REPLAY' ? 'ALFRED' : 'Upstream', line: answered },

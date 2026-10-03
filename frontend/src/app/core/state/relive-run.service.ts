@@ -35,6 +35,7 @@ import { DraftResult } from '../../shared/utils/resend-draft';
 import { extractValues, substituteTokens } from '../../shared/utils/resend-draft-chain';
 import { allResponseDifferences } from '../../shared/utils/relive-canonical-body';
 import { checkResults, evaluationRequest, isCheckResults, stepChecks, tally, StepCheckResults } from '../../shared/utils/relive-checks';
+import { CookieJar, SessionApplied, absorbSetCookies, applyCookieJar, swapRecordedValues, valueSwaps } from '../../shared/utils/relive-session';
 
 /** How long to keep collecting `run-call` events after the inbound resend settles, before deciding
  *  a still-missing enabled child was never called - the reverse proxy handles a child's outbound
@@ -783,10 +784,11 @@ export class ReliveRunService {
     };
 
     const vars = this.variables();
-    const substituted = substituteStepRequest(step, vars, {
+    const prepared = this.prepareSession(substituteStepRequest(step, vars, {
       ...this.globalVariables.state().fallbacks,
       ...this.globalVariables.state().variables,
-    }, this.runEdits.get(step.key));
+    }, this.runEdits.get(step.key)), vars);
+    const substituted = prepared.request;
     const unresolved = unresolvedNames(substituted);
     const startedAt = Date.now();
     let resendResult: ResendResult | null = null;
@@ -830,7 +832,7 @@ export class ReliveRunService {
     if (recover) await this.absorbLoggedChildren(run, kids, collected);
     releaseEvents();
 
-    let own: StepResult = { ...this.buildOwnResult(step, substituted, resendResult, error, startedAt, attempt), unexpectedCalls: unexpected, pauses };
+    let own: StepResult = { ...this.buildOwnResult(step, substituted, resendResult, error, startedAt, attempt, prepared.session), unexpectedCalls: unexpected, pauses };
     // Only a step with checks waits on the proxy - the others settle exactly as before.
     if (stepChecks(step.assertions).groups.length) own = await this.withChecks(step, own);
 
@@ -1072,6 +1074,46 @@ export class ReliveRunService {
     return this.steps.find((s) => s.key === key);
   }
 
+  /**
+   * Keeps the run logged in (relive-session.ts): values this run produced replace the recorded
+   * ones they stand for, and - unless the cycle turns it off - the Cookie header carries what the
+   * earlier steps' responses set. The jar is rebuilt from the results already settled, so a
+   * reattached page or a resumed run sends exactly what the first page would have.
+   */
+  private prepareSession(request: SubstitutedRequest, vars: Readonly<Record<string, string>>): { request: SubstitutedRequest; session: SessionApplied } {
+    const swaps = valueSwaps(this.steps, vars);
+    const swappedNames = new Set<string>();
+    const swap = (text: string): string => {
+      const result = swapRecordedValues(text, swaps);
+      result.swapped.forEach((name) => swappedNames.add(name));
+      return result.text;
+    };
+    let headers: Record<string, string> = Object.fromEntries(Object.entries(request.headers).map(([name, value]) => [name, swap(value)]));
+    const url = swap(request.url);
+    const body = swap(request.body);
+    let cookies: readonly string[] = [];
+    if (this.run()?.definition.settings?.carryCookies !== false) {
+      const applied = applyCookieJar(this.cookieJar(), url, headers);
+      headers = applied.headers;
+      cookies = applied.carried;
+    }
+    return { request: { method: request.method, url, headers, body }, session: { swapped: [...swappedNames], cookies } };
+  }
+
+  /** Every cookie the top-level steps settled so far were sent back, in run order. */
+  private cookieJar(): CookieJar {
+    const jar: CookieJar = new Map();
+    const results = this.results();
+    for (const step of topSteps(this.steps)) {
+      const result = results[step.key];
+      const response = result?.actualResponse as { headers?: Record<string, string> } | null | undefined;
+      if (!response?.headers) continue;
+      const url = (result?.effectiveRequest as { url?: string } | null | undefined)?.url ?? step.recording.url;
+      absorbSetCookies(jar, url, response.headers);
+    }
+    return jar;
+  }
+
   private buildOwnResult(
     step: Step,
     substituted: SubstitutedRequest,
@@ -1079,6 +1121,7 @@ export class ReliveRunService {
     error: string | null,
     startedAt: number,
     attempt: number,
+    session?: SessionApplied,
   ): StepResult {
     const finishedAt = Date.now();
     const response = resendResult?.response ?? null;
@@ -1088,7 +1131,12 @@ export class ReliveRunService {
       noAnswer: !response,
       status: response?.status ?? null,
     };
-    const variablesUsed = usedVarsOf(step, this.variables(), this.runEdits.get(step.key));
+    const referenced = usedVarsOf(step, this.variables(), this.runEdits.get(step.key));
+    // A swapped value is used as surely as a {{$.name}} one - and a field holding it is expected.
+    const swappedUsed = (session?.swapped ?? [])
+      .filter((name) => !referenced.some((v) => v.name === name) && name in this.variables())
+      .map((name) => ({ name, value: this.variables()[name] }));
+    const variablesUsed = [...referenced, ...swappedUsed];
     const variablesProduced = extractedVars(response, step.extract);
     const noiseRules = [...this.run()!.definition.noise, ...step.noise];
     const differences = differencesOf(step, response, noiseRules, variablesUsed, variablesProduced, this.run()!.definition.cycleRules);
@@ -1116,6 +1164,7 @@ export class ReliveRunService {
       unexpectedCalls: [],
       requestChanged: null,
       pauses: [],
+      ...(session && (session.swapped.length || session.cookies.length) ? { editsApplied: { session } } : {}),
     };
   }
 

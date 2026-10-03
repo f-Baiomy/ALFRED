@@ -828,6 +828,65 @@ def supplier_step(step_key, child_key, path, body, headers, mock_body='{"replaye
 
 
 class RecordedRequestMatchTest(unittest.TestCase):
+    def _fresh_token_run(self, tmp, **run_fields):
+        """A REPLAY supplier child recorded with yesterday's token, and the app now sending a new one."""
+        recorded_headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer OLD-TOKEN-1234'}
+        body = '{"session":"OLD-SESSION-99","q":"DXB"}'
+        parent = supplier_step('s-search', 'c-search', '/api/FlightSearch/Search', body, recorded_headers,
+                               mock_body='{"supplier":"Galileo"}')
+        write_recorded_request(tmp, 'run-a', ANSWER_RECORDED, body, recorded_headers)
+        write_run(tmp, 'run-a', projects=['odeysys'], steps=[parent], **run_fields)
+        write_inflight(tmp, {'odeysys': [{'callId': 'in', 'runId': 'run-a', 'stepKey': 's-search'}]})
+        return make_engine(tmp), relive.ReliveRuns(relive_dir(tmp))
+
+    def _live_call(self, authorization, body):
+        return FakeFlow(request=FakeRequest(
+            method='POST', host='ndc.example', path='/api/FlightSearch/Search', text=body,
+            headers={'Content-Type': 'application/json', 'Authorization': authorization, 'Host': 'ndc.example'},
+        ))
+
+    def test_fresh_credentials_and_swapped_values_still_replay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine, runs = self._fresh_token_run(
+                tmp, variables={'session': 'NEW-SESSION-42'},
+                swaps=[{'name': 'session', 'recorded': 'OLD-SESSION-99'}])
+            flow = self._live_call('Bearer NEW-TOKEN-5678', '{"session":"NEW-SESSION-42","q":"DXB"}')
+            verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual(200, verdict.mock['status'])
+            self.assertEqual('{"supplier":"Galileo"}', verdict.mock['body'])
+            self.assertFalse(info.get('requestChanged'))
+
+    def test_a_real_change_still_differs_with_swaps_and_credentials_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine, runs = self._fresh_token_run(
+                tmp, variables={'session': 'NEW-SESSION-42'},
+                swaps=[{'name': 'session', 'recorded': 'OLD-SESSION-99'}])
+            flow = self._live_call('Bearer NEW-TOKEN-5678', '{"session":"NEW-SESSION-42","q":"CAI"}')
+            verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual(502, verdict.mock['status'])
+            self.assertTrue(info.get('requestChanged'))
+
+    def test_credentials_count_when_the_cycle_turns_it_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine, runs = self._fresh_token_run(tmp, replayIgnoresCredentials=False)
+            flow = self._live_call('Bearer NEW-TOKEN-5678', '{"session":"OLD-SESSION-99","q":"DXB"}')
+            verdict, info = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual(502, verdict.mock['status'])
+            self.assertTrue(info.get('requestChanged'))
+
+    def test_an_unswapped_value_still_differs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine, runs = self._fresh_token_run(tmp)
+            flow = self._live_call('Bearer OLD-TOKEN-1234', '{"session":"NEW-SESSION-42","q":"DXB"}')
+            verdict, _ = run(relive.apply_outbound(flow, None, (BACKEND_PEER[0],), engine, runs))
+            self.assertEqual(502, verdict.mock['status'])
+
+    def test_unswap_values_handles_encoded_and_overlapping_values(self):
+        swaps = [('abc', 'X'), ('abcdef', 'LONG'), ('a b/c', 'r v/w')]
+        self.assertEqual('LONG X', interception.unswap_values('abcdef abc', swaps))
+        self.assertEqual('q=r%20v%2Fw', interception.unswap_values('q=a%20b%2Fc', swaps))
+        self.assertEqual('', interception.unswap_values('', swaps))
+
     def test_json_and_soap_ignore_formatting(self):
         self.assertEqual(
             interception.canonical_body('{\n  "b": 1,\n  "a": 2\n}'),

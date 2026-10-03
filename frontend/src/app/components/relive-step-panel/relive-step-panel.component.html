@@ -175,6 +175,14 @@
                   <app-select-picker [options]="extractFromOptions" [value]="rule.from" ariaLabel="Save from" (valueChange)="updateExtractRule($index, { from: $any($event) })" />
                   @if (rule.from === 'JSON') {
                     <app-json-path-input [value]="rule.path" [index]="extractIndex()" (valueChange)="updateExtractRule($index, { path: $event })" />
+                  } @else if (rule.from === 'XML' || rule.from === 'REGEX') {
+                    <input
+                      class="rl-mono"
+                      [value]="rule.path"
+                      [placeholder]="rule.from === 'XML' ? 'LoginResponse.token' : 'name=&quot;csrf&quot; value=&quot;([^&quot;]+)&quot;'"
+                      [title]="rule.from === 'XML' ? 'Element names from the outside in - prefixes ignored, @name for an attribute' : 'Run on the response body - the first group is saved'"
+                      (change)="updateExtractRule($index, { path: $any($event.target).value })"
+                    />
                   } @else {
                     <app-name-suggest
                       [value]="rule.path"
@@ -203,6 +211,9 @@
                       <span class="cp-badge rl-cp-missing">Not in the recording</span> - left unset
                     }
                     <span class="rl-spacer"></span>
+                    @if (rule.recordedValue) {
+                      <span class="cp-badge cp-found" title="A run sends its own value wherever a later step had the recorded one">swapped into later steps</span>
+                    }
                     <span class="muted">{{ preview.usedBy.length ? 'used by ' + preview.usedBy.join(', ') : 'not used by a later step yet' }}</span>
                   </div>
                 }
