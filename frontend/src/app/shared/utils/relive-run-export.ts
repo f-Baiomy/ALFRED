@@ -12,6 +12,7 @@
  */
 import { diffLines } from './interception-diff';
 import { maskRelive } from './relive-mask';
+import { REPORT_CHROME_SCRIPT, REPORT_CHROME_STYLE, TOC_OPEN_HTML, TOC_TOGGLE_HTML } from './report-chrome';
 import { FieldChange, HttpShape, StepSide } from './relive-run-compare';
 import { CompareReport, CompareSideInfo, GlossaryEntry, ReportOutcome, ReportStep, ReportVerdict, RunReport, VERDICT_WORDS, formatMs, formatWhen } from './relive-run-report';
 
@@ -294,16 +295,17 @@ export function reportPage(title: string, toc: string, body: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
-<style>${STYLE}</style>
+<style>${STYLE}${REPORT_CHROME_STYLE}</style>
 </head>
 <body>
 <div class="doc">
-<nav class="toc">${toc}</nav>
+<nav class="toc">${TOC_TOGGLE_HTML}${toc}</nav>
+${TOC_OPEN_HTML}
 <main>
 ${body}
 </main>
 </div>
-<script>${SCRIPT}</script>
+<script>${SCRIPT}${REPORT_CHROME_SCRIPT}</script>
 </body>
 </html>`;
 }

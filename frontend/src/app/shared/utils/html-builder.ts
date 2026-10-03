@@ -7,6 +7,7 @@ import { CallStatusFilter, callKey, isInProgress, methodClass, supplierOf, uriPa
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
+import { REPORT_CHROME_SCRIPT, REPORT_CHROME_STYLE, TOC_OPEN_HTML, TOC_TOGGLE_HTML } from './report-chrome';
 import { CallExportOverview, ExportListOrder, GlossaryUse, orderBlocksAsShown, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
 function escapeHtml(text: string): string {
@@ -773,6 +774,7 @@ function openTarget() {
 }
 window.addEventListener('hashchange', openTarget);
 openTarget();
+${REPORT_CHROME_SCRIPT}
 `;
 
 function documentShell(title: string, tocHtml: string, bodyHtml: string, blocks: readonly JsonBlockConfig[]): string {
@@ -783,11 +785,12 @@ function documentShell(title: string, tocHtml: string, bodyHtml: string, blocks:
 <head>
 <meta charset="UTF-8" />
 <title>${escapeHtml(title)}</title>
-<style>${STYLE}</style>
+<style>${STYLE}${REPORT_CHROME_STYLE}</style>
 </head>
 <body>
   <div class="doc">
-<nav class="toc">${tocHtml}</nav>
+<nav class="toc">${TOC_TOGGLE_HTML}${tocHtml}</nav>
+${TOC_OPEN_HTML}
 <main class="doc-main">
 ${bodyHtml}
 </main>
