@@ -92,6 +92,14 @@ describe('relive-run-compare', () => {
       expect(cmp2.rows[cmp2.rows.length - 1].verdict).toBe('NOT_RUN');
     });
 
+    it('a step that did not run has no time, even when a 0 was stored', () => {
+      const ran = cmpRun('a', 't', steps, [cmpResult('login', 'COMPLETED', { status: 200 }, { durationMs: 17 })]);
+      const skipped = cmpRun('b', 't', steps, [cmpResult('login', 'NOT_CALLED', null, { durationMs: 0 })]);
+      const login = compareRuns(runSide(ran), runSide(skipped), none).rows[0];
+      expect(login.b.durationMs).toBeNull();
+      expect(login.timeChangePct).toBeNull();
+    });
+
     it('puts children right under their parent', () => {
       const withChild = [cmpStep('p'), cmpStep('q'), cmpStep('p.c', { parentKey: 'p', direction: 'outbound' })];
       const r = cmpRun('x', 't', withChild, []);

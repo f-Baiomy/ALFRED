@@ -221,10 +221,12 @@ export function stepSide(side: CompareSide, step: Step | undefined): StepSide {
   if (side.isRecording) return recordedSide(step.recording);
   const result = side.results[step.key];
   const response = toHttp(result?.actualResponse);
+  const outcome = outcomeOfResult(result, step.recording.status);
   return {
-    outcome: outcomeOfResult(result, step.recording.status),
+    outcome,
     status: response?.status ?? null,
-    durationMs: result?.durationMs ?? null,
+    // A step that did not run has no time, even when one was stored as 0.
+    durationMs: outcome === 'skip' ? null : result?.durationMs ?? null,
     mode: result?.mode ?? null,
     result: result ?? null,
     request: toHttp(result?.actualRequest) ?? toHttp(result?.effectiveRequest),

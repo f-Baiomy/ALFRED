@@ -68,7 +68,9 @@
       <span class="rl-faint">{{ openKey() === row.key ? '▾' : '▸' }}</span>
       <span class="rl-cmp-name">
         <b>@if (row.isChild) {<span class="rl-faint">↗ </span>}{{ row.label }}</b>
-        <span class="rl-cmp-path rl-mono">{{ row.path }}</span>
+        @if (row.path !== row.label) {
+          <span class="rl-cmp-path rl-mono">{{ row.path }}</span>
+        }
       </span>
       <span class="rl-row">
         <span class="rl-pill" [class]="outcomePill(row.a.outcome)[0]">{{ outcomePill(row.a.outcome)[1] }} {{ row.a.status ?? '' }}</span>

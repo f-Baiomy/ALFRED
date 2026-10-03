@@ -115,7 +115,7 @@ export class ReliveHistoryComponent implements OnInit {
   readonly columns = computed<readonly CompareSide[]>(() => this.columnRuns().map((r) => runSide(this.loaded().get(r.id)!)));
   readonly matrix = computed(() => buildMatrix(this.columns()));
   readonly rows = computed(() => (this.onlyChanged() ? this.matrix().filter((r) => r.varies || r.note) : this.matrix()));
-  readonly gridColumns = computed(() => `minmax(180px, 1.2fr) repeat(${this.columnRuns().length}, 76px) minmax(170px, 1fr)`);
+  readonly gridColumns = computed(() => `minmax(180px, 1.2fr) repeat(${this.columnRuns().length}, 96px) minmax(170px, 1fr)`);
 
   readonly sideB = computed<CompareSide | null>(() => {
     const run = this.bId() ? this.loaded().get(this.bId()!) : undefined;
