@@ -1,7 +1,8 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
-import { detectAndFormatBody } from './body-format';
+import { BodyLang, detectAndFormatBody } from './body-format';
+import { soapSummary } from './soap-summary';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, methodClass, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
@@ -197,15 +198,17 @@ function flaggedIssuesHtml(comments: readonly Comment[]): string {
 }
 
 /** Pretty-prints if the text is valid JSON or XML, otherwise the raw text verbatim - same never-truncate rule every other export format follows. */
-function prettyText(text: string | undefined): string {
-  if (!text) return '(empty)';
-  return detectAndFormatBody(text).body;
+function prettyText(text: string | undefined): { lang: BodyLang; body: string } {
+  if (!text) return { lang: '', body: '(empty)' };
+  return detectAndFormatBody(text);
 }
 
 interface JsonBlockConfig {
   readonly id: string;
   readonly text: string;
   readonly comments: Readonly<Record<number, string>>;
+  /** Set only for XML, which the shared script highlights with its XML tokenizer instead of the JSON one. */
+  readonly lang?: 'xml';
 }
 
 /** One config entry per Headers/Body block - the exported document's shared script turns this into the interactive syntax-highlighted/searchable/copyable block, rather than each block carrying its own markup and script. */
@@ -215,7 +218,26 @@ function jsonBlockConfig(id: string, text: string | undefined, lineComments: rea
   for (const c of lineComments) {
     commentsByLine[c.lineIndex] = commentsByLine[c.lineIndex] ? `${commentsByLine[c.lineIndex]} | ${c.comment}` : c.comment;
   }
-  return { id, text: pretty, comments: commentsByLine };
+  const config = { id, text: pretty.body, comments: commentsByLine };
+  return pretty.lang === 'xml' ? { ...config, lang: 'xml' } : config;
+}
+
+/**
+ * What an XML block is, said on its closed heading: plain "XML", or for a SOAP envelope its version
+ * and operation - and a red chip naming the fault code when the service answered with a soap:Fault,
+ * so a failed call reads as failed before anyone opens the body.
+ */
+function xmlChipsHtml(config: JsonBlockConfig): string {
+  if (config.lang !== 'xml') return '';
+  const soap = soapSummary(config.text);
+  if (!soap) return '<span class="block-chip">XML</span>';
+  const chips = [`<span class="block-chip block-chip-soap">XML · SOAP ${soap.version}</span>`];
+  if (soap.operation) chips.push(`<span class="block-chip block-chip-op">${escapeHtml(soap.operation)}</span>`);
+  if (soap.isFault) {
+    const title = soap.faultReason ? ` title="${escapeHtml(soap.faultReason)}"` : '';
+    chips.push(`<span class="block-chip block-chip-fault"${title}>SOAP Fault${soap.faultCode ? ` · ${escapeHtml(soap.faultCode)}` : ''}</span>`);
+  }
+  return chips.join('');
 }
 
 function jsonBlockHtml(config: JsonBlockConfig, label: string, open: boolean): string {
@@ -223,7 +245,7 @@ function jsonBlockHtml(config: JsonBlockConfig, label: string, open: boolean): s
   // large indeed (a measured 110,152-line response body) - worth knowing before you open one.
   const lineCount = config.text === '' ? 0 : config.text.split('\n').length;
   const meta = `<span class="json-block-meta">${lineCount.toLocaleString('en-US')} line${lineCount === 1 ? '' : 's'}</span>`;
-  return `<details class="json-block" data-block-id="${config.id}"${open ? ' open' : ''}><summary>${escapeHtml(label)}${meta}</summary></details>`;
+  return `<details class="json-block" data-block-id="${config.id}"${open ? ' open' : ''}><summary>${escapeHtml(label)}${xmlChipsHtml(config)}${meta}</summary></details>`;
 }
 
 const STYLE = `
@@ -237,6 +259,7 @@ const STYLE = `
   --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8; --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
   --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a;
   --tok-key: #8fb2f7; --tok-string: #7ee3a0; --tok-number: #e3a24a; --tok-bool: #e37ec4; --tok-null: #6b6b73;
+  --tok-xml-prefix: #6f8fc4; --tok-xmlns-name: #c9a46a; --tok-xmlns-value: #9fd4b4; --tok-xml-decl: #a9a9b3;
 }
 * { box-sizing: border-box; }
 /* Without this a browser paints every link its own #0000EE, and the visited ones #551A8B - which on
@@ -326,6 +349,11 @@ summary.call-summary::-webkit-details-marker { display: none; }
 .json-block summary::-webkit-details-marker { display: none; }
 .json-block > summary::before { content: "▸ "; }
 .json-block[open] > summary::before { content: "▾ "; }
+/* What an XML block is, on its closed heading - see xmlChipsHtml. */
+.block-chip { display: inline-block; margin-left: 8px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-dim); font-size: 10.5px; font-weight: 600; line-height: 1.6; vertical-align: 1px; }
+.block-chip-soap { color: var(--cyan); border-color: rgba(126, 227, 216, 0.35); }
+.block-chip-op { color: var(--text); }
+.block-chip-fault { color: var(--red); border-color: rgba(227, 106, 106, 0.45); background: rgba(227, 106, 106, 0.08); }
 .json-block-meta { float: right; font-weight: 400; color: var(--text-faint); font-size: 0.78rem; }
 .json-toolbar { display: flex; gap: 6px; align-items: center; padding: 0 0.9rem 0.6rem; }
 .json-toolbar input[type="text"] { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 6px; font-size: 12px; outline: none; }
@@ -427,6 +455,65 @@ table.summary-table td { vertical-align: top; }
 `;
 
 /**
+ * The export script's XML highlighter. The JSON one paints anything it cannot classify in the
+ * faintest grey, which on an XML body was nearly everything - tags, element names and the very values
+ * a reader opened the body for. This one tells markup from data: tag names (namespace prefix a shade
+ * dimmer), attributes, xmlns declarations softer than ordinary attributes, and element text - the
+ * payload itself - brightest of all.
+ *
+ * Works a line at a time, like the JSON one, because the block renders a window of lines. That holds
+ * because the body is already re-indented by prettyXmlText, which breaks only between tags, so a tag
+ * never starts on one line and ends on the next. `<!-{2}` stands for the comment opener so that this
+ * text, which ends up inside a <script>, never contains it literally.
+ */
+const XML_LINE_TOKENIZER = String.raw`
+var XML_SPECIAL = /^(?:(<!-{2}[\s\S]*?(?:-->|$))|(<!\[CDATA\[[\s\S]*?(?:\]\]>|$))|(<[?!][\s\S]*?(?:>|$)))/;
+var XML_NAME = /^([A-Za-z_][\w.\-]*:)?([A-Za-z_][\w.\-]*)/;
+var XML_ATTR = /^(\s*)([^\s=\/>]+)(\s*=\s*)("[^"]*"?|'[^']*'?)/;
+var XML_TAG_END = /^\s*\/?>/;
+function tokenizeXmlLine(text) {
+  var out = [], i = 0, inTag = false, atName = false, m, rest;
+  function push(t, c) { if (t) out.push({ t: t, c: c }); }
+  while (i < text.length) {
+    rest = text.slice(i);
+    if (!inTag) {
+      if ((m = XML_SPECIAL.exec(rest))) { push(m[0], m[1] ? 'z' : m[2] ? 'd' : 'dc'); i += m[0].length; continue; }
+      if (rest.charAt(0) === '<') {
+        var closing = rest.charAt(1) === '/';
+        push(closing ? '</' : '<', 'p');
+        i += closing ? 2 : 1;
+        inTag = true; atName = true;
+        continue;
+      }
+      var lt = rest.indexOf('<');
+      var chunk = lt < 0 ? rest : rest.slice(0, lt);
+      push(chunk, /\S/.test(chunk) ? 'd' : '');
+      i += chunk.length;
+      continue;
+    }
+    if (atName) {
+      atName = false;
+      if ((m = XML_NAME.exec(rest))) { push(m[1] || '', 'f'); push(m[2], 't'); i += m[0].length; continue; }
+    }
+    if ((m = XML_TAG_END.exec(rest))) { push(m[0], 'p'); i += m[0].length; inTag = false; continue; }
+    if ((m = XML_ATTR.exec(rest))) {
+      var ns = /^xmlns(:|$)/.test(m[2]);
+      push(m[1], '');
+      push(m[2], ns ? 'xn' : 'a');
+      push(m[3], 'p');
+      push(m[4], ns ? 'xv' : 'v');
+      i += m[0].length;
+      continue;
+    }
+    push(rest.charAt(0), '');
+    i++;
+  }
+  return out;
+}
+/* end tokenizeXmlLine */
+`;
+
+/**
  * One shared script for every JSON block on the page, driven by a `JSON_BLOCKS` config array
  * (one entry per Headers/Body block, single or bulk export alike) - so a bulk export with N calls
  * doesn't duplicate the tokenizer/search/copy logic N times. The tokenizer is ported line-for-line
@@ -439,7 +526,9 @@ const SCRIPT = `
 function makeTokenRegex() {
   return new RegExp('("(\\\\\\\\u[a-zA-Z0-9]{4}|\\\\\\\\[^u]|[^\\\\\\\\"])*"(\\\\s*:)?|\\\\b(true|false)\\\\b|\\\\bnull\\\\b|-?\\\\d+(?:\\\\.\\\\d*)?(?:[eE][+-]?\\\\d+)?)', 'g');
 }
-var TOKEN_COLORS = { k: 'var(--tok-key)', s: 'var(--tok-string)', n: 'var(--tok-number)', b: 'var(--tok-bool)', z: 'var(--tok-null)' };
+var TOKEN_COLORS = { k: 'var(--tok-key)', s: 'var(--tok-string)', n: 'var(--tok-number)', b: 'var(--tok-bool)', z: 'var(--tok-null)',
+  p: 'var(--text-dim)', t: 'var(--tok-key)', f: 'var(--tok-xml-prefix)', a: 'var(--tok-number)', v: 'var(--tok-string)',
+  xn: 'var(--tok-xmlns-name)', xv: 'var(--tok-xmlns-value)', dc: 'var(--tok-xml-decl)', d: 'var(--text)' };
 function classifyToken(m) {
   if (m.charAt(0) === '"') return m.charAt(m.length - 1) === ':' ? 'k' : 's';
   if (m === 'true' || m === 'false') return 'b';
@@ -456,8 +545,9 @@ function tokenizeLine(text) {
   if (last < text.length) out.push({ t: text.slice(last), c: '' });
   return out;
 }
+${XML_LINE_TOKENIZER}
 function escapeHtml(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
-function styleFor(cls) { return cls ? ('color:' + TOKEN_COLORS[cls] + (cls === 'b' ? ';font-weight:600;' : ';')) : 'color:var(--text-faint);'; }
+function styleFor(cls) { return cls ? ('color:' + TOKEN_COLORS[cls] + (cls === 'b' || cls === 'd' ? ';font-weight:600;' : ';')) : 'color:var(--text-faint);'; }
 function tokensToHtml(tokens, query) {
   return tokens.map(function (tok) {
     var style = styleFor(tok.c);
@@ -560,7 +650,7 @@ function buildBlock(block, config) {
     var html = '<div class="json-line' + (comment ? ' has-comment' : '') + '" data-line="' + i + '">' +
       '<span class="json-line-num">' + (i + 1) + '</span>' +
       '<span class="json-line-flag' + (comment ? '' : ' hidden') + '">+</span>' +
-      '<span class="json-line-content">' + tokensToHtml(tokenizeLine(lines[i]), query) + '</span>' +
+      '<span class="json-line-content">' + tokensToHtml(config.lang === 'xml' ? tokenizeXmlLine(lines[i]) : tokenizeLine(lines[i]), query) + '</span>' +
       '</div>';
     if (comment) html += '<div class="json-comment-card" data-card="' + i + '">' + escapeHtml(comment) + '</div>';
     return html;

@@ -133,6 +133,86 @@ describe('buildExportHtml', () => {
     expect(blocksJson).toContain('<a>\\n  <b>1<\\/b>\\n<\\/a>');
   });
 
+  describe('XML bodies', () => {
+    const SOAP_REQUEST = '<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+      + '<soap:Header><AuthHeader xmlns="http://tempuri.org/"><Token>abc-123</Token></AuthHeader></soap:Header>'
+      + '<soap:Body><Add xmlns="http://tempuri.org/"><intA>7</intA><intB>35</intB></Add></soap:Body></soap:Envelope>';
+    const SOAP_FAULT = '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><soap:Fault>'
+      + '<faultcode>soap:Client</faultcode><faultstring>intA is not a number</faultstring></soap:Fault></soap:Body></soap:Envelope>';
+
+    type Token = { t: string; c: string };
+    /** The export's own tokenizer, lifted out of the document it ships in - so this tests what a reader's browser runs. */
+    function xmlTokenizer(html: string): (line: string) => Token[] {
+      const start = html.indexOf('var XML_SPECIAL');
+      const end = html.indexOf('/* end tokenizeXmlLine */');
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      return new Function(`${html.slice(start, end)}; return tokenizeXmlLine;`)() as (line: string) => Token[];
+    }
+    const classOf = (tokens: Token[], text: string) => tokens.find((tok) => tok.t === text)?.c;
+
+    it('marks an XML block so the export highlights it with the XML tokenizer, and leaves JSON blocks unmarked', () => {
+      const call = makeCall({ request: { headers: {}, body: SOAP_REQUEST }, response: { status: 200, headers: {}, body: '{"a":1}' } });
+      const html = buildExportHtml(call, makeForm());
+      const blocksJson = html.slice(html.indexOf('var JSON_BLOCKS = ') + 'var JSON_BLOCKS = '.length, html.indexOf('function makeTokenRegex'));
+      const blocks = JSON.parse(blocksJson.trim().replace(/;$/, '')) as { id: string; lang?: string }[];
+      expect(blocks.find((b) => b.id.endsWith('-req-body'))?.lang).toBe('xml');
+      expect(blocks.find((b) => b.id.endsWith('-res-body'))?.lang).toBeUndefined();
+      expect(blocks.find((b) => b.id.endsWith('-req-headers'))?.lang).toBeUndefined();
+      expect(html).toContain("config.lang === 'xml' ? tokenizeXmlLine(lines[i]) : tokenizeLine(lines[i])");
+    });
+
+    it('tells markup from data - element text is data, not faint unclassified text', () => {
+      const tokenize = xmlTokenizer(buildExportHtml(makeCall(), makeForm()));
+      const line = tokenize('      <Token>abc-123</Token>');
+      // Whole, as one data token: the JSON tokenizer used to split it into "abc" and a negative number.
+      expect(classOf(line, 'abc-123')).toBe('d');
+      expect(classOf(line, 'Token')).toBe('t');
+      expect(line.filter((tok) => tok.c === 'p').map((tok) => tok.t)).toEqual(['<', '>', '</', '>']);
+      expect(line.map((tok) => tok.t).join('')).toBe('      <Token>abc-123</Token>');
+    });
+
+    it('splits a namespace prefix from the tag name and dims xmlns declarations apart from ordinary attributes', () => {
+      const tokenize = xmlTokenizer(buildExportHtml(makeCall(), makeForm()));
+      const line = tokenize('<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" id="e1">');
+      expect(classOf(line, 'soap:')).toBe('f');
+      expect(classOf(line, 'Envelope')).toBe('t');
+      expect(classOf(line, 'xmlns:soap')).toBe('xn');
+      expect(classOf(line, '"http://schemas.xmlsoap.org/soap/envelope/"')).toBe('xv');
+      expect(classOf(line, 'id')).toBe('a');
+      expect(classOf(line, '"e1"')).toBe('v');
+      expect(classOf(tokenize('<?xml version="1.0" encoding="utf-8"?>'), '<?xml version="1.0" encoding="utf-8"?>')).toBe('dc');
+      expect(classOf(tokenize('<!-- note -->'), '<!-- note -->')).toBe('z');
+      expect(classOf(tokenize('<a/>'), '/>')).toBe('p');
+    });
+
+    it('never loses a character - every line tokenizes back to itself', () => {
+      const tokenize = xmlTokenizer(buildExportHtml(makeCall(), makeForm()));
+      for (const line of ['<a b=\'1\' c = "2" >x &amp; y</a>', '  text continuing a line', '<x:y/>', '<![CDATA[ <raw> ]]>', '<broken attr', '']) {
+        expect(tokenize(line).map((tok) => tok.t).join('')).toBe(line);
+      }
+    });
+
+    it('names a SOAP envelope and its operation on the block heading, and plain XML as XML', () => {
+      const call = makeCall({ request: { headers: {}, body: SOAP_REQUEST }, response: { status: 200, headers: {}, body: '<a><b>1</b></a>' } });
+      const html = buildExportHtml(call, makeForm());
+      expect(html).toContain('<span class="block-chip block-chip-soap">XML · SOAP 1.1</span><span class="block-chip block-chip-op">Add</span>');
+      expect(html).toContain('<span class="block-chip">XML</span>');
+    });
+
+    it('shows a SOAP fault on the block heading, with its reason on hover', () => {
+      const call = makeCall({ response: { status: 500, headers: {}, body: SOAP_FAULT } });
+      const html = buildExportHtml(call, makeForm());
+      expect(html).toContain('<span class="block-chip block-chip-fault" title="intA is not a number">SOAP Fault · soap:Client</span>');
+    });
+
+    it('puts no chip on a JSON block', () => {
+      const html = buildExportHtml(makeCall({ request: { headers: {}, body: '{"a":1}' } }), makeForm());
+      expect(html).not.toContain('<span class="block-chip');
+    });
+  });
+
   it('renders every collapsible section closed, so opening the file shows a scannable page instead of everything expanded', () => {
     const html = buildExportHtml(makeCall(), makeForm());
     expect(html).not.toContain('<details open');
