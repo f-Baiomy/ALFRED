@@ -149,13 +149,13 @@ describe('buildExportHtml', () => {
     const call = makeCall({ response: undefined, error: 'Client disconnected.' });
     const html = buildExportHtml(call, makeForm());
     expect(html).toContain('Client disconnected.');
-    expect(html).not.toContain('<b>Status:</b>');
+    expect(html).not.toContain('Status<span class="fact-colon">:</span></b>');
   });
 
   it('includes duration only when present, with thousands separators for large values', () => {
-    expect(buildExportHtml(makeCall({ duration_ms: 42 }), makeForm())).toContain('<b>Duration:</b> 42 ms');
-    expect(buildExportHtml(makeCall({ duration_ms: 4182.38 }), makeForm())).toContain('<b>Duration:</b> 4,182.38 ms');
-    expect(buildExportHtml(makeCall({ duration_ms: undefined }), makeForm())).not.toContain('<b>Duration:</b>');
+    expect(buildExportHtml(makeCall({ duration_ms: 42 }), makeForm())).toContain('Duration<span class="fact-colon">:</span></b> <span class="fact-value">42 ms</span>');
+    expect(buildExportHtml(makeCall({ duration_ms: 4182.38 }), makeForm())).toContain('Duration<span class="fact-colon">:</span></b> <span class="fact-value">4,182.38 ms</span>');
+    expect(buildExportHtml(makeCall({ duration_ms: undefined }), makeForm())).not.toContain('Duration<span class="fact-colon">:</span></b>');
   });
 
   // Asserts on the HEADING, not the words - see markdown-builder.spec.ts's identical note.
@@ -714,5 +714,23 @@ describe('the order of the Calls list (.html)', () => {
     const doc = ((calls: CallRecord[], order: 'as-shown' | 'chronological') => buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [makeCandidate()], 'all', null, [], order))(shownNewestFirst, 'chronological');
     expect(at(doc, '<b>Call 1</b>' + ' &middot; request')).toBeLessThan(at(doc, '<b>Call 3</b>'));
     expect(doc).toContain('Calls appear in true chronological order of events');
+  });
+});
+
+describe('a call\'s facts as cards', () => {
+  const html = buildExportHtml(makeCall({ url: 'https://example.com/api/x?status=1' }), makeForm());
+
+  it('shows the full URL on a card of its own, then method, timestamp, duration and status', () => {
+    expect(html).toContain('<li class="fact fact-wide"><b class="fact-label">URL<span class="fact-colon">:</span></b> <span class="fact-value">https://example.com/api/x?status=1</span>');
+    expect(html).toContain('<b class="fact-label">Method<span class="fact-colon">:</span></b> <span class="fact-value">POST</span>');
+    expect(html).toContain('<b class="fact-label">Timestamp<span class="fact-colon">:</span></b> <span class="fact-value">2026-08-07 13:45:51.965328 +00:00</span>');
+    expect(html).toContain('<b class="fact-label">Status<span class="fact-colon">:</span></b>');
+  });
+
+  it('every fact has a Copy button carrying its exact value', () => {
+    expect(html).toContain('data-copy="https://example.com/api/x?status=1" title="Copy url"');
+    expect(html).toContain('data-copy="2026-08-07T13:45:51.965328+00:00"');
+    expect(html).toContain('data-copy="200" title="Copy status"');
+    expect(html).toContain("document.querySelectorAll('.fact-copy')");
   });
 });

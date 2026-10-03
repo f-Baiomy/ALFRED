@@ -388,8 +388,18 @@ table.summary-table td { vertical-align: top; }
 .call-card[open] > summary.call-summary::before { content: "▾ "; }
 .call-card > summary.call-summary code { color: var(--purple-light); }
 .call-card > summary .half-link { font-size: 12px; font-weight: 400; margin-left: 6px; }
-.call-card .field-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
-.call-card .field-list li { background: var(--card-inner); border-radius: 8px; padding: 6px 10px; margin: 0; overflow-wrap: anywhere; }
+.fact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-bottom: 1rem; }
+.fact-grid .fact { position: relative; margin: 0; padding: 9px 12px 10px; background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; min-width: 0; transition: border-color 0.15s; }
+.fact-grid .fact:hover { border-color: var(--border-strong); }
+.fact-grid .fact-wide { grid-column: 1 / -1; }
+.fact-grid .fact-colon { display: none; }
+.fact-grid .fact-label { display: block; margin-bottom: 4px; padding-right: 3.5rem; color: var(--text-faint); font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; }
+.fact-grid .fact-value { display: block; color: var(--text); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.fact-grid .fact-wide .fact-value { color: var(--purple-light); }
+.fact-grid .fact-copy { position: absolute; top: 7px; right: 8px; font: inherit; font-size: 11px; color: var(--text-dim); background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; cursor: pointer; opacity: 0.55; transition: opacity 0.15s, border-color 0.15s; }
+.fact-grid .fact:hover .fact-copy, .fact-grid .fact-copy:focus-visible { opacity: 1; border-color: var(--border-strong); }
+.fact-grid .fact-copy.copied { color: var(--green); border-color: var(--green); opacity: 1; }
+@media print { .fact-grid .fact-copy { display: none; } }
 .call-card h2 { font-size: 0.95rem; margin: 1.2rem 0 0.6rem; }
 .parent-frame { border: 1px solid rgba(91, 141, 239, 0.35); border-radius: 14px; padding: 0.6rem 0.7rem 0.1rem; margin: 0.4rem 0 0.8rem; background: rgba(91, 141, 239, 0.03); }
 .parent-title { font-size: 13px; padding: 0 0.2rem 0.5rem; }
@@ -719,6 +729,18 @@ function initJsonBlock(config) {
   }
 }
 JSON_BLOCKS.forEach(initJsonBlock);
+document.querySelectorAll('.fact-copy').forEach(function (btn) {
+  btn.addEventListener('click', function (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    copyText(btn.getAttribute('data-copy') || '').then(function () {
+      btn.textContent = 'Copied';
+      btn.classList.add('copied');
+      showToast('Copied');
+      setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1200);
+    }, function () { showToast('Could not copy'); });
+  });
+});
 document.querySelectorAll('[data-filter]').forEach(function (btn) {
   btn.addEventListener('click', function () {
     var want = btn.getAttribute('data-filter');
@@ -770,6 +792,22 @@ ${SCRIPT}
 </body>
 </html>
 `;
+}
+
+/**
+ * One fact of a call as a small card: label, value, and a Copy button for the exact value (the full
+ * URL, the raw timestamp…). The label keeps its "Name:" form in a <b> so the text reads the same
+ * when the styles are stripped (a mail client, a print).
+ */
+function factHtml(label: string, valueHtml: string, copyValue: string, wide = false): string {
+  return `<li class="fact${wide ? ' fact-wide' : ''}"><b class="fact-label">${escapeHtml(label)}<span class="fact-colon">:</span></b> <span class="fact-value">${valueHtml}</span><button type="button" class="fact-copy" data-copy="${escapeHtml(copyValue)}" title="Copy ${escapeHtml(label.toLowerCase())}">Copy</button></li>`;
+}
+
+/** "2026-09-16T09:48:51.961938+00:00" shown as "2026-09-16 09:48:51.961938 +00:00", so a narrow card
+ *  wraps it between date, time and zone rather than inside the date. Same instant, same digits; the
+ *  Copy button still copies the value exactly as it was logged. */
+function readableTime(iso: string): string {
+  return iso.replace(/^(\d{4}-\d{2}-\d{2})T/, '$1 ').replace(/([+-]\d{2}:\d{2}|Z)$/, ' $1');
 }
 
 function statusHtml(call: CallRecord): string {
@@ -844,12 +882,12 @@ function requestPartHtml(call: CallRecord, comments: readonly Comment[], idPrefi
 
   const parts: string[] = [];
   parts.push(`<h2 id="${idPrefix}-req">📤 Request</h2>`);
-  parts.push('<ul class="field-list">');
-  parts.push(`<li><b>Method:</b> ${escapeHtml(call.method)}</li>`);
-  parts.push(`<li><b>URL:</b> ${escapeHtml(call.url)}</li>`);
+  parts.push('<ul class="field-list fact-grid">');
+  parts.push(factHtml('URL', escapeHtml(call.url), call.url, true));
+  parts.push(factHtml('Method', escapeHtml(call.method), call.method));
   if (includeTimestampAndDuration) {
-    parts.push(`<li><b>Timestamp:</b> ${escapeHtml(call.timestamp)}</li>`);
-    if (call.duration_ms != null) parts.push(`<li><b>Duration:</b> ${formatMs(call.duration_ms)}</li>`);
+    parts.push(factHtml('Timestamp', escapeHtml(readableTime(call.timestamp)), call.timestamp));
+    if (call.duration_ms != null) parts.push(factHtml('Duration', formatMs(call.duration_ms), formatMs(call.duration_ms)));
   }
   parts.push('</ul>');
   parts.push(jsonBlockHtml(reqHeaders, 'Headers', false));
@@ -873,10 +911,10 @@ function responsePartHtml(call: CallRecord, comments: readonly Comment[], idPref
     parts.push(`<p>⚠️ <b>Error:</b> ${escapeHtml(call.error)}${suffix}</p>`);
   }
   if (call.response || receivedAt) {
-    parts.push('<ul class="field-list">');
-    if (call.response) parts.push(`<li><b>Status:</b> ${statusHtml(call)}</li>`);
-    if (receivedAt) parts.push(`<li><b>Received:</b> ${escapeHtml(receivedAt)}</li>`);
-    if (call.duration_ms != null) parts.push(`<li><b>Duration:</b> ${formatMs(call.duration_ms)}</li>`);
+    parts.push('<ul class="field-list fact-grid">');
+    if (call.response) parts.push(factHtml('Status', statusHtml(call), String(call.response.status)));
+    if (receivedAt) parts.push(factHtml('Received', escapeHtml(readableTime(receivedAt)), receivedAt));
+    if (call.duration_ms != null) parts.push(factHtml('Duration', formatMs(call.duration_ms), formatMs(call.duration_ms)));
     parts.push('</ul>');
   }
   if (call.response) {
