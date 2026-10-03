@@ -56,6 +56,13 @@
   .spacer { display: flex; align-items: center; gap: 10px; margin: 18px 0 6px; color: var(--amber); font-weight: 600; font-size: 13px; } .spacer::after { content: ''; flex: 1; border-top: 1px dashed rgba(227,162,74,.4); }
   .call { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin: 12px 0; overflow: hidden; }
   .call.d1 { margin-left: 28px; border-left: 3px solid rgba(91,141,239,.35); } .call.d2 { margin-left: 56px; border-left: 3px solid rgba(91,141,239,.35); }
+  details.callfold { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin: 8px 0; overflow: hidden; }
+  details.callfold > summary.call-head { list-style: none; cursor: pointer; border-bottom: 0; } details.callfold > summary::-webkit-details-marker { display: none; }
+  details.callfold[open] > summary.call-head { border-bottom: 1px solid var(--border); } details.callfold:hover { border-color: var(--border-strong); }
+  .chev { color: var(--faint); width: 12px; } .call-head .sp { flex: 1; } .call-head a { font-size: 12px; }
+  .parent { border: 1px solid rgba(91,141,239,.35); border-radius: 14px; padding: 10px 12px 4px; margin: 8px 0 12px; background: rgba(91,141,239,.03); }
+  .parent-rail { font-size: 13px; padding: 0 2px 4px; } .parent-why { display: block; font-size: 12px; }
+  .kids { margin-left: 26px; padding-left: 12px; border-left: 2px solid rgba(251,146,60,.35); } .kids.solo { margin-top: -4px; }
   .call-head { display: flex; gap: 10px; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .call-head .num { color: var(--faint); font: 12px var(--mono); } .call-head h3 { margin: 0; font-size: 15px; }
   .url-line { flex-basis: 100%; color: var(--dim); font: 12px var(--mono); overflow-wrap: anywhere; }
@@ -122,6 +129,8 @@ const body = `{
     <span class="tk">"total"</span>: <span class="tn">105</span>,<span class="fcard">⚠ FLAGGED: total should include the 15 AED fee - Fathy</span>    <span class="tk">"currency"</span>: <span class="ts">"AED"</span>
   }
 }`;
+/** A collapsed call card: the head stays visible, everything else opens on click. */
+const callCard = (num, label, dir, dirText, cls, status, time, url, link = '') => `<details class="callfold"><summary class="call-head"><span class="chev">▸</span><span class="num">${num}</span><h3>${label}</h3><span class="pill ${dir}">${dirText}</span><span class="pill ${cls}">${status}</span><span class="dim mono">${time}</span>${link ? `<span class="sp"></span>${link}` : ''}<div class="url-line">${url}</div></summary><div class="call-body dim">… facts, flagged issues, Request / Response folds …</div></details>`;
 const fold = (title, meta, open, inner) => `<details${open ? ' open' : ''}><summary><b>${title}</b> ${meta}<span class="sp"></span><button class="copy">Copy</button></summary><div class="tool"><input placeholder="Find in block..."><button>‹</button><button>›</button></div>${inner}</details>`;
 
 function bulkHtml() {
@@ -173,9 +182,21 @@ function bulkHtml() {
         <tr><td>5</td><td><a href="#">POST /price</a><span class="url-sm">POST http://odeysys:8080/odeysysadmin/v2/price</span></td><td><span class="pill fail">502</span></td><td class="mono">114 ms</td><td><span class="pill flag">🚩 2</span></td></tr>
       </table></div>
 
-    <div class="section"><h2>🔗 Calls</h2>
+    <div class="section"><h2>🔗 Calls <small>every card starts closed - click a call to open it · <a href="#">Open all</a> · <a href="#">Close all</a></small></h2>
+      <div class="spacer">🏷️ Login</div>
+      ${callCard('1', 'POST /login', 'in', 'inbound · odeysys', 'ok', '200', '412 ms', 'POST http://odeysys:8080/odeysysadmin/Admin2/loginAction')}
       <div class="spacer">🏷️ Search &amp; price</div>
-      <div class="call"><div class="call-head"><span class="num">5</span><h3>POST /price</h3><span class="pill in">inbound · odeysys</span><span class="pill fail">502</span><span class="pill flag">🚩 2</span><div class="url-line">POST http://odeysys:8080/odeysysadmin/v2/price</div></div>
+      <div class="parent">
+        <div class="parent-rail"><b>2 · POST /search</b> <span class="dim">inbound · odeysys · 200 · 3.1 s · caused calls 3 and 4</span><span class="dim parent-why">shown as two halves - when it was sent and when it answered - with the calls it made in between</span></div>
+        ${callCard('2 · request', 'POST /search', 'in', 'inbound · odeysys', 'skip', '➡️ sent', '16:33:11.020', 'POST http://odeysys:8080/odeysysadmin/Booking2/flight-search/search?currency=EGP', '<a href="#">↓ response</a>')}
+        <div class="kids">
+          ${callCard('3', '↳ POST supplierA /search', 'out', 'outbound · supplierA', 'ok', '200', '198 ms', 'POST http://supplier-a:9001/api/FlightSearch/Search')}
+          ${callCard('4', '↳ POST supplierB /search', 'out', 'outbound · supplierB', 'ok', '200', '218 ms', 'POST http://supplier-b:9003/api/FlightSearch/Search')}
+        </div>
+        ${callCard('2 · response', 'POST /search', 'in', 'inbound · odeysys', 'ok', '200', '3.1 s · received 16:33:14.120', 'POST http://odeysys:8080/odeysysadmin/Booking2/flight-search/search?currency=EGP', '<a href="#">↑ request</a>')}
+      </div>
+      <div class="dim" style="font-size:12.5px;margin:10px 0 4px">Call 5 opened below, as it looks after a click:</div>
+      <details class="callfold" open><summary class="call-head"><span class="chev">▾</span><span class="num">5</span><h3>POST /price</h3><span class="pill in">inbound · odeysys</span><span class="pill fail">502</span><span class="pill flag">🚩 2</span><span class="dim mono">114 ms</span><div class="url-line">POST http://odeysys:8080/odeysysadmin/v2/price</div></summary>
         <div class="call-body">
           <div class="facts"><div class="fact"><span>Method</span>POST</div><div class="fact"><span>Status</span>502</div><div class="fact"><span>Timestamp</span>2026-10-02T16:33:44.700Z</div><div class="fact"><span>Duration</span>114 ms</div><div class="fact"><span>Caused</span>call 6 (supplierB)</div><div class="fact"><span>Changed by Alfred</span>1 rule (request)</div></div>
           <div class="flagged"><b class="h">🚩 Flagged in this call</b> - Response · Body, line 4: <code>"total": 105,</code><blockquote>total should include the 15 AED fee - Fathy</blockquote></div>
@@ -188,9 +209,9 @@ function bulkHtml() {
           ${fold('Headers', '4 headers', false, '')}
           ${fold('Body', 'JSON · 96 B · 1 flagged line', true, `<pre class="code">${body}</pre>`)}
           <h4>🔌 WebSocket messages</h4><div class="dim" style="font-size:13px">(when the call has any: → #1 time action-badge, content fold, original fold - as today)</div>
-        </div></div>
-      <div class="call d1"><div class="call-head"><span class="num">6</span><h3>↳ POST supplierB /price</h3><span class="pill out">outbound · supplierB</span><span class="pill fail">500</span><div class="url-line">POST http://supplier-b:9003/price</div></div>
-        <div class="call-body dim">… same card, indented under call 5 with a rail …</div></div>
+        </div></details>
+      <div class="kids solo">${callCard('6', '↳ POST supplierB /price', 'out', 'outbound · supplierB', 'fail', '500', '35 ms', 'POST http://supplier-b:9003/price')}</div>
+      <div class="dim" style="font-size:12.5px;margin-top:8px">Call 5 has not resolved into two halves (it is shown whole, as today, because it was not split) - its supplier call still sits under it, indented with a rail.</div>
     </div>
 
     <div class="section"><h2>Glossary</h2><dl class="gloss card">
@@ -237,8 +258,20 @@ function bulkMd() {
 
 <span class="h">### 🏷️ Search &amp; price</span>
 
+<span class="q">> **2 · POST /search** (inbound · odeysys · 200 · 3.1 s) is shown as two halves - when it was sent and when it answered - with the calls it made (3, 4) in between.</span>
+
+&lt;a id="call-2"&gt;&lt;/a&gt;
+&lt;details&gt;&lt;summary&gt;&lt;b&gt;2 · request&lt;/b&gt; · POST /search · ➡️ sent · 16:33:11.020 · &lt;a href="#call-2-response"&gt;↓ response&lt;/a&gt;&lt;br&gt;POST http://odeysys:8080/…/search?currency=EGP&lt;/summary&gt; … &lt;/details&gt;
+&lt;details&gt;&lt;summary&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;└─ &lt;b&gt;3&lt;/b&gt; · POST supplierA /search · 200 ✅ · 198 ms&lt;br&gt;…&lt;/summary&gt; … &lt;/details&gt;
+&lt;details&gt;&lt;summary&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;└─ &lt;b&gt;4&lt;/b&gt; · POST supplierB /search · 200 ✅ · 218 ms&lt;br&gt;…&lt;/summary&gt; … &lt;/details&gt;
+&lt;a id="call-2-response"&gt;&lt;/a&gt;
+&lt;details&gt;&lt;summary&gt;&lt;b&gt;2 · response&lt;/b&gt; · POST /search · 200 ✅ · 3.1 s · received 16:33:14.120 · &lt;a href="#call-2"&gt;↑ request&lt;/a&gt;&lt;/summary&gt; … &lt;/details&gt;
+
+<span class="c">Every call is one closed &lt;details&gt; (today they are open): its summary line keeps number, method + path, status, duration, flags and the full URL.</span>
+<span class="c">Opened, call 5 reads:</span>
+
 &lt;a id="call-5"&gt;&lt;/a&gt;
-<span class="h">### 5 · POST /price — 502 ❌ 🚩 2</span>
+&lt;details&gt;&lt;summary&gt;&lt;b&gt;5&lt;/b&gt; · POST /price · 502 ❌ · 114 ms · 🚩 2&lt;br&gt;POST http://odeysys:8080/odeysysadmin/v2/price&lt;/summary&gt;
 
 \`POST http://odeysys:8080/odeysysadmin/v2/price\` · inbound · odeysys · caused call 6
 
@@ -260,6 +293,7 @@ function bulkMd() {
 \`\`\`
 &lt;/details&gt;
 <span class="h">#### 🔌 WebSocket messages</span>  <span class="c">(as today)</span>
+&lt;/details&gt;
 
 <span class="h">## Glossary</span>
 - **Inbound · outbound** - …
