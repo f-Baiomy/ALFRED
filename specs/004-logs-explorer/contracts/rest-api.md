@@ -47,7 +47,10 @@ maxPagesPerSecond ≤ 20, intervalSeconds ≥ 5, username?, password? }` - `pass
 | `POST` | `/logs/sources/{id}/patterns` | `Pattern[]` (filtered), `POST …/patterns/{pid}/lines` → paged lines |
 | `POST` | `/logs/sources/{id}/histogram` | `{ buckets: [{ from, to, byLevel }] }` (≤ 120) |
 | `POST` | `/logs/sources/{id}/minimap` | body: LogQuery + `condition: Pill?` (default ERROR/WARN) → `{ buckets: 200 × { matches, error, warn }, sampled }` (even sample above 5 M matches) |
-| `POST` | `/logs/sources/{id}/inputs/{inputId}/split` | `{ name }` → new `LogSource` 201 built from that input's "different structure" lines (FR-045) |
+| `GET` | `/logs/sources/{id}/structures` | `LineStructures`: the structures among the lines, "seen in X %" per field (FR-045 as amended) |
+| `POST` | `/logs/sources/{id}/structures` | body `LogQuery` → the same, plus `matching` per structure for that query |
+| `PATCH` | `/logs/sources/{id}/structures/{structureId}` | `{ name, template }` (blank = automatic name / the source's template) → 204 |
+| `POST` | `/logs/sources/{id}/structures/{structureId}/move` | `{ name }` → new `SourceView` 201 holding that structure's lines (COPY mode) |
 | `POST` | `/logs/sources/{id}/fields/values` | per field top values + presence % (window: latest 10,000 matches) |
 | `POST` | `/logs/sources/{id}/fields/{label}/stats` | `{ exact: bool, p50, p95, p99, min, max, distribution[24] }` or top 10 + distinct |
 | `GET` | `/logs/sources/{id}/trace?lineId=` | lines sharing the CORRELATION role value, time-sorted (≤ 2,000) |

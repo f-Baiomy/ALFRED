@@ -241,4 +241,19 @@ class HexagonalArchitectureTest {
                         "..backend.interception..", "..backend.resend..", "..backend.scenarios..")
                 .check(classes);
     }
+
+    // logs is a leaf slice: it ingests external log files/feeds and owns its own comments,
+    // pins and saved views, so it needs nothing from the call slices. A comment's author is a
+    // plain profile id string (no backend-profiles import), same as session-cycles' assignedTo.
+    @Test
+    void logsSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.logs..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..")
+                .check(classes);
+    }
 }

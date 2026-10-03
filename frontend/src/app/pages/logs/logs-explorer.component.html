@@ -1,0 +1,547 @@
+<div class="lg-page" (mouseup)="histUp()">
+  <!-- Header (mock renderExplorer header) -->
+  <div class="lg-row">
+    <div>
+      <h1 class="lg-h1">{{ view$()?.source?.name ?? 'Logs' }}</h1>
+      <div class="lg-sub">
+        @if (view$(); as v) {
+          {{ v.source.lineCount | number }} lines · {{ v.inputs.length }} inputs · raw {{ v.source.rawMode === 'COPY' ? 'copied into Alfred' : 'read from the original files' }}
+          @if (v.source.privacyMode === 'MASK') { · sensitive fields masked }
+          · times in {{ zone() }}
+        }
+      </div>
+    </div>
+    <span class="lg-sp"></span>
+    <span style="position: relative">
+      <button class="lg-btn sm" (click)="viewsOpen.set(!viewsOpen())">Saved views ▾</button>
+      @if (viewsOpen()) {
+        <div class="lg-pop" style="right: 0; top: 34px; width: 260px; padding: 6px">
+          @for (v of savedViews(); track v.id) {
+            <div class="lg-vrow" style="grid-template-columns: minmax(0, 1fr) auto; cursor: pointer">
+              <span (click)="applyView(v.id); viewsOpen.set(false)">{{ v.name }}</span>
+              <button class="lg-ib" title="Delete view" (click)="deleteView(v)">✕</button>
+            </div>
+          } @empty {
+            <div class="lg-hint">No saved views yet.</div>
+          }
+        </div>
+      }
+    </span>
+    @if (saveViewName() === null) {
+      <button class="lg-btn sm" (click)="saveViewName.set('')">☆ Save view</button>
+    } @else {
+      <input type="text" style="width: 150px" placeholder="View name" [ngModel]="saveViewName()" (ngModelChange)="saveViewName.set($event)" (keydown.enter)="saveView()" aria-label="View name" />
+      <button class="lg-btn sm primary" (click)="saveView()">Save</button>
+    }
+    <a class="lg-btn sm" [routerLink]="['/logs/new']" [queryParams]="{ source: id }">+ Input</a>
+    <a class="lg-btn sm" [routerLink]="['/logs', id, 'structure']">⚙ Structure</a>
+    <a class="lg-btn sm" routerLink="/logs">Sources</a>
+  </div>
+  @if (rebuilding()) {
+    <div class="lg-note" style="color: var(--cyan)">Rebuilding: {{ rebuilding() }} - the rest of the explorer stays usable.</div>
+  }
+  @if (error()) { <div class="lg-note lg-error-text">{{ error() }}</div> }
+
+  <!-- Query bar -->
+  <div class="lg-qbar" style="margin-top: 12px">
+    <span class="lg-faint">⌕</span>
+    @for (p of pills(); track $index; let i = $index) {
+      <span class="lg-qp" [class]="'lg-qp ' + pillClass(p)">{{ pillText(p) }}<button (click)="removePill(i)" aria-label="Remove filter">✕</button></span>
+    }
+    @if (customRange(); as c) {
+      <span class="lg-qp lg-qp-range">time {{ time(c.from).slice(0, 8) }} – {{ time(c.to).slice(0, 8) }}<button (click)="clearCustomRange()" aria-label="Remove time range">✕</button></span>
+    }
+    <input #qin class="lg-qin" type="text" autocomplete="off" aria-label="Search"
+           placeholder='field:value · -field:value · field:* · timeTaken>6000 · "free text"'
+           [ngModel]="qtext()" (ngModelChange)="onQueryInput($event)" (keydown)="onQueryKey($event)" (blur)="ac.set([])" />
+    <select style="width: 150px" [ngModel]="range()" (ngModelChange)="setRange($event)" aria-label="Time range" title="Remembered per source in this browser">
+      <option value="1h">Last 1 h of data</option>
+      <option value="6h">Last 6 h of data</option>
+      <option value="24h">Last 24 h of data</option>
+      <option value="7d">Last 7 days of data</option>
+      <option value="all">All time</option>
+    </select>
+    @if (ac().length) {
+      <div class="lg-ac">
+        @for (a of ac(); track $index; let i = $index) {
+          <div [class.on]="i === acIdx()" (mousedown)="$event.preventDefault(); applyAc(a)"><span>{{ a.show }}</span><span class="lg-faint">{{ a.note }}</span></div>
+        }
+        <div class="lg-faint" style="cursor: default">↑↓ choose · Tab complete · Enter add</div>
+      </div>
+    }
+  </div>
+
+  <!-- Histogram stacked by level -->
+  <div class="lg-hist" (mouseleave)="drag.set(null)">
+    @for (b of histBars(); track b.i) {
+      <div class="b" [class.sel]="inDrag(b.i)" [title]="b.title" (mousedown)="histDown(b.i)" (mouseenter)="histEnter(b.i)">
+        <div [style.height.px]="b.error" style="background: var(--lg-error)"></div>
+        <div [style.height.px]="b.warn" style="background: var(--lg-warn)"></div>
+        <div [style.height.px]="b.info" style="background: var(--lg-info); opacity: 0.55"></div>
+        <div [style.height.px]="b.other" style="background: var(--lg-debug)"></div>
+      </div>
+    }
+  </div>
+  @if (histogram(); as h) {
+    <div class="lg-row lg-hint" style="justify-content: space-between">
+      <span>{{ h.buckets.length ? time(h.from) : '' }}</span>
+      <span><span class="lg-cdot" style="background: var(--lg-error)"></span>ERROR <span class="lg-cdot" style="background: var(--lg-warn); margin-left: 8px"></span>WARN <span class="lg-cdot" style="background: var(--lg-info); margin-left: 8px"></span>INFO · drag across bars to zoom the time range</span>
+      <span>{{ h.buckets.length ? time(h.to) : '' }}</span>
+    </div>
+  }
+
+  <!-- Toolbar -->
+  <div class="lg-tools">
+    <div class="lg-seg">
+      <button [class.on]="mode() === 'lines'" (click)="setMode('lines')">Lines</button>
+      <button [class.on]="mode() === 'grouped'" (click)="setMode('grouped')">Grouped</button>
+      <button [class.on]="mode() === 'patterns'" (click)="setMode('patterns')">Patterns</button>
+    </div>
+    @if (mode() === 'grouped' && structure(); as s) {
+      <span class="lg-dim">Children:</span>
+      <button class="lg-btn xs" (click)="expandTo(0)">Collapse all</button>
+      <button class="lg-btn xs" (click)="expandTo(1)">to L1</button>
+      <button class="lg-btn xs" (click)="expandTo(2)">to L2</button>
+      <button class="lg-btn xs" (click)="expandTo(8)">All</button>
+      <span class="lg-dim" style="margin-left: 6px">Sort:</span>
+      @for (lv of s.groupLevels; track $index; let i = $index) {
+        <select style="font-size: 11px" [ngModel]="lv.sort" (ngModelChange)="setLevelSort(i, $event)" [attr.aria-label]="'Level ' + (i + 1) + ' sort'">
+          <option value="TIME_ASC">L{{ i + 1 }} time ↑</option><option value="TIME_DESC">L{{ i + 1 }} time ↓</option>
+          <option value="ERRORS_DESC">L{{ i + 1 }} errors ↓</option><option value="LINES_DESC">L{{ i + 1 }} lines ↓</option>
+          <option value="MAX_DURATION_DESC">L{{ i + 1 }} max duration ↓</option><option value="ID_ASC">L{{ i + 1 }} id A→Z</option>
+        </select>
+      }
+    }
+    <span class="lg-sp"></span>
+    <span class="lg-dim">Data:</span>
+    <div class="lg-seg">
+      <button [class.on]="dataView() === 'TABLE'" (click)="setDataView('TABLE')">Table</button>
+      <button [class.on]="dataView() === 'JSON'" (click)="setDataView('JSON')">JSON</button>
+    </div>
+    <button class="lg-btn xs" (click)="closeAllData()">Close all data</button>
+    <button class="lg-btn sm" [class.on]="live()" (click)="live.set(!live())">{{ live() ? '❚❚ Live' : '▶ Live' }}</button>
+    <span class="lg-dim">{{ total() | number }} matches · {{ tookMs() }} ms @if (slow()) { · <span style="color: var(--amber)" title="A short text term or a field that is not indexed - the search had to scan">slow search</span> }</span>
+  </div>
+
+  <!-- Bulk bar -->
+  @if (sel().ids.size) {
+    <div class="lg-card lg-bulk">
+      <b>{{ sel().ids.size | number }} selected</b>
+      @if (hiddenSelected()) { <span class="lg-hint">({{ hiddenSelected() }} hidden by current filters)</span> }
+      <button class="lg-btn xs" (click)="selectAllMatching()">Select all {{ total() | number }} matching</button>
+      @if (mode() === 'grouped') { <button class="lg-btn xs" (click)="addChildrenOfSelected()">+ children of selected</button> }
+      <span style="width: 1px; height: 18px; background: var(--border-strong)"></span>
+      <button class="lg-btn xs" [class.primary]="sel().ids.size === 2" (click)="openCompare()" title="Exactly two rows">Compare{{ sel().ids.size === 2 ? '' : ' (pick 2)' }}</button>
+      <button class="lg-btn xs" (click)="selectionOnly()">Show selection only</button>
+      <button class="lg-btn xs" (click)="copyRaw()">Copy raw</button>
+      <select style="font-size: 11px" (change)="exportAs($any($event.target).value); $any($event.target).value = ''" aria-label="Export selection">
+        <option value="">Export…</option><option value="ndjson">.ndjson (raw lines)</option><option value="json">.json</option><option value="md">.md</option><option value="html">.html</option>
+      </select>
+      <button class="lg-btn xs" (click)="bulkComment.set(bulkComment() === null ? '' : null)">Comment on all</button>
+      <button class="lg-btn xs" (click)="pinSelection()">Pin (keep forever)</button>
+      <button class="lg-btn xs" (click)="bulkMsg.set('Later phase: turns the selected lines into Alfred calls, using the roles as the mapping.')">Make Alfred calls <span class="lg-faint">· later</span></button>
+      <span class="lg-sp"></span>
+      <button class="lg-btn xs" (click)="clearSelection()">Clear selection</button>
+      @if (bulkComment() !== null) {
+        <div class="lg-row" style="width: 100%">
+          <input type="text" style="flex: 1" [placeholder]="'Comment for all ' + sel().ids.size + ' lines'" [ngModel]="bulkComment()" (ngModelChange)="bulkComment.set($event)" (keydown.enter)="commentAll()" aria-label="Bulk comment" />
+          <button class="lg-btn xs primary" (click)="commentAll()">Add</button>
+        </div>
+      }
+      @if (bulkMsg()) { <div class="lg-hint" style="width: 100%">{{ bulkMsg() }}</div> }
+    </div>
+  }
+
+  <div class="lg-grid" [class.dr]="drawer()">
+    <!-- Sidebar -->
+    <div class="lg-card lg-side">
+      <div class="lg-hint" style="margin-bottom: 2px">ROLES</div>
+      @for (r of roleRows(); track r.role) {
+        <div class="lg-hint" style="padding: 1px 0"><span style="display: inline-block; width: 78px">{{ r.role }}</span><span class="lg-mono">{{ r.label }}</span></div>
+      }
+      @if (showStructures()) {
+        <div class="lg-hint" style="margin: 10px 0 2px" title="Lines whose fields are mostly the same - each line may have its own structure">STRUCTURES · lines in these results</div>
+        @for (st of structures(); track st.id) {
+          <div class="lg-vrow">
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer" [title]="st.name + ' - ' + st.fields.length + ' fields'"
+                  (click)="structureFilter(st, false)"><span class="lg-shape">{{ st.code }}</span>{{ st.name }}</span>
+            <span class="lg-faint">{{ (st.matching ?? 0) | number }}</span>
+            <span class="acts">
+              <button class="lg-ib" title="Only this structure" (click)="structureFilter(st, false)">⊕</button>
+              <button class="lg-ib" title="Hide this structure" (click)="structureFilter(st, true)">⊖</button>
+            </span>
+          </div>
+        }
+        @if (lineStructures()?.pending) { <div class="lg-hint">Sorting older lines into structures…</div> }
+      }
+      <div class="lg-hint" style="margin: 10px 0 2px">FIELDS · click a name for stats{{ values() ? ' · latest ' + (values()!.window | number) : '' }}</div>
+      @if (hiddenFieldCount() > 0 || !hideMissing()) {
+        <label class="lg-hint" style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; cursor: pointer">
+          <input type="checkbox" [checked]="hideMissing()" (change)="hideMissing.set(!hideMissing())" />
+          Hide missing fields{{ hideMissing() && hiddenFieldCount() ? ' (' + hiddenFieldCount() + ' not in these results)' : '' }}
+        </label>
+      }
+      @for (f of sideFields(); track f.path) {
+        <div class="lg-fld">
+          <div class="nm">
+            <span class="lg-ty">{{ typeIcon(f) }}</span>
+            <span class="lg-mono" (click)="openStats(f, $event)" [title]="f.path">{{ f.label }}</span>
+            <span class="lg-sp"></span>
+            <span class="lg-faint" style="font-size: 10.5px">{{ presence(f) }}</span>
+            <span class="lg-vrow" style="padding: 0">
+              <span class="acts">
+                <button class="lg-ib" [class.on]="columns().includes(f.label)" title="Toggle column in table" (click)="toggleColumn(f.label)">▥</button>
+                <button class="lg-ib" title="Filter for field present" (click)="addPill({ op: 'EXISTS', field: f.label })">∃</button>
+              </span>
+            </span>
+          </div>
+          @if (top(f).length) {
+            <div class="vals">
+              @for (v of top(f).slice(0, 4); track v.value) {
+                <div class="lg-vrow">
+                  <span class="lg-mono" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap" [title]="v.value">{{ v.value }}</span>
+                  <span class="lg-faint">{{ v.count }}</span>
+                  <span class="acts">
+                    <button class="lg-ib" title="Filter for value" (click)="addPill({ op: 'EQ', field: f.label, value: v.value })">⊕</button>
+                    <button class="lg-ib" title="Filter out value" (click)="addPill({ op: 'NEQ', field: f.label, value: v.value })">⊖</button>
+                  </span>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+      @if (stats(); as st) {
+        <div class="lg-pop" [style.top.px]="st.top" [style.left.px]="st.left" (click)="$event.stopPropagation()">
+          <div class="lg-row">
+            <b class="lg-mono">{{ st.label }}</b><span class="lg-sp"></span>
+            @if (st.data; as d) { <span class="lg-hint">{{ d.type.toLowerCase() }} · {{ d.values | number }} values{{ d.exact ? '' : ' in the latest ' + (d.window | number) }}</span> }
+            <button class="lg-ib" (click)="stats.set(null)" aria-label="Close">✕</button>
+          </div>
+          @if (st.data; as d) {
+            @if (d.distinct === null) {
+              <div class="lg-stats">
+                <div><span>p50</span><b>{{ statText(d.p50, d.label) }}</b></div>
+                <div><span>p95</span><b>{{ statText(d.p95, d.label) }}</b></div>
+                <div><span>p99</span><b>{{ statText(d.p99, d.label) }}</b></div>
+                <div><span>max</span><b>{{ statText(d.max, d.label) }}</b></div>
+              </div>
+              <div class="lg-dist">
+                @for (n of d.distribution; track $index; let i = $index) { <div [class.top]="i >= 21" [style.height.px]="(n / distTop(d)) * 44"></div> }
+              </div>
+              <div class="lg-row lg-hint" style="justify-content: space-between"><span>{{ statText(d.min, d.label) }}</span><span>{{ statText(d.max, d.label) }}</span></div>
+              @if (d.type === 'NUMBER') {
+                <div class="lg-row" style="margin-top: 8px">
+                  <button class="lg-btn xs" (click)="aboveP95(d.label, d.p95)">{{ d.label }} &gt; p95</button>
+                  @if (roleLabel()['SERVICE']; as svc) { <button class="lg-btn xs" (click)="breakdown(d.label, d.p95)">Slowest by {{ svc }}</button> }
+                </div>
+                @if (st.breakdown; as b) {
+                  <div class="lg-hint" style="margin-top: 6px">Above p95, by {{ roleLabel()['SERVICE'] }}</div>
+                  @for (x of b; track x.value) {
+                    <div class="lg-vrow" style="grid-template-columns: minmax(0, 1fr) auto"><span class="lg-mono">{{ x.value }}</span><span class="lg-faint">{{ x.count }}</span></div>
+                  }
+                }
+              }
+            } @else {
+              <div class="lg-hint" style="margin: 6px 0">{{ d.distinct | number }} distinct values · top 10</div>
+              @for (t of d.top; track t.value) {
+                <div class="lg-vrow" style="grid-template-columns: minmax(0, 1fr) 110px auto">
+                  <span class="lg-mono" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ t.value }}</span>
+                  <span><div class="lg-dur"><div [style.width.%]="(t.count / d.top[0].count) * 100" style="background: var(--purple)"></div></div></span>
+                  <span class="lg-faint">{{ t.count }}</span>
+                </div>
+              }
+            }
+          } @else {
+            <div class="lg-hint">Loading…</div>
+          }
+        </div>
+      }
+    </div>
+
+    <!-- List + minimap -->
+    <div>
+      @if (mode() === 'lines') {
+        <div class="lg-row" style="justify-content: flex-end; margin-bottom: 4px">
+          <span class="lg-hint">Minimap:</span>
+          <input type="text" class="lg-mono" style="font-size: 11px; width: 220px" placeholder="errors + warnings · or any filter, e.g. timeTaken>6000"
+                 [ngModel]="minimapCond()" (keydown.enter)="setMinimapCond($any($event.target).value)" (blur)="setMinimapCond($any($event.target).value)"
+                 aria-label="Minimap condition" title="Same syntax as the search bar; empty = errors and warnings" />
+          @if (minimap()?.sampled) { <span class="lg-hint">sampled</span> }
+        </div>
+      }
+      <div class="lg-listwrap">
+        <div class="lg-list" #list (scroll)="onScroll()">
+          <div class="lg-lhead" [style.grid-template-columns]="gridColumns()">
+            <span></span><span title="children">{{ mode() === 'grouped' ? '⊞' : '' }}</span><span title="data">{{ '{}' }}</span>
+            <span><input type="checkbox" [checked]="header() === 'all'" [indeterminate]="header() === 'some'" (click)="pickAll($event)" title="Select all loaded rows (shift: all matching)" aria-label="Select all" /></span>
+            <span>Time</span><span>Level</span>
+            @if (columns().length) {
+              @for (c of columns(); track c) { <span class="col" [title]="c">{{ c }}<button (click)="toggleColumn(c)" aria-label="Remove column">✕</button></span> }
+            } @else {
+              <span class="col">Summary <span class="lg-faint" style="font-weight: 400">(template - toggle ▥ on any field to show columns instead)</span></span>
+            }
+            <span>Duration</span><span></span>
+          </div>
+          @if (newCount()) {
+            <div class="lg-newpill"><button class="lg-pill live" (click)="jumpToNewest()">↑ {{ newCount() | number }} new lines · paused while you're scrolled · jump to newest</button></div>
+          }
+
+          @if (mode() === 'lines') {
+            @for (r of rows(); track r.lineId) {
+              <ng-container *ngTemplateOutlet="row; context: { $implicit: r, depth: 0 }" />
+            } @empty {
+              <div class="lg-dim" style="padding: 20px">{{ loading() ? 'Loading…' : 'No lines match. Remove a filter or widen the time range.' }}</div>
+            }
+            @if (cursor()) { <div class="lg-hint" style="padding: 10px">Showing {{ rows().length | number }} of {{ total() | number }} - scroll to load the next page</div> }
+          }
+
+          @if (mode() === 'grouped') {
+            @if (!levelLabels().length) {
+              <div class="lg-dim" style="padding: 20px">Define grouping levels in <a [routerLink]="['/logs', id, 'structure']">⚙ Structure</a> first.</div>
+            }
+            @for (n of roots(); track n.path) {
+              <ng-container *ngTemplateOutlet="node; context: { $implicit: n, depth: 0 }" />
+            }
+            @if (rootsMore()) { <button class="lg-btn xs" style="margin: 6px" (click)="moreRoots()">Load more {{ levelLabels()[0] }} groups</button> }
+            @if (bucketTotal()) {
+              <div class="lg-lr ph" [style.grid-template-columns]="gridColumns()" (click)="bucketOpen.set(!bucketOpen())">
+                <span class="lg-stripe"></span><button class="lg-tg">{{ bucketOpen() ? '−' : '+' }}</button><span></span><span></span>
+                <span class="lg-mono lg-faint">-</span><span></span><span class="c">No {{ levelLabels()[0] }} · {{ bucketTotal() | number }} lines</span>
+              </div>
+              @if (bucketOpen()) {
+                @for (r of bucket(); track r.lineId) { <ng-container *ngTemplateOutlet="row; context: { $implicit: r, depth: 1 }" /> }
+                @if (bucketCursor()) { <button class="lg-btn xs" style="margin: 6px 0 6px 20px" (click)="moreBucket()">Load more lines</button> }
+              }
+            }
+            <div class="lg-hint" style="padding: 8px">Parents and children are ordinary log lines. Children load as you expand.</div>
+          }
+
+          @if (mode() === 'patterns') {
+            @for (p of patterns(); track p.id) {
+              <div class="lg-lr" style="grid-template-columns: 3px 20px minmax(0, 1fr) 90px" (click)="togglePattern(p)">
+                <span class="lg-stripe" [class]="'lg-stripe ' + p.worstLevel"></span>
+                <span class="lg-tg">{{ patternOpen().has(p.id) ? '−' : '+' }}</span>
+                <span class="c">{{ p.template || '(no message)' }}</span>
+                <span class="lg-mono" style="text-align: right">×{{ p.count | number }}</span>
+              </div>
+              @if (patternOpen().get(p.id); as open) {
+                @for (r of open.lines; track r.lineId) { <ng-container *ngTemplateOutlet="row; context: { $implicit: r, depth: 1 }" /> }
+                @if (open.cursor) { <button class="lg-btn xs" style="margin: 6px 0 6px 20px" (click)="morePattern(p)">Load more of this pattern</button> }
+              }
+            } @empty {
+              <div class="lg-dim" style="padding: 20px">No patterns - set a field's role to Message so lines can be grouped by it.</div>
+            }
+            <div class="lg-hint" style="padding: 8px">Variable parts (numbers, ids) are replaced by ‹placeholders›.</div>
+          }
+        </div>
+        <div class="lg-minimap" title="Lines matching the minimap condition across the whole result - click to jump">
+          @for (t of minimapTicks(); track t.b) {
+            <i [style.top.%]="t.top" [style.background]="t.color" (click)="jumpToBucket(t.b)"></i>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Drawer -->
+    @if (drawer(); as d) {
+      <div class="lg-card lg-drawer">
+        @if (full().get(d); as l) {
+          <div class="lg-row">
+            <span class="lg-lvl" [class]="'lg-lvl ' + (l.level ?? 'other')">{{ l.level ?? '-' }}</span>
+            <span class="lg-mono lg-dim" [title]="utc(l.ts)">{{ dateTime(l.ts) }}</span>
+            <span class="lg-sp"></span><span class="lg-hint">j / k move</span>
+            <button class="lg-ib" (click)="drawer.set(null)" aria-label="Close drawer">✕</button>
+          </div>
+          <div style="margin-top: 6px">{{ renderSummary(l) }}</div>
+          <div class="lg-tabs">
+            <button [class.on]="dtab() === 'fields'" (click)="setTab('fields')">Fields</button>
+            <button [class.on]="dtab() === 'raw'" (click)="setTab('raw')">Raw</button>
+            <button [class.on]="dtab() === 'context'" (click)="setTab('context')">Context</button>
+            <button [class.on]="dtab() === 'trace'" (click)="setTab('trace')">Trace</button>
+            <button [class.on]="dtab() === 'comments'" (click)="setTab('comments')">Comments{{ commentsFor(d).length ? ' (' + commentsFor(d).length + ')' : '' }}</button>
+          </div>
+          @if (drawerError()) { <div class="lg-error-text">{{ drawerError() }}</div> }
+          @switch (dtab()) {
+            @case ('fields') {
+              <app-log-line-data [sourceId]="id" [line]="l" [structure]="structure()!" [defaultLayout]="structure()!.defaultFieldLayout ?? 'GROUPED'" [comments]="commentsFor(d)" view="TABLE" [showHeader]="false"
+                                 [terms]="terms()" [columns]="columns()" [mask]="masked()" (fieldAction)="onFieldAction($event)" (commentsChanged)="reloadOne(d)" />
+            }
+            @case ('raw') {
+              <div class="lg-hint">Exactly as received ({{ (l.raw?.length ?? 0) | number }} characters)</div>
+              <pre class="lg-json" style="white-space: pre-wrap; word-break: break-all">{{ l.raw ?? l.rawUnavailable }}</pre>
+            }
+            @case ('context') {
+              <div class="lg-hint">±20 lines around this one, in original input order</div>
+              @for (c of contextRows(); track c.lineId) {
+                <div class="lg-mono" style="font-size: 11.5px; padding: 2px 0; cursor: pointer" [style.color]="c.lineId === d ? 'var(--text)' : 'var(--text-dim)'" [style.background]="c.lineId === d ? 'color-mix(in srgb, var(--purple) 20%, transparent)' : null" (click)="openDrawer(c.lineId)">
+                  {{ time(c.ts) }} {{ c.level ?? '?' }} {{ summary(c) }}
+                </div>
+              }
+            }
+            @case ('trace') {
+              @if (traceBars().length) {
+                <div class="lg-hint">{{ roleLabel()['CORRELATION'] }} · {{ traceBars().length }} lines</div>
+                @for (b of traceBars(); track b.r.lineId) {
+                  <div class="lg-wf" style="cursor: pointer" (click)="openDrawer(b.r.lineId)">
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap" [title]="summary(b.r)">{{ summary(b.r) }}</span>
+                    <div class="t"><div [class]="b.r.level ?? ''" [style.left.%]="b.left" [style.width.%]="b.width"></div></div>
+                    <span class="lg-hint" style="text-align: right">{{ b.d ? duration(b.d) : time(b.r.ts).slice(3, 8) }}</span>
+                  </div>
+                }
+              } @else if (!drawerError()) {
+                <div class="lg-dim">This line has no correlation value.</div>
+              }
+            }
+            @case ('comments') {
+              <app-log-line-data [sourceId]="id" [line]="l" [structure]="structure()!" [defaultLayout]="structure()!.defaultFieldLayout ?? 'GROUPED'" [comments]="commentsFor(d)" view="TABLE" [showHeader]="false"
+                                 [terms]="[]" [columns]="columns()" [mask]="masked()" (commentsChanged)="reloadOne(d)" />
+              <div class="lg-hint">Comments sit on their fields above; hover a field's 💬 to add one. Commenting pins this line.</div>
+            }
+          }
+        } @else {
+          <div class="lg-hint">Loading…</div>
+        }
+      </div>
+    }
+  </div>
+</div>
+
+<!-- One row: summary or columns, level stripe, toggles, selection, duration, drawer (mock rowHtml) -->
+<ng-template #row let-r let-depth="depth" let-nodeInfo="node" let-sib="sib" let-mark="mark">
+  <div class="lg-lr" [id]="'lg-row-' + r.lineId" [class.sel]="current() === r.lineId" [style.grid-template-columns]="gridColumns()" [style.padding-left.px]="depth * 20" (click)="toggleData(r.lineId)">
+    <span class="lg-stripe" [class]="'lg-stripe ' + levelOf(r)"></span>
+    @if (nodeInfo && (nodeInfo.childCount || nodeInfo.skipped.length)) {
+      <button class="lg-tg" (click)="$event.stopPropagation(); toggleKids(nodeInfo)" title="Show / hide children">{{ openKids().has(nodeInfo.path) ? '−' : '+' }}</button>
+    } @else { <span class="lg-tg off"></span> }
+    <button class="lg-tg" (click)="$event.stopPropagation(); toggleData(r.lineId)" title="Show / hide this line's data">{{ openData().has(r.lineId) ? '▾' : '▸' }}</button>
+    <span><input type="checkbox" [checked]="sel().ids.has(r.lineId)" (click)="pick(r.lineId, $event)" title="Select (shift-click: range · x key)" aria-label="Select line" /></span>
+    <span class="lg-mono lg-dim" [title]="utc(r.ts)">{{ time(r.ts) }}</span>
+    <span><span class="lg-lvl" [class]="'lg-lvl ' + levelOf(r)">{{ r.level ?? (r.unparsed ? 'RAW' : '-') }}</span></span>
+    @if (columns().length) {
+      @for (c of columns(); track c) {
+        <span class="c lg-mono" [style.color]="redCell(r, c) ? 'var(--red)' : null" [title]="cell(r, c)">
+          @if (cell(r, c)) { @for (s of segments(cell(r, c)); track $index) { @if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>} } } @else { <span class="lg-faint">—</span> }
+        </span>
+      }
+    } @else {
+      <span class="c">
+        @if (nodeInfo) { <span class="lg-chip">L{{ nodeInfo.level }}@if (nodeInfo.descendantCount) { · {{ nodeInfo.descendantCount }} below }</span> }
+        @if (sib) { <span class="lg-chip">sibling</span> }
+        @if (mark) { <span class="lg-mk">{{ mark }} missing</span> }
+        @if (r.unparsed) { <span class="lg-mk">unparsed</span> }
+        @if (showStructures() && r.shape) {
+          <span class="lg-shape" [title]="structureTitle(r.shape)"
+                (click)="$event.stopPropagation(); addPill({ op: 'EQ', field: 'structure', value: 'S' + r.shape })">S{{ r.shape }}</span>
+        }
+        @if (corrColor(r); as cc) { <span class="lg-cdot" [style.background]="cc" [title]="corrValue(r)"></span> }
+        @for (s of segments(summary(r)); track $index) { @if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>} }
+      </span>
+    }
+    <span>
+      @if (durationOf(r); as d) {
+        <div class="lg-dur"><div [class.slow]="d >= 10000" [style.width.%]="d / 300 > 100 ? 100 : d / 300"></div></div>
+        <div class="lg-hint" style="text-align: right">{{ duration(d) }}</div>
+      }
+    </span>
+    <span class="lg-row" style="gap: 2px">
+      <button class="lg-ib" (click)="$event.stopPropagation(); openDrawer(r.lineId)" title="Open in side drawer">⇥</button>
+      @if (r.commentCount) { <span class="lg-faint" [title]="r.commentCount + ' comments'">💬</span> }
+    </span>
+  </div>
+  @if (openData().has(r.lineId)) {
+    <div class="lg-data" [style.margin-left.px]="depth * 20 + 42">
+      @if (full().get(r.lineId); as l) {
+        <app-log-line-data [sourceId]="id" [line]="l" [structure]="structure()!" [defaultLayout]="structure()!.defaultFieldLayout ?? 'GROUPED'" [comments]="commentsFor(r.lineId)" [view]="dataView()"
+                           [terms]="terms()" [columns]="columns()" [mask]="masked()" [levelIds]="levelIds(r.lineId)"
+                           (viewChange)="setDataView($event)" (fieldAction)="onFieldAction($event)" (commentsChanged)="reloadOne(r.lineId)" (openDrawer)="openDrawer(r.lineId)" />
+      } @else {
+        <div class="lg-hint">Loading…</div>
+      }
+    </div>
+  }
+</ng-template>
+
+<!-- One group node: head line (or placeholder), its same-level siblings, level-skipping lines, then children (mock renderList grouped walk) -->
+<ng-template #node let-n let-depth="depth">
+  @if (n.headLine) {
+    <ng-container *ngTemplateOutlet="row; context: { $implicit: n.headLine, depth: depth, node: n }" />
+  } @else {
+    <div class="lg-lr ph" [style.grid-template-columns]="gridColumns()" [style.padding-left.px]="depth * 20">
+      <span class="lg-stripe" style="background: var(--border-strong)"></span>
+      <button class="lg-tg" (click)="toggleKids(n)">{{ openKids().has(n.path) ? '−' : '+' }}</button><span></span><span></span>
+      <span class="lg-mono lg-faint">-</span><span></span>
+      <span class="c"><span class="lg-chip">L{{ n.level }} · {{ n.descendantCount }} below</span>{{ placeholderText(n) }}</span>
+    </div>
+  }
+  @for (s of siblingsOf(n); track s.lineId) {
+    <ng-container *ngTemplateOutlet="row; context: { $implicit: s, depth: depth, sib: true }" />
+  }
+  @if (hasMoreOwn(n)) {
+    <button class="lg-btn xs" [style.margin-left.px]="depth * 20 + 40" (click)="moreNodeLines(n, false)">Load more lines of {{ n.id }}</button>
+  }
+  @if (openKids().has(n.path)) {
+    @for (c of childrenOf(n.path); track c.path) {
+      <ng-container *ngTemplateOutlet="node; context: { $implicit: c, depth: depth + 1 }" />
+    }
+    @if (kidsMore().has(n.path)) {
+      <button class="lg-btn xs" [style.margin-left.px]="(depth + 1) * 20 + 40" (click)="moreKids(n.path)">Load more {{ levelLabels()[n.level] }} groups</button>
+    }
+    @for (s of skippedOf(n); track s.lineId) {
+      <ng-container *ngTemplateOutlet="row; context: { $implicit: s, depth: depth + 1, mark: s.missingLevel }" />
+    }
+    @if (hasMoreSkipped(n)) {
+      <button class="lg-btn xs" [style.margin-left.px]="(depth + 1) * 20 + 40" (click)="moreNodeLines(n, true)">Load more lines missing a level</button>
+    }
+  }
+</ng-template>
+
+<!-- Compare dialog (mock compareDlg) -->
+@if (compare(); as c) {
+  <div class="lg-overlay" (click)="compare.set(null)">
+    <div class="lg-card lg-dialog" (click)="$event.stopPropagation()">
+      <div class="lg-row">
+        <h2 class="lg-h2">Compare two lines</h2><span class="lg-sp"></span>
+        <div class="lg-seg">
+          <button [class.on]="compareLayout() === 'GROUPED'" (click)="compareLayout.set('GROUPED')">Grouped</button>
+          <button [class.on]="compareLayout() === 'FLAT'" (click)="compareLayout.set('FLAT')">Flat</button>
+        </div>
+        <label class="lg-dim"><input type="checkbox" [checked]="c.onlyDiff" (change)="compare.set({ a: c.a, b: c.b, onlyDiff: !c.onlyDiff })" /> Only differences</label>
+        <button class="lg-btn sm" (click)="compare.set(null)">Close</button>
+      </div>
+      @if (compareRows(c); as cr) {
+        <div class="lg-hint" style="margin: 6px 0">{{ cr.differing }} of {{ cr.total }} fields differ</div>
+        <table class="lg-cmp">
+          <colgroup><col style="width: 30%" /><col style="width: 35%" /><col style="width: 35%" /></colgroup>
+          <tr><th>Field</th><th>{{ dateTime(c.a.ts) }} · {{ c.a.level }}</th><th>{{ dateTime(c.b.ts) }} · {{ c.b.level }}</th></tr>
+          @if (compareLayout() === 'GROUPED') {
+            @for (tr of compareTree(cr.rows); track tr.node.kind + tr.node.key) {
+              @if (tr.node.kind === 'group') {
+                <tr class="grp" (click)="toggleCompareGroup(tr.node.key)">
+                  <td colspan="3" [style.padding-left.px]="tr.depth * 16 + 6">
+                    {{ compareClosed().has(tr.node.key) ? '▸' : '▾' }} <span class="lg-faint">{{ tr.prefix }}</span><b>{{ tr.node.name }}</b>
+                    <span class="lg-faint"> · {{ tr.node.count }}{{ differingIn(tr.node) ? ' · ' + differingIn(tr.node) + ' differ' : '' }}</span>
+                  </td>
+                </tr>
+              } @else {
+                <tr>
+                  <td [style.padding-left.px]="tr.depth * 16 + 20"><span class="lg-faint">{{ tr.prefix }}</span>{{ tr.node.name }}</td>
+                  <td [class.d]="tr.node.item.differs">@if (tr.node.item.x === null) { <span class="lg-faint">(absent)</span> } @else { {{ tr.node.item.x }} }</td>
+                  <td [class.d]="tr.node.item.differs">@if (tr.node.item.y === null) { <span class="lg-faint">(absent)</span> } @else { {{ tr.node.item.y }} }</td>
+                </tr>
+              }
+            }
+          } @else {
+            @for (r of cr.rows; track r.k) {
+              <tr>
+                <td>{{ r.k }}</td>
+                <td [class.d]="r.differs">@if (r.x === null) { <span class="lg-faint">(absent)</span> } @else { {{ r.x }} }</td>
+                <td [class.d]="r.differs">@if (r.y === null) { <span class="lg-faint">(absent)</span> } @else { {{ r.y }} }</td>
+              </tr>
+            }
+          }
+        </table>
+      }
+    </div>
+  </div>
+}

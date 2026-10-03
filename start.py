@@ -450,6 +450,8 @@ def sync_env_from_settings():
     # settings.properties's raw one, so it never drifts from whichever list actually won above.
     env.setdefault("FORWARD_PROXY_PORT_MAP", _forward_proxy_port_map_env(env["INTERNAL_CALL_SERVICES"]))
     env.setdefault("INTERNAL_CALLS_RETENTION_ROWS", _inbound_retention_rows(settings))
+    # Host folder mounted read-only at /logs for the Logs Explorer's server-file inputs.
+    env.setdefault("ALFRED_LOGS_DIR", settings.get("logs_drop_dir", "").strip() or "./logs-drop")
 
     reverse_proxy_enabled = env["REVERSE_PROXY_ENABLED"].strip().lower() == "true"
     services = env["INTERNAL_CALL_SERVICES"]

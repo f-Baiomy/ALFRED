@@ -53,3 +53,6 @@ proxy/interception/relive/
 
 # CodeGraph code-intelligence index - local, machine-specific, rebuilt from the sources (see CLAUDE.md).
 .codegraph/
+
+# Logs Explorer server-file drop folder (mounted read-only at /logs)
+logs-drop/

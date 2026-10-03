@@ -1,0 +1,111 @@
+<div class="lg-page" (click)="menuFor.set(null)">
+  <div class="lg-row">
+    <div>
+      <h1 class="lg-h1">Log sources</h1>
+      <div class="lg-sub">A source = one log structure + its settings, fed by any number of inputs. Search, groups and traces span all of a source's inputs.</div>
+    </div>
+    <span class="lg-sp"></span>
+    <a class="lg-btn primary" routerLink="/logs/new">+ New source</a>
+  </div>
+
+  @if (error()) {
+    <div class="lg-note lg-error-text">{{ error() }}</div>
+  }
+
+  <div style="margin-top: 14px">
+    @for (v of sources(); track v.source.id) {
+      <div class="lg-card lg-src" (click)="open(v.source.id)" style="cursor: pointer">
+        <div class="lg-row">
+          <h2 class="lg-h2">{{ v.source.name }}</h2>
+          @if (following(v)) {
+            <span class="lg-pill live">● following</span>
+          }
+          <span class="lg-sp"></span>
+          <span class="lg-dim">
+            {{ v.source.lineCount | number }} lines · {{ gb(v.source.storedBytes) }} GB stored ·
+            {{ v.source.retentionMaxBytes ? 'cap ' + gb(v.source.retentionMaxBytes) + ' GB' : 'keeps every line' }} ·
+            raw: {{ v.source.rawMode === 'COPY' ? 'copied into Alfred' : 'positions in original files' }}
+          </span>
+          <a class="lg-btn xs" [routerLink]="['/logs/new']" [queryParams]="{ source: v.source.id }" (click)="$event.stopPropagation()">+ Input</a>
+          <button class="lg-btn xs" (click)="openSettings(v, $event)">Settings</button>
+          <button class="lg-btn xs danger" (click)="remove(v, $event)">Delete</button>
+        </div>
+        <div style="margin-top: 8px">
+          @for (i of v.inputs; track i.id) {
+            <div class="lg-inp">
+              <span>{{ icon(i) }}</span>
+              <span class="lg-mono" [title]="i.path ?? ''">{{ i.kind === 'UPLOAD' ? 'Upload · ' : i.kind === 'FOLLOW' ? 'Follow · ' : 'Server file · ' }}{{ i.fileName }}</span>
+              <span class="lg-dim">{{ progressText(i) }}</span>
+              <span class="lg-pill" [class]="'lg-pill ' + pillClass(i.status)">{{ statusText(i) }}</span>
+              <span style="position: relative">
+                <button class="lg-btn xs" (click)="toggleMenu(i.id, $event)" aria-label="Input actions">⋯</button>
+                @if (menuFor() === i.id) {
+                  <div class="lg-pop" style="right: 0; width: 160px; padding: 6px" (click)="$event.stopPropagation()">
+                    @if (i.status === 'PAUSED' || i.status === 'FAILED' || i.status === 'DONE') {
+                      <button class="lg-btn xs" style="width: 100%; margin-bottom: 4px" (click)="act(v, i, 'resume', $event)">{{ i.status === 'DONE' ? 'Reload new lines' : 'Resume' }}</button>
+                    } @else if (i.status !== 'UPLOADING') {
+                      <button class="lg-btn xs" style="width: 100%; margin-bottom: 4px" (click)="act(v, i, 'pause', $event)">Pause</button>
+                    }
+                    <button class="lg-btn xs danger" style="width: 100%" (click)="removeInput(v, i, $event)">Remove input</button>
+                  </div>
+                }
+              </span>
+            </div>
+            @if (i.unparsedCount > 0) {
+              <div class="lg-inp">
+                <span>⚠</span><span class="lg-dim">{{ i.unparsedCount | number }} lines were not valid JSON - kept as unparsed lines</span><span></span>
+                <span class="lg-pill warn">{{ i.unparsedCount | number }} unparsed</span><span></span>
+              </div>
+            }
+            @if (i.mismatchCount > 0) {
+              <!-- Only sources keeping positions (not raw lines) can still have these: loaded before every line
+                   could have its own structure, and their raw text cannot be re-read here. -->
+              <div class="lg-inp">
+                <span>≠</span><span class="lg-dim">{{ i.mismatchCount | number }} lines were loaded before every line could have its own structure - remove and load this file again to search all of their fields</span><span></span>
+                <span class="lg-pill warn">reload</span><span></span>
+              </div>
+            }
+            @if (message()[i.id]; as m) {
+              <div class="lg-hint" style="padding-left: 32px">{{ m }}</div>
+            }
+          } @empty {
+            <div class="lg-hint">No inputs yet.</div>
+          }
+        </div>
+      </div>
+    } @empty {
+      @if (loaded()) {
+        <div class="lg-card lg-src">
+          <h2 class="lg-h2">Load your first log file</h2>
+          <div class="lg-sub">Each line must be one JSON object. Alfred detects the structure; you choose types, roles and what to search.</div>
+          <a class="lg-btn primary" style="margin-top: 10px" routerLink="/logs/new">+ New source</a>
+        </div>
+      }
+    }
+  </div>
+  <div class="lg-note">Clicking a source opens the explorer. <b>⋯</b> on an input: pause, resume, remove. HTTP push and OpenSearch inputs are coming once their secret handling is decided.</div>
+
+  @if (settings(); as s) {
+    <div class="lg-overlay" (click)="settings.set(null)">
+      <div class="lg-card lg-dialog" style="width: 480px" (click)="$event.stopPropagation()">
+        <h2 class="lg-h2">Settings · {{ s.name }}</h2>
+        <div class="lg-form" style="grid-template-columns: 160px 1fr">
+          <label for="lg-set-name">Name</label>
+          <input id="lg-set-name" type="text" [ngModel]="s.name" (ngModelChange)="updateSettings({ name: $event })" />
+          <label for="lg-set-gb">Size cap</label>
+          <div class="lg-row"><input id="lg-set-gb" type="number" style="width: 90px" [ngModel]="s.gb" (ngModelChange)="updateSettings({ gb: $event })" /> <span class="lg-dim">GB · 0 = keep every line</span></div>
+          <span></span><span class="lg-hint">Everything you load stays unless you set a cap. With a cap, the oldest lines go first; commented and pinned lines are never removed. Loading pauses if the disk runs low.</span>
+        </div>
+        @if (s.error) {
+          <div class="lg-error-text" style="margin-top: 6px">{{ s.error }}</div>
+        }
+        <div class="lg-row" style="margin-top: 12px">
+          <span class="lg-sp"></span>
+          <button class="lg-btn sm" (click)="settings.set(null)">Cancel</button>
+          <button class="lg-btn sm primary" (click)="saveSettings()">Save</button>
+        </div>
+      </div>
+    </div>
+  }
+</div>
+<app-confirm-dialog />

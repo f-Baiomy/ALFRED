@@ -305,6 +305,14 @@ services:
       - INTERCEPTION_DB_FILE=/appdata/interception.db
       # Saved resend scenarios and their runs (backend-scenarios). Same volume as every other store.
       - SCENARIOS_DB_FILE=/appdata/scenarios.db
+      # Logs Explorer (backend-logs): one SQLite file for every log source, plus where chunked
+      # uploads are assembled. Server-side log files are read from the read-only /logs mount below.
+      # logs.db lives on a named volume, not the ./backend/data bind mount: SQLite on a Docker Desktop
+      # (Windows/macOS) bind mount measured ~15x slower for the Logs Explorer's writes and scans. On first
+      # start an existing /appdata/logs.db is copied over (LOGS_DB_LEGACY_FILE) and left in place.
+      - LOGS_DB_FILE=/logsdb/logs.db
+      - LOGS_DB_LEGACY_FILE=/appdata/logs.db
+      - LOGS_UPLOAD_DIR=/appdata/logs/uploads
       - INTERCEPTION_RULES_FILE=/appdata/interception/rules.json
       - INTERCEPTION_VARIABLES_FILE=/appdata/interception/variables.json
       # Per stored answer (uploaded file or copied recorded response). There is deliberately no
@@ -316,6 +324,10 @@ services:
       - FORWARD_PROXY_PORT_MAP=${FORWARD_PROXY_PORT_MAP:-}
     volumes:
       - ./backend/data:/appdata
+      - logs-db:/logsdb
+      # Log files for the Logs Explorer's "File on server" / "Follow a file" inputs. Read-only:
+      # backend never writes here. ALFRED_LOGS_DIR comes from settings.properties' logs_drop_dir.
+      - ${ALFRED_LOGS_DIR:-./logs-drop}:/logs:ro
       - ./proxy/reverse-proxy-enabled.flag:/appdata/reverse-proxy-enabled.flag
       # Writable here, read-only in both proxies - backend is the only writer.
       - ./proxy/interception:/appdata/interception
@@ -404,3 +416,8 @@ services:
 networks:
   alfred-net:
     driver: bridge
+
+volumes:
+  # The Logs Explorer's store (see LOGS_DB_FILE on backend). Back up with:
+  #   docker run --rm -v alfred_logs-db:/v -v "$PWD":/out alpine cp /v/logs.db /out/
+  logs-db:

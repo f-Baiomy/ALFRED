@@ -13,8 +13,7 @@ a later MongoDB adapter maps the same records to documents.
 | rawMode | `COPY` \| `OFFSET` | `REDACT_AT_LOAD` privacy forces `COPY` |
 | privacyMode | `SHOW` \| `MASK` \| `REDACT_AT_LOAD` | FR-043 |
 | remoteMode | `IMPORT` \| `IN_PLACE` \| null | null for non-OpenSearch sources |
-| retentionMaxBytes | long | default 20 GB, 100 MB–500 GB |
-| retentionMaxDays | int | default 30, 1–3650 |
+| retentionMaxBytes | long | 0 = keep everything (default); otherwise 100 MB–500 GB. No age-based retention |
 | lineCount, storedBytes, unparsedCount | long | maintained per batch |
 | pushTokenHash | String | SHA-256 of the push token; token shown once on create/regenerate |
 | createdAt, updatedAt | Instant | |
@@ -33,6 +32,23 @@ nodes), `lp_<id>` (patterns).
 | columns | List<String> | field labels toggled into the table (FR-018), ≤ 30 |
 | defaultDataView | `TABLE` \| `JSON` | |
 | timeZone | String (IANA) | default = server zone; validated with `ZoneId.of` |
+| overflowPaths | List<String> | fields seen past 900 searchable fields (first 1,000 listed): raw line / JSON only |
+
+`fields` is every field any line of the source has had (≤ 900 stored, ≤ 2,000 in all); lines may each have their
+own structure (FR-045 as amended).
+
+## LineShape (a structure among the lines)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | int | 1, 2, ... per source; shown as "S‹id›", filter `structure:S2` |
+| name | String \| null | user name; null = named after its most telling field |
+| template | String \| null | own summary template; null = the source's |
+| fields | List<int> | field indexes of its first line (what later lines are compared with) |
+| lineCount, fieldCounts | long, Map<int, long> | maintained per batch; "seen in X %" = Σ fieldCounts / Σ lineCount |
+
+A line joins the structure it shares most fields with if the overlap (Jaccard) is ≥ 0.7, else starts a new one; past
+100 structures it joins the nearest. SQLite: `ls_<id>`, and `ll_<id>.shape`.
 
 ## FieldDef
 
@@ -46,7 +62,8 @@ nodes), `lp_<id>` (patterns).
 | format | String | date pattern + zone, number unit, boolean words; ≤ 100 chars |
 | matchRate, invalidCount | double, long | detection / re-type statistics |
 | searchMode | `EXACT` \| `TEXT` \| `NONE` | EXACT ⇒ B-tree index on `t<N>` (typed) or `f<N>`; TEXT ⇒ FTS column |
-| role | `TIME` \| `LEVEL` \| `CORRELATION` \| `MESSAGE` \| `SERVICE` \| `DURATION` \| `STATUS` \| `REQUEST_BODY` \| `RESPONSE_BODY` \| `ERROR` \| null | each role on at most one field |
+| role | `TIME` \| `LEVEL` \| `CORRELATION` \| `MESSAGE` \| `SERVICE` \| `DURATION` \| `STATUS` \| `REQUEST_BODY` \| `RESPONSE_BODY` \| `ERROR` \| null | a role may be on several fields (FR-045 as amended) |
+| roleRank | int | 1..n order among a role's fields; each line uses the first it has; 0 = no role |
 | sensitive | boolean | used by MASK / REDACT_AT_LOAD |
 | duplicateOf | String \| null | unpacked JSON-in-text equal to another subtree; default searchMode NONE |
 | firstSeenLine | long | > sample ⇒ "new field found" notice |

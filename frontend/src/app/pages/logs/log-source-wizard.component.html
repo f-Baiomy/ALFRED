@@ -1,0 +1,156 @@
+<div class="lg-page">
+  <div class="lg-row">
+    <div>
+      <h1 class="lg-h1">{{ existing() ? 'Add input to ' + existing()!.source.name : 'New log source' }}</h1>
+      <div class="lg-sub">{{ existing() ? 'Lines are read with this source structure and settings.' : 'Lines must be one JSON object per line. Everything else is detected.' }}</div>
+    </div>
+    <span class="lg-sp"></span>
+    <a class="lg-btn" routerLink="/logs">Cancel</a>
+  </div>
+  <div class="lg-steps">
+    <div [class.on]="step() === 1" (click)="goToStep(1)">1 · Input</div>
+    <div [class.on]="step() === 2" (click)="goToStep(2)">2 · Structure</div>
+    <div [class.on]="step() === 3">3 · Load</div>
+  </div>
+
+  @if (pending(); as p) {
+    @if (step() === 1) {
+      <div class="lg-note" style="margin: 0 0 10px; color: var(--amber)">
+        An upload of <b>{{ p.name }}</b> ({{ mb(p.size) }} GB) did not finish. Choose the same file to continue where it stopped:
+        <input type="file" (change)="resume($event)" aria-label="Choose the same file to resume" />
+        <button class="lg-btn xs" (click)="dropPending()">Forget it</button>
+      </div>
+    }
+  }
+  @if (step() === 1) {
+    <div class="lg-card" style="padding: 16px">
+      <h3 class="lg-h3">Where do the lines come from?</h3>
+      <div class="lg-kinds">
+        @for (k of kinds; track k.id) {
+          <button class="lg-kind" [class.on]="kind() === k.id" [class.later]="!k.available" (click)="pickKind(k)" [attr.aria-pressed]="kind() === k.id">
+            <span style="font-size: 18px">{{ k.icon }}</span>
+            <b>{{ k.title }} @if (!k.available) { <span class="lg-faint">· later</span> }</b>
+            <span class="lg-dim" style="font-size: 12px">{{ k.text }}</span>
+          </button>
+        }
+      </div>
+      <div class="lg-form">
+        @if (!existing()) {
+          <label for="lg-src-name">Source name</label>
+          <input id="lg-src-name" type="text" style="width: 280px" [ngModel]="name()" (ngModelChange)="name.set($event)" />
+        }
+
+        @if (kind() === 'UPLOAD') {
+          <label for="lg-file">File</label>
+          <div class="lg-row">
+            <input id="lg-file" type="file" (change)="onFile($event)" />
+            @if (file(); as f) { <span class="lg-mono lg-dim">{{ f.name }} · {{ mb(f.size) }} GB</span> }
+          </div>
+        } @else {
+          <label>{{ kind() === 'FOLLOW' ? 'File to follow' : 'Server folder' }}</label>
+          <div>
+            <div class="lg-row lg-hint" style="margin-bottom: 4px">
+              <span class="lg-mono">/logs/{{ dir() }}</span>
+              @if (dir()) { <button class="lg-btn xs" (click)="listDir(dir().split('/').slice(0, -1).join('/'))">↑ up</button> }
+            </div>
+            <div class="lg-card" style="max-height: 200px; overflow: auto; padding: 4px 8px">
+              @for (f of serverFiles(); track f.path) {
+                <div class="lg-vrow" style="cursor: pointer; grid-template-columns: 20px minmax(0, 1fr) auto" [style.color]="serverPath() === f.path ? 'var(--purple-light)' : null" (click)="pickServer(f)">
+                  <span>{{ f.directory ? '📁' : '·' }}</span><span class="lg-mono">{{ f.name }}</span>
+                  <span class="lg-faint">{{ f.directory ? '' : (f.size / 1048576).toFixed(1) + ' MB' }}</span>
+                </div>
+              } @empty {
+                <div class="lg-hint">No files. Put log files in the folder mounted at /logs (settings.properties: logs_drop_dir).</div>
+              }
+            </div>
+          </div>
+          @if (kind() === 'FOLLOW') {
+            <label for="lg-from">Start from</label>
+            <select id="lg-from" style="width: 280px" [ngModel]="fromStart()" (ngModelChange)="fromStart.set($event === true || $event === 'true')">
+              <option [ngValue]="false">end of file (new lines only)</option>
+              <option [ngValue]="true">beginning of file</option>
+            </select>
+          }
+        }
+
+        @if (!existing()) {
+        <label>Raw lines</label>
+        <div class="lg-seg">
+          <button [class.on]="rawMode() === 'COPY'" (click)="rawMode.set('COPY')">Copy into Alfred</button>
+          <button [class.on]="rawMode() === 'OFFSET'" (click)="rawMode.set('OFFSET')">Keep file + positions</button>
+        </div>
+        <span></span>
+        <span class="lg-hint">
+          {{ rawMode() === 'COPY'
+            ? 'Self-contained: the original file can be deleted. Uses about the input size again on disk.'
+            : "Small on disk; the raw line is read from the original file when shown. The file must stay in place and unchanged (a followed file's rotated parts lose their raw text)." }}
+        </span>
+        }
+      </div>
+      @if (error()) { <div class="lg-error-text" style="margin-top: 10px">{{ error() }}</div> }
+      <div class="lg-row" style="margin-top: 14px">
+        <span class="lg-sp"></span>
+        <button class="lg-btn primary" [disabled]="busy()" (click)="next()">{{ busy() ? 'Reading…' : existing() ? 'Load →' : 'Next: preview structure →' }}</button>
+      </div>
+    </div>
+  }
+
+  @if (step() === 2 && structure()) {
+    @if (sampleShape(); as sh) {
+      @if (sh.structures > 1) {
+        <div class="lg-note" style="margin: 0 0 10px">
+          {{ sh.structures }} line structures in {{ sh.lines | number }} sampled lines - all of them load into this source. Every field of every
+          line is listed below; a line simply has no value for the fields it lacks. A role can be given to several fields (the same meaning
+          under another name): each line uses the first of them it has.
+        </div>
+      }
+    }
+    @if (matching(); as m) {
+      <div class="lg-note" style="margin: 0 0 10px; border-color: var(--green); color: var(--green)">
+        Same structure as <b>{{ m.name }}</b> - its settings are reused and this step can be skipped.
+        <button class="lg-btn xs" (click)="load()">Skip to Load →</button>
+      </div>
+    }
+    <app-log-structure-editor [structure]="structure()!" (structureChange)="structure.set($event)" [(privacy)]="privacy" [showPrivacy]="true" [sample]="sample()" />
+    @if (error()) { <div class="lg-error-text" style="margin-top: 10px">{{ error() }}</div> }
+    <div class="lg-row" style="margin-top: 14px">
+      <button class="lg-btn" (click)="step.set(1)">← Back</button>
+      <span class="lg-sp"></span>
+      <button class="lg-btn primary" [disabled]="busy()" (click)="load()">Load →</button>
+    </div>
+  }
+
+  @if (step() === 3) {
+    <div class="lg-card" style="padding: 16px">
+      <div class="lg-row">
+        <h3 class="lg-h3" style="margin: 0">Loading {{ ref() }}</h3>
+        <span class="lg-sp"></span>
+        <span class="lg-pill" [class.ok]="progress()?.status === 'DONE'" [class.live]="progress()?.status !== 'DONE'">{{ (progress()?.status ?? 'QUEUED').toLowerCase() }}</span>
+      </div>
+      @if (kind() === 'UPLOAD' && uploadPct() < 100) {
+        <div class="lg-hint" style="margin-top: 8px">Uploading {{ uploadPct() }}%</div>
+        <div class="lg-prog" style="margin: 4px 0 10px"><div [style.width.%]="uploadPct()"></div></div>
+      }
+      <div class="lg-prog" style="margin: 10px 0"><div [style.width.%]="loadPct()"></div></div>
+      @if (progress(); as p) {
+        <div class="lg-row lg-dim" style="gap: 24px; flex-wrap: wrap">
+          <span><b style="color: var(--text)">{{ p.lines | number }}</b> lines</span>
+          <span>{{ mb(p.bytes) }} / {{ mb(p.total) }} GB</span>
+          <span>memory steady · streamed in batches of 5,000</span>
+          @if (p.unparsed) { <span>{{ p.unparsed | number }} unparsed lines</span> }
+          @if (p.reason === 'LOW_DISK') { <span style="color: var(--amber)">Paused: low disk space</span> }
+        </div>
+        @if (p.newField) {
+          <div class="lg-note" style="color: var(--amber)">New field found: <span class="lg-mono">{{ p.newField }}</span> - added to the structure.</div>
+        }
+      }
+      <div class="lg-note">Lines already loaded are browsable now - you don't have to wait for the end.</div>
+      @if (error()) { <div class="lg-error-text" style="margin-top: 10px">{{ error() }}</div> }
+      <div class="lg-row" style="margin-top: 12px">
+        <span class="lg-sp"></span>
+        <button class="lg-btn primary" [disabled]="!sourceId()" (click)="openExplorer()">Open explorer now →</button>
+      </div>
+    </div>
+  }
+</div>
+<app-confirm-dialog />

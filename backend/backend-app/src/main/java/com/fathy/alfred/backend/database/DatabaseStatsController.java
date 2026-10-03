@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.database;
 import com.fathy.alfred.backend.calls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.calls.application.port.out.CallNotificationPort;
 import com.fathy.alfred.backend.comments.application.port.out.CommentsStorePort;
+import com.fathy.alfred.backend.logs.application.port.out.LogSourceStorePort;
 import com.fathy.alfred.backend.profiles.application.port.out.ProfileStorePort;
 import com.fathy.alfred.backend.redactions.application.port.out.RedactionsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
@@ -38,6 +39,7 @@ public class DatabaseStatsController {
     private final CommentsStorePort commentsStorePort;
     private final RedactionsStorePort redactionsStorePort;
     private final FilterSettingsStorePort filterSettingsStorePort;
+    private final LogSourceStorePort logSourceStorePort;
 
     public DatabaseStatsController(
             CallLogPort callLogPort,
@@ -49,7 +51,8 @@ public class DatabaseStatsController {
             ProfileStorePort profileStorePort,
             CommentsStorePort commentsStorePort,
             RedactionsStorePort redactionsStorePort,
-            FilterSettingsStorePort filterSettingsStorePort
+            FilterSettingsStorePort filterSettingsStorePort,
+            LogSourceStorePort logSourceStorePort
     ) {
         this.callLogPort = callLogPort;
         this.internalCallLogPort = internalCallLogPort;
@@ -61,6 +64,7 @@ public class DatabaseStatsController {
         this.commentsStorePort = commentsStorePort;
         this.redactionsStorePort = redactionsStorePort;
         this.filterSettingsStorePort = filterSettingsStorePort;
+        this.logSourceStorePort = logSourceStorePort;
     }
 
     @GetMapping("/database/stats")
@@ -81,7 +85,10 @@ public class DatabaseStatsController {
                 new DatabaseFileStats("profiles.db", profileStorePort.findAll().size(), profileStorePort.storageSizeBytes()),
                 new DatabaseFileStats("comments.db", commentsStorePort.findAll().size(), commentsStorePort.storageSizeBytes()),
                 new DatabaseFileStats("redactions.db", redactionsStorePort.findAll().size(), redactionsStorePort.storageSizeBytes()),
-                new DatabaseFileStats("settings.db", filterRuleCount, filterSettingsStorePort.storageSizeBytes())
+                new DatabaseFileStats("settings.db", filterRuleCount, filterSettingsStorePort.storageSizeBytes()),
+                // Logs Explorer: every source's lines in one file; rows = log lines across all sources.
+                new DatabaseFileStats("logs.db", logSourceStorePort.list().stream().mapToLong(s -> s.lineCount()).sum(),
+                        logSourceStorePort.storageSizeBytes())
         );
 
         return new DatabaseStatsResponse(callLogPort.statusBreakdown(), files);

@@ -1,0 +1,197 @@
+@if (show('fields')) {
+<div class="lg-card" style="padding: 14px 16px">
+  <div class="lg-row" style="flex-wrap: wrap">
+    <h3 class="lg-h3" style="margin: 0">Fields</h3>
+    <span class="lg-badge">id {{ structure().id }}</span>
+    <span class="lg-dim">{{ storedFields().length }} fields @if (duplicateCount()) { · {{ duplicateCount() }} repeat another field and are shown in the raw line only }</span>
+    @if (overflowCount()) {
+      <span class="lg-pill warn" [title]="overflowTitle()">{{ overflowCount() }}{{ overflowCount() >= 1000 ? '+' : '' }} more fields past the limit: raw line and JSON only</span>
+    }
+    <span class="lg-sp"></span>
+    <span class="lg-hint">Types are detected on first read; change them now or any time after loading.</span>
+  </div>
+  <div class="lg-row" style="margin-top: 10px; flex-wrap: wrap">
+    <input type="text" style="width: 260px" placeholder="Find a field…" [ngModel]="filter()" (ngModelChange)="filter.set($event)" aria-label="Find a field" />
+    <button class="lg-btn xs" (click)="expandAll()">Expand all</button>
+    <button class="lg-btn xs" (click)="collapseAll()">Collapse all</button>
+    <label class="lg-dim" style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px">
+      <input type="checkbox" [checked]="showPrefix()" (change)="showPrefix.set(!showPrefix())" /> Show group path in names
+    </label>
+  </div>
+  <div class="lg-ftree" [class.seen]="!!presence()" style="margin-top: 8px">
+    <div class="lg-frow head">
+      <span>Field (full path)</span><span>Type</span>
+      @if (presence()) { <span title="Share of all lines that have this field - lines may each have their own structure">Seen in</span> }
+      <span>Search</span>
+      <span title="A role can be on several fields: each line uses the first of them it has">Role</span><span></span>
+    </div>
+    @for (row of rows(); track row.node.key + row.node.kind) {
+      @if (row.node.kind === 'group') {
+        <div class="lg-frow grp" (click)="toggleGroup(row.node.key)">
+          <span class="lg-fname" [style.padding-left.px]="row.depth * 18">
+            <span class="lg-caret">{{ filter() || isOpen(row.node.key) ? '▾' : '▸' }}</span>
+            @if (showPrefix() && row.prefix) { <span class="lg-faint">{{ row.prefix }}</span> }<b>{{ row.node.name }}</b>
+            <span class="lg-dim" style="font-weight: 400"> · {{ row.node.count }} fields</span>
+          </span>
+          <span></span>
+          @if (presence()) { <span></span> }
+          <span></span><span></span>
+          <span style="position: relative">
+            <button class="lg-ib" title="Settings for every field in this group" (click)="$event.stopPropagation(); toggleMenu(row.node.key)">⋯</button>
+            @if (menuFor() === row.node.key) {
+              <div class="lg-pop" style="right: 0; top: 24px; width: 210px; padding: 8px" (click)="$event.stopPropagation()">
+                <div class="lg-hint" style="margin-bottom: 4px">All {{ row.node.count }} fields in {{ row.node.key }}</div>
+                <button class="lg-btn xs" style="width: 100%; margin-bottom: 4px" (click)="groupSearch(row.node, 'EXACT')">Search: Exact</button>
+                <button class="lg-btn xs" style="width: 100%; margin-bottom: 4px" (click)="groupSearch(row.node, 'TEXT')">Search: Text</button>
+                <button class="lg-btn xs" style="width: 100%; margin-bottom: 4px" (click)="groupSearch(row.node, 'NONE')">Search: Not searched</button>
+                <button class="lg-btn xs" style="width: 100%; margin-bottom: 4px" (click)="groupSensitive(row.node, true)">Mark sensitive</button>
+                <button class="lg-btn xs" style="width: 100%" (click)="groupSensitive(row.node, false)">Not sensitive</button>
+              </div>
+            }
+          </span>
+        </div>
+      } @else {
+        @let f = row.node.item;
+        <div class="lg-frow">
+          <span class="lg-fname lg-mono" [style.padding-left.px]="row.depth * 18 + 16" [title]="f.path">
+            @if (showPrefix() && row.prefix) { <span class="lg-faint">{{ row.prefix }}</span> }{{ row.node.name }}
+            @if (payloads().has(f.path)) {
+              <span class="lg-pill wait" style="margin-left: 6px" title="A big or id-keyed part of the line, kept as ONE text field holding its JSON: searchable by any fragment, shown in full in the JSON view">payload · one field</span>
+            }
+            @if (f.sensitive) { <span class="lg-pill warn" style="margin-left: 6px">sensitive</span> }
+            @if (isRebuilding(f)) { <span class="lg-pill live" style="margin-left: 6px">rebuilding</span> }
+          </span>
+          <select [ngModel]="f.type" (ngModelChange)="setType(f, $event)" [attr.aria-label]="'Type of ' + f.label">
+            @for (t of types; track t) { <option [value]="t">{{ t.toLowerCase() }}</option> }
+          </select>
+          @if (presence()) {
+            <span class="lg-seen"><span class="lg-seen-bar"><span [style.width.%]="(presenceOf(f) ?? 0) * 100"></span></span>{{ percent(presenceOf(f) ?? 0) }}</span>
+          }
+          <select [ngModel]="f.searchMode" (ngModelChange)="setSearch(f, $event)" [attr.aria-label]="'Search mode of ' + f.label">
+            <option value="EXACT">Exact</option><option value="TEXT">Text</option><option value="NONE">Not searched</option>
+          </select>
+          <span class="lg-row" style="gap: 4px; flex-wrap: nowrap">
+            <select [ngModel]="f.role ?? ''" (ngModelChange)="setRole(f, $event)" [attr.aria-label]="'Role of ' + f.label">
+              @for (r of roles; track r) { <option [value]="r">{{ roleLabel(r) }}</option> }
+            </select>
+            @if (rankOptions(f).length > 1) {
+              <select style="width: 62px" [ngModel]="f.roleRank" (ngModelChange)="setRank(f, +$event)"
+                      [attr.aria-label]="'Order of ' + f.label + ' among its role fields'" title="Each line uses the first of these fields it has">
+                @for (n of rankOptions(f); track n) { <option [ngValue]="n">{{ ordinal(n) }}</option> }
+              </select>
+            }
+          </span>
+          <button class="lg-ib" [class.on]="detailFor() === f.path" title="Format, detection, sensitive, sample" (click)="toggleDetail(f.path)">⋯</button>
+        </div>
+        @if (detailFor() === f.path) {
+          <div class="lg-fdetail" [style.margin-left.px]="row.depth * 18 + 16">
+            <span class="lg-dim">Label</span><span class="lg-mono">{{ f.label }}</span>
+            <span class="lg-dim">Format</span>
+            <input type="text" class="lg-mono" [ngModel]="f.format" (ngModelChange)="setFormat(f, $event)"
+                   [placeholder]="f.type === 'DATETIME' || f.type === 'DATE' ? 'pattern · zone' : f.type === 'NUMBER' ? 'unit: ms' : ''"
+                   [attr.aria-label]="'Format of ' + f.label" />
+            <span class="lg-dim">Detection</span>
+            <span>
+              {{ matchText(f) }}
+              @if (f.invalidCount > 0) {
+                · <a style="color: var(--amber); cursor: pointer" title="Kept as original text" (click)="invalidClicked.emit(f.label)">{{ f.invalidCount }} invalid</a>
+              }
+              @if (f.suggestBoolean && f.type === 'NUMBER') {
+                · <a style="color: var(--purple-light); cursor: pointer" (click)="makeBoolean(f)">boolean?</a>
+              }
+              @if (f.typeSource === 'USER') { · <span class="lg-faint">set by you</span> }
+            </span>
+            <span class="lg-dim">Sensitive</span>
+            <label style="display: inline-flex; gap: 6px; align-items: center">
+              <input type="checkbox" [ngModel]="f.sensitive" (ngModelChange)="setSensitive(f, $event)" [attr.aria-label]="f.label + ' is sensitive'" />
+              <span class="lg-hint">masked or redacted per the source's personal-data setting</span>
+            </label>
+            <span class="lg-dim">Sample</span><span class="lg-mono" style="white-space: pre-wrap; word-break: break-all">{{ f.sample ?? '—' }}</span>
+          </div>
+        }
+      }
+    } @empty {
+      <div class="lg-hint" style="padding: 8px 0">No field matches "{{ filter() }}".</div>
+    }
+  </div>
+  <div class="lg-hint" style="margin-top: 6px">
+    Text = any fragment is found fast (costs index space). Exact = fast whole-value filters, sorts and groups. Not searched = shown and still
+    filterable, but slower. Values that do not fit a type are kept as original text and counted - never dropped.
+    Lines may each have their own structure: this list is every field any line has. A role can be on several fields
+    (the same meaning under another name) - each line uses the first of them it has.
+  </div>
+</div>
+}
+
+@if (show('levels')) {
+<div class="lg-card" style="padding: 14px 16px; margin-top: 12px">
+  <div class="lg-row">
+    <h3 class="lg-h3" style="margin: 0">Grouping levels</h3>
+    <span class="lg-sp"></span>
+    <span class="lg-hint">A line's level = how many of these IDs it has. Its parent = the line one level up with the same leading IDs.</span>
+  </div>
+  <div style="margin-top: 8px">
+    @for (lv of structure().groupLevels; track $index; let i = $index) {
+      <div class="lg-lvrow">
+        <span class="lg-badge">Level {{ i + 1 }}</span>
+        <select [ngModel]="lv.fieldLabel" (ngModelChange)="levelField(i, $event)" [attr.aria-label]="'Level ' + (i + 1) + ' field'">
+          @for (f of storedFields(); track f.path) { <option [value]="f.label">{{ f.label }}</option> }
+        </select>
+        <select [ngModel]="lv.sort" (ngModelChange)="levelSort(i, $event)" [attr.aria-label]="'Level ' + (i + 1) + ' sort'">
+          @for (s of sorts; track s) { <option [value]="s">sort: {{ sortLabel(s) }}</option> }
+        </select>
+        <span class="lg-hint">{{ i === 0 ? 'top level' : 'child of level ' + i }}</span>
+        <span class="lg-row">
+          <button class="lg-ib" title="Move up" (click)="moveUp(i)">↑</button>
+          <button class="lg-ib" title="Remove" (click)="removeLevel(i)">✕</button>
+        </span>
+      </div>
+    }
+  </div>
+  <button class="lg-btn sm" (click)="addLevel()">+ Add level</button>
+  <div class="lg-hint" style="margin-top: 8px">
+    Missing parent → placeholder row · several lines with identical IDs → earliest is the parent row, others are its siblings ·
+    a skipped level (A + C, no B) → under the nearest ancestor, marked "B missing" · no level-1 ID → "No ‹field›" bucket.
+  </div>
+</div>
+}
+
+@if (show('template')) {
+<div class="lg-card" style="padding: 14px 16px; margin-top: 12px">
+  <h3 class="lg-h3">Summary line template</h3>
+  <input type="text" class="lg-mono" style="width: 100%" [ngModel]="structure().template" (ngModelChange)="setTemplate($event)" aria-label="Summary template" />
+  <div class="lg-hint" style="margin: 4px 0">Fields in <span class="lg-mono">{{ '{' }}braces{{ '}' }}</span>, segments separated by <span class="lg-mono"> · </span>; an empty segment is dropped.</div>
+  @if (unknownTokens().length) {
+    <div class="lg-error-text">Unknown fields: {{ unknownTokens().join(', ') }}</div>
+  }
+  <div class="lg-mono" style="padding: 7px 10px; background: var(--card-inner); border-radius: 8px; border: 1px solid var(--border)">{{ preview() || '(empty)' }}</div>
+  <div class="lg-row" style="margin-top: 10px; flex-wrap: wrap">
+    <span class="lg-dim">Time zone</span>
+    <select style="width: 200px" [ngModel]="structure().timeZone" (ngModelChange)="setZone($event)" aria-label="Time zone">
+      @for (z of zoneOptions(); track z) { <option [value]="z">{{ z }}</option> }
+    </select>
+    @if (showPrivacy()) {
+      <span class="lg-dim" style="margin-left: 16px">Personal data</span>
+      <div class="lg-seg">
+        <button [class.on]="privacy() === 'SHOW'" (click)="privacy.set('SHOW')">Show as-is</button>
+        <button [class.on]="privacy() === 'MASK'" (click)="privacy.set('MASK')">Mask until revealed</button>
+        <button [class.on]="privacy() === 'REDACT_AT_LOAD'" (click)="privacy.set('REDACT_AT_LOAD')">Redact at load</button>
+      </div>
+      <span class="lg-hint">Applies to fields marked sensitive. Exports always use Alfred's redaction rules.</span>
+    }
+  </div>
+  <div class="lg-row" style="margin-top: 10px">
+    <span class="lg-dim">Default data view</span>
+    <div class="lg-seg">
+      <button [class.on]="structure().defaultDataView === 'TABLE'" (click)="setDataView('TABLE')">Table</button>
+      <button [class.on]="structure().defaultDataView === 'JSON'" (click)="setDataView('JSON')">JSON</button>
+    </div>
+    <span class="lg-dim" style="margin-left: 16px">Table fields</span>
+    <div class="lg-seg">
+      <button [class.on]="(structure().defaultFieldLayout ?? 'GROUPED') === 'GROUPED'" (click)="setFieldLayout('GROUPED')">Grouped</button>
+      <button [class.on]="structure().defaultFieldLayout === 'FLAT'" (click)="setFieldLayout('FLAT')">Flat</button>
+    </div>
+    <span class="lg-hint">How each line's fields start; every line can switch on its own.</span>
+  </div>
+</div>
+}

@@ -47,6 +47,7 @@
     <module>backend-resend</module>
     <module>backend-scenarios</module>
     <module>backend-relive</module>
+    <module>backend-logs</module>
     <module>backend-app</module>
     <module>backend-architecture-test</module>
   </modules>

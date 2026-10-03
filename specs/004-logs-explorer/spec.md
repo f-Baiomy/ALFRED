@@ -34,8 +34,8 @@ Terminology:
 
 ### Session 2026-10-03 (design discussion before specification)
 
-- Q: What can the logs look like? → A: Any JSON structure, one object per line; all lines of one source share
-  the same structure with different values. Structure is detected automatically, never hard-coded.
+- Q: What can the logs look like? → A: Any JSON structure, one object per line. Each line may have its own
+  structure (amended 2026-10-04). Structure is detected automatically, never hard-coded.
 - Q: What matters most: search speed or disk size? → A: Fast search. The user chooses, per field, whether it
   is searched by exact value, searched as text (any fragment), or not searched; only chosen fields cost
   index space.
@@ -83,11 +83,38 @@ Terminology:
   (remembered in the browser); the very first visit opens on the last 24 hours of data.
 - Q: Deleting a source that has comments or pinned lines? → A: A confirmation states how many comments and
   pinned lines will be lost; confirming deletes everything.
+- Q: Should old lines be removed by age or size? → A: No. Alfred keeps everything it loads; there is no age-based
+  retention and no default size cap (an optional cap per source remains).
 - Q: Field types? → A: Date, datetime, number, string, boolean. Detected automatically at first read; the
   user can change the type (and its format) while loading or at any time after. Types drive sorting, range
   filters, checks and rules.
 - Q: Storage engine? → A: The current embedded store now; a document database will replace it later, so the
   design must not depend on the current engine.
+
+### Session 2026-10-04 (lines with different structures in one file)
+
+Owner: "one file can have multiple structure logs .. each line is a log and each log can have its own structure".
+Each case was decided against how OpenSearch / OpenSearch Dashboards handle it:
+
+- Q: Lines with different structures in one source? → A: One combined field list (like an OpenSearch index
+  mapping): every field of every line is registered; a line has no value for fields it lacks. No "different
+  structure" flag.
+- Q: A value that does not fit its field's type? → A: ALFRED approach: keep it as text, count and list it
+  (OpenSearch rejects the document).
+- Q: A line without a time field? → A: ALFRED approach: the first field with the Time role the line has, else the
+  previous line's time (OpenSearch hides it under any time filter).
+- Q: The same meaning under different field names? → A: ALFRED approach: a role may be on several fields,
+  ordered; each line uses the first of them it has (OpenSearch needs an ingest pipeline or a field alias).
+- Q: Too many fields? → A: ALFRED approach: 900 searchable fields; fields past that stay in the raw line and the
+  JSON view, and the Load screen says so (OpenSearch rejects documents past 1,000 fields).
+- Q: Show how many lines have each field? → A: Yes, in the explorer sidebar (current results) and in the
+  structure editor (all lines).
+- Q: Hide fields the current results do not have? → A: OpenSearch approach: a "Hide missing fields" toggle, on by
+  default; a column a line does not have shows "-".
+- Q: How are kinds of lines told apart? → A: ALFRED approach: structures are detected automatically (lines whose
+  fields are mostly the same), named after their most telling field (renameable), counted in the sidebar,
+  badged on rows, filterable with `structure:S2`, may have their own summary template, and can be moved to their
+  own source.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -314,8 +341,9 @@ and comment still there; check that patterns group lines differing only in IDs o
   display is shortened, with the full value one click away.
 - A field appears only after the detection sample: it is added to the structure when first seen and the user
   is notified.
-- Two different structures sent to the same source: lines that do not match are flagged as "different
-  structure" with an option to start a new source from them.
+- Lines with different structures in the same source or file: all are loaded with all their fields; they are
+  sorted into structures (S1, S2, ...) that can be filtered, named, given their own summary template, or moved
+  into a source of their own.
 - A value that is JSON in text form but invalid: kept as text.
 - Same file loaded twice: ALFRED recognizes the file (same name, size and leading content) and warns before
   loading; if the user continues, it becomes a second input with its own copy of every line.
@@ -325,7 +353,7 @@ and comment still there; check that patterns group lines differing only in IDs o
   the pull resumes from its last saved position; no line is silently dropped.
 - Disk space runs low during a load: loading pauses with a clear message; nothing already loaded is lost.
 - A followed file disappears: the input shows "waiting for file" and resumes when it returns.
-- Retention limit reached: oldest lines are removed first; lines with comments are never removed.
+- A source with a size cap reaches it: oldest lines are removed first; lines with comments are never removed.
 - Changing a field's search mode on 4 million lines: rebuild runs in the background with progress; search on
   that field shows "rebuilding" until done.
 - Sensitive data (emails, device fingerprints) in lines: handled per the source's privacy setting (show,
@@ -356,17 +384,22 @@ and comment still there; check that patterns group lines differing only in IDs o
   sensitive in the structure. Exports always apply ALFRED's redaction rules.
 - **FR-044**: Each source MUST have a display time zone in its structure settings; all times in its screens
   use it, with the raw value available on hover.
-- **FR-045**: Lines whose field set differs from the source's structure by more than half of its fields MUST be
-  counted as "different structure" per input, listed, and movable into a new source.
+- **FR-045** *(amended 2026-10-04)*: Each line MAY have its own structure. Every field of every line MUST be
+  registered (up to 900 searchable fields per source; fields past that stay in the raw line and the JSON view and
+  are reported). Lines MUST be grouped into structures by their field sets (one optional field does not make a new
+  structure); each structure MUST show its line count and "seen in X %" per field, be filterable
+  (`structure:S2`), nameable, MAY have its own summary template, and MUST be movable into a new source. A role
+  MAY be set on several fields in order; each line uses the first of them it has. The explorer MUST offer "hide
+  missing fields" (on by default), and a column a line does not have shows "-".
 - **FR-046**: Loading MUST pause when free disk space falls below a configurable threshold (default 2 GB),
   showing the reason, and resume on demand; no loaded line is lost.
-- **FR-047**: Users MUST be able to view and change a source's retention (maximum size and maximum age) after
-  creating it.
+- **FR-047**: Users MUST be able to view and change a source's size cap (0 = keep everything) after creating it.
 - **FR-048**: When a new input has the same structure as an existing source, ALFRED MUST offer to reuse that
   source's settings (default on) and skip the structure step.
 - **FR-008**: OpenSearch inputs MUST support one-time import, continuous follow and in-place browsing, with
   size and rate limits and write-only credentials.
-- **FR-009**: Each source MUST have a retention limit (by size or age); oldest lines go first; commented lines
+- **FR-009**: Every loaded line MUST stay until the user removes it: there is no age-based retention, and by default no
+  size cap. A source MAY be given a size cap; then the oldest lines go first and commented lines
   are never removed.
 
 **Structure**
@@ -492,7 +525,8 @@ and comment still there; check that patterns group lines differing only in IDs o
 - Single shared ALFRED server, same trust model as the rest of ALFRED (no per-user permissions).
 - Every line is a complete JSON object; multi-line JSON records are out of scope for v1.
 - Detection samples the first 1,000 lines; later new fields are added as they appear.
-- Default retention per source: 20 GB or 30 days, whichever comes first; user-changeable.
+- No retention by default: everything loaded stays (owner decision 2026-10-03). The low-disk pause protects the
+  disk; an optional per-source size cap is available.
 - Server-side files are read only from one configured folder mounted for this purpose.
 - Context window default: 20 lines before and after.
 - Converting log lines into ALFRED calls, and the move to a document database, are later features.

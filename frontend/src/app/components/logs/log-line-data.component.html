@@ -1,0 +1,136 @@
+@if (showHeader()) {
+  <div class="lg-row" style="margin-bottom: 6px">
+    <span class="lg-hint">{{ levelIds() || 'no level IDs' }} · full data, untruncated</span>
+    <span class="lg-sp"></span>
+    @if (mask() && !revealed()) { <button class="lg-btn xs" (click)="revealed.set(true)">Reveal sensitive</button> }
+    <div class="lg-seg">
+      <button [class.on]="view() === 'TABLE'" (click)="viewChange.emit('TABLE')">Table</button>
+      <button [class.on]="view() === 'JSON'" (click)="viewChange.emit('JSON')">JSON</button>
+    </div>
+    @if (view() === 'TABLE') {
+      <div class="lg-seg" title="This line only - other lines keep their own">
+        <button [class.on]="layout() === 'GROUPED'" (click)="setLayout('GROUPED')">Grouped</button>
+        <button [class.on]="layout() === 'FLAT'" (click)="setLayout('FLAT')">Flat</button>
+      </div>
+    }
+    <button class="lg-btn xs" [disabled]="line().raw === null" (click)="copy()">{{ copied() ? 'Copied' : 'Copy' }}</button>
+    <button class="lg-btn xs" (click)="openDrawer.emit()">Open in drawer</button>
+  </div>
+}
+
+@if (line().rawUnavailable) {
+  <div class="lg-note" style="margin: 0 0 6px; color: var(--amber)">Raw line unavailable: {{ line().rawUnavailable }}. The stored fields are shown.</div>
+}
+@if (line().unparsed) {
+  <div class="lg-hint">This line is not valid JSON; it is kept as text.</div>
+  <pre class="lg-json" style="white-space: pre-wrap; word-break: break-all; margin: 4px 0">{{ line().raw }}</pre>
+} @else {
+  <!-- Whole-line comments -->
+  <ng-container *ngTemplateOutlet="commentBlock; context: { $implicit: '', indent: 0 }" />
+  @if (editing() !== '') {
+    <div style="margin-bottom: 4px"><button class="lg-btn xs" (click)="startComment('')">💬 Comment on the whole line</button></div>
+  }
+
+  @if (view() === 'TABLE' || lines().length === 0) {
+    <div class="lg-row" style="margin-bottom: 4px">
+      @if (!showHeader()) {
+        <!-- Drawer / compare: no header row, so the per-line switch sits here. -->
+        <div class="lg-seg" title="This line only - other lines keep their own">
+          <button [class.on]="layout() === 'GROUPED'" (click)="setLayout('GROUPED')">Grouped</button>
+          <button [class.on]="layout() === 'FLAT'" (click)="setLayout('FLAT')">Flat</button>
+        </div>
+      }
+      <span class="lg-sp"></span>
+      @if (layout() === 'GROUPED' && tree().length !== tableRows().length) {
+        <button class="lg-btn xs" (click)="expandAll()">Expand all</button>
+        <button class="lg-btn xs" (click)="collapseAll()">Collapse all</button>
+      }
+    </div>
+    @if (layout() === 'GROUPED') {
+      @for (tr of treeRows(); track tr.node.kind + tr.node.key) {
+        @if (tr.node.kind === 'group') {
+          <div class="lg-kv grp" (click)="toggleGroup(tr.node.key)">
+            <span class="acts"></span><span></span>
+            <span class="lg-dim" [style.padding-left.px]="tr.depth * 16">
+              <span class="lg-caret">{{ isGroupOpen(tr.node.key) ? '▾' : '▸' }}</span>
+              <span class="lg-faint">{{ tr.prefix }}</span><b>{{ tr.node.name }}</b><span class="lg-faint"> · {{ tr.node.count }}</span>
+              @if (!isGroupOpen(tr.node.key) && commentsUnder(tr.node.key)) {
+                <span class="lg-mk" style="margin-left: 6px">💬 {{ commentsUnder(tr.node.key) }} inside</span>
+              }
+            </span>
+            <span></span>
+          </div>
+        } @else {
+          <ng-container *ngTemplateOutlet="kvRow; context: { $implicit: tr.node.item, prefix: tr.prefix, name: tr.node.name, indent: tr.depth * 16 + 14 }" />
+        }
+      }
+    } @else {
+      @for (r of tableRows(); track r.path) {
+        <ng-container *ngTemplateOutlet="kvRow; context: { $implicit: r, prefix: '', name: r.path, indent: 0 }" />
+      }
+    }
+  } @else {
+    <div class="lg-json">
+      @for (l of lines(); track $index) {
+        <div class="lg-jl" [class.hasc]="l.path !== null && commentsAt(l.path).length">
+          <span>
+            @if (l.path !== null) {
+              <button class="lg-cbtn" [class.has]="commentsAt(l.path).length" title="Add a comment on this field" (click)="startComment(l.path)">💬{{ commentsAt(l.path).length || '' }}</button>
+            }
+          </span>
+          <span class="jt" [style.padding-left.ch]="l.depth * 2">@if (l.foldKey) {<button class="fold" (click)="toggleFold(l.foldKey)" [attr.aria-label]="l.folded ? 'Unfold' : 'Fold'">{{ l.folded ? '▸' : '▾' }}</button>}@for (t of l.tokens; track $index) {<span [class]="'tok-' + t.cls">@for (s of segments(t.text); track $index) {@if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>}}</span>}@if (inside(l); as n) {<span class="lg-mk" style="margin-left: 6px">💬 {{ n }} inside</span>}</span>
+        </div>
+        @if (l.path !== null && !l.folded) {
+          <ng-container *ngTemplateOutlet="commentBlock; context: { $implicit: l.path, indent: 30 + l.depth * 14 }" />
+        }
+      }
+    </div>
+  }
+}
+
+<!-- One field of the Table view (grouped rows show the name after the group, faded group path before it). -->
+<ng-template #kvRow let-r let-prefix="prefix" let-name="name" let-indent="indent">
+  <div class="lg-kv">
+    <span class="acts">
+      @if (r.field && !r.field.duplicateOf) {
+        <button class="lg-ib" title="Filter for value" (click)="act('eq', r)">⊕</button>
+        <button class="lg-ib" title="Filter out value" (click)="act('neq', r)">⊖</button>
+        <button class="lg-ib" [class.on]="isColumn(r.field.label)" title="Toggle column in table" (click)="act('col', r)">▥</button>
+        <button class="lg-ib" title="Filter for field present" (click)="act('ex', r)">∃</button>
+      }
+    </span>
+    <span class="lg-ty" [title]="r.field?.type ?? ''">{{ typeIcon(r.field) }}</span>
+    <span class="lg-dim" [title]="r.path" [style.padding-left.px]="indent">
+      <button class="lg-cbtn" [class.has]="commentsAt(r.path).length" [title]="commentsAt(r.path).length ? 'Add another comment' : 'Add a comment on this field'" (click)="startComment(r.path)">💬{{ commentsAt(r.path).length || '' }}</button>
+      @if (prefix) { <span class="lg-faint">{{ prefix }}</span> }{{ name }}
+      @if (isPayload(r.path)) { <span class="lg-mk" style="margin-left: 4px" title="Kept as one field holding its JSON">payload</span> }
+    </span>
+    <span class="v">@for (s of segments(r.value); track $index) {@if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>}}</span>
+  </div>
+  <ng-container *ngTemplateOutlet="commentBlock; context: { $implicit: r.path, indent: 120 + indent }" />
+</ng-template>
+
+<ng-template #commentBlock let-path let-indent="indent">
+  @for (c of commentsAt(path); track c.id) {
+    <div class="lg-cm" [style.margin-left.px]="indent">
+      <b>{{ author(c) }}</b> <span class="lg-faint">· {{ c.createdAt.slice(0, 16).replace('T', ' ') }} · {{ path ? 'on ' + path : 'whole line' }}</span>
+      <button class="lg-ib" style="float: right" title="Delete comment" (click)="deleteComment(c)">✕</button>
+      <div style="white-space: pre-wrap">{{ c.text }}</div>
+    </div>
+  }
+  @if (editing() === path) {
+    <div class="lg-cm edit" [style.margin-left.px]="indent">
+      <textarea rows="2" [ngModel]="draft()" (ngModelChange)="draft.set($event); draftError.set('')" [placeholder]="'Comment on ' + (path || 'this line')" aria-label="Comment"></textarea>
+      <div class="lg-row" style="margin-top: 4px">
+        <select style="max-width: 180px" [ngModel]="profileId()" (ngModelChange)="profileId.set($event)" aria-label="Comment as">
+          <option [ngValue]="null">Comment as…</option>
+          @for (p of profiles(); track p.id) { <option [ngValue]="p.id">{{ p.avatar ?? '👤' }} {{ p.name }}</option> }
+        </select>
+        <span class="lg-hint" [style.color]="draftError() ? 'var(--red)' : null">{{ draftError() || 'Commenting pins this line in Alfred.' }}</span>
+        <span class="lg-sp"></span>
+        <button class="lg-btn xs" (click)="editing.set(null)">Cancel</button>
+        <button class="lg-btn xs primary" (click)="saveComment()">Comment</button>
+      </div>
+    </div>
+  }
+</ng-template>

@@ -11,7 +11,8 @@ import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallSt
 import { REPORT_CHROME_SCRIPT, REPORT_CHROME_STYLE, TOC_OPEN_HTML, TOC_TOGGLE_HTML } from './report-chrome';
 import { CallExportOverview, ExportListOrder, GlossaryUse, orderBlocksAsShown, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
-function escapeHtml(text: string): string {
+/** Exported so every HTML export (calls, log lines) escapes through this one function. */
+export function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
