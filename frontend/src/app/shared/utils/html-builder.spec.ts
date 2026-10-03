@@ -688,3 +688,31 @@ describe('the readable .html layout (specs/export-redesign-mock.html)', () => {
     expect(one).toContain('<a href="#call-req">📤 Request</a>');
   });
 });
+
+describe('the order of the Calls list (.html)', () => {
+  // A split parent (search) that called a supplier, then a later call, listed newest first on screen.
+  const parent = makeCall({ id: 'parent', source: 'internal', service_name: 'odeysys', url: 'https://app.example/api/search', duration_ms: 27000 });
+  const child = makeCall({ id: 'child', url: 'https://supplier-b.example/api/price', timestamp: '2026-08-07T13:45:53.000000+00:00', duration_ms: 500 });
+  const later = makeCall({ id: 'later', source: 'internal', service_name: 'odeysys', url: 'https://app.example/api/up-selling', timestamp: '2026-08-07T13:50:00.000000+00:00', duration_ms: 50 });
+  const shownNewestFirst = [later, parent, child];
+  const at = (doc: string, text: string) => doc.indexOf(text);
+
+  it('a selection export keeps the order the list showed, each split call kept together in time order', () => {
+    const doc = ((calls: CallRecord[], order: 'as-shown' | 'chronological') => buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [makeCandidate()], 'all', null, [], order))(shownNewestFirst, 'as-shown');
+    const laterAt = at(doc, '<b>Call 3</b>');
+    const requestAt = at(doc, '<b>Call 1</b>' + ' &middot; request');
+    const childAt = at(doc, '<b>Call 2</b>');
+    const responseAt = at(doc, '<b>Call 1</b>' + ' &middot; response');
+    expect(laterAt).toBeGreaterThan(-1);
+    expect(laterAt).toBeLessThan(requestAt);
+    expect(requestAt).toBeLessThan(childAt);
+    expect(childAt).toBeLessThan(responseAt);
+    expect(doc).toContain('Calls appear in the order they were listed in Alfred when exported');
+  });
+
+  it('a whole-cycle export (the default) stays in time order', () => {
+    const doc = ((calls: CallRecord[], order: 'as-shown' | 'chronological') => buildBulkExportHtml(calls, makeForm(), new Map(), 'now', [makeCandidate()], 'all', null, [], order))(shownNewestFirst, 'chronological');
+    expect(at(doc, '<b>Call 1</b>' + ' &middot; request')).toBeLessThan(at(doc, '<b>Call 3</b>'));
+    expect(doc).toContain('Calls appear in true chronological order of events');
+  });
+});

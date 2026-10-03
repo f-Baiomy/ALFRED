@@ -233,3 +233,37 @@ export function parentFacts(call: CallRecord, children: readonly number[], forma
 }
 
 export const SPLIT_PARENT_NOTE = 'Shown as two halves - when it was sent and when it answered - with the calls it made in between.';
+
+/**
+ * The export's blocks in the order the calls were listed on screen (export-dialog's 'as-shown').
+ *
+ * `blocks` arrive in time order - the only order the request/response split and the call tree can
+ * be worked out in. They are cut into units: a top-level call with every call nested under it, and
+ * a split call's request half through its response half with everything in between. Units then
+ * follow the position of their first call in `shownOrder` (the list as the user saw it: newest
+ * first, slowest first, pinned on top…); inside a unit, time order is kept - as the live waterfall
+ * and nested views show it.
+ */
+export function orderBlocksAsShown<B extends { readonly variant: 'request' | 'response' | 'full'; readonly call: { readonly id: string } }>(
+  blocks: readonly B[],
+  shownOrder: readonly { readonly id: string }[],
+  depthOf: (callId: string) => number
+): B[] {
+  const units: B[][] = [];
+  const open = new Set<string>();
+  for (const block of blocks) {
+    const startsUnit = open.size === 0 && depthOf(block.call.id) === 0;
+    if (startsUnit || units.length === 0) units.push([]);
+    units[units.length - 1].push(block);
+    if (block.variant === 'request') open.add(block.call.id);
+    if (block.variant === 'response') open.delete(block.call.id);
+  }
+  const position = new Map(shownOrder.map((c, i) => [c.id, i]));
+  const rank = (unit: readonly B[]) => position.get(unit[0].call.id) ?? Number.MAX_SAFE_INTEGER;
+  return units
+    .map((unit, i) => ({ unit, i }))
+    .sort((a, b) => rank(a.unit) - rank(b.unit) || a.i - b.i)
+    .flatMap(({ unit }) => unit);
+}
+
+export type ExportListOrder = 'chronological' | 'as-shown';

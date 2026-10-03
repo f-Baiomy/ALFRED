@@ -175,6 +175,12 @@ export interface NarrativeInput {
    */
   readonly splitCallIds?: ReadonlySet<string>;
   /**
+   * How the Calls list is ordered: 'chronological' (the default - a whole-cycle export), or
+   * 'as-shown' - the order the calls were listed on screen when they were exported (newest first,
+   * slowest first, pinned…), each call that caused others kept together with what it caused.
+   */
+  readonly listOrder?: 'chronological' | 'as-shown';
+  /**
    * Only used for a single-call export, to describe the context that call sits in but the file
    * doesn't contain. Ignored for a multi-call export, whose topology comes from the exported calls
    * themselves.
@@ -809,9 +815,10 @@ export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
       : null;
 
   const splitCount = splitCallIds ? calls.filter((call) => splitCallIds.has(call.id)).length : 0;
+  const asShown = input.listOrder === 'as-shown';
   const orderingNote =
     splitCount > 0
-      ? `Calls appear in true chronological order of events, not grouped per call. ${splitCount} ${plural(
+      ? `${asShown ? 'Calls appear in the order they were listed in Alfred when exported; a call that caused others is kept together with everything it caused, in true time order.' : 'Calls appear in true chronological order of events, not grouped per call.'} ${splitCount} ${plural(
           splitCount,
           'call in this export has',
           'calls in this export have'
@@ -821,7 +828,9 @@ export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
           'that call appears',
           'those calls appear'
         )} twice in the summary table, once as "· request" and once as "· response". An outbound call is never split.`
-      : null;
+      : asShown && calls.length > 1
+        ? 'Calls appear in the order they were listed in Alfred when exported, each with the calls it caused under it. Call numbers count in time order, so they need not run 1, 2, 3 down the list.'
+        : null;
 
   return {
     documentType: 'alfred-call-export',

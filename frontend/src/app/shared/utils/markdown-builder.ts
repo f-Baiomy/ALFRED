@@ -18,7 +18,9 @@ import {
   framedSplitParents,
   glossaryFor,
   numberList,
+  orderBlocksAsShown,
   parentFacts,
+  ExportListOrder,
 } from './call-export-summary';
 
 /** The answer first - the same sentence the .html export opens with (call-export-summary.ts). */
@@ -596,7 +598,9 @@ export function buildBulkExportMarkdown(
   overlapCandidates: readonly CallOverlapCandidate[] = [],
   statusFilter: CallStatusFilter = 'all',
   cycle: ExportedCycle | null = null,
-  spacers: readonly ExportedSpacer[] = []
+  spacers: readonly ExportedSpacer[] = [],
+  /** 'as-shown': keep the order the calls were listed on screen (see orderBlocksAsShown). */
+  listOrder: ExportListOrder = 'chronological'
 ): string {
   const lines: string[] = [];
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
@@ -609,8 +613,11 @@ export function buildBulkExportMarkdown(
   // pinned-first/supplier-grouped/custom-drag order, which would otherwise interleave nonsensically
   // once a call is split into two blocks. Sort a local copy; never mutate/reorder for the caller.
   const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const { blocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
-  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, cycle });
+  const { blocks: chronoBlocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
+  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, cycle, listOrder });
+  // Worked out in time order (the split and the call tree need it), then listed as the user saw it.
+  const treeDepths = depthByCallId(narrative.topology);
+  const blocks = listOrder === 'as-shown' ? orderBlocksAsShown(chronoBlocks, calls, (id) => treeDepths.get(id) ?? 0) : chronoBlocks;
 
   lines.push(`# 📋 API Calls Export — ${calls.length} ${callWord}`, '');
   lines.push(
@@ -659,7 +666,7 @@ export function buildBulkExportMarkdown(
   // where it does on screen whatever this export includes (OPTIONS preflights, a filtered subset):
   // right after the call it was added below, or, if that call isn't exported, at its point in time.
   const { before: spacersBeforeBlock, tail: trailingSpacers } = spacerSlots(
-    layoutSpacers(blocks, (block) => block.call, spacers, { descending: false, byTime: true }).merged
+    layoutSpacers(chronoBlocks, (block) => block.call, spacers, { descending: false, byTime: true }).merged
   );
 
   const framed = framedSplitParents(blocks);

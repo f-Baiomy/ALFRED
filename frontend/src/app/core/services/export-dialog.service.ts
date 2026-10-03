@@ -3,6 +3,7 @@ import { CallOverlapCandidate, CallRecord } from '../models/call.model';
 import { ExportedCycle, ExportedSpacer, ExportMetadata } from '../models/export-metadata.model';
 import { Comment } from '../models/comment.model';
 import { CallStatusFilter } from '../../shared/utils/call-utils';
+import { ExportListOrder } from '../../shared/utils/call-export-summary';
 
 export type ExportFormat = 'markdown' | 'json' | 'html' | 'postman';
 
@@ -32,6 +33,12 @@ export interface ExportDialogState {
   readonly cycle: ExportedCycle | null;
   /** The cycle's spacers, in the same "only set for a whole-cycle export" case as `cycle` above - see CycleExportService.fetchSpacers. Empty for a bulk-actions-bar selection, which has no notion of spacers. */
   readonly spacers: readonly ExportedSpacer[];
+  /**
+   * How the .md/.html list the calls: 'as-shown' when the export came from a selection in a list, so
+   * the file reads in the same order the user was looking at (newest first, slowest first, pinned…);
+   * 'chronological' for a whole session cycle, which has no on-screen order to follow.
+   */
+  readonly listOrder: ExportListOrder;
 }
 
 /** Single source of truth for "is the export dialog open, and for which call(s)" - one dialog instance at the app root reads this instead of every call needing its own dialog. Works for a single call (length-1 `calls`) or a bulk selection alike. */
@@ -47,9 +54,10 @@ export class ExportDialogService {
     overlapCandidates: readonly CallOverlapCandidate[] = [],
     statusFilter: CallStatusFilter = 'all',
     cycle: ExportedCycle | null = null,
-    spacers: readonly ExportedSpacer[] = []
+    spacers: readonly ExportedSpacer[] = [],
+    listOrder: ExportListOrder = 'chronological'
   ): void {
-    this.state.set({ calls, metadata, commentsByCallId, format, overlapCandidates, statusFilter, cycle, spacers });
+    this.state.set({ calls, metadata, commentsByCallId, format, overlapCandidates, statusFilter, cycle, spacers, listOrder });
   }
 
   close(): void {

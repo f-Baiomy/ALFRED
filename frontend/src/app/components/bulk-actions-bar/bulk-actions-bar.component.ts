@@ -207,7 +207,9 @@ export class BulkActionsBarComponent {
       )
       .subscribe(({ calls, metadata, commentsByCallId, overlapCandidates }) => {
         loading.set(false);
-        this.exportDialog.open(calls, metadata, commentsByCallId, format, overlapCandidates, this.controlsState.statusFilter());
+        // `selected` is already in the list's on-screen order (CallsStateService.selectedCalls), so the
+        // .md/.html keep it rather than re-sorting by time.
+        this.exportDialog.open(calls, metadata, commentsByCallId, format, overlapCandidates, this.controlsState.statusFilter(), null, [], 'as-shown');
       });
   }
 

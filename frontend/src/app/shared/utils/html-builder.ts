@@ -7,7 +7,7 @@ import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
-import { CallExportOverview, GlossaryUse, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
+import { CallExportOverview, ExportListOrder, GlossaryUse, orderBlocksAsShown, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1159,7 +1159,9 @@ export function buildBulkExportHtml(
   overlapCandidates: readonly CallOverlapCandidate[] = [],
   statusFilter: CallStatusFilter = 'all',
   cycle: ExportedCycle | null = null,
-  spacers: readonly ExportedSpacer[] = []
+  spacers: readonly ExportedSpacer[] = [],
+  /** 'as-shown': keep the order the calls were listed on screen (see orderBlocksAsShown). */
+  listOrder: ExportListOrder = 'chronological'
 ): string {
   const succeeded = calls.filter((c) => !c.error && c.response && c.response.status < 400).length;
   const failed = calls.length - succeeded;
@@ -1170,8 +1172,11 @@ export function buildBulkExportHtml(
   // Same forced-chronological reasoning as markdown-builder.ts: the split only reads sensibly in
   // real time order, regardless of whatever order the caller passed in.
   const sortedCalls = [...calls].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const { blocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
-  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, cycle });
+  const { blocks: chronoBlocks, staysSplitIds } = buildRenderBlocks(sortedCalls, overlapCandidates, statusFilter);
+  const narrative = buildExportNarrative({ calls, commentsByCallId, splitCallIds: staysSplitIds, cycle, listOrder });
+  // Worked out in time order (the split and the call tree need it), then listed as the user saw it.
+  const treeDepths = depthByCallId(narrative.topology);
+  const blocks = listOrder === 'as-shown' ? orderBlocksAsShown(chronoBlocks, calls, (id) => treeDepths.get(id) ?? 0) : chronoBlocks;
   const depthsByCallId = depthByCallId(narrative.topology);
 
   const allBlocks: JsonBlockConfig[] = [];
@@ -1188,7 +1193,7 @@ export function buildBulkExportHtml(
   // where it does on screen whatever this export includes (OPTIONS preflights, a filtered subset):
   // right after the call it was added below, or, if that call isn't exported, at its point in time.
   const { before: spacersBeforeBlock, tail: trailingSpacers } = spacerSlots(
-    layoutSpacers(blocks, (block) => block.call, spacers, { descending: false, byTime: true }).merged
+    layoutSpacers(chronoBlocks, (block) => block.call, spacers, { descending: false, byTime: true }).merged
   );
   const spacerHtml = (spacer: ExportedSpacer) => `<h3 class="spacer-heading spacer-label">🏷️ ${escapeHtml(spacer.label)}</h3>`;
 
