@@ -273,3 +273,41 @@ returned - through the same versioned cycle update every rebuild-style change us
 - **The Live calls log keeps growing** - it's not pruned automatically. Delete individual rows, or
   use the bulk-delete offered once the log passes the configured size warning
   (`alfred.relive.live-calls.warn-bytes`, default 200 MB).
+
+## History: the run matrix and comparing two runs
+
+The History tab (`relive-history`, T134, design in `specs/003-relive-cycle/run-compare-mock.html`
+option C) answers two questions on one screen:
+
+- **Since when?** A matrix of every step (rows, children under their parent) across the newest
+  runs (columns, newest on the left; 6 at first, "Show older runs" for more of the 50 kept). A cell
+  is the step's outcome (✓ passed, ≠ differences, ✗ failed, – not run) or, with "Time vs usual",
+  its time against the median of the other runs shown. "What stands out" names it per step: first
+  failure in N runs, failing for the last N runs, fixed in the newest run, changes on and off (a
+  flaky answer or an unignored noise field), N× slower in the newest run, not run in the newest run.
+  Each column head keeps the run's own actions: Open, compare with the previous run or with the
+  recording, export, stop, delete, and the bulk-select checkbox.
+- **What exactly changed?** The two runs picked as **A** (before) and **B** (after) - the A / B
+  buttons on a column, or click / shift-click its date; the newest run against the one before it
+  by default - are compared directly under the matrix (`relive-run-compare`). A cell picks its run
+  as B and the run before it as A (unless it is already A or B) and opens that step there.
+
+A can also be **the recording**: every step as it was recorded, the same thing each step's own
+differences compare against, now for the whole run in one view.
+
+The comparison opens with a verdict line ("B is worse: 1 new failure (Pax details), 1 answer
+changed"), count tiles that filter the step table (new failures, fixed, answers changed, ran in one
+only, slower / faster by more than 25% and 50 ms, same), and a table that shows changed steps only
+by default. A step expands to the response fields that changed (A value | B value, each with
+"Ignore in cycle", which adds a cycle noise rule to the draft), what the step sent differently (the
+variables it used, then request fields those variables do not explain), the rules applied in each
+run, Request / Response A vs B in the interception panel's diff, and "Open in run A / B" - the run's
+timeline, on that step. Below the table: every value each run captured, side by side.
+
+Grading reuses the run's own difference machinery (`relive-canonical-body.ts`, `relive-noise.ts`):
+the cycle's current noise rules plus the step's apply, so a timestamp or a session id does not make
+every step "changed"; "Show noise fields" brings those back, greyed, with why each is noise. The
+model is pure functions in `shared/utils/relive-run-compare.ts` over what `getRun` already returns
+(definition, step results, variable timeline) - no backend data of its own. The comparison exports
+as Markdown / HTML / JSON (`relive-run-export.ts`): every step with both full response bodies,
+never truncated; Markdown and HTML mask secrets, JSON keeps both step results unmasked.
