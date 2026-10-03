@@ -1,0 +1,1090 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred · Logs Explorer - UX mock</title>
+<!--
+  UX approval mock for specs/004-logs-explorer. Self-contained: no build, no network.
+  Uses Alfred's theme tokens (same palette as specs/003-relive-cycle/mock.html) so it reads like the real app.
+  All data is generated in this file (~600 lines, 3 grouping levels plus edge cases). Nothing is sent anywhere.
+-->
+<style>
+:root{
+  --bg:#0a0e2a; --nav:#11163d; --card:#141a45; --card-2:#101636; --inner:#070a24; --pop:#161c4a;
+  --border:rgba(139,92,246,.22); --border-s:rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-l:#c4b5fd; --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#f87171; --orange:#fb923c;
+  --text:#e5e9f5; --dim:#93a0c2; --faint:#5c6690;
+  --l-error:#f87171; --l-warn:#fbbf24; --l-info:#38bdf8; --l-debug:#5c6690;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:13px/1.45 'Segoe UI',system-ui,sans-serif;background:radial-gradient(ellipse at top,#131a4a 0%,#0a0e2a 55%);color:var(--text);min-height:100vh}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,select,textarea{font:inherit;color:var(--text);background:var(--inner);border:1px solid var(--border-s);border-radius:8px;padding:5px 8px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--purple)}
+select{padding:4px 6px}
+.mono{font-family:Consolas,'Cascadia Mono',monospace}
+.faint{color:var(--faint)} .dim{color:var(--dim)}
+.row{display:flex;align-items:center;gap:8px} .sp{flex:1}
+mark{background:rgba(251,191,36,.35);color:#fff;border-radius:2px;padding:0 1px}
+/* banner + nav */
+.mockbar{display:flex;gap:10px;align-items:center;padding:6px 16px;background:#2a1a55;color:var(--purple-l);font-size:12px;border-bottom:1px solid var(--border-s);flex-wrap:wrap}
+.mockbar b{color:#fff}
+.mockbar button{border:1px solid var(--border-s);border-radius:6px;padding:2px 8px}
+.mockbar button.on{background:var(--purple);color:#fff}
+.nav{display:flex;align-items:center;gap:4px;padding:0 24px;background:linear-gradient(120deg,#1a1247,#0f1438 60%,#1a1247);border-bottom:1px solid var(--border-s)}
+.nav a{padding:12px 14px;color:var(--dim);text-decoration:none;font-weight:600;border-bottom:2px solid transparent;cursor:pointer}
+.nav a.on{color:var(--purple-l);border-bottom-color:var(--purple)}
+.nav .new{font-size:10px;background:var(--purple);color:#fff;border-radius:6px;padding:1px 5px;margin-left:4px;vertical-align:1px}
+.page{max-width:1500px;margin:0 auto;padding:16px 20px 60px}
+h1{font:700 19px Montserrat,'Segoe UI',sans-serif;margin:0}
+h2{font:700 15px Montserrat,'Segoe UI',sans-serif;margin:0}
+h3{font:700 13px 'Segoe UI',sans-serif;margin:0 0 6px}
+.sub{color:var(--dim);margin-top:2px}
+/* generic */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:9px;border:1px solid var(--border-s);background:var(--card);font-weight:600;white-space:nowrap}
+.btn:hover{background:#1c2358}
+.btn.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+.btn.sm{padding:3px 9px;border-radius:7px;font-size:12px}
+.btn.xs{padding:1px 7px;border-radius:6px;font-size:11px;font-weight:600}
+.btn.on{background:rgba(139,92,246,.3);border-color:var(--purple)}
+.card{background:linear-gradient(160deg,#141a45,#101636);border:1px solid var(--border);border-radius:14px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;white-space:nowrap}
+.p-ok{color:var(--green);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.1)}
+.p-live{color:var(--cyan);border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.1)}
+.p-wait{color:var(--dim);border-color:var(--border);background:rgba(148,163,194,.1)}
+.p-warn{color:var(--amber);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.1)}
+.p-fail{color:var(--red);border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.12)}
+.seg{display:inline-flex;border:1px solid var(--border-s);border-radius:8px;overflow:hidden}
+.seg button{padding:3px 10px;font-size:12px;font-weight:600;color:var(--dim)}
+.seg button.on{background:rgba(139,92,246,.35);color:#fff}
+.ty{display:inline-block;width:18px;text-align:center;font-family:Consolas,monospace;font-size:11px;color:var(--faint)}
+.hint{font-size:11px;color:var(--faint)}
+.lvl{display:inline-block;font-size:10.5px;font-weight:700;border-radius:5px;padding:0 6px;border:1px solid}
+.lvl.ERROR{color:var(--l-error);border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.12)}
+.lvl.WARN{color:var(--l-warn);border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.1)}
+.lvl.INFO{color:var(--l-info);border-color:rgba(56,189,248,.4);background:rgba(56,189,248,.08)}
+.lvl.DEBUG{color:var(--dim);border-color:var(--border)}
+/* sources */
+.src{padding:14px 16px;margin-bottom:12px;cursor:pointer}
+.src:hover{border-color:var(--border-s)}
+.inp{display:grid;grid-template-columns:22px minmax(0,1fr) 190px 100px 60px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--border);font-size:12px}
+/* wizard */
+.steps{display:flex;gap:6px;margin:12px 0}
+.steps div{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:10px;color:var(--dim);font-weight:600;cursor:pointer}
+.steps div.on{border-color:var(--purple);color:#fff;background:rgba(139,92,246,.18)}
+.kinds{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.kind{padding:12px;border:1px solid var(--border);border-radius:12px;cursor:pointer}
+.kind.on{border-color:var(--purple);background:rgba(139,92,246,.15)}
+.kind b{display:block;margin:4px 0 2px}
+.form{display:grid;grid-template-columns:170px minmax(0,1fr);gap:8px 12px;align-items:center;margin-top:14px;max-width:820px}
+.ftab{width:100%;border-collapse:collapse;table-layout:fixed}
+.ftab th,.ftab td{padding:5px 6px;border-bottom:1px solid var(--border);text-align:left;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.ftab th{color:var(--faint);font-weight:600;font-size:11px}
+.ftab select,.ftab input{width:100%;font-size:12px;padding:3px 5px}
+.lvrow{display:grid;grid-template-columns:70px minmax(0,1fr) 170px 110px 70px;gap:8px;align-items:center;margin-bottom:6px}
+.badge{font-size:11px;font-weight:700;border-radius:6px;padding:1px 6px;background:rgba(139,92,246,.25);color:var(--purple-l);text-align:center}
+.prog{height:10px;border-radius:6px;background:var(--inner);border:1px solid var(--border);overflow:hidden}
+.prog div{height:100%;background:linear-gradient(90deg,var(--purple),var(--cyan))}
+/* explorer */
+.qbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;border:1px solid var(--border-s);border-radius:10px;background:var(--inner);position:relative}
+.qp{display:inline-flex;align-items:center;gap:4px;font-family:Consolas,monospace;font-size:12px;padding:1px 8px;border-radius:7px;border:1px solid}
+.qp.eq{color:#a5b4fc;border-color:rgba(165,180,252,.45);background:rgba(165,180,252,.1)}
+.qp.neq{color:var(--red);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.1)}
+.qp.ex,.qp.nex{color:var(--green);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.08)}
+.qp.text{color:var(--amber);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.08)}
+.qp.gt,.qp.lt,.qp.time{color:var(--cyan);border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.08)}
+.qp .x{cursor:pointer;opacity:.7}
+.qin{flex:1;min-width:200px;border:none;background:none;font-family:Consolas,monospace;font-size:12px;padding:3px}
+.ac{position:absolute;left:8px;top:100%;margin-top:4px;z-index:30;min-width:360px;background:var(--pop);border:1px solid var(--border-s);border-radius:10px;padding:4px;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+.ac div{padding:4px 8px;border-radius:6px;cursor:pointer;font-family:Consolas,monospace;font-size:12px;display:flex;justify-content:space-between;gap:16px}
+.ac div:hover,.ac div.on{background:rgba(139,92,246,.25)}
+.hist{display:flex;align-items:flex-end;gap:2px;height:64px;margin-top:10px;user-select:none;cursor:crosshair}
+.hist .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;border-radius:2px}
+.hist .b.sel{background:rgba(139,92,246,.25)}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 8px}
+.grid{display:grid;grid-template-columns:230px minmax(0,1fr);gap:12px}
+.grid.dr{grid-template-columns:230px minmax(0,1fr) 400px}
+.side{max-height:690px;overflow:auto;padding-right:4px}
+.fld{border-bottom:1px solid var(--border);padding:5px 2px}
+.fld .nm{display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px}
+.fld .nm:hover{color:var(--purple-l)}
+.fld .vals{margin:3px 0 2px 22px}
+.vrow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center;font-size:11.5px;color:var(--dim);padding:1px 4px;border-radius:5px}
+.vrow:hover{background:rgba(139,92,246,.12)}
+.vrow .acts{visibility:hidden;display:flex;gap:2px}
+.vrow:hover .acts{visibility:visible}
+.ib{width:20px;height:20px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--dim);border:1px solid transparent}
+.ib:hover{border-color:var(--border-s);color:#fff;background:rgba(139,92,246,.2)}
+.ib.on{color:var(--purple-l);border-color:var(--purple);background:rgba(139,92,246,.25)}
+.listwrap{display:grid;grid-template-columns:minmax(0,1fr) 14px;gap:6px}
+.list{height:690px;overflow:auto;border:1px solid var(--border);border-radius:12px;background:rgba(7,10,36,.55);position:relative}
+.lhead,.lr{display:grid;gap:8px;align-items:center;padding:4px 8px 4px 0}
+.lhead{position:sticky;top:0;z-index:5;background:#0d1236;border-bottom:1px solid var(--border-s);font-size:11px;color:var(--faint);font-weight:600}
+.lhead .col{display:flex;align-items:center;gap:4px;overflow:hidden;white-space:nowrap}
+.lhead .col .x{cursor:pointer;opacity:.6}
+.lr{border-bottom:1px solid rgba(139,92,246,.1);font-size:12px;cursor:pointer}
+.lr:hover{background:rgba(139,92,246,.08)}
+.lr.sel{background:rgba(139,92,246,.18)}
+.lr.ph{color:var(--dim);font-style:italic}
+.lr .c{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stripe{width:3px;height:18px;border-radius:2px}
+.tg{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:var(--dim);font-size:12px}
+.tg:hover{background:rgba(139,92,246,.25);color:#fff}
+.tg.off{visibility:hidden}
+.cdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.lv{font-size:10px;font-weight:700;padding:0 5px;border-radius:5px;background:rgba(148,163,194,.12);color:var(--dim);margin-right:6px}
+.mk{font-size:10px;font-weight:700;padding:0 5px;border-radius:5px;background:rgba(251,191,36,.15);color:var(--amber);margin-right:6px}
+.dur{height:5px;border-radius:3px;background:rgba(148,163,194,.15)}
+.dur div{height:5px;border-radius:3px}
+.data{border-bottom:1px solid var(--border);background:rgba(7,10,36,.9);padding:8px 12px 10px}
+.kv{display:grid;grid-template-columns:96px 18px 220px minmax(0,1fr);gap:8px;align-items:start;padding:3px 4px;border-bottom:1px solid rgba(139,92,246,.08);font-family:Consolas,monospace;font-size:12px}
+.kv:hover{background:rgba(139,92,246,.08)}
+.kv .acts{visibility:hidden;display:flex;gap:2px}
+.kv:hover .acts{visibility:visible}
+.kv .v{white-space:pre-wrap;word-break:break-all}
+.json{font-family:Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all}
+.json .k{color:#c4b5fd} .json .s{color:#86efac} .json .n{color:#fbbf24} .json .bo{color:#22d3ee} .json .nu{color:var(--faint)}
+.json .fold{cursor:pointer;color:var(--dim);display:inline-block;width:12px}
+.jl{display:grid;grid-template-columns:28px minmax(0,1fr);border-radius:4px}
+.jl:hover{background:rgba(139,92,246,.1)}
+.jl.hasc{background:rgba(251,191,36,.06)}
+.jl .jt{white-space:pre-wrap;word-break:break-all}
+.cbtn{font-size:11px;opacity:0;padding:0 3px;border-radius:4px;color:var(--dim)}
+.jl:hover .cbtn,.kv:hover .cbtn,.cbtn.has{opacity:1}
+.cbtn.has{color:var(--amber)}
+.cbtn:hover{background:rgba(139,92,246,.3);color:#fff}
+.minimap{position:relative;height:690px;border-radius:6px;background:rgba(7,10,36,.6);border:1px solid var(--border);cursor:pointer}
+.minimap i{position:absolute;left:1px;right:1px;height:3px;border-radius:1px}
+.minimap .win{position:absolute;left:0;right:0;border:1px solid var(--purple-l);border-radius:3px;pointer-events:none}
+.drawer{max-height:760px;overflow:auto;padding:12px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:8px 0}
+.tabs button{padding:5px 10px;font-size:12px;color:var(--dim);border-bottom:2px solid transparent}
+.tabs button.on{color:#fff;border-color:var(--purple)}
+.pop{position:absolute;z-index:40;width:330px;background:var(--pop);border:1px solid var(--border-s);border-radius:12px;padding:12px;box-shadow:0 16px 40px rgba(0,0,0,.55)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:8px 0}
+.stats div{background:var(--inner);border-radius:8px;padding:5px 7px}
+.stats span{display:block;font-size:10.5px;color:var(--faint)}
+.stats b{font-size:14px}
+.dist{display:flex;align-items:flex-end;gap:1px;height:44px}
+.dist div{flex:1;border-radius:2px 2px 0 0}
+.overlay{position:fixed;inset:0;background:rgba(3,5,20,.65);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding-top:60px}
+.dialog{width:min(980px,94vw);max-height:80vh;overflow:auto;padding:16px}
+.cmp{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
+.cmp th,.cmp td{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;word-break:break-all;font-family:Consolas,monospace}
+.cmp th{font-family:'Segoe UI';color:var(--faint);font-size:11px}
+.cmp td.d{background:rgba(251,191,36,.1);color:var(--amber)}
+.newpill{position:sticky;top:30px;z-index:6;display:flex;justify-content:center;pointer-events:none}
+.newpill span{pointer-events:auto;cursor:pointer}
+.wf{display:grid;grid-template-columns:150px minmax(0,1fr) 64px;gap:6px;align-items:center;font-size:11.5px;padding:2px 0}
+.wf .t{position:relative;height:10px;background:rgba(148,163,194,.1);border-radius:3px}
+.wf .t div{position:absolute;top:0;height:10px;border-radius:3px;min-width:2px}
+.cm{background:var(--inner);border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:6px;font-size:12px}
+.note{border:1px dashed var(--border-s);border-radius:10px;padding:8px 12px;color:var(--dim);font-size:12px;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK</b> specs/004-logs-explorer · all data generated locally ·
+  <span>Jump to:</span>
+  <button data-go="sources">Sources</button>
+  <button data-go="wizard">New source wizard</button>
+  <button data-go="structure">Structure editor</button>
+  <button data-go="explorer">Explorer</button>
+  <span class="sp"></span>
+  <span>Keys in explorer: <b>j</b>/<b>k</b> move · <b>x</b> select · <b>J</b>/<b>K</b> extend selection · <b>Esc</b> clear · <b>Enter</b> open data · <b>/</b> search</span>
+</div>
+<div class="nav">
+  <a>Live Calls</a><a>Session Cycles</a><a>Profiles</a><a>Relive Cycles</a><a class="on">Logs<span class="new">NEW</span></a><a>Settings</a>
+</div>
+<div class="page" id="app"></div>
+
+<script>
+/* ============================== helpers ============================== */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let seed = 11;
+const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+const pick = a => a[Math.floor(rnd() * a.length)];
+const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+const hhmmss = ms => new Date(ms).toISOString().slice(11, 23);
+const fmtN = n => n.toLocaleString('en-US');
+const fmtDur = ms => ms == null || ms === '' ? '' : (ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : Math.round(ms) + ' ms');
+const CC = ['#a78bfa','#22d3ee','#f472b6','#34d399','#fbbf24','#fb923c','#60a5fa','#e879f9','#4ade80','#f87171'];
+const hashColor = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) | 0; return CC[Math.abs(h) % CC.length]; };
+const LCOL = { ERROR: 'var(--l-error)', WARN: 'var(--l-warn)', INFO: 'var(--l-info)', DEBUG: 'var(--l-debug)' };
+
+/* ============================== data generator ============================== */
+const SUP = ['TravelportNdc', 'FlyAdealUAE', 'Sabre', 'Amadeus', 'AirArabia'];
+const ROUTES = ['DXB→CAI', 'AUH→LHR', 'DXB→JED', 'SHJ→KHI', 'DXB→IST'];
+const VMS = ['portal-24', 'portal-25'];
+const RAW = [];
+let t = Date.parse('2026-10-01T18:00:00Z'), cnt = { ic: 7000, ex: 31000 };
+function line(ts, level, methodName, message, ids, ctx, vm) {
+  const m = { methodName, message };
+  if (ids.correlationId) m.correlationId = ids.correlationId;
+  if (ids.sessionId) m.sessionId = ids.sessionId;
+  if (ids.inboundCallId) m.inboundCallId = ids.inboundCallId;
+  if (ids.externalCallId) m.externalCallId = ids.externalCallId;
+  if (ctx && Object.keys(ctx).length) m.context = ctx;
+  const obj = {
+    '@timestamp': new Date(ts).toISOString(),
+    'log.level': level,
+    'log.logger': 'DetailLogger',
+    'process.thread.name': level === 'INFO' && rnd() < .5 ? 'default task-' + ri(1, 40) : 'pool-6869-thread-' + ri(1, 40),
+    message: m,
+    resource: { 'service.name': 'ndc-prd-ne-' + vm + '-z2' },
+    fields: { VM_name: [vm], ERROR_flag: [level === 'ERROR' ? 1 : 0], date_with_weekday: [new Date(ts).toISOString().slice(0, 10) + ' (THURSDAY)'] }
+  };
+  RAW.push({ ts, obj });
+}
+for (let s = 0; s < 42; s++) {
+  t += ri(60, 260) * 1000;
+  const vm = pick(VMS), sid = 'S-' + (9100 + s), corr = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+  const user = 'AGN' + ri(1400, 1499);
+  line(t, 'INFO', 'loginV2', 'session start', { sessionId: sid, correlationId: corr }, {
+    request: `LoginDTO(email=agent${ri(10, 99)}@travel.ae, password=null, displayUserType=${user}, rememberIsChecked=${rnd() < .5})`
+  }, vm);
+  const nIc = ri(1, 3);
+  for (let i = 0; i < nIc; i++) {
+    t += ri(2, 40) * 1000;
+    const ic = 'IC-' + (cnt.ic++), route = pick(ROUTES), start = t;
+    line(t, 'INFO', 'searchFlights', 'inbound request · POST /search ' + route, { sessionId: sid, inboundCallId: ic, correlationId: corr }, { route }, vm);
+    const nEx = ri(1, 3); let maxEnd = t;
+    for (let e = 0; e < nEx; e++) {
+      const ex = 'EX-' + (cnt.ex++), sup = pick(SUP), st = t + ri(20, 300);
+      line(st, 'INFO', 'performOperation', 'Start external system call', { sessionId: sid, inboundCallId: ic, externalCallId: ex, correlationId: corr }, { externalService: sup, actionName: 'Search' }, vm);
+      const r = rnd();
+      let level = 'INFO', code = 200, took = ri(900, 7200), err;
+      if (r < .1) { level = 'ERROR'; code = 504; took = 30000; err = 'java.net.SocketTimeoutException: Read timed out\n\tat java.base/sun.nio.ch.NioSocketImpl.timedRead(NioSocketImpl.java:278)\n\tat java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:304)'; }
+      else if (r < .18) { level = 'WARN'; code = 429; took = ri(300, 1500); err = 'Rate limited by supplier, retry scheduled'; }
+      else if (r < .22) { level = 'ERROR'; code = 500; took = ri(2000, 5000); err = 'Supplier returned SOAP fault: Internal error'; }
+      const ctx = { externalService: sup, actionName: 'Search', statusCode: code, timeTaken: took, returnValue: null };
+      if (err) ctx.error = err;
+      line(st + took, level, 'performOperation', level === 'INFO' ? 'End external system call' : (code === 504 ? 'Supplier timeout' : code === 429 ? 'Supplier rate limit' : 'Supplier fault'), { sessionId: sid, inboundCallId: ic, externalCallId: ex, correlationId: corr }, ctx, vm);
+      maxEnd = Math.max(maxEnd, st + took);
+    }
+    if (rnd() < .2) line(t + 150, 'INFO', 'cacheLookup', 'fare cache miss', { sessionId: sid, externalCallId: 'EX-' + (cnt.ex++), correlationId: corr }, { cacheKey: route + ':' + user }, vm); // skipped level (A + C, no B)
+    t = maxEnd + ri(50, 400);
+    line(t, 'INFO', 'searchFlights', 'inbound response · ' + route, { sessionId: sid, inboundCallId: ic, correlationId: corr }, { statusCode: 200, timeTaken: t - start, offers: ri(0, 240) }, vm); // same-level sibling
+  }
+  if (rnd() < .3) { t += 5000; line(t, 'INFO', 'scheduler', 'scheduler tick · refresh currency rates', {}, { jobId: 'cur-' + ri(1, 9) }, vm); } // no IDs
+}
+// orphans: a session whose level-1 line never got logged
+for (let i = 0; i < 2; i++) {
+  t += 30000; const ic = 'IC-' + (cnt.ic++);
+  line(t, 'WARN', 'searchFlights', 'inbound request · session not found in log', { sessionId: 'S-0999', inboundCallId: ic }, { route: 'DXB→CAI' }, 'portal-25');
+  line(t + 2500, 'INFO', 'performOperation', 'End external system call', { sessionId: 'S-0999', inboundCallId: ic, externalCallId: 'EX-' + (cnt.ex++) }, { externalService: 'Sabre', actionName: 'Search', statusCode: 200, timeTaken: 2400 }, 'portal-25');
+}
+// a line that is not valid JSON
+RAW.push({ ts: t + 1000, bad: '{"timestamp":"2026-10-02T03:11:00Z","log.level":"INFO","message":{"methodName":"healthCheck"' });
+RAW.sort((a, b) => a.ts - b.ts);
+
+/* flatten: nested paths, unwrap one-element arrays */
+function flatten(o, p = '', out = {}) {
+  for (const [k, v0] of Object.entries(o)) {
+    const v = Array.isArray(v0) && v0.length === 1 ? v0[0] : v0;
+    const path = p ? p + '.' + k : k;
+    if (v && typeof v === 'object' && !Array.isArray(v)) flatten(v, path, out); else out[path] = v;
+  }
+  return out;
+}
+const LINES = RAW.map((r, i) => {
+  if (r.bad) return { id: 'L' + i, idx: i, ts: r.ts, bad: true, raw: r.bad, f: {}, obj: null };
+  return { id: 'L' + i, idx: i, ts: r.ts, raw: JSON.stringify(r.obj), obj: r.obj, f: flatten(r.obj) };
+});
+
+/* ============================== structure (detected) ============================== */
+const allPaths = [...new Set(LINES.flatMap(l => Object.keys(l.f)))];
+const label = p => p.replace(/^(message\.context\.|message\.|fields\.|resource\.)/, '');
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+const DATEISH = /^\d{4}-\d{2}-\d{2}/;
+function detect(path) {
+  const vals = LINES.filter(l => !l.bad && l.f[path] !== undefined && l.f[path] !== null).slice(0, 1000).map(l => l.f[path]);
+  const n = vals.length || 1;
+  const rate = test => vals.filter(test).length / n;
+  const cand = [
+    ['datetime', rate(v => typeof v === 'string' && ISO.test(v))],
+    ['date', rate(v => typeof v === 'string' && DATEISH.test(v) && !ISO.test(v))],
+    ['boolean', rate(v => typeof v === 'boolean')],
+    ['number', rate(v => typeof v === 'number')],
+  ].sort((a, b) => b[1] - a[1]);
+  let type = cand[0][1] >= .95 ? cand[0][0] : 'string';
+  const zeroOne = type === 'number' && vals.every(v => v === 0 || v === 1);
+  const match = type === 'string' ? 1 : cand[0][1];
+  return { type, match, invalid: Math.round((1 - match) * n), suggestBool: zeroOne, sample: vals[0] };
+}
+const ROLE_GUESS = { '@timestamp': 'time', 'log.level': 'level', sessionId: 'correlation', message: 'message', externalService: 'service', timeTaken: 'duration', statusCode: 'status', error: 'error', request: 'request body' };
+const FORMAT_GUESS = { '@timestamp': 'ISO-8601 · UTC', date_with_weekday: 'yyyy-MM-dd (EEEE)', timeTaken: 'unit: ms' };
+const FIELDS = allPaths.map(path => {
+  const d = detect(path), lb = label(path);
+  return {
+    path, label: lb, type: d.type, typeSource: 'auto', format: FORMAT_GUESS[lb] || (d.type === 'boolean' ? 'true / false' : ''),
+    match: d.match, invalid: d.invalid, suggestBool: d.suggestBool, sample: d.sample,
+    search: ['message', 'error', 'request'].includes(lb) ? 'text' : (['returnValue', 'date_with_weekday', 'log.logger'].includes(lb) ? 'none' : 'exact'),
+    role: ROLE_GUESS[lb] || ''
+  };
+});
+const F = lb => FIELDS.find(f => f.label === lb);
+const val = (l, lb) => { const fd = F(lb); return fd ? l.f[fd.path] : undefined; };
+const roleField = r => FIELDS.find(f => f.role === r);
+const rv = (l, r) => { const fd = roleField(r); return fd ? l.f[fd.path] : undefined; };
+function typed(fd, v) {
+  if (v === undefined || v === null || v === '') return null;
+  if (fd.type === 'number') { const n = Number(v); return isNaN(n) ? null : n; }
+  if (fd.type === 'datetime' || fd.type === 'date') { const n = Date.parse(String(v).slice(0, fd.type === 'date' ? 10 : 30)); return isNaN(n) ? null : n; }
+  if (fd.type === 'boolean') return v === true || v === 1 || v === 'true' ? 1 : v === false || v === 0 || v === 'false' ? 0 : null;
+  return String(v);
+}
+
+/* ============================== state ============================== */
+const S = {
+  screen: 'sources',
+  wiz: { step: 1, kind: 'upload', raw: 'copy', progress: 0, timer: null, editMode: false },
+  levels: [{ f: 'sessionId', sort: 'time ↑' }, { f: 'inboundCallId', sort: 'time ↑' }, { f: 'externalCallId', sort: 'time ↑' }],
+  template: '{methodName} · {message} · {externalService}',
+  dataView: 'table',
+  pills: [{ k: 'neq', f: 'log.level', v: 'DEBUG' }],
+  view: 'lines', cols: [], limit: 150,
+  openData: new Set(), openKids: new Set(), fold: new Set(), sel: null, cmp: new Set(),
+  drawer: null, dtab: 'fields', live: false, liveTimer: null, newCount: 0,
+  statsFor: null, ac: [], acIdx: 0,
+  comments: { },
+  savedViews: [
+    { name: 'Supplier errors', pills: [{ k: 'ex', f: 'externalService' }, { k: 'neq', f: 'statusCode', v: 200 }] },
+    { name: 'Slow calls > 6 s', pills: [{ k: 'gt', f: 'timeTaken', v: 6000 }] },
+    { name: 'All lines', pills: [] }
+  ],
+  leafSort: 'time ↑', patOpen: new Set()
+};
+S.comments[LINES.find(l => val(l, 'statusCode') === 504)?.id] = [{ who: '🦉 F. Baiomy', when: '2h ago', path: 'message.context.timeTaken', text: 'Sabre times out at exactly 30 s - the client timeout is too high.' }];
+
+/* ============================== filtering ============================== */
+function pillMatch(l, p) {
+  if (p.k === 'text') return l.raw.toLowerCase().includes(String(p.v).toLowerCase());
+  if (p.k === 'time') return l.ts >= p.from && l.ts <= p.to;
+  if (p.k === 'sel') return S.cmp.has(l.id);
+  const fd = F(p.f); if (!fd) return false;
+  const v = l.f[fd.path];
+  if (p.k === 'ex') return v !== undefined && v !== null;
+  if (p.k === 'nex') return v === undefined || v === null;
+  if (p.k === 'eq') return v !== undefined && String(v) === String(p.v);
+  if (p.k === 'neq') return v === undefined || String(v) !== String(p.v);
+  const a = typed(fd, v), b = typed(fd, p.v);
+  if (a === null || b === null) return false;
+  return p.k === 'gt' ? a > b : a < b;
+}
+let FILTERED = [];
+function applyFilters() { FILTERED = LINES.filter(l => S.pills.every(p => pillMatch(l, p))).sort((a, b) => b.ts - a.ts); }
+const pillText = p => p.k === 'sel' ? `selection only (${S.cmp.size})` : p.k === 'text' ? `"${p.v}"` : p.k === 'time' ? `time ${hhmmss(p.from).slice(0, 5)}-${hhmmss(p.to).slice(0, 5)}` :
+  p.k === 'ex' ? `${p.f} exists` : p.k === 'nex' ? `${p.f} missing` : `${p.f} ${{ eq: '=', neq: '≠', gt: '>', lt: '<' }[p.k]} ${p.v}`;
+function addPill(p) { if (!S.pills.some(x => JSON.stringify(x) === JSON.stringify(p))) S.pills.push(p); S.limit = 150; render(); }
+const textTerms = () => S.pills.filter(p => p.k === 'text').map(p => String(p.v));
+function hl(s) {
+  let h = esc(s);
+  for (const t of textTerms()) if (t) h = h.replace(new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), m => `<mark>${m}</mark>`);
+  return h;
+}
+
+/* ============================== summary template ============================== */
+function summary(l) {
+  if (l.bad) return 'unparsed line · ' + l.raw.slice(0, 80);
+  return S.template.split(' · ').map(seg => seg.replace(/\{([^}]+)\}/g, (m, k) => { const v = val(l, k); return v === undefined || v === null ? '' : String(v); }).trim()).filter(Boolean).join(' · ');
+}
+
+/* ============================== grouping by levels ============================== */
+function idsOf(l) { return S.levels.map(lv => { const v = val(l, lv.f); return v === undefined || v === null || v === '' ? null : String(v); }); }
+function buildTree(lines) {
+  const root = { kids: new Map(), lines: [], skipped: [], level: 0, key: '' };
+  const none = [];
+  for (const l of lines) {
+    const ids = idsOf(l);
+    if (!ids[0]) { none.push(l); continue; }
+    let deepest = -1; ids.forEach((v, i) => { if (v) deepest = i; });
+    const firstGap = ids.findIndex(v => !v);
+    if (firstGap !== -1 && firstGap < deepest) { // skipped level: attach under nearest existing ancestor
+      let node = root;
+      for (let i = 0; i < firstGap; i++) node = child(node, ids[i], i + 1);
+      node.skipped.push({ l, missing: S.levels[firstGap].f });
+      continue;
+    }
+    let node = root;
+    for (let i = 0; i <= deepest; i++) node = child(node, ids[i], i + 1);
+    node.lines.push(l);
+  }
+  return { root, none };
+  function child(n, id, level) { if (!n.kids.has(id)) n.kids.set(id, { kids: new Map(), lines: [], skipped: [], level, key: n.key + '|' + id, id }); return n.kids.get(id); }
+}
+function agg(n) {
+  if (n._agg) return n._agg;
+  const all = [...n.lines, ...n.skipped.map(s => s.l)];
+  let first = Infinity, errors = 0, count = 0, maxDur = 0;
+  for (const l of all) { first = Math.min(first, l.ts); count++; if (rv(l, 'level') === 'ERROR') errors++; maxDur = Math.max(maxDur, Number(rv(l, 'duration')) || 0); }
+  for (const k of n.kids.values()) { const a = agg(k); first = Math.min(first, a.first); errors += a.errors; count += a.count; maxDur = Math.max(maxDur, a.maxDur); }
+  return n._agg = { first, errors, count, maxDur };
+}
+function sortNodes(nodes, how) {
+  const by = { 'time ↑': (a, b) => agg(a).first - agg(b).first, 'time ↓': (a, b) => agg(b).first - agg(a).first, 'errors ↓': (a, b) => agg(b).errors - agg(a).errors || agg(a).first - agg(b).first, 'lines ↓': (a, b) => agg(b).count - agg(a).count, 'max duration ↓': (a, b) => agg(b).maxDur - agg(a).maxDur, 'id A→Z': (a, b) => a.id.localeCompare(b.id) }[how];
+  return nodes.sort(by);
+}
+function sortLines(ls) {
+  const fn = { 'time ↑': (a, b) => a.ts - b.ts, 'time ↓': (a, b) => b.ts - a.ts, 'timeTaken ↓': (a, b) => (Number(val(b, 'timeTaken')) || 0) - (Number(val(a, 'timeTaken')) || 0) }[S.leafSort];
+  return ls.sort(fn);
+}
+
+/* ============================== patterns ============================== */
+function patternOf(l) {
+  if (l.bad) return 'unparsed line';
+  return summary(l).replace(/\b(S|IC|EX)-\d+\b/g, '‹id›').replace(/\b\d+(\.\d+)?\b/g, '‹n›').replace(/[A-Z]{3}→[A-Z]{3}/g, '‹route›').replace(/\b(TravelportNdc|FlyAdealUAE|Sabre|Amadeus|AirArabia)\b/g, '‹service›');
+}
+
+/* ============================== render: shell ============================== */
+function render() {
+  $$('.mockbar [data-go]').forEach(b => b.classList.toggle('on', b.dataset.go === S.screen || (S.screen === 'wizard' && S.wiz.editMode && b.dataset.go === 'structure')));
+  const app = $('#app');
+  if (S.screen === 'sources') app.innerHTML = renderSources();
+  else if (S.screen === 'wizard') app.innerHTML = renderWizard();
+  else { applyFilters(); app.innerHTML = renderExplorer(); afterExplorer(); }
+  wire();
+}
+
+/* ============================== sources ============================== */
+function renderSources() {
+  return `
+  <div class="row"><div><h1>Log sources</h1><div class="sub">A source = one log structure + its settings, fed by any number of inputs. Search, groups and traces span all of a source's inputs.</div></div><span class="sp"></span><button class="btn primary" data-act="newsrc">+ New source</button></div>
+  <div style="margin-top:14px">
+    <div class="card src" data-act="open">
+      <div class="row"><h2>portal-detail</h2><span class="pill p-live">● following</span><span class="sp"></span><button class="btn xs" data-act="srcsettings">Settings</button><button class="btn xs" data-act="delsrc">Delete</button><span class="dim">${fmtN(3412870)} lines · 6.1 GB stored · retention 20 GB / 30 days · raw: copied into Alfred</span></div>
+      <div style="margin-top:8px">
+        <div class="inp"><span>⇪</span><span>Upload · <span class="mono">opensearch-export-oct01.ndjson</span> (10.0 GB)</span><span class="dim">3,398,114 lines · 2 m 41 s</span><span class="pill p-ok">loaded</span><button class="btn xs">⋯</button></div>
+        <div class="inp"><span>☁</span><span>OpenSearch · <span class="mono">logs*</span> · <span class="mono">fields.VM_name:portal-*</span> · follow every 10 s · import mode</span><span class="dim">+214 lines/min · last 23:56:02</span><span class="pill p-live">following</span><button class="btn xs">⋯</button></div>
+        <div class="inp"><span>⚠</span><span class="dim">2 lines were not valid JSON - kept as unparsed lines</span><span></span><span class="pill p-warn">2 unparsed</span><button class="btn xs">view</button></div>
+        <div class="inp"><span>≠</span><span class="dim">1,204 lines with a different structure (e.g. healthCheck lines)</span><span></span><span class="pill p-warn">different structure</span><button class="btn xs" data-act="split">Start new source</button></div>
+      </div>
+    </div>
+    <div class="card src" data-act="open">
+      <div class="row"><h2>detail-raw</h2><span class="pill p-live">● following</span><span class="sp"></span><span class="dim">812,402 lines · 0.4 GB stored · raw: positions in original files</span></div>
+      <div style="margin-top:8px">
+        <div class="inp"><span>↻</span><span>Follow · <span class="mono">/logs/portal-24/detail.log</span> · rotation aware</span><span class="dim">read up to byte 1.82 GB</span><span class="pill p-live">following</span><button class="btn xs">⋯</button></div>
+        <div class="inp"><span>⇢</span><span>HTTP push · <span class="mono">POST /logs/sources/detail-raw/push</span> · token set</span><span class="dim">last push 4 min ago</span><span class="pill p-wait">idle</span><button class="btn xs">⋯</button></div>
+        <div class="inp"><span>⏸</span><span>Server file · <span class="mono">/logs/portal-24/detail.log.2</span></span><span class="dim">Paused: low disk space (1.4 GB free, limit 2 GB)</span><span class="pill p-warn">paused</span><button class="btn xs">Resume</button></div>
+        <div class="inp"><span>⧉</span><span>Server file · <span class="mono">/logs/portal-25/detail.log.1</span></span><span class="dim">file changed since load</span><span class="pill p-fail">raw unavailable</span><button class="btn xs">reload</button></div>
+      </div>
+    </div>
+    <div class="card src" data-act="open">
+      <div class="row"><h2>opensearch-live (in place)</h2><span class="pill p-wait">browse in place</span><span class="sp"></span><span class="dim">nothing copied · 14 pinned lines (commented) kept in Alfred</span></div>
+    </div>
+  </div>
+  <div class="note">Clicking a source opens the explorer. <b>⋯</b> on an input: pause / resume / remove / edit. Credentials for OpenSearch are write-only: the settings show "set · replace", never the secret.</div>`;
+}
+
+/* ============================== wizard ============================== */
+const KINDS = [
+  ['upload', '⇪', 'Upload file', 'From your machine. Sent in chunks, works for 10 GB+ through the tunnel.'],
+  ['path', '⧉', 'File on server', 'Pick from the mounted logs folder. No upload.'],
+  ['follow', '↻', 'Follow a file', 'Live tail of a growing file. Survives rotation and restarts.'],
+  ['push', '⇢', 'HTTP push', 'Another system posts lines to Alfred with a token.'],
+  ['opensearch', '☁', 'OpenSearch', 'Import once, follow new lines, or browse in place.']
+];
+function renderWizard() {
+  const w = S.wiz;
+  const steps = w.editMode ? '' : `<div class="steps">${['1 · Input', '2 · Structure', '3 · Load'].map((s, i) => `<div class="${w.step === i + 1 ? 'on' : ''}" data-step="${i + 1}">${s}</div>`).join('')}</div>`;
+  let body = '';
+  if (w.step === 1) body = wizInput();
+  else if (w.step === 2) body = wizStructure();
+  else body = wizLoad();
+  return `<div class="row"><div><h1>${w.editMode ? 'Structure · portal-detail' : 'New log source'}</h1><div class="sub">${w.editMode ? 'Edit any time. Changing a type or search mode re-processes only that field, in the background.' : 'Lines must be one JSON object per line. Everything else is detected.'}</div></div><span class="sp"></span>
+  ${w.editMode ? '<button class="btn" data-act="toexplorer">Cancel</button><button class="btn primary" data-act="toexplorer">Save structure</button>' : '<button class="btn" data-act="tosources">Cancel</button>'}</div>${steps}${body}`;
+}
+function wizInput() {
+  const w = S.wiz, k = w.kind;
+  const forms = {
+    upload: `<label>File</label><div class="row"><button class="btn sm">Choose file…</button><span class="mono dim">opensearch-export-oct01.ndjson · 10.0 GB</span></div>`,
+    path: `<label>Server folder</label><select><option>/logs/portal-24/detail.log</option><option>/logs/portal-25/detail.log.1</option><option>/logs/exports/opensearch-export-oct01.ndjson</option></select><label></label><span class="hint">Only files under the mounted <span class="mono">/logs</span> folder are listed.</span>`,
+    follow: `<label>File to follow</label><select><option>/logs/portal-24/detail.log</option></select><label>Start from</label><select><option>end of file (new lines only)</option><option>beginning of file</option></select>`,
+    push: `<label>Push address</label><span class="mono">POST https://alfred…/logs/sources/&lt;new&gt;/push</span><label>Token</label><div class="row"><input class="mono" value="lgs_9f3a…c21" style="width:240px" readonly><button class="btn sm">Copy</button><button class="btn sm">Regenerate</button></div><label>Body</label><span class="dim">one JSON object per line (NDJSON)</span>`,
+    opensearch: `<label>Cluster address</label><input value="https://opensearch.internal:9200" style="width:360px"><label>Credentials</label><div class="row"><input value="alfred-reader" style="width:160px"><input type="password" value="••••••••" style="width:160px"><span class="hint">stored server-side, never shown again</span></div>
+      <label>Index pattern</label><input class="mono" value="logs*" style="width:200px"><label>Query</label><input class="mono" value='fields.VM_name:portal-* AND attributes.log.file.name:"detail.log"' style="width:100%">
+      <label>Time range</label><select style="width:200px"><option>last 24 hours</option><option>last 7 days</option><option>custom…</option></select>
+      <label>Mode</label><div class="seg"><button class="on">Import once</button><button>Import + follow</button><button>Browse in place</button></div>
+      <label>Limits</label><div class="row"><input value="1000" style="width:80px"> <span class="dim">hits per page</span><input value="5" style="width:60px"> <span class="dim">pages per second max</span></div>`
+  };
+  return `<div class="card" style="padding:16px">
+    <h3>Where do the lines come from?</h3>
+    <div class="kinds">${KINDS.map(([id, ic, t, d]) => `<div class="kind ${k === id ? 'on' : ''}" data-kind="${id}"><span style="font-size:18px">${ic}</span><b>${t}</b><span class="dim" style="font-size:12px">${d}</span></div>`).join('')}</div>
+    <div class="form">
+      <label>Source name</label><input value="portal-detail" style="width:260px">
+      ${forms[k]}
+      ${k !== 'opensearch' || true ? `<label>Raw lines</label><div class="seg"><button data-raw="copy" class="${w.raw === 'copy' ? 'on' : ''}">Copy into Alfred</button><button data-raw="offset" class="${w.raw === 'offset' ? 'on' : ''}">Keep file + positions</button></div>
+      <label></label><span class="hint">${w.raw === 'copy' ? 'Self-contained: the original file can be deleted. Uses about the input size again on disk.' : 'Small on disk; the raw line is read from the original file when shown. The file must stay in place and unchanged.'}</span>` : ''}
+    </div>
+    <div class="row" style="margin-top:14px"><span class="sp"></span><button class="btn primary" data-step="2">Next: preview structure →</button></div>
+  </div>`;
+}
+const TYPES = ['datetime', 'date', 'number', 'string', 'boolean'];
+const ROLES = ['', 'time', 'level', 'correlation', 'message', 'service', 'duration', 'status', 'request body', 'response body', 'error'];
+const opt = (arr, v, lab = x => x || '—') => arr.map(x => `<option value="${esc(x)}"${x === v ? ' selected' : ''}>${esc(lab(x))}</option>`).join('');
+function wizStructure() {
+  const sample = LINES.find(l => val(l, 'statusCode') === 504) || LINES[5];
+  const fieldOpts = FIELDS.map(f => f.label);
+  return `
+  <div class="card" style="padding:14px 16px">
+    <div class="row">${S.wiz.editMode ? '' : '<div class="note" style="margin:0 0 10px;border-color:var(--green);color:var(--green)">Same structure as <b>portal-detail</b> - its settings are reused and this step can be skipped. <label><input type="checkbox" checked> Use settings from portal-detail</label> <button class="btn xs" data-step="3">Skip to Load →</button></div>'}<h3 style="margin:0">Fields</h3><span class="badge">id 9f3a…c21</span><span class="dim">${FIELDS.length} fields · sampled first 1,000 lines</span><span class="sp"></span><span class="hint">Types are detected on first read; change them here now or any time after loading.</span></div>
+    <table class="ftab" style="margin-top:8px">
+      <colgroup><col style="width:24%"><col style="width:10%"><col style="width:15%"><col style="width:13%"><col style="width:11%"><col style="width:11%"><col style="width:5%"><col style="width:11%"></colgroup>
+      <tr><th>Field path</th><th>Type</th><th>Format</th><th>Detection</th><th>Search</th><th>Role</th><th title="Masked or redacted per the source's personal-data setting">Sensitive</th><th>Sample</th></tr>
+      ${FIELDS.map((f, i) => `<tr>
+        <td class="mono" title="${esc(f.path)}">${esc(f.path)}</td>
+        <td><select data-ft="${i}">${opt(TYPES, f.type)}</select></td>
+        <td><input class="mono" data-ff="${i}" value="${esc(f.format)}" placeholder="${f.type === 'datetime' || f.type === 'date' ? 'pattern · zone' : f.type === 'number' ? 'unit' : ''}"></td>
+        <td>${matchCell(f)}</td>
+        <td><select data-fs="${i}">${opt(['exact', 'text', 'none'], f.search, x => ({ exact: 'Exact', text: 'Text', none: 'Not searched' }[x]))}</select></td>
+        <td><select data-fr="${i}">${opt(ROLES, f.role)}</select></td>
+        <td style="text-align:center"><input type="checkbox" ${['request', 'correlationId'].includes(f.label) ? 'checked' : ''} title="Sensitive"></td>
+        <td class="mono dim" title="${esc(f.sample)}">${esc(String(f.sample).slice(0, 60))}</td></tr>`).join('')}
+    </table>
+    <div class="hint" style="margin-top:6px">Text = any fragment is found fast (costs index space). Exact = fast whole-value filters, sort, group. Not searched = shown, still filterable but slower. Values that don't fit a type are kept as original text and counted - never dropped.</div>
+  </div>
+
+  <div class="card" style="padding:14px 16px;margin-top:12px">
+    <div class="row"><h3 style="margin:0">Grouping levels</h3><span class="sp"></span><span class="hint">A line's level = how many of these IDs it has. Its parent = the line one level up with the same leading IDs.</span></div>
+    <div style="margin-top:8px">${S.levels.map((lv, i) => `<div class="lvrow"><span class="badge">Level ${i + 1}</span>
+      <select data-lf="${i}">${opt(fieldOpts, lv.f)}</select>
+      <select data-ls="${i}">${opt(['time ↑', 'time ↓', 'errors ↓', 'lines ↓', 'max duration ↓', 'id A→Z'], lv.sort, x => 'sort: ' + x)}</select>
+      <span class="hint">${i === 0 ? 'top level' : 'child of level ' + i}</span>
+      <span class="row"><button class="ib" data-lu="${i}" title="Move up">↑</button><button class="ib" data-lx="${i}" title="Remove">✕</button></span></div>`).join('')}</div>
+    <button class="btn sm" data-act="addlevel">+ Add level</button>
+    <div class="hint" style="margin-top:8px">Missing parent → placeholder row · several lines with identical IDs → earliest is the parent row, others are its siblings · a skipped level (A + C, no B) → under the nearest ancestor, marked "B missing" · no level-1 ID → "No ‹field›" bucket.</div>
+  </div>
+
+  <div class="card" style="padding:14px 16px;margin-top:12px">
+    <h3>Summary line template</h3>
+    <input class="mono" id="tpl" value="${esc(S.template)}" style="width:100%">
+    <div class="hint" style="margin:4px 0">Fields in <span class="mono">{braces}</span>, segments separated by <span class="mono"> · </span>; an empty segment is dropped.</div>
+    <div class="mono" id="tplprev" style="padding:7px 10px;background:var(--inner);border-radius:8px;border:1px solid var(--border)">${esc(summary(sample))}</div>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap"><span class="dim">Time zone</span><select style="width:200px"><option>Asia/Dubai (UTC+4)</option><option>UTC</option><option>Africa/Cairo (UTC+3)</option></select>
+      <span class="dim" style="margin-left:16px">Personal data</span><div class="seg"><button class="on">Show as-is</button><button>Mask until revealed</button><button>Redact at load</button></div>
+      <span class="hint">Applies to fields marked sensitive (e.g. <span class="mono">request</span>). Exports always use Alfred's redaction rules.</span></div>
+    <div class="row" style="margin-top:10px"><span class="dim">Default data view</span><div class="seg"><button data-dv="table" class="${S.dataView === 'table' ? 'on' : ''}">Table</button><button data-dv="json" class="${S.dataView === 'json' ? 'on' : ''}">JSON</button></div></div>
+  </div>
+  ${S.wiz.editMode ? '' : '<div class="row" style="margin-top:14px"><button class="btn" data-step="1">← Back</button><span class="sp"></span><button class="btn primary" data-step="3">Load →</button></div>'}`;
+}
+function matchCell(f) {
+  if (f.type === 'string') return '<span class="dim">text</span>';
+  const pct = (f.match * 100).toFixed(f.match === 1 ? 0 : 1) + '%';
+  let s = `<span class="dim">${pct}</span>`;
+  if (f.invalid) s += ` · <span style="color:var(--amber)" title="kept as original text">${f.invalid} invalid</span>`;
+  if (f.suggestBool && f.type === 'number') s += ` · <a class="link" style="color:var(--purple-l);cursor:pointer" data-sb="${FIELDS.indexOf(f)}">boolean?</a>`;
+  if (f.typeSource === 'user') s += ' · <span class="faint">set by you</span>';
+  return s;
+}
+function wizLoad() {
+  const p = S.wiz.progress, total = 3398114, lines = Math.round(total * p / 100);
+  return `<div class="card" style="padding:16px">
+    <div class="row"><h3 style="margin:0">Loading opensearch-export-oct01.ndjson</h3><span class="sp"></span><span class="pill ${p >= 100 ? 'p-ok' : 'p-live'}">${p >= 100 ? 'done' : 'loading'}</span></div>
+    <div class="prog" style="margin:10px 0"><div style="width:${p}%"></div></div>
+    <div class="row dim" style="gap:24px"><span><b style="color:#fff">${fmtN(lines)}</b> / ~${fmtN(total)} lines</span><span>${(10 * p / 100).toFixed(2)} / 10.00 GB</span><span>${p >= 100 ? '2 m 41 s total' : 'about ' + Math.max(1, Math.round((100 - p) * 1.6)) + ' s left'}</span><span>memory steady · streamed in batches of 5,000</span><span>2 unparsed lines</span></div>
+    <div class="note">Lines already loaded are browsable now - you don't have to wait for the end. New fields seen after the sample are added to the structure and listed here.<br>
+    ${p > 40 ? '<span style="color:var(--amber)">New field found at line 1,204,551: <span class="mono">message.context.retryCount</span> (number) - added.</span>' : ''}</div>
+    <div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn primary" data-act="toexplorer">Open explorer now →</button></div>
+  </div>`;
+}
+
+/* ============================== explorer ============================== */
+function renderExplorer() {
+  const total = FILTERED.length;
+  return `
+  <div class="row"><div><h1>portal-detail</h1><div class="sub">OpenSearch export + OpenSearch follow · ${fmtN(LINES.length)} lines in this mock (3.4 M in the real source) · raw copied into Alfred</div></div><span class="sp"></span>
+    <select data-act="savedview" style="width:180px"><option value="">Saved views…</option>${S.savedViews.map((v, i) => `<option value="${i}">${esc(v.name)}</option>`).join('')}</select>
+    <button class="btn sm" data-act="saveview">☆ Save view</button>
+    <button class="btn sm" data-act="structure">⚙ Structure</button>
+    <button class="btn sm" data-act="tosources">Sources</button></div>
+  <div style="margin-top:12px" class="qbar" id="qbar">
+    <span class="faint">⌕</span>
+    ${S.pills.map((p, i) => `<span class="qp ${p.k}">${esc(pillText(p))}<span class="x" data-rmp="${i}">✕</span></span>`).join('')}
+    <input class="qin" id="qin" placeholder='field:value · -field:value · field:* · timeTaken>6000 · "free text"' autocomplete="off">
+    <select style="width:130px" data-act="range"><option>All time</option><option>Last 1 h of data</option><option>Last 6 h of data</option></select><span class="hint" title="Remembered per source in this browser; first visit = last 24 h of data">↺ last used</span>
+    <div class="ac" id="ac" style="display:none"></div>
+  </div>
+  ${renderHist()}
+  <div class="tools">
+    <div class="seg">${['lines', 'grouped', 'patterns'].map(v => `<button data-view="${v}" class="${S.view === v ? 'on' : ''}">${{ lines: 'Lines', grouped: 'Grouped', patterns: 'Patterns' }[v]}</button>`).join('')}</div>
+    ${S.view === 'grouped' ? `<span class="dim">Children:</span><button class="btn xs" data-exp="0">Collapse all</button><button class="btn xs" data-exp="1">to L1</button><button class="btn xs" data-exp="2">to L2</button><button class="btn xs" data-exp="9">All</button>
+      <span class="dim" style="margin-left:6px">Sort:</span>${S.levels.map((lv, i) => `<select data-ls2="${i}" style="font-size:11px">${opt(['time ↑', 'time ↓', 'errors ↓', 'lines ↓', 'max duration ↓', 'id A→Z'], lv.sort, x => 'L' + (i + 1) + ' ' + x)}</select>`).join('')}
+      <select data-act="leafsort" style="font-size:11px">${opt(['time ↑', 'time ↓', 'timeTaken ↓'], S.leafSort, x => 'lines ' + x)}</select>` : ''}
+    <span class="sp"></span>
+    <span class="dim">Data:</span><div class="seg"><button data-dv="table" class="${S.dataView === 'table' ? 'on' : ''}">Table</button><button data-dv="json" class="${S.dataView === 'json' ? 'on' : ''}">JSON</button></div>
+    <button class="btn xs" data-act="closedata">Close all data</button>
+    <button class="btn sm ${S.live ? 'on' : ''}" data-act="live">${S.live ? '❚❚ Live' : '▶ Live'}</button>
+    <span class="dim">${fmtN(total)} matches · ${Math.max(9, Math.round(total / 40))} ms</span>
+  </div>
+  <div id="bulk">${bulkBar()}</div>
+  <div class="grid ${S.drawer ? 'dr' : ''}">
+    <div class="card side" style="padding:8px 10px;position:relative">${renderSide()}</div>
+    <div><div class="row" style="justify-content:flex-end;margin-bottom:4px"><span class="hint">Minimap:</span><select style="font-size:11px" data-act="mmcond"><option value="">Errors + warnings</option><option value="slow">timeTaken &gt; 6000</option><option value="sabre">externalService = Sabre</option></select>${FILTERED.length > 5e6 ? '<span class="hint">sampled</span>' : ''}</div><div class="listwrap"><div class="list" id="list">${renderList()}</div><div class="minimap" id="mm" title="Lines matching the minimap condition across the whole result - click to jump">${renderMinimap()}</div></div></div>
+    ${S.drawer ? `<div class="card drawer">${renderDrawer()}</div>` : ''}
+  </div>
+  <div class="note">Real app: the list is virtual-scrolled and fetched in keyset pages of 200 (this mock appends 150 rows as you scroll). Live updates arrive as a WebSocket "changed" signal followed by a fetch - no polling.</div>
+  <div id="popwrap"></div><div id="dlg"></div>`;
+}
+function renderHist() {
+  const src = FILTERED; if (!src.length) return '<div class="hist"></div>';
+  const lo = Math.min(...src.map(l => l.ts)), hi = Math.max(...src.map(l => l.ts)), N = 48, w = (hi - lo) / N || 1;
+  const b = Array.from({ length: N }, () => ({ ERROR: 0, WARN: 0, INFO: 0, DEBUG: 0 }));
+  for (const l of src) { const i = Math.min(N - 1, Math.floor((l.ts - lo) / w)); b[i][rv(l, 'level') || 'INFO']++; }
+  const max = Math.max(...b.map(x => x.ERROR + x.WARN + x.INFO + x.DEBUG)) || 1;
+  window.__hist = { lo, w, N };
+  return `<div class="hist" id="hist">${b.map((x, i) => `<div class="b" data-hb="${i}" title="${hhmmss(lo + i * w).slice(0, 5)} · ${x.ERROR + x.WARN + x.INFO + x.DEBUG} lines (${x.ERROR} errors)">${['ERROR', 'WARN', 'INFO', 'DEBUG'].map(k => x[k] ? `<div style="height:${x[k] / max * 60}px;background:${LCOL[k]};opacity:${k === 'INFO' ? .55 : .9}"></div>` : '').join('')}</div>`).join('')}</div>
+  <div class="row hint" style="justify-content:space-between"><span>${hhmmss(lo).slice(0, 8)}</span><span><span class="cdot" style="background:var(--l-error)"></span>ERROR <span class="cdot" style="background:var(--l-warn);margin-left:8px"></span>WARN <span class="cdot" style="background:var(--l-info);margin-left:8px"></span>INFO · drag across bars to zoom the time range</span><span>${hhmmss(hi).slice(0, 8)}</span></div>`;
+}
+const fieldActs = (f, v) => `<span class="acts">
+  ${v !== undefined ? `<button class="ib" title="Filter for value" data-fa="eq" data-f="${esc(f)}" data-v="${esc(v)}">⊕</button><button class="ib" title="Filter out value" data-fa="neq" data-f="${esc(f)}" data-v="${esc(v)}">⊖</button>` : ''}
+  <button class="ib ${S.cols.includes(f) ? 'on' : ''}" title="Toggle column in table" data-fa="col" data-f="${esc(f)}">▥</button>
+  <button class="ib" title="Filter for field present" data-fa="ex" data-f="${esc(f)}">∃</button></span>`;
+const tyIcon = t => ({ datetime: '◷', date: '▦', number: '#', string: 't', boolean: 'b' }[t] || '?');
+function renderSide() {
+  const roleRows = ['time', 'level', 'correlation', 'duration', 'message', 'service'].map(r => { const fd = roleField(r); return fd ? `<div class="hint" style="padding:1px 0"><span style="display:inline-block;width:78px">${r}</span><span class="mono">${esc(fd.label)}</span></div>` : ''; }).join('');
+  const shown = FIELDS.filter(f => !['log.logger', 'date_with_weekday', 'returnValue'].includes(f.label));
+  return `<div class="hint" style="margin-bottom:2px">ROLES</div>${roleRows}
+  <div class="hint" style="margin:10px 0 2px">FIELDS · click a name for stats</div>
+  ${shown.map(f => {
+    const counts = {}; let present = 0;
+    for (const l of FILTERED) { const v = l.f[f.path]; if (v !== undefined && v !== null) { present++; counts[v] = (counts[v] || 0) + 1; } }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, f.search === 'text' ? 0 : 4);
+    return `<div class="fld"><div class="nm" data-stats="${esc(f.label)}"><span class="ty">${tyIcon(f.type)}</span><span class="mono">${esc(f.label)}</span><span class="sp"></span><span class="faint" style="font-size:10.5px">${present ? Math.round(present / FILTERED.length * 100) + '%' : '-'}</span><span class="vrow" style="padding:0">${fieldActs(f.label)}</span></div>
+      ${top.length ? `<div class="vals">${top.map(([v, c]) => `<div class="vrow"><span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(v)}">${esc(v)}</span><span class="faint">${c}</span>${fieldActs(f.label, v)}</div>`).join('')}</div>` : ''}</div>`;
+  }).join('')}`;
+}
+function colTemplate() { return `3px 20px 20px 18px 96px 52px ${S.cols.length ? S.cols.map(() => 'minmax(90px,1fr)').join(' ') : 'minmax(0,1fr)'} 90px 26px`; }
+function headRow() {
+  const cols = S.cols.length ? S.cols.map(c => `<span class="col" title="${esc(c)}">${esc(c)}<span class="x" data-rmc="${esc(c)}">✕</span></span>`).join('') : '<span class="col">Summary <span class="faint" style="font-weight:400">(template - toggle ▥ on any field to show columns instead)</span></span>';
+  return `<div class="lhead" style="grid-template-columns:${colTemplate()}"><span></span><span title="children">${S.view === 'grouped' ? '⊞' : ''}</span><span title="data">{}</span><span><input type="checkbox" id="selall" title="Select all loaded rows (shift: all matching)" ${headSelState()}></span><span>Time</span><span>Level</span>${cols}<span>Duration</span><span></span></div>`;
+}
+function rowHtml(l, depth = 0, o = {}) {
+  if (l.ph) return `<div class="lr ph" style="grid-template-columns:${colTemplate()};padding-left:${depth * 20}px"><span class="stripe" style="background:var(--border-s)"></span><span class="tg" data-kid="${o.nodeKey}">${S.openKids.has(o.nodeKey) ? '−' : '+'}</span><span></span><span></span><span class="mono faint">-</span><span></span><span class="c">${o.lvl ? `<span class="lv">L${o.lvl} · ${o.below} below</span>` : ''}${esc(l.text)}</span><span></span><span></span></div>`;
+  const lev = rv(l, 'level') || (l.bad ? 'WARN' : 'INFO'), dur = Number(rv(l, 'duration')) || 0, corr = rv(l, 'correlation');
+  const cells = S.cols.length ? S.cols.map(c => { const v = val(l, c); const red = (c === 'statusCode' && v >= 500) || (c === 'log.level' && v === 'ERROR'); return `<span class="c mono" style="${red ? 'color:var(--red)' : ''}" title="${esc(v)}">${v === undefined || v === null ? '<span class="faint">—</span>' : hl(v)}</span>`; }).join('')
+    : `<span class="c">${o.lvl ? `<span class="lv">L${o.lvl}${o.below ? ' · ' + o.below + ' below' : ''}</span>` : ''}${o.mark ? `<span class="mk">${esc(o.mark)}</span>` : ''}${o.sib ? '<span class="lv">sibling</span>' : ''}${corr ? `<span class="cdot" style="background:${hashColor(corr)}" title="${esc(roleField('correlation').label)} ${esc(corr)}"></span>` : ''}${l.bad ? '<span class="mk">unparsed</span>' : ''}${hl(summary(l))}</span>`;
+  const nc = (S.comments[l.id] || []).length;
+  let h = `<div class="lr ${S.sel === l.id ? 'sel' : ''}" data-row="${l.id}" style="grid-template-columns:${colTemplate()};padding-left:${depth * 20}px">
+    <span class="stripe" style="background:${LCOL[lev]}"></span>
+    <span class="tg ${o.hasKids ? '' : 'off'}" data-kid="${o.nodeKey || ''}" title="Show / hide children">${S.openKids.has(o.nodeKey) ? '−' : '+'}</span>
+    <span class="tg" data-dt="${l.id}" title="Show / hide this line's data">${S.openData.has(l.id) ? '▾' : '▸'}</span>
+    <span><input type="checkbox" data-cmp="${l.id}" ${S.cmp.has(l.id) ? 'checked' : ''} title="Select (shift-click: range · x key)"></span>
+    <span class="mono dim">${hhmmss(l.ts)}</span><span><span class="lvl ${lev}">${lev}</span></span>${cells}
+    <span>${dur ? `<div class="dur"><div style="width:${Math.min(100, dur / 30000 * 100)}%;background:${dur >= 10000 ? 'var(--red)' : 'var(--dim)'}"></div></div><div class="hint" style="text-align:right">${fmtDur(dur)}</div>` : ''}</span>
+    <span class="row" style="gap:2px"><button class="ib" data-drawer="${l.id}" title="Open in side drawer">⇥</button>${nc ? `<span class="faint" title="${nc} comment">💬</span>` : ''}</span></div>`;
+  if (S.openData.has(l.id)) h += `<div class="data" style="margin-left:${depth * 20 + 42}px">${dataHtml(l)}</div>`;
+  return h;
+}
+function dataHtml(l) {
+  const ids = idsOf(l).map((v, i) => v ? `${S.levels[i].f}=${v}` : null).filter(Boolean).join(' · ');
+  const head = `<div class="row" style="margin-bottom:6px"><span class="hint">${esc(ids || 'no level IDs')} · full data, untruncated</span><span class="sp"></span>
+    <div class="seg"><button data-dv="table" class="${S.dataView === 'table' ? 'on' : ''}">Table</button><button data-dv="json" class="${S.dataView === 'json' ? 'on' : ''}">JSON</button></div>
+    <button class="btn xs" data-copy="${l.id}">Copy</button><button class="btn xs" data-drawer="${l.id}">Open in drawer</button></div>`;
+  if (l.bad) return head + `<div class="json">${esc(l.raw)}</div><div class="hint">This line is not valid JSON; it is kept as text.</div>`;
+  const whole = commentBlock(l.id, '', 0, 'Comment on the whole line');
+  return head + whole + (S.dataView === 'table' ? tableHtml(l) : `<div class="json">${jsonHtml(l.obj, l.id)}</div>`);
+}
+/* comments anchor to a FIELD PATH (e.g. message.context.timeTaken), not a line number, so the same comment
+   shows in Table and JSON, survives folding, and re-attaches when the file is loaded again. */
+const commentsAt = (id, path) => (S.comments[id] || []).filter(c => (c.path || '') === path);
+function commentBlock(id, path, indentPx, addLabel) {
+  const cs = commentsAt(id, path), key = id + '|' + path, editing = S.cEdit === key;
+  let h = cs.map(c => `<div class="cm" style="margin-left:${indentPx}px"><b>${esc(c.who)}</b> <span class="faint">· ${esc(c.when)}${path ? ' · on ' + esc(path) : ' · whole line'}</span><br>${esc(c.text)}</div>`).join('');
+  if (editing) h += `<div class="cm" style="margin-left:${indentPx}px;border-color:var(--purple)"><textarea id="cedit" rows="2" style="width:100%" placeholder="Comment on ${esc(path || 'this line')}"></textarea><div class="row" style="margin-top:4px"><span class="hint" id="cerr">Commenting pins this line in Alfred.</span><span class="sp"></span><button class="btn xs" data-cc="cancel">Cancel</button><button class="btn xs primary" data-cc="save">Comment</button></div></div>`;
+  else if (!path && addLabel) h += `<div style="margin-bottom:4px"><button class="btn xs" data-cadd="${esc(key)}">💬 ${addLabel}</button></div>`;
+  return h;
+}
+const cBtn = (id, path) => { const n = commentsAt(id, path).length; return `<button class="cbtn ${n ? 'has' : ''}" data-cadd="${esc(id + '|' + path)}" title="${n ? n + ' comment(s) - add another' : 'Add a comment on this ' + (path ? 'field' : 'line')}">💬${n ? n : ''}</button>`; };
+function tableHtml(l) {
+  return Object.entries(l.f).map(([p, v]) => { const fd = FIELDS.find(f => f.path === p); const lb = fd ? fd.label : p;
+    return `<div class="kv">${fieldActs(lb, v)}<span class="ty" title="${fd?.type}">${tyIcon(fd?.type)}</span><span class="dim" title="${esc(p)}">${cBtn(l.id, p)} ${esc(p)}</span><span class="v" style="${(lb === 'statusCode' && v >= 500) ? 'color:var(--red)' : ''}">${v === null ? '<span class="faint">null</span>' : hl(v)}</span></div>` + commentBlock(l.id, p, 120); }).join('');
+}
+const scalar = v => v === null ? '<span class="nu">null</span>' : typeof v === 'string' ? `<span class="s">"${hl(v)}"</span>` : typeof v === 'number' ? `<span class="n">${v}</span>` : `<span class="bo">${v}</span>`;
+function jsonLines(v, id, path, d, keyHtml, comma, out) {
+  const pad = '  '.repeat(d), kh = keyHtml ? keyHtml + ': ' : '';
+  if (v === null || typeof v !== 'object') { out.push({ h: pad + kh + scalar(v) + comma, path, d }); return; }
+  const isA = Array.isArray(v), ent = isA ? v.map((x, i) => [i, x]) : Object.entries(v), fk = id + ':' + path;
+  const fb = d ? `<span class="fold" data-fold="${esc(fk)}">${S.fold.has(fk) ? '▸' : '▾'}</span>` : '';
+  if (S.fold.has(fk)) { const inside = (S.comments[id] || []).filter(c => c.path && c.path.startsWith(path + '.')).length;
+    out.push({ h: `${pad}${kh}${fb}${isA ? '[' : '{'} <span class="faint">… ${ent.length} ${isA ? 'items' : 'fields'}</span> ${isA ? ']' : '}'}${comma}${inside ? ` <span class="mk">💬 ${inside} inside</span>` : ''}`, path, d }); return; }
+  out.push({ h: pad + kh + fb + (isA ? '[' : '{'), path, d });
+  ent.forEach(([k, x], i) => {
+    const cp = isA && v.length === 1 ? path : (path ? path + '.' : '') + k; // one-element arrays share the flattened field path
+    jsonLines(x, id, cp, d + 1, isA ? '' : `<span class="k">"${esc(k)}"</span>`, i < ent.length - 1 ? ',' : '', out);
+  });
+  out.push({ h: pad + (isA ? ']' : '}') + comma, path: null, d });
+}
+function jsonHtml(o, id) {
+  const out = []; jsonLines(o, id, '', 0, '', '', out);
+  return out.map(L => `<div class="jl ${L.path && commentsAt(id, L.path).length ? 'hasc' : ''}"><span>${L.path ? cBtn(id, L.path) : ''}</span><span class="jt">${L.h}</span></div>` + (L.path ? commentBlock(id, L.path, 28 + L.d * 16) : '')).join('');
+}
+function renderList() {
+  let h = headRow();
+  if (S.newCount) h += `<div class="newpill"><span class="pill p-live" data-act="jumpnew">↑ ${S.newCount} new lines · paused while you're scrolled · jump to newest</span></div>`;
+  if (!FILTERED.length) return h + '<div class="dim" style="padding:20px">No lines match. Remove a pill to widen the search.</div>';
+  if (S.view === 'lines') {
+    h += FILTERED.slice(0, S.limit).map(l => rowHtml(l)).join('');
+    if (S.limit < FILTERED.length) h += `<div class="hint" style="padding:10px">Showing ${S.limit} of ${fmtN(FILTERED.length)} - scroll to load the next page</div>`;
+    return h;
+  }
+  if (S.view === 'patterns') {
+    const m = new Map();
+    for (const l of FILTERED) { const p = patternOf(l); if (!m.has(p)) m.set(p, []); m.get(p).push(l); }
+    return h + [...m.entries()].sort((a, b) => b[1].length - a[1].length).map(([p, ls]) => {
+      const worst = ls.some(l => rv(l, 'level') === 'ERROR') ? 'ERROR' : ls.some(l => rv(l, 'level') === 'WARN') ? 'WARN' : 'INFO';
+      const open = S.patOpen.has(p);
+      return `<div class="lr" data-pat="${esc(p)}" style="grid-template-columns:3px 20px minmax(0,1fr) 90px"><span class="stripe" style="background:${LCOL[worst]}"></span><span class="tg">${open ? '−' : '+'}</span><span class="c">${esc(p)}</span><span class="mono" style="text-align:right">×${fmtN(ls.length)}</span></div>` + (open ? ls.map(l => rowHtml(l, 1)).join('') : '');
+    }).join('') + '<div class="hint" style="padding:8px">Variable parts (ids, numbers, routes, services) are replaced by ‹placeholders›; every line of a pattern is reachable by opening it.</div>';
+  }
+  // grouped
+  const { root, none } = buildTree(FILTERED);
+  const out = [];
+  const walk = (node, depth) => {
+    const ownSorted = sortLines([...node.lines]);
+    const parent = ownSorted[0], siblings = ownSorted.slice(1);
+    const kids = sortNodes([...node.kids.values()], S.levels[node.level]?.sort || 'time ↑');
+    const below = agg(node).count - 1;
+    const hasKids = kids.length + node.skipped.length > 0;
+    if (parent) out.push(rowHtml(parent, depth, { lvl: node.level, below: hasKids ? below - siblings.length : 0, hasKids, nodeKey: node.key }));
+    else out.push(rowHtml({ ph: true, text: `${S.levels[node.level - 1].f} = ${node.id} · no level-${node.level} line in the log` }, depth, { nodeKey: node.key, lvl: node.level, below: agg(node).count }));
+    for (const s of siblings) out.push(rowHtml(s, depth, { lvl: node.level, sib: true }));
+    if (S.openKids.has(node.key)) {
+      for (const k of kids) walk(k, depth + 1);
+      for (const s of sortLines(node.skipped.map(x => x.l))) out.push(rowHtml(s, depth + 1, { mark: node.skipped.find(x => x.l === s).missing + ' missing' }));
+    }
+  };
+  for (const n of sortNodes([...root.kids.values()], S.levels[0]?.sort || 'time ↑')) walk(n, 0);
+  if (none.length) {
+    const key = '|__none';
+    out.push(rowHtml({ ph: true, text: `No ${S.levels[0]?.f || 'level-1 ID'} · ${none.length} lines` }, 0, { nodeKey: key }));
+    if (S.openKids.has(key)) for (const l of sortLines([...none])) out.push(rowHtml(l, 1));
+  }
+  return h + out.join('') + `<div class="hint" style="padding:8px">Parents and children are ordinary log lines. Children load page by page as you expand - every one is reachable, nothing is cut.</div>`;
+}
+function renderMinimap() {
+  if (S.view !== 'lines' || !FILTERED.length) return '';
+  const n = FILTERED.length;
+  const cond = { slow: l => Number(val(l, 'timeTaken')) > 6000, sabre: l => val(l, 'externalService') === 'Sabre' }[S.mmCond];
+  return FILTERED.map((l, i) => {
+    const lv = rv(l, 'level');
+    if (cond) return cond(l) ? `<i data-mm="${i}" style="top:${i / n * 100}%;background:var(--purple-l)"></i>` : '';
+    return lv === 'ERROR' || lv === 'WARN' ? `<i data-mm="${i}" style="top:${i / n * 100}%;background:${LCOL[lv]}"></i>` : '';
+  }).join('') + '<div class="win" id="mmwin"></div>';
+}
+function renderDrawer() {
+  const l = LINES.find(x => x.id === S.drawer); if (!l) return '';
+  const lev = rv(l, 'level') || 'INFO';
+  const tabs = ['fields', 'raw', 'context', 'trace', 'comments'];
+  let body = '';
+  if (S.dtab === 'fields') body = l.bad ? '<div class="dim">Unparsed line - see Raw.</div>' : `<div class="hint" style="margin-bottom:4px">Hover a row: ⊕ filter for · ⊖ filter out · ▥ toggle column · ∃ field present</div>${tableHtml(l).replace(/grid-template-columns:[^;"]*/g, '')}`;
+  else if (S.dtab === 'raw') body = `<div class="hint">Exactly as received (${fmtN(l.raw.length)} bytes)</div><div class="json" style="margin-top:4px">${esc(l.raw)}</div>`;
+  else if (S.dtab === 'context') { const i = l.idx; body = `<div class="hint">±5 lines around this one, in original input order (real app: ±20, configurable)</div>` + LINES.slice(Math.max(0, i - 5), i + 6).map(x => `<div class="mono" style="font-size:11.5px;padding:2px 0;${x.id === l.id ? 'color:#fff;background:rgba(139,92,246,.2)' : 'color:var(--dim)'}">${hhmmss(x.ts)} ${esc(rv(x, 'level') || '?')} ${esc(summary(x))}</div>`).join(''); }
+  else if (S.dtab === 'trace') {
+    const corr = rv(l, 'correlation'), cf = roleField('correlation');
+    const tl = LINES.filter(x => corr && rv(x, 'correlation') === corr).sort((a, b) => a.ts - b.ts);
+    if (!tl.length) body = '<div class="dim">This line has no correlation value.</div>';
+    else { const lo = tl[0].ts, hi = Math.max(...tl.map(x => x.ts + (Number(rv(x, 'duration')) || 0))), span = hi - lo || 1;
+      body = `<div class="hint">${esc(cf.label)} = ${esc(corr)} · ${tl.length} lines · ${fmtDur(span)}</div>` + tl.map(x => { const d = Number(rv(x, 'duration')) || 0, st = d && /End|timeout|fault|limit|response/.test(val(x, 'message')) ? x.ts - d : x.ts;
+        return `<div class="wf"><span class="c" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(summary(x))}">${esc(val(x, 'externalService') || val(x, 'methodName'))}</span><div class="t"><div style="left:${(st - lo) / span * 100}%;width:${Math.max(.6, d / span * 100)}%;background:${LCOL[rv(x, 'level')] || 'var(--dim)'}"></div></div><span class="hint" style="text-align:right">${d ? fmtDur(d) : hhmmss(x.ts).slice(3, 8)}</span></div>`; }).join(''); }
+  } else {
+    const cs = S.comments[l.id] || [];
+    body = cs.map(c => `<div class="cm"><b>${esc(c.who)}</b> <span class="faint">· ${esc(c.when)}${c.path ? ' · on ' + esc(c.path) : ''}</span><br>${esc(c.text)}</div>`).join('') +
+      `<select id="cfield" style="width:100%;margin-bottom:6px"><option value="">Whole line</option>${Object.keys(l.f).map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select><textarea id="ctext" rows="3" style="width:100%" placeholder="Add a comment"></textarea><div class="row" style="margin-top:6px"><span class="hint">Commenting pins this line: it is kept in Alfred even if the source drops it.</span><span class="sp"></span><button class="btn sm primary" data-act="addcomment">Comment</button></div>`;
+  }
+  return `<div class="row"><span class="lvl ${lev}">${lev}</span><span class="mono dim">${hhmmss(l.ts)}</span><span class="sp"></span><span class="hint">j / k move</span><button class="ib" data-act="closedrawer" title="Close">✕</button></div>
+    <div style="margin-top:6px">${hl(summary(l))}</div>
+    <div class="tabs">${tabs.map(tb => `<button data-dtab="${tb}" class="${S.dtab === tb ? 'on' : ''}">${tb[0].toUpperCase() + tb.slice(1)}${tb === 'comments' && (S.comments[l.id] || []).length ? ' (' + S.comments[l.id].length + ')' : ''}</button>`).join('')}</div>${body}`;
+}
+function statsPop(lb, x, y) {
+  const fd = F(lb); const vals = FILTERED.map(l => l.f[fd.path]).filter(v => v !== undefined && v !== null);
+  let body;
+  if (fd.type === 'number' || fd.type === 'datetime' || fd.type === 'date') {
+    const nums = vals.map(v => typed(fd, v)).filter(v => v !== null).sort((a, b) => a - b);
+    const q = p => nums[Math.min(nums.length - 1, Math.floor(p * nums.length))];
+    const f = v => fd.type === 'number' ? (fd.format.includes('ms') ? fmtDur(v) : fmtN(v)) : hhmmss(v).slice(0, 8);
+    const B = 24, lo = nums[0], hi = nums[nums.length - 1], w = (hi - lo) / B || 1, bins = Array(B).fill(0);
+    nums.forEach(v => bins[Math.min(B - 1, Math.floor((v - lo) / w))]++); const mx = Math.max(...bins) || 1;
+    body = nums.length ? `<div class="stats"><div><span>p50</span><b>${f(q(.5))}</b></div><div><span>p95</span><b>${f(q(.95))}</b></div><div><span>p99</span><b>${f(q(.99))}</b></div><div><span>max</span><b>${f(hi)}</b></div></div>
+      <div class="dist">${bins.map((c, i) => `<div style="height:${c / mx * 44}px;background:${i >= B * .9 ? 'var(--red)' : 'var(--purple)'}"></div>`).join('')}</div><div class="row hint" style="justify-content:space-between"><span>${f(lo)}</span><span>${f(hi)}</span></div>
+      ${fd.type === 'number' ? `<div class="row" style="margin-top:8px"><button class="btn xs" data-fa="gt" data-f="${esc(lb)}" data-v="${q(.95)}">${esc(lb)} &gt; p95</button><button class="btn xs" data-act="groupby" data-f="${esc(lb)}">Group by service</button></div>` : ''}` : '<div class="dim">No values.</div>';
+  } else {
+    const c = {}; vals.forEach(v => c[v] = (c[v] || 0) + 1); const top = Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 10), mx = top[0]?.[1] || 1;
+    body = `<div class="hint" style="margin:6px 0">${fmtN(Object.keys(c).length)} distinct values · top 10</div>` + top.map(([v, n]) => `<div class="vrow" style="grid-template-columns:minmax(0,1fr) 120px auto"><span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v)}</span><span><div class="dur"><div style="width:${n / mx * 100}%;background:var(--purple)"></div></div></span><span class="faint">${n}</span></div>`).join('');
+  }
+  return `<div class="pop" style="left:${x}px;top:${y}px"><div class="row"><span class="ty">${tyIcon(fd.type)}</span><b class="mono">${esc(lb)}</b><span class="sp"></span><span class="hint">${fd.type} · ${fmtN(vals.length)} values in result</span><button class="ib" data-act="closepop">✕</button></div>${body}</div>`;
+}
+/* ============================== selection + bulk actions ============================== */
+function headSelState() { const ids = FILTERED.slice(0, S.limit).map(l => l.id); return ids.length && ids.every(i => S.cmp.has(i)) ? 'checked' : ''; }
+function bulkBar() {
+  const n = S.cmp.size; if (!n) return '';
+  const visible = new Set(FILTERED.map(l => l.id)), hidden = [...S.cmp].filter(i => !visible.has(i)).length;
+  const inSel = S.pills.some(p => p.k === 'sel');
+  return `<div class="card" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:7px 12px;margin-bottom:8px;border-color:var(--purple)">
+    <b>${fmtN(n)} selected</b>${hidden ? `<span class="hint">(${hidden} hidden by current filters)</span>` : ''}
+    <button class="btn xs" data-bulk="all">Select all ${fmtN(FILTERED.length)} matching</button>
+    ${S.view === 'grouped' ? '<button class="btn xs" data-bulk="kids">+ children of selected</button>' : ''}
+    <span style="width:1px;height:18px;background:var(--border-s)"></span>
+    <button class="btn xs ${n === 2 ? 'primary' : ''}" data-bulk="compare" title="Exactly two rows">Compare${n === 2 ? '' : ' (pick 2)'}</button>
+    <button class="btn xs ${inSel ? 'on' : ''}" data-bulk="only">${inSel ? 'Showing selection only' : 'Show selection only'}</button>
+    <button class="btn xs" data-bulk="copy">Copy raw</button>
+    <select data-bulk-exp style="font-size:11px"><option value="">Export…</option><option>.ndjson (raw lines)</option><option>.json</option><option>.md</option><option>.html</option></select>
+    <button class="btn xs" data-bulk="comment">Comment on all</button>
+    <button class="btn xs" data-bulk="pin">Pin (keep forever)</button>
+    <button class="btn xs" data-bulk="calls" title="Planned for a later phase">Make Alfred calls <span class="faint">· later</span></button>
+    <span class="sp"></span><button class="btn xs" data-bulk="clear">Clear selection</button>
+    <div id="bulkmsg" class="hint" style="width:100%;display:none"></div></div>`;
+}
+function refreshBulk() { const b = $('#bulk'); if (b) { b.innerHTML = bulkBar(); wireBulk(); } }
+function wireBulk() {
+  $$('[data-bulk]').forEach(el => el.onclick = e => { e.stopPropagation(); bulk(el.dataset.bulk, el); });
+  const ex = $('[data-bulk-exp]'); if (ex) ex.onchange = () => { if (!ex.value) return; const fmt = ex.value.split(' ')[0]; const ls = LINES.filter(l => S.cmp.has(l.id));
+    const body = fmt === '.ndjson' ? ls.map(l => l.raw).join('\n') : fmt === '.json' ? JSON.stringify({ source: 'portal-detail', lines: ls.map(l => ({ id: l.id, raw: l.raw, comments: S.comments[l.id] || [] })) }, null, 2)
+      : ls.map(l => `### ${hhmmss(l.ts)} ${rv(l, 'level')} ${summary(l)}\n\n\`\`\`json\n${JSON.stringify(l.obj, null, 2)}\n\`\`\``).join('\n\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([body], { type: 'text/plain' })); a.download = 'portal-detail-selection' + fmt; a.click(); msg(`Exported ${ls.length} lines in full - nothing truncated.`); ex.value = ''; };
+}
+function msg(t) { const m = $('#bulkmsg'); if (m) { m.style.display = 'block'; m.innerHTML = t; } }
+function bulk(k, el) {
+  const ls = () => LINES.filter(l => S.cmp.has(l.id));
+  if (k === 'all') { FILTERED.forEach(l => S.cmp.add(l.id)); rerenderList(); refreshBulk(); }
+  else if (k === 'clear') { S.cmp.clear(); S.pills = S.pills.filter(p => p.k !== 'sel'); render(); }
+  else if (k === 'kids') { const sel = ls(); for (const p of sel) { const ids = idsOf(p), lvl = ids.filter(Boolean).length; FILTERED.forEach(l => { const o = idsOf(l); if (o.filter(Boolean).length > lvl && ids.every((v, i) => !v || o[i] === v)) S.cmp.add(l.id); }); } rerenderList(); refreshBulk(); }
+  else if (k === 'compare') { if (S.cmp.size !== 2) { msg('Compare needs exactly two selected rows.'); return; } window.__onlyDiff = true; $('#dlg').innerHTML = compareDlg(); wire(); }
+  else if (k === 'only') { if (S.pills.some(p => p.k === 'sel')) S.pills = S.pills.filter(p => p.k !== 'sel'); else S.pills.push({ k: 'sel' }); render(); }
+  else if (k === 'copy') { navigator.clipboard?.writeText(ls().map(l => l.raw).join('\n')); msg(`Copied ${ls().length} raw lines (NDJSON) to the clipboard.`); }
+  else if (k === 'pin') msg(`${ls().length} lines pinned: kept in Alfred even when retention or the remote source drops them.`);
+  else if (k === 'calls') msg('Later phase: turns the selected lines into Alfred calls, using the roles (method, URL, status, bodies) as the mapping.');
+  else if (k === 'comment') { msg(`<div class="row"><input id="bulkc" placeholder="Comment for all ${S.cmp.size} lines" style="flex:1"><button class="btn xs primary" id="bulkcgo">Add</button></div>`); $('#bulkcgo').onclick = () => { const t = $('#bulkc').value.trim(); if (!t) { $('#bulkc').style.borderColor = 'var(--red)'; $('#bulkc').placeholder = 'Write something first'; return; } ls().forEach(l => (S.comments[l.id] ||= []).push({ who: '🐙 You (profile: Ops)', when: 'just now', text: t })); msg(`Comment added to ${S.cmp.size} lines; they are now pinned.`); rerenderList(); }; }
+}
+function compareDlg() {
+  const [a, b] = [...S.cmp].map(id => LINES.find(l => l.id === id));
+  const keys = [...new Set([...Object.keys(a.f), ...Object.keys(b.f)])];
+  const only = window.__onlyDiff !== false;
+  const rows = keys.map(k => { const x = a.f[k], y = b.f[k], d = String(x) !== String(y); return (!only || d) ? `<tr><td>${esc(k)}</td><td class="${d ? 'd' : ''}">${x === undefined ? '<span class="faint">(absent)</span>' : esc(x)}</td><td class="${d ? 'd' : ''}">${y === undefined ? '<span class="faint">(absent)</span>' : esc(y)}</td></tr>` : ''; }).join('');
+  const nd = keys.filter(k => String(a.f[k]) !== String(b.f[k])).length;
+  return `<div class="overlay" data-act="closedlg"><div class="card dialog" onclick="event.stopPropagation()"><div class="row"><h2>Compare two lines</h2><span class="sp"></span><label class="dim"><input type="checkbox" id="onlydiff" ${only ? 'checked' : ''}> Only differences</label><button class="btn sm" data-act="closedlg">Close</button></div>
+  <div class="hint" style="margin:6px 0">${nd} of ${keys.length} fields differ</div>
+  <table class="cmp"><colgroup><col style="width:30%"><col style="width:35%"><col style="width:35%"></colgroup><tr><th>Field</th><th>${hhmmss(a.ts)} · ${esc(rv(a, 'level'))}</th><th>${hhmmss(b.ts)} · ${esc(rv(b, 'level'))}</th></tr>${rows}</table></div></div>`;
+}
+
+/* ============================== explorer: post-render wiring ============================== */
+function afterExplorer() {
+  const list = $('#list');
+  list.addEventListener('scroll', () => {
+    if (S.view === 'lines' && list.scrollTop + list.clientHeight > list.scrollHeight - 200 && S.limit < FILTERED.length) { S.limit += 150; const st = list.scrollTop; list.innerHTML = renderList(); list.scrollTop = st; wire(); }
+    if (S.newCount && list.scrollTop < 10) { S.newCount = 0; render(); }
+    syncWin();
+  });
+  syncWin();
+  // histogram drag-to-zoom
+  let a = null;
+  $$('#hist .b').forEach(el => {
+    el.onmousedown = () => { a = +el.dataset.hb; el.classList.add('sel'); };
+    el.onmouseenter = () => { if (a === null) return; const b = +el.dataset.hb; $$('#hist .b').forEach(x => x.classList.toggle('sel', +x.dataset.hb >= Math.min(a, b) && +x.dataset.hb <= Math.max(a, b))); };
+    el.onmouseup = () => { if (a === null) return; const b = +el.dataset.hb, { lo, w } = window.__hist; const i = Math.min(a, b), j = Math.max(a, b); a = null; S.pills = S.pills.filter(p => p.k !== 'time'); addPill({ k: 'time', from: lo + i * w, to: lo + (j + 1) * w }); };
+  });
+  // query input + autocomplete
+  const qi = $('#qin');
+  qi.oninput = () => suggest(qi.value);
+  qi.onkeydown = e => {
+    const ac = S.ac;
+    if (e.key === 'ArrowDown' && ac.length) { S.acIdx = (S.acIdx + 1) % ac.length; drawAc(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp' && ac.length) { S.acIdx = (S.acIdx - 1 + ac.length) % ac.length; drawAc(); e.preventDefault(); }
+    else if (e.key === 'Tab' && ac.length) { qi.value = ac[S.acIdx].ins; suggest(qi.value); e.preventDefault(); }
+    else if (e.key === 'Enter') { const v = (ac.length && $('#ac').style.display !== 'none' && qi.value && !qi.value.includes(':') && !/[<>"]/.test(qi.value)) ? ac[S.acIdx].ins : qi.value; if (v.endsWith(':')) { qi.value = v; suggest(v); return; } const p = parseQ(v); if (p) addPill(p); }
+    else if (e.key === 'Backspace' && !qi.value && S.pills.length) { S.pills.pop(); render(); $('#qin').focus(); }
+    else if (e.key === 'Escape') { $('#ac').style.display = 'none'; }
+  };
+}
+function syncWin() {
+  const list = $('#list'), win = $('#mmwin'); if (!list || !win || S.view !== 'lines') return;
+  const n = FILTERED.length, rows = $$('.lr', list); if (!rows.length) return;
+  const rh = rows[0].offsetHeight || 27, first = Math.floor(list.scrollTop / rh), vis = Math.ceil(list.clientHeight / rh);
+  win.style.top = (first / n * 100) + '%'; win.style.height = Math.max(1.5, vis / n * 100) + '%';
+}
+function parseQ(s) {
+  s = s.trim(); if (!s) return null;
+  let m;
+  if ((m = s.match(/^"(.+)"$/))) return { k: 'text', v: m[1] };
+  if ((m = s.match(/^-([\w.@-]+):(.+)$/))) return { k: 'neq', f: m[1], v: m[2] };
+  if ((m = s.match(/^([\w.@-]+):\*$/))) return { k: 'ex', f: m[1] };
+  if ((m = s.match(/^-([\w.@-]+):\*$/))) return { k: 'nex', f: m[1] };
+  if ((m = s.match(/^([\w.@-]+)\s*([<>])\s*(.+)$/))) return { k: m[2] === '>' ? 'gt' : 'lt', f: m[1], v: m[3] };
+  if ((m = s.match(/^([\w.@-]+):(.+)$/)) && F(m[1])) return { k: 'eq', f: m[1], v: m[2] };
+  return { k: 'text', v: s };
+}
+function suggest(q) {
+  const ac = []; const m = q.match(/^-?([\w.@-]+):(.*)$/);
+  if (m && F(m[1])) {
+    const fd = F(m[1]), c = {};
+    for (const l of FILTERED) { const v = l.f[fd.path]; if (v !== undefined && v !== null && String(v).toLowerCase().includes(m[2].toLowerCase())) c[v] = (c[v] || 0) + 1; }
+    Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 8).forEach(([v, n]) => ac.push({ ins: (q.startsWith('-') ? '-' : '') + m[1] + ':' + v, show: `${m[1]}:${v}`, n }));
+    ac.push({ ins: m[1] + ':*', show: `${m[1]} exists`, n: '' });
+  } else if (q) {
+    FIELDS.filter(f => f.label.toLowerCase().includes(q.toLowerCase().replace(/^-/, ''))).slice(0, 8).forEach(f => ac.push({ ins: (q.startsWith('-') ? '-' : '') + f.label + ':', show: `${tyIcon(f.type)}  ${f.label}`, n: f.type }));
+    ac.push({ ins: `"${q}"`, show: `search text "${q}"`, n: '' });
+  }
+  S.ac = ac; S.acIdx = 0; drawAc();
+}
+function drawAc() {
+  const el = $('#ac'); if (!el) return;
+  if (!S.ac.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = S.ac.map((a, i) => `<div class="${i === S.acIdx ? 'on' : ''}" data-aci="${i}"><span>${esc(a.show)}</span><span class="faint">${esc(a.n)}</span></div>`).join('') + '<div class="faint" style="cursor:default">↑↓ choose · Tab complete · Enter add</div>';
+  $$('[data-aci]', el).forEach(d => d.onmousedown = e => { e.preventDefault(); const a = S.ac[+d.dataset.aci]; const qi = $('#qin'); if (a.ins.endsWith(':')) { qi.value = a.ins; suggest(a.ins); qi.focus(); } else { const p = parseQ(a.ins); if (p) addPill(p); } });
+}
+
+/* ============================== event wiring ============================== */
+function wire() {
+  $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
+  $$('[data-act]').forEach(el => {
+    const a = el.dataset.act;
+    if (el.tagName === 'SELECT') { el.onchange = () => act(a, el); return; }
+    el.onclick = e => { if (a === 'closedlg' && e.target !== el && !e.target.matches('button')) return; act(a, el, e); };
+  });
+  $$('[data-kind]').forEach(el => el.onclick = () => { S.wiz.kind = el.dataset.kind; render(); });
+  $$('[data-raw]').forEach(el => el.onclick = () => { S.wiz.raw = el.dataset.raw; render(); });
+  $$('[data-step]').forEach(el => el.onclick = () => { S.wiz.step = +el.dataset.step; if (S.wiz.step === 3) startLoad(); render(); });
+  $$('[data-ft]').forEach(el => el.onchange = () => { const f = FIELDS[+el.dataset.ft]; f.type = el.value; f.typeSource = 'user'; recheck(f); render(); });
+  $$('[data-sb]').forEach(el => el.onclick = () => { const f = FIELDS[+el.dataset.sb]; f.type = 'boolean'; f.typeSource = 'user'; f.format = '1 = true · 0 = false'; recheck(f); render(); });
+  $$('[data-ff]').forEach(el => el.onchange = () => { FIELDS[+el.dataset.ff].format = el.value; });
+  $$('[data-fs]').forEach(el => el.onchange = () => { FIELDS[+el.dataset.fs].search = el.value; });
+  $$('[data-fr]').forEach(el => el.onchange = () => { const r = el.value; if (r) FIELDS.forEach(f => { if (f.role === r) f.role = ''; }); FIELDS[+el.dataset.fr].role = r; render(); });
+  $$('[data-lf]').forEach(el => el.onchange = () => { S.levels[+el.dataset.lf].f = el.value; resetGroups(); render(); });
+  $$('[data-ls],[data-ls2]').forEach(el => el.onchange = () => { S.levels[+(el.dataset.ls ?? el.dataset.ls2)].sort = el.value; render(); });
+  $$('[data-lu]').forEach(el => el.onclick = () => { const i = +el.dataset.lu; if (i) { [S.levels[i - 1], S.levels[i]] = [S.levels[i], S.levels[i - 1]]; resetGroups(); render(); } });
+  $$('[data-lx]').forEach(el => el.onclick = () => { S.levels.splice(+el.dataset.lx, 1); resetGroups(); render(); });
+  const tpl = $('#tpl'); if (tpl) tpl.oninput = () => { S.template = tpl.value; $('#tplprev').textContent = summary(LINES.find(l => val(l, 'statusCode') === 504) || LINES[5]); };
+  $$('[data-dv]').forEach(el => el.onclick = e => { e.stopPropagation(); S.dataView = el.dataset.dv; render(); });
+  $$('[data-view]').forEach(el => el.onclick = () => { S.view = el.dataset.view; S.limit = 150; if (S.view === 'grouped' && !S.openKids.size) expandTo(1); render(); });
+  $$('[data-rmp]').forEach(el => el.onclick = () => { S.pills.splice(+el.dataset.rmp, 1); render(); });
+  $$('[data-rmc]').forEach(el => el.onclick = () => { S.cols = S.cols.filter(c => c !== el.dataset.rmc); render(); });
+  $$('[data-fa]').forEach(el => el.onclick = e => {
+    e.stopPropagation(); const k = el.dataset.fa, f = el.dataset.f, v = el.dataset.v;
+    if (k === 'col') { S.cols = S.cols.includes(f) ? S.cols.filter(c => c !== f) : [...S.cols, f]; render(); }
+    else if (k === 'ex') addPill({ k: 'ex', f });
+    else { const fd = F(f); const tv = fd && fd.type === 'number' && v !== '' && !isNaN(Number(v)) ? Number(v) : v; addPill({ k, f, v: tv }); }
+  });
+  $$('[data-row]').forEach(el => el.onclick = e => { if (e.target.closest('[data-kid],[data-dt],[data-cmp],[data-drawer],[data-fa],button,input')) return; const id = el.dataset.row; S.sel = id; S.openData.has(id) ? S.openData.delete(id) : S.openData.add(id); rerenderList(); });
+  $$('[data-dt]').forEach(el => el.onclick = e => { e.stopPropagation(); const id = el.dataset.dt; S.sel = id; S.openData.has(id) ? S.openData.delete(id) : S.openData.add(id); rerenderList(); });
+  $$('[data-kid]').forEach(el => el.onclick = e => { e.stopPropagation(); const k = el.dataset.kid; if (!k) return; S.openKids.has(k) ? S.openKids.delete(k) : S.openKids.add(k); rerenderList(); });
+  $$('[data-cmp]').forEach(el => el.onclick = e => {
+    e.stopPropagation(); const id = el.dataset.cmp;
+    if (e.shiftKey && S.lastPick) { // range in on-screen order
+      const order = $$('[data-cmp]').map(x => x.dataset.cmp), a = order.indexOf(S.lastPick), b = order.indexOf(id);
+      if (a !== -1 && b !== -1) { for (let i = Math.min(a, b); i <= Math.max(a, b); i++) S.cmp.add(order[i]); }
+    } else S.cmp.has(id) ? S.cmp.delete(id) : S.cmp.add(id);
+    S.lastPick = id; rerenderList(); refreshBulk();
+  });
+  const sa = $('#selall'); if (sa) { sa.indeterminate = S.cmp.size > 0 && headSelState() !== 'checked'; sa.onclick = e => { e.stopPropagation(); const ids = e.shiftKey ? FILTERED.map(l => l.id) : $$('[data-cmp]').map(x => x.dataset.cmp); const all = ids.every(i => S.cmp.has(i)); ids.forEach(i => all ? S.cmp.delete(i) : S.cmp.add(i)); rerenderList(); refreshBulk(); }; }
+  wireBulk();
+  $$('[data-cadd]').forEach(el => el.onclick = e => { e.stopPropagation(); S.cEdit = el.dataset.cadd; rerenderList(); $('#cedit')?.focus(); });
+  $$('[data-cc]').forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    if (el.dataset.cc === 'save') { const t = $('#cedit').value.trim(); if (!t) { $('#cedit').style.borderColor = 'var(--red)'; $('#cerr').textContent = 'Write something first'; $('#cerr').style.color = 'var(--red)'; return; }
+      const [id, ...rest] = S.cEdit.split('|'); (S.comments[id] ||= []).push({ who: '🐙 You (profile: Ops)', when: 'just now', path: rest.join('|'), text: t }); }
+    S.cEdit = null; rerenderList();
+  });
+  const ce = $('#cedit'); if (ce) { ce.onclick = e => e.stopPropagation(); ce.oninput = () => { ce.style.borderColor = ''; }; }
+  $$('[data-drawer]').forEach(el => el.onclick = e => { e.stopPropagation(); S.drawer = el.dataset.drawer; S.sel = S.drawer; render(); });
+  $$('[data-dtab]').forEach(el => el.onclick = () => { S.dtab = el.dataset.dtab; render(); });
+  $$('[data-fold]').forEach(el => el.onclick = e => { e.stopPropagation(); const k = el.dataset.fold; S.fold.has(k) ? S.fold.delete(k) : S.fold.add(k); rerenderList(); });
+  $$('[data-exp]').forEach(el => el.onclick = () => { expandTo(+el.dataset.exp); render(); });
+  $$('[data-pat]').forEach(el => el.onclick = () => { const p = el.dataset.pat; S.patOpen.has(p) ? S.patOpen.delete(p) : S.patOpen.add(p); rerenderList(); });
+  $$('[data-mm]').forEach(el => el.onclick = e => { e.stopPropagation(); jumpTo(+el.dataset.mm); });
+  const mm = $('#mm'); if (mm) mm.onclick = e => { if (e.target.dataset.mm) return; const r = mm.getBoundingClientRect(); jumpTo(Math.floor((e.clientY - r.top) / r.height * FILTERED.length)); };
+  $$('[data-stats]').forEach(el => el.onclick = e => { if (e.target.closest('[data-fa]')) return; const r = el.getBoundingClientRect(), pr = $('.side').getBoundingClientRect(); $('#popwrap').innerHTML = statsPop(el.dataset.stats, r.left + window.scrollX + 30, r.bottom + window.scrollY + 4); wire(); });
+  $$('[data-copy]').forEach(el => el.onclick = e => { e.stopPropagation(); const l = LINES.find(x => x.id === el.dataset.copy); navigator.clipboard?.writeText(l.raw); el.textContent = 'Copied'; });
+  const od = $('#onlydiff'); if (od) od.onchange = () => { window.__onlyDiff = od.checked; $('#dlg').innerHTML = compareDlg(); wire(); };
+}
+function rerenderList() { const list = $('#list'); if (!list) return render(); const st = list.scrollTop; list.innerHTML = renderList(); list.scrollTop = st; const d = $('.drawer'); if (d) d.innerHTML = renderDrawer(); wire(); syncWin(); }
+function act(a, el, e) {
+  if (a === 'newsrc') { S.wiz = { ...S.wiz, step: 1, editMode: false, progress: 0 }; S.screen = 'wizard'; }
+  else if (a === 'open' || a === 'toexplorer') { S.wiz.editMode = false; S.screen = 'explorer'; }
+  else if (a === 'tosources') S.screen = 'sources';
+  else if (a === 'mmcond') S.mmCond = el.value;
+  else if (a === 'split') { e.stopPropagation(); el.textContent = 'New source "portal-detail (healthCheck)" created'; return; }
+  else if (a === 'srcsettings') { e.stopPropagation(); const d = document.createElement('div'); d.innerHTML = `<div class="overlay"><div class="card dialog" style="width:460px"><h2>Settings · portal-detail</h2><div class="form" style="grid-template-columns:150px 1fr"><label>Retention: max size</label><div class="row"><input id="rgb" value="20" style="width:80px"> <span class="dim">GB</span></div><label>Retention: max age</label><div class="row"><input id="rdays" value="30" style="width:80px"> <span class="dim">days</span></div><label></label><span class="hint">Oldest lines go first. Commented and pinned lines are never removed.</span></div><div class="hint" id="rerr" style="color:var(--red)"></div><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn sm" id="rc">Cancel</button><button class="btn sm primary" id="rs">Save</button></div></div></div>`; document.body.appendChild(d);
+    d.querySelector('#rc').onclick = () => d.remove();
+    d.querySelector('#rs').onclick = () => { const g = Number(d.querySelector('#rgb').value), dd = Number(d.querySelector('#rdays').value); if (!(g >= 0.1 && g <= 500) || !(dd >= 1 && dd <= 3650)) { d.querySelector('#rerr').textContent = 'Size must be 0.1–500 GB and age 1–3650 days.'; return; } d.remove(); };
+    return; }
+  else if (a === 'delsrc') { e.stopPropagation(); const d = document.createElement('div'); d.innerHTML = `<div class="overlay"><div class="card dialog" style="width:460px"><h2>Delete portal-detail?</h2><p class="dim">3,412,870 lines, 14 comments and 14 pinned lines will be removed. This can't be undone.</p><div class="row"><span class="sp"></span><button class="btn sm" id="dc">Cancel</button><button class="btn sm" style="border-color:var(--red);color:var(--red)" id="dd">Delete source</button></div></div></div>`; document.body.appendChild(d); d.querySelector('#dc').onclick = d.querySelector('#dd').onclick = () => d.remove(); return; }
+  else if (a === 'structure') { S.wiz.editMode = true; S.wiz.step = 2; S.screen = 'wizard'; }
+  else if (a === 'addlevel') { S.levels.push({ f: FIELDS.find(f => f.label === 'externalService').label, sort: 'time ↑' }); resetGroups(); }
+  else if (a === 'closedrawer') S.drawer = null;
+  else if (a === 'closedata') S.openData.clear();
+  else if (a === 'closepop') { $('#popwrap').innerHTML = ''; return; }
+  else if (a === 'closedlg') { $('#dlg').innerHTML = ''; return; }
+  else if (a === 'live') toggleLive();
+  else if (a === 'jumpnew') { S.newCount = 0; render(); $('#list').scrollTop = 0; return; }
+  else if (a === 'leafsort') S.leafSort = el.value;
+  else if (a === 'savedview') { const v = S.savedViews[+el.value]; if (v) S.pills = JSON.parse(JSON.stringify(v.pills)); }
+  else if (a === 'saveview') { const n = 'My view ' + (S.savedViews.length + 1); S.savedViews.push({ name: n, pills: JSON.parse(JSON.stringify(S.pills)) }); el.textContent = '★ Saved as "' + n + '"'; return; }
+  else if (a === 'range') { S.pills = S.pills.filter(p => p.k !== 'time'); const hi = Math.max(...LINES.map(l => l.ts)); const h = el.selectedIndex === 1 ? 1 : el.selectedIndex === 2 ? 6 : 0; if (h) S.pills.push({ k: 'time', from: hi - h * 3600e3, to: hi }); }
+  else if (a === 'groupby') { S.view = 'patterns'; $('#popwrap').innerHTML = ''; }
+  else if (a === 'addcomment') { const tx = $('#ctext').value.trim(); if (!tx) { $('#ctext').placeholder = 'Write something first'; $('#ctext').style.borderColor = 'var(--red)'; return; } (S.comments[S.drawer] ||= []).push({ who: '🐙 You (profile: Ops)', when: 'just now', path: $('#cfield').value, text: tx }); }
+  render();
+}
+function go(where) {
+  if (where === 'structure') { S.wiz.editMode = true; S.wiz.step = 2; S.screen = 'wizard'; }
+  else if (where === 'wizard') { S.wiz.editMode = false; S.wiz.step = 1; S.screen = 'wizard'; }
+  else S.screen = where;
+  render(); window.scrollTo(0, 0);
+}
+function recheck(f) {
+  const vals = LINES.filter(l => !l.bad && l.f[f.path] !== undefined && l.f[f.path] !== null).map(l => l.f[f.path]);
+  if (f.type === 'string') { f.match = 1; f.invalid = 0; return; }
+  const ok = vals.filter(v => typed(f, v) !== null).length; f.match = ok / (vals.length || 1); f.invalid = vals.length - ok;
+}
+function resetGroups() { S.openKids.clear(); expandTo(1); }
+function expandTo(n) {
+  S.openKids.clear(); if (!n) return;
+  const { root, none } = buildTree(FILTERED.length ? FILTERED : LINES);
+  const walk = node => { for (const k of node.kids.values()) { if (k.level <= n) S.openKids.add(k.key); walk(k); } };
+  walk(root); if (n >= 9 && none.length) S.openKids.add('|__none');
+}
+function jumpTo(i) {
+  i = Math.max(0, Math.min(FILTERED.length - 1, i));
+  if (S.limit < i + 40) S.limit = i + 40;
+  const id = FILTERED[i].id; S.sel = id; rerenderList();
+  const row = $(`[data-row="${id}"]`); if (row) $('#list').scrollTop = row.offsetTop - 60;
+}
+function startLoad() {
+  clearInterval(S.wiz.timer); S.wiz.progress = 0;
+  S.wiz.timer = setInterval(() => { S.wiz.progress = Math.min(100, S.wiz.progress + ri(3, 9)); if (S.screen === 'wizard' && S.wiz.step === 3) render(); if (S.wiz.progress >= 100) clearInterval(S.wiz.timer); }, 350);
+}
+function toggleLive() {
+  S.live = !S.live; clearInterval(S.liveTimer);
+  if (!S.live) return;
+  S.liveTimer = setInterval(() => {
+    const last = LINES[LINES.length - 1].ts + ri(800, 4000), sup = pick(SUP), bad = rnd() < .15, took = bad ? 30000 : ri(800, 6000), sid = 'S-' + (9100 + ri(30, 41));
+    const obj = { '@timestamp': new Date(last).toISOString(), 'log.level': bad ? 'ERROR' : 'INFO', 'log.logger': 'DetailLogger', 'process.thread.name': 'pool-6869-thread-' + ri(1, 40),
+      message: { methodName: 'performOperation', message: bad ? 'Supplier timeout' : 'End external system call', sessionId: sid, inboundCallId: 'IC-' + ri(7000, 7090), externalCallId: 'EX-' + (cnt.ex++), context: { externalService: sup, actionName: 'Search', statusCode: bad ? 504 : 200, timeTaken: took } },
+      resource: { 'service.name': 'ndc-prd-ne-portal-24-z2' }, fields: { VM_name: ['portal-24'], ERROR_flag: [bad ? 1 : 0] } };
+    LINES.push({ id: 'L' + LINES.length, idx: LINES.length, ts: last, raw: JSON.stringify(obj), obj, f: flatten(obj) });
+    if (S.screen !== 'explorer') return;
+    const list = $('#list');
+    if (list && list.scrollTop > 10) { S.newCount++; applyFilters(); const st = list.scrollTop; list.innerHTML = renderList(); list.scrollTop = st; wire(); }
+    else render();
+  }, 1600);
+}
+document.addEventListener('keydown', e => {
+  if (S.screen !== 'explorer' || e.target.matches('input,textarea,select')) return;
+  if (e.key === '/') { e.preventDefault(); $('#qin').focus(); return; }
+  if (S.view !== 'lines' || !FILTERED.length) return;
+  const i = Math.max(0, FILTERED.findIndex(l => l.id === S.sel));
+  if (e.key === 'j' || e.key === 'k') { const n = e.key === 'j' ? Math.min(FILTERED.length - 1, i + 1) : Math.max(0, i - 1); S.sel = FILTERED[n].id; if (S.drawer) S.drawer = S.sel; rerenderList(); const r = $(`[data-row="${S.sel}"]`); r?.scrollIntoView({ block: 'nearest' }); }
+  if ((e.key === 'J' || e.key === 'K') && S.sel) { S.cmp.add(S.sel); const n = e.key === 'J' ? Math.min(FILTERED.length - 1, i + 1) : Math.max(0, i - 1); S.sel = FILTERED[n].id; S.cmp.add(S.sel); rerenderList(); refreshBulk(); }
+  if (e.key === 'x' && S.sel) { S.cmp.has(S.sel) ? S.cmp.delete(S.sel) : S.cmp.add(S.sel); S.lastPick = S.sel; rerenderList(); refreshBulk(); }
+  if (e.key === 'Escape' && S.cmp.size) { S.cmp.clear(); rerenderList(); refreshBulk(); }
+  if (e.key === 'Enter' && S.sel) { S.openData.has(S.sel) ? S.openData.delete(S.sel) : S.openData.add(S.sel); rerenderList(); }
+});
+document.addEventListener('click', e => { if (!e.target.closest('.pop,[data-stats]')) { const p = $('#popwrap'); if (p) p.innerHTML = ''; } if (!e.target.closest('#qbar')) { const a = $('#ac'); if (a) a.style.display = 'none'; } });
+render();
+</script>
+</body>
+</html>
