@@ -7,6 +7,29 @@ import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
 import { buildWaterfallBands, waterfallAsciiLines } from './waterfall';
+import {
+  CallExportOverview,
+  GlossaryUse,
+  SPLIT_PARENT_NOTE,
+  callExportOverview,
+  callLabel,
+  childNumbersByCallId,
+  directionText,
+  framedSplitParents,
+  glossaryFor,
+  numberList,
+  parentFacts,
+} from './call-export-summary';
+
+/** The answer first - the same sentence the .html export opens with (call-export-summary.ts). */
+function verdictMarkdown(overview: CallExportOverview): string[] {
+  return [`> **${overview.verdict.lead}** ${overview.verdict.text}`.trimEnd(), ''];
+}
+
+/** Only the terms this export uses - see call-export-summary.ts. */
+function glossaryMarkdown(use: GlossaryUse): string[] {
+  return ['## 📚 Glossary', '', ...glossaryFor(use).map((g) => `- **${g.term}** - ${g.meaning}`), ''];
+}
 
 function metadataValue(value: string): string {
   return value && value.trim().length > 0 ? value : '_(none provided)_';
@@ -246,7 +269,15 @@ export function buildExportMarkdown(
     overlapCandidates,
   });
 
+  const overview = callExportOverview([call], new Map([[call.id, comments]]), narrative.topology);
   lines.push('# 📄 API Call Export', '');
+  lines.push(...verdictMarkdown(overview));
+  lines.push(
+    '| Method | URL | Status | Duration | Direction |',
+    '|---|---|---|---|---|',
+    `| \`${call.method}\` | ${call.url} | ${statusCell(call)} | ${call.duration_ms != null ? formatMs(call.duration_ms) : '—'} | ${directionText(call)} |`,
+    ''
+  );
   lines.push(...aboutSectionMarkdown(narrative));
   lines.push('## 🧾 Metadata', '');
   lines.push(...metadataTable(form));
@@ -288,6 +319,8 @@ export function buildExportMarkdown(
   lines.push('');
   lines.push(...interceptionSection(call, 'response', 3));
   lines.push(...wsMessagesSection(call, 3));
+  lines.push('---', '');
+  lines.push(...glossaryMarkdown({ flagged: comments.length > 0, changed: !!call.interception }));
   lines.push('---', '');
   lines.push(`*Exported from Alfred/Frontend*`);
 
@@ -584,6 +617,18 @@ export function buildBulkExportMarkdown(
     `**Exported:** ${exportedAt} &nbsp;•&nbsp; **Succeeded:** ${succeeded} ✅ &nbsp;•&nbsp; **Failed:** ${failed} ❌ &nbsp;•&nbsp; **Total duration:** ${formatMs(totalDurationMs)}`,
     ''
   );
+  const overview = callExportOverview(sortedCalls, commentsByCallId, narrative.topology);
+  if (cycle) lines.push(`**Session cycle:** ${cycle.name}`, '');
+  lines.push(...verdictMarkdown(overview));
+  lines.push(
+    '| Calls | Succeeded | Failed | Inbound (into the app) | Outbound (to suppliers) | Flagged lines |',
+    '|---|---|---|---|---|---|',
+    `| ${overview.total} | ${overview.succeeded} | ${overview.failed} | ${overview.inbound} | ${overview.outbound} | ${overview.flagged} |`,
+    ''
+  );
+  if (overview.flaggedCalls.length) {
+    lines.push(`🚩 Flagged lines in ${overview.flaggedCalls.map((fc) => `[call ${fc.number}](#call-${fc.number}) (${fc.count})`).join(', ')}`, '');
+  }
   lines.push('---', '');
 
   lines.push(...aboutSectionMarkdown(narrative));
@@ -601,7 +646,7 @@ export function buildBulkExportMarkdown(
     const duration = block.variant !== 'request' && call.duration_ms != null ? formatMs(call.duration_ms) : '—';
     const flaggedCell = flaggedCount > 0 ? `🚩 ${flaggedCount} issue${flaggedCount === 1 ? '' : 's'}` : '—';
     lines.push(
-      `| [${block.n}${blockSuffix(block)}](#${blockAnchor(block)}) | \`${call.method}\` | \`${uriPath(call.url)}\` | ${blockStatusCell(block)} | ${duration} | ${flaggedCell} |`
+      `| [${block.n}${blockSuffix(block)}](#${blockAnchor(block)}) | \`${call.method}\` | \`${uriPath(call.url)}\`<br>${call.url} | ${blockStatusCell(block)} | ${duration} | ${flaggedCell} |`
     );
   });
   lines.push('', '---', '');
@@ -617,12 +662,23 @@ export function buildBulkExportMarkdown(
     layoutSpacers(blocks, (block) => block.call, spacers, { descending: false, byTime: true }).merged
   );
 
+  const framed = framedSplitParents(blocks);
+  const childNumbers = childNumbersByCallId(narrative.topology);
+
   blocks.forEach((block) => {
     const { call } = block;
     const allComments = commentsByCallId.get(call.id) ?? [];
 
     for (const spacer of spacersBeforeBlock.get(block) ?? []) {
       lines.push(`### 🏷️ ${spacer.label}`, '');
+    }
+
+    if (block.variant === 'request' && framed.has(call.id)) {
+      const children = childNumbers.get(call.id) ?? [];
+      lines.push(
+        `> **${block.n} · ${callLabel(call)}** (${parentFacts(call, children, formatMs)}). ${SPLIT_PARENT_NOTE}${children.length ? ` Its calls: ${numberList(children)}.` : ''}`,
+        ''
+      );
     }
 
     // Indented to match the topology, so the Calls list reads as the tree it already is: a split
@@ -632,10 +688,19 @@ export function buildBulkExportMarkdown(
     const depth = depthsByCallId.get(call.id) ?? 0;
     const indent = depth > 0 ? `${'&nbsp;'.repeat(depth * 4)}└─ ` : '';
 
+    // Closed, so the list reads as one line per call; the line still carries number, method + path,
+    // status, duration, direction, flags and the full URL, and a split half links to its other half.
+    const comments = commentsForVariant(allComments, block.variant);
+    const facts = [
+      block.variant !== 'request' && call.duration_ms != null ? formatMs(call.duration_ms) : '',
+      directionText(call),
+      comments.length ? `🚩 ${comments.length}` : '',
+      block.variant === 'request' ? `<a href="#call-${block.n}-response">↓ response</a>` : block.variant === 'response' ? `<a href="#call-${block.n}">↑ request</a>` : '',
+    ].filter(Boolean);
     lines.push(`<a id="${blockAnchor(block)}"></a>`);
-    lines.push('<details open>');
+    lines.push('<details>');
     lines.push(
-      `<summary>${indent}<b>Call ${block.n}</b>${blockSuffix(block)} &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${blockStatusCell(block)}</summary>`,
+      `<summary>${indent}<b>Call ${block.n}</b>${blockSuffix(block)} &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${blockStatusCell(block)} &nbsp; ${facts.join(' &nbsp; ')}<br>${indent}${call.method} ${call.url}</summary>`,
       ''
     );
 
@@ -648,6 +713,8 @@ export function buildBulkExportMarkdown(
     lines.push(`### 🏷️ ${spacer.label}`, '');
   }
 
+  lines.push('---', '');
+  lines.push(...glossaryMarkdown({ split: staysSplitIds.size > 0, spacers: spacers.length > 0, flagged: totalFlagged > 0, changed: calls.some((c) => !!c.interception), cycle: !!cycle }));
   lines.push('---', '');
   lines.push(
     `*Exported from Alfred/Frontend — ${calls.length} call${calls.length === 1 ? '' : 's'}, ${totalFlagged} flagged issue${totalFlagged === 1 ? '' : 's'} total*`

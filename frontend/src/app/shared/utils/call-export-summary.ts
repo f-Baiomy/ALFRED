@@ -187,3 +187,49 @@ export function callExportOverview(
     verdict,
   };
 }
+
+/**
+ * The split parents whose request and response halves can be grouped together: a parent qualifies
+ * when nothing opened after its request is still open at its response, so groups always nest.
+ * One that interleaves with another split parent keeps today's two separate halves, ungrouped.
+ */
+export function framedSplitParents(blocks: readonly { readonly variant: 'request' | 'response' | 'full'; readonly call: { readonly id: string } }[]): ReadonlySet<string> {
+  const open: string[] = [];
+  const framed = new Set<string>();
+  for (const block of blocks) {
+    if (block.variant === 'request') open.push(block.call.id);
+    if (block.variant !== 'response') continue;
+    const at = open.lastIndexOf(block.call.id);
+    if (at === -1) continue;
+    if (at === open.length - 1) framed.add(block.call.id);
+    open.splice(at, 1);
+  }
+  return framed;
+}
+
+/** Each call's direct children in the narrative tree, by their export numbers ("caused calls 3 and 4"). */
+export function childNumbersByCallId(topology: readonly NarrativeCallNode[]): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  const walk = (nodes: readonly NarrativeCallNode[]) => {
+    for (const node of nodes) {
+      out.set(node.callId, node.children.map((c) => c.number));
+      walk(node.children);
+    }
+  };
+  walk(topology);
+  return out;
+}
+
+/** "3", "3 and 4", "3, 4 and 5". */
+export function numberList(numbers: readonly number[]): string {
+  return joinList(numbers.map(String));
+}
+
+/** One line naming a split parent: "inbound · odeysys · 200 · 3,104 ms · caused calls 3 and 4". */
+export function parentFacts(call: CallRecord, children: readonly number[], formatMs: (ms: number) => string): string {
+  const outcome = call.error ? `error: ${call.error}` : call.response ? String(call.response.status) : 'no answer';
+  const caused = children.length ? ` · caused call${children.length === 1 ? '' : 's'} ${numberList(children)}` : '';
+  return `${directionText(call)} · ${outcome}${call.duration_ms != null ? ` · ${formatMs(call.duration_ms)}` : ''}${caused}`;
+}
+
+export const SPLIT_PARENT_NOTE = 'Shown as two halves - when it was sent and when it answered - with the calls it made in between.';

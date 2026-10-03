@@ -7,7 +7,7 @@ import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative, NarrativeCallNode } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
-import { CallExportOverview, GlossaryUse, glossaryFor, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
+import { CallExportOverview, GlossaryUse, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1179,7 +1179,7 @@ export function buildBulkExportHtml(
   const callSections: string[] = [];
   const tocRows: string[] = [];
   const overview = callExportOverview(sortedCalls, commentsByCallId, narrative.topology);
-  const framed = framedParents(blocks);
+  const framed = framedSplitParents(blocks);
   const childNumbers = childNumbersByCallId(narrative.topology);
   // Split parents whose frame is open at this point in the list, innermost last, with their depth.
   const openFrames: { callId: string; depth: number }[] = [];
@@ -1320,45 +1320,9 @@ export function buildBulkExportHtml(
   return documentShell(`API Calls Export - ${calls.length} ${callWord}`, toc, body, allBlocks);
 }
 
-/**
- * The split parents whose request and response halves can be framed together: a parent qualifies
- * when nothing opened after its request is still open at its response, so frames always nest.
- * One that interleaves with another split parent keeps today's two separate halves, unframed.
- */
-function framedParents(blocks: readonly RenderBlock[]): ReadonlySet<string> {
-  const open: string[] = [];
-  const framed = new Set<string>();
-  for (const block of blocks) {
-    if (block.variant === 'request') open.push(block.call.id);
-    if (block.variant !== 'response') continue;
-    const at = open.lastIndexOf(block.call.id);
-    if (at === -1) continue;
-    if (at === open.length - 1) framed.add(block.call.id);
-    open.splice(at, 1);
-  }
-  return framed;
-}
-
-/** Each call's direct children in the narrative tree, by their export numbers ("caused calls 3 and 4"). */
-function childNumbersByCallId(topology: readonly NarrativeCallNode[]): Map<string, number[]> {
-  const out = new Map<string, number[]>();
-  const walk = (nodes: readonly NarrativeCallNode[]) => {
-    for (const node of nodes) {
-      out.set(node.callId, node.children.map((c) => c.number));
-      walk(node.children);
-    }
-  };
-  walk(topology);
-  return out;
-}
-
 function parentTitleHtml(block: RenderBlock, children: readonly number[]): string {
   const { call } = block;
-  const outcome = call.error ? `error: ${call.error}` : call.response ? String(call.response.status) : 'no answer';
-  const caused = children.length ? ` · caused call${children.length === 1 ? '' : 's'} ${children.length === 1 ? children[0] : `${children.slice(0, -1).join(', ')} and ${children[children.length - 1]}`}` : '';
-  return `<div class="parent-title"><b>${block.n} · ${escapeHtml(callLabel(call))}</b> <span class="dur">${escapeHtml(directionText(call))} · ${escapeHtml(outcome)}${
-    call.duration_ms != null ? ` · ${formatMs(call.duration_ms)}` : ''
-  }${caused}</span><span class="parent-why">Shown as two halves - when it was sent and when it answered - with the calls it made in between.</span></div>`;
+  return `<div class="parent-title"><b>${block.n} · ${escapeHtml(callLabel(call))}</b> <span class="dur">${escapeHtml(parentFacts(call, children, formatMs))}</span><span class="parent-why">${SPLIT_PARENT_NOTE}</span></div>`;
 }
 
 /** What the filter chips match a block on. A request half has no outcome yet - it is "sent". */

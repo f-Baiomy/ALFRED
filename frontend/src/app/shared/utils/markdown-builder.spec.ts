@@ -309,14 +309,14 @@ describe('buildBulkExportMarkdown', () => {
     expect(responseSection).not.toContain('...');
   });
 
-  it('wraps each call in an open-by-default <details>, with its Headers/Body blocks collapsed inside', () => {
+  it('wraps each call in a closed <details> (one summary line per call), with its Headers/Body blocks collapsed inside', () => {
     const calls = [makeCall(), makeCall({ timestamp: 't2' })];
     const md = buildBulkExportMarkdown(calls, makeForm(), new Map(), EXPORTED_AT);
 
     const anyDetailsCount = md.match(/<details(?: open)?>/g)?.length ?? 0;
     const closeCount = md.match(/<\/details>/g)?.length ?? 0;
-    const openDetailsCount = md.match(/<details open>/g)?.length ?? 0;
-    expect(openDetailsCount).toBe(2); // one open <details> wrapper per call
+    expect(md).not.toContain('<details open>');
+    expect(md.match(/<summary><b>Call \d+<\/b>/g)?.length).toBe(2); // one call wrapper per call
     expect(anyDetailsCount).toBe(10); // (4 Headers/Body blocks + 1 call wrapper) x 2 calls
     expect(closeCount).toBe(anyDetailsCount);
   });
@@ -325,7 +325,9 @@ describe('buildBulkExportMarkdown', () => {
     const call = makeCall({ method: 'POST', url: 'https://ndc-supplier.example.com/api/V2/FlightSearch/Search' });
     const md = buildBulkExportMarkdown([call], makeForm(), new Map(), EXPORTED_AT);
 
-    expect(md).toContain('<summary><b>Call 1</b> &nbsp; <code>POST api/V2/FlightSearch/Search</code> &nbsp; ✅ 200</summary>');
+    expect(md).toContain('<summary><b>Call 1</b> &nbsp; <code>POST api/V2/FlightSearch/Search</code> &nbsp; ✅ 200 &nbsp; ');
+    // The closed fold's summary still carries the full URL, on its own line.
+    expect(md).toContain('<br>POST https://ndc-supplier.example.com/api/V2/FlightSearch/Search</summary>');
     expect(md).not.toContain('<summary><b>Call 1</b> &nbsp; <code>POST https://');
   });
 
@@ -353,7 +355,7 @@ describe('buildBulkExportMarkdown', () => {
     expect(md).toContain('<b>Call 1</b> &nbsp;');
     expect(md).not.toContain('· request');
     expect(md).not.toContain('· response');
-    expect((md.match(/<details open>/g) ?? []).length).toBe(1);
+    expect(md.match(/<summary><b>Call \d+<\/b>/g)?.length).toBe(1);
   });
 
   it('splits a resolved internal call for a fan-out of children, and for a lone small one', () => {
@@ -394,7 +396,7 @@ describe('buildBulkExportMarkdown', () => {
     expect(md).toContain('<a id="call-1-response"></a>');
     expect(md).toContain('<summary><b>Call 1</b> · request');
     expect(md).toContain('<summary><b>Call 1</b> · response');
-    expect((md.match(/<details open>/g) ?? []).length).toBe(2);
+    expect(md.match(/<summary><b>Call \d+<\/b>/g)?.length).toBe(2);
 
     // Request block has no Status line and no Response section. Its heading/summary settle to a
     // plain "sent" marker, never "pending" - the call has already resolved by the time a request
@@ -420,7 +422,7 @@ describe('buildBulkExportMarkdown', () => {
 
     expect(md).not.toContain('· request');
     expect(md).not.toContain('· response');
-    expect((md.match(/<details open>/g) ?? []).length).toBe(1);
+    expect(md.match(/<summary><b>Call \d+<\/b>/g)?.length).toBe(1);
   });
 
   it('merges a resolved internal call into a single block when no overlap candidate is genuinely contained in its window - the default when none is passed', () => {
@@ -429,7 +431,7 @@ describe('buildBulkExportMarkdown', () => {
 
     expect(md).not.toContain('· request');
     expect(md).not.toContain('· response');
-    expect((md.match(/<details open>/g) ?? []).length).toBe(1);
+    expect(md.match(/<summary><b>Call \d+<\/b>/g)?.length).toBe(1);
   });
 
   it('merges a resolved internal call when every contained candidate shares its own service name', () => {
