@@ -3,7 +3,7 @@ import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
-import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
+import { CallStatusFilter, callKey, isInProgress, methodClass, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
@@ -398,6 +398,14 @@ table.summary-table td { vertical-align: top; }
 .fact-grid .fact-wide .fact-value { color: var(--purple-light); }
 .fact-grid .fact-copy { position: absolute; top: 7px; right: 8px; font: inherit; font-size: 11px; color: var(--text-dim); background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; cursor: pointer; opacity: 0.55; transition: opacity 0.15s, border-color 0.15s; }
 .fact-grid .fact:hover .fact-copy, .fact-grid .fact-copy:focus-visible { opacity: 1; border-color: var(--border-strong); }
+/* The method in the colour Live Calls gives it (styles.scss .method-*, via call-utils' methodClass). */
+.method-pill { display: inline-block; padding: 1px 9px; border-radius: 6px; font-weight: 700; font-size: 12px; letter-spacing: 0.04em; border: 1px solid; }
+.method-GET { color: var(--cyan); background: rgba(126, 227, 216, 0.12); border-color: rgba(126, 227, 216, 0.4); }
+.method-POST { color: #c4b5fd; background: rgba(139, 92, 246, 0.18); border-color: rgba(139, 92, 246, 0.45); }
+.method-PUT { color: #93c5fd; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); }
+.method-PATCH { color: #fdba74; background: rgba(251, 146, 60, 0.15); border-color: rgba(251, 146, 60, 0.4); }
+.method-DELETE { color: #fca5a5; background: rgba(227, 106, 106, 0.15); border-color: rgba(227, 106, 106, 0.4); }
+.method-DEFAULT { color: var(--text-dim); background: rgba(148, 163, 194, 0.12); border-color: var(--border-strong); }
 .fact-grid .fact-copy.copied { color: var(--green); border-color: var(--green); opacity: 1; }
 @media print { .fact-grid .fact-copy { display: none; } }
 .call-card h2 { font-size: 0.95rem; margin: 1.2rem 0 0.6rem; }
@@ -884,7 +892,7 @@ function requestPartHtml(call: CallRecord, comments: readonly Comment[], idPrefi
   parts.push(`<h2 id="${idPrefix}-req">📤 Request</h2>`);
   parts.push('<ul class="field-list fact-grid">');
   parts.push(factHtml('URL', escapeHtml(call.url), call.url, true));
-  parts.push(factHtml('Method', escapeHtml(call.method), call.method));
+  parts.push(factHtml('Method', `<span class="method-pill ${methodClass(call.method)}">${escapeHtml(call.method)}</span>`, call.method));
   if (includeTimestampAndDuration) {
     parts.push(factHtml('Timestamp', escapeHtml(readableTime(call.timestamp)), call.timestamp));
     if (call.duration_ms != null) parts.push(factHtml('Duration', formatMs(call.duration_ms), formatMs(call.duration_ms)));

@@ -722,9 +722,16 @@ describe('a call\'s facts as cards', () => {
 
   it('shows the full URL on a card of its own, then method, timestamp, duration and status', () => {
     expect(html).toContain('<li class="fact fact-wide"><b class="fact-label">URL<span class="fact-colon">:</span></b> <span class="fact-value">https://example.com/api/x?status=1</span>');
-    expect(html).toContain('<b class="fact-label">Method<span class="fact-colon">:</span></b> <span class="fact-value">POST</span>');
+    expect(html).toContain('<b class="fact-label">Method<span class="fact-colon">:</span></b> <span class="fact-value"><span class="method-pill method-POST">POST</span></span>');
     expect(html).toContain('<b class="fact-label">Timestamp<span class="fact-colon">:</span></b> <span class="fact-value">2026-08-07 13:45:51.965328 +00:00</span>');
     expect(html).toContain('<b class="fact-label">Status<span class="fact-colon">:</span></b>');
+  });
+
+  it('colours the method the way Live Calls does', () => {
+    expect(buildExportHtml(makeCall({ method: 'GET' }), makeForm())).toContain('<span class="method-pill method-GET">GET</span>');
+    expect(buildExportHtml(makeCall({ method: 'DELETE' }), makeForm())).toContain('<span class="method-pill method-DELETE">DELETE</span>');
+    expect(buildExportHtml(makeCall({ method: 'OPTIONS' }), makeForm())).toContain('<span class="method-pill method-DEFAULT">OPTIONS</span>');
+    expect(html).toContain('data-copy="POST" title="Copy method"');
   });
 
   it('every fact has a Copy button carrying its exact value', () => {
