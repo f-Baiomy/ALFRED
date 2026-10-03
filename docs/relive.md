@@ -311,3 +311,31 @@ model is pure functions in `shared/utils/relive-run-compare.ts` over what `getRu
 (definition, step results, variable timeline) - no backend data of its own. The comparison exports
 as Markdown / HTML / JSON (`relive-run-export.ts`): every step with both full response bodies,
 never truncated; Markdown and HTML mask secrets, JSON keeps both step results unmasked.
+
+## Exports: run report and run comparison
+
+A run (History column menu → Export) and a comparison (Export on the comparison) download as
+.html, .md or .json (design: `specs/003-relive-cycle/export-mock.html`). Each document is written
+for a reader who was not there - a colleague, a supplier, an AI agent asked to find the bug:
+
+1. **An answer first**: one verdict line ("Failed at step 3, POST /price: the host answered 502; the
+   recording was 200. 4 of 8 steps passed…" / "B is worse: …") and the counts.
+2. **About this document**: plain prose generated from the run - what Relive and a run are, which
+   application and suppliers the cycle covers, what happened and why, how to read the rest. The
+   same text in every format; in .json it is `about`, the first key after `format`, so an agent
+   reads it before any data.
+3. **Needs attention** (run) / **Steps** with a verdict each (comparison).
+4. **One card per step**, numbered 1, 2, 2.1 (a supplier call made by step 2)…: why it failed or
+   differed, status and time recorded vs this run, rules, variables, the differences from the
+   recording (noise flagged, never counted), then the request sent, the response received and the
+   recorded request/response - every body in full, pretty-printed, folded in .html/.md.
+5. **Values captured** (who saved each value, which steps used it), the **run log**, and a
+   **glossary** of the terms only ALFRED uses.
+
+The model lives in `shared/utils/relive-run-report.ts` (`buildRunReport`, `buildCompareReport`);
+`relive-run-export.ts` renders it. The .html is one self-contained page (slate palette of the
+other exports, sticky contents, filter chips, copy buttons, prints cleanly); the .md is
+GitHub-flavoured with `<details>` folds. .html and .md mask secret values; the .json
+(`alfred.relive.run-report/v1`, `alfred.relive.run-comparison/v1`) keeps them, embeds JSON bodies
+as JSON, and keeps each step's stored checks, request-changed decision, pauses and unexpected calls.
+Exports never truncate call data - guarded by `relive-run-export.spec.ts`.
