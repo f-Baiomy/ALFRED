@@ -631,3 +631,59 @@ describe('interception records in the markdown export', () => {
     expect(buildExportMarkdown(makeCall(), makeForm())).not.toContain('Changed by Alfred');
   });
 });
+
+describe('the readable .md layout (specs/export-redesign-mock.html)', () => {
+  const EXPORTED_AT = '2026-10-03T07:12:00Z';
+  const makeComment = (overrides: Partial<Comment> = {}): Comment => ({
+    id: 'c1', callId: 'call-1', block: 'request-body', lineIndex: 0, lineText: '{', comment: 'This looks wrong', createdAt: '2026-08-07T00:00:00.000Z', ...overrides,
+  });
+  const parent = makeCall({ id: 'parent', source: 'internal', service_name: 'odeysys', url: 'https://app.example/api/search', duration_ms: 27000 });
+  const child = makeCall({
+    id: 'child',
+    url: 'https://supplier-b.example/api/price',
+    timestamp: '2026-08-07T13:45:53.000000+00:00',
+    duration_ms: 500,
+    response: { status: 500, headers: {}, body: '{"error":"boom"}' },
+  });
+  const comments = new Map<string, Comment[]>([['child', [makeComment({ callId: 'child', block: 'response-body', comment: 'should be 200' })]]]);
+  const md = buildBulkExportMarkdown([parent, child], makeForm(), comments, EXPORTED_AT, [makeCandidate()], 'all', makeCycle(), []);
+
+  it('opens with an answer and the counts', () => {
+    expect(md).toContain('> **1 of 2 calls failed:** 2 · POST /api/price answered 500. 1 line flagged in call 2.');
+    expect(md).toContain('| Calls | Succeeded | Failed | Inbound (into the app) | Outbound (to suppliers) | Flagged lines |');
+    expect(md).toContain('🚩 Flagged lines in [call 2](#call-2) (1)');
+    expect(md).toContain('**Session cycle:** Booking fails on FlyNas');
+  });
+
+  it('puts the full URL in the summary table and in every closed call line', () => {
+    expect(md).toContain('`api/price`<br>https://supplier-b.example/api/price |');
+    expect(md).toContain('&nbsp;&nbsp;&nbsp;POST https://supplier-b.example/api/price</summary>');
+    expect(md).not.toContain('<details open>');
+  });
+
+  it('introduces a split parent once, then its halves linked around the calls it made', () => {
+    const intro = md.indexOf('> **1 · POST /api/search** (inbound · odeysys · 200 · 27,000 ms · caused call 2).');
+    const request = md.indexOf('<summary><b>Call 1</b> · request');
+    const childLine = md.indexOf('<b>Call 2</b>');
+    const response = md.indexOf('<summary><b>Call 1</b> · response');
+    expect(intro).toBeGreaterThan(-1);
+    expect(intro).toBeLessThan(request);
+    expect(request).toBeLessThan(childLine);
+    expect(childLine).toBeLessThan(response);
+    expect(md).toContain('<a href="#call-1-response">↓ response</a>');
+    expect(md).toContain('<a href="#call-1">↑ request</a>');
+  });
+
+  it('explains only the terms this export uses', () => {
+    const glossary = md.slice(md.indexOf('## 📚 Glossary'));
+    expect(glossary).toContain('**Inbound · outbound**');
+    expect(glossary).toContain('**Request and response halves**');
+    expect(glossary).not.toContain('Spacer');
+  });
+
+  it('a single call export opens with its answer and a facts table', () => {
+    const one = buildExportMarkdown(child, makeForm(), comments.get('child'));
+    expect(one).toContain('> **Failed:** the call answered 500.');
+    expect(one).toContain('| `POST` | https://supplier-b.example/api/price |');
+  });
+});

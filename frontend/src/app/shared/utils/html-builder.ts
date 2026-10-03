@@ -5,7 +5,7 @@ import { detectAndFormatBody } from './body-format';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
-import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative, NarrativeCallNode } from './export-narrative';
+import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
 import { CallExportOverview, GlossaryUse, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
@@ -323,8 +323,8 @@ summary.call-summary::-webkit-details-marker { display: none; }
 .json-block { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 1.1rem; overflow: hidden; }
 .json-block summary { cursor: pointer; padding: 0.55rem 0.9rem; font-weight: 600; font-size: 0.85rem; color: var(--purple-light); list-style: none; user-select: none; }
 .json-block summary::-webkit-details-marker { display: none; }
-.json-block summary::before { content: "▸ "; }
-.json-block[open] summary::before { content: "▾ "; }
+.json-block > summary::before { content: "▸ "; }
+.json-block[open] > summary::before { content: "▾ "; }
 .json-block-meta { float: right; font-weight: 400; color: var(--text-faint); font-size: 0.78rem; }
 .json-toolbar { display: flex; gap: 6px; align-items: center; padding: 0 0.9rem 0.6rem; }
 .json-toolbar input[type="text"] { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 6px; font-size: 12px; outline: none; }
@@ -1295,7 +1295,7 @@ export function buildBulkExportHtml(
   const body = [
     '<div id="summary"><div class="kicker">ALFRED · API calls export</div>',
     `<h1>📋 API Calls Export — ${calls.length} ${callWord}</h1>`,
-    cycle ? `<div class="subtitle">Session cycle "${escapeHtml(cycle.name)}"</div>` : '',
+    cycle ? `<div class="subtitle">Session cycle &quot;${escapeHtml(cycle.name)}&quot;</div>` : '',
     `<div class="exported-line">Exported: ${escapeHtml(exportedAt)} &nbsp;•&nbsp; Succeeded: ${succeeded} ✅ &nbsp;•&nbsp; Failed: ${failed} ❌ &nbsp;•&nbsp; Total duration: ${formatMs(totalDurationMs)}</div>`,
     verdictHtml(overview),
     tilesHtml(overview),

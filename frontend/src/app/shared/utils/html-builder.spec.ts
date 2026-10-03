@@ -613,3 +613,78 @@ describe('interception records in the html export', () => {
     expect(buildExportHtml(makeCall(), makeForm())).not.toContain('Changed by Alfred');
   });
 });
+
+describe('the readable .html layout (specs/export-redesign-mock.html)', () => {
+  const EXPORTED_AT = '2026-10-03T07:12:00Z';
+  const parent = makeCall({ id: 'parent', source: 'internal', service_name: 'odeysys', url: 'https://app.example/api/search', duration_ms: 27000 });
+  const child = makeCall({
+    id: 'child',
+    url: 'https://supplier-b.example/api/price',
+    timestamp: '2026-08-07T13:45:53.000000+00:00',
+    duration_ms: 500,
+    response: { status: 500, headers: {}, body: '{"error":"boom"}' },
+  });
+  const comments = new Map<string, Comment[]>([['child', [makeComment({ callId: 'child', block: 'response-body', comment: 'should be 200' })]]]);
+  const html = buildBulkExportHtml([parent, child], makeForm(), comments, EXPORTED_AT, [makeCandidate()], 'all', makeCycle(), []);
+
+  it('opens with an answer: which call failed, and the flagged lines', () => {
+    expect(html).toContain('<div class="verdict verdict-bad"><span class="lead">1 of 2 calls failed:</span>');
+    expect(html).toContain('2 · POST /api/price answered 500');
+    expect(html).toContain('1 line flagged in call 2.');
+    expect(html).toContain('<div class="tiles">');
+    expect(html).toContain('Session cycle &quot;Booking fails on FlyNas&quot;');
+  });
+
+  it('lists every call in a contents column, nested like the call tree', () => {
+    const toc = html.slice(html.indexOf('<nav class="toc">'), html.indexOf('</nav>'));
+    expect(toc).toContain('<a href="#call-1"');
+    expect(toc).toContain('1 · request POST /api/search');
+    expect(toc).toContain('2 POST /api/price');
+    expect(toc).toContain('1 · response POST /api/search');
+    expect(toc).not.toContain('<b>Call ');
+  });
+
+  it('every call card starts closed and shows its full URL, direction and flags in its head', () => {
+    expect(html).not.toContain('<details open');
+    expect(html).toContain('<span class="url-line">POST https://supplier-b.example/api/price</span>');
+    expect(html).toContain('<span class="pill pill-out">outbound · supplier-b.example</span>');
+    expect(html).toContain('<span class="pill pill-in">inbound · odeysys</span>');
+    expect(html).toContain('<span class="pill pill-flag">🚩 1</span>');
+    expect(html).toContain('data-cards="open"');
+  });
+
+  it('frames a split parent: request half, the calls it made, response half, linked both ways', () => {
+    const frame = html.slice(html.indexOf('<div class="parent-frame"'));
+    expect(frame).toContain('<b>1 · POST /api/search</b>');
+    expect(frame).toContain('caused call 2');
+    const request = frame.indexOf('<b>Call 1</b> &middot; request');
+    const childCard = frame.indexOf('<b>Call 2</b>');
+    const response = frame.indexOf('<b>Call 1</b> &middot; response');
+    expect(request).toBeLessThan(childCard);
+    expect(childCard).toBeLessThan(response);
+    expect(html).toContain('<a class="half-link" href="#call-1-response">↓ response</a>');
+    expect(html).toContain('<a class="half-link" href="#call-1">↑ request</a>');
+  });
+
+  it('filters by outcome, flags and direction', () => {
+    expect(html).toContain('data-filter="failed"');
+    expect(html).toContain('data-filter="flagged"');
+    expect(html).toContain('data-kinds="outbound failed flagged"');
+  });
+
+  it('explains only the terms this export uses', () => {
+    const glossary = html.slice(html.indexOf('<h2 id="glossary">'), html.indexOf('<footer>'));
+    expect(glossary).toContain('Inbound · outbound');
+    expect(glossary).toContain('Request and response halves');
+    expect(glossary).toContain('Flagged line');
+    expect(glossary).not.toContain('Spacer');
+    expect(glossary).not.toContain('Changed by Alfred');
+  });
+
+  it('a single call export opens with its answer and full URL too', () => {
+    const one = buildExportHtml(child, makeForm(), comments.get('child'));
+    expect(one).toContain('<span class="lead">Failed:</span> the call answered 500.');
+    expect(one).toContain('<span class="url-line">POST https://supplier-b.example/api/price</span>');
+    expect(one).toContain('<a href="#call-req">📤 Request</a>');
+  });
+});

@@ -700,7 +700,7 @@ export function buildBulkExportMarkdown(
     lines.push(`<a id="${blockAnchor(block)}"></a>`);
     lines.push('<details>');
     lines.push(
-      `<summary>${indent}<b>Call ${block.n}</b>${blockSuffix(block)} &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${blockStatusCell(block)} &nbsp; ${facts.join(' &nbsp; ')}<br>${indent}${call.method} ${call.url}</summary>`,
+      `<summary>${indent}<b>Call ${block.n}</b>${blockSuffix(block)} &nbsp; <code>${call.method} ${uriPath(call.url)}</code> &nbsp; ${blockStatusCell(block)} &nbsp; ${facts.join(' &nbsp; ')}<br>${indent.replace('└─ ', '&nbsp;&nbsp;&nbsp;')}${call.method} ${call.url}</summary>`,
       ''
     );
 
