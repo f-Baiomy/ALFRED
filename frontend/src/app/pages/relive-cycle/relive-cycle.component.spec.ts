@@ -6,6 +6,7 @@ import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { CallPickerService, PickResult } from '../../core/services/call-picker.service';
 import { ReliveCallSourceService } from '../../core/services/relive-call-source.service';
 import { ReliveApiService } from '../../core/services/relive-api.service';
+import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { InterceptionApiService } from '../../core/services/interception-api.service';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
@@ -29,6 +30,7 @@ describe('ReliveCycleComponent picker and run', () => {
   let run: any;
   let api: { listRuns: jasmine.Spy; getRun: jasmine.Spy; fingerprint: jasmine.Spy };
   let holdingCalls: ReturnType<typeof signal<unknown[]>>;
+  let sessionCyclesApi: { openReliveRun: jasmine.Spy };
 
   beforeEach(() => {
     holdingCalls = signal<unknown[]>([]);
@@ -62,6 +64,9 @@ describe('ReliveCycleComponent picker and run', () => {
       getRun: jasmine.createSpy('getRun').and.returnValue(of(null)),
       fingerprint: jasmine.createSpy('fingerprint').and.returnValue(of({})),
     };
+    sessionCyclesApi = {
+      openReliveRun: jasmine.createSpy('openReliveRun').and.returnValue(of({ cycle: { id: 'run-cycle-9' }, created: false })),
+    };
     TestBed.configureTestingModule({
       imports: [ReliveCycleComponent],
       providers: [
@@ -75,6 +80,7 @@ describe('ReliveCycleComponent picker and run', () => {
         { provide: ReliveSocketService, useValue: { events$: new Subject() } },
         { provide: InterceptionApiService, useValue: { decide: jasmine.createSpy('decide').and.returnValue(of(undefined)) } },
         { provide: ReliveRuleDialogService, useValue: { request: signal(null) } },
+        { provide: SessionCyclesApiService, useValue: sessionCyclesApi },
       ],
     });
     TestBed.overrideComponent(ReliveCycleComponent, { set: {
@@ -83,6 +89,22 @@ describe('ReliveCycleComponent picker and run', () => {
         { provide: ReliveRunService, useValue: run },
       ],
     } });
+  });
+
+  it('opens the calls of a run in place from History, named after the cycle and the run', () => {
+    saved.set({ ...oldCycle, id: 'c-1', name: 'Login flow' } as ReliveCycle);
+    const fixture = TestBed.createComponent(ReliveCycleComponent);
+    const page = fixture.componentInstance;
+
+    page.openRunCalls({ id: 'run-9', startedAt: '2026-10-03T15:36:00Z', driver: 'GUIDED', status: 'COMPLETED' } as any);
+
+    const [runId, name, cycleId] = sessionCyclesApi.openReliveRun.calls.mostRecent().args;
+    expect([runId, cycleId]).toEqual(['run-9', 'c-1']);
+    expect(name).toMatch(/^Run calls · Login flow · /);
+    expect(page.runCalls()?.cycleId).toBe('run-cycle-9');
+
+    page.setTab('steps');
+    expect(page.runCalls()).toBeNull();
   });
 
   it('lists only the calls of this run still holding: a decided call leaves the run view', () => {

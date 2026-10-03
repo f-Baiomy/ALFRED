@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders;
+import com.fathy.alfred.backend.internalcalls.domain.model.ReliveFilter;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
 
 import java.net.URI;
@@ -61,6 +62,21 @@ public interface CallLogPort {
      */
     CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
                                              String sessionId, String operationId, String requestId, String serviceNames);
+
+    /** As above, plus the Relive filter ({@link ReliveFilter}): blank, every call; "exclude", no
+     *  call of a Relive run; otherwise only that run's calls. Ignored by an adapter that does not
+     *  override it. */
+    default CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                     String sessionId, String operationId, String requestId, String serviceNames, String relive) {
+        return query(search, supplier, sort, offset, limit, paginationEnabled, sessionId, operationId, requestId, serviceNames);
+    }
+
+    /** Every inbound call of one Relive run, full records, oldest first. */
+    default List<CallRecord> findByReliveRunId(String runId) {
+        return readAll().stream().filter(call -> ReliveFilter.matches(call.relive(), runId))
+                .sorted(java.util.Comparator.comparing(CallRecord::timestamp, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .toList();
+    }
 
     /**
      * Resolved (never IN_PROGRESS) internal calls whose timestamp falls within {@code [from, to]}

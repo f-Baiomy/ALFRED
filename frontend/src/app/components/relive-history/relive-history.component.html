@@ -77,6 +77,7 @@
             <button type="button" class="rl-slot" [class.rl-slot-b]="isB(run.id)" title="Compare to this run (B)" (click)="makeB(run.id)">B</button>
             <app-action-menu label="⋯" [panelWidth]="230">
               <button type="button" class="filter-option-item" (click)="open(run)">Open</button>
+              <button type="button" class="filter-option-item" (click)="openRunCalls.emit(run)">Calls</button>
               <button type="button" class="filter-option-item" (click)="compareWithPrevious(run.id)">Compare with the previous run</button>
               <button type="button" class="filter-option-item" (click)="compareWithRecording(run.id)">Compare with the recording</button>
               <button type="button" class="filter-option-item" (click)="exportRun(run, 'markdown')">Export report...</button>
@@ -88,6 +89,9 @@
               <button type="button" class="filter-option-item" [disabled]="busy()" (click)="askDeleteRun(run)">Delete…</button>
             </app-action-menu>
           </div>
+          <button type="button" class="rl-btn rl-sm rl-mx-calls" title="Every call this run made - the steps it sent, the supplier calls, what it blocked" (click)="openRunCalls.emit(run)">
+            📂 Calls
+          </button>
         </div>
       }
       <span class="rl-faint rl-t-115 rl-mx-note-head">what stands out</span>

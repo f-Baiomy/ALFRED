@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.in.FindRecentRequ
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetWsMessagesUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.DeleteInternalReliveCallsUseCase;
+import com.fathy.alfred.backend.internalcalls.application.port.in.FindInternalReliveRunCallsUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceivePreparedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveWsMessagesUseCase;
@@ -22,6 +23,7 @@ import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsPage;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
 import com.fathy.alfred.backend.internalcalls.domain.model.RecentRequestHeaders;
+import com.fathy.alfred.backend.internalcalls.domain.model.ReliveFilter;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
 import com.fathy.alfred.backend.internalcalls.domain.model.WsMessage;
 import com.fathy.alfred.backend.internalcalls.domain.model.WsMessagesPage;
@@ -42,7 +44,7 @@ import java.util.UUID;
  * since this slice has no two-phase capture concept at all.
  */
 @Service
-public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase,
+public class InternalCallsService implements GetCallsUseCase, FindInternalReliveRunCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase,
         ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase, FindRecentRequestHeadersUseCase,
         ReceiveWsMessagesUseCase, GetWsMessagesUseCase, DeleteInternalReliveCallsUseCase {
 
@@ -81,9 +83,11 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
         // same first N items forever, since offset is also ignored below.
         int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
-        CallListSupport.Page<CallSummary> page = callLogPort.query(
-                query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
-                query.sessionId(), query.operationId(), query.requestId(), query.serviceNames());
+        CallListSupport.Page<CallSummary> page = ReliveFilter.isBlank(query.relive())
+                ? callLogPort.query(query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
+                        query.sessionId(), query.operationId(), query.requestId(), query.serviceNames())
+                : callLogPort.query(query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
+                        query.sessionId(), query.operationId(), query.requestId(), query.serviceNames(), query.relive());
         return new CallsPage(page.items(), page.total());
     }
 
@@ -188,6 +192,11 @@ public class InternalCallsService implements GetCallsUseCase, GetCallDetailUseCa
     public WsMessagesPage getWsMessages(String callId, int offset, int limit) {
         int cap = Math.max(1, Math.min(limit, 500));
         return callLogPort.wsMessages(callId, Math.max(0, offset), cap);
+    }
+
+    @Override
+    public List<CallRecord> findByRunId(String runId) {
+        return callLogPort.findByReliveRunId(runId);
     }
 
     @Override

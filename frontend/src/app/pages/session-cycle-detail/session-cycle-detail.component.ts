@@ -1,7 +1,7 @@
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { CallFocusService } from '../../core/services/call-focus.service';
-import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { forkJoin, switchMap } from 'rxjs';
 import { CallPickerService } from '../../core/services/call-picker.service';
@@ -38,7 +38,7 @@ import { SessionCycleDetailStateService } from '../../core/state/session-cycle-d
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { ScenarioCycleChainPanelComponent } from '../../components/scenario-cycle-chain-panel/scenario-cycle-chain-panel.component';
 import { ScenarioCycleSourceService } from '../../core/services/scenario-cycle-source.service';
-import { CallRecord } from '../../core/models/call.model';
+import { CallRecord, SessionCycle } from '../../core/models/call.model';
 import { findCallRow, pointAtCall } from '../../shared/utils/call-reveal';
 
 /**
@@ -66,6 +66,7 @@ import { findCallRow, pointAtCall } from '../../shared/utils/call-reveal';
         const state = inject(SessionCycleDetailStateService);
         const cycles = inject(SessionCyclesStateService);
         const name = computed(() => cycles.cycles().find((c) => c.id === state.cycleId())?.name ?? 'session cycle');
+        // A Relive run's own cycle is never in the cycles list - its calls are that run's.
         return { cycleId: computed(() => state.cycleId() || null), label: computed(() => `Cycle "${name()}"`) };
       },
     },
@@ -80,7 +81,18 @@ export class SessionCycleDetailComponent {
   private readonly confirmDialog = inject(ConfirmDialogService);
   readonly cycleExport = inject(CycleExportService);
 
-  readonly cycle = computed(() => this.cyclesState.cycles().find((c) => c.id === this.state.cycleId()) ?? null);
+  /** Shows this cycle instead of the one in the route - a Relive run's calls, inside the Relive
+   *  page's History tab. Everything below works the same; `embedded` only drops what belongs to
+   *  the Session Cycles page (its back link, recording, importing, adding calls from elsewhere). */
+  readonly cycleId = input<string | null>(null);
+  readonly embedded = input(false);
+
+  /** A cycle the cycles list does not hold - a Relive run's, which is never listed. */
+  private readonly unlisted = signal<SessionCycle | null>(null);
+  readonly cycle = computed(() => this.cyclesState.cycles().find((c) => c.id === this.state.cycleId())
+    ?? (this.unlisted()?.id === this.state.cycleId() ? this.unlisted() : null));
+  /** A Relive run's own cycle: it holds what the run made, so nothing is recorded or added to it. */
+  readonly runCycle = computed(() => !!this.cycle()?.reliveRunId);
   readonly clearingCalls = signal(false);
   private readonly picker = inject(CallPickerService);
   private readonly refDetail = inject(CallRefDetailService);
@@ -94,6 +106,17 @@ export class SessionCycleDetailComponent {
   readonly chainPanelError = signal<string | null>(null);
 
   constructor() {
+    effect(() => {
+      const pinned = this.cycleId();
+      untracked(() => this.state.useCycle(pinned));
+    });
+    effect(() => {
+      const id = this.state.cycleId();
+      const listed = this.cyclesState.cycles().some((c) => c.id === id);
+      if (!id || listed || this.unlisted()?.id === id) return;
+      untracked(() => this.loadUnlisted(id));
+    });
+
     // `/cycles/<id>?requestId=<callId>` shows that one captured call - see CallFocusService.
     const focus = inject(CallFocusService);
     const requestId = toSignal(inject(ActivatedRoute).queryParamMap, { initialValue: null });
@@ -225,7 +248,13 @@ export class SessionCycleDetailComponent {
     if (!cycle) return;
     const result = await this.editDialog.open(cycle);
     if (!result) return;
-    this.cyclesState.update(cycle.id, result).subscribe();
+    this.cyclesState.update(cycle.id, result).subscribe(() => {
+      if (this.unlisted()?.id === cycle.id) this.loadUnlisted(cycle.id);
+    });
+  }
+
+  private loadUnlisted(id: string): void {
+    this.cyclesApi.get(id).subscribe({ next: (cycle) => this.unlisted.set(cycle), error: () => this.unlisted.set(null) });
   }
 
   async clearAllCalls(): Promise<void> {

@@ -194,6 +194,20 @@
         }
       }
       @case ('history') {
+        @if (runCalls(); as calls) {
+          <div class="rl-ext-banner rl-quick-banner rl-run-calls-bar">
+            <button class="rl-btn rl-sm" (click)="closeRunCalls()">← Run matrix</button>
+            <span class="rl-pill rl-p-cycle">⟲ Run calls</span>
+            <span><b>{{ calls.startedAt | date: 'MMM d, h:mm a' }}</b> · {{ calls.driver | titlecase }} · {{ calls.status.toLowerCase().replaceAll('_', ' ') }}</span>
+          </div>
+          @if (calls.cycleId) {
+            <app-session-cycle-detail [cycleId]="calls.cycleId" [embedded]="true" />
+          } @else if (calls.error) {
+            <div class="rl-ext-banner" role="alert">{{ calls.error }}</div>
+          } @else {
+            <div class="rl-dim">Loading this run's calls…</div>
+          }
+        } @else {
         <app-relive-history
           [cycleId]="draft.id"
           [cycleName]="draft.name"
@@ -204,7 +218,9 @@
           (openRunStep)="openFromHistory($event.runId, $event.stepKey)"
           (noiseChange)="applyNoiseChange($event)"
           (mockWith)="applyMockWith($event)"
+          (openRunCalls)="openRunCalls($event)"
         />
+        }
       }
     }
       </div>

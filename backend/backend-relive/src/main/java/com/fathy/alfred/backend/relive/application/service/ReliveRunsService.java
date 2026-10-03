@@ -423,6 +423,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
             return new DeletedRunHistory(0, false);
         }
         Set<String> ids = targets.stream().map(Run::id).collect(Collectors.toSet());
+        forgetRunCycles(ids);
         if (command.deleteCalls()) {
             // The Live-calls rows are the run history's own index into real calls - removed now,
             // while the History tab's reload right after this response still sees them gone. The
@@ -601,7 +602,10 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         publisher.publish(run.id(), snapshotBuilder.build(finalized));
         notifications.runChanged(run.cycleId(), run.id());
         scheduleStoppingDrain(run.id());
+        Set<String> before = runIdsOf(run.cycleId());
         runStore.pruneRuns(run.cycleId(), DEFAULT_KEEP_RUNS, DEFAULT_MAX_RUN_BYTES);
+        before.removeAll(runIdsOf(run.cycleId()));
+        forgetRunCycles(before);
         cleanupIfTransient(finalized);
         return finalized;
     }
@@ -626,6 +630,23 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
      *  removed only TRANSIENT_KEEP_MS later, and only if it is still transient (Save as cycle,
      *  ManageReliveCyclesUseCase.keep, clears the flag) and no other run of it is going. The check
      *  reads the CURRENT stored cycle, never the run's frozen definition. */
+    private Set<String> runIdsOf(String cycleId) {
+        return runStore.listByCycleId(cycleId, ReliveLimits.MAX_LIST_LIMIT).stream().map(Run::id)
+                .collect(Collectors.toCollection(java.util.HashSet::new));
+    }
+
+    /** A run's own session cycle goes with it. Never fails the deletion it follows. */
+    private void forgetRunCycles(Set<String> runIds) {
+        if (runIds.isEmpty()) {
+            return;
+        }
+        try {
+            relatedCalls.deleteRunCycles(runIds);
+        } catch (RuntimeException e) {
+            log.error("Deleting the session cycles of relive runs {} failed", runIds, e);
+        }
+    }
+
     private void cleanupIfTransient(Run run) {
         if (cycleStore.findById(run.cycleId()).map(ReliveCycle::isTransient).orElse(false)) {
             scheduler.schedule(() -> deleteIfStillTransient(run.cycleId()), TRANSIENT_KEEP_MS, TimeUnit.MILLISECONDS);
@@ -636,6 +657,7 @@ public class ReliveRunsService implements StartRunUseCase, RecordStepResultUseCa
         cycleStore.findById(cycleId).ifPresent(current -> {
             boolean running = runStore.findAllRunning().stream().anyMatch(r -> r.cycleId().equals(cycleId));
             if (current.isTransient() && !running) {
+                forgetRunCycles(runIdsOf(cycleId));
                 runStore.deleteByCycleId(cycleId);
                 cycleStore.deleteById(cycleId);
                 notifications.cycleChanged();

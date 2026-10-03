@@ -4,7 +4,9 @@ import com.fathy.alfred.backend.calls.application.port.out.NewCallObserverPort;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ReliveRunCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
+import com.fathy.alfred.backend.sessioncycles.domain.model.ReliveRunIds;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import org.springframework.stereotype.Component;
@@ -37,14 +39,17 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
     /** Which cycles captured a given (still in-progress) call id at prepare time - consumed and removed once that call completes. Only ever populated when the storage adapter supports two-phase capture. */
     private final Map<String, List<String>> capturedCycleIdsByCallId = new ConcurrentHashMap<>();
 
-    public SessionCycleCaptureAdapter(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore) {
+    private final ReliveRunCyclesUseCase runCycles;
+
+    public SessionCycleCaptureAdapter(SessionCycleMetadataStorePort metadataStore, CapturedCallsStorePort capturedCallsStore, ReliveRunCyclesUseCase runCycles) {
+        this.runCycles = runCycles;
         this.metadataStore = metadataStore;
         this.capturedCallsStore = capturedCallsStore;
     }
 
     @Override
     public List<String> onNewCall(CallRecord call) {
-        List<String> cycleIds = recordingCycleIds();
+        List<String> cycleIds = targetCycleIds(call.relive());
         cycleIds.forEach(cycleId -> capturedCallsStore.append(cycleId, call));
         return cycleIds;
     }
@@ -56,7 +61,7 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
             // resolves, exactly like onNewCall always has.
             return List.of();
         }
-        List<String> cycleIds = recordingCycleIds();
+        List<String> cycleIds = targetCycleIds(call.relive());
         cycleIds.forEach(cycleId -> capturedCallsStore.append(cycleId, call));
         if (!cycleIds.isEmpty()) {
             capturedCycleIdsByCallId.put(call.id(), cycleIds);
@@ -86,9 +91,19 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
         return cycleIds;
     }
 
+    /** Where a call is captured: a call of a Relive run only into that run's own cycle (never a
+     *  recording one - the run keeps its calls), any other call into every RECORDING cycle. */
+    private List<String> targetCycleIds(com.fasterxml.jackson.databind.JsonNode relive) {
+        List<String> runIds = ReliveRunIds.of(relive);
+        if (!runIds.isEmpty()) {
+            return runIds.stream().map(runCycles::captureCycleId).distinct().toList();
+        }
+        return recordingCycleIds();
+    }
+
     private List<String> recordingCycleIds() {
         return metadataStore.findAll().stream()
-                .filter(cycle -> cycle.status() == SessionCycleStatus.RECORDING)
+                .filter(cycle -> cycle.status() == SessionCycleStatus.RECORDING && cycle.reliveRunId() == null)
                 .map(SessionCycle::id)
                 .toList();
     }

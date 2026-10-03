@@ -134,6 +134,9 @@ export interface CallsQuery {
   readonly sessionId: string;
   readonly operationId: string;
   readonly requestId: string;
+  /** Relive run calls (backend ReliveFilter): absent/blank, every call; 'exclude', none of them
+   *  (Live Calls - a run keeps its calls with its History); a run id, only that run's. */
+  readonly relive?: string;
 }
 
 export interface CallsPageResult {

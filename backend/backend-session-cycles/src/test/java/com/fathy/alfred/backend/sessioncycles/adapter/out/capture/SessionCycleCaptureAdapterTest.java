@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.sessioncycles.adapter.out.capture;
 import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCallsStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ReliveRunCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycle;
 import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
@@ -22,7 +23,8 @@ class SessionCycleCaptureAdapterTest {
 
     private final SessionCycleMetadataStorePort metadataStore = mock(SessionCycleMetadataStorePort.class);
     private final CapturedCallsStorePort capturedCallsStore = mock(CapturedCallsStorePort.class);
-    private final SessionCycleCaptureAdapter adapter = new SessionCycleCaptureAdapter(metadataStore, capturedCallsStore);
+    private final ReliveRunCyclesUseCase runCycles = mock(ReliveRunCyclesUseCase.class);
+    private final SessionCycleCaptureAdapter adapter = new SessionCycleCaptureAdapter(metadataStore, capturedCallsStore, runCycles);
 
     private static SessionCycle cycle(String id, SessionCycleStatus status) {
         return new SessionCycle(id, "Repro", "t", null, status);
@@ -160,5 +162,28 @@ class SessionCycleCaptureAdapterTest {
 
         assertThat(capturedByCycleIds).containsExactly("recording-1");
         verify(capturedCallsStore, times(1)).append("recording-1", call);
+    }
+
+    @Test
+    void aCallOfAReliveRunGoesOnlyToThatRunsCycleNeverToARecordingOne() throws Exception {
+        CallRecord call = mock(CallRecord.class);
+        when(call.id()).thenReturn("run-call");
+        when(call.relive()).thenReturn(new com.fasterxml.jackson.databind.ObjectMapper().readTree("{\"runId\":\"run-7\",\"stepKey\":\"s1\"}"));
+        when(runCycles.captureCycleId("run-7")).thenReturn("run-cycle-7");
+        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
+
+        assertThat(adapter.onNewCall(call)).containsExactly("run-cycle-7");
+        verify(capturedCallsStore).append("run-cycle-7", call);
+        verify(capturedCallsStore, never()).append("recording-1", call);
+    }
+
+    @Test
+    void aRunsOwnCycleNeverCapturesOtherCallsEvenIfMarkedRecording() {
+        CallRecord call = call();
+        when(metadataStore.findAll()).thenReturn(List.of(
+                new SessionCycle("run-cycle", "Run", "t", null, SessionCycleStatus.RECORDING, "run-1", null),
+                cycle("recording-1", SessionCycleStatus.RECORDING)));
+
+        assertThat(adapter.onNewCall(call)).containsExactly("recording-1");
     }
 }

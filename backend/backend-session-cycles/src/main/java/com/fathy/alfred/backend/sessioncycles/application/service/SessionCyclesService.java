@@ -125,7 +125,8 @@ public class SessionCyclesService implements
 
     @Override
     public List<SessionCycle> listAll() {
-        return metadataStore.findAll();
+        // A Relive run's own cycle is opened from that run's History, never listed here.
+        return metadataStore.findAll().stream().filter(cycle -> cycle.reliveRunId() == null).toList();
     }
 
     @Override
@@ -146,7 +147,9 @@ public class SessionCyclesService implements
                     // it back to unassigned, so treating null as "unchanged" here silently
                     // dropped that clear.
                     update.assignedTo(),
-                    existing.status()
+                    existing.status(),
+                    existing.reliveRunId(),
+                    existing.reliveCycleId()
             );
             SessionCycle saved = metadataStore.save(updated);
             notificationPort.notifySessionCyclesChanged();
@@ -166,7 +169,8 @@ public class SessionCyclesService implements
 
     private Optional<SessionCycle> setStatus(String id, SessionCycleStatus status) {
         return metadataStore.findById(id).map(existing -> {
-            if (existing.status() == status) {
+            // A run's cycle never records: it holds that run's calls and nothing else.
+            if (existing.status() == status || existing.reliveRunId() != null) {
                 return existing;
             }
             SessionCycle updated = new SessionCycle(

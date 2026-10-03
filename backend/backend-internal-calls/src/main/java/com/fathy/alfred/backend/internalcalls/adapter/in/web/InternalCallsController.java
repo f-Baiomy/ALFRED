@@ -44,9 +44,10 @@ public class InternalCallsController {
             @RequestParam(defaultValue = "") String sessionId,
             @RequestParam(defaultValue = "") String operationId,
             @RequestParam(defaultValue = "") String requestId,
-            @RequestParam(defaultValue = "") String serviceNames
+            @RequestParam(defaultValue = "") String serviceNames,
+            @RequestParam(defaultValue = "") String relive
     ) {
-        return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId, serviceNames));
+        return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId, serviceNames, relive));
     }
 
     /**

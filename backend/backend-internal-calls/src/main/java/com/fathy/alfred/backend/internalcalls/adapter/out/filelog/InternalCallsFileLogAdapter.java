@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.out.CallLogPort;
 import com.fathy.alfred.backend.internalcalls.application.service.CallListSupport;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
+import com.fathy.alfred.backend.internalcalls.domain.model.ReliveFilter;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallStatusBreakdown;
@@ -568,8 +569,15 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
     @Override
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
                                                      String sessionId, String operationId, String requestId, String serviceNames) {
+        return query(search, supplier, sort, offset, limit, paginationEnabled, sessionId, operationId, requestId, serviceNames, "");
+    }
+
+    @Override
+    public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                     String sessionId, String operationId, String requestId, String serviceNames, String relive) {
         java.util.Set<String> serviceNameFilter = parseServiceNames(serviceNames);
         List<CallRecord> idFiltered = readAll().stream()
+                .filter(call -> ReliveFilter.matches(call.relive(), relive))
                 .filter(call -> matchesSubstring(call.sessionId(), sessionId))
                 .filter(call -> matchesSubstring(call.operationId(), operationId))
                 .filter(call -> matchesSubstring(call.id(), requestId))

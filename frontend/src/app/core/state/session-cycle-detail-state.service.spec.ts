@@ -103,6 +103,19 @@ function setupWithSources(
 describe('SessionCycleDetailStateService', () => {
   afterEach(() => localStorage.removeItem(PIN_STORAGE_KEY));
 
+  it('a pinned cycle wins over the route - a Relive run’s calls shown inside the Relive page', fakeAsync(() => {
+    const { state } = setupWithSources([], []);
+    tick();
+    expect(state.cycleId()).toBe('cycle-1');
+
+    state.useCycle('run-cycle-7');
+    expect(state.cycleId()).toBe('run-cycle-7');
+
+    state.useCycle(null);
+    expect(state.cycleId()).toBe('cycle-1');
+    discardPeriodicTasks();
+  }));
+
   it('defaults selectedSources to just "external" and never queries the internal-calls endpoint on the initial fetch', fakeAsync(() => {
     const call = makeCall();
     const { state, listCalls } = setupWithSources([makeCaptured(call)], []);

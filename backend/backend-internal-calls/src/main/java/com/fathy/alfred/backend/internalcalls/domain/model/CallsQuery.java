@@ -13,7 +13,13 @@ package com.fathy.alfred.backend.internalcalls.domain.model;
  *                      project). Combined with every other filter via AND, same as supplier/search.
  */
 public record CallsQuery(String search, String supplier, String sort, int offset, int limit,
-                          String sessionId, String operationId, String requestId, String serviceNames) {
+                          String sessionId, String operationId, String requestId, String serviceNames, String relive) {
+
+    /** Before the Relive filter ({@link ReliveFilter}) - blank, every call listed. */
+    public CallsQuery(String search, String supplier, String sort, int offset, int limit,
+                      String sessionId, String operationId, String requestId, String serviceNames) {
+        this(search, supplier, sort, offset, limit, sessionId, operationId, requestId, serviceNames, "");
+    }
 
     /** Pre-serviceNames shape - kept so a call site built before that filter existed doesn't need to pass it explicitly. Blank means "no filter", i.e. every project. */
     public CallsQuery(String search, String supplier, String sort, int offset, int limit,

@@ -45,6 +45,7 @@ export class CallsApiService {
     if (source === 'internal' && serviceNames?.length) {
       params = params.set('serviceNames', serviceNames.join(','));
     }
+    if (query.relive) params = params.set('relive', query.relive);
     return this.http.get<CallsPageDto>(`${this.config.backendUrl}/${endpointFor(source)}`, { params }).pipe(
       map((page) => ({ calls: page.calls.map((dto) => toCallRecord(dto, source)), total: page.total }))
     );

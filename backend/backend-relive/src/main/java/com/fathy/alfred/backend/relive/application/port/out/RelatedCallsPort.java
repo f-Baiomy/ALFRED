@@ -12,4 +12,11 @@ public interface RelatedCallsPort {
      *  ({@code relive.runId}) or only ever blocked as AMBIGUOUS for the run
      *  ({@code relive.ambiguousRunIds}). Returns how many calls were removed. */
     int deleteByRunIds(Collection<String> runIds);
+
+    /** Deletes the session cycles these runs kept their calls in (one per run, opened from the
+     *  run's History). Called whenever runs are deleted - by the user, by the run-count limit, or
+     *  with their Relive cycle - since a run cycle belongs to its run and is listed nowhere else. */
+    default int deleteRunCycles(Collection<String> runIds) {
+        return 0;
+    }
 }

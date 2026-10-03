@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.relive.application.port.in.ManageReliveCyclesUse
 import com.fathy.alfred.backend.relive.application.port.in.StaleCycleException;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveCycleStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveNotificationPort;
+import com.fathy.alfred.backend.relive.application.port.out.RelatedCallsPort;
 import com.fathy.alfred.backend.relive.application.port.out.ReliveRunStorePort;
 import com.fathy.alfred.backend.relive.application.port.out.RuleValidationPort;
 import com.fathy.alfred.backend.relive.domain.model.CycleRule;
@@ -16,6 +17,7 @@ import com.fathy.alfred.backend.relive.domain.model.CycleVersion;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycle;
 import com.fathy.alfred.backend.relive.domain.model.ReliveCycleSummary;
 import com.fathy.alfred.backend.relive.domain.model.ReliveLimits;
+import com.fathy.alfred.backend.relive.domain.model.Run;
 import com.fathy.alfred.backend.relive.domain.model.RunStatus;
 import com.fathy.alfred.backend.relive.domain.model.Step;
 import org.springframework.stereotype.Service;
@@ -41,9 +43,23 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
     private final ReliveRunStorePort runStore;
     private final RuleValidationPort ruleValidation;
     private final ReliveNotificationPort notifications;
+    private final RelatedCallsPort relatedCalls;
 
     public ReliveCyclesService(ReliveCycleStorePort cycleStore, ReliveRunStorePort runStore,
                                 RuleValidationPort ruleValidation, ReliveNotificationPort notifications) {
+        this(cycleStore, runStore, ruleValidation, notifications, new RelatedCallsPort() {
+            @Override
+            public int deleteByRunIds(java.util.Collection<String> runIds) {
+                return 0;
+            }
+        });
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ReliveCyclesService(ReliveCycleStorePort cycleStore, ReliveRunStorePort runStore,
+                                RuleValidationPort ruleValidation, ReliveNotificationPort notifications,
+                                RelatedCallsPort relatedCalls) {
+        this.relatedCalls = relatedCalls;
         this.cycleStore = cycleStore;
         this.runStore = runStore;
         this.ruleValidation = ruleValidation;
@@ -184,6 +200,7 @@ public class ReliveCyclesService implements ManageReliveCyclesUseCase, ManageCyc
         if (hasRunningRun) {
             throw new CycleInUseException(id);
         }
+        relatedCalls.deleteRunCycles(runStore.listByCycleId(id, ReliveLimits.MAX_LIST_LIMIT).stream().map(Run::id).toList());
         runStore.deleteByCycleId(id);
         cycleStore.deleteById(id);
         notifications.cycleChanged();

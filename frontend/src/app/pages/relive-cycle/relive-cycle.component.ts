@@ -1,4 +1,5 @@
 import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
+import { DatePipe, TitleCasePipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Observable, Subscription, catchError, debounceTime, filter, firstValueFrom, of, switchMap, takeWhile } from 'rxjs';
@@ -17,6 +18,8 @@ import { ReliveSessionPanelComponent } from '../../components/relive-session-pan
 import { NoiseChange, ReliveRunTimelineComponent } from '../../components/relive-run-timeline/relive-run-timeline.component';
 import { ReliveHistoryComponent } from '../../components/relive-history/relive-history.component';
 import { ReliveApiService, StartRunRequest } from '../../core/services/relive-api.service';
+import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
+import { SessionCycleDetailComponent } from '../session-cycle-detail/session-cycle-detail.component';
 import { outboundMissingFingerprint, outboundOnOldFingerprint } from '../../core/services/relive-fingerprint';
 import { ReliveStepTreeComponent } from '../../components/relive-step-tree/relive-step-tree.component';
 import { CallPickerService } from '../../core/services/call-picker.service';
@@ -61,6 +64,9 @@ type ReliveTab = 'steps' | 'variables' | 'rules' | 'run' | 'history';
     ReliveSessionPanelComponent,
     ReliveRunTimelineComponent,
     ReliveHistoryComponent,
+    SessionCycleDetailComponent,
+    DatePipe,
+    TitleCasePipe,
   ],
   providers: [ReliveCycleEditorState, ReliveRunService],
   templateUrl: './relive-cycle.component.html',
@@ -253,6 +259,9 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
     if (id) {
       this.state.load(id);
       this.restoreLatestRun(id);
+      // `?calls=<runId>` reopens a run's calls after a reload or from a shared link.
+      const callsOf = this.route.snapshot.queryParamMap?.get('calls');
+      if (callsOf) void this.reopenRunCalls(id, callsOf);
     }
     effect(() => {
       const draft = this.state.draft();
@@ -308,6 +317,7 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
   }
 
   setTab(tab: ReliveTab): void {
+    if (tab !== 'history' && this.runCalls()) this.closeRunCalls();
     this.tab.set(tab);
   }
 
@@ -402,6 +412,43 @@ export class ReliveCycleComponent implements CanDeactivateRelive {
       ...draft,
       steps: draft.steps.map((s) => (s.key === event.stepKey ? { ...s, callRule: event.callRule } : s)),
     }));
+  }
+
+  /** A run's calls shown in the History tab in place of the run matrix (the run's own session
+   *  cycle, in the session-cycle view). Null while the matrix shows. */
+  readonly runCalls = signal<{ readonly runId: string; readonly startedAt: string; readonly driver: string; readonly status: string;
+    readonly cycleId: string | null; readonly error: string | null } | null>(null);
+  private readonly sessionCyclesApi = inject(SessionCyclesApiService);
+
+  openRunCalls(run: Run): void {
+    const cycle = this.state.saved();
+    if (!cycle) return;
+    this.runCalls.set({ runId: run.id, startedAt: run.startedAt, driver: run.driver, status: run.status, cycleId: null, error: null });
+    this.setCallsParam(run.id);
+    const when = new Date(run.startedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    this.sessionCyclesApi.openReliveRun(run.id, `Run calls · ${cycle.name} · ${when}`, cycle.id).subscribe({
+      next: (opened) => this.runCalls.update((shown) => (shown?.runId === run.id ? { ...shown, cycleId: opened.cycle.id } : shown)),
+      error: () => this.runCalls.update((shown) => (shown?.runId === run.id ? { ...shown, error: 'Could not open the calls of this run. Try again.' } : shown)),
+    });
+  }
+
+  closeRunCalls(): void {
+    this.runCalls.set(null);
+    this.setCallsParam(null);
+  }
+
+  private async reopenRunCalls(cycleId: string, runId: string): Promise<void> {
+    try {
+      const run = await firstValueFrom(this.api.getRun(cycleId, runId));
+      this.tab.set('history');
+      this.openRunCalls(run);
+    } catch {
+      this.setCallsParam(null);
+    }
+  }
+
+  private setCallsParam(runId: string | null): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { calls: runId }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
   /** A past run opens as a snapshot. A run that is still going opens on the live driver:

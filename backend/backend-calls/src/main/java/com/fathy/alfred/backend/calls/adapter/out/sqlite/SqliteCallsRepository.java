@@ -10,6 +10,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RequestData;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
+import com.fathy.alfred.backend.calls.domain.model.ReliveFilter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
@@ -823,6 +824,13 @@ public class SqliteCallsRepository {
      */
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
                                                      String sessionId, String operationId, String requestId) {
+        return query(search, supplier, sort, offset, limit, paginationEnabled, sessionId, operationId, requestId, "");
+    }
+
+    /** As above, plus the Relive filter ({@link ReliveFilter}): "exclude" keeps only calls with no
+     *  relive tag; a run id keeps that run's calls, attributed or blocked as AMBIGUOUS for it. */
+    public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                     String sessionId, String operationId, String requestId, String relive) {
         String query = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         String supplierFilter = supplier == null ? "" : supplier.trim();
         String sessionIdFilter = sessionId == null ? "" : sessionId.trim();
@@ -857,6 +865,7 @@ public class SqliteCallsRepository {
             where.append(" AND call_metadata.id LIKE ?");
             params.add("%" + requestIdFilter + "%");
         }
+        appendReliveFilter(where, params, relive);
 
         int total = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM " + fromClause + where, Integer.class, params.toArray());
@@ -1004,6 +1013,35 @@ public class SqliteCallsRepository {
      *  AMBIGUOUS-blocked form keeps a LIKE pre-filter so json_each only ever runs for rows that carry
      *  the array. Same cascade/FTS behavior as {@link #deleteAll()}; no VACUUM - a targeted delete
      *  leaves free pages behind, which retention's own churn reclaims soon enough. */
+    private static void appendReliveFilter(StringBuilder where, List<Object> params, String relive) {
+        if (ReliveFilter.isBlank(relive)) {
+            return;
+        }
+        if (ReliveFilter.EXCLUDE.equals(relive.trim())) {
+            where.append(" AND call_metadata.relive_json IS NULL");
+            return;
+        }
+        where.append(" AND call_metadata.relive_json IS NOT NULL AND (json_extract(call_metadata.relive_json, '$.runId') = ?"
+                + " OR (call_metadata.relive_json LIKE '%ambiguousRunIds%'"
+                + " AND EXISTS (SELECT 1 FROM json_each(call_metadata.relive_json, '$.ambiguousRunIds') WHERE value = ?)))");
+        params.add(relive.trim());
+        params.add(relive.trim());
+    }
+
+    /** Every call of one Relive run, full records, oldest first - the ids come off the
+     *  {@code idx_call_metadata_relive_run} index, then each row loads like {@link #findById}. */
+    public List<CallRecord> findByReliveRunId(String runId) {
+        if (runId == null || runId.isBlank()) {
+            return List.of();
+        }
+        StringBuilder where = new StringBuilder(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        appendReliveFilter(where, params, runId);
+        List<String> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM call_metadata" + where + " ORDER BY timestamp_millis ASC", String.class, params.toArray());
+        return ids.stream().map(this::findById).flatMap(Optional::stream).toList();
+    }
+
     public int deleteByReliveRunIds(java.util.Collection<String> runIds) {
         if (runIds == null || runIds.isEmpty()) {
             return 0;

@@ -7,6 +7,10 @@
 />
 
 <main>
+  <label class="relive-calls-note" title="A Relive run keeps its calls with its run: Relive → the cycle → History → Calls">
+    <input type="checkbox" [checked]="state.showReliveCalls()" (change)="state.setShowReliveCalls($any($event.target).checked)" />
+    <span>⟲ Calls of Relive runs are kept with their runs - show them here too</span>
+  </label>
   <app-bulk-actions-bar />
   <app-stats-bar [stats]="state.stats()" />
   <div class="call-list">

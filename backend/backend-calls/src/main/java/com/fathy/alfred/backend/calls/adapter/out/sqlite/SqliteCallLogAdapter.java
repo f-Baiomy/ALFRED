@@ -136,6 +136,17 @@ public class SqliteCallLogAdapter implements CallLogPort {
     }
 
     @Override
+    public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                     String sessionId, String operationId, String requestId, String relive) {
+        return repository.query(search, supplier, sort, offset, limit, paginationEnabled, sessionId, operationId, requestId, relive);
+    }
+
+    @Override
+    public List<CallRecord> findByReliveRunId(String runId) {
+        return repository.findByReliveRunId(runId);
+    }
+
+    @Override
     public Optional<CallRecord> findById(String id) {
         return repository.findById(id);
     }

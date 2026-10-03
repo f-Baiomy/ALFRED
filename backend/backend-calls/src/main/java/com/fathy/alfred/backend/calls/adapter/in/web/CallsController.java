@@ -43,9 +43,10 @@ public class CallsController {
             @RequestParam(defaultValue = "10") int limit,
             @RequestParam(defaultValue = "") String sessionId,
             @RequestParam(defaultValue = "") String operationId,
-            @RequestParam(defaultValue = "") String requestId
+            @RequestParam(defaultValue = "") String requestId,
+            @RequestParam(defaultValue = "") String relive
     ) {
-        return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId));
+        return getCallsUseCase.getCalls(new CallsQuery(search, supplier, sort, offset, limit, sessionId, operationId, requestId, relive));
     }
 
     /**

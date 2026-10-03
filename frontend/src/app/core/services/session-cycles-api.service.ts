@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, map } from 'rxjs';
-import { CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallRecord, CallSummaryDto, CapturedCall, SessionCycle } from '../models/call.model';
+import { CallDetail, CallDetailPart, CallEndpointSource, CallOverlapCandidate, CallRecord, CallSummaryDto, CapturedCall, ReliveRunCycle, SessionCycle } from '../models/call.model';
 import { AppConfigService } from './app-config.service';
 import { CallOverlapQuery, CallsQuery } from '../state/call-list-view';
 import { toCallRecord } from '../../shared/utils/call-utils';
@@ -56,6 +56,16 @@ export class SessionCyclesApiService {
 
   private get baseUrl(): string {
     return `${this.config.backendUrl}/session-cycles`;
+  }
+
+  get(id: string): Observable<SessionCycle> {
+    return this.http.get<SessionCycle>(`${this.baseUrl}/${encodeURIComponent(id)}`);
+  }
+
+  /** A Relive run's own cycle - created (and filled from the call logs) the first time a run
+   *  from before run cycles is opened. */
+  openReliveRun(runId: string, name: string, reliveCycleId: string): Observable<ReliveRunCycle> {
+    return this.http.post<ReliveRunCycle>(`${this.baseUrl}/relive-runs/${encodeURIComponent(runId)}`, { name, reliveCycleId });
   }
 
   list(): Observable<SessionCycle[]> {

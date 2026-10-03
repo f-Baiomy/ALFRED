@@ -69,6 +69,32 @@ class SqliteCallsRepositoryTest {
                 durationMs, status == null ? null : new ResponseData(status, null, null), error);
     }
 
+    private static CallRecord withRelive(CallRecord c, String reliveJson) throws Exception {
+        return new CallRecord(c.id(), c.originalUrl(), c.url(), c.method(), c.request(), c.timestamp(), c.durationMs(),
+                c.response(), c.error(), c.state(), c.sessionId(), c.operationId(), c.serviceName(), c.timing(),
+                c.interception(), c.resendOf(), c.resendEdits(),
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(reliveJson), c.reachedUpstream());
+    }
+
+    @Test
+    void theReliveFilterLeavesRunCallsOutOrListsOneRunsCalls() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord plain = call("https://a.com/plain", "2026-10-03T10:00:00Z", 1.0, 200, null);
+        CallRecord runA = withRelive(call("https://a.com/a", "2026-10-03T10:00:01Z", 1.0, 200, null), "{\"runId\":\"run-a\",\"stepKey\":\"s1\"}");
+        CallRecord runB = withRelive(call("https://a.com/b", "2026-10-03T10:00:02Z", 1.0, 200, null), "{\"runId\":\"run-b\"}");
+        CallRecord ambiguous = withRelive(call("https://a.com/amb", "2026-10-03T10:00:03Z", 1.0, 502, null), "{\"ambiguousRunIds\":[\"run-a\",\"run-c\"]}");
+        for (CallRecord c : List.of(plain, runA, runB, ambiguous)) {
+            repo.save(c);
+        }
+
+        assertThat(repo.query("", "", "oldest", 0, 50, true, "", "", "", "exclude").items())
+                .extracting(CallSummary::id).containsExactly(plain.id());
+        assertThat(repo.query("", "", "oldest", 0, 50, true, "", "", "", "run-a").items())
+                .extracting(CallSummary::id).containsExactly(runA.id(), ambiguous.id());
+        assertThat(repo.query("", "", "oldest", 0, 50, true, "", "", "", "").total()).isEqualTo(4);
+        assertThat(repo.findByReliveRunId("run-a")).extracting(CallRecord::id).containsExactly(runA.id(), ambiguous.id());
+    }
+
     @Test
     void saveThenFindByIdRoundTrips() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));

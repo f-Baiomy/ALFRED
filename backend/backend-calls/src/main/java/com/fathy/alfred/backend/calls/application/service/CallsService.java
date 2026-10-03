@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.calls.application.port.in.FindRecentRequestHeade
 import com.fathy.alfred.backend.calls.application.port.in.GetCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.GetWsMessagesUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.DeleteReliveCallsUseCase;
+import com.fathy.alfred.backend.calls.application.port.in.FindReliveRunCallsUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveCompletedCallUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveWsMessagesUseCase;
 import com.fathy.alfred.backend.calls.application.port.in.ReceiveNewCallUseCase;
@@ -19,6 +20,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallDetail;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallRecord;
+import com.fathy.alfred.backend.calls.domain.model.ReliveFilter;
 import com.fathy.alfred.backend.calls.domain.model.CallInterception;
 import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
@@ -39,7 +41,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase, ReceiveNewCallUseCase,
+public class CallsService implements GetCallsUseCase, FindReliveRunCallsUseCase, GetCallDetailUseCase, GetCallBaselineUseCase, ReceiveNewCallUseCase,
         ReceivePreparedCallUseCase, ReceiveCompletedCallUseCase, GetCallsInRangeUseCase, FindRecentRequestHeadersUseCase,
         ReceiveWsMessagesUseCase, GetWsMessagesUseCase, DeleteReliveCallsUseCase {
 
@@ -75,9 +77,11 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
         // same first N items forever, since offset is also ignored below.
         int clampedLimit = paginationEnabled ? Math.max(1, Math.min(query.limit(), maxLimit)) : maxLimit;
 
-        CallListSupport.Page<CallSummary> page = callLogPort.query(
-                query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
-                query.sessionId(), query.operationId(), query.requestId());
+        CallListSupport.Page<CallSummary> page = ReliveFilter.isBlank(query.relive())
+                ? callLogPort.query(query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
+                        query.sessionId(), query.operationId(), query.requestId())
+                : callLogPort.query(query.search(), query.supplier(), query.sort(), clampedOffset, clampedLimit, paginationEnabled,
+                        query.sessionId(), query.operationId(), query.requestId(), query.relive());
         return new CallsPage(page.items(), page.total());
     }
 
@@ -217,6 +221,11 @@ public class CallsService implements GetCallsUseCase, GetCallDetailUseCase, GetC
     public WsMessagesPage getWsMessages(String callId, int offset, int limit) {
         int cap = Math.max(1, Math.min(limit, 500));
         return callLogPort.wsMessages(callId, Math.max(0, offset), cap);
+    }
+
+    @Override
+    public java.util.List<CallRecord> findByRunId(String runId) {
+        return callLogPort.findByReliveRunId(runId);
     }
 
     @Override

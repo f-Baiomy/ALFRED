@@ -1,6 +1,6 @@
 import { TestBed, fakeAsync, tick, discardPeriodicTasks } from '@angular/core/testing';
 import { of } from 'rxjs';
-import { CallsStateService } from './calls-state.service';
+import { CallsStateService, isReliveRunCall } from './calls-state.service';
 import { CallsApiService } from '../services/calls-api.service';
 import { InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { CallOverlapCandidate, CallRecord } from '../models/call.model';
@@ -145,9 +145,28 @@ describe('CallsStateService', () => {
     const { queries } = setup([makeCall()]);
     tick();
 
-    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 200, sessionId: '', operationId: '', requestId: '' });
+    expect(queries[0]).toEqual({ search: '', supplier: '', sort: 'newest', offset: 0, limit: 200, sessionId: '', operationId: '', requestId: '', relive: 'exclude' });
     discardPeriodicTasks();
   }));
+
+  it('leaves calls of Relive runs out until asked to show them, then re-fetches with them', fakeAsync(() => {
+    const { state, queries } = setup([makeCall()]);
+    tick();
+    expect(queries[queries.length - 1].relive).toBe('exclude');
+
+    state.setShowReliveCalls(true);
+    tick();
+
+    expect(queries[queries.length - 1].relive).toBe('');
+    discardPeriodicTasks();
+  }));
+
+  it('tells a call of a Relive run - attributed or blocked as ambiguous - from any other', () => {
+    expect(isReliveRunCall({ relive: { runId: 'run-1' } })).toBeTrue();
+    expect(isReliveRunCall({ relive: { runId: '', ambiguousRunIds: ['a', 'b'] } })).toBeTrue();
+    expect(isReliveRunCall({ relive: null })).toBeFalse();
+    expect(isReliveRunCall({})).toBeFalse();
+  });
 
   it('setSearchQuery re-fetches from offset 0 with the trimmed query', fakeAsync(() => {
     const { state, queries } = setup([makeCall()]);

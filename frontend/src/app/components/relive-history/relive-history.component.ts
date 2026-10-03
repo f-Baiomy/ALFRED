@@ -77,6 +77,8 @@ export class ReliveHistoryComponent implements OnInit {
   /** The cycle's own noise rules now (the draft) - the comparison grades with them. */
   readonly cycleNoise = input<readonly NoiseRule[]>([]);
   readonly openRun = output<string>();
+  /** "Calls": every call a run made, opened in place (the run's own session cycle). */
+  readonly openRunCalls = output<Run>();
   /** "Open in run A / B" from the comparison: the run, at that step. */
   readonly openRunStep = output<{ readonly runId: string; readonly stepKey: string }>();
   /** "Ignore in cycle" from the comparison - a draft edit the cycle page applies. */

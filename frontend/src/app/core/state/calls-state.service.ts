@@ -144,7 +144,8 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
    * to merge by. Every other mode (slowest/fastest/status/*-call) already sorts by an actual field
    * on the record, so it merges correctly unchanged.
    */
-  private fetchPageForSource(query: CallsQuery): Observable<CallsPageResult> {
+  private fetchPageForSource(listQuery: CallsQuery): Observable<CallsPageResult> {
+    const query: CallsQuery = { ...listQuery, relive: this.showReliveCalls() ? '' : 'exclude' };
     const selected = this.selectedSources();
     const wantExternal = selected.has(EXTERNAL_SOURCE_KEY);
     const internalNames = [...selected].filter((s) => s !== EXTERNAL_SOURCE_KEY);
@@ -194,6 +195,19 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
         candidates.filter((c) => (c.source === 'external' ? selected.has(EXTERNAL_SOURCE_KEY) : selected.has(c.serviceName ?? 'unknown')))
       )
     );
+  }
+
+  /**
+   * Calls of Relive runs are kept with their run (its History opens them), not listed here - this
+   * shows them anyway, for watching a run live. Per page visit: off again on reload.
+   */
+  readonly showReliveCalls = signal(false);
+
+  setShowReliveCalls(show: boolean): void {
+    if (this.showReliveCalls() === show) return;
+    this.showReliveCalls.set(show);
+    this.liveCalls.set([]);
+    this.view.resetSource();
   }
 
   /** Flips one source's membership in the selection - clears whatever's loaded/live (some of it may no longer belong) and rebuilds both the REST fetch and the live WebSocket connection(s) to match. */
@@ -263,6 +277,7 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     // doesn't match the current selection here, or it would show up ahead of the (correctly
     // filtered) loaded window just because it hasn't been confirmed by a fetch yet.
     if (source === 'internal' && !this.selectedSources().has(sourceKeyOf(call))) return;
+    if (!this.showReliveCalls() && isReliveRunCall(call)) return;
     // Matched by id, not callKey - two-phase logging pushes the same call twice (once
     // IN_PROGRESS at prepare, once resolved at complete), and id is the one thing guaranteed
     // stable across both pushes for the exact same call.
@@ -575,4 +590,9 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     this.selectedIds.set(new Set(this.view.matchingCalls().map(callKey)));
   }
 
+}
+
+/** A call some Relive run claimed - attributed to it, or blocked as ambiguous between runs. */
+export function isReliveRunCall(call: { readonly relive?: { readonly runId?: string | null; readonly ambiguousRunIds?: readonly string[] | null } | null }): boolean {
+  return !!call.relive && (!!call.relive.runId || !!call.relive.ambiguousRunIds?.length);
 }

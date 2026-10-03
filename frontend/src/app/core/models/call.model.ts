@@ -215,6 +215,16 @@ export interface SessionCycle {
   readonly createdAt: string;
   readonly assignedTo: string | null;
   readonly status: SessionCycleStatus;
+  /** Set on a Relive run's own cycle: it holds that run's calls, is opened from the run's History
+   *  and is never listed with the session cycles. */
+  readonly reliveRunId?: string | null;
+  readonly reliveCycleId?: string | null;
+}
+
+/** POST /session-cycles/relive-runs/{runId} - the run's cycle, and whether this created it. */
+export interface ReliveRunCycle {
+  readonly cycle: SessionCycle;
+  readonly created: boolean;
 }
 
 /** One call captured into a session-cycle, as served by GET /session-cycles/{id}/calls. */

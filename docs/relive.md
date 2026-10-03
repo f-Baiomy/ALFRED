@@ -303,6 +303,30 @@ returned - through the same versioned cycle update every rebuild-style change us
   use the bulk-delete offered once the log passes the configured size warning
   (`alfred.relive.live-calls.warn-bytes`, default 200 MB).
 
+## Where a run's calls live
+
+Every call a run makes - the steps it sends, the app's supplier calls (LIVE or REPLAY), calls it
+blocked - is kept in a **session cycle of the run's own** (`SessionCycle.reliveRunId`,
+`backend-session-cycles`' `ReliveRunCyclesService`), not in Live Calls and not in whatever session
+cycle happens to be recording:
+
+- **Capture.** The capture adapters route a call whose `relive` tag names a run (`runId`, or
+  `ambiguousRunIds`) only into that run's cycle, created by the run's first call; every other call
+  goes to the RECORDING cycles as before. A run cycle is always PAUSED and never records.
+- **Live Calls** asks for `relive=exclude` (both call lists take `relive`: blank, every call;
+  `exclude`; or a run id), and drops a pushed run call. Its "show them here too" switch turns that
+  off for the visit. The calls are still in the call logs - the run engine reads them there (step
+  call cards, child matching, the Live calls log) - so only the listing hides them.
+- **History** gives each run a "Calls" button that opens the run's cycle in place, inside the History
+  tab (`?calls=<runId>` reopens it): the session-cycle view itself, embedded
+  (`SessionCycleDetailComponent` with `cycleId` + `embedded`), so every feature of a session cycle
+  works - views, search, spacers, comments, exports, resend - minus recording, importing and adding
+  calls from elsewhere. `POST /session-cycles/relive-runs/{runId}` opens it; for a run from before
+  run cycles existed it creates the cycle and copies in every call of the run still in the logs.
+- **Not listed** on the Session Cycles page (`GET /session-cycles` leaves run cycles out).
+- **Deleted with the run** - history delete, the newest-runs limit, a transient cycle's cleanup, or
+  deleting the Relive cycle - through `RelatedCallsPort.deleteRunCycles` (backend-app's relivebridge).
+
 ## History: the run matrix and comparing two runs
 
 The History tab (`relive-history`, T134, design in `specs/003-relive-cycle/run-compare-mock.html`

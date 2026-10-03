@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.calls.domain.model.CallTiming;
 import com.fathy.alfred.backend.calls.domain.model.CallStatusBreakdown;
 import com.fathy.alfred.backend.calls.domain.model.CallSummary;
 import com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders;
+import com.fathy.alfred.backend.calls.domain.model.ReliveFilter;
 import com.fathy.alfred.backend.calls.domain.model.ResponseData;
 import com.fathy.alfred.backend.calls.domain.model.WsMessage;
 import com.fathy.alfred.backend.calls.domain.model.WsMessagesPage;
@@ -70,6 +71,29 @@ public interface CallLogPort {
     default CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
                                                       String sessionId, String operationId, String requestId) {
         return query(search, supplier, sort, offset, limit, paginationEnabled);
+    }
+
+    /**
+     * As above, plus the {@code relive} filter ({@link ReliveFilter}): blank, every call; "exclude",
+     * no call of a Relive run; otherwise only that run's calls. The default filters
+     * {@link #readAll()} in memory (the file adapter); the SQLite adapter pushes it into SQL.
+     */
+    default CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled,
+                                                      String sessionId, String operationId, String requestId, String relive) {
+        if (ReliveFilter.isBlank(relive)) {
+            return query(search, supplier, sort, offset, limit, paginationEnabled, sessionId, operationId, requestId);
+        }
+        List<CallRecord> kept = readAll().stream().filter(call -> ReliveFilter.matches(call.relive(), relive)).toList();
+        CallListSupport.Page<CallRecord> page = CallListSupport.apply(
+                kept, java.util.function.Function.identity(), search, supplier, sort, offset, limit, paginationEnabled);
+        return new CallListSupport.Page<>(page.items().stream().map(CallSummary::of).toList(), page.total());
+    }
+
+    /** Every call of one Relive run, full records, oldest first. */
+    default List<CallRecord> findByReliveRunId(String runId) {
+        return readAll().stream().filter(call -> ReliveFilter.matches(call.relive(), runId))
+                .sorted(java.util.Comparator.comparing(CallRecord::timestamp, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .toList();
     }
 
     /**

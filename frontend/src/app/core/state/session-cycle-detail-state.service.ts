@@ -40,7 +40,15 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   private readonly pinService = inject(PinService);
   private readonly internalLoggingApi = inject(InternalLoggingApiService);
 
-  readonly cycleId = toSignal(this.route.paramMap.pipe(map((params) => params.get('id') ?? '')), { initialValue: '' });
+  private readonly routeCycleId = toSignal(this.route.paramMap.pipe(map((params) => params.get('id') ?? '')), { initialValue: '' });
+  /** A cycle shown somewhere other than its own page - a Relive run's calls, in the Relive page's
+   *  History tab (SessionCycleDetailComponent's `cycleId` input). Wins over the route. */
+  private readonly pinnedCycleId = signal<string | null>(null);
+  readonly cycleId = computed(() => this.pinnedCycleId() ?? this.routeCycleId());
+
+  useCycle(id: string | null): void {
+    this.pinnedCycleId.set(id);
+  }
 
   readonly error = signal<string | null>(null);
 
