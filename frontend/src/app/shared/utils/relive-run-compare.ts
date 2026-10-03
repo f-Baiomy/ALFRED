@@ -216,6 +216,12 @@ export function outcomeOfResult(result: StepResult | undefined, recordingStatus:
   return 'skip';
 }
 
+/** A stored request may carry only headers and body; it went to the recorded method and URL. */
+function withTarget(request: HttpShape | null, rec: FrozenCall): HttpShape | null {
+  if (!request) return null;
+  return { ...request, method: request.method ?? rec.method, url: request.url ?? rec.url };
+}
+
 export function stepSide(side: CompareSide, step: Step | undefined): StepSide {
   if (!step) return { outcome: 'skip', status: null, durationMs: null, mode: null, result: null, request: null, response: null, error: null };
   if (side.isRecording) return recordedSide(step.recording);
@@ -229,7 +235,7 @@ export function stepSide(side: CompareSide, step: Step | undefined): StepSide {
     durationMs: outcome === 'skip' ? null : result?.durationMs ?? null,
     mode: result?.mode ?? null,
     result: result ?? null,
-    request: toHttp(result?.actualRequest) ?? toHttp(result?.effectiveRequest),
+    request: withTarget(toHttp(result?.actualRequest) ?? toHttp(result?.effectiveRequest), step.recording),
     response,
     error: result?.error ?? null,
   };

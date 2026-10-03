@@ -15,6 +15,7 @@ import {
   compareRuns,
 } from '../../shared/utils/relive-run-compare';
 import { buildHtmlCompareReport, buildJsonCompareReport, buildMarkdownCompareReport } from '../../shared/utils/relive-run-export';
+import { buildCompareReport, fileSafe } from '../../shared/utils/relive-run-report';
 import { NoiseRule, Run, Step } from '../../shared/utils/relive-types';
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
@@ -265,19 +266,15 @@ export class ReliveRunCompareComponent {
 
   exportAs(format: 'markdown' | 'html' | 'json'): void {
     const cmp = this.comparison();
-    const sides = { a: this.exportName(this.a()), b: this.exportName(this.b()) };
-    const name = `relive-compare-${this.fileStamp(this.a())}-vs-${this.fileStamp(this.b())}`;
-    if (format === 'markdown') downloadText(buildMarkdownCompareReport(cmp, this.cycleName(), sides, this.secretNames(), this.values()), `${name}.md`, 'text/markdown');
-    if (format === 'html') downloadText(buildHtmlCompareReport(cmp, this.cycleName(), sides, this.secretNames(), this.values()), `${name}.html`, 'text/html');
-    if (format === 'json') downloadText(buildJsonCompareReport(cmp, this.cycleName(), sides), `${name}.json`, 'application/json');
-  }
-
-  private exportName(side: CompareSide): string {
-    return side.isRecording ? 'The recording' : `Run ${side.id} of ${side.startedAt}`;
+    const report = buildCompareReport(cmp, this.a(), this.b(), this.cycleName(), new Date().toISOString());
+    const name = `relive-compare-${fileSafe(report.cycleName)}-${this.fileStamp(this.a())}-vs-${this.fileStamp(this.b())}`;
+    if (format === 'markdown') downloadText(buildMarkdownCompareReport(report), `${name}.md`, 'text/markdown');
+    if (format === 'html') downloadText(buildHtmlCompareReport(report), `${name}.html`, 'text/html');
+    if (format === 'json') downloadText(buildJsonCompareReport(report), `${name}.json`, 'application/json');
   }
 
   private fileStamp(side: CompareSide): string {
-    return side.isRecording ? 'recording' : (side.startedAt ?? side.id).replace(/[^a-z0-9]+/gi, '-');
+    return side.isRecording ? 'recording' : fileSafe(side.startedAt ?? side.id);
   }
 
   private maskHttp(http: HttpShape | null): OriginalHttp | null {

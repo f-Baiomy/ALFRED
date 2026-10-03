@@ -1,117 +1,122 @@
-import { Step, StepResult } from './relive-types';
-import { buildHtmlCompareReport, buildHtmlRunReport, buildJsonCompareReport, buildJsonRunReport, buildMarkdownCompareReport, buildMarkdownRunReport, rowsFor } from './relive-run-export';
-import { compareRuns, runSide } from './relive-run-compare';
+import {
+  buildHtmlCompareReport,
+  buildHtmlRunReport,
+  buildJsonCompareReport,
+  buildJsonRunReport,
+  buildMarkdownCompareReport,
+  buildMarkdownRunReport,
+  prettyBody,
+} from './relive-run-export';
+import { buildCompareReport, buildRunReport } from './relive-run-report';
+import { compareRuns, latestByStepKey, runSide } from './relive-run-compare';
 import { cmpResult, cmpRun, cmpStep } from './relive-run-compare.testing';
 
-function step(key: string): Step {
-  return {
-    key,
-    parentKey: null,
-    label: `Step ${key}`,
-    enabled: true,
-    optional: false,
-    direction: 'inbound',
-    serviceName: 'odeysys',
-    callRule: { name: key, enabled: true, priority: 0, stopProcessing: true, match: {}, actions: [] },
-    unattributed: 'BLOCK',
-    recording: {
-      method: 'POST',
-      url: 'https://app.local/x',
-      requestHeaders: {},
-      requestBody: '{}',
-      status: 200,
-      responseHeaders: {},
-      responseBody: '{}',
-      timestamp: 't',
-      durationMs: 10,
-      sessionId: null,
-      operationId: null,
-      serviceName: 'odeysys',
-      source: 'inbound',
-    },
-    source: { callId: key, cycleId: null, direction: 'inbound' },
-    extract: [],
-    assertions: [],
-    noise: [],
-  };
-}
-
-function result(stepKey: string, state: StepResult['state'], overrides: Partial<StepResult> = {}): StepResult {
-  return {
-    runId: 'run-1',
-    stepKey,
-    attempt: 1,
-    state,
-    mode: 'REPLAY',
-    attribution: 'HEADER',
-    differences: [],
-    rulesApplied: [],
-    variablesUsed: [],
-    variablesProduced: [],
-    unexpectedCalls: [],
-    pauses: [],
-    ...overrides,
-  };
-}
+const NOW = '2026-10-03T07:12:00Z';
 
 describe('relive-run-export', () => {
-  const bigBody = 'x'.repeat(50_000);
-
-  it('markdown report never truncates a step\'s full actual response body', () => {
-    const rows = rowsFor([step('s1')], { s1: result('s1', 'FAILED', { actualResponse: { status: 500, headers: {}, body: bigBody } }) });
-    const md = buildMarkdownRunReport(rows, 'Book flow', [], {});
-    expect(md).toContain(bigBody);
+  // Exports never truncate call data: these bodies are far past any preview limit.
+  const big = 'x'.repeat(60_000);
+  const recordedBig = 'r'.repeat(50_000);
+  const steps = [
+    cmpStep('login', { label: 'POST /login' }),
+    cmpStep('pax', { label: 'GET /pax', recording: { ...cmpStep('pax').recording, responseBody: `{"note":"${recordedBig}"}` } }),
+  ];
+  const run = cmpRun('r1', '2026-10-02T16:33:11Z', steps, [
+    cmpResult('login', 'COMPLETED', { status: 200 }, { variablesProduced: [{ name: 'token', value: 'S3CRET' }] }),
+    cmpResult('pax', 'FAILED', { status: 500, body: `{"message":"S3CRET rejected","blob":"${big}"}` }, { variablesUsed: [{ name: 'token', value: 'S3CRET' }], assertions: [{ kept: true }] }),
+  ], {
+    finishedAt: '2026-10-02T16:33:18Z',
+    variableTimeline: [{ name: 'token', value: 'S3CRET', stepKey: 'login', at: 't' }],
+    secrets: ['token'],
+    log: [{ at: '2026-10-02T16:33:12Z', stepKey: 'pax', kind: 'ERROR', message: 'pax failed with S3CRET' }],
   });
+  const report = buildRunReport(run, NOW);
 
-  it('html report never truncates a step\'s full actual response body', () => {
-    const rows = rowsFor([step('s1')], { s1: result('s1', 'FAILED', { actualResponse: { status: 500, headers: {}, body: bigBody } }) });
-    const html = buildHtmlRunReport(rows, 'Book flow', [], {});
-    expect(html).toContain(bigBody);
-  });
-
-  it('json report never truncates a step\'s full actual response body', () => {
-    const rows = rowsFor([step('s1')], { s1: result('s1', 'FAILED', { actualResponse: { status: 500, headers: {}, body: bigBody } }) });
-    const json = buildJsonRunReport('Book flow', rows);
-    expect(json).toContain(bigBody);
-  });
-
-  it('masks a secret variable\'s value in the md/html reports', () => {
-    const rows = rowsFor([step('s1')], { s1: result('s1', 'FAILED', { error: 'token abc123 rejected', actualResponse: { status: 401, headers: {}, body: '{}' } }) });
-    const md = buildMarkdownRunReport(rows, 'Book flow', ['token'], { token: 'abc123' });
-    expect(md).not.toContain('abc123');
-    expect(md).toContain('•');
-  });
-
-  it('a step with no result yet shows NOT_CALLED without throwing', () => {
-    const rows = rowsFor([step('s1')], {});
-    expect(buildMarkdownRunReport(rows, 'Book flow', [], {})).toContain('NOT_CALLED');
-    expect(buildHtmlRunReport(rows, 'Book flow', [], {})).toContain('NOT_CALLED');
-  });
-
-  describe('run comparison export', () => {
-    const big = 'y'.repeat(60_000);
-    const steps = [cmpStep('pax')];
-    const a = runSide(cmpRun('a', 't1', steps, [cmpResult('pax', 'COMPLETED', { status: 200, body: `{"v":"${big}"}` })], { variableTimeline: [{ name: 'token', value: 'S3CRET', stepKey: 'pax', at: 't' }] }));
-    const b = runSide(cmpRun('b', 't2', steps, [cmpResult('pax', 'FAILED', { status: 500, body: '{"message":"S3CRET failed"}' })]));
-    const cmp = compareRuns(a, b, () => []);
-    const sides = { a: 'Run of t1', b: 'Run of t2' };
-
-    it('markdown and html keep both full response bodies and mask secrets', () => {
-      const md = buildMarkdownCompareReport(cmp, 'Booking', sides, ['token'], { token: 'S3CRET' });
-      expect(md).toContain(big);
-      expect(md).toContain('B is worse:');
-      expect(md).not.toContain('S3CRET');
-      const html = buildHtmlCompareReport(cmp, 'Booking', sides, ['token'], { token: 'S3CRET' });
+  describe('run report', () => {
+    it('.html is one self-contained page: answer, About this document, steps, glossary, bodies in full, secrets masked', () => {
+      const html = buildHtmlRunReport(report);
+      expect(html.startsWith('<!DOCTYPE html>')).toBeTrue();
+      expect(html).toContain('<title>Relive run report: Booking</title>');
+      expect(html).toContain('Failed at step 2, GET /pax:');
+      expect(html).toContain('About this document');
+      expect(html).toContain('Needs attention');
+      expect(html).toContain('id="step-2"');
+      expect(html).toContain('Glossary');
       expect(html).toContain(big);
+      expect(html).toContain(recordedBig);
       expect(html).not.toContain('S3CRET');
     });
 
-    it('json keeps both step results unmasked', () => {
-      const json = JSON.parse(buildJsonCompareReport(cmp, 'Booking', sides));
-      expect(json.steps[0].verdict).toBe('NEW_FAILURE');
-      expect(json.steps[0].a.response.body).toContain(big);
-      expect(json.steps[0].b.result.actualResponse.body).toContain('S3CRET');
-      expect(json.variables[0].a).toBe('S3CRET');
+    it('.md reads top-down with tables and folded, full bodies; secrets masked', () => {
+      const md = buildMarkdownRunReport(report);
+      expect(md.startsWith('# Relive run report: Booking')).toBeTrue();
+      expect(md).toContain('> **Failed at step 2, GET /pax:**');
+      expect(md).toContain('## About this document');
+      expect(md).toContain('**What this is.**');
+      expect(md).toContain('| # | Step | Mode | Outcome |');
+      expect(md).toContain('### 2 · GET /pax - ✗ failed');
+      expect(md).toContain('<details open><summary>Response received');
+      expect(md).toContain('```json');
+      expect(md).toContain(big);
+      expect(md).toContain(recordedBig);
+      expect(md).toContain('## Glossary');
+      expect(md).not.toContain('S3CRET');
     });
+
+    it('.json starts with what it is, keeps every value unmasked and the stored checks', () => {
+      const text = buildJsonRunReport(report, { results: latestByStepKey(run.stepResults) });
+      const json = JSON.parse(text);
+      expect(Object.keys(json).slice(0, 2)).toEqual(['format', 'about']);
+      expect(json.format).toBe('alfred.relive.run-report/v1');
+      expect(json.about.description).toContain('Relive run');
+      expect(json.about.glossary.LIVE).toBeDefined();
+      const pax = json.steps[1];
+      expect(pax).toEqual(jasmine.objectContaining({ step: '2', label: 'GET /pax', outcome: 'failed', mode: 'LIVE' }));
+      expect(pax.response.body.blob).toBe(big);
+      expect(pax.response.body.message).toContain('S3CRET');
+      expect(pax.recorded.response.body.note).toBe(recordedBig);
+      expect(pax.checks).toEqual([{ kept: true }]);
+      expect(json.variables[0].value).toBe('S3CRET');
+    });
+  });
+
+  describe('comparison report', () => {
+    const other = cmpRun('r0', '2026-10-02T13:49:19Z', steps, [
+      cmpResult('login', 'COMPLETED', { status: 200 }),
+      cmpResult('pax', 'COMPLETED', { status: 200, body: '{"paxCount":2}' }),
+    ]);
+    const a = runSide(other);
+    const b = runSide(run);
+    const cmpReport = buildCompareReport(compareRuns(a, b, () => []), a, b, 'Booking', NOW);
+
+    it('.html and .md answer first, explain themselves, keep both responses in full and mask secrets', () => {
+      for (const doc of [buildHtmlCompareReport(cmpReport), buildMarkdownCompareReport(cmpReport)]) {
+        expect(doc).toContain('Relive run comparison: Booking');
+        expect(doc).toContain('B is worse:');
+        expect(doc).toContain('About this document');
+        expect(doc).toContain(big);
+        expect(doc).not.toContain('S3CRET');
+      }
+      expect(buildMarkdownCompareReport(cmpReport)).toContain('{\n  "paxCount": 2\n}');
+      expect(buildHtmlCompareReport(cmpReport)).toContain('<span class="tk">&quot;paxCount&quot;</span>: <span class="tn">2</span>');
+    });
+
+    it('.json starts with what it is and keeps both sides unmasked', () => {
+      const json = JSON.parse(buildJsonCompareReport(cmpReport));
+      expect(Object.keys(json).slice(0, 2)).toEqual(['format', 'about']);
+      expect(json.format).toBe('alfred.relive.run-comparison/v1');
+      expect(json.counts.newFailures).toBe(1);
+      const pax = json.steps.find((s: { key: string }) => s.key === 'pax');
+      expect(pax.verdict).toBe('new failure');
+      expect(pax.a.response.body).toEqual({ paxCount: 2 });
+      expect(pax.b.response.body.blob).toBe(big);
+      expect(pax.b.response.body.message).toContain('S3CRET');
+    });
+  });
+
+  it('pretty-prints JSON bodies and leaves anything else as it came', () => {
+    expect(prettyBody('{"a":1}')).toBe('{\n  "a": 1\n}');
+    expect(prettyBody('<x/>')).toBe('<x/>');
+    expect(prettyBody('{broken')).toBe('{broken');
   });
 });

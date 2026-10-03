@@ -12,7 +12,8 @@ import {
   recordingSide,
   runSide,
 } from '../../shared/utils/relive-run-compare';
-import { buildHtmlRunReport, buildJsonRunReport, buildMarkdownRunReport, rowsFor } from '../../shared/utils/relive-run-export';
+import { buildHtmlRunReport, buildJsonRunReport, buildMarkdownRunReport } from '../../shared/utils/relive-run-export';
+import { buildRunReport, fileSafe } from '../../shared/utils/relive-run-report';
 import { CycleRule, CycleVariable, NoiseRule, Run, Step } from '../../shared/utils/relive-types';
 import { ReliveLiveCallsComponent } from '../relive-live-calls/relive-live-calls.component';
 import { ReliveRunCompareComponent } from '../relive-run-compare/relive-run-compare.component';
@@ -394,16 +395,11 @@ export class ReliveHistoryComponent implements OnInit {
   /** Export never truncates a step's full actual response body - see relive-run-export.ts. */
   exportRun(run: Run, format: ExportFormat): void {
     this.api.getRun(this.cycleId(), run.id).subscribe((full) => {
-      const rows = rowsFor(full.definition.steps, latestByStepKey(full.stepResults));
-      const secretNames = full.definition.variables.filter((v) => v.secret).map((v) => v.name);
-      const variables: Record<string, string> = {};
-      for (const v of full.seedVariables) variables[v.name] = v.value;
-      for (const v of full.variableTimeline) variables[v.name] = v.value;
-      const name = `relive-run-${full.startedAt.replace(/[^a-z0-9]+/gi, '-')}`;
-
-      if (format === 'markdown') downloadText(buildMarkdownRunReport(rows, full.cycleId, secretNames, variables), `${name}.md`, 'text/markdown');
-      if (format === 'html') downloadText(buildHtmlRunReport(rows, full.cycleId, secretNames, variables), `${name}.html`, 'text/html');
-      if (format === 'json') downloadText(buildJsonRunReport(full.cycleId, rows), `${name}.json`, 'application/json');
+      const report = buildRunReport(full, new Date().toISOString());
+      const name = `relive-run-${fileSafe(report.cycle.name)}-${fileSafe(full.startedAt)}`;
+      if (format === 'markdown') downloadText(buildMarkdownRunReport(report), `${name}.md`, 'text/markdown');
+      if (format === 'html') downloadText(buildHtmlRunReport(report), `${name}.html`, 'text/html');
+      if (format === 'json') downloadText(buildJsonRunReport(report, { results: latestByStepKey(full.stepResults) }), `${name}.json`, 'application/json');
     });
   }
 }
