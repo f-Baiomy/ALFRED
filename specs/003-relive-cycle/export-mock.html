@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Relive exports - redesign (mock)</title>
+<style>
+  /* Mock chrome (the switcher) */
+  body { margin: 0; background: #0b0b0d; color: #f2f2f5; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  .chrome { position: sticky; top: 0; z-index: 20; background: #101012; border-bottom: 1px solid #26262a; padding: 12px 20px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .chrome h1 { font-size: 15px; margin: 0 12px 0 0; }
+  .seg { display: inline-flex; border: 1px solid #333; border-radius: 9px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: #9a9aa2; padding: 6px 14px; font: inherit; cursor: pointer; }
+  .seg button.on { background: #5b8def; color: #fff; }
+  .chrome .hint { color: #6b6b73; font-size: 12.5px; }
+  .notes { max-width: 1100px; margin: 18px auto 0; padding: 0 20px; color: #9a9aa2; font-size: 13px; }
+  .notes h2 { color: #f2f2f5; font-size: 14px; margin: 14px 0 4px; }
+  .notes li { margin: 3px 0; }
+  .frame { max-width: 1180px; margin: 16px auto 60px; padding: 0 20px; }
+  .src { background: #0e0e10; border: 1px solid #26262a; border-radius: 10px; padding: 18px 20px; font: 12.5px/1.6 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; color: #dcdce2; overflow-x: auto; }
+  .src .h { color: #8fb2f7; font-weight: 700; } .src .q { color: #9a9aa2; } .src .k { color: #8fb2f7; } .src .s { color: #7ee3a0; } .src .n { color: #e3a24a; } .src .c { color: #6b6b73; }
+
+  /* ---- The exported HTML document itself (slate, same palette as html-builder.ts) ---- */
+  .doc { --bg: #141416; --card: #1b1b1d; --card-inner: #0e0e10; --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.18);
+         --blue: #5b8def; --blue-light: #8fb2f7; --violet: #a78bfa; --cyan: #7ee3d8; --text: #f2f2f5; --dim: #8b8b93; --faint: #5b5b63;
+         --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a; --mono: "SFMono-Regular", Consolas, monospace;
+         background: var(--bg); color: var(--text); border-radius: 12px; border: 1px solid #26262a; display: grid; grid-template-columns: 220px minmax(0, 1fr); line-height: 1.55; }
+  .doc a { color: var(--blue-light); text-decoration: none; }
+  .toc { position: sticky; top: 64px; align-self: start; padding: 22px 14px 22px 18px; border-right: 1px solid var(--border); font-size: 12.5px; max-height: calc(100vh - 80px); overflow: auto; }
+  .toc b { display: block; color: var(--faint); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; margin: 14px 0 6px; }
+  .toc a { display: flex; gap: 6px; align-items: center; padding: 3px 6px; border-radius: 6px; color: var(--dim); }
+  .toc a:hover { background: var(--card); color: var(--text); }
+  .toc .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .main { padding: 26px 30px 40px; min-width: 0; }
+  .kicker { color: var(--faint); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+  .main h1 { font-size: 24px; margin: 2px 0 6px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--dim); font-size: 13px; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .verdict { margin: 18px 0 0; padding: 14px 16px; border-radius: 10px; background: var(--card); border: 1px solid var(--border); font-size: 15.5px; }
+  .verdict.bad { border-left: 4px solid var(--red); } .verdict.mid { border-left: 4px solid var(--amber); } .verdict.good { border-left: 4px solid var(--green); }
+  .verdict .lead { font-weight: 700; } .verdict.bad .lead { color: var(--red); } .verdict.mid .lead { color: var(--amber); } .verdict.good .lead { color: var(--green); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 12px 0 4px; }
+  .tile { background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+  .tile b { display: block; font-size: 22px; } .tile span { color: var(--dim); font-size: 12px; }
+  .tile.on { border-color: var(--blue); }
+  .section { margin-top: 30px; }
+  .section > h2 { font-size: 17px; margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; }
+  .section > h2 small { color: var(--faint); font-weight: 400; font-size: 12.5px; }
+  .about { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; }
+  .about p { margin: 0 0 10px; } .about p:last-child { margin: 0; }
+  .about dl { display: grid; grid-template-columns: 150px 1fr; gap: 4px 14px; margin: 10px 0 0; font-size: 13px; }
+  .about dt { color: var(--dim); } .about dd { margin: 0; }
+  table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.t th { text-align: left; color: var(--faint); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border-strong); }
+  table.t td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.t tr.child td:nth-child(2) { padding-left: 26px; }
+  table.t tr:hover td { background: rgba(255,255,255,.02); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .ok { color: var(--green); border-color: rgba(126,227,160,.45); background: rgba(126,227,160,.08); }
+  .diff { color: var(--amber); border-color: rgba(227,162,74,.5); background: rgba(227,162,74,.08); }
+  .fail { color: var(--red); border-color: rgba(227,106,106,.5); background: rgba(227,106,106,.08); }
+  .skip { color: var(--dim); border-color: var(--border-strong); }
+  .live { color: #fb923c; border-color: rgba(251,146,60,.5); } .replay { color: var(--cyan); border-color: rgba(126,227,216,.45); }
+  .attn { display: grid; gap: 8px; }
+  .attn .item { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: start; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .attn .item .why { color: var(--dim); font-size: 13px; }
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin: 14px 0; overflow: hidden; }
+  .step.child { margin-left: 28px; }
+  .step-head { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .step-head .num { color: var(--faint); font-family: var(--mono); font-size: 12px; }
+  .step-head h3 { margin: 0; font-size: 15px; }
+  .step-head .path { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+  .step-body { padding: 12px 16px 14px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .fact { background: var(--card-inner); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; }
+  .fact span { display: block; color: var(--faint); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+  .why-box { border-left: 3px solid var(--red); background: rgba(227,106,106,.06); padding: 8px 12px; border-radius: 0 8px 8px 0; margin: 4px 0 10px; font-size: 13.5px; }
+  .why-box.mid { border-color: var(--amber); background: rgba(227,162,74,.06); }
+  h4 { margin: 14px 0 6px; font-size: 11.5px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+  .val { font-family: var(--mono); font-size: 12px; border-radius: 5px; padding: 1px 6px; overflow-wrap: anywhere; }
+  .val.rec { background: rgba(255,255,255,.05); color: var(--dim); } .val.act { background: rgba(91,141,239,.12); color: var(--blue-light); }
+  .val.a { background: rgba(91,141,239,.12); color: var(--blue-light); } .val.b { background: rgba(167,139,250,.14); color: #c4b5fd; }
+  details { border: 1px solid var(--border); border-radius: 8px; margin: 6px 0; background: var(--card-inner); }
+  summary { cursor: pointer; padding: 7px 12px; font-size: 13px; color: var(--dim); display: flex; gap: 10px; align-items: center; }
+  summary b { color: var(--text); font-weight: 600; }
+  summary .sp { flex: 1; }
+  .copy { font: inherit; font-size: 11.5px; background: none; border: 1px solid var(--border-strong); color: var(--dim); border-radius: 6px; padding: 1px 8px; cursor: pointer; }
+  pre.code { margin: 0; padding: 10px 14px; border-top: 1px solid var(--border); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: #dcdce2; }
+  .tk { color: #8fb2f7; } .ts { color: #7ee3a0; } .tn { color: #e3a24a; } .tb { color: #e37ec4; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .side { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  .side.a { border-color: rgba(91,141,239,.55); } .side.b { border-color: rgba(167,139,250,.6); }
+  .slot { display: inline-flex; width: 20px; height: 20px; border-radius: 5px; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; }
+  .slot.a { background: var(--blue); } .slot.b { background: var(--violet); }
+  .bar { position: relative; height: 8px; background: var(--card-inner); border-radius: 4px; margin-top: 3px; width: 120px; }
+  .bar i { position: absolute; left: 0; height: 4px; border-radius: 2px; } .bar i.a { top: 0; background: var(--blue); } .bar i.b { top: 4px; background: var(--violet); }
+  .up { color: var(--red); } .down { color: var(--green); }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+  .filters button { font: inherit; font-size: 12px; background: var(--card-inner); color: var(--dim); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+  .filters button.on { border-color: var(--blue); color: var(--text); }
+  .gloss dt { font-weight: 600; } .gloss dd { margin: 0 0 8px; color: var(--dim); }
+  .foot { margin-top: 34px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+  @media print { .toc, .filters, .copy { display: none; } .doc { display: block; } details { break-inside: avoid; } details:not([open]) > pre { display: block; } }
+</style>
+</head>
+<body>
+<div class="chrome">
+  <h1>Relive exports - redesign</h1>
+  <div class="seg" id="kind"><button data-k="run" class="on">Run report</button><button data-k="cmp">Comparison report</button></div>
+  <div class="seg" id="fmt"><button data-f="html" class="on">.html</button><button data-f="md">.md</button><button data-f="json">.json</button></div>
+  <span class="hint">Same sample data in every view: cycle "Booking", run of Oct 2, 6:33 PM (B) vs Oct 2, 3:49 PM (A).</span>
+</div>
+
+<div class="notes">
+  <h2>What changes, for every format</h2>
+  <ul>
+    <li><b>Opens with an answer, then "About this document"</b> - one verdict line, then plain-language prose generated from the run: what Relive is, what this run did, what failed and why, how to read the rest. The same text in .html, .md and .json (<code>about</code> is the first key), like the main call exports' <i>About This Document</i>.</li>
+    <li><b>Cycle name, not its id</b> (today the title is a UUID), real dates, duration, driver, who/what each step called (method + URL), LIVE / REPLAY, and outcomes in words (<i>failed</i>, not <code>FAILED</code>/<code>COMPLETED_WITH_DIFFERENCES</code>).</li>
+    <li><b>Needs attention first</b>: failed steps and steps with differences, each with its reason in one sentence, linked to the step.</li>
+    <li><b>Every step is one card</b>: facts (mode, status recorded → this run, time recorded → this run, rules, variables), why it failed, the differences as a table (field | recorded | this run | noise or not), then request sent, response received and the recorded response - pretty-printed, full, never truncated (hard rule), folded in .html / .md so the page stays readable.</li>
+    <li><b>Children under their parent</b> (an inbound step and the supplier calls it made), numbered 1, 1.1, 1.2, 2…</li>
+    <li><b>Values captured</b> and the <b>run log</b> at the end, then a short <b>glossary</b> (LIVE, REPLAY, noise, attribution…) so a reader outside ALFRED - or an AI agent - can follow every term.</li>
+    <li><b>.html</b>: self-contained, slate palette of the other exports, sticky contents on the left with each step's colour, filter chips (All / Failed / Differences), copy buttons on bodies, prints cleanly. <b>.md</b>: GitHub-flavoured, tables + <code>&lt;details&gt;</code> folds, renders well on GitHub / in an editor / in a chat with an agent. <b>.json</b>: <code>format</code> + <code>about</code> first, readable field names, both nested by step - secrets left unmasked as today (it is the data format; .html and .md mask them).</li>
+    <li>The comparison report gets the same treatment, with A (blue) and B (violet) side by side, and the run report from the History column menu, the run view and the comparison use one builder each.</li>
+  </ul>
+</div>
+
+<div class="frame" id="out"></div>
+
+<script>
+const J = (o) => JSON.stringify(o, null, 2);
+function hl(json) {
+  return json.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/("(?:\\.|[^"\\])*")(\s*:)?/g, (m, s, colon) => colon ? `<span class="tk">${s}</span>${colon}` : `<span class="ts">${s}</span>`)
+    .replace(/\b(-?\d+(?:\.\d+)?)\b(?![^<]*>)/g, '<span class="tn">$1</span>')
+    .replace(/\b(true|false|null)\b(?![^<]*>)/g, '<span class="tb">$1</span>');
+}
+const bodyPax = J({ price: { supplier: 'price', live: true, echo: { fare: 'supplierB-1' }, fares: [{ id: 'price-1', total: 105 }] } });
+const body502 = J({ error: 'Bad gateway', detail: 'upstream supplierB timed out after 30000 ms' });
+
+// ---------------- RUN REPORT ----------------
+function runHtml() {
+  return `<div class="doc">
+  <nav class="toc">
+    <b>This report</b>
+    <a href="#">Summary</a><a href="#">About this document</a><a href="#">Needs attention (2)</a><a href="#">All steps</a><a href="#">Values captured</a><a href="#">Run log</a><a href="#">Glossary</a>
+    <b>Steps</b>
+    <a href="#"><i class="dot" style="background:var(--green)"></i>1 POST /login</a>
+    <a href="#"><i class="dot" style="background:var(--amber)"></i>2 POST /search</a>
+    <a href="#" style="padding-left:18px"><i class="dot" style="background:var(--green)"></i>2.1 supplierA</a>
+    <a href="#" style="padding-left:18px"><i class="dot" style="background:var(--green)"></i>2.2 supplierB</a>
+    <a href="#"><i class="dot" style="background:var(--red)"></i>3 POST /price</a>
+    <a href="#" style="padding-left:18px"><i class="dot" style="background:var(--red)"></i>3.1 supplierB /price</a>
+    <a href="#"><i class="dot" style="background:var(--faint)"></i>4 POST /book</a>
+  </nav>
+  <div class="main">
+    <div class="kicker">ALFRED · Relive run report</div>
+    <h1>Booking</h1>
+    <div class="meta"><span>Run started <b>Oct 2, 2026, 6:33:11 PM</b></span><span>took <b>7 s</b></span><span>driver <b>Automatic</b></span><span>status <span class="pill fail">✕ failed</span></span><span>exported Oct 3, 2026, 9:12 AM</span></div>
+
+    <div class="verdict bad"><span class="lead">Failed at step 3, POST /price:</span> supplierB answered <b>502 Bad gateway</b> where the recording had 200. 4 of 7 steps passed, 1 has differences, step 4 did not run.</div>
+    <div class="tiles">
+      <div class="tile on"><b>7</b><span>steps</span></div>
+      <div class="tile"><b style="color:var(--green)">4</b><span>passed</span></div>
+      <div class="tile"><b style="color:var(--amber)">1</b><span>differences</span></div>
+      <div class="tile"><b style="color:var(--red)">2</b><span>failed</span></div>
+      <div class="tile"><b style="color:var(--dim)">1</b><span>not run</span></div>
+      <div class="tile"><b style="color:#fb923c">3</b><span>reached a real system (LIVE)</span></div>
+    </div>
+
+    <div class="section"><h2>About this document</h2>
+      <div class="about">
+        <p><b>What this is.</b> A record of one <i>Relive run</i> in ALFRED. A Relive cycle is a saved sequence of HTTP calls that were recorded from real traffic - here 4 inbound requests into the application <b>odeysys</b> and the 3 calls it made to its suppliers while handling them. A run sends those calls again, in order, and checks each answer against what was recorded.</p>
+        <p><b>What happened.</b> This run started Oct 2, 2026 at 6:33 PM, was driven automatically by ALFRED, and stopped after 7 s at step 3 (POST /price) because its supplier call to supplierB failed with 502 - the recording had 200. Steps 1 and 2 passed (step 2 with one answer field that changed), step 4 (POST /book) was not run because the cycle holds on a failure.</p>
+        <p><b>How to read it.</b> "Needs attention" lists every step that failed or differed, with the reason. Each step below shows what was sent, what came back, and the recording it was compared with - every body in full. Values hidden as secrets show as •••. Words like LIVE, REPLAY and noise are explained in the glossary at the end.</p>
+        <dl><dt>Cycle</dt><dd>Booking · cycle version saved Oct 2, 2026, 5:10 PM</dd><dt>Run id</dt><dd class="mono">49ffe8cc-d5c1-4ad9-8519-75cf76e160bd</dd><dt>Recorded on</dt><dd>Oct 1, 2026, 11:20 AM (session 7f3a…)</dd><dt>Started from</dt><dd>the first step</dd><dt>Secrets</dt><dd>2 values masked (•••)</dd></dl>
+      </div>
+    </div>
+
+    <div class="section"><h2>Needs attention <small>2 failed · 1 with differences</small></h2>
+      <div class="attn">
+        <div class="item"><span class="pill fail">✗</span><div><b>3 · POST /price</b> <span class="dim mono">→ odeysys</span><div class="why">Failed: its supplier call 3.1 failed, so the app answered 502 instead of 200.</div></div><a href="#">step 3 ↓</a></div>
+        <div class="item"><span class="pill fail">✗</span><div><b>3.1 · supplierB POST /price</b> <span class="dim mono">LIVE</span><div class="why">Failed: the real supplier answered 502 Bad gateway ("upstream supplierB timed out after 30000 ms"); the recording had 200.</div></div><a href="#">step 3.1 ↓</a></div>
+        <div class="item"><span class="pill diff">≠</span><div><b>2 · POST /search</b><div class="why">Differences: 1 field of the answer changed - <span class="mono">body.journeys.length</span> 14 → 9. 2 more fields changed but are noise (a timestamp and a session id).</div></div><a href="#">step 2 ↓</a></div>
+      </div>
+    </div>
+
+    <div class="section"><h2>All steps</h2>
+      <div class="filters"><button class="on">All 7</button><button>Failed 2</button><button>Differences 1</button><button>Passed 4</button><button>Not run 1</button></div>
+      <table class="t">
+        <tr><th>#</th><th>Step</th><th>Mode</th><th>Outcome</th><th>Status rec → run</th><th>Time rec → run</th><th>Diffs</th></tr>
+        <tr><td>1</td><td><a href="#">POST /login</a></td><td><span class="pill live">LIVE</span></td><td><span class="pill ok">✓ passed</span></td><td class="mono">200 → 200</td><td class="mono">412 ms → 398 ms</td><td class="faint">-</td></tr>
+        <tr><td>2</td><td><a href="#">POST /search</a></td><td><span class="pill live">LIVE</span></td><td><span class="pill diff">≠ differences</span></td><td class="mono">200 → 200</td><td class="mono">321 ms → 3.1 s <span class="up">+865%</span></td><td>1 <span class="faint">+2 noise</span></td></tr>
+        <tr class="child"><td>2.1</td><td><a href="#">↗ supplierA POST /search</a></td><td><span class="pill replay">REPLAY</span></td><td><span class="pill ok">✓ passed</span></td><td class="mono">200 → 200</td><td class="mono">198 ms → 2 ms</td><td class="faint">-</td></tr>
+        <tr class="child"><td>2.2</td><td><a href="#">↗ supplierB POST /search</a></td><td><span class="pill replay">REPLAY</span></td><td><span class="pill ok">✓ passed</span></td><td class="mono">200 → 200</td><td class="mono">218 ms → 2 ms</td><td class="faint">-</td></tr>
+        <tr><td>3</td><td><a href="#">POST /price</a></td><td><span class="pill live">LIVE</span></td><td><span class="pill fail">✗ failed</span></td><td class="mono">200 → 502</td><td class="mono">118 ms → 114 ms</td><td>6</td></tr>
+        <tr class="child"><td>3.1</td><td><a href="#">↗ supplierB POST /price</a></td><td><span class="pill live">LIVE</span></td><td><span class="pill fail">✗ failed</span></td><td class="mono">200 → 502</td><td class="mono">29 ms → 30.0 s</td><td>2</td></tr>
+        <tr><td>4</td><td><a href="#">POST /book</a></td><td class="faint">-</td><td><span class="pill skip">– not run</span></td><td class="mono">200 → -</td><td class="mono">56 ms → -</td><td class="faint">-</td></tr>
+      </table>
+    </div>
+
+    <div class="section"><h2>Steps</h2>
+      <div class="step">
+        <div class="step-head"><span class="num">3</span><h3>POST /price</h3><span class="path">http://odeysys:8080/odeysysadmin/v2/price</span><span class="pill live">LIVE</span><span class="pill fail">✗ failed</span></div>
+        <div class="step-body">
+          <div class="why-box"><b>Why it failed:</b> the app answered <b>502</b> where the recording had <b>200</b> - a change of status class counts as a failure. Its supplier call 3.1 failed first.</div>
+          <div class="facts">
+            <div class="fact"><span>Status</span>200 recorded → <b style="color:var(--red)">502</b> this run</div>
+            <div class="fact"><span>Time</span>118 ms recorded → 114 ms</div>
+            <div class="fact"><span>Sent to</span>the real app (LIVE) · attribution: header</div>
+            <div class="fact"><span>Rules applied</span>step rule "Price - live"</div>
+            <div class="fact"><span>Variables used</span>{{$.sessionId}} = •••, {{$.searchId}} = S-99877</div>
+            <div class="fact"><span>Values saved</span>{{priceId}} - not found (step failed)</div>
+          </div>
+          <h4>Differences from the recording (6)</h4>
+          <table class="t">
+            <tr><th>Field</th><th>Recorded</th><th>This run</th><th>Counts?</th></tr>
+            <tr><td class="mono">status</td><td><span class="val rec">200</span></td><td><span class="val act">502</span></td><td><span class="pill fail">yes</span></td></tr>
+            <tr><td class="mono">body.price.supplier</td><td><span class="val rec">"price"</span></td><td><span class="val act">(not present)</span></td><td><span class="pill fail">yes</span></td></tr>
+            <tr><td class="mono">body.price.fares</td><td><span class="val rec">[{ "id": "price-1", "total": 105 }]</span></td><td><span class="val act">(not present)</span></td><td><span class="pill fail">yes</span></td></tr>
+            <tr><td class="mono">header date</td><td><span class="val rec">Thu, 01 Oct … 11:20</span></td><td><span class="val act">Fri, 02 Oct … 18:33</span></td><td><span class="pill skip">noise · changes every response</span></td></tr>
+          </table>
+          <h4>Request and response, in full</h4>
+          <details><summary><b>Request sent</b> POST http://odeysys:8080/odeysysadmin/v2/price · 4 headers · 182 B <span class="sp"></span><button class="copy">Copy</button></summary><pre class="code">${hl(J({ searchId: 'S-99877', journeyKey: 'J-3', pax: 2 }))}</pre></details>
+          <details open><summary><b>Response received</b> 502 · 3 headers · 96 B <span class="sp"></span><button class="copy">Copy</button></summary><pre class="code">${hl(body502)}</pre></details>
+          <details><summary><b>Recorded response</b> 200 · 5 headers · 412 B - what this run was compared with <span class="sp"></span><button class="copy">Copy</button></summary><pre class="code">${hl(bodyPax)}</pre></details>
+        </div>
+      </div>
+      <div class="step child"><div class="step-head"><span class="num">3.1</span><h3>↗ supplierB POST /price</h3><span class="path">http://host.docker.internal:9003/price</span><span class="pill live">LIVE</span><span class="pill fail">✗ failed</span></div>
+        <div class="step-body dim">… same card: why, facts, differences, request / response / recording …</div></div>
+      <div class="step"><div class="step-head"><span class="num">4</span><h3>POST /book</h3><span class="pill skip">– not run</span></div>
+        <div class="step-body dim">Not run: the run stopped at step 3 (the cycle holds on a failure). Recorded: POST http://odeysys:8080/odeysysadmin/v2/book → 200 in 56 ms. <details><summary><b>Recorded request and response</b></summary><pre class="code">…</pre></details></div></div>
+    </div>
+
+    <div class="section"><h2>Values captured <small>saved by steps and used by later ones</small></h2>
+      <table class="t"><tr><th>Variable</th><th>Value</th><th>Saved by</th><th>Used by</th></tr>
+        <tr><td class="mono">{{$.sessionId}}</td><td class="mono">•••</td><td>1 · POST /login</td><td>2, 3, 4</td></tr>
+        <tr><td class="mono">{{$.searchId}}</td><td class="mono">S-99877</td><td>2 · POST /search</td><td>3</td></tr>
+        <tr><td class="mono">{{priceId}}</td><td class="faint">not set - step 3 failed</td><td>3 · POST /price</td><td>4</td></tr></table>
+    </div>
+
+    <div class="section"><h2>Run log</h2>
+      <table class="t"><tr><th>Time</th><th>Step</th><th>What happened</th></tr>
+        <tr><td class="mono">18:33:11.020</td><td>-</td><td>Run started (Automatic, from the first step)</td></tr>
+        <tr><td class="mono">18:33:11.430</td><td>1</td><td>POST /login passed · 200 in 398 ms</td></tr>
+        <tr><td class="mono">18:33:14.540</td><td>2</td><td>POST /search completed with 1 difference</td></tr>
+        <tr><td class="mono">18:33:44.700</td><td>3.1</td><td>supplierB answered 502 after 30.0 s</td></tr>
+        <tr><td class="mono">18:33:44.820</td><td>3</td><td>POST /price failed · held, then stopped</td></tr></table>
+    </div>
+
+    <div class="section"><h2>Glossary</h2>
+      <dl class="gloss about">
+        <dt>Step / supplier call</dt><dd>A step is one inbound request into the app. The indented ↗ calls under it are the calls the app made to its suppliers while answering it.</dd>
+        <dt>LIVE · REPLAY</dt><dd>LIVE: the call really went to the system. REPLAY: ALFRED answered it with the recorded response, nothing left the machine.</dd>
+        <dt>Passed · differences · failed</dt><dd>Failed: an error, a timeout, no answer, a 5xx, a different status class (2xx → 4xx) or a failed check. Differences: answered normally but a field that matters changed. Passed: nothing that matters changed.</dd>
+        <dt>Noise</dt><dd>A field expected to change every time (timestamps, ids, tokens, trace headers, or fields the user marked). Listed, but never counted.</dd>
+        <dt>Attribution</dt><dd>How ALFRED knew a call belonged to this run: a header it set, the forwarded X-Operation-Id, or the step in flight at that moment.</dd>
+      </dl>
+    </div>
+    <div class="foot">Generated by ALFRED Relive · every request and response body is included in full, never shortened · secrets masked as •••; the .json export of this run keeps them.</div>
+  </div></div>`;
+}
+
+function runMd() {
+  return `<span class="h"># Relive run report: Booking</span>
+
+<span class="q">> **Failed at step 3, POST /price:** supplierB answered **502 Bad gateway** where the recording had 200.
+> 4 of 7 steps passed, 1 has differences, step 4 did not run.</span>
+
+| Run started | Took | Driver | Status | Exported |
+| --- | --- | --- | --- | --- |
+| Oct 2, 2026, 6:33:11 PM | 7 s | Automatic | ✕ failed | Oct 3, 2026, 9:12 AM |
+
+<span class="h">## About this document</span>
+
+**What this is.** A record of one *Relive run* in ALFRED. A Relive cycle is a saved sequence of HTTP calls recorded from
+real traffic - here 4 inbound requests into the application **odeysys** and the 3 calls it made to its suppliers while
+handling them. A run sends those calls again, in order, and checks each answer against what was recorded.
+
+**What happened.** This run started Oct 2, 2026 at 6:33 PM, was driven automatically by ALFRED, and stopped after 7 s at
+step 3 (POST /price) because its supplier call to supplierB failed with 502 - the recording had 200. …
+
+**How to read it.** "Needs attention" lists every step that failed or differed, with the reason. Each step shows what was
+sent, what came back and the recording it was compared with - every body in full. Secrets show as •••. Terms are
+explained in the glossary at the end.
+
+- **Cycle:** Booking (version saved Oct 2, 2026, 5:10 PM)
+- **Run id:** \`49ffe8cc-d5c1-4ad9-8519-75cf76e160bd\`
+- **Recorded on:** Oct 1, 2026, 11:20 AM
+
+<span class="h">## Needs attention</span>
+
+- ✗ **[3 · POST /price](#3-post-price)** - failed: its supplier call 3.1 failed, so the app answered 502 instead of 200.
+- ✗ **[3.1 · supplierB POST /price](#31-supplierb-post-price)** (LIVE) - failed: the real supplier answered 502 Bad gateway; the recording had 200.
+- ≠ **[2 · POST /search](#2-post-search)** - differences: \`body.journeys.length\` 14 → 9 (+2 noise fields).
+
+<span class="h">## All steps</span>
+
+| # | Step | Mode | Outcome | Status (recorded → run) | Time (recorded → run) | Diffs |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | POST /login | LIVE | ✓ passed | 200 → 200 | 412 ms → 398 ms | - |
+| 2 | POST /search | LIVE | ≠ differences | 200 → 200 | 321 ms → 3.1 s (+865%) | 1 (+2 noise) |
+| 2.1 | ↳ supplierA POST /search | REPLAY | ✓ passed | 200 → 200 | 198 ms → 2 ms | - |
+| 3 | POST /price | LIVE | ✗ failed | 200 → **502** | 118 ms → 114 ms | 6 |
+| 3.1 | ↳ supplierB POST /price | LIVE | ✗ failed | 200 → **502** | 29 ms → 30.0 s | 2 |
+| 4 | POST /book | - | – not run | 200 → - | 56 ms → - | - |
+
+<span class="h">## Steps</span>
+
+<span class="h">### 3 · POST /price  ✗ failed</span>
+
+\`POST http://odeysys:8080/odeysysadmin/v2/price\` · LIVE · attribution: header
+
+**Why it failed:** the app answered **502** where the recording had **200** - a change of status class counts as a
+failure. Its supplier call 3.1 failed first.
+
+| | Recorded | This run |
+| --- | --- | --- |
+| Status | 200 | **502** |
+| Time | 118 ms | 114 ms |
+| Rules applied | | step rule "Price - live" |
+| Variables used | | \`{{$.sessionId}}\` = •••, \`{{$.searchId}}\` = S-99877 |
+
+**Differences from the recording (6)**
+
+| Field | Recorded | This run | Counts? |
+| --- | --- | --- | --- |
+| \`status\` | 200 | 502 | yes |
+| \`body.price.supplier\` | "price" | (not present) | yes |
+| \`header date\` | Thu, 01 Oct … 11:20 | Fri, 02 Oct … 18:33 | no - noise (changes every response) |
+
+&lt;details&gt;&lt;summary&gt;Request sent - POST …/v2/price · 182 B&lt;/summary&gt;
+
+\`\`\`json
+{ "searchId": "S-99877", "journeyKey": "J-3", "pax": 2 }
+\`\`\`
+&lt;/details&gt;
+
+&lt;details open&gt;&lt;summary&gt;Response received - 502 · 96 B&lt;/summary&gt;
+
+\`\`\`json
+${body502}
+\`\`\`
+&lt;/details&gt;
+
+&lt;details&gt;&lt;summary&gt;Recorded response - 200 · 412 B (what this run was compared with)&lt;/summary&gt;
+…
+&lt;/details&gt;
+
+<span class="c">… one section like this per step, children numbered 3.1, 3.2 …</span>
+
+<span class="h">## Values captured</span>
+
+| Variable | Value | Saved by | Used by |
+| --- | --- | --- | --- |
+| \`{{$.sessionId}}\` | ••• | 1 · POST /login | 2, 3, 4 |
+| \`{{$.searchId}}\` | S-99877 | 2 · POST /search | 3 |
+| \`{{priceId}}\` | *not set - step 3 failed* | 3 · POST /price | 4 |
+
+<span class="h">## Run log</span>
+
+| Time | Step | What happened |
+| --- | --- | --- |
+| 18:33:11.020 | - | Run started (Automatic, from the first step) |
+| 18:33:44.700 | 3.1 | supplierB answered 502 after 30.0 s |
+
+<span class="h">## Glossary</span>
+
+- **Step / supplier call** - a step is one inbound request into the app; ↳ calls under it are what the app called while answering it.
+- **LIVE / REPLAY** - LIVE really went to the system; REPLAY was answered by ALFRED from the recording.
+- **Passed / differences / failed** - failed: error, timeout, no answer, 5xx, other status class, or a failed check …
+- **Noise** - fields expected to change every time; listed, never counted.
+
+<span class="c">---
+Generated by ALFRED Relive. Every body is included in full, never shortened. Secrets are masked as •••.</span>`;
+}
+
+function runJson() {
+  return hl(J({
+    format: 'alfred.relive.run-report/v1',
+    about: {
+      title: 'Relive run report: Booking',
+      verdict: 'Failed at step 3, POST /price: supplierB answered 502 Bad gateway where the recording had 200. 4 of 7 steps passed, 1 has differences, step 4 did not run.',
+      description: 'A record of one Relive run in ALFRED. A Relive cycle is a saved sequence of HTTP calls recorded from real traffic - here 4 inbound requests into the application odeysys and the 3 calls it made to its suppliers. A run sends those calls again, in order, and checks each answer against what was recorded. …',
+      howToRead: 'steps[] is in run order; a step with parent is a supplier call made while handling that parent. outcome is passed | differences | failed | not run. Each step has the request sent, the response received and the recording it was compared with, in full. differences[].counts=false means noise. Secrets are NOT masked in this file.',
+      glossary: { LIVE: 'the call really went to the system', REPLAY: 'ALFRED answered with the recorded response', noise: 'a field expected to change every time; listed, never counted', attribution: 'how ALFRED knew a call belonged to this run' },
+    },
+    run: { id: '49ffe8cc-d5c1-4ad9-8519-75cf76e160bd', cycle: { id: 'e8b6dee1-…', name: 'Booking', versionSavedAt: '2026-10-02T15:10:00Z' }, status: 'failed', driver: 'automatic', startedAt: '2026-10-02T16:33:11Z', finishedAt: '2026-10-02T16:33:18Z', durationMs: 7012, startedFromStep: null, exportedAt: '2026-10-03T07:12:00Z' },
+    summary: { steps: 7, passed: 4, differences: 1, failed: 2, notRun: 1, live: 3, replayed: 2 },
+    needsAttention: [
+      { number: '3', step: 'POST /price', outcome: 'failed', reason: 'Its supplier call 3.1 failed, so the app answered 502 instead of 200.' },
+      { number: '2', step: 'POST /search', outcome: 'differences', reason: 'body.journeys.length 14 → 9 (+2 noise fields).' },
+    ],
+    steps: [{
+      number: '3', key: '73714ebf-…', label: 'POST /price', direction: 'inbound', parent: null,
+      mode: 'LIVE', outcome: 'failed', reason: 'The app answered 502 where the recording had 200 - a change of status class counts as a failure.',
+      status: { recorded: 200, run: 502 }, durationMs: { recorded: 118, run: 114 }, attribution: 'header',
+      rulesApplied: [{ name: 'Price - live', tier: 'step' }],
+      variablesUsed: [{ name: '$.sessionId', value: 'GGnU6hZm…' }], variablesSaved: [],
+      differences: [{ field: 'status', recorded: '200', run: '502', counts: true }, { field: 'header date', recorded: 'Thu, 01 Oct …', run: 'Fri, 02 Oct …', counts: false, why: 'changes every response' }],
+      request: { method: 'POST', url: 'http://odeysys:8080/odeysysadmin/v2/price', headers: { 'content-type': 'application/json' }, body: { searchId: 'S-99877', journeyKey: 'J-3', pax: 2 } },
+      response: { status: 502, headers: { 'content-type': 'application/json' }, body: { error: 'Bad gateway', detail: 'upstream supplierB timed out after 30000 ms' } },
+      recorded: { request: '{ … in full … }', response: { status: 200, headers: {}, body: '{ … in full … }' }, durationMs: 118 },
+    }, '… every step, children right after their parent …'],
+    variables: [{ name: '$.sessionId', value: 'GGnU6hZm…', savedBy: '1', usedBy: ['2', '3', '4'] }],
+    log: [{ at: '2026-10-02T16:33:11.020Z', step: null, message: 'Run started (Automatic, from the first step)' }],
+  }));
+}
+
+// ---------------- COMPARISON REPORT ----------------
+function cmpHtml() {
+  return `<div class="doc">
+  <nav class="toc"><b>This report</b><a href="#">Verdict</a><a href="#">About this document</a><a href="#">What changed (5)</a><a href="#">Unchanged (2)</a><a href="#">Values captured</a><a href="#">Glossary</a>
+    <b>Changed steps</b>
+    <a href="#"><i class="dot" style="background:var(--red)"></i>3 POST /price</a><a href="#" style="padding-left:18px"><i class="dot" style="background:var(--red)"></i>3.1 supplierB /price</a><a href="#"><i class="dot" style="background:var(--red)"></i>4 POST /book</a><a href="#"><i class="dot" style="background:var(--green)"></i>2.1 supplierA</a><a href="#"><i class="dot" style="background:var(--green)"></i>2.2 supplierB</a></nav>
+  <div class="main">
+    <div class="kicker">ALFRED · Relive run comparison</div>
+    <h1>Booking - run A vs run B</h1>
+    <div class="two" style="margin-top:10px">
+      <div class="side a"><span class="slot a">A</span> <b>Oct 2, 2026, 3:49:19 PM</b> <span class="pill ok">✓ completed</span><div class="dim" style="font-size:13px">7/7 steps · 4 s · Automatic · cycle version Oct 2, 2:10 PM</div></div>
+      <div class="side b"><span class="slot b">B</span> <b>Oct 2, 2026, 6:33:11 PM</b> <span class="pill fail">✕ failed</span><div class="dim" style="font-size:13px">6/7 steps · 7 s · Automatic · cycle version Oct 2, 5:10 PM <span style="color:var(--amber)">(edited between A and B)</span></div></div>
+    </div>
+    <div class="verdict bad"><span class="lead">B is worse:</span> 3 new failures (POST /price, supplierB POST /price, POST /book). 2 faster steps. Nothing got fixed.</div>
+    <div class="tiles"><div class="tile on"><b style="color:var(--amber)">5</b><span>changed</span></div><div class="tile"><b style="color:var(--red)">3</b><span>new failures</span></div><div class="tile"><b style="color:var(--cyan)">0</b><span>fixed</span></div><div class="tile"><b style="color:var(--amber)">0</b><span>answers changed</span></div><div class="tile"><b style="color:var(--green)">2</b><span>faster</span></div><div class="tile"><b style="color:var(--dim)">2</b><span>same</span></div></div>
+
+    <div class="section"><h2>About this document</h2><div class="about">
+      <p><b>What this is.</b> A comparison of two runs of the same Relive cycle, <b>Booking</b>: run A (before) and run B (after). Both replayed the same recorded calls; this report shows, step by step, what came out differently - which steps started or stopped failing, whose answers changed, and which got slower or faster.</p>
+      <p><b>What changed.</b> Run B is worse. Step 3 (POST /price) and its supplier call to supplierB passed in A and failed in B - supplierB answered 502 after 30 s. Step 4 then failed too. The cycle was edited between the two runs, so a change may come from that edit rather than from the systems.</p>
+      <p><b>How to read it.</b> Fields expected to change every run (timestamps, ids, tokens, and fields the user marked as noise) are left out of "changed". Each changed step shows the fields that differ (A | B), what it sent differently, and both full responses. Secrets show as •••.</p>
+    </div></div>
+
+    <div class="section"><h2>Steps</h2>
+      <table class="t">
+        <tr><th>#</th><th>Step</th><th>A → B</th><th>Fields</th><th>Time A → B</th><th>Verdict</th></tr>
+        <tr><td>3</td><td><a href="#">POST /price</a></td><td><span class="pill ok">✓ 200</span> → <span class="pill fail">✗ 502</span></td><td>6</td><td class="mono">118 ms → 114 ms <span class="down">-3%</span><div class="bar"><i class="a" style="width:100%"></i><i class="b" style="width:96%"></i></div></td><td><span class="pill fail">✗ new failure</span></td></tr>
+        <tr class="child"><td>3.1</td><td><a href="#">↗ supplierB POST /price</a></td><td><span class="pill ok">✓ 200</span> → <span class="pill fail">✗ 502</span></td><td>2</td><td class="mono">29 ms → 30.0 s <span class="up">+103348%</span><div class="bar"><i class="a" style="width:1%"></i><i class="b" style="width:100%"></i></div></td><td><span class="pill fail">✗ new failure</span></td></tr>
+        <tr class="child"><td>2.1</td><td><a href="#">↗ supplierA POST /search</a></td><td><span class="pill ok">✓ 200</span> → <span class="pill ok">✓ 200</span></td><td class="faint">-</td><td class="mono">198 ms → 138 ms <span class="down">-30%</span><div class="bar"><i class="a" style="width:100%"></i><i class="b" style="width:70%"></i></div></td><td><span class="pill ok">▼ faster</span></td></tr>
+        <tr><td>1</td><td class="dim">POST /login</td><td class="dim">✓ → ✓</td><td class="faint">-</td><td class="mono dim">412 ms → 398 ms</td><td><span class="pill skip">same</span></td></tr>
+      </table>
+    </div>
+
+    <div class="section"><h2>What changed</h2>
+      <div class="step"><div class="step-head"><span class="num">3</span><h3>POST /price</h3><span class="path">http://odeysys:8080/odeysysadmin/v2/price</span><span class="pill fail">✗ new failure</span></div>
+        <div class="step-body">
+          <div class="two"><div class="side a"><span class="slot a">A</span> ✓ 200 · 118 ms · LIVE · rules: Price - live</div><div class="side b"><span class="slot b">B</span> ✗ 502 · 114 ms · LIVE · rules: Price - live</div></div>
+          <h4>Response fields that changed (6)</h4>
+          <table class="t"><tr><th>Field</th><th>A</th><th>B</th></tr>
+            <tr><td class="mono">status</td><td><span class="val a">200</span></td><td><span class="val b">502</span></td></tr>
+            <tr><td class="mono">body.price.supplier</td><td><span class="val a">"price"</span></td><td><span class="val b">(not present)</span></td></tr>
+            <tr><td class="mono">body.error</td><td><span class="val a">(not present)</span></td><td><span class="val b">"Bad gateway"</span></td></tr></table>
+          <h4>What it sent differently</h4>
+          <table class="t"><tr><th>What</th><th>A</th><th>B</th></tr><tr><td class="mono">{{$.searchId}}</td><td><span class="val a">S-99120</span></td><td><span class="val b">S-99877</span></td></tr></table>
+          <details><summary><b>Response A</b> 200 · 412 B <span class="sp"></span><button class="copy">Copy</button></summary><pre class="code">${hl(bodyPax)}</pre></details>
+          <details open><summary><b>Response B</b> 502 · 96 B <span class="sp"></span><button class="copy">Copy</button></summary><pre class="code">${hl(body502)}</pre></details>
+          <details><summary><b>Requests A and B</b></summary><pre class="code">…</pre></details>
+        </div></div>
+    </div>
+
+    <div class="section"><h2>Values captured <small>often why a later step differs</small></h2>
+      <table class="t"><tr><th>Variable</th><th>Saved by</th><th>A</th><th>B</th><th></th></tr>
+        <tr><td class="mono">{{$.searchId}}</td><td>2 · POST /search</td><td class="mono">S-99120</td><td class="mono">S-99877</td><td><span class="pill diff">changed</span></td></tr>
+        <tr><td class="mono">{{priceId}}</td><td>3 · POST /price</td><td class="mono">price-1</td><td class="faint">not set</td><td><span class="pill fail">missing in B</span></td></tr></table>
+    </div>
+    <div class="foot">Generated by ALFRED Relive · both responses of every step are included in full, never shortened · secrets masked as •••.</div>
+  </div></div>`;
+}
+
+function cmpMd() {
+  return `<span class="h"># Relive run comparison: Booking</span>
+
+<span class="q">> **B is worse:** 3 new failures (POST /price, supplierB POST /price, POST /book). 2 faster steps. Nothing got fixed.</span>
+
+| | Run | Result | Steps | Took | Cycle version |
+| --- | --- | --- | --- | --- | --- |
+| **A** (before) | Oct 2, 2026, 3:49:19 PM | ✓ completed | 7/7 | 4 s | Oct 2, 2:10 PM |
+| **B** (after) | Oct 2, 2026, 6:33:11 PM | ✕ failed | 6/7 | 7 s | Oct 2, 5:10 PM *(edited between A and B)* |
+
+<span class="h">## About this document</span>
+
+**What this is.** A comparison of two runs of the same Relive cycle, **Booking**: run A (before) and run B (after). …
+
+**What changed.** Run B is worse. Step 3 (POST /price) and its supplier call to supplierB passed in A and failed in B …
+
+**How to read it.** Noise fields are left out of "changed". Each changed step shows the fields that differ (A | B), what
+it sent differently, and both full responses. Secrets show as •••.
+
+| New failures | Fixed | Answers changed | Slower | Faster | Same |
+| --- | --- | --- | --- | --- | --- |
+| 3 | 0 | 0 | 0 | 2 | 2 |
+
+<span class="h">## Steps</span>
+
+| # | Step | A → B | Fields | Time A → B | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| 3 | POST /price | ✓ 200 → ✗ 502 | 6 | 118 ms → 114 ms (-3%) | ✗ new failure |
+| 3.1 | ↳ supplierB POST /price | ✓ 200 → ✗ 502 | 2 | 29 ms → 30.0 s | ✗ new failure |
+| 2.1 | ↳ supplierA POST /search | ✓ 200 → ✓ 200 | - | 198 ms → 138 ms (-30%) | ▼ faster |
+| 1 | POST /login | ✓ → ✓ | - | 412 ms → 398 ms | same |
+
+<span class="h">## What changed</span>
+
+<span class="h">### 3 · POST /price - ✗ new failure</span>
+
+| | A | B |
+| --- | --- | --- |
+| Outcome | ✓ 200 | ✗ 502 |
+| Time | 118 ms | 114 ms |
+
+**Response fields that changed (6)**
+
+| Field | A | B |
+| --- | --- | --- |
+| \`status\` | 200 | 502 |
+| \`body.price.supplier\` | "price" | (not present) |
+
+**What it sent differently**
+
+| What | A | B |
+| --- | --- | --- |
+| \`{{$.searchId}}\` | S-99120 | S-99877 |
+
+&lt;details&gt;&lt;summary&gt;Response A - 200 · 412 B&lt;/summary&gt; … full body … &lt;/details&gt;
+&lt;details open&gt;&lt;summary&gt;Response B - 502 · 96 B&lt;/summary&gt; … full body … &lt;/details&gt;
+
+<span class="h">## Values captured</span>
+
+| Variable | Saved by | A | B | |
+| --- | --- | --- | --- | --- |
+| \`{{$.searchId}}\` | 2 · POST /search | S-99120 | S-99877 | changed |
+| \`{{priceId}}\` | 3 · POST /price | price-1 | *not set* | missing in B |`;
+}
+
+function cmpJson() {
+  return hl(J({
+    format: 'alfred.relive.run-comparison/v1',
+    about: {
+      title: 'Relive run comparison: Booking',
+      verdict: 'B is worse: 3 new failures (POST /price, supplierB POST /price, POST /book). 2 faster steps. Nothing got fixed.',
+      description: 'A comparison of two runs of the same Relive cycle, Booking: run A (before) and run B (after). Both replayed the same recorded calls; this file shows, step by step, what came out differently. …',
+      howToRead: 'steps[] is in run order. verdict is new failure | fixed | answer changed | ran in one only | slower | faster | same. fields[] are response fields that differ (noise=true means expected to change every run). a and b hold each run\'s full request, response and result. Secrets are NOT masked in this file.',
+      glossary: { 'new failure': 'passed in A, failed in B', fixed: 'failed in A, passed in B', noise: 'a field expected to change every run; never makes a step changed' },
+    },
+    a: { label: 'A (before)', runId: '…', startedAt: '2026-10-02T13:49:19Z', status: 'completed', steps: '7/7', durationMs: 4100 },
+    b: { label: 'B (after)', runId: '49ffe8cc-…', startedAt: '2026-10-02T16:33:11Z', status: 'failed', steps: '6/7', durationMs: 7012, cycleEditedSinceA: true },
+    counts: { newFailures: 3, fixed: 0, answersChanged: 0, ranInOneOnly: 0, slower: 0, faster: 2, same: 2 },
+    steps: [{ number: '3', label: 'POST /price', verdict: 'new failure', a: { outcome: 'passed', status: 200, durationMs: 118, response: '{ … full … }' }, b: { outcome: 'failed', status: 502, durationMs: 114, response: '{ … full … }' }, timeChangePct: -3, fields: [{ field: 'status', a: '200', b: '502', noise: false }], sentDifferently: [{ what: '{{$.searchId}}', a: 'S-99120', b: 'S-99877' }] }, '…'],
+    variables: [{ name: '$.searchId', savedBy: '2 · POST /search', a: 'S-99120', b: 'S-99877', change: 'changed' }],
+  }));
+}
+
+let kind = 'run', fmt = 'html';
+function render() {
+  const out = document.getElementById('out');
+  if (fmt === 'html') out.innerHTML = kind === 'run' ? runHtml() : cmpHtml();
+  else out.innerHTML = `<div class="src">${fmt === 'md' ? (kind === 'run' ? runMd() : cmpMd()) : (kind === 'run' ? runJson() : cmpJson())}</div>`;
+}
+document.querySelectorAll('#kind button').forEach((b) => b.onclick = () => { kind = b.dataset.k; document.querySelectorAll('#kind button').forEach((x) => x.classList.toggle('on', x === b)); render(); });
+document.querySelectorAll('#fmt button').forEach((b) => b.onclick = () => { fmt = b.dataset.f; document.querySelectorAll('#fmt button').forEach((x) => x.classList.toggle('on', x === b)); render(); });
+render();
+</script>
+</body>
+</html>
