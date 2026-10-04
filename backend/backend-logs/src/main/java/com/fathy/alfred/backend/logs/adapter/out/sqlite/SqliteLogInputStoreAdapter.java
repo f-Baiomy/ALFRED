@@ -25,7 +25,7 @@ public class SqliteLogInputStoreAdapter implements LogInputStorePort {
             InputKind.valueOf(rs.getString("kind")), rs.getString("path"), rs.getString("file_name"), rs.getString("fingerprint"),
             InputStatus.valueOf(rs.getString("status")), rs.getString("status_reason"), rs.getLong("position"),
             rs.getLong("lines_read"), rs.getLong("total_bytes"), rs.getLong("mismatch_count"), rs.getLong("unparsed_count"),
-            rs.getString("started_at"), rs.getString("updated_at"));
+            rs.getString("started_at"), rs.getString("updated_at"), rs.getString("parent_id"), rs.getString("options"));
 
     private final SqliteLogsRepository repository;
 
@@ -53,13 +53,24 @@ public class SqliteLogInputStoreAdapter implements LogInputStorePort {
     public void save(LogInput in) {
         repository.jdbc().update("""
                 INSERT INTO log_input (id, source_id, kind, path, file_name, fingerprint, status, status_reason, position, lines_read,
-                  total_bytes, mismatch_count, unparsed_count, started_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  total_bytes, mismatch_count, unparsed_count, started_at, updated_at, parent_id, options)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET status = excluded.status, status_reason = excluded.status_reason,
                   total_bytes = excluded.total_bytes, path = excluded.path, fingerprint = excluded.fingerprint,
-                  updated_at = excluded.updated_at
+                  updated_at = excluded.updated_at, options = excluded.options
                 """, in.id(), in.sourceId(), in.kind().name(), in.path(), in.fileName(), in.fingerprint(), in.status().name(),
                 in.statusReason(), in.position(), in.linesRead(), in.totalBytes(), in.mismatchCount(), in.unparsedCount(),
-                in.startedAt(), Instant.now().toString());
+                in.startedAt(), Instant.now().toString(), in.parentId(), in.options());
+    }
+
+    @Override
+    public List<LogInput> byParent(String parentId) {
+        return repository.jdbc().query("SELECT * FROM log_input WHERE parent_id = ? ORDER BY file_name", INPUT, parentId);
+    }
+
+    @Override
+    public void setPosition(String inputId, long position) {
+        repository.jdbc().update("UPDATE log_input SET position = ? WHERE id = ?", position, inputId);
     }
 
     @Override

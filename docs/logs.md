@@ -118,10 +118,53 @@ Measured on Docker Desktop / Windows, loading the real `detail.log`:
 
 The same load on the bind mount with all other fixes took 391 s - the volume alone is ~13× on Windows.
 
+## Watched folders - live, notified, no timer (2026-10-04)
+
+`settings.properties` `logs_watch_dirs=name:path,...` (overridable in `.env` as `ALFRED_LOGS_WATCH_DIRS`) lists the
+folders Alfred LISTENS ON - separate from `logs_drop_dir`, which is only for loading files. `start.py`/`restart.py`
+(through `alfred_logwatch.py`) mount each read-only at `/watch/<name>` in the generated `docker-compose.override.yml`
+(a missing folder is skipped with a warning - Compose would refuse to start backend). Changing the list needs
+`restart.py`.
+
+- A **WATCH** input owns one **WATCHED_FILE** input per matching file (`LogWatchService`), so every file uses the
+  normal pipeline: positions saved per batch, restart without loss or duplicates, rotation.
+- **Start with:** everything / the last N lines (across files newest first, or per file -
+  `WatchFoldersPort.lastLines` walks back from the end, complete lines only) / only new lines.
+- **Rotated copies** (`detail.log.1`, `detail.log.2026-10-03`, matched by stripping the rotation suffix) are
+  *archives*: read once for the starting window, never followed. The live file's reader follows the rotation
+  itself (it finishes the renamed file's unread tail, then switches), so nothing is read twice. A new live file
+  is read from its first line; a new archive (a rotation) is ignored.
+- **Waiting is event-driven:** a reader that has read everything blocks in `FileChangeSignals` until its file is
+  signalled. Signals come from:
+  - `WatchServiceEvents` (`LOGS_WATCH_MODE=events`): the kernel (inotify) - Linux hosts, or a writer sharing a
+    Docker volume. Subfolders are registered as they appear; an `OVERFLOW` rescans the folder; a watch-limit
+    error names `fs.inotify.max_user_watches`.
+  - The **host log agent** (`LOGS_WATCH_MODE=agent`): Docker Desktop (Windows/macOS) delivers no host file events
+    into containers, so `log-agent/agent.py` (Python + `watchdog`, started/stopped by start.py/restart.py/stop.py)
+    receives the OS notifications and POSTs `/logs/agent/changes` (`X-Agent-Secret` = `ALFRED_LOGS_AGENT_SECRET`,
+    generated once into `.env`; constant-time compare; 503 when unset). Only "file X changed" crosses - the backend
+    reads the bytes from its own mount. On (re)connect it calls `/logs/agent/hello` and the backend rescans.
+  - `logs_watch_mode=auto` (default) picks agent on Windows/macOS, events on Linux.
+- Measured (Docker Desktop on Windows, agent): a line written to a watched file is searchable after **41-78 ms,
+  median 48 ms**. The explorer inserts new lines at the top without clearing or reloading the list (no flicker),
+  ~150 ms after the signal.
+- Linux limits: network shares (NFS/SMB) send no events for other machines' writes (run the agent on the writer);
+  buffered loggers show lines when they flush; `logrotate copytruncate` itself can lose lines (prefer `create`);
+  SELinux hosts get the `z` label on the mount.
+
+## Session recordings (2026-10-04)
+
+`log_session` (one JSON document per session). A session is a stretch of arrival time (`INGESTED` pill, epoch ms on
+`ll_<id>.ingested_ms`) plus either an optional filter (**time window**) or `EQ idField idValue` (**one ID** - only
+lines carrying it). Recording never pauses reading; markers are wall-clock notes; stopping pins the lines (kept
+forever) and stores line/error counts. Opening a session is an ordinary explorer query with its pills
+(`/logs/:id?session=<id>`), markers shown between the lines; `/logs/:id/sessions` lists, renames, annotates and
+deletes them (deleting keeps the lines).
+
 ## Deliberate exceptions (plan.md Complexity Tracking)
 
-- A followed file is checked every `LOGS_FOLLOW_STAT_MS` (1 s): bind mounts and network shares send no file events.
-  The UI never polls.
+- A single followed file under `/logs` ("Follow a file") is checked every `LOGS_FOLLOW_STAT_MS` (1 s): that folder
+  has no notifier. Watched folders (above) are notified instead and never use the timer. The UI never polls.
 - No flat-file adapter: per-field indexes, FTS and group aggregates over millions of lines have no file equivalent.
 - Tables and columns are created at runtime (`ALTER TABLE ADD COLUMN` for a field first seen mid-file).
 

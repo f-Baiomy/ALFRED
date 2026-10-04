@@ -56,3 +56,8 @@ proxy/interception/relive/
 
 # Logs Explorer server-file drop folder (mounted read-only at /logs)
 logs-drop/
+
+# Watched-folder log agent runtime files
+log-agent/agent.pid
+log-agent/agent.log
+logs-watch-demo/

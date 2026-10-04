@@ -925,6 +925,14 @@ public class SqliteLogLineStoreAdapter implements LogLineStorePort {
     }
 
     @Override
+    public long countErrors(String sourceId, LogStructure structure, LogQuery query) {
+        Sql w = SqliteLogQueryTranslator.where(sourceId, structure, query);
+        Long n = jdbc().queryForObject("SELECT count(*) FROM " + SqliteLogsRepository.lines(sourceId) + " WHERE " + w.where()
+                + " AND level = 'ERROR'", Long.class, w.params().toArray());
+        return n == null ? 0 : n;
+    }
+
+    @Override
     public List<String> matchingIds(String sourceId, LogStructure structure, LogQuery query, int max) {
         Sql w = SqliteLogQueryTranslator.where(sourceId, structure, query);
         List<Object> p = new ArrayList<>(w.params());

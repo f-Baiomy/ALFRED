@@ -1,0 +1,30 @@
+package com.fathy.alfred.backend.logs.application.port.in;
+
+import com.fathy.alfred.backend.logs.application.port.out.WatchFoldersPort;
+
+import java.util.List;
+
+/** Watched folders (settings.properties {@code logs_watch_dirs}) and how changes in them are noticed. */
+public interface WatchFoldersUseCase {
+
+    /**
+     * @param mode         "events" (the backend is notified by the kernel), "agent" (a host agent forwards the
+     *                     OS notifications - Docker Desktop on Windows/macOS) or "off"
+     * @param agentSeenAt  when the host agent last reported in (epoch ms), 0 = never since start
+     */
+    record Folders(List<WatchFoldersPort.Folder> folders, String mode, long agentSeenAt) {
+    }
+
+    Folders folders();
+
+    List<WatchFoldersPort.WatchedFile> files(String folder, String pattern, boolean subfolders);
+
+    /** A path below a watched folder changed (created, written, renamed or deleted). */
+    void changed(String folder, String relative);
+
+    /** Changes may have been missed (event queue overflow, agent reconnected): re-check every file of the folder. */
+    void rescan(String folder);
+
+    /** The host agent reported in (it then rescans: nothing written while it was away is missed). */
+    void agentSeen();
+}

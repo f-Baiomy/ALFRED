@@ -8,7 +8,7 @@ export type Role =
   | 'TIME' | 'LEVEL' | 'CORRELATION' | 'MESSAGE' | 'SERVICE' | 'DURATION' | 'STATUS' | 'REQUEST_BODY' | 'RESPONSE_BODY' | 'ERROR';
 export type GroupSort = 'TIME_ASC' | 'TIME_DESC' | 'ERRORS_DESC' | 'LINES_DESC' | 'MAX_DURATION_DESC' | 'ID_ASC';
 export type DataView = 'TABLE' | 'JSON';
-export type InputKind = 'UPLOAD' | 'SERVER_FILE' | 'FOLLOW' | 'PUSH' | 'OPENSEARCH';
+export type InputKind = 'UPLOAD' | 'SERVER_FILE' | 'FOLLOW' | 'PUSH' | 'OPENSEARCH' | 'WATCH' | 'WATCHED_FILE';
 export type InputStatus = 'QUEUED' | 'UPLOADING' | 'LOADING' | 'DONE' | 'FOLLOWING' | 'WAITING' | 'PAUSED' | 'FAILED';
 
 export interface FieldDef {
@@ -82,6 +82,77 @@ export interface LogInput {
   readonly unparsedCount: number;
   readonly startedAt: string;
   readonly updatedAt: string;
+  /** A WATCHED_FILE's folder input (WATCH). */
+  readonly parentId?: string | null;
+  /** WATCH: its WatchOptions as JSON; WATCHED_FILE: "archive" for a rotated copy read once. */
+  readonly options?: string | null;
+}
+
+/** A folder of settings.properties logs_watch_dirs, mounted at /watch/<name>. */
+export interface WatchFolder {
+  readonly name: string;
+  readonly hostPath: string;
+  /** False when configured but not mounted yet (restart needed). */
+  readonly available: boolean;
+}
+
+export interface WatchFolders {
+  readonly folders: readonly WatchFolder[];
+  /** events = notified by the kernel; agent = the host log agent reports changes (Docker Desktop). */
+  readonly mode: 'events' | 'agent' | 'off';
+  /** When the host agent last reported in (epoch ms); 0 = not since the backend started. */
+  readonly agentSeenAt: number;
+}
+
+export interface WatchedFile {
+  readonly path: string;
+  readonly relative: string;
+  readonly size: number;
+  readonly modified: number;
+  /** A rotated copy (detail.log.1): read once for the starting window, never followed. */
+  readonly archive: boolean;
+}
+
+export type WatchStart = 'ALL' | 'LAST' | 'NEW';
+
+export interface WatchOptions {
+  readonly folder: string;
+  readonly pattern: string;
+  readonly subfolders: boolean;
+  readonly start: WatchStart;
+  readonly lastLines: number;
+  /** N counted per file (true) or across all files, newest first (false). */
+  readonly perFile: boolean;
+}
+
+export interface SessionMarker {
+  readonly ts: number;
+  readonly text: string;
+}
+
+/** A recorded stretch of a live log: a time window (+ optional filter) or one value of one ID field. */
+export interface LogSession {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly name: string;
+  readonly notes: string;
+  readonly kind: 'WINDOW' | 'ID';
+  readonly pills: readonly Pill[];
+  readonly idField: string | null;
+  readonly idValue: string | null;
+  readonly startedAt: number;
+  /** null while recording. */
+  readonly endedAt: number | null;
+  readonly markers: readonly SessionMarker[];
+  readonly lineCount: number;
+  readonly errorCount: number;
+  readonly createdAt: string;
+}
+
+export interface SessionView {
+  readonly session: LogSession;
+  /** The explorer filter that shows exactly this session's lines. */
+  readonly pills: readonly Pill[];
 }
 
 export interface SourceView {
@@ -131,7 +202,7 @@ export interface LogPage {
   readonly slow: boolean;
 }
 
-export type PillOp = 'EQ' | 'NEQ' | 'GT' | 'LT' | 'BETWEEN' | 'EXISTS' | 'NOT_EXISTS' | 'TEXT' | 'SELECTION' | 'PATTERN';
+export type PillOp = 'EQ' | 'NEQ' | 'GT' | 'LT' | 'BETWEEN' | 'EXISTS' | 'NOT_EXISTS' | 'TEXT' | 'SELECTION' | 'PATTERN' | 'INGESTED';
 
 export interface Pill {
   readonly op: PillOp;
@@ -307,4 +378,5 @@ export type LogsSocketEvent =
     }
   | { readonly type: 'structure-changed'; readonly sourceId: string; readonly rebuilding: string | null }
   | { readonly type: 'sources-changed' }
-  | { readonly type: 'comment-changed'; readonly sourceId: string; readonly lineId: string | null };
+  | { readonly type: 'comment-changed'; readonly sourceId: string; readonly lineId: string | null }
+  | { readonly type: 'sessions-changed'; readonly sourceId: string };

@@ -37,6 +37,8 @@ export function pillText(p: Pill, formatTime: (ms: number) => string = (ms) => n
       return `selection only (${p.lineIds?.length ?? 0})`;
     case 'PATTERN':
       return `pattern #${p.value}`;
+    case 'INGESTED':
+      return `recorded ${formatTime(Number(p.from))} – ${p.to ? formatTime(Number(p.to)) : 'now'}`;
     default:
       return `${p.field} ${OP_SIGN[p.op]} ${p.value ?? ''}`;
   }

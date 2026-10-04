@@ -27,6 +27,9 @@ public interface ManageLogSourcesUseCase {
     /** Detects a structure from sample lines (uploads: read in the browser) or a server file (the first 1,000 lines). */
     Preview preview(List<String> sampleLines, String serverPath);
 
+    /** The same, from the first lines of one file of a watched folder (logs_watch_dirs). */
+    Preview previewWatched(String folder, String relativePath);
+
     SourceView create(String name, RawMode rawMode, PrivacyMode privacyMode, LogStructure structure);
 
     /** @param retentionMaxBytes 0 = keep every line; otherwise 100 MB - 500 GB */

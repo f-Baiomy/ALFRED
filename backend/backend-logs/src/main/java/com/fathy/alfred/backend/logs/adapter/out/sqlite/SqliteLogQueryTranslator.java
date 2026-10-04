@@ -81,6 +81,11 @@ final class SqliteLogQueryTranslator {
             case SELECTION -> Sql.of("line_id IN (" + p.lineIds().stream().map(x -> "?").collect(Collectors.joining(",")) + ")",
                     new ArrayList<>(p.lineIds()));
             case PATTERN -> Sql.of("pattern_id = ?", List.of(Long.parseLong(p.value())));
+            case INGESTED -> {
+                long from = p.from() == null || p.from().isBlank() ? 0 : Long.parseLong(p.from());
+                long to = p.to() == null || p.to().isBlank() ? Long.MAX_VALUE : Long.parseLong(p.to());
+                yield Sql.of("ingested_ms BETWEEN ? AND ?", List.of(from, to));
+            }
             case EXISTS -> Sql.of(text(field(s, p)) + " IS NOT NULL", List.of());
             case NOT_EXISTS -> Sql.of(text(field(s, p)) + " IS NULL", List.of());
             case EQ -> {

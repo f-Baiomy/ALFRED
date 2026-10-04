@@ -17,8 +17,11 @@ public record LogQuery(List<Pill> pills, Long from, Long to, Sort sort, String c
     /** Pseudo-field for EQ/NEQ pills on the structure a line belongs to ({@code structure:S2}). */
     public static final String STRUCTURE_FIELD = "structure";
 
-    /** PATTERN (value = pattern id) lists one pattern's lines in the Patterns view. */
-    public enum Op { EQ, NEQ, GT, LT, BETWEEN, EXISTS, NOT_EXISTS, TEXT, SELECTION, PATTERN }
+    /**
+     * PATTERN (value = pattern id) lists one pattern's lines in the Patterns view. INGESTED (from/to = epoch
+     * ms) selects lines by when ALFRED stored them - what a recorded session is.
+     */
+    public enum Op { EQ, NEQ, GT, LT, BETWEEN, EXISTS, NOT_EXISTS, TEXT, SELECTION, PATTERN, INGESTED }
 
     /** {@code field} is a label; {@code value}/{@code from}/{@code to} are compared using the field's type. */
     public record Pill(Op op, String field, String value, String from, String to, List<String> lineIds) {
@@ -41,7 +44,8 @@ public record LogQuery(List<Pill> pills, Long from, Long to, Sort sort, String c
             if (pill.op() == Op.SELECTION && (pill.lineIds() == null || pill.lineIds().size() > MAX_SELECTION)) {
                 throw new IllegalArgumentException("A selection filter holds 1-" + MAX_SELECTION + " lines");
             }
-            if (pill.op() != Op.TEXT && pill.op() != Op.SELECTION && pill.op() != Op.PATTERN && (pill.field() == null || pill.field().isBlank())) {
+            if (pill.op() != Op.TEXT && pill.op() != Op.SELECTION && pill.op() != Op.PATTERN && pill.op() != Op.INGESTED
+                    && (pill.field() == null || pill.field().isBlank())) {
                 throw new IllegalArgumentException("Filter " + pill.op() + " needs a field");
             }
         }

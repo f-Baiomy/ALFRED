@@ -102,10 +102,13 @@ public class LogIngestService {
     private long followStatMs;
 
     private final LogsChangeTracker tracker;
+    private final FileChangeSignals signals;
 
     public LogIngestService(LogSourceStorePort sources, LogInputStorePort inputs, LogLineStorePort lines, LineSourcePort lineSource,
-                            LogNotificationPort notifications, ObjectMapper objectMapper, LogsChangeTracker tracker) {
+                            LogNotificationPort notifications, ObjectMapper objectMapper, LogsChangeTracker tracker,
+                            FileChangeSignals signals) {
         this.tracker = tracker;
+        this.signals = signals;
         this.sources = sources;
         this.inputs = inputs;
         this.lines = lines;
@@ -142,7 +145,7 @@ public class LogIngestService {
     public void resumeAll() {
         for (LogInput in : inputs.all()) {
             if (EnumSet.of(InputStatus.LOADING, InputStatus.FOLLOWING, InputStatus.WAITING, InputStatus.QUEUED).contains(in.status())
-                    && in.path() != null) {
+                    && in.path() != null && in.kind() != InputKind.WATCH) { // a folder has no reader; its files do
                 if (RESUME_MARK.equals(in.statusReason())) {
                     saveStatus(in, InputStatus.FAILED, "Stopped the backend twice while loading (e.g. out of memory) - retry when fixed");
                     continue;
@@ -191,6 +194,7 @@ public class LogIngestService {
         AtomicBoolean flag = running.get(inputId);
         if (flag != null) {
             flag.set(true);
+            signals.signal(inputId); // a watched file waiting for a change notification wakes and stops
         }
         for (int i = 0; i < 100 && running.containsKey(inputId); i++) {
             try {
@@ -222,7 +226,8 @@ public class LogIngestService {
     private void run(String inputId, AtomicBoolean stop) throws IOException, InterruptedException {
         LogInput input = inputs.get(inputId).orElseThrow();
         LogSource source = sources.get(input.sourceId()).orElseThrow();
-        boolean follow = input.kind() == InputKind.FOLLOW;
+        boolean follow = input.followed();
+        boolean notified = input.kind() == InputKind.WATCHED_FILE; // waits for change notifications, no timer
         Path path = Path.of(input.path());
         if (!Files.exists(path) && !follow) {
             saveStatus(input, InputStatus.FAILED, "File not found");
@@ -258,7 +263,20 @@ public class LogIngestService {
                     saveStatus(inputs.get(inputId).orElse(input), InputStatus.DONE, null);
                     return;
                 }
-                boolean present = reader.awaitMore(followStatMs);
+                boolean present;
+                if (notified) {
+                    // Rotation and data written since the last read are checked without waiting; only
+                    // when there is truly nothing new does the reader block until notified.
+                    present = reader.awaitMore(0);
+                    if (!reader.hasUnread() && !signals.await(inputId, stop::get)) {
+                        break;
+                    }
+                    present = reader.awaitMore(0);
+                } else {
+                    // A single followed file under /logs: Docker Desktop bind mounts deliver no change
+                    // events, so it is checked every LOGS_FOLLOW_STAT_MS (watched folders are notified).
+                    present = reader.awaitMore(followStatMs);
+                }
                 LogInput now = inputs.get(inputId).orElse(input);
                 InputStatus want = present ? InputStatus.FOLLOWING : InputStatus.WAITING;
                 if (now.status() != want) {

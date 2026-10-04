@@ -109,6 +109,23 @@ public class SqliteLogsRepository {
                 )
                 """);
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_log_input_source ON log_input(source_id)");
+        // Watched folders (2026-10-04): a WATCHED_FILE input belongs to its folder input; a WATCH input keeps its options.
+        java.util.List<String> inputCols = jdbcTemplate.queryForList("SELECT name FROM pragma_table_info('log_input')", String.class);
+        if (!inputCols.contains("parent_id")) {
+            jdbcTemplate.execute("ALTER TABLE log_input ADD COLUMN parent_id TEXT");
+        }
+        if (!inputCols.contains("options")) {
+            jdbcTemplate.execute("ALTER TABLE log_input ADD COLUMN options TEXT");
+        }
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS log_session (
+                  id TEXT PRIMARY KEY,
+                  source_id TEXT NOT NULL,
+                  json TEXT NOT NULL,
+                  started_at INTEGER NOT NULL
+                )
+                """);
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_log_session_source ON log_session(source_id, started_at)");
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS log_upload (
                   id TEXT PRIMARY KEY,

@@ -24,6 +24,9 @@ describe('logs-query-parse', () => {
     expect(pillText({ op: 'NEQ', field: 'statusCode', value: '200' })).toBe('statusCode ≠ 200');
     expect(pillText({ op: 'EXISTS', field: 'error' })).toBe('error exists');
     expect(pillText({ op: 'SELECTION', lineIds: ['a', 'b'] })).toBe('selection only (2)');
+    // A recorded session's window; a session still recording runs to "now".
+    expect(pillText({ op: 'INGESTED', from: '1000', to: '2000' }, (ms) => `t${ms}`)).toBe('recorded t1000 – t2000');
+    expect(pillText({ op: 'INGESTED', from: '1000', to: null }, (ms) => `t${ms}`)).toBe('recorded t1000 – now');
     expect(pillClass({ op: 'NEQ', field: 'x', value: '1' })).toBe('lg-qp-neq');
     expect(pillClass({ op: 'BETWEEN', field: 't', from: '1', to: '2' })).toBe('lg-qp-range');
     expect(samePill({ op: 'EQ', field: 'a', value: '1' }, { op: 'EQ', field: 'a', value: '1' })).toBeTrue();

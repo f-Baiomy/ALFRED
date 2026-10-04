@@ -70,6 +70,14 @@ public class LogInputsController {
     @PostMapping("/sources/{id}/inputs")
     @ResponseStatus(HttpStatus.CREATED)
     public LogInput add(@PathVariable String id, @Valid @RequestBody AddInputRequestDto body) {
+        if (body.kind() == com.fathy.alfred.backend.logs.domain.model.InputKind.WATCH) {
+            var w = body.watch();
+            if (w == null) {
+                throw LogsException.bad("A watched folder needs its options");
+            }
+            return inputs.addWatch(id, new com.fathy.alfred.backend.logs.domain.model.WatchOptions(body.ref(), w.pattern(),
+                    w.subfolders(), w.start(), w.lastLines(), w.perFile()));
+        }
         return inputs.add(id, body.kind(), body.ref(), body.fingerprint(), body.fromStart(), body.confirmDuplicate());
     }
 

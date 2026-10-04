@@ -1,6 +1,6 @@
 import { Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
@@ -27,6 +27,8 @@ import {
   Pattern,
   Pill,
   SavedView,
+  SessionMarker,
+  SessionView,
   SourceView,
   STRUCTURE_FIELD,
 } from '../../core/models/logs.model';
@@ -49,6 +51,8 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 
 /** Live loads refresh the list every second but the whole-result aggregates at most this often. */
 const AGGREGATE_EVERY_MS = 15_000;
+/** A burst of live lines is shown after this short gathering delay (one-shot, not polling). */
+const LIVE_REFRESH_MS = 150;
 const PAGE = 200;
 const MAX_FETCH_FOR_EXPORT = 5000;
 const MINIMAP_BUCKETS = 200;
@@ -82,7 +86,57 @@ export class LogsExplorerComponent implements OnInit {
   private readonly socket = inject(LogsSocketService);
   private readonly redactionsApi = inject(RedactionsApiService);
   private readonly destroyRef = inject(DestroyRef);
-  readonly id = inject(ActivatedRoute).snapshot.paramMap.get('id') ?? '';
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  readonly id = this.route.snapshot.paramMap.get('id') ?? '';
+  /** /logs/:id?session=<id>: the explorer shows one recorded session. */
+  private readonly sessionParam = this.route.snapshot.queryParamMap.get('session');
+
+  // ---- live reading and session recordings
+  readonly liveRate = signal(0);
+  private rateWindow: { t: number; n: number }[] = [];
+  readonly lastLineAt = signal<number | null>(null);
+  /** Files read live right now (followed files and the live files of watched folders). */
+  readonly followedFiles = computed(() => (this.view$()?.inputs ?? []).filter((i) => i.status === 'FOLLOWING' && i.kind !== 'WATCH').length);
+  readonly recording = signal<SessionView | null>(null);
+  readonly recOpen = signal(false);
+  readonly recKind = signal<'WINDOW' | 'ID'>('WINDOW');
+  readonly recName = signal('');
+  readonly recUseFilter = signal(false);
+  readonly recIdField = signal('');
+  readonly recIdValue = signal('');
+  readonly recError = signal('');
+  readonly markerText = signal<string | null>(null);
+  readonly clock = signal(Date.now());
+  private clockTimer: ReturnType<typeof setInterval> | null = null;
+  readonly openSession = signal<SessionView | null>(null);
+  /** ID fields a session can follow: correlation roles and grouping levels first, then the rest. */
+  readonly idFields = computed(() => {
+    const first = new Set([...(this.roleLabels()['CORRELATION'] ?? []), ...this.levelLabels()]);
+    return [...first, ...this.fields().map((f) => f.label).filter((l) => !first.has(l))];
+  });
+  readonly recElapsed = computed(() => {
+    const r = this.recording();
+    if (!r) return '';
+    const s = Math.max(0, Math.round((this.clock() - r.session.startedAt) / 1000));
+    return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  });
+  /** The list with an open session's markers placed between the lines at their time. */
+  readonly displayRows = computed<({ kind: 'row'; r: LogLineSummary } | { kind: 'marker'; m: SessionMarker })[]>(() => {
+    const rows = this.rows();
+    const markers = [...(this.openSession()?.session.markers ?? [])];
+    if (!markers.length) return rows.map((r) => ({ kind: 'row' as const, r }));
+    const asc = false; // the list is newest first
+    markers.sort((a, b) => (asc ? a.ts - b.ts : b.ts - a.ts));
+    const out: ({ kind: 'row'; r: LogLineSummary } | { kind: 'marker'; m: SessionMarker })[] = [];
+    let k = 0;
+    for (const r of rows) {
+      while (k < markers.length && (asc ? markers[k].ts <= r.ts : markers[k].ts >= r.ts)) out.push({ kind: 'marker', m: markers[k++] });
+      out.push({ kind: 'row', r });
+    }
+    if (!this.cursor()) while (k < markers.length) out.push({ kind: 'marker', m: markers[k++] });
+    return out;
+  });
 
   private readonly listEl = viewChild<ElementRef<HTMLElement>>('list');
   private readonly queryInput = viewChild<ElementRef<HTMLInputElement>>('qin');
@@ -238,9 +292,20 @@ export class LogsExplorerComponent implements OnInit {
       this.dataView.set(this.storedDataView() ?? s.defaultDataView);
       this.api.lines(this.id, { pills: [], limit: 1 }).subscribe((p) => {
         this.newestTs.set(p.lines[0]?.ts ?? null);
-        this.refreshAll();
+        if (this.sessionParam) {
+          this.api.session(this.id, this.sessionParam).subscribe({
+            next: (sv) => this.applySession(sv),
+            error: () => {
+              this.error.set('That session does not exist (any more).');
+              this.refreshAll();
+            },
+          });
+        } else {
+          this.refreshAll();
+        }
       });
     });
+    this.loadRecording();
     this.loadViews();
     this.socket.events$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
       if (!('sourceId' in e) || e.sourceId !== this.id) return;
@@ -250,10 +315,18 @@ export class LogsExplorerComponent implements OnInit {
         this.api.structure(this.id).subscribe((s) => this.structure.set(s));
       }
       if (e.type === 'comment-changed') this.reloadComments(e.lineId);
+      if (e.type === 'sessions-changed') {
+        this.loadRecording();
+        const open = this.openSession();
+        if (open) this.api.session(this.id, open.session.id).subscribe((s) => this.openSession.set(s));
+      }
+      if (e.type === 'input-progress') this.api.source(this.id).subscribe((v) => this.view$.set(v));
     });
     this.socket.reconnected$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refreshAll());
     this.destroyRef.onDestroy(() => {
       if (this.aggregateTimer) clearTimeout(this.aggregateTimer);
+      if (this.clockTimer) clearInterval(this.clockTimer);
+      if (this.freshTimer) clearTimeout(this.freshTimer);
       if (this.refreshTimer) clearTimeout(this.refreshTimer);
     });
   }
@@ -329,6 +402,35 @@ export class LogsExplorerComponent implements OnInit {
         this.loading.set(false);
         this.error.set(this.errorText(e));
       },
+    });
+  }
+
+  /** Lines that just arrived live, briefly highlighted. */
+  readonly freshIds = signal<ReadonlySet<string>>(new Set());
+  private freshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Live update without flicker: the newest page is fetched and only the lines not shown yet are
+   * inserted - the list is never cleared, nothing shows "Loading…", rows already open stay open, and
+   * the pages already loaded below stay as they are.
+   */
+  private refreshLive(): void {
+    if (this.mode() !== 'lines') return this.refreshList();
+    this.api.lines(this.id, this.query([], PAGE, null)).subscribe({
+      next: (p) => {
+        const shown = new Set(this.rows().map((r) => r.lineId));
+        const fresh = p.lines.filter((l) => !shown.has(l.lineId));
+        this.total.set(p.total);
+        this.tookMs.set(p.tookMs);
+        if (!fresh.length) return;
+        const top = new Set(p.lines.map((l) => l.lineId));
+        this.rows.update((rows) => [...p.lines, ...rows.filter((r) => !top.has(r.lineId))]);
+        if (!this.cursor()) this.cursor.set(p.nextCursor);
+        this.freshIds.set(new Set(fresh.map((l) => l.lineId)));
+        if (this.freshTimer) clearTimeout(this.freshTimer);
+        this.freshTimer = setTimeout(() => this.freshIds.set(new Set()), 1500);
+      },
+      error: (e) => this.error.set(this.errorText(e)),
     });
   }
 
@@ -608,6 +710,11 @@ export class LogsExplorerComponent implements OnInit {
 
   private onLinesAdded(count: number, newest: number): void {
     if (newest > (this.newestTs() ?? 0)) this.newestTs.set(newest);
+    // Lines per second over the last 5 s of "lines added" signals (computed when they arrive - no timer).
+    const now = Date.now();
+    this.rateWindow = [...this.rateWindow.filter((x) => now - x.t < 5000), { t: now, n: count }];
+    this.liveRate.set(Math.round(this.rateWindow.reduce((a, x) => a + x.n, 0) / 5));
+    this.lastLineAt.set(now);
     const el = this.listEl()?.nativeElement;
     if (this.live() && this.mode() === 'lines' && (!el || el.scrollTop < 10)) this.scheduleRefresh();
     else this.newCount.update((n) => n + count);
@@ -620,9 +727,102 @@ export class LogsExplorerComponent implements OnInit {
     if (this.refreshTimer) return;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
-      this.refreshList();
+      this.refreshLive();
       this.scheduleAggregates();
-    }, 1000);
+      this.refreshRecording();
+    }, LIVE_REFRESH_MS);
+  }
+
+  // ------------------------------------------------------------------ sessions
+
+  private loadRecording(): void {
+    this.api.sessions(this.id).subscribe((all) => {
+      const live = all.find((s) => s.session.endedAt === null) ?? null;
+      this.recording.set(live);
+      this.tickClock(!!live);
+    });
+  }
+
+  private refreshRecording(): void {
+    const r = this.recording();
+    if (r) this.api.session(this.id, r.session.id).subscribe((s) => this.recording.set(s.session.endedAt === null ? s : null));
+  }
+
+  /** A clock for the recording timer only (display; nothing is fetched on it). */
+  private tickClock(on: boolean): void {
+    if (on && !this.clockTimer) this.clockTimer = setInterval(() => this.clock.set(Date.now()), 1000);
+    if (!on && this.clockTimer) {
+      clearInterval(this.clockTimer);
+      this.clockTimer = null;
+    }
+  }
+
+  openRecord(): void {
+    this.recName.set(`Session ${new Date().toLocaleString()}`);
+    this.recIdField.set(this.idFields()[0] ?? '');
+    this.recError.set('');
+    this.recOpen.set(true);
+  }
+
+  startRecording(): void {
+    const kind = this.recKind();
+    const filter = this.recUseFilter() ? this.pills().filter((p) => p.op !== 'SELECTION' && p.op !== 'INGESTED') : [];
+    this.api.startSession(this.id, {
+      name: this.recName().trim(),
+      kind,
+      pills: kind === 'WINDOW' ? filter : [],
+      idField: kind === 'ID' ? this.recIdField() : null,
+      idValue: kind === 'ID' ? this.recIdValue().trim() : null,
+    }).subscribe({
+      next: (s) => {
+        this.recording.set(s);
+        this.recOpen.set(false);
+        this.tickClock(true);
+      },
+      error: (e) => this.recError.set((e as { error?: { error?: string } })?.error?.error || 'Could not start recording'),
+    });
+  }
+
+  addMarker(): void {
+    const r = this.recording();
+    const text = (this.markerText() ?? '').trim();
+    if (!r || !text) return;
+    this.api.markSession(this.id, r.session.id, text).subscribe((s) => {
+      this.recording.set(s);
+      this.markerText.set(null);
+    });
+  }
+
+  stopRecording(): void {
+    const r = this.recording();
+    if (!r) return;
+    this.api.stopSession(this.id, r.session.id).subscribe((s) => {
+      this.recording.set(null);
+      this.tickClock(false);
+      void this.router.navigate(['/logs', this.id], { queryParams: { session: s.session.id } }).then(() => this.applySession(s));
+    });
+  }
+
+  /** Shows one recorded session: its own filter, all time, its markers between the lines. */
+  applySession(s: SessionView): void {
+    this.openSession.set(s);
+    this.pills.set([...s.pills]);
+    this.range.set('all');
+    this.customRange.set(null);
+    this.refreshAll();
+  }
+
+  closeSession(): void {
+    this.openSession.set(null);
+    this.pills.set([]);
+    void this.router.navigate(['/logs', this.id]);
+    this.refreshAll();
+  }
+
+  sessionLength(s: { startedAt: number; endedAt: number | null }): string {
+    const ms = (s.endedAt ?? Date.now()) - s.startedAt;
+    const sec = Math.round(ms / 1000);
+    return sec < 60 ? `${sec} s` : `${Math.floor(sec / 60)} m ${sec % 60} s`;
   }
 
   jumpToNewest(): void {

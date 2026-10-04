@@ -97,6 +97,9 @@ public interface LogLineStorePort {
 
     long countMatching(String sourceId, LogStructure structure, LogQuery query);
 
+    /** Matching lines whose level is ERROR. */
+    long countErrors(String sourceId, LogStructure structure, LogQuery query);
+
     List<String> matchingIds(String sourceId, LogStructure structure, LogQuery query, int max);
 
     /**

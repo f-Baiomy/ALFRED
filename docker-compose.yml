@@ -313,6 +313,12 @@ services:
       - LOGS_DB_FILE=/logsdb/logs.db
       - LOGS_DB_LEGACY_FILE=/appdata/logs.db
       - LOGS_UPLOAD_DIR=/appdata/logs/uploads
+      # Watched log folders (settings.properties logs_watch_dirs), mounted at /watch/<name> by the
+      # generated docker-compose.override.yml. LOGS_WATCH_MODE: events (kernel notifications) or agent
+      # (the host log agent reports changes, authenticated by LOGS_AGENT_SECRET) - see alfred_logwatch.py.
+      - LOGS_WATCH_DIRS=${ALFRED_LOGS_WATCH_DIRS:-}
+      - LOGS_WATCH_MODE=${ALFRED_LOGS_WATCH_MODE_RESOLVED:-events}
+      - LOGS_AGENT_SECRET=${ALFRED_LOGS_AGENT_SECRET:-}
       - INTERCEPTION_RULES_FILE=/appdata/interception/rules.json
       - INTERCEPTION_VARIABLES_FILE=/appdata/interception/variables.json
       # Per stored answer (uploaded file or copied recorded response). There is deliberately no

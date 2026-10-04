@@ -91,7 +91,7 @@ class LogsIngestAndQueryIntegrationTest {
             public void sourcesChanged() { }
             public void commentChanged(String s, String l) { }
         };
-        ingest = new LogIngestService(sourceStore, inputStore, lineStore, new FileLineSource(), quiet, mapper, tracker);
+        ingest = new LogIngestService(sourceStore, inputStore, lineStore, new FileLineSource(), quiet, mapper, tracker, new FileChangeSignals());
         ReflectionTestUtils.setField(ingest, "dbFile", dir.resolve("logs.db").toString());
         ReflectionTestUtils.setField(ingest, "minFreeBytes", 0L);
         ReflectionTestUtils.setField(ingest, "followStatMs", 20L);
@@ -99,7 +99,10 @@ class LogsIngestAndQueryIntegrationTest {
         LocalLogFiles files = new LocalLogFiles();
         ReflectionTestUtils.setField(files, "rootDir", dir.resolve("drop").toString());
         ReflectionTestUtils.setField(files, "uploadDir", dir.resolve("uploads").toString());
-        sources = new LogSourcesService(sourceStore, inputStore, lineStore, commentStore, files, quiet, ingest, rebuild, mapper);
+        var watchFolders = new com.fathy.alfred.backend.logs.adapter.out.input.LocalWatchFolders();
+        var watch = new LogWatchService(watchFolders, inputStore, ingest, new FileChangeSignals(), quiet, mapper);
+        sources = new LogSourcesService(sourceStore, inputStore, lineStore, commentStore, files, quiet, ingest, rebuild, mapper, watch,
+                new com.fathy.alfred.backend.logs.adapter.out.sqlite.SqliteLogSessionStoreAdapter(repository, mapper));
         query = new LogQueryService(sourceStore, inputStore, lineStore, commentStore, new OffsetRawLineReader(), quiet, tracker);
 
         lines.add(line("2026-10-01T20:00:00Z", "INFO", "session start", "S1", null, null, null, "200"));

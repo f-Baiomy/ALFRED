@@ -47,6 +47,14 @@ maxPagesPerSecond ≤ 20, intervalSeconds ≥ 5, username?, password? }` - `pass
 | `POST` | `/logs/sources/{id}/patterns` | `Pattern[]` (filtered), `POST …/patterns/{pid}/lines` → paged lines |
 | `POST` | `/logs/sources/{id}/histogram` | `{ buckets: [{ from, to, byLevel }] }` (≤ 120) |
 | `POST` | `/logs/sources/{id}/minimap` | body: LogQuery + `condition: Pill?` (default ERROR/WARN) → `{ buckets: 200 × { matches, error, warn }, sampled }` (even sample above 5 M matches) |
+| `GET` | `/logs/watch-folders` | `{ folders: [{name, hostPath, available}], mode: events\|agent\|off, agentSeenAt }` |
+| `GET` | `/logs/watch-folders/{name}/files?pattern=&subfolders=` | matching files `{path, relative, size, modified, archive}` |
+| `POST` | `/logs/sources/{id}/inputs` | `kind: WATCH`, `ref: <folder>`, `watch: {folder, pattern, subfolders, start, lastLines, perFile}` → the WATCH input |
+| `POST` | `/logs/structure/preview` | also `{ watchFolder, watchPath }` (a file of a watched folder) |
+| `POST` | `/logs/agent/hello`, `/logs/agent/changes` | host agent only, header `X-Agent-Secret`; `{changes: [{folder, path}]}` (`path: "*"` = rescan) → 204; 403 wrong secret, 503 not configured |
+| `GET` / `POST` | `/logs/sources/{id}/sessions` | list / start `{name, kind: WINDOW\|ID, pills?, idField?, idValue?}` → `SessionView {session, pills}` |
+| `GET` / `PATCH` / `DELETE` | `/logs/sources/{id}/sessions/{sid}` | one session (live counts while recording) / `{name, notes}` / delete (lines kept) |
+| `POST` | `/logs/sources/{id}/sessions/{sid}/markers`, `/stop` | `{text}` marker / stop: pins and counts the lines |
 | `GET` | `/logs/sources/{id}/structures` | `LineStructures`: the structures among the lines, "seen in X %" per field (FR-045 as amended) |
 | `POST` | `/logs/sources/{id}/structures` | body `LogQuery` → the same, plus `matching` per structure for that query |
 | `PATCH` | `/logs/sources/{id}/structures/{structureId}` | `{ name, template }` (blank = automatic name / the source's template) → 204 |

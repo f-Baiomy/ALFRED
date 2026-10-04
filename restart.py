@@ -46,6 +46,8 @@ import platform
 import re
 import socket
 import subprocess
+
+import alfred_logwatch
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -223,7 +225,9 @@ def sync_compose_override(services, reverse_proxy_enabled=True):
     outboundProxyHost:outboundProxyPort on proxy (unconditionally - that feature has no flag)."""
     ports = _service_listen_ports(services) if reverse_proxy_enabled else []
     forward_assignments = _forward_proxy_assignments(services)
-    if not ports and not forward_assignments:
+    # Logs Explorer watched folders (logs_watch_dirs): one read-only mount each, at /watch/<name>.
+    watch_mounts = alfred_logwatch.override_lines(_read_env_file())
+    if not ports and not forward_assignments and not watch_mounts:
         if os.path.exists(COMPOSE_OVERRIDE_FILE):
             os.remove(COMPOSE_OVERRIDE_FILE)
             print("Removed docker-compose.override.yml (no inbound-logging or outbound-attribution projects configured)")
@@ -243,6 +247,8 @@ def sync_compose_override(services, reverse_proxy_enabled=True):
                 f'      - "{assignment["outbound_host"]}:{assignment["outbound_port"]}:'
                 f'{assignment["internal_port"]}"   # {assignment["name"]} (outbound attribution)\n'
             )
+
+    lines += watch_mounts
 
     with open(COMPOSE_OVERRIDE_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)
@@ -376,6 +382,8 @@ def sync_env_from_settings():
     env.setdefault("INTERNAL_CALLS_RETENTION_ROWS", _inbound_retention_rows(settings))
     # Host folder mounted read-only at /logs for the Logs Explorer's server-file inputs.
     env.setdefault("ALFRED_LOGS_DIR", settings.get("logs_drop_dir", "").strip() or "./logs-drop")
+    # Folders listened on live (logs_watch_dirs / logs_watch_mode) and the log agent's secret.
+    alfred_logwatch.sync_env(env, settings)
 
     reverse_proxy_enabled = env["REVERSE_PROXY_ENABLED"].strip().lower() == "true"
     services = env["INTERNAL_CALL_SERVICES"]
@@ -501,6 +509,7 @@ def main():
 
     print(f"Restarting: {', '.join(services)}")
     run(["docker", "compose", "up", "-d", "--build"] + services)
+    alfred_logwatch.ensure_agent(_read_env_file())
 
     print()
     print("=== Step: WildFly proxy (outbound, JVM Attach API) ===")

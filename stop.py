@@ -26,6 +26,8 @@ Usage:
 import os
 import platform
 import subprocess
+
+import alfred_logwatch
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -65,6 +67,7 @@ def toggle_wildfly_proxy_off():
 
 
 def stop_docker_compose():
+    alfred_logwatch.stop_agent()  # the watched-folder log agent, if this host runs one
     cmd = ["docker", "compose", "down", "--remove-orphans"]
     print(f"$ {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=SCRIPT_DIR)

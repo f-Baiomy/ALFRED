@@ -91,6 +91,19 @@ Terminology:
 - Q: Storage engine? → A: The current embedded store now; a document database will replace it later, so the
   design must not depend on the current engine.
 
+### Session 2026-10-04 (watched folders and session recordings)
+
+Owner: listen on server-log folders on this machine, choose to load everything or the last N, see new lines live,
+record sessions of the live log and save them; notification-driven, not a timer; must also work on Linux.
+
+- Q: Which folders? → A: A new setting `logs_watch_dirs` (several `name:path` folders, overridable in `.env`), only
+  for live listening - separate from `logs_drop_dir`.
+- Q: How are changes noticed? → A: By notification, never a timer: the kernel's on Linux (or a shared Docker
+  volume); a small host agent's on Docker Desktop (Windows/macOS), which passes no host file events into containers.
+- Q: "Last N"? → A: The last N lines (counted across files newest first, or per file).
+- Q: What does a recording capture? → A: The user chooses: a time window with an optional filter, or one value of
+  one ID field (only lines carrying it).
+
 ### Session 2026-10-04 (lines with different structures in one file)
 
 Owner: "one file can have multiple structure logs .. each line is a log and each log can have its own structure".
@@ -384,6 +397,13 @@ and comment still there; check that patterns group lines differing only in IDs o
   sensitive in the structure. Exports always apply ALFRED's redaction rules.
 - **FR-044**: Each source MUST have a display time zone in its structure settings; all times in its screens
   use it, with the raw value available on hover.
+- **FR-049**: Users MUST be able to watch any folder of `logs_watch_dirs` with a file pattern (optionally subfolders),
+  starting with everything, the last N lines (across files or per file) or only new lines; matching files - including
+  ones created later - MUST be followed live by change notification (no timer), rotated copies read once and never
+  twice; a new line MUST be visible within about a second (measured 48 ms median).
+- **FR-050**: Users MUST be able to record sessions of a live source - a time window with an optional filter, or one
+  ID field value - with markers, while reading continues; stopping MUST keep the session's lines forever; sessions
+  MUST be listable, renameable, annotatable, openable as an explorer view and deletable (keeping the lines).
 - **FR-045** *(amended 2026-10-04)*: Each line MAY have its own structure. Every field of every line MUST be
   registered (up to 900 searchable fields per source; fields past that stay in the raw line and the JSON view and
   are reported). Lines MUST be grouped into structures by their field sets (one optional field does not make a new

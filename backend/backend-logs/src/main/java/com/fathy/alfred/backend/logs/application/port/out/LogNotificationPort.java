@@ -14,4 +14,8 @@ public interface LogNotificationPort {
     void sourcesChanged();
 
     void commentChanged(String sourceId, String lineId);
+
+    /** A session was started, marked, stopped, renamed or deleted. */
+    default void sessionsChanged(String sourceId) {
+    }
 }

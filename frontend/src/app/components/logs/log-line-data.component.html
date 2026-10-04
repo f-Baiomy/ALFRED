@@ -49,24 +49,24 @@
     @if (layout() === 'GROUPED') {
       @for (tr of treeRows(); track tr.node.kind + tr.node.key) {
         @if (tr.node.kind === 'group') {
-          <div class="lg-kv grp" (click)="toggleGroup(tr.node.key)">
-            <span class="acts"></span><span></span>
-            <span class="lg-dim" [style.padding-left.px]="tr.depth * 16">
-              <span class="lg-caret">{{ isGroupOpen(tr.node.key) ? '▾' : '▸' }}</span>
-              <span class="lg-faint">{{ tr.prefix }}</span><b>{{ tr.node.name }}</b><span class="lg-faint"> · {{ tr.node.count }}</span>
+          <div class="lg-kv grp" (click)="toggleGroup(tr.node.key)" [title]="tr.node.key">
+            <span class="acts"></span><span></span><span></span>
+            <span class="nm" [style.padding-left.px]="tr.depth * 16">
+              <span class="lg-caret">{{ isGroupOpen(tr.node.key) ? '▾' : '▸' }}</span><b>{{ tr.node.name }}</b><span class="lg-faint"> · {{ tr.node.count }}</span>
+            </span>
+            <span>
               @if (!isGroupOpen(tr.node.key) && commentsUnder(tr.node.key)) {
-                <span class="lg-mk" style="margin-left: 6px">💬 {{ commentsUnder(tr.node.key) }} inside</span>
+                <span class="lg-mk">💬 {{ commentsUnder(tr.node.key) }} inside</span>
               }
             </span>
-            <span></span>
           </div>
         } @else {
-          <ng-container *ngTemplateOutlet="kvRow; context: { $implicit: tr.node.item, prefix: tr.prefix, name: tr.node.name, indent: tr.depth * 16 + 14 }" />
+          <ng-container *ngTemplateOutlet="kvRow; context: { $implicit: tr.node.item, name: tr.node.name, indent: tr.depth * 16 + 14 }" />
         }
       }
     } @else {
       @for (r of tableRows(); track r.path) {
-        <ng-container *ngTemplateOutlet="kvRow; context: { $implicit: r, prefix: '', name: r.path, indent: 0 }" />
+        <ng-container *ngTemplateOutlet="kvRow; context: { $implicit: r, name: r.path, indent: 0 }" />
       }
     }
   } @else {
@@ -89,7 +89,7 @@
 }
 
 <!-- One field of the Table view (grouped rows show the name after the group, faded group path before it). -->
-<ng-template #kvRow let-r let-prefix="prefix" let-name="name" let-indent="indent">
+<ng-template #kvRow let-r let-name="name" let-indent="indent">
   <div class="lg-kv">
     <span class="acts">
       @if (r.field && !r.field.duplicateOf) {
@@ -100,10 +100,9 @@
       }
     </span>
     <span class="lg-ty" [title]="r.field?.type ?? ''">{{ typeIcon(r.field) }}</span>
-    <span class="lg-dim" [title]="r.path" [style.padding-left.px]="indent">
-      <button class="lg-cbtn" [class.has]="commentsAt(r.path).length" [title]="commentsAt(r.path).length ? 'Add another comment' : 'Add a comment on this field'" (click)="startComment(r.path)">💬{{ commentsAt(r.path).length || '' }}</button>
-      @if (prefix) { <span class="lg-faint">{{ prefix }}</span> }{{ name }}
-      @if (isPayload(r.path)) { <span class="lg-mk" style="margin-left: 4px" title="Kept as one field holding its JSON">payload</span> }
+    <button class="lg-cbtn" [class.has]="commentsAt(r.path).length" [title]="commentsAt(r.path).length ? 'Add another comment' : 'Add a comment on this field'" (click)="startComment(r.path)">💬{{ commentsAt(r.path).length || '' }}</button>
+    <span class="nm lg-dim" [title]="r.path" [style.padding-left.px]="indent">
+      {{ name }}@if (isPayload(r.path)) {<span class="lg-mk" style="margin-left: 6px" title="Kept as one field holding its JSON">payload</span>}
     </span>
     <span class="v">@for (s of segments(r.value); track $index) {@if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>}}</span>
   </div>

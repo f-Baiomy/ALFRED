@@ -24,6 +24,7 @@ export const routes: Routes = [
       // Logs Explorer (specs/004-logs-explorer): sources, the new-source wizard, the structure editor, the explorer.
       { path: 'logs', loadComponent: () => import('./pages/logs/logs-sources.component').then((m) => m.LogsSourcesComponent) },
       { path: 'logs/new', loadComponent: () => import('./pages/logs/log-source-wizard.component').then((m) => m.LogSourceWizardComponent) },
+      { path: 'logs/:id/sessions', loadComponent: () => import('./pages/logs/log-sessions-page.component').then((m) => m.LogSessionsPageComponent) },
       { path: 'logs/:id/structure', loadComponent: () => import('./pages/logs/log-structure-page.component').then((m) => m.LogStructurePageComponent) },
       { path: 'logs/:id', loadComponent: () => import('./pages/logs/logs-explorer.component').then((m) => m.LogsExplorerComponent) },
       { path: 'settings', loadComponent: () => import('./pages/settings/settings.component').then((m) => m.SettingsComponent) },

@@ -10,6 +10,10 @@ import {
   Histogram,
   InputKind,
   LineStructures,
+  SessionView,
+  WatchedFile,
+  WatchFolders,
+  WatchOptions,
   LogComment,
   LogInput,
   LogLine,
@@ -53,8 +57,53 @@ export class LogsApiService {
     return this.http.get<SourceView>(this.src(id));
   }
 
-  preview(sampleLines: readonly string[] | null, serverPath: string | null): Observable<StructurePreview> {
-    return this.http.post<StructurePreview>(`${this.base}/structure/preview`, { sampleLines, serverPath });
+  preview(sampleLines: readonly string[] | null, serverPath: string | null, watch?: { folder: string; path: string }): Observable<StructurePreview> {
+    return this.http.post<StructurePreview>(`${this.base}/structure/preview`, {
+      sampleLines,
+      serverPath,
+      watchFolder: watch?.folder ?? null,
+      watchPath: watch?.path ?? null,
+    });
+  }
+
+  // ---- watched folders (settings.properties logs_watch_dirs) - listened on live
+  watchFolders(): Observable<WatchFolders> {
+    return this.http.get<WatchFolders>(`${this.base}/watch-folders`);
+  }
+
+  watchFiles(folder: string, pattern: string, subfolders: boolean): Observable<WatchedFile[]> {
+    return this.http.get<WatchedFile[]>(`${this.base}/watch-folders/${encodeURIComponent(folder)}/files`, {
+      params: { pattern, subfolders: String(subfolders) },
+    });
+  }
+
+  // ---- session recordings
+  sessions(id: string): Observable<SessionView[]> {
+    return this.http.get<SessionView[]>(`${this.src(id)}/sessions`);
+  }
+
+  session(id: string, sessionId: string): Observable<SessionView> {
+    return this.http.get<SessionView>(`${this.src(id)}/sessions/${encodeURIComponent(sessionId)}`);
+  }
+
+  startSession(id: string, body: { name: string; kind: 'WINDOW' | 'ID'; pills?: readonly Pill[]; idField?: string | null; idValue?: string | null }): Observable<SessionView> {
+    return this.http.post<SessionView>(`${this.src(id)}/sessions`, body);
+  }
+
+  markSession(id: string, sessionId: string, text: string): Observable<SessionView> {
+    return this.http.post<SessionView>(`${this.src(id)}/sessions/${encodeURIComponent(sessionId)}/markers`, { text });
+  }
+
+  stopSession(id: string, sessionId: string): Observable<SessionView> {
+    return this.http.post<SessionView>(`${this.src(id)}/sessions/${encodeURIComponent(sessionId)}/stop`, {});
+  }
+
+  updateSession(id: string, sessionId: string, name: string, notes: string): Observable<SessionView> {
+    return this.http.patch<SessionView>(`${this.src(id)}/sessions/${encodeURIComponent(sessionId)}`, { name, notes });
+  }
+
+  deleteSession(id: string, sessionId: string): Observable<void> {
+    return this.http.delete<void>(`${this.src(id)}/sessions/${encodeURIComponent(sessionId)}`);
   }
 
   createSource(name: string, rawMode: RawMode, privacyMode: PrivacyMode, structure: LogStructure): Observable<SourceView> {
@@ -100,7 +149,7 @@ export class LogsApiService {
     });
   }
 
-  addInput(sourceId: string, body: { kind: InputKind; ref: string; fingerprint?: string | null; fromStart?: boolean; confirmDuplicate?: boolean }): Observable<LogInput> {
+  addInput(sourceId: string, body: { kind: InputKind; ref: string; fingerprint?: string | null; fromStart?: boolean; confirmDuplicate?: boolean; watch?: WatchOptions }): Observable<LogInput> {
     return this.http.post<LogInput>(`${this.src(sourceId)}/inputs`, body);
   }
 

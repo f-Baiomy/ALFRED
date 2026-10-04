@@ -78,14 +78,17 @@ class LogsIngestPerformanceTest {
             public void commentChanged(String s, String l) { }
         };
         var tracker = new LogsChangeTracker();
-        var ingest = new LogIngestService(sources, inputs, lines, new FileLineSource(), quiet, mapper, tracker);
+        var ingest = new LogIngestService(sources, inputs, lines, new FileLineSource(), quiet, mapper, tracker, new FileChangeSignals());
         ReflectionTestUtils.setField(ingest, "dbFile", dir.resolve("logs.db").toString());
         ReflectionTestUtils.setField(ingest, "minFreeBytes", 0L);
         var files = new LocalLogFiles();
         ReflectionTestUtils.setField(files, "rootDir", drop.toString());
         ReflectionTestUtils.setField(files, "uploadDir", dir.resolve("up").toString());
         var svc = new LogSourcesService(sources, inputs, lines, comments, files, quiet, ingest,
-                new StructureRebuildService(sources, lines, quiet, ingest), mapper);
+                new StructureRebuildService(sources, lines, quiet, ingest), mapper,
+                new LogWatchService(new com.fathy.alfred.backend.logs.adapter.out.input.LocalWatchFolders(), inputs, ingest,
+                        new FileChangeSignals(), quiet, mapper),
+                new com.fathy.alfred.backend.logs.adapter.out.sqlite.SqliteLogSessionStoreAdapter(repo, mapper));
         var query = new LogQueryService(sources, inputs, lines, comments, new OffsetRawLineReader(), quiet, tracker);
 
         LogStructure s = svc.preview(null, "perf.ndjson").structure();

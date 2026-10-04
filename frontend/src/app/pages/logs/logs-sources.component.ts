@@ -69,7 +69,28 @@ export class LogsSourcesComponent implements OnInit {
   }
 
   icon(i: LogInput): string {
-    return ({ UPLOAD: '⇪', SERVER_FILE: '⧉', FOLLOW: '↻', PUSH: '⇢', OPENSEARCH: '☁' } as const)[i.kind];
+    return ({ UPLOAD: '⇪', SERVER_FILE: '⧉', FOLLOW: '↻', PUSH: '⇢', OPENSEARCH: '☁', WATCH: '📁', WATCHED_FILE: '·' } as const)[i.kind];
+  }
+
+  /** Inputs listed at the top level: a watched folder's files are shown under the folder instead. */
+  topInputs(v: SourceView): LogInput[] {
+    return v.inputs.filter((i) => i.kind !== 'WATCHED_FILE');
+  }
+
+  filesOf(v: SourceView, watch: LogInput): LogInput[] {
+    return v.inputs.filter((i) => i.parentId === watch.id).sort((a, b) => (a.options === 'archive' ? 1 : 0) - (b.options === 'archive' ? 1 : 0) || (a.fileName ?? '').localeCompare(b.fileName ?? ''));
+  }
+
+  kindLabel(i: LogInput): string {
+    return ({ UPLOAD: 'Upload · ', FOLLOW: 'Follow · ', WATCH: 'Watching · ', WATCHED_FILE: '', SERVER_FILE: 'Server file · ', PUSH: 'Push · ', OPENSEARCH: 'OpenSearch · ' } as const)[i.kind];
+  }
+
+  /** A watched folder's own line: lines and files over all its files. */
+  watchText(v: SourceView, watch: LogInput): string {
+    const files = this.filesOf(v, watch);
+    const lines = files.reduce((a, f) => a + f.linesRead, 0);
+    const live = files.filter((f) => f.status === 'FOLLOWING').length;
+    return `${lines.toLocaleString('en-US')} lines · ${files.length} files · ${live} followed live`;
   }
 
   progressText(i: LogInput): string {

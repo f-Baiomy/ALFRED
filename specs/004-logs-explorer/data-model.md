@@ -121,6 +121,18 @@ Otherwise level = k, `group_path` = ids[0..k-1] joined by `\u0001`, parent path 
 `→ PAUSED → (previous)`; any `→ FAILED` (retry returns to `QUEUED` from saved position); OFFSET-mode file changed ⇒
 `RAW_UNAVAILABLE` (lines stay searchable; raw shows the reason).
 
+## LogInput - watched folders (2026-10-04)
+
+`kind` adds `WATCH` (a folder; `path` = /watch/‹name›, `fileName` = ‹name›/‹pattern›, `options` = WatchOptions JSON)
+and `WATCHED_FILE` (one file of it; `parentId` = the WATCH input, `options` = `archive` for a rotated copy read once).
+WatchOptions: `folder`, `pattern`, `subfolders`, `start` (ALL | LAST | NEW), `lastLines`, `perFile`.
+
+## LogSession
+
+`id`, `sourceId`, `name`, `notes`, `kind` (WINDOW | ID), `pills` (WINDOW filter), `idField`/`idValue` (ID),
+`startedAt`, `endedAt` (null while recording), `markers` [{ts, text}], `lineCount`, `errorCount`, `createdAt`.
+Lines = `INGESTED startedAt..endedAt` + filter or `idField = idValue`; pinned on stop. SQLite `log_session` (JSON).
+
 ## LogComment
 
 `id`, `sourceId`, `lineId`, `path` (field path or `""` for whole line, FR-042), `text` (1–4,000 chars),

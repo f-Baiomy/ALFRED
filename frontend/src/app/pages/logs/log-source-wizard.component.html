@@ -40,7 +40,73 @@
           <input id="lg-src-name" type="text" style="width: 280px" [ngModel]="name()" (ngModelChange)="name.set($event)" />
         }
 
-        @if (kind() === 'UPLOAD') {
+        @if (kind() === 'WATCH') {
+          <label for="lg-watch-folder">Folder</label>
+          <div>
+            @if (watch(); as w) {
+              @if (w.folders.length) {
+                <div class="lg-row">
+                  <select id="lg-watch-folder" style="width: 360px" [ngModel]="watchFolder()" (ngModelChange)="watchFolder.set($event); loadWatchFiles()">
+                    @for (f of w.folders; track f.name) {
+                      <option [value]="f.name" [disabled]="!f.available">{{ f.name }} · {{ f.hostPath }}{{ f.available ? '' : ' (not mounted - run restart.py)' }}</option>
+                    }
+                  </select>
+                  <label class="lg-dim"><input type="checkbox" [ngModel]="watchSubfolders()" (ngModelChange)="watchSubfolders.set($event); loadWatchFiles()" /> include subfolders</label>
+                  @if (w.mode === 'events') {
+                    <span class="lg-pill live" title="The backend is notified by the kernel the moment a file changes">notified on change</span>
+                  } @else if (w.mode === 'agent') {
+                    <span class="lg-pill" [class.live]="w.agentSeenAt > 0" [class.warn]="!w.agentSeenAt"
+                          title="Docker Desktop passes no host file events into containers: the log agent on this computer reports them">
+                      {{ w.agentSeenAt ? 'notified by the log agent' : 'log agent not connected - run start.py' }}
+                    </span>
+                  }
+                </div>
+              } @else {
+                <div class="lg-note" style="margin: 0">
+                  No watched folders yet. Add them to <span class="lg-mono">settings.properties → logs_watch_dirs</span>
+                  (e.g. <span class="lg-mono">wildfly:/opt/wildfly/standalone/log</span>) or <span class="lg-mono">.env → ALFRED_LOGS_WATCH_DIRS</span>, then run restart.py.
+                </div>
+              }
+            }
+          </div>
+          <label for="lg-watch-pattern">Files</label>
+          <div>
+            <div class="lg-row">
+              <input id="lg-watch-pattern" type="text" class="lg-mono" style="width: 220px" [ngModel]="watchPattern()" (ngModelChange)="watchPattern.set($event)" (change)="loadWatchFiles()" placeholder="detail*.log" />
+              <span class="lg-hint">pattern · rotated copies (detail.log.1, detail.log.2026-10-03) are included</span>
+            </div>
+            <div class="lg-card" style="max-height: 180px; overflow: auto; padding: 4px 8px; margin-top: 6px">
+              @for (f of watchFiles(); track f.relative) {
+                <div class="lg-vrow" style="grid-template-columns: minmax(0, 1fr) 90px 120px">
+                  <span class="lg-mono">{{ f.relative }}</span>
+                  <span class="lg-faint">{{ (f.size / 1048576).toFixed(1) }} MB</span>
+                  <span>@if (f.archive) { <span class="lg-pill wait">rotated · read once</span> } @else { <span class="lg-pill live">followed live</span> }</span>
+                </div>
+              } @empty {
+                <div class="lg-hint">No file matches yet. Files that appear later are picked up automatically.</div>
+              }
+            </div>
+          </div>
+          <label>Start with</label>
+          <div>
+            <div class="lg-seg">
+              <button [class.on]="watchStart() === 'ALL'" (click)="watchStart.set('ALL')">Everything</button>
+              <button [class.on]="watchStart() === 'LAST'" (click)="watchStart.set('LAST')">The last N lines</button>
+              <button [class.on]="watchStart() === 'NEW'" (click)="watchStart.set('NEW')">Only new lines</button>
+            </div>
+            @if (watchStart() === 'LAST') {
+              <div class="lg-row" style="margin-top: 6px">
+                <input type="number" min="1" style="width: 110px" [ngModel]="watchLast()" (ngModelChange)="watchLast.set(+$event || 1)" aria-label="Number of lines" />
+                <span class="lg-dim">lines</span>
+                <select style="width: 200px" [ngModel]="watchPerFile()" (ngModelChange)="watchPerFile.set($event === true || $event === 'true')" aria-label="Count lines">
+                  <option [ngValue]="false">across all files</option>
+                  <option [ngValue]="true">per file</option>
+                </select>
+              </div>
+            }
+            <div class="lg-hint" style="margin-top: 4px">{{ watchEstimate() }}</div>
+          </div>
+        } @else if (kind() === 'UPLOAD') {
           <label for="lg-file">File</label>
           <div class="lg-row">
             <input id="lg-file" type="file" (change)="onFile($event)" />
@@ -131,8 +197,17 @@
         <div class="lg-hint" style="margin-top: 8px">Uploading {{ uploadPct() }}%</div>
         <div class="lg-prog" style="margin: 4px 0 10px"><div [style.width.%]="uploadPct()"></div></div>
       }
+      @if (kind() === 'WATCH') {
+        <div class="lg-row lg-dim" style="gap: 24px; flex-wrap: wrap; margin-top: 10px">
+          <span><b style="color: var(--text)">{{ watchLines() | number }}</b> lines</span>
+          <span>{{ watchFilesSeen() }} of {{ watchFiles().length }} files read</span>
+          <span class="lg-pill live">following {{ watchFolder() }} · {{ watchPattern() }}</span>
+        </div>
+        <div class="lg-note">The folder stays watched: new lines and new files show up in the explorer live, as they are written.</div>
+      } @else {
       <div class="lg-prog" style="margin: 10px 0"><div [style.width.%]="loadPct()"></div></div>
-      @if (progress(); as p) {
+      }
+      @if (kind() !== 'WATCH' && progress(); as p) {
         <div class="lg-row lg-dim" style="gap: 24px; flex-wrap: wrap">
           <span><b style="color: var(--text)">{{ p.lines | number }}</b> lines</span>
           <span>{{ mb(p.bytes) }} / {{ mb(p.total) }} GB</span>

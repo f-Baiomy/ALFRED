@@ -45,6 +45,9 @@ public class LogSourcesController {
 
     @PostMapping("/structure/preview")
     public ManageLogSourcesUseCase.Preview preview(@Valid @RequestBody PreviewRequestDto body) {
+        if (body.watchFolder() != null && !body.watchFolder().isBlank()) {
+            return sources.previewWatched(body.watchFolder(), body.watchPath());
+        }
         return sources.preview(body.sampleLines(), body.serverPath());
     }
 

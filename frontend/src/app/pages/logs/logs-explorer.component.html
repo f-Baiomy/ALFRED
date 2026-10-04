@@ -37,6 +37,73 @@
     <a class="lg-btn sm" [routerLink]="['/logs', id, 'structure']">⚙ Structure</a>
     <a class="lg-btn sm" routerLink="/logs">Sources</a>
   </div>
+  <!-- Live reading + session recording -->
+  @if (openSession(); as os) {
+    <div class="lg-sessbar">
+      <span>⏺</span><b>{{ os.session.name }}</b>
+      <span class="lg-dim">{{ dateTime(os.session.startedAt) }} → {{ os.session.endedAt ? time(os.session.endedAt) : 'recording' }} · {{ sessionLength(os.session) }}
+        · {{ os.session.lineCount | number }} lines · {{ os.session.errorCount | number }} errors · {{ os.session.markers.length }} markers
+        · {{ os.session.kind === 'ID' ? os.session.idField + ' = ' + os.session.idValue : (os.session.pills.length ? 'filtered' : 'every line') }}</span>
+      @if (os.session.notes) { <span class="lg-faint">· {{ os.session.notes }}</span> }
+      <span class="lg-sp"></span>
+      <a class="lg-btn xs" [routerLink]="['/logs', id, 'sessions']">All sessions</a>
+      <button class="lg-btn xs" (click)="closeSession()">Close session</button>
+    </div>
+  } @else {
+    <div class="lg-livebar">
+      @if (followedFiles()) {
+        <span class="lg-pill live" title="Lines appear as they are written - the backend is notified of every change">
+          <span class="lg-live-dot"></span> Live · {{ liveRate() }} lines/s · {{ followedFiles() }} file{{ followedFiles() === 1 ? '' : 's' }}
+        </span>
+        <span class="lg-faint">{{ lastLineAt() ? 'last line ' + time(lastLineAt()!).slice(0, 8) : 'waiting for new lines' }} · reading never stops - "Live" below only freezes what you see</span>
+      }
+      <span class="lg-sp"></span>
+      <a class="lg-btn xs" [routerLink]="['/logs', id, 'sessions']">Sessions</a>
+      @if (!recording() && !recOpen()) { <button class="lg-btn sm rec" (click)="openRecord()">⏺ Record session</button> }
+    </div>
+    @if (recOpen()) {
+      <div class="lg-recbar">
+        <b>New recording</b>
+        <input type="text" style="width: 240px" [ngModel]="recName()" (ngModelChange)="recName.set($event)" aria-label="Session name" />
+        <div class="lg-seg">
+          <button [class.on]="recKind() === 'WINDOW'" (click)="recKind.set('WINDOW')">Time window</button>
+          <button [class.on]="recKind() === 'ID'" (click)="recKind.set('ID')">One ID</button>
+        </div>
+        @if (recKind() === 'WINDOW') {
+          <label class="lg-dim"><input type="checkbox" [ngModel]="recUseFilter()" (ngModelChange)="recUseFilter.set($event)" [disabled]="!pills().length" />
+            only lines matching the current filter{{ pills().length ? ' (' + pills().length + ')' : ' (none set)' }}</label>
+        } @else {
+          <select style="width: 170px" [ngModel]="recIdField()" (ngModelChange)="recIdField.set($event)" aria-label="ID field">
+            @for (f of idFields(); track f) { <option [value]="f">{{ f }}</option> }
+          </select>
+          <span>=</span>
+          <input type="text" class="lg-mono" style="width: 180px" placeholder="value" [ngModel]="recIdValue()" (ngModelChange)="recIdValue.set($event)" aria-label="ID value" />
+          <span class="lg-faint">only lines carrying it</span>
+        }
+        <span class="lg-sp"></span>
+        @if (recError()) { <span class="lg-error-text">{{ recError() }}</span> }
+        <button class="lg-btn xs" (click)="recOpen.set(false)">Cancel</button>
+        <button class="lg-btn xs primary" (click)="startRecording()">⏺ Start</button>
+      </div>
+    }
+    @if (recording(); as r) {
+      <div class="lg-recbar">
+        <span class="lg-rec-dot"></span><b>Recording</b><span>{{ r.session.name }}</span>
+        <span class="lg-mono">{{ recElapsed() }}</span>
+        <span class="lg-dim">{{ r.session.lineCount | number }} lines · {{ r.session.errorCount | number }} errors</span>
+        <span class="lg-faint">{{ r.session.kind === 'ID' ? r.session.idField + ' = ' + r.session.idValue : (r.session.pills.length ? r.session.pills.length + ' filters' : 'every line') }}</span>
+        @for (m of r.session.markers; track $index) { <span class="lg-marker" [title]="dateTime(m.ts)">⚑ {{ m.text }}</span> }
+        <span class="lg-sp"></span>
+        @if (markerText() === null) {
+          <button class="lg-btn xs" (click)="markerText.set('')">⚑ Add marker</button>
+        } @else {
+          <input type="text" style="width: 180px" placeholder="clicked Book" [ngModel]="markerText()" (ngModelChange)="markerText.set($event)" (keydown.enter)="addMarker()" aria-label="Marker" />
+          <button class="lg-btn xs" (click)="addMarker()">Add</button>
+        }
+        <button class="lg-btn xs primary" (click)="stopRecording()">■ Stop &amp; save</button>
+      </div>
+    }
+  }
   @if (rebuilding()) {
     <div class="lg-note" style="color: var(--cyan)">Rebuilding: {{ rebuilding() }} - the rest of the explorer stays usable.</div>
   }
@@ -288,8 +355,12 @@
           }
 
           @if (mode() === 'lines') {
-            @for (r of rows(); track r.lineId) {
-              <ng-container *ngTemplateOutlet="row; context: { $implicit: r, depth: 0 }" />
+            @for (d of displayRows(); track d.kind === 'row' ? d.r.lineId : 'm' + d.m.ts + d.m.text) {
+              @if (d.kind === 'row') {
+                <ng-container *ngTemplateOutlet="row; context: { $implicit: d.r, depth: 0 }" />
+              } @else {
+                <div class="lg-marker" style="display: flex; margin: 2px 0">⚑ <b>{{ d.m.text }}</b><span class="lg-faint">{{ time(d.m.ts) }}</span></div>
+              }
             } @empty {
               <div class="lg-dim" style="padding: 20px">{{ loading() ? 'Loading…' : 'No lines match. Remove a filter or widen the time range.' }}</div>
             }
@@ -409,7 +480,7 @@
 
 <!-- One row: summary or columns, level stripe, toggles, selection, duration, drawer (mock rowHtml) -->
 <ng-template #row let-r let-depth="depth" let-nodeInfo="node" let-sib="sib" let-mark="mark">
-  <div class="lg-lr" [id]="'lg-row-' + r.lineId" [class.sel]="current() === r.lineId" [style.grid-template-columns]="gridColumns()" [style.padding-left.px]="depth * 20" (click)="toggleData(r.lineId)">
+  <div class="lg-lr" [id]="'lg-row-' + r.lineId" [class.fresh]="freshIds().has(r.lineId)" [class.sel]="current() === r.lineId" [style.grid-template-columns]="gridColumns()" [style.padding-left.px]="depth * 20" (click)="toggleData(r.lineId)">
     <span class="lg-stripe" [class]="'lg-stripe ' + levelOf(r)"></span>
     @if (nodeInfo && (nodeInfo.childCount || nodeInfo.skipped.length)) {
       <button class="lg-tg" (click)="$event.stopPropagation(); toggleKids(nodeInfo)" title="Show / hide children">{{ openKids().has(nodeInfo.path) ? '−' : '+' }}</button>

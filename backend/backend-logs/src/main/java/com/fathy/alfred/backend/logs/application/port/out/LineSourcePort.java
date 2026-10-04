@@ -30,6 +30,9 @@ public interface LineSourcePort {
         boolean awaitMore(long millis) throws IOException, InterruptedException;
 
         long size() throws IOException;
+
+        /** True when the file holds bytes not read yet (so waiting for a change would be wrong). */
+        boolean hasUnread() throws IOException;
     }
 
     Reader open(String path, int generation, long position) throws IOException;

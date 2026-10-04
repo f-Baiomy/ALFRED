@@ -9,7 +9,20 @@ import { LogsSocketService } from '../../core/services/logs-socket.service';
 import { LogStructureEditorComponent } from '../../components/logs/log-structure-editor.component';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
-import { InputKind, InputStatus, LogInput, LogStructure, PrivacyMode, RawMode, ServerFile, SourceView, UploadTicket } from '../../core/models/logs.model';
+import {
+  InputKind,
+  InputStatus,
+  LogInput,
+  LogStructure,
+  PrivacyMode,
+  RawMode,
+  ServerFile,
+  SourceView,
+  UploadTicket,
+  WatchedFile,
+  WatchFolders,
+  WatchStart,
+} from '../../core/models/logs.model';
 
 const HEAD_BYTES = 1 << 20;
 const PREVIEW_BYTES = 4 << 20;
@@ -81,6 +94,7 @@ export class LogSourceWizardComponent implements OnInit {
     { id: 'UPLOAD', icon: '⇪', title: 'Upload file', text: 'From your machine. Sent in chunks, works for 10 GB+ through the tunnel.', available: true },
     { id: 'SERVER_FILE', icon: '⧉', title: 'File on server', text: 'Pick from the mounted logs folder. No upload.', available: true },
     { id: 'FOLLOW', icon: '↻', title: 'Follow a file', text: 'Live tail of a growing file. Survives rotation and restarts.', available: true },
+    { id: 'WATCH', icon: '📁', title: 'Watch a folder', text: 'Every matching file of a watched folder, live as it is written. New and rotated files are picked up.', available: true },
     { id: 'PUSH', icon: '⇢', title: 'HTTP push', text: 'Another system posts lines to Alfred. Waiting on how Alfred keeps its secret.', available: false },
     { id: 'OPENSEARCH', icon: '☁', title: 'OpenSearch', text: 'Import, follow or browse in place. Waiting on how Alfred keeps credentials.', available: false },
   ];
@@ -95,6 +109,17 @@ export class LogSourceWizardComponent implements OnInit {
   readonly serverFiles = signal<ServerFile[]>([]);
   readonly serverPath = signal('');
   readonly fromStart = signal(false);
+  // ---- Watch a folder (settings.properties logs_watch_dirs)
+  readonly watch = signal<WatchFolders | null>(null);
+  readonly watchFolder = signal('');
+  readonly watchPattern = signal('*.log');
+  readonly watchSubfolders = signal(false);
+  readonly watchStart = signal<WatchStart>('LAST');
+  readonly watchLast = signal(5000);
+  readonly watchPerFile = signal(false);
+  readonly watchFiles = signal<WatchedFile[]>([]);
+  readonly watchLines = signal(0);
+  readonly watchFilesSeen = signal(0);
   readonly error = signal('');
   readonly busy = signal(false);
   readonly structure = signal<LogStructure | null>(null);
@@ -110,7 +135,19 @@ export class LogSourceWizardComponent implements OnInit {
   readonly existing = signal<SourceView | null>(null);
   readonly pending = signal<PendingUpload | null>(readPending());
   readonly selectedKind = computed(() => this.kinds.find((k) => k.id === this.kind())!);
-  readonly ref = computed(() => (this.kind() === 'UPLOAD' ? this.file()?.name ?? '' : this.serverPath()));
+  readonly ref = computed(() =>
+    this.kind() === 'UPLOAD' ? this.file()?.name ?? '' : this.kind() === 'WATCH' ? this.watchFolder() : this.serverPath(),
+  );
+  readonly watchHost = computed(() => this.watch()?.folders.find((f) => f.name === this.watchFolder())?.hostPath ?? '');
+  /** What "Start with" will load first, for the hint under the choices. */
+  readonly watchEstimate = computed(() => {
+    const files = this.watchFiles();
+    const bytes = files.reduce((a, f) => a + f.size, 0);
+    if (this.watchStart() === 'NEW') return 'Loads nothing old · shows new lines from now on';
+    if (this.watchStart() === 'ALL') return `Loads all ${files.length} files (${(bytes / 1048576).toFixed(1)} MB), oldest first, then follows them live`;
+    const n = this.watchLast();
+    return `Loads the last ${n.toLocaleString()} lines ${this.watchPerFile() ? 'of each file' : 'across the files, newest first'}, then follows them live`;
+  });
   readonly loadPct = computed(() => {
     const p = this.progress();
     return p && p.total > 0 ? Math.min(100, Math.round((p.bytes / p.total) * 100)) : p?.status === 'DONE' ? 100 : 0;
@@ -118,6 +155,17 @@ export class LogSourceWizardComponent implements OnInit {
 
   ngOnInit(): void {
     this.listDir('');
+    this.api.watchFolders().subscribe({
+      next: (w) => {
+        this.watch.set(w);
+        const first = w.folders.find((f) => f.available);
+        if (first) {
+          this.watchFolder.set(first.name);
+          this.loadWatchFiles();
+        }
+      },
+      error: () => this.watch.set({ folders: [], mode: 'off', agentSeenAt: 0 }),
+    });
     if (this.existingId) {
       this.api.source(this.existingId).subscribe({
         next: (v) => {
@@ -130,10 +178,32 @@ export class LogSourceWizardComponent implements OnInit {
       });
     }
     this.socket.events$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      if (e.type === 'input-progress' && this.kind() === 'WATCH' && e.sourceId === this.sourceId()) {
+        // A folder has one input per file: the total is the sum of their progress.
+        this.watchProgress.set({ ...this.watchProgress(), [e.inputId]: e.lines });
+        const per = Object.values(this.watchProgress());
+        this.watchLines.set(per.reduce((a, n) => a + n, 0));
+        this.watchFilesSeen.set(per.length);
+      }
       if (e.type === 'input-progress' && e.inputId === this.inputId()) {
         this.progress.set({ status: e.status, lines: e.lines, bytes: e.bytes, total: e.totalBytes, unparsed: e.unparsed, reason: e.reason, newField: e.newField ?? this.progress()?.newField ?? null });
       }
     });
+  }
+
+  private readonly watchProgress = signal<Record<string, number>>({});
+
+  loadWatchFiles(): void {
+    const folder = this.watchFolder();
+    if (!folder) return this.watchFiles.set([]);
+    this.api.watchFiles(folder, this.watchPattern() || '*', this.watchSubfolders()).subscribe({
+      next: (f) => this.watchFiles.set(f),
+      error: (e) => {
+        this.watchFiles.set([]);
+        this.error.set((e as { error?: { error?: string } })?.error?.error || 'Could not list that folder');
+      },
+    });
+    if (!this.name()) this.name.set(folder);
   }
 
   pickKind(k: Kind): void {
@@ -169,7 +239,13 @@ export class LogSourceWizardComponent implements OnInit {
   async next(): Promise<void> {
     this.error.set('');
     if (!this.name().trim()) return this.error.set('Give the source a name');
-    if (!this.ref()) return this.error.set(this.kind() === 'UPLOAD' ? 'Choose a file' : 'Pick a file from the server folder');
+    if (!this.ref()) {
+      return this.error.set(this.kind() === 'UPLOAD' ? 'Choose a file' : this.kind() === 'WATCH' ? 'Choose a watched folder' : 'Pick a file from the server folder');
+    }
+    const watchSample = this.kind() === 'WATCH' ? this.watchFiles().find((f) => !f.archive && f.size > 0) ?? this.watchFiles().find((f) => f.size > 0) : null;
+    if (this.kind() === 'WATCH' && !this.existing() && !watchSample) {
+      return this.error.set('No matching file with lines yet - the structure is detected from one. Check the pattern, or write a line first.');
+    }
     if (this.existing()) return this.load();
     this.busy.set(true);
     try {
@@ -179,7 +255,11 @@ export class LogSourceWizardComponent implements OnInit {
         // The last line of the slice may be cut in half; it is dropped rather than misread.
         lines = text.split('\n').slice(0, -1).map((l) => l.trim()).filter((l) => l.length > 0).slice(0, PREVIEW_LINES);
       }
-      const preview = await firstValueFrom(this.api.preview(lines, lines ? null : this.serverPath()));
+      const preview = await firstValueFrom(
+        watchSample
+          ? this.api.preview(null, null, { folder: this.watchFolder(), path: watchSample.relative })
+          : this.api.preview(lines, lines ? null : this.serverPath()),
+      );
       this.structure.set(preview.structure);
       this.sampleShape.set({ structures: preview.structures, lines: preview.sampledLines });
       this.matching.set(preview.matchingSourceId ? { id: preview.matchingSourceId, name: preview.matchingSourceName ?? '' } : null);
@@ -211,7 +291,21 @@ export class LogSourceWizardComponent implements OnInit {
       this.sourceId.set(sourceId);
       this.step.set(3);
       if (this.kind() === 'UPLOAD') await this.upload(sourceId);
-      else {
+      else if (this.kind() === 'WATCH') {
+        const input = await firstValueFrom(this.api.addInput(sourceId, {
+          kind: 'WATCH',
+          ref: this.watchFolder(),
+          watch: {
+            folder: this.watchFolder(),
+            pattern: this.watchPattern() || '*',
+            subfolders: this.watchSubfolders(),
+            start: this.watchStart(),
+            lastLines: this.watchLast(),
+            perFile: this.watchPerFile(),
+          },
+        }));
+        this.inputId.set(input.id);
+      } else {
         const input = await this.addInput(sourceId, { kind: this.kind(), ref: this.serverPath(), fromStart: this.fromStart() });
         if (!input) return;
         this.inputId.set(input.id);

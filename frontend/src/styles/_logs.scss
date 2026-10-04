@@ -72,7 +72,7 @@
   div { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-dim); font-weight: 600; }
   div.on { border-color: var(--purple); color: var(--text); background: color-mix(in srgb, var(--purple) 18%, transparent); }
 }
-.lg-kinds { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.lg-kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .lg-kind { padding: 12px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; background: none; color: inherit; text-align: left; font: inherit;
   b { display: block; margin: 4px 0 2px; }
   &.on { border-color: var(--purple); background: color-mix(in srgb, var(--purple) 15%, transparent); }
@@ -157,7 +157,7 @@
   div.slow { background: var(--red); }
 }
 .lg-data { border-bottom: 1px solid var(--border); background: var(--card-inner); padding: 8px 12px 10px; }
-.lg-kv { display: grid; grid-template-columns: 96px 18px 230px minmax(0, 1fr); gap: 8px; align-items: start; padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, var(--purple) 8%, transparent); font-family: Consolas, monospace; font-size: 12px;
+.lg-kv { display: grid; grid-template-columns: 96px 18px 26px minmax(160px, 34%) minmax(0, 1fr); gap: 8px; align-items: start; padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, var(--purple) 8%, transparent); font-family: Consolas, monospace; font-size: 12px;
   &:hover { background: color-mix(in srgb, var(--purple) 8%, transparent); }
   .acts { visibility: hidden; display: flex; gap: 2px; }
   &:hover .acts { visibility: visible; }
@@ -264,6 +264,31 @@
 }
 
 // ---- one line's Table view grouped by path
-.lg-kv.grp { cursor: pointer; background: color-mix(in srgb, var(--purple) 5%, transparent); }
+.lg-kv.grp { cursor: pointer; background: color-mix(in srgb, var(--purple) 5%, transparent); color: var(--text); }
+/* Field names: wrap at dots/anywhere only when they really do not fit; the caret and badges stay inline. */
+.lg-kv .nm { overflow-wrap: anywhere; line-height: 1.45; min-width: 0; }
+.lg-kv .lg-cbtn { justify-self: center; }
 .lg-kv.grp:hover { background: color-mix(in srgb, var(--purple) 10%, transparent); }
 .lg-cmp tr.grp { cursor: pointer; background: color-mix(in srgb, var(--purple) 5%, transparent); }
+
+// ---- watched folders and live
+.lg-subinp { padding-left: 26px; font-size: 11.5px; border-top-style: dashed; }
+.lg-live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); animation: lg-pulse 1.6s infinite; }
+@keyframes lg-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cyan) 60%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.lg-rec-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--red); animation: lg-pulse-red 1.2s infinite; }
+@keyframes lg-pulse-red { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 60%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.lg-livebar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.lg-recbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; margin: 8px 0;
+  border: 1px solid color-mix(in srgb, var(--red) 55%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); border-radius: 12px; }
+.lg-btn.rec { background: color-mix(in srgb, var(--red) 15%, transparent); border-color: color-mix(in srgb, var(--red) 60%, transparent); }
+.lg-sessbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; margin: 8px 0;
+  border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--purple) 10%, transparent); border-radius: 12px; }
+.lg-marker { display: inline-flex; gap: 6px; align-items: center; padding: 2px 8px; border-left: 3px solid var(--purple);
+  background: color-mix(in srgb, var(--purple) 14%, transparent); font-size: 12px; cursor: pointer; }
+.lg-sess { display: grid; grid-template-columns: minmax(0, 1.5fr) 160px 80px 90px 70px 230px; gap: 10px; align-items: center;
+  padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; }
+@media (max-width: 900px) { .lg-sess { grid-template-columns: 1fr 1fr; } }
+
+/* A line that just arrived live: a short fade, no layout change. */
+.lg-lr.fresh { animation: lg-fresh 1.5s ease-out; }
+@keyframes lg-fresh { from { background: color-mix(in srgb, var(--cyan) 18%, transparent); } to { background: transparent; } }

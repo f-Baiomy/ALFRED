@@ -31,6 +31,9 @@ public interface ManageLogInputsUseCase {
      */
     LogInput add(String sourceId, InputKind kind, String ref, String fingerprint, boolean fromStart, boolean confirmDuplicate);
 
+    /** Watches a folder of {@code logs_watch_dirs}: its matching files load and are then followed live. */
+    LogInput addWatch(String sourceId, com.fathy.alfred.backend.logs.domain.model.WatchOptions options);
+
     LogInput pause(String sourceId, String inputId);
 
     LogInput resume(String sourceId, String inputId);

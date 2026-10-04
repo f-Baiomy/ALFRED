@@ -305,4 +305,10 @@ listed tasks until the owner decides.
   (remembered per line for the browser session, folded groups too; payload groups start folded) and a per-source
   default (`LogStructure.defaultFieldLayout`, Summary line template tab). Compare has its own switch, with
   "N differ" per group. Verified in the browser on the real detail.log source.
+- **Watched folders + session recordings (2026-10-04)**: `logs_watch_dirs`/`logs_watch_mode` (settings + .env),
+  generated mounts at /watch/<name>, WATCH/WATCHED_FILE inputs, start with everything / last N / only new,
+  notification-driven reading (kernel WatchService on Linux, host log agent on Docker Desktop - no timer), rotation
+  without re-reading, live explorer bar, flicker-free insertion of new lines, sessions (time window + filter or one ID,
+  markers, pinned on stop, sessions page, open as a view). Backend 42 logs tests (real inotify in Docker) + full suite,
+  frontend 2,100 specs; live on Windows: write → searchable 48 ms median.
 

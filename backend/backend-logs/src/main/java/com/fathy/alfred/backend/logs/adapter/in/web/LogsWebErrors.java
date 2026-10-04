@@ -26,6 +26,7 @@ public class LogsWebErrors {
             case CONFLICT -> HttpStatus.CONFLICT;
             case TOO_LARGE -> HttpStatus.PAYLOAD_TOO_LARGE;
             case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case FORBIDDEN -> HttpStatus.FORBIDDEN;
         };
         return ResponseEntity.status(status).body(Map.of("error", e.getMessage()));
     }

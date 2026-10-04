@@ -3,7 +3,7 @@ package com.fathy.alfred.backend.logs.application.port.in;
 /** An expected failure of a logs use case; the web adapter maps {@link Kind} to an HTTP status. */
 public class LogsException extends RuntimeException {
 
-    public enum Kind { NOT_FOUND, BAD_REQUEST, CONFLICT, TOO_LARGE, UNAVAILABLE }
+    public enum Kind { NOT_FOUND, BAD_REQUEST, CONFLICT, TOO_LARGE, UNAVAILABLE, FORBIDDEN }
 
     private final Kind kind;
 

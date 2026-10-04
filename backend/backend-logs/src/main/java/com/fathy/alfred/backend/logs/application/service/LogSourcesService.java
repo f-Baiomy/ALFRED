@@ -70,11 +70,16 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
     private final LogNotificationPort notifications;
     private final LogIngestService ingest;
     private final StructureRebuildService rebuild;
+    private final LogWatchService watch;
+    private final com.fathy.alfred.backend.logs.application.port.out.LogSessionStorePort sessionStore;
     private final ObjectMapper objectMapper;
 
     public LogSourcesService(LogSourceStorePort sources, LogInputStorePort inputs, LogLineStorePort lines, LogCommentStorePort comments,
                              LogFilesPort files, LogNotificationPort notifications, LogIngestService ingest,
-                             StructureRebuildService rebuild, ObjectMapper objectMapper) {
+                             StructureRebuildService rebuild, ObjectMapper objectMapper, LogWatchService watch,
+                             com.fathy.alfred.backend.logs.application.port.out.LogSessionStorePort sessionStore) {
+        this.watch = watch;
+        this.sessionStore = sessionStore;
         this.sources = sources;
         this.inputs = inputs;
         this.lines = lines;
@@ -124,6 +129,10 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
         } else {
             sample = sampleLines == null ? List.of() : sampleLines.stream().limit(PREVIEW_LINES).toList();
         }
+        return previewOf(sample);
+    }
+
+    private Preview previewOf(List<String> sample) {
         Flattener flattener = new Flattener(objectMapper);
         List<com.fasterxml.jackson.databind.JsonNode> nodes = new ArrayList<>();
         for (String line : sample) {
@@ -160,6 +169,16 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
             return new Preview(theirs, parsed.size(), structures, match.id(), match.name());
         }
         return new Preview(detected, parsed.size(), structures, null, null);
+    }
+
+    @Override
+    public Preview previewWatched(String folder, String relativePath) {
+        String path = watch.filePath(folder, relativePath);
+        try {
+            return previewOf(files.head(path, PREVIEW_LINES));
+        } catch (IOException e) {
+            throw LogsException.bad("Could not read that file");
+        }
     }
 
     @Override
@@ -222,6 +241,7 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
         ingest.forgetSource(id);
         lines.dropSource(id);
         comments.deleteSource(id);
+        sessionStore.deleteSource(id);
         sources.delete(id);
         notifications.sourcesChanged();
     }
@@ -423,7 +443,16 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
     }
 
     @Override
+    public LogInput addWatch(String sourceId, com.fathy.alfred.backend.logs.domain.model.WatchOptions options) {
+        LogSource source = source(sourceId);
+        return watch.create(source, options, id("i", 6));
+    }
+
+    @Override
     public LogInput add(String sourceId, InputKind kind, String ref, String fingerprint, boolean fromStart, boolean confirmDuplicate) {
+        if (kind == InputKind.WATCH || kind == InputKind.WATCHED_FILE) {
+            throw LogsException.bad("A watched folder is added with its options (folder, pattern, start)");
+        }
         LogSource source = source(sourceId);
         if (kind == null) {
             throw LogsException.bad("Input kind is required");
@@ -491,9 +520,20 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
     @Override
     public LogInput pause(String sourceId, String inputId) {
         LogInput in = input(sourceId, inputId);
+        if (in.kind() == InputKind.WATCH) {
+            // A folder pauses all its files; nothing is read until it is resumed.
+            for (LogInput child : inputs.byParent(inputId)) {
+                ingest.stop(child.id());
+                if (child.status() != InputStatus.DONE) {
+                    inputs.save(inputs.get(child.id()).orElse(child).withStatus(InputStatus.PAUSED, null));
+                }
+            }
+            watch.forget(inputId);
+        }
         ingest.stop(inputId);
         LogInput paused = inputs.get(inputId).orElse(in).withStatus(InputStatus.PAUSED, null);
         inputs.save(paused);
+        watch.invalidate();
         notifications.sourcesChanged();
         return paused;
     }
@@ -501,6 +541,21 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
     @Override
     public LogInput resume(String sourceId, String inputId) {
         LogInput in = input(sourceId, inputId);
+        if (in.kind() == InputKind.WATCH) {
+            LogInput following = in.withStatus(InputStatus.FOLLOWING, null);
+            inputs.save(following);
+            watch.invalidate();
+            for (LogInput child : inputs.byParent(inputId)) {
+                if (child.status() == InputStatus.PAUSED || child.status() == InputStatus.FAILED) {
+                    LogInput q = child.withStatus(InputStatus.QUEUED, null);
+                    inputs.save(q);
+                    ingest.start(q);
+                }
+            }
+            watch.rescan(in.fileName().substring(0, in.fileName().indexOf('/')));
+            notifications.sourcesChanged();
+            return inputs.get(inputId).orElse(following);
+        }
         if (in.status() == InputStatus.UPLOADING) {
             throw new LogsException(LogsException.Kind.CONFLICT, "The upload has not finished yet");
         }
@@ -514,6 +569,14 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
     @Override
     public void delete(String sourceId, String inputId) {
         LogInput in = input(sourceId, inputId);
+        if (in.kind() == InputKind.WATCH) {
+            watch.forget(inputId);
+            for (LogInput child : inputs.byParent(inputId)) {
+                ingest.stop(child.id());
+                lines.deleteInput(sourceId, child.id());
+                inputs.delete(child.id());
+            }
+        }
         ingest.stop(inputId);
         lines.deleteInput(sourceId, inputId);
         if (in.kind() == InputKind.UPLOAD) {
@@ -523,6 +586,7 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
             });
         }
         inputs.delete(inputId);
+        watch.invalidate();
         afterLinesRemoved(sourceId);
     }
 

@@ -31,11 +31,11 @@
           <button class="lg-btn xs danger" (click)="remove(v, $event)">Delete</button>
         </div>
         <div style="margin-top: 8px">
-          @for (i of v.inputs; track i.id) {
+          @for (i of topInputs(v); track i.id) {
             <div class="lg-inp">
               <span>{{ icon(i) }}</span>
-              <span class="lg-mono" [title]="i.path ?? ''">{{ i.kind === 'UPLOAD' ? 'Upload · ' : i.kind === 'FOLLOW' ? 'Follow · ' : 'Server file · ' }}{{ i.fileName }}</span>
-              <span class="lg-dim">{{ progressText(i) }}</span>
+              <span class="lg-mono" [title]="i.path ?? ''">{{ kindLabel(i) }}{{ i.fileName }}</span>
+              <span class="lg-dim">{{ i.kind === 'WATCH' ? watchText(v, i) : progressText(i) }}</span>
               <span class="lg-pill" [class]="'lg-pill ' + pillClass(i.status)">{{ statusText(i) }}</span>
               <span style="position: relative">
                 <button class="lg-btn xs" (click)="toggleMenu(i.id, $event)" aria-label="Input actions">⋯</button>
@@ -51,6 +51,17 @@
                 }
               </span>
             </div>
+            @if (i.kind === 'WATCH') {
+              @for (f of filesOf(v, i); track f.id) {
+                <div class="lg-inp lg-subinp">
+                  <span>@if (f.status === 'FOLLOWING') { <span class="lg-live-dot"></span> } @else { · }</span>
+                  <span class="lg-mono" [title]="f.path ?? ''">{{ f.fileName }}@if (f.options === 'archive') { <span class="lg-faint"> · rotated, read once</span> }</span>
+                  <span class="lg-dim">{{ progressText(f) }}</span>
+                  <span [class]="'lg-pill ' + pillClass(f.status)">{{ statusText(f) }}</span>
+                  <span></span>
+                </div>
+              }
+            }
             @if (i.unparsedCount > 0) {
               <div class="lg-inp">
                 <span>⚠</span><span class="lg-dim">{{ i.unparsedCount | number }} lines were not valid JSON - kept as unparsed lines</span><span></span>

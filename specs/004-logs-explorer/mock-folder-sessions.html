@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred · Logs - watch a folder + session recordings (mock)</title>
+<!--
+  UX approval mock: watch a server-logs folder on this computer, choose how much to load first (everything / last N lines /
+  only new lines), follow every file live, and record sessions of the live log that are saved and reopened later.
+  Self-contained, no network. Same theme tokens as mock.html. All data is generated here; the live feed is simulated.
+-->
+<style>
+:root{
+  --bg:#0a0e2a; --card:#141a45; --inner:#070a24; --pop:#161c4a;
+  --border:rgba(139,92,246,.22); --border-s:rgba(139,92,246,.45);
+  --purple:#8b5cf6; --purple-l:#c4b5fd; --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#f87171;
+  --text:#e5e9f5; --dim:#93a0c2; --faint:#5c6690;
+  --l-error:#f87171; --l-warn:#fbbf24; --l-info:#38bdf8;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:13px/1.45 'Segoe UI',system-ui,sans-serif;background:radial-gradient(ellipse at top,#131a4a 0%,#0a0e2a 55%);color:var(--text);min-height:100vh}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,select,textarea{font:inherit;color:var(--text);background:var(--inner);border:1px solid var(--border-s);border-radius:8px;padding:5px 8px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--purple)}
+.mono{font-family:Consolas,'Cascadia Mono',monospace}
+.faint{color:var(--faint)} .dim{color:var(--dim)}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap} .sp{flex:1}
+.mockbar{display:flex;gap:8px;align-items:center;padding:6px 16px;background:#2a1a55;color:var(--purple-l);font-size:12px;border-bottom:1px solid var(--border-s);flex-wrap:wrap}
+.mockbar b{color:#fff}
+.mockbar button{border:1px solid var(--border-s);border-radius:6px;padding:2px 8px}
+.mockbar button.on{background:var(--purple);color:#fff}
+.nav{display:flex;gap:4px;padding:0 24px;background:linear-gradient(120deg,#1a1247,#0f1438 60%,#1a1247);border-bottom:1px solid var(--border-s);flex-wrap:wrap}
+.nav a{padding:12px 14px;color:var(--dim);font-weight:600;border-bottom:2px solid transparent}
+.nav a.on{color:var(--purple-l);border-bottom-color:var(--purple)}
+.page{max-width:1400px;margin:0 auto;padding:16px 20px 60px}
+h1{font:700 19px 'Segoe UI',sans-serif;margin:0} h2{font:700 15px 'Segoe UI',sans-serif;margin:0} h3{font:700 13px 'Segoe UI',sans-serif;margin:0 0 6px}
+.sub{color:var(--dim);margin-top:2px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:9px;border:1px solid var(--border-s);background:var(--card);font-weight:600;white-space:nowrap}
+.btn:hover{background:#1c2358}
+.btn.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+.btn.rec{background:rgba(248,113,113,.15);border-color:rgba(248,113,113,.6);color:#fecaca}
+.btn.sm{padding:3px 9px;border-radius:7px;font-size:12px}
+.card{background:linear-gradient(160deg,#141a45,#101636);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:12px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;white-space:nowrap}
+.p-ok{color:var(--green);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.1)}
+.p-live{color:var(--cyan);border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.1)}
+.p-wait{color:var(--dim);border-color:var(--border)}
+.p-rec{color:#fecaca;border-color:rgba(248,113,113,.6);background:rgba(248,113,113,.15)}
+.seg{display:inline-flex;border:1px solid var(--border-s);border-radius:8px;overflow:hidden}
+.seg button{padding:4px 10px;font-size:12px;font-weight:600;color:var(--dim)}
+.seg button.on{background:rgba(139,92,246,.35);color:var(--text)}
+.note{border:1px dashed var(--border-s);border-radius:10px;padding:8px 10px;color:var(--dim);font-size:12px;margin-top:10px}
+.grid2{display:grid;grid-template-columns:180px minmax(0,1fr);gap:10px 14px;align-items:center;margin-top:12px}
+.choice{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.opt{border:1px solid var(--border);border-radius:12px;padding:10px 12px;cursor:pointer}
+.opt.on{border-color:var(--purple);background:rgba(139,92,246,.12)}
+.opt b{display:block;margin-bottom:3px}
+table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;vertical-align:middle}
+th{color:var(--faint);font-weight:600;font-size:11px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.live-dot{background:var(--cyan);box-shadow:0 0 0 0 rgba(34,211,238,.6);animation:pulse 1.6s infinite}
+.rec-dot{background:var(--red);animation:pulse 1.2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(248,113,113,.5)}70%{box-shadow:0 0 0 7px rgba(248,113,113,0)}100%{box-shadow:0 0 0 0 rgba(248,113,113,0)}}
+.lines{max-height:430px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--inner)}
+.ln{display:grid;grid-template-columns:3px 104px 58px 150px minmax(0,1fr) 70px;gap:8px;align-items:center;padding:4px 8px 4px 0;border-bottom:1px solid rgba(139,92,246,.08);font-size:12px}
+.ln.new{animation:flash 1.5s ease-out}
+@keyframes flash{from{background:rgba(34,211,238,.18)}to{background:transparent}}
+.ln.rec{background:rgba(248,113,113,.05)}
+.stripe{height:100%;min-height:18px}
+.lv{font-size:10.5px;font-weight:700;border:1px solid;border-radius:5px;padding:0 5px;text-align:center}
+.lv.ERROR{color:var(--l-error)} .lv.WARN{color:var(--l-warn)} .lv.INFO{color:var(--l-info)}
+.marker{display:flex;gap:8px;align-items:center;padding:5px 10px;background:rgba(139,92,246,.15);border-left:3px solid var(--purple);font-size:12px}
+.recbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 12px;border:1px solid rgba(248,113,113,.55);background:rgba(248,113,113,.08);border-radius:12px;margin-top:10px}
+.livebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.newpill{position:sticky;top:6px;margin:6px auto;display:block;width:max-content;background:var(--cyan);color:#06222a;font-weight:700;border-radius:999px;padding:3px 12px;font-size:12px}
+.file{display:grid;grid-template-columns:22px minmax(0,1fr) 90px 110px 120px;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--border);font-size:12px}
+.sess{display:grid;grid-template-columns:minmax(0,1.4fr) 170px 90px 90px 80px 200px;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--border);font-size:12px}
+.hide{display:none}
+@media (max-width:900px){.choice{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.sess{grid-template-columns:1fr 1fr}.file{grid-template-columns:22px 1fr 80px}.ln{grid-template-columns:3px 84px 50px minmax(0,1fr)}.ln .svc,.ln .dur{display:none}}
+</style>
+</head>
+<body>
+<div class="mockbar">
+  <b>MOCK</b> watch a folder + session recordings ·
+  <button data-s="wiz" class="on">1 · Watch a folder</button>
+  <button data-s="src">2 · Sources</button>
+  <button data-s="live">3 · Live explorer + record</button>
+  <button data-s="sessions">4 · Saved sessions</button>
+  <button data-s="open">5 · Open a session</button>
+  <span class="sp"></span><span>The live feed below is simulated.</span>
+</div>
+<div class="nav"><a>Live Calls</a><a>Session Cycles</a><a>Profiles</a><a>Interception</a><a>Relive</a><a class="on">Logs</a><a>Settings</a></div>
+
+<!-- 1 · wizard: watch a folder -->
+<div class="page" id="s-wiz">
+  <div class="row"><div><h1>New log source</h1><div class="sub">Lines must be one JSON object per line. Everything else is detected.</div></div></div>
+  <div class="card">
+    <h3>Where do the lines come from?</h3>
+    <div class="choice" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      <div class="opt"><b>⇪ Upload file</b><span class="dim">From your machine.</span></div>
+      <div class="opt"><b>⧉ File on server</b><span class="dim">One file, loaded once.</span></div>
+      <div class="opt"><b>↻ Follow a file</b><span class="dim">Live tail of one file.</span></div>
+      <div class="opt on"><b>📁 Watch a folder <span class="pill p-live">new</span></b><span class="dim">Every matching file in a folder, live. New files are picked up as they appear.</span></div>
+    </div>
+    <div class="grid2">
+      <span class="dim">Source name</span><input value="wildfly-server" style="max-width:320px">
+      <span class="dim">Folder</span>
+      <div>
+        <div class="row"><select id="folder">
+            <option>wildfly · /opt/wildfly/standalone/log</option>
+            <option>portal · /srv/portal/logs</option>
+            <option>payments · /var/log/payments</option>
+          </select>
+          <label class="dim"><input type="checkbox"> include subfolders</label>
+          <span class="pill p-live"><span class="dot live-dot"></span> notified on change</span></div>
+        <div class="faint" style="font-size:11.5px;margin-top:4px">Watched folders are listed in <span class="mono">settings.properties → logs_watch_dirs</span>
+          (<span class="mono">wildfly:/opt/wildfly/standalone/log,portal:/srv/portal/logs</span>), overridable in <span class="mono">.env → ALFRED_LOGS_WATCH_DIRS</span>.
+          Only for live listening - uploads and "File on server" keep using <span class="mono">logs_drop_dir</span>. Adding a folder: edit the setting, run restart.py.</div>
+      </div>
+      <span class="dim">Files</span>
+      <div>
+        <div class="row"><input id="pattern" value="detail*.log" class="mono" style="width:200px"><span class="faint">pattern · also reads rotated files (detail.log.1, detail.log.2026-10-03)</span></div>
+        <div id="filelist" style="margin-top:6px"></div>
+      </div>
+      <span class="dim">Start with</span>
+      <div class="choice" id="startopts">
+        <div class="opt" data-k="all"><b>Everything</b><span class="dim">Every line of every matching file, oldest first, then keep following.</span></div>
+        <div class="opt on" data-k="last"><b>The last <input id="lastN" value="5000" style="width:80px;padding:1px 6px"> lines</b>
+          <span class="dim">Counted <select id="lastScope" style="padding:1px 4px"><option>across all files</option><option>per file</option></select>, newest kept; then keep following.</span></div>
+        <div class="opt" data-k="new"><b>Only new lines</b><span class="dim">Nothing old: start at the end of each file and show what is written from now on.</span></div>
+      </div>
+      <span class="dim">Keep following</span>
+      <div class="row"><span class="seg"><button class="on">On</button><button>Off - load once</button></span>
+        <span class="faint">New lines and new files appear in the explorer live. Rotation (file renamed, new file) is handled.</span></div>
+      <span class="dim">Raw lines</span>
+      <div class="row"><span class="seg"><button class="on">Copy into Alfred</button><button>Keep file + positions</button></span></div>
+    </div>
+    <div class="row" style="margin-top:14px"><span id="estimate" class="dim"></span><span class="sp"></span><button class="btn primary" onclick="show('src')">Next: preview structure →</button></div>
+  </div>
+</div>
+
+<!-- 2 · sources page -->
+<div class="page hide" id="s-src">
+  <div class="row"><div><h1>Log sources</h1><div class="sub">A source = one log structure + its settings, fed by any number of inputs.</div></div><span class="sp"></span><button class="btn primary">+ New source</button></div>
+  <div class="card">
+    <div class="row"><h2>wildfly-server</h2><span class="pill p-live"><span class="dot live-dot"></span> following</span><span class="dim" id="srcCount"></span><span class="sp"></span>
+      <button class="btn sm" onclick="show('live')">Open explorer</button><button class="btn sm" onclick="show('sessions')">Sessions (3)</button></div>
+    <div class="file" style="color:var(--faint);font-size:11px;border-top:none"><span></span><span>📁 wildfly (/opt/wildfly/standalone/log) · detail*.log · started with the last 5,000 lines · notified on change</span><span>lines</span><span>size</span><span>status</span></div>
+    <div id="srcFiles"></div>
+    <div class="note">⋯ on the folder: pause / resume following, change the pattern, load the older lines that were skipped (“load the rest”), remove. A file that disappears waits; a new file matching the pattern starts automatically.</div>
+  </div>
+</div>
+
+<!-- 3 · live explorer + recording -->
+<div class="page hide" id="s-live">
+  <div class="row"><div><h1>wildfly-server</h1><div class="sub" id="liveSub"></div></div><span class="sp"></span>
+    <button class="btn sm">Saved views ▾</button><button class="btn sm" onclick="show('sessions')">Sessions</button><button class="btn sm">⚙ Structure</button></div>
+  <div class="livebar">
+    <span class="pill p-live"><span class="dot live-dot"></span> Live · <span id="rate">0</span> lines/s · 3 files</span>
+    <span class="seg"><button class="on" id="followBtn">Follow newest</button><button id="pauseBtn">Pause view</button></span>
+    <span class="faint">Reading never stops - pausing only freezes what you see.</span>
+    <span class="sp"></span>
+    <button class="btn rec" id="recBtn">⏺ Record session</button>
+  </div>
+  <div class="recbar hide" id="recbar">
+    <span class="dot rec-dot"></span><b>Recording</b>
+    <input id="recName" value="Booking fails for agency AGN1422" style="width:280px">
+    <span class="mono" id="recTime">00:00</span><span class="dim"><span id="recLines">0</span> lines</span>
+    <span class="seg" id="recKind"><button class="on" data-k="window">Time window</button><button data-k="id">One ID</button></span>
+    <span class="dim" id="recWindow">Only lines matching: <span class="pill p-wait">all</span> <button class="btn sm">+ filter</button></span>
+    <span class="dim hide" id="recId"><select style="padding:2px 4px"><option>sessionId</option><option>correlationId</option><option>inboundCallId</option></select>
+      = <input value="S7" style="width:120px" class="mono"> <span class="faint">every line carrying it, while recording</span></span>
+    <span class="sp"></span>
+    <button class="btn sm" id="markBtn">⚑ Add marker</button>
+    <button class="btn sm" id="stopBtn">■ Stop &amp; save</button>
+  </div>
+  <div class="card" style="padding:8px">
+    <div class="row" style="padding:2px 6px 8px"><input placeholder='field:value · "free text"' style="flex:1;min-width:200px"><span class="dim" id="matchCount"></span></div>
+    <div class="lines" id="lines"></div>
+  </div>
+  <div class="note"><b>Time window</b>: every line between Record and Stop, optionally only those matching a filter.
+    <b>One ID</b>: only lines carrying one session / correlation / call ID (any field with an ID role or a grouping level) - other users' lines on the same server are left out.
+    Either way the reading stays live and the lines are kept forever.</div>
+  <div class="note">Recording marks a time window on the live log and keeps those lines forever (never trimmed by a size cap). Markers are notes on the timeline (“clicked Book”, “error shown”). The session can carry a filter, e.g. only <span class="mono">sessionId:S7</span>, so several people can record their own flows on a shared server.</div>
+</div>
+
+<!-- 4 · saved sessions -->
+<div class="page hide" id="s-sessions">
+  <div class="row"><div><h1>Sessions · wildfly-server</h1><div class="sub">Recorded windows of the live log, saved with their lines, markers and comments.</div></div><span class="sp"></span>
+    <button class="btn rec" onclick="show('live')">⏺ Record new</button></div>
+  <div class="card">
+    <div class="sess" style="color:var(--faint);font-size:11px;border-top:none"><span>Name · notes</span><span>When</span><span>Duration</span><span>Lines</span><span>Errors</span><span></span></div>
+    <div id="sessList"></div>
+  </div>
+  <div class="note">A session opens as an ordinary explorer view limited to its window (and its filter): search, grouping, patterns, traces, compare, comments and exports all work. Export a session as .json / .md / .html like a Session Cycle. Deleting a session keeps the lines (only unpins them).</div>
+</div>
+
+<!-- 5 · open a session -->
+<div class="page hide" id="s-open">
+  <div class="row"><div><h1>⏺ Booking fails for agency AGN1422</h1>
+    <div class="sub">wildfly-server · 2026-10-04 14:02:11 → 14:06:48 · 4 m 37 s · 1,284 lines · 3 markers · filter: none</div></div><span class="sp"></span>
+    <button class="btn sm">✎ Rename / notes</button><button class="btn sm">Export ▾</button><button class="btn sm" onclick="show('live')">Back to live</button></div>
+  <div class="note" style="margin-top:10px">Notes: Agent clicks Book → supplier timeout after 30 s → retry succeeds. Reproduced twice.</div>
+  <div class="card" style="padding:8px"><div class="lines" id="sessLines" style="max-height:520px"></div></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const pad = (n, w = 2) => String(n).padStart(w, '0');
+function show(s) {
+  document.querySelectorAll('.page').forEach((p) => p.classList.toggle('hide', p.id !== 's-' + s));
+  document.querySelectorAll('.mockbar button[data-s]').forEach((b) => b.classList.toggle('on', b.dataset.s === s));
+}
+document.querySelectorAll('.mockbar button[data-s]').forEach((b) => (b.onclick = () => show(b.dataset.s)));
+
+// ---- 1 · wizard
+const FILES = [
+  { n: 'detail.log', size: 182.1, lines: 16864, live: true },
+  { n: 'detail.log.1', size: 512.0, lines: 47410 },
+  { n: 'detail.log.2026-10-03', size: 498.6, lines: 46102 },
+  { n: 'server.log', size: 40.2, lines: 0, skip: true },
+];
+function drawFiles() {
+  const pat = $('pattern').value.replace(/\./g, '\\.').replace(/\*/g, '.*');
+  const re = new RegExp('^' + pat);
+  $('filelist').innerHTML = FILES.map((f) => {
+    const hit = re.test(f.n);
+    return `<div class="file" style="grid-template-columns:22px minmax(0,1fr) 90px 110px"><span>${hit ? '✔' : '·'}</span><span class="mono ${hit ? '' : 'faint'}">${f.n}${f.live ? ' <span class="pill p-live">being written</span>' : ''}</span><span class="dim">${f.size.toFixed(1)} MB</span><span class="dim">${hit ? f.lines.toLocaleString() + ' lines' : 'not matched'}</span></div>`;
+  }).join('');
+  estimate();
+}
+let startMode = 'last';
+function estimate() {
+  const total = FILES.filter((f) => !f.skip).reduce((a, f) => a + f.lines, 0);
+  const n = +$('lastN').value || 0;
+  const per = $('lastScope').value === 'per file';
+  const loads = startMode === 'all' ? total : startMode === 'new' ? 0 : per ? Math.min(total, n * 3) : Math.min(total, n);
+  $('estimate').textContent = startMode === 'new'
+    ? 'Loads nothing old · shows new lines from now on'
+    : `Loads ${loads.toLocaleString()} of ${total.toLocaleString()} existing lines first · ~${Math.max(1, Math.round(loads / 600))} s · then live`;
+}
+$('pattern').oninput = drawFiles; $('lastN').oninput = estimate; $('lastScope').onchange = estimate;
+document.querySelectorAll('#startopts .opt').forEach((o) => (o.onclick = (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  document.querySelectorAll('#startopts .opt').forEach((x) => x.classList.toggle('on', x === o));
+  startMode = o.dataset.k; estimate();
+}));
+drawFiles();
+
+// ---- simulated live feed
+const METHODS = ['loginAction', 'getSearchResult', 'performOperation', 'bookFlight', 'handleCallingError', 'getFareRules'];
+const SVCS = ['FlyAdealUAE', 'TravelportNdc', 'AirArabia', '—'];
+let t = Date.parse('2026-10-04T14:01:30Z');
+const lines = [];
+let live = true, recording = null, rate = 0, sinceTick = 0, recSeq = 0;
+function mkLine() {
+  t += 80 + Math.random() * 900;
+  const r = Math.random();
+  const level = r < 0.08 ? 'ERROR' : r < 0.18 ? 'WARN' : 'INFO';
+  const m = METHODS[(Math.random() * METHODS.length) | 0];
+  const svc = SVCS[(Math.random() * SVCS.length) | 0];
+  return { t, level, m, svc, msg: level === 'ERROR' ? 'Supplier timeout after 30000 ms' : m === 'performOperation' ? 'End external call' : 'API response',
+    dur: svc === '—' ? '' : (100 + Math.random() * 6000 | 0) + ' ms', file: Math.random() < 0.9 ? 'detail.log' : 'server.log', rec: !!recording };
+}
+for (let i = 0; i < 40; i++) lines.push(mkLine());
+const fmt = (ms) => { const d = new Date(ms); return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.${pad(d.getUTCMilliseconds(), 3)}`; };
+const color = (l) => (l === 'ERROR' ? 'var(--l-error)' : l === 'WARN' ? 'var(--l-warn)' : 'var(--l-info)');
+const lineHtml = (l, isNew) => `<div class="ln ${isNew ? 'new' : ''} ${l.rec ? 'rec' : ''}"><span class="stripe" style="background:${color(l.level)}"></span><span class="mono dim">${fmt(l.t)}</span><span class="lv ${l.level}">${l.level}</span><span class="mono">${l.m}</span><span>${l.msg} <span class="faint">· ${l.file}</span></span><span class="dim dur">${l.dur}</span></div>`;
+let pending = 0;
+function drawLive(added = 0) {
+  const box = $('lines');
+  if (!live) {
+    pending += added;
+    $('lines').querySelector('.newpill')?.remove();
+    if (pending) box.insertAdjacentHTML('afterbegin', `<span class="newpill" onclick="resume()">▲ ${pending} new lines - show</span>`);
+    return;
+  }
+  pending = 0;
+  box.innerHTML = lines.slice(-200).reverse().map((l, i) => (l.marker ? `<div class="marker">⚑ <b>${l.marker}</b><span class="faint">${fmt(l.t)}</span></div>` : lineHtml(l, i < added))).join('');
+  $('matchCount').textContent = `${(212000 + lines.length).toLocaleString()} lines`;
+}
+function resume() { live = true; $('followBtn').classList.add('on'); $('pauseBtn').classList.remove('on'); drawLive(); }
+$('followBtn').onclick = resume;
+$('pauseBtn').onclick = () => { live = false; $('pauseBtn').classList.add('on'); $('followBtn').classList.remove('on'); };
+setInterval(() => {
+  const n = 1 + ((Math.random() * 4) | 0);
+  for (let i = 0; i < n; i++) lines.push(mkLine());
+  sinceTick += n;
+  if (recording) recording.lines += n;
+  drawLive(n);
+  drawSources();
+}, 700);
+setInterval(() => { rate = Math.round(sinceTick / 2); sinceTick = 0; $('rate').textContent = rate; }, 2000);
+$('liveSub').textContent = '212,000 lines · following wildfly · detail*.log';
+
+// ---- recording
+document.querySelectorAll('#recKind button').forEach((b) => (b.onclick = () => {
+  document.querySelectorAll('#recKind button').forEach((x) => x.classList.toggle('on', x === b));
+  $('recWindow').classList.toggle('hide', b.dataset.k !== 'window');
+  $('recId').classList.toggle('hide', b.dataset.k !== 'id');
+}));
+$('recBtn').onclick = () => {
+  if (recording) return;
+  recording = { start: Date.now(), lines: 0 };
+  $('recbar').classList.remove('hide'); $('recBtn').classList.add('hide');
+};
+$('markBtn').onclick = () => {
+  const label = prompt('Marker note', 'clicked Book') || 'marker';
+  lines.push({ t: t + 1, marker: label });
+  drawLive(0);
+};
+$('stopBtn').onclick = () => {
+  SESSIONS.unshift({ name: $('recName').value, when: 'today ' + new Date().toTimeString().slice(0, 5), dur: $('recTime').textContent, lines: recording.lines, errors: Math.round(recording.lines * 0.08), notes: '' });
+  recording = null; lines.forEach((l) => (l.rec = false));
+  $('recbar').classList.add('hide'); $('recBtn').classList.remove('hide');
+  drawSessions(); show('sessions');
+};
+setInterval(() => {
+  if (!recording) return;
+  const s = Math.round((Date.now() - recording.start) / 1000);
+  $('recTime').textContent = `${pad((s / 60) | 0)}:${pad(s % 60)}`;
+  $('recLines').textContent = recording.lines.toLocaleString();
+}, 500);
+
+// ---- sources page
+const srcState = [{ n: 'detail.log', lines: 5000, size: '182.1 MB', st: 'following' }, { n: 'detail.log.1', lines: 0, size: '512.0 MB', st: 'older lines skipped' }, { n: 'detail.log.2026-10-03', lines: 0, size: '498.6 MB', st: 'older lines skipped' }];
+function drawSources() {
+  srcState[0].lines = 5000 + lines.length;
+  $('srcFiles').innerHTML = srcState.map((f) => `<div class="file"><span>${f.st === 'following' ? '<span class="dot live-dot"></span>' : '·'}</span><span class="mono">${f.n}</span><span>${f.lines.toLocaleString()}</span><span class="dim">${f.size}</span><span>${f.st === 'following' ? '<span class="pill p-live">following</span>' : `<span class="pill p-wait">${f.st}</span>`}</span></div>`).join('')
+    + `<div class="file"><span>＋</span><span class="faint mono">detail.log.2 - appears when the server rotates; picked up automatically</span><span></span><span></span><span><span class="pill p-wait">waiting</span></span></div>`;
+  $('srcCount').textContent = `${(5000 + lines.length).toLocaleString()} lines · 3 files · started with the last 5,000`;
+}
+
+// ---- saved sessions
+const SESSIONS = [
+  { name: 'Booking fails for agency AGN1422', when: 'today 14:02', dur: '04:37', lines: 1284, errors: 37, notes: 'Supplier timeout after 30 s, retry succeeds.' },
+  { name: 'Login loop on portal-24', when: 'yesterday 17:40', dur: '01:12', lines: 402, errors: 3, notes: '' },
+  { name: 'Search slow with 9 passengers', when: '2026-10-02 11:05', dur: '08:03', lines: 3910, errors: 0, notes: 'p95 6.2 s on TravelportNdc.' },
+];
+function drawSessions() {
+  $('sessList').innerHTML = SESSIONS.map((s) => `<div class="sess"><span><b>⏺ ${s.name}</b><br><span class="faint">${s.notes || 'no notes'}</span></span><span class="dim">${s.when}</span><span class="mono">${s.dur}</span><span>${s.lines.toLocaleString()}</span><span style="color:${s.errors ? 'var(--l-error)' : 'var(--dim)'}">${s.errors}</span><span class="row" style="justify-content:flex-end"><button class="btn sm" onclick="show('open')">Open</button><button class="btn sm">Export</button><button class="btn sm">✕</button></span></div>`).join('');
+}
+drawSessions();
+
+// ---- one opened session (static window with markers)
+(function () {
+  const out = [];
+  let tt = Date.parse('2026-10-04T14:02:11Z');
+  const marks = { 6: 'Agent clicked Book', 19: 'Error shown to agent', 27: 'Retry succeeded' };
+  for (let i = 0; i < 34; i++) {
+    if (marks[i]) out.push(`<div class="marker">⚑ <b>${marks[i]}</b><span class="faint">${fmt(tt)}</span></div>`);
+    tt += 300 + Math.random() * 6000;
+    const err = i >= 15 && i <= 19;
+    out.push(lineHtml({ t: tt, level: err ? 'ERROR' : 'INFO', m: err ? 'bookFlight' : METHODS[i % METHODS.length], msg: err ? 'Supplier timeout after 30000 ms' : 'API response', dur: err ? '30000 ms' : (120 + i * 37) + ' ms', file: 'detail.log' }, false));
+  }
+  $('sessLines').innerHTML = out.join('');
+})();
+drawLive(); drawSources();
+</script>
+</body>
+</html>

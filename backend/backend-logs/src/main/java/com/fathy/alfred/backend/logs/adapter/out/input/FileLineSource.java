@@ -128,7 +128,13 @@ public class FileLineSource implements LineSourcePort {
                 return true;
             }
             long readUpTo = bufStart + bufLen;
-            if (!key().equals(fileKey) || Files.size(path) < readUpTo) {
+            boolean replaced = !key().equals(fileKey);
+            if (replaced && hasUnread()) {
+                // Renamed away (rotation) with lines still unread in the old file: finish those first -
+                // the open handle still reads the old file - and switch on the next check.
+                return true;
+            }
+            if (replaced || Files.size(path) < readUpTo) {
                 file.close();
                 openFile();
                 generation++;
@@ -149,6 +155,11 @@ public class FileLineSource implements LineSourcePort {
         @Override
         public long size() throws IOException {
             return file == null ? 0 : file.length();
+        }
+
+        @Override
+        public boolean hasUnread() throws IOException {
+            return file != null && (bufPos < bufLen || file.length() > bufStart + bufLen);
         }
 
         @Override

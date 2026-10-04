@@ -74,6 +74,11 @@ public class WebSocketLogNotificationAdapter implements LogNotificationPort {
     }
 
     @Override
+    public void sessionsChanged(String sourceId) {
+        send(event("sessions-changed", sourceId));
+    }
+
+    @Override
     public void commentChanged(String sourceId, String lineId) {
         Map<String, Object> m = event("comment-changed", sourceId);
         m.put("lineId", lineId);
