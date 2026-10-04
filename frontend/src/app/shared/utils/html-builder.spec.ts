@@ -821,3 +821,40 @@ describe('a call\'s facts as cards', () => {
     expect(html).toContain("document.querySelectorAll('.fact-copy')");
   });
 });
+
+describe('the Summary inside About This Document (.html)', () => {
+  // An inbound call (0 -> 1000ms) that made one outbound call (100 -> 400ms) - nested, so the
+  // export has timing rows: 300ms waiting on downstream, 700ms own work.
+  function nestedCalls(): CallRecord[] {
+    return [
+      makeCall({ id: 'in', url: 'http://host.docker.internal:9001/api/in', source: 'internal', service_name: 'odeysys', state: 'COMPLETED', timestamp: '2026-08-07T13:45:51.000Z', duration_ms: 1000 }),
+      makeCall({ id: 'out', url: 'https://supplier.example.com/api/out', source: 'external', timestamp: '2026-08-07T13:45:51.100Z', duration_ms: 300 }),
+    ];
+  }
+
+  it('sits inside the About section, always open in a scrolling box, and replaces the separate "Where the time went" table', () => {
+    const html = buildBulkExportHtml(nestedCalls(), makeForm(), new Map(), '2026-08-07T14:00:00Z');
+    const about = html.slice(html.indexOf('<section class="about">'), html.indexOf('</section>'));
+
+    expect(about).toContain('<a id="all-calls"></a><div class="summary-box"><div class="summary-title">📊 Summary');
+    expect(about).toContain('<div class="summary-scroll"><table class="metadata summary-table"><thead>');
+    expect(about).not.toContain('summary-details');
+    expect(html).not.toContain('Where the time went');
+    expect(html).not.toContain('<h2>📊 Summary</h2>');
+  });
+
+  it('carries the timing columns on the Summary rows', () => {
+    const html = buildBulkExportHtml(nestedCalls(), makeForm(), new Map(), '2026-08-07T14:00:00Z');
+
+    expect(html).toContain('<th class="sum-num">Total</th><th class="sum-num">Waiting on downstream</th><th class="sum-num">Own work</th>');
+    expect(html).toContain('<td class="sum-num">300 ms</td><td class="sum-num"><b>700 ms</b></td>');
+    expect(html).toContain('<td class="sum-num"><em>— leaf</em></td><td class="sum-num">300 ms</td>');
+  });
+
+  it('keeps a plain Duration column when nothing nests', () => {
+    const html = buildBulkExportHtml([makeCall()], makeForm(), new Map(), '2026-08-07T14:00:00Z');
+
+    expect(html).toContain('<th>Status</th><th class="sum-num">Duration</th><th>Flagged</th>');
+    expect(html).not.toContain('Own work</th>');
+  });
+});

@@ -317,7 +317,7 @@ describe('buildBulkExportMarkdown', () => {
     const closeCount = md.match(/<\/details>/g)?.length ?? 0;
     expect(md).not.toContain('<details open>');
     expect(md.match(/<summary><b>Call \d+<\/b>/g)?.length).toBe(2); // one call wrapper per call
-    expect(anyDetailsCount).toBe(10); // (4 Headers/Body blocks + 1 call wrapper) x 2 calls
+    expect(anyDetailsCount).toBe(11); // (4 Headers/Body blocks + 1 call wrapper) x 2 calls, + the Summary
     expect(closeCount).toBe(anyDetailsCount);
   });
 
@@ -713,5 +713,41 @@ describe('the order of the Calls list (.md)', () => {
     const doc = ((calls: CallRecord[], order: 'as-shown' | 'chronological') => buildBulkExportMarkdown(calls, makeForm(), new Map(), 'now', [makeCandidate()], 'all', null, [], order))(shownNewestFirst, 'chronological');
     expect(at(doc, '<summary><b>Call 1</b>' + ' · request')).toBeLessThan(at(doc, '<summary><b>Call 3</b>'));
     expect(doc).toContain('Calls appear in true chronological order of events');
+  });
+});
+
+describe('the Summary inside About This Document (.md)', () => {
+  // An inbound call (0 -> 1000ms) that made one outbound call (100 -> 400ms) - nested, so the
+  // export has timing rows: 300ms waiting on downstream, 700ms own work.
+  function nestedCalls(): CallRecord[] {
+    return [
+      makeCall({ id: 'in', url: 'http://host.docker.internal:9001/api/in', source: 'internal', service_name: 'odeysys', state: 'COMPLETED', timestamp: '2026-08-07T13:45:51.000Z', duration_ms: 1000 }),
+      makeCall({ id: 'out', url: 'https://supplier.example.com/api/out', source: 'external', timestamp: '2026-08-07T13:45:51.100Z', duration_ms: 300 }),
+    ];
+  }
+
+  it('sits inside the About section, collapsed, and replaces the separate "Where the time went" table', () => {
+    const md = buildBulkExportMarkdown(nestedCalls(), makeForm(), new Map(), '2026-08-07T14:00:00Z');
+    const about = md.slice(md.indexOf('## 📖 About This Document'), md.indexOf('## 🧾 Metadata'));
+
+    expect(about).toContain('<details>\n<summary><b>📊 Summary — ');
+    expect(about).not.toContain('<details open>');
+    expect(md).not.toContain('Where the time went');
+    expect(md).not.toContain('## 📊 Summary');
+  });
+
+  it('carries the timing columns on the Summary rows', () => {
+    const md = buildBulkExportMarkdown(nestedCalls(), makeForm(), new Map(), '2026-08-07T14:00:00Z');
+
+    expect(md).toContain('| # | Method | Path | Status | Total | Waiting on downstream | Own work | Flagged |');
+    expect(md).toContain('| 300 ms | **700 ms** |');
+    expect(md).toContain('| — _(leaf)_ | 300 ms |');
+  });
+
+  it('keeps a plain Duration column when nothing nests', () => {
+    const md = buildBulkExportMarkdown([makeCall()], makeForm(), new Map(), '2026-08-07T14:00:00Z');
+
+    expect(md).toContain('| # | Method | Path | Status | Duration | Flagged |');
+    expect(md).not.toContain('Own work');
   });
 });

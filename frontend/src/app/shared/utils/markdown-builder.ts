@@ -5,7 +5,7 @@ import { detectAndFormatBody } from './body-format';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
-import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
+import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative, NarrativeTimingRow } from './export-narrative';
 import { buildWaterfallBands, waterfallAsciiLines } from './waterfall';
 import {
   CallExportOverview,
@@ -67,7 +67,7 @@ function commentsForBlock(comments: readonly Comment[], block: CommentBlock): Co
  * diagram so it survives being pasted anywhere, and each slot is skipped entirely when the narrative
  * has nothing for it rather than rendering an empty heading.
  */
-function aboutSectionMarkdown(narrative: ExportNarrative): string[] {
+function aboutSectionMarkdown(narrative: ExportNarrative, summaryLines?: readonly string[]): string[] {
   const lines: string[] = ['## 📖 About This Document', ''];
 
   lines.push(`**What this is.** ${narrative.description}`, '');
@@ -101,7 +101,11 @@ function aboutSectionMarkdown(narrative: ExportNarrative): string[] {
     lines.push('');
   }
 
-  if (narrative.timingRows.length > 0) {
+  if (summaryLines) {
+    // A bulk export's Summary already carries each call's timing columns, so the separate
+    // "Where the time went" table would only repeat them.
+    lines.push(...summaryLines);
+  } else if (narrative.timingRows.length > 0) {
     lines.push('**Where the time went.**', '');
     lines.push('| # | Call | Total | Waiting on downstream | Own work |', '|---|---|---|---|---|');
     for (const row of narrative.timingRows) {
@@ -590,6 +594,14 @@ function renderBlockBody(block: RenderBlock, allComments: readonly Comment[]): s
  * request+response always sitting glued together. External calls, and internal calls that haven't
  * resolved yet, always render as a single block exactly as before. See buildRenderBlocks().
  */
+/** The Summary's timing cells for one row; a request half has not finished, so it has none. */
+function timingCellsMarkdown(row: NarrativeTimingRow | undefined): string {
+  if (!row) return ' — | — |';
+  const downstream = row.downstreamMs != null ? formatMs(row.downstreamMs) : '— _(leaf)_';
+  const own = row.selfMs != null ? `**${formatMs(row.selfMs)}**` : formatMs(row.durationMs);
+  return ` ${downstream} | ${own} |`;
+}
+
 export function buildBulkExportMarkdown(
   calls: readonly CallRecord[],
   form: ExportFormData,
@@ -638,24 +650,40 @@ export function buildBulkExportMarkdown(
   }
   lines.push('---', '');
 
-  lines.push(...aboutSectionMarkdown(narrative));
-
-  lines.push('## 🧾 Metadata', '');
-  lines.push(...metadataTable(form));
-  lines.push('', '---', '');
-
-  lines.push('## 📊 Summary', '');
-  lines.push('| # | Method | Path | Status | Duration | Flagged |', '|---|--------|------|--------|----------|---------|');
+  // Closed by default (GFM <details>): one row per call (two per split call) is long, and the
+  // table above already gives the counts. Only when calls nest does it carry the timing columns -
+  // then "own work" differs from the total and is worth a column.
+  const timed = narrative.timingRows.length > 0;
+  const timingByNumber = new Map(narrative.timingRows.map((row) => [row.number, row]));
+  const summaryLines: string[] = [
+    '<a id="all-calls"></a>',
+    '<details>',
+    `<summary><b>📊 Summary — ${blocks.length} row${blocks.length === 1 ? '' : 's'}</b></summary>`,
+    '',
+    timed
+      ? '| # | Method | Path | Status | Total | Waiting on downstream | Own work | Flagged |'
+      : '| # | Method | Path | Status | Duration | Flagged |',
+    timed ? '|---|---|---|---|---|---|---|---|' : '|---|--------|------|--------|----------|---------|',
+  ];
   blocks.forEach((block) => {
     const { call } = block;
     const comments = commentsForVariant(commentsByCallId.get(call.id) ?? [], block.variant);
     const flaggedCount = comments.length;
     const duration = block.variant !== 'request' && call.duration_ms != null ? formatMs(call.duration_ms) : '—';
     const flaggedCell = flaggedCount > 0 ? `🚩 ${flaggedCount} issue${flaggedCount === 1 ? '' : 's'}` : '—';
-    lines.push(
-      `| [${block.n}${blockSuffix(block)}](#${blockAnchor(block)}) | \`${call.method}\` | \`${uriPath(call.url)}\`<br>${call.url} | ${blockStatusCell(block)} | ${duration} | ${flaggedCell} |`
+    const timing = timed ? timingCellsMarkdown(block.variant === 'request' ? undefined : timingByNumber.get(block.n)) : '';
+    summaryLines.push(
+      `| [${block.n}${blockSuffix(block)}](#${blockAnchor(block)}) | \`${call.method}\` | \`${uriPath(call.url)}\`<br>${call.url} | ${blockStatusCell(block)} | ${duration} |${timing} ${flaggedCell} |`
     );
   });
+  summaryLines.push('');
+  if (narrative.timingNote) summaryLines.push(narrative.timingNote, '');
+  summaryLines.push('</details>', '');
+
+  lines.push(...aboutSectionMarkdown(narrative, summaryLines));
+
+  lines.push('## 🧾 Metadata', '');
+  lines.push(...metadataTable(form));
   lines.push('', '---', '');
 
   const depthsByCallId = depthByCallId(narrative.topology);

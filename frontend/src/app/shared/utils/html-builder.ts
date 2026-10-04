@@ -6,7 +6,7 @@ import { soapSummary } from './soap-summary';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, methodClass, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
-import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative } from './export-narrative';
+import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative, NarrativeTimingRow } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
 import { REPORT_CHROME_SCRIPT, REPORT_CHROME_STYLE, TOC_OPEN_HTML, TOC_TOGGLE_HTML } from './report-chrome';
 import { CallExportOverview, ExportListOrder, GlossaryUse, orderBlocksAsShown, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
@@ -47,7 +47,7 @@ function commentsForBlock(comments: readonly Comment[], block: CommentBlock): Co
  * bordered card rather than a run of <h2>s so it reads as a preface to the report rather than as its
  * first chapter, and the topology goes in a <pre> so it can be copied out with its alignment intact.
  */
-function aboutSectionHtml(narrative: ExportNarrative): string {
+function aboutSectionHtml(narrative: ExportNarrative, summaryHtml?: string): string {
   const parts: string[] = ['<section class="about">', '<h2>📖 About This Document</h2>'];
 
   parts.push(`<p><b>What this is.</b> ${escapeHtml(narrative.description)}</p>`);
@@ -149,7 +149,11 @@ function aboutSectionHtml(narrative: ExportNarrative): string {
     parts.push('</ul></div>');
   }
 
-  if (narrative.timingRows.length > 0) {
+  if (summaryHtml != null) {
+    // A bulk export's Summary already carries each call's timing columns, so the separate
+    // "Where the time went" table would only repeat them.
+    parts.push(summaryHtml);
+  } else if (narrative.timingRows.length > 0) {
     parts.push('<p><b>Where the time went.</b></p>');
     parts.push(
       '<table class="metadata about-timing"><tr><td>#</td><td>Call</td><td>Total</td><td>Waiting on downstream</td><td>Own work</td></tr>'
@@ -405,7 +409,22 @@ body { padding: 0; }
 .pill-out { color: #fb923c; border-color: rgba(251, 146, 60, 0.5); }
 .pill-flag { color: var(--amber); border-color: rgba(227, 162, 74, 0.5); }
 .dur { color: var(--text-dim); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; font-weight: 400; }
-table.summary-table td { vertical-align: top; }
+.summary-box { background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.9rem 0.8rem; margin: 0.9rem 0; }
+.summary-title { font-weight: 700; color: var(--text); margin-bottom: 0.6rem; }
+.summary-scroll { max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--card); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.summary-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.summary-scroll::-webkit-scrollbar-track { background: transparent; }
+.summary-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+.summary-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+.summary-scroll::-webkit-scrollbar-corner { background: transparent; }
+table.summary-table { width: 100%; margin: 0; border: none; border-radius: 0; overflow: visible; border-collapse: separate; border-spacing: 0; }
+table.summary-table th { position: sticky; top: 0; z-index: 1; background: var(--card); text-align: left; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
+table.summary-table td { vertical-align: top; padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+table.summary-table td:first-child { width: auto; color: inherit; font-weight: 600; white-space: nowrap; }
+table.summary-table td.sum-url { overflow-wrap: anywhere; min-width: 240px; color: var(--text); }
+table.summary-table td.sum-num, table.summary-table th.sum-num { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+table.summary-table td.sum-tag { white-space: nowrap; }
+table.summary-table tbody tr:hover td { background: rgba(255, 255, 255, 0.03); }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 0.7rem; }
 .filters button, .card-tools button { font: inherit; font-size: 12px; background: var(--card-inner); color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 2px 11px; cursor: pointer; }
 .filters button.on { border-color: var(--purple); color: var(--text); }
@@ -1321,6 +1340,9 @@ export function buildBulkExportHtml(
 
   const allBlocks: JsonBlockConfig[] = [];
   const summaryRows: string[] = [];
+  // Only when calls nest: then "own work" differs from the total and is worth a column.
+  const timed = narrative.timingRows.length > 0;
+  const timingByNumber = new Map(narrative.timingRows.map((row) => [row.number, row]));
   const callSections: string[] = [];
   const tocRows: string[] = [];
   const overview = callExportOverview(sortedCalls, commentsByCallId, narrative.topology);
@@ -1350,9 +1372,11 @@ export function buildBulkExportHtml(
     const anchor = blockAnchorId(block);
     const kinds = blockKinds(block, flaggedCount);
     summaryRows.push(
-      `<tr data-kinds="${kinds}"><td><a href="#${anchor}">${block.n}${blockSuffixHtml(block)}</a></td><td>${escapeHtml(call.method)}</td><td>${escapeHtml(
+      `<tr data-kinds="${kinds}"><td><a href="#${anchor}">${block.n}${blockSuffixHtml(block)}</a></td><td class="sum-tag">${escapeHtml(call.method)}</td><td class="sum-url">${escapeHtml(
         call.url
-      )}</td><td>${blockStatusHtml(block)}</td><td>${duration}</td><td>${flaggedCount > 0 ? `🚩 ${flaggedCount}` : '—'}</td></tr>`
+      )}</td><td class="sum-tag">${blockStatusHtml(block)}</td><td class="sum-num">${duration}</td>${timed ? timingCellsHtml(block.variant === 'request' ? undefined : timingByNumber.get(block.n)) : ''}<td class="sum-tag">${
+        flaggedCount > 0 ? `🚩 ${flaggedCount}` : '—'
+      }</td></tr>`
     );
 
     let sectionHtml: string;
@@ -1447,12 +1471,20 @@ export function buildBulkExportHtml(
     flagIndex,
     '</div>',
     '<a id="about"></a>',
-    aboutSectionHtml(narrative),
+    aboutSectionHtml(
+      narrative,
+      // Always open, in a fixed-height box that scrolls: one row per call (two per split call) can be
+      // long, and a scrolling box keeps it from pushing the rest of the About section down.
+      `<a id="all-calls"></a><div class="summary-box"><div class="summary-title">📊 Summary — ${summaryRows.length} row${summaryRows.length === 1 ? '' : 's'}</div>` +
+        filters +
+        `<div class="summary-scroll"><table class="metadata summary-table"><thead><tr><th>#</th><th>Method</th><th>URL</th><th>Status</th><th class="sum-num">${timed ? 'Total' : 'Duration'}</th>${
+          timed ? '<th class="sum-num">Waiting on downstream</th><th class="sum-num">Own work</th>' : ''
+        }<th>Flagged</th></tr></thead><tbody>${summaryRows.join('')}</tbody></table></div>` +
+        (narrative.timingNote ? `<p class="about-note">${escapeHtml(narrative.timingNote)}</p>` : '') +
+        '</div>'
+    ),
     '<a id="export-details"></a><h2>🧾 Metadata</h2>',
     metadataTableHtml(form),
-    '<a id="all-calls"></a><h2>📊 Summary</h2>',
-    filters,
-    `<table class="metadata summary-table"><tr><td>#</td><td>Method</td><td>URL</td><td>Status</td><td>Duration</td><td>Flagged</td></tr>${summaryRows.join('')}</table>`,
     '<a id="calls"></a><h2>🔗 Calls</h2>',
     '<div class="card-tools"><button type="button" data-cards="open">Open all</button><button type="button" data-cards="close">Close all</button></div>',
     callSections.join(''),
@@ -1463,6 +1495,14 @@ export function buildBulkExportHtml(
   ].join('');
 
   return documentShell(`API Calls Export - ${calls.length} ${callWord}`, toc, body, allBlocks);
+}
+
+/** The Summary's timing cells for one row; a request half has not finished, so it has none. */
+function timingCellsHtml(row: NarrativeTimingRow | undefined): string {
+  if (!row) return '<td class="sum-num">—</td><td class="sum-num">—</td>';
+  const downstream = row.downstreamMs != null ? formatMs(row.downstreamMs) : '<em>— leaf</em>';
+  const own = row.selfMs != null ? `<b>${formatMs(row.selfMs)}</b>` : formatMs(row.durationMs);
+  return `<td class="sum-num">${downstream}</td><td class="sum-num">${own}</td>`;
 }
 
 function parentTitleHtml(block: RenderBlock, children: readonly number[]): string {
