@@ -4,8 +4,13 @@ Why it exists: Docker Desktop (Windows/macOS) does not pass the host's file-chan
 containers, so the backend - which reads the watched folders through read-only mounts - would never be
 told a log line was written. This agent receives the OS notifications (ReadDirectoryChangesW on Windows,
 FSEvents on macOS, inotify on Linux, through the 'watchdog' package) and reports "this file changed" to
-the backend. Only that notification crosses: the backend reads the new bytes itself. Nothing runs on a
-timer: the agent sleeps until the OS wakes it.
+the backend. Only that notification crosses: the backend reads the new bytes itself.
+
+One exception to "only notifications": Windows does not report writes to a file whose writer keeps it
+open (every logger does - log4j2, logback) until that file is closed or rotated, so a live log would
+arrive in bursts minutes apart. For the files Alfred is following (and only those - the backend lists
+them), the agent therefore also checks the size every SIZE_CHECK_SECONDS and reports a change. That is
+one metadata query per file, no content read, and nothing is sent while a file is unchanged.
 
 Started and stopped by start.py / restart.py / stop.py (alfred_logwatch.py). Settings come from the repo's
 .env: ALFRED_LOGS_WATCH_DIRS (name:path,...), ALFRED_LOGS_AGENT_SECRET, BACKEND_PORT.
@@ -41,6 +46,10 @@ log = logging.getLogger("alfred-log-agent")
 # first notification wakes the sender - it is not a polling interval: with no notification, nothing runs.
 GATHER_SECONDS = 0.02
 MAX_BATCH = 1000
+# How often the followed files' sizes are checked: a new line reaches Alfred within this time.
+SIZE_CHECK_SECONDS = 0.2
+# How often the list of followed files is re-read from the backend (a watch added, a file rotated in).
+FOLLOWED_REFRESH_SECONDS = 5
 
 
 def read_env():
@@ -78,6 +87,11 @@ class Reporter:
         with urllib.request.urlopen(req, timeout=10) as r:
             r.read()
 
+    def get(self, endpoint):
+        req = urllib.request.Request(self.url + endpoint, headers={"X-Agent-Secret": self.secret})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read() or b"{}")
+
     def hello(self):
         """Tells the backend the agent is (back) up; it then re-checks every watched file, so nothing
         written while the agent or the backend was down is missed."""
@@ -112,6 +126,61 @@ class Reporter:
                 self.hello()  # its rescan covers the lost report
 
 
+class SizeWatcher:
+    """Reports the followed files whose size changed - the writes Windows does not notify about."""
+
+    def __init__(self, reporter, roots):
+        self.reporter = reporter
+        self.roots = roots  # watched folder name -> absolute path on this machine
+        self.files = []  # (folder, relative path, absolute path)
+        self.sizes = {}  # absolute path -> last size seen (None = missing)
+        self.refreshed_at = 0.0
+
+    def refresh(self):
+        try:
+            listed = self.reporter.get("/logs/agent/followed").get("files", [])
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            log.debug("Followed files not available (%s)", e)
+            return
+        files = []
+        for f in listed:
+            root = self.roots.get(f.get("folder"))
+            rel = f.get("path") or ""
+            if root is None or not rel:
+                continue
+            path = os.path.normpath(os.path.join(root, rel))
+            if os.path.relpath(path, root).startswith(".."):
+                continue  # never outside the watched folder
+            files.append((f["folder"], rel, path))
+            if path not in self.sizes:
+                self.sizes[path] = self._size(path)  # first sight: the backend has already read up to here
+        kept = {p for _, _, p in files}
+        self.sizes = {p: s for p, s in self.sizes.items() if p in kept}
+        if len(files) != len(self.files):
+            log.info("Checking the size of %d followed file(s)", len(files))
+        self.files = files
+
+    @staticmethod
+    def _size(path):
+        try:
+            return os.stat(path).st_size  # FILE_READ_ATTRIBUTES only: never blocks the writer's rotation
+        except OSError:
+            return None
+
+    def run(self):
+        while True:
+            now = time.monotonic()
+            if now - self.refreshed_at >= FOLLOWED_REFRESH_SECONDS:
+                self.refreshed_at = now
+                self.refresh()
+            for folder, rel, path in self.files:
+                size = self._size(path)
+                if size != self.sizes.get(path):
+                    self.sizes[path] = size
+                    self.reporter.add(folder, rel)
+            time.sleep(SIZE_CHECK_SECONDS)
+
+
 class Handler(FileSystemEventHandler):
     def __init__(self, reporter, folder, root):
         self.reporter = reporter
@@ -142,14 +211,17 @@ def main():
         return 1
     reporter = Reporter(f"http://127.0.0.1:{port}", secret)
     observer = Observer()
+    roots = {}
     for name, path in dirs:
         root = path if os.path.isabs(path) else os.path.join(ROOT, path)
         if not os.path.isdir(root):
             log.warning("Watched folder %s does not exist: %s", name, root)
             continue
         observer.schedule(Handler(reporter, name, root), root, recursive=True)
+        roots[name] = os.path.abspath(root)
         log.info("Watching %s -> %s", name, root)
     observer.start()
+    threading.Thread(target=SizeWatcher(reporter, roots).run, name="size-check", daemon=True).start()
     try:
         reporter.run()
     finally:

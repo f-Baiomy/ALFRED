@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.logs.application.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.logs.adapter.in.watch.WatchServiceEvents;
+import com.fathy.alfred.backend.logs.application.port.in.WatchFoldersUseCase;
 import com.fathy.alfred.backend.logs.adapter.out.input.FileLineSource;
 import com.fathy.alfred.backend.logs.adapter.out.input.LocalLogFiles;
 import com.fathy.alfred.backend.logs.adapter.out.input.LocalWatchFolders;
@@ -171,6 +172,8 @@ class LogsWatchAndSessionsTest {
         // Last 15 across files, newest first: all 10 of detail.log + the last 5 of the archive.
         await(() -> total(id) == 15);
         assertThat(inputStore.byParent(w.id())).extracting(LogInput::fileName).containsExactlyInAnyOrder("detail.log", "detail.log.1");
+        // The host agent checks the size of the live files only - an archive is never written again.
+        assertThat(watch.followed()).containsExactly(new WatchFoldersUseCase.FollowedFile("app", "detail.log"));
 
         // Appends are seen through notifications alone (the polling interval is an hour in this test).
         append(app.resolve("detail.log"), 3, "S1");
@@ -188,6 +191,43 @@ class LogsWatchAndSessionsTest {
         Thread.sleep(500);
         assertThat(total(id)).isEqualTo(24);
         assertThat(inputStore.get(w.id()).orElseThrow().status()).isEqualTo(InputStatus.FOLLOWING);
+    }
+
+    /** A fresh ingest service on the same database: what a backend restart does. */
+    private LogIngestService restartIngest() {
+        ReflectionTestUtils.invokeMethod(ingest, "shutdown");
+        var mapper = new ObjectMapper();
+        var signals = (FileChangeSignals) ReflectionTestUtils.getField(watch, "signals");
+        ingest = new LogIngestService(new SqliteLogSourceStoreAdapter(repository, mapper), inputStore, new SqliteLogLineStoreAdapter(repository),
+                new FileLineSource(), (LogNotificationPort) ReflectionTestUtils.getField(watch, "notifications"), mapper,
+                new LogsChangeTracker(), signals);
+        ReflectionTestUtils.setField(ingest, "dbFile", dir.resolve("logs.db").toString());
+        ReflectionTestUtils.setField(ingest, "minFreeBytes", 0L);
+        ReflectionTestUtils.setField(ingest, "followStatMs", 3_600_000L);
+        ReflectionTestUtils.setField(watch, "ingest", ingest);
+        ingest.resumeAll();
+        return ingest;
+    }
+
+    @Test
+    void anIdleFollowedFileSurvivesRepeatedBackendRestarts() throws Exception {
+        events = new WatchServiceEvents(watch, folders);
+        events.start();
+        String id = createSource();
+        LogInput w = sources.addWatch(id, new WatchOptions("app", "detail.log", false, WatchOptions.Start.ALL, 0, false));
+        await(() -> total(id) == 20); // detail.log and its rotated copy detail.log.1
+        String child = inputStore.byParent(w.id()).stream().filter(c -> c.fileName().equals("detail.log")).findFirst().orElseThrow().id();
+
+        // Two restarts with no new line in between. The reader is interrupted by the stop (not failed), and
+        // the resume mark is cleared once it has read to the end - so the second restart is not taken for
+        // "this input stopped the backend twice".
+        for (int restart = 0; restart < 2; restart++) {
+            restartIngest();
+            await(() -> ingest.isRunning(child) && inputStore.get(child).orElseThrow().statusReason() == null);
+            assertThat(inputStore.get(child).orElseThrow().status()).isEqualTo(InputStatus.FOLLOWING);
+        }
+        append(app.resolve("detail.log"), 3, "S1");
+        await(() -> total(id) == 23);
     }
 
     @Test

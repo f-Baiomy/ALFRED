@@ -96,7 +96,10 @@ memory; after, 29 fields at detection / 125 after the whole file.
 - Any failure of a load - including `OutOfMemoryError` - marks the input FAILED with the reason. The JVM runs with
   `-XX:+ExitOnOutOfMemoryError` (a JVM keeps running half-broken after one) and G1 with 4 parallel / 2 concurrent GC
   threads (`backend/Dockerfile`). An input resumed after a restart that stops the backend again before storing a
-  batch is not resumed a third time (`RESUME_MARK`).
+  batch or reading to the end of its file is not resumed a third time (`RESUME_MARK`; reaching the end clears it,
+  or an idle followed file was failed by its second restart). A reader interrupted by the backend STOPPING is not
+  a failure: its status is left as is and it resumes on the next start (it used to be marked FAILED, which
+  silently stopped a watched file for good after any redeploy).
 - SQLite: 6 pooled connections × 16 MB page cache (was 8 × 64 MB of native memory); write transactions IMMEDIATE;
   multi-row updates in short transactions.
 - `LogsChangeTracker`: a version per source, bumped by every write/rebuild, keys a 200-entry cache of histogram,
@@ -118,7 +121,7 @@ Measured on Docker Desktop / Windows, loading the real `detail.log`:
 
 The same load on the bind mount with all other fixes took 391 s - the volume alone is ~13× on Windows.
 
-## Watched folders - live, notified, no timer (2026-10-04)
+## Watched folders - live, notified (2026-10-04)
 
 `settings.properties` `logs_watch_dirs=name:path,...` (overridable in `.env` as `ALFRED_LOGS_WATCH_DIRS`) lists the
 folders Alfred LISTENS ON - separate from `logs_drop_dir`, which is only for loading files. `start.py`/`restart.py`
@@ -144,9 +147,16 @@ folders Alfred LISTENS ON - separate from `logs_drop_dir`, which is only for loa
     receives the OS notifications and POSTs `/logs/agent/changes` (`X-Agent-Secret` = `ALFRED_LOGS_AGENT_SECRET`,
     generated once into `.env`; constant-time compare; 503 when unset). Only "file X changed" crosses - the backend
     reads the bytes from its own mount. On (re)connect it calls `/logs/agent/hello` and the backend rescans.
+  - **Windows does not notify writes to a file its writer keeps open** (every logger: log4j2, logback) - only
+    when it is closed or rotated, so a live log arrived in bursts minutes apart. For the files being followed
+    (and only those: `GET /logs/agent/followed`, the live non-archive files of active watches, re-read every
+    5 s) the agent therefore also checks the size every 200 ms (`os.stat`: a metadata query that never blocks
+    the writer's rename on rotation) and reports a change. Nothing is sent while a file is unchanged. This is
+    the one timer on the watched-folder path; Linux (inotify) does not need it.
   - `logs_watch_mode=auto` (default) picks agent on Windows/macOS, events on Linux.
-- Measured (Docker Desktop on Windows, agent): a line written to a watched file is searchable after **41-78 ms,
-  median 48 ms**. The explorer inserts new lines at the top without clearing or reloading the list (no flicker),
+- Measured (Docker Desktop on Windows, agent): a line appended to a watched file that its writer keeps open is
+  searchable after **66-113 ms, median 85 ms** (before the size check: when the writer closed the file, minutes
+  later). A writer that closes the file after each write: 41-78 ms, median 48 ms. The explorer inserts new lines at the top without clearing or reloading the list (no flicker),
   ~150 ms after the signal.
 - Linux limits: network shares (NFS/SMB) send no events for other machines' writes (run the agent on the writer);
   buffered loggers show lines when they flush; `logrotate copytruncate` itself can lose lines (prefer `create`);

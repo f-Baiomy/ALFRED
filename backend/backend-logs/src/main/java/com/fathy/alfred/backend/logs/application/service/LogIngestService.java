@@ -156,8 +156,12 @@ public class LogIngestService {
         }
     }
 
+    /** Set when the backend stops: a reader interrupted by that is resumed on the next start, not failed. */
+    private volatile boolean shuttingDown;
+
     @PreDestroy
     void shutdown() {
+        shuttingDown = true;
         running.values().forEach(f -> f.set(true));
         jobs.shutdownNow();
         parsers.shutdownNow();
@@ -181,6 +185,12 @@ public class LogIngestService {
                 inputs.get(input.id()).ifPresent(in -> saveStatus(in, InputStatus.FAILED,
                         "Ran out of memory - lines too wide for the backend's memory; retry, or mark big payload groups Not searched"));
             } catch (Throwable e) {
+                if (shuttingDown) {
+                    // Interrupted by the backend stopping: the status stays LOADING/FOLLOWING, so the next
+                    // start resumes it from its saved position (resumeAll).
+                    log.info("Log input {} stopped with the backend; it resumes on the next start", input.id());
+                    return;
+                }
                 log.error("Log input {} failed", input.id(), e);
                 inputs.get(input.id()).ifPresent(in -> saveStatus(in, InputStatus.FAILED, "Loading stopped: " + e.getClass().getSimpleName()));
             } finally {
@@ -259,6 +269,13 @@ public class LogIngestService {
                 }
                 lastTs = flush(source.id(), input, batch, lastTs);
                 batchBytes = 0;
+                LogInput caughtUp = inputs.get(inputId).orElse(input);
+                if (RESUME_MARK.equals(caughtUp.statusReason())) {
+                    // Read to the end after a restart: the resume worked. Without this an idle followed file
+                    // (no new line to store a batch) kept the mark, and the NEXT restart failed it as
+                    // "stopped the backend twice".
+                    inputs.save(caughtUp.withStatus(caughtUp.status(), null));
+                }
                 if (!follow) {
                     saveStatus(inputs.get(inputId).orElse(input), InputStatus.DONE, null);
                     return;

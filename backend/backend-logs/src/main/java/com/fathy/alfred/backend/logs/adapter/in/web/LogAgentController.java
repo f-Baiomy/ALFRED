@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The host agent (log-agent/agent.py) on Docker Desktop: it receives the OS's change notifications for
@@ -61,6 +63,17 @@ public class LogAgentController {
     public void hello(@RequestHeader(value = HEADER, required = false) String given) {
         check(given);
         watch.agentSeen();
+    }
+
+    /**
+     * The live files the agent checks the size of: Windows does not report writes to a file its writer
+     * keeps open (a logger) until the file is closed, so the agent cannot rely on notifications for them.
+     */
+    @GetMapping("/followed")
+    public Map<String, List<WatchFoldersUseCase.FollowedFile>> followed(@RequestHeader(value = HEADER, required = false) String given) {
+        check(given);
+        watch.agentSeen();
+        return Map.of("files", watch.followed());
     }
 
     @PostMapping("/changes")

@@ -275,6 +275,29 @@ public class LogWatchService implements WatchFoldersUseCase {
         }
     }
 
+    @Override
+    public List<FollowedFile> followed() {
+        List<FollowedFile> out = new ArrayList<>();
+        for (LogInput watch : inputs.all()) {
+            if (watch.kind() != InputKind.WATCH || watch.status() != InputStatus.FOLLOWING || watch.fileName() == null) {
+                continue;
+            }
+            String folder = watch.fileName().substring(0, watch.fileName().indexOf('/'));
+            WatchOptions o = options(watch);
+            for (LogInput child : inputs.byParent(watch.id())) {
+                if (child.fileName() == null) {
+                    continue;
+                }
+                // Archive or live is decided by the name, the same rule the folder listing uses.
+                WatchFoldersPort.WatchedFile f = folders.match(folder, child.fileName(), o.pattern(), o.subfolders());
+                if (f != null && !f.archive()) {
+                    out.add(new FollowedFile(folder, child.fileName()));
+                }
+            }
+        }
+        return out;
+    }
+
     /** Files created while ALFRED was down are picked up (existing files resume from their saved positions). */
     @EventListener(ApplicationReadyEvent.class)
     public void resumeFolders() {
