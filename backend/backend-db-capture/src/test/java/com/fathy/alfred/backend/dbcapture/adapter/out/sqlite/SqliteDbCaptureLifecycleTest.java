@@ -163,7 +163,7 @@ class SqliteDbCaptureLifecycleTest {
         service.callCompleted("c1", 200, null);
 
         var flags = repo.summary("c1").orElseThrow().flags();
-        assertThat(flags).extracting(f -> f.type().name()).containsExactly("NO_WHERE", "FAILED_SWALLOWED", "LARGE_DELETE");
+        assertThat(flags).extracting(f -> f.type().name()).containsExactly("NO_WHERE", "FAILED_SWALLOWED", "LARGE_DELETE", "BEFORE_NOT_CAPTURED");
 
         var investigation = new com.fathy.alfred.backend.dbcapture.application.service.DbCaptureInvestigationService(repo, new InMemoryQuerySandbox());
         // Fixtures.select rows: (i, "row i"); the parameter of every fixture statement is BIGINT 1042.
@@ -180,6 +180,20 @@ class SqliteDbCaptureLifecycleTest {
         var search = investigation.queryRows(selectId, "RESULT",
                 new com.fathy.alfred.backend.dbcapture.domain.model.RecordedQueryRequest("search", "row 1", "id", "desc", 0, 50)).orElseThrow();
         assertThat(search.rows()).extracting(r -> r.get(1)).containsExactly("row 1");
+    }
+
+    @Test
+    void aDeleteTakesItsRowsFromAnEarlierReadOfTheSameRows_evenFromAnEarlierBatch() {
+        IncomingStatement read = statement("a:1", "c1", 1, StatementKind.SELECT, "SELECT id, name FROM users WHERE id = ?",
+                Fixtures.rows(List.of(new com.fathy.alfred.backend.dbcapture.domain.model.Column("id", "BIGINT")), 1),
+                List.of(List.of(com.fathy.alfred.backend.dbcapture.domain.model.TypedValue.of("BIGINT", "1042"))), null);
+        ingest(List.of(read), List.of());
+        ingest(List.of(statement("a:2", "c1", 2, StatementKind.DELETE, "DELETE FROM users WHERE id = ?", Fixtures.updated(1), null, null)), List.of());
+
+        var delete = repo.allStatements("c1", 10).get(1);
+        assertThat(delete.beforeImage().source()).isEqualTo("EARLIER_READ");
+        assertThat(delete.beforeImage().earlierSeq()).isEqualTo(1);
+        assertThat(repo.summary("c1").orElseThrow().flags()).isEmpty();
     }
 
     @Test

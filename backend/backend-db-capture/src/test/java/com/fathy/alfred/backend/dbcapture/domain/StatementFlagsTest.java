@@ -76,15 +76,16 @@ class StatementFlagsTest {
         List<DbFlag> flags = StatementFlags.compute(s, txs, markers, DbCaptureSettings.defaults());
 
         assertThat(types(flags)).containsExactly(DbFlagType.NO_WHERE, DbFlagType.FAILED_SWALLOWED, DbFlagType.ROLLED_BACK,
-                DbFlagType.LOCK_DURING_SUPPLIER_CALL, DbFlagType.LARGE_DELETE, DbFlagType.REPEATED_QUERY, DbFlagType.REPEATED_QUERY,
-                DbFlagType.SLOW, DbFlagType.HUGE_RESULT);
+                DbFlagType.LOCK_DURING_SUPPLIER_CALL, DbFlagType.LARGE_DELETE, DbFlagType.BEFORE_NOT_CAPTURED, DbFlagType.REPEATED_QUERY,
+                DbFlagType.REPEATED_QUERY, DbFlagType.SLOW, DbFlagType.HUGE_RESULT);
         assertThat(flags.get(0).seqs()).containsExactly(noWhereSeq);
         assertThat(flags.get(0).severity()).isEqualTo(DbFlag.BAD);
         assertThat(flags.get(1).seqs()).containsExactly(failSeq);
         assertThat(flags.get(3).seqs()).containsExactly(supplierSeq);
-        assertThat(flags.get(5).detail()).containsEntry("count", "12").containsEntry("cacheable", "false");
-        assertThat(flags.get(6).detail()).containsEntry("count", "20").containsEntry("cacheable", "true");
-        assertThat(flags.get(8).detail()).containsEntry("rows", "2,431");
+        assertThat(flags.get(5).detail()).containsEntry("count", "2").containsEntry("deletes", "1").containsEntry("updates", "1");
+        assertThat(flags.get(6).detail()).containsEntry("count", "12").containsEntry("cacheable", "false");
+        assertThat(flags.get(7).detail()).containsEntry("count", "20").containsEntry("cacheable", "true");
+        assertThat(flags.get(9).detail()).containsEntry("rows", "2,431");
     }
 
     @Test
@@ -96,11 +97,23 @@ class StatementFlagsTest {
         for (int i = 0; i < 4; i++) {
             s.add(select(3 + i, "SELECT rule FROM fare_rules WHERE route_id = ?", 1, 500, String.valueOf(i)));
         }
-        assertThat(StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults())).isEmpty();
+        // The delete read nothing first, so that is the one flag: its rows were not captured.
+        assertThat(types(StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults()))).containsExactly(DbFlagType.BEFORE_NOT_CAPTURED);
 
         CapturedStatement truncate = stmt(9, StatementKind.DELETE, "DELETE FROM rate_cache", outcome(OutcomeKind.UPDATED, null, 212L, null, null), 1000, null, null);
         DbCaptureSettings expected = new DbCaptureSettings(50_000, List.of(), true, Thresholds.DEFAULTS, List.of(truncate.fingerprint()), List.of());
         assertThat(StatementFlags.compute(List.of(truncate), List.of(), List.of(), expected)).isEmpty();
+    }
+
+    @Test
+    void aCascadeIsFlagged_andAWriteWithKnownBeforeRowsIsNot() {
+        CapturedStatement delete = new CapturedStatement(1, "c1", "t", 1, StatementKind.DELETE, "DELETE FROM payment_holds WHERE id = ?", "fp", "payment_holds",
+                List.of(List.of(TypedValue.of("BIGINT", "7712"))), outcome(OutcomeKind.UPDATED, null, 1L, null, null), "2026-10-04T18:00:00Z", 100, 100,
+                null, null, null, null, null, new com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage("AGENT_READ", null, 800L, null, 1, List.of()),
+                List.of("hold_items"), false, false, 0);
+        List<DbFlag> flags = StatementFlags.compute(List.of(delete), List.of(), List.of(), DbCaptureSettings.defaults());
+        assertThat(types(flags)).containsExactly(DbFlagType.CASCADE);
+        assertThat(flags.get(0).detail()).containsEntry("table", "payment_holds").containsEntry("children", "hold_items");
     }
 
     @Test

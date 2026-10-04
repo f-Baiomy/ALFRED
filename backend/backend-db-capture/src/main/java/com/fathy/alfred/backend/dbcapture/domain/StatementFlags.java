@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.dbcapture.domain;
 
+import com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
@@ -24,8 +25,7 @@ import java.util.regex.Pattern;
 /**
  * The problems the database window flags in one call (FR-023) - computed from what was captured, never by asking the
  * database. Pure: statements, transactions and supplier-call markers in, flags out, worst first (the mock's order).
- * A statement shape the user marked expected raises nothing. Before-image flags (CASCADE, BEFORE_NOT_CAPTURED)
- * belong to User Story 4 and are added there.
+ * A statement shape the user marked expected raises nothing.
  */
 public final class StatementFlags {
 
@@ -70,6 +70,20 @@ public final class StatementFlags {
             if (s.kind() == StatementKind.DELETE && s.outcome().affected() != null && s.outcome().affected() > t.largeDeleteRows()) {
                 flags.add(flag(DbFlagType.LARGE_DELETE, DbFlag.WARN, s, null, detail("table", s.table(), "rows", affected(s))));
             }
+        }
+        for (CapturedStatement s : flaggable) {
+            if (s.kind() == StatementKind.DELETE && s.cascadesTo() != null && !s.cascadesTo().isEmpty() && s.outcome().kind() != OutcomeKind.FAILED) {
+                flags.add(flag(DbFlagType.CASCADE, DbFlag.WARN, s, null, detail("table", s.table(), "children", String.join(", ", s.cascadesTo()))));
+            }
+        }
+        List<CapturedStatement> blind = flaggable.stream()
+                .filter(s -> (s.kind() == StatementKind.DELETE || s.kind() == StatementKind.UPDATE) && s.outcome().kind() != OutcomeKind.FAILED)
+                .filter(s -> s.beforeImage() == null || BeforeImage.NONE.equals(s.beforeImage().source()))
+                .toList();
+        if (!blind.isEmpty()) {
+            long deletes = blind.stream().filter(s -> s.kind() == StatementKind.DELETE).count();
+            flags.add(new DbFlag(DbFlagType.BEFORE_NOT_CAPTURED, DbFlag.WARN, blind.stream().map(CapturedStatement::seq).toList(), null,
+                    detail("count", String.valueOf(blind.size()), "deletes", String.valueOf(deletes), "updates", String.valueOf(blind.size() - deletes))));
         }
         flags.addAll(repeats(ordered, expected, t.repeatCount()));
         for (CapturedStatement s : flaggable) {

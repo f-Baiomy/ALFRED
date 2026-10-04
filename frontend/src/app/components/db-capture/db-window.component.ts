@@ -178,6 +178,17 @@ export class DbWindowComponent implements OnInit {
       const value = this.state.trace();
       untracked(() => this.runTrace(value));
     });
+    effect(() => {
+      const request = this.state.jumpRequest();
+      if (request) untracked(() => {
+        this.state.jumpRequest.set(null);
+        this.jump(request.seq, request.tab);
+      });
+    });
+    effect(() => {
+      const all = this.statements();
+      untracked(() => this.state.statementBySeq.set(new Map(all.map((s) => [s.seq, s]))));
+    });
   }
 
   private runTrace(value: string): void {
@@ -257,6 +268,8 @@ export class DbWindowComponent implements OnInit {
 
   ngOnInit(): void {
     const call = this.call();
+    const request = this.request();
+    this.state.project.set(call?.service_name ?? (request.kind === 'outside' ? request.project ?? null : null));
     if (call) {
       this.dbState.requestSummary(call.id);
       this.state.suppliersBySeq.set(this.suppliersOf(call));

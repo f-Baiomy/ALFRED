@@ -26,6 +26,12 @@ export class DbWindowState {
   readonly flashSeq = signal<number | null>(null);
   /** The call's outbound (supplier) calls the page has loaded, by their place in the call's sequence. */
   readonly suppliersBySeq = signal<ReadonlyMap<number, CallRecord>>(new Map());
+  /** The call's project - its settings (before-image tables, expected statements) are what the detail changes. */
+  readonly project = signal<string | null>(null);
+  /** Every loaded statement by its seq - a detail links to an earlier read of the same rows. */
+  readonly statementBySeq = signal<ReadonlyMap<number, CapturedStatement>>(new Map());
+  /** A detail asking the window to jump (e.g. "contents taken from #3"). */
+  readonly jumpRequest = signal<{ readonly seq: number; readonly tab?: DbDetailTab } | null>(null);
   /** The statements a SQL query over `statements` selected (by `n`), or null when no query is applied. */
   readonly statementSeqs = signal<ReadonlySet<number> | null>(null);
 

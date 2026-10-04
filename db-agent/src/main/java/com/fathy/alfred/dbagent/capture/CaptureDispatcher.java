@@ -2,7 +2,9 @@ package com.fathy.alfred.dbagent.capture;
 
 import com.fathy.alfred.dbagent.AgentLog;
 import com.fathy.alfred.dbagent.bootstrap.Bridge;
+import com.fathy.alfred.dbagent.jdbc.BeforeImageReader;
 import com.fathy.alfred.dbagent.jdbc.CaptureOnlyInterceptor;
+import com.fathy.alfred.dbagent.jdbc.CascadeInspector;
 import com.fathy.alfred.dbagent.jdbc.StatementInterceptor;
 import com.fathy.alfred.dbagent.sql.SqlShape;
 import com.fathy.alfred.dbagent.transport.AgentSettings;
@@ -21,6 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -188,6 +191,12 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                     return;
                 }
                 state.current.put(args[0], ValueCodec.parameter(method, args));
+                Object value = args.length > 1 && !method.equals("setNull") ? args[1] : null;
+                if (value instanceof java.io.InputStream || value instanceof java.io.Reader) {
+                    state.raw.remove(args[0]);
+                } else {
+                    state.raw.put(args[0], value);
+                }
             }
         } catch (Throwable t) {
             AgentLog.failure("parameter", t);
@@ -217,6 +226,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             if (state != null) {
                 synchronized (state) {
                     state.current.clear();
+                    state.raw.clear();
                 }
             }
         } catch (Throwable t) {
@@ -292,11 +302,44 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                     record.txId = conn.txId;
                 }
             }
-            PendingStatement pending = new PendingStatement(record, context, now, new Outcome("UPDATED"));
+            if (!batch && state.connection instanceof Connection && ("DELETE".equals(record.kind) || "UPDATE".equals(record.kind))) {
+                beforeWrite(state, (Connection) state.connection, sql, record);
+            }
+            // The statement's own time starts here - after any before-image read, which is reported on its own.
+            PendingStatement pending = new PendingStatement(record, context, System.nanoTime(), new Outcome("UPDATED"));
             return new Execution(statement, state, pending, batch);
         } catch (Throwable t) {
             AgentLog.failure("execute", t);
             return SKIPPED;
+        }
+    }
+
+    /**
+     * Just before an UPDATE/DELETE runs: which tables a DELETE cascades into (metadata, cached per table) and, only for
+     * tables the user opted in, the rows it is about to change (BeforeImageReader). Inside executeEnter, so the
+     * agent's own queries come back as NESTED and are never recorded.
+     */
+    private void beforeWrite(StatementState state, Connection connection, String sql, StatementRecord record) {
+        try {
+            if ("DELETE".equals(record.kind)) {
+                List<String> cascades = CascadeInspector.cascadesTo(connection, record.dataSource, record.table);
+                if (!cascades.isEmpty()) {
+                    record.cascadesTo = cascades;
+                }
+            }
+            if (settings.beforeImageFor(record.table)) {
+                Map<Object, Object> bound;
+                synchronized (state) {
+                    bound = new java.util.HashMap<>(state.raw);
+                }
+                List<List<Value>> rows = new ArrayList<>();
+                record.beforeImage = BeforeImageReader.read(connection, sql, bound, settings.rowsPerResult(), rows);
+                if (!rows.isEmpty()) {
+                    record.beforeImageRows = rows;
+                }
+            }
+        } catch (Throwable t) {
+            AgentLog.failure("before-write", t);
         }
     }
 

@@ -7,18 +7,22 @@ import com.fathy.alfred.backend.dbcapture.application.port.in.RecordAgentHeartbe
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureNotificationPort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureTogglePort;
+import com.fathy.alfred.backend.dbcapture.domain.DeletedRowsResolver;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentDirective;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
+import com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.IngestBatch;
 import com.fathy.alfred.backend.dbcapture.domain.model.IngestResult;
+import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,6 +41,9 @@ import java.util.Optional;
 public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHeartbeatUseCase, DeleteCallStatementsUseCase,
         CompleteCallCaptureUseCase {
 
+    /** How far back in a call the earlier-read lookup searches. */
+    static final int MAX_EARLIER_READS = 5_000;
+
     private final DbCaptureStorePort store;
     private final DbCaptureNotificationPort notifications;
     private final DbCaptureTogglePort toggle;
@@ -54,7 +61,7 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
 
     @Override
     public IngestResult ingest(IngestBatch batch) {
-        List<IncomingStatement> statements = batch.statements() == null ? List.of() : batch.statements();
+        List<IncomingStatement> statements = withEarlierReads(batch.statements() == null ? List.of() : batch.statements());
         List<CallMarker> markers = batch.markers() == null ? List.of() : batch.markers();
         int fresh = store.saveStatements(statements);
         store.saveMarkers(markers);
@@ -80,6 +87,51 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
                         (int) statements.stream().filter(s -> s.callId() == null && thread.equals(s.thread())).count()));
         listeners.forEach(IngestListener::batchIngested);
         return new IngestResult(fresh, statements.size() - fresh);
+    }
+
+    /**
+     * An UPDATE/DELETE the agent did not read rows for gets them from the latest earlier read of the same rows in the
+     * same call, when there is one (DeletedRowsResolver) - looked up only for calls in this batch that have such a write.
+     */
+    private List<IncomingStatement> withEarlierReads(List<IncomingStatement> statements) {
+        boolean any = statements.stream().anyMatch(DbCaptureService::needsEarlierRead);
+        if (!any) {
+            return statements;
+        }
+        Map<String, List<DeletedRowsResolver.Read>> readsByCall = new LinkedHashMap<>();
+        List<IncomingStatement> out = new ArrayList<>(statements.size());
+        for (IncomingStatement s : statements) {
+            List<DeletedRowsResolver.Read> reads = s.callId() == null ? null : readsByCall.computeIfAbsent(s.callId(), id ->
+                    new ArrayList<>(store.allStatements(id, MAX_EARLIER_READS).stream()
+                            .map(c -> new DeletedRowsResolver.Read(c.seq(), c.kind(), c.sql(), c.table(), c.params().isEmpty() ? List.of() : c.params().get(0),
+                                    c.outcome(), c.storedRows()))
+                            .toList()));
+            IncomingStatement next = s;
+            if (reads != null && needsEarlierRead(s)) {
+                BeforeImage found = DeletedRowsResolver.resolve(s.sql(), s.table(), s.params() == null || s.params().isEmpty() ? List.of() : s.params().get(0),
+                        reads.stream().filter(r -> r.seq() < s.seq()).toList());
+                if (found != null) {
+                    next = withBeforeImage(s, found);
+                }
+            }
+            if (reads != null && s.rowsFrom() == 0) {
+                reads.add(new DeletedRowsResolver.Read(s.seq(), s.kind(), s.sql(), s.table(), s.params() == null || s.params().isEmpty() ? List.of() : s.params().get(0),
+                        s.outcome(), s.rows() == null ? 0 : s.rows().size()));
+            }
+            out.add(next);
+        }
+        return out;
+    }
+
+    private static boolean needsEarlierRead(IncomingStatement s) {
+        return s.callId() != null && s.rowsFrom() == 0 && (s.kind() == StatementKind.DELETE || s.kind() == StatementKind.UPDATE)
+                && (s.beforeImage() == null || BeforeImage.NONE.equals(s.beforeImage().source()));
+    }
+
+    private static IncomingStatement withBeforeImage(IncomingStatement s, BeforeImage image) {
+        return new IncomingStatement(s.sid(), s.callId(), s.runTag(), s.thread(), s.seq(), s.kind(), s.sql(), s.fingerprint(), s.table(),
+                s.params(), s.outcome(), s.rows(), s.rowsFrom(), s.beforeImageRows(), image, s.startedAt(), s.durationMicros(),
+                s.offsetMicros(), s.txId(), s.connectionId(), s.codeLocation(), s.dataSource(), s.cascadesTo());
     }
 
     @Override

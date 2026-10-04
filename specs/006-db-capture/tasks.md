@@ -230,18 +230,18 @@ rolled-back deletes - all five mock cases.
 on a table without it; the first two show rows with their source, the third says "not captured" and offers the
 switch; a no-WHERE delete is flagged red and can be marked expected.
 
-- [ ] T100 [P] [US4] `sql/SqlShape`: split single-table `UPDATE … SET … WHERE …` / `DELETE FROM … WHERE …` into table + where text + where-param indexes; mark anything else "too complex"; tests
-- [ ] T101 [US4] `jdbc/BeforeImageReader`: for tables in `AgentSettings.beforeImageTables`, before executing, run `SELECT * FROM t WHERE <where>` with the same bound values on the same connection; store as `BEFORE_IMAGE` rows with its duration; skipped reason otherwise; never for other tables
-- [ ] T102 [P] [US4] `jdbc/CascadeInspector`: once per table, `DatabaseMetaData.getExportedKeys` → child tables with `importedKeyCascade`; attach `cascadesTo` to deletes
-- [ ] T103 [P] [US4] Agent tests (H2): before-image rows equal the deleted rows, same transaction, skipped for joins, not run for non-opted tables, cascade detection
-- [ ] T104 [US4] `dbcapture/domain/DeletedRowsResolver.java` (+test): link DELETE/UPDATE to the latest earlier SELECT in the same call on the same table with matching normalised WHERE and values; set `BeforeImage.source`
-- [ ] T105 [US4] Flags `NO_WHERE`, `LARGE_DELETE`, `CASCADE`, `BEFORE_NOT_CAPTURED` in `StatementFlags` (+tests); `undone` deletes in rolled-back transactions
-- [ ] T106 [US4] `components/db-capture/db-deleted-rows`: no-WHERE box with "Mark as expected for <table>", rolled-back note, cascade warning, rows from earlier read (link jumps to it) or before-image (with extra read time), else "N rows deleted - contents not captured" + `infobox` "Turn on for <table>" / "Turn off"
-- [ ] T107 [US4] Before → after tab: values from the earlier read or before-image vs the written params; "not captured" column + the same before-image box when unknown
-- [ ] T108 [US4] Settings and ▾ popover: before-image table chips editable (add/remove), saved via settings endpoint, delivered to the agent on the next heartbeat
-- [ ] T109 [P] [US4] Frontend specs for deleted-rows source selection and before/after mapping (pure utils extracted to `shared/utils/db-before-after.ts`)
-- [ ] T110 [US4] Run suites; manual check of the five delete cases from the mock
-- [ ] T111 [US4] Commit Phase 6: `feat(db-capture): deleted rows, before-image, before/after values and delete warnings`
+- [X] T100 [P] [US4] `sql/SqlShape`: split single-table `UPDATE … SET … WHERE …` / `DELETE FROM … WHERE …` into table + where text + where-param indexes; mark anything else "too complex"; tests
+- [X] T101 [US4] `jdbc/BeforeImageReader`: for tables in `AgentSettings.beforeImageTables`, before executing, run `SELECT * FROM t WHERE <where>` with the same bound values on the same connection; store as `BEFORE_IMAGE` rows with its duration; skipped reason otherwise; never for other tables
+- [X] T102 [P] [US4] `jdbc/CascadeInspector`: once per table, `DatabaseMetaData.getExportedKeys` → child tables with `importedKeyCascade`; attach `cascadesTo` to deletes
+- [X] T103 [P] [US4] Agent tests (H2): before-image rows equal the deleted rows, same transaction, skipped for joins, not run for non-opted tables, cascade detection
+- [X] T104 [US4] `dbcapture/domain/DeletedRowsResolver.java` (+test): link DELETE/UPDATE to the latest earlier SELECT in the same call on the same table with matching normalised WHERE and values; set `BeforeImage.source`
+- [X] T105 [US4] Flags `NO_WHERE`, `LARGE_DELETE`, `CASCADE`, `BEFORE_NOT_CAPTURED` in `StatementFlags` (+tests); `undone` deletes in rolled-back transactions
+- [X] T106 [US4] `components/db-capture/db-deleted-rows`: no-WHERE box with "Mark as expected for <table>", rolled-back note, cascade warning, rows from earlier read (link jumps to it) or before-image (with extra read time), else "N rows deleted - contents not captured" + `infobox` "Turn on for <table>" / "Turn off"
+- [X] T107 [US4] Before → after tab: values from the earlier read or before-image vs the written params; "not captured" column + the same before-image box when unknown
+- [X] T108 [US4] Settings and ▾ popover: before-image table chips editable (add/remove), saved via settings endpoint, delivered to the agent on the next heartbeat
+- [X] T109 [P] [US4] Frontend specs for deleted-rows source selection and before/after mapping (pure utils extracted to `shared/utils/db-before-after.ts`)
+- [X] T110 [US4] Run suites; manual check of the five delete cases from the mock
+- [X] T111 [US4] Commit Phase 6: `feat(db-capture): deleted rows, before-image, before/after values and delete warnings`
 
 **Checkpoint**: Stories 1-4 complete.
 

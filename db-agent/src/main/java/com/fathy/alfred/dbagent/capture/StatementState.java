@@ -14,6 +14,9 @@ final class StatementState {
     final String sql;
     /** Index (Integer) or name (String, CallableStatement) to value. TreeMap so ?1, ?2 ... come out in order. */
     final Map<Object, Value> current = new TreeMap<>(StatementState::compare);
+    /** The same parameters as the application passed them - re-bound only by the opt-in before-image read. Streams and
+     *  readers are not kept: reading them again would consume what the application is about to send. */
+    final Map<Object, Object> raw = new TreeMap<>(StatementState::compare);
     final List<List<Value>> batchSets = new ArrayList<>();
     final List<String> batchSqls = new ArrayList<>();
     final List<Object> outParameters = new ArrayList<>();
