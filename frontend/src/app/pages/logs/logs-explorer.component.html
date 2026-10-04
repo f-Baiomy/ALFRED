@@ -597,8 +597,8 @@
               } @else {
                 <tr>
                   <td [style.padding-left.px]="tr.depth * 16 + 20"><span class="lg-faint">{{ tr.prefix }}</span>{{ tr.node.name }}</td>
-                  <td [class.d]="tr.node.item.differs">@if (tr.node.item.x === null) { <span class="lg-faint">(absent)</span> } @else { {{ tr.node.item.x }} }</td>
-                  <td [class.d]="tr.node.item.differs">@if (tr.node.item.y === null) { <span class="lg-faint">(absent)</span> } @else { {{ tr.node.item.y }} }</td>
+                  <td [class.d]="tr.node.item.differs"><ng-container *ngTemplateOutlet="cmpCell; context: { $implicit: tr.node.item.x, row: tr.node.item, field: tr.node.key, side: 'A' }" /></td>
+                  <td [class.d]="tr.node.item.differs"><ng-container *ngTemplateOutlet="cmpCell; context: { $implicit: tr.node.item.y, row: tr.node.item, field: tr.node.key, side: 'B' }" /></td>
                 </tr>
               }
             }
@@ -606,8 +606,8 @@
             @for (r of cr.rows; track r.k) {
               <tr>
                 <td>{{ r.k }}</td>
-                <td [class.d]="r.differs">@if (r.x === null) { <span class="lg-faint">(absent)</span> } @else { {{ r.x }} }</td>
-                <td [class.d]="r.differs">@if (r.y === null) { <span class="lg-faint">(absent)</span> } @else { {{ r.y }} }</td>
+                <td [class.d]="r.differs"><ng-container *ngTemplateOutlet="cmpCell; context: { $implicit: r.x, row: r, field: r.k, side: 'A' }" /></td>
+                <td [class.d]="r.differs"><ng-container *ngTemplateOutlet="cmpCell; context: { $implicit: r.y, row: r, field: r.k, side: 'B' }" /></td>
               </tr>
             }
           }
@@ -615,4 +615,75 @@
       }
     </div>
   </div>
+  <ng-template #cmpCell let-v let-row="row" let-field="field" let-side="side">
+    @if (v === null) {
+      <span class="lg-faint">(absent)</span>
+    } @else if (isLargeValue(v)) {
+      <div class="lg-cmp-clip">{{ v }}</div>
+      <button class="lg-btn sm lg-cmp-open" (click)="openCmpValue(c, field, row, side)">⤢ Open full value ({{ v.length | number }} chars)</button>
+    } @else {
+      {{ v }}
+    }
+  </ng-template>
 }
+@if (cmpValue(); as cv) {
+  <div class="lg-overlay top" (click)="cmpValue.set(null)">
+    <div class="lg-card lg-dialog wide" (click)="$event.stopPropagation()">
+      <div class="lg-row">
+        <h2 class="lg-h2" style="word-break: break-all">{{ cv.field }}</h2><span class="lg-sp"></span>
+        <div class="lg-seg">
+          <button [class.on]="cv.view === 'A'" (click)="setCmpView('A')">First</button>
+          <button [class.on]="cv.view === 'B'" (click)="setCmpView('B')">Second</button>
+          <button [class.on]="cv.view === 'SIDE'" (click)="setCmpView('SIDE')">Side by side</button>
+          <button [class.on]="cv.view === 'DIFF'" (click)="setCmpView('DIFF')">Diff</button>
+        </div>
+        @if (cv.view === 'A' || cv.view === 'B') {
+          <button class="lg-btn sm" (click)="copyCmpValue(cv.view === 'A' ? cv.a : cv.b)">{{ cmpCopied() ? 'Copied' : 'Copy' }}</button>
+        }
+        <button class="lg-btn sm" (click)="cmpValue.set(null)">Close</button>
+      </div>
+      @switch (cv.view) {
+        @case ('A') {
+          <div class="lg-hint">First · {{ cv.aLabel }} · {{ charCount(cv.a) }}</div>
+          <ng-container *ngTemplateOutlet="cmpFull; context: { $implicit: cv.a }" />
+        }
+        @case ('B') {
+          <div class="lg-hint">Second · {{ cv.bLabel }} · {{ charCount(cv.b) }}</div>
+          <ng-container *ngTemplateOutlet="cmpFull; context: { $implicit: cv.b }" />
+        }
+        @case ('SIDE') {
+          <div class="lg-cmp-side">
+            <div>
+              <div class="lg-hint">First · {{ cv.aLabel }} · {{ charCount(cv.a) }}</div>
+              <ng-container *ngTemplateOutlet="cmpFull; context: { $implicit: cv.a }" />
+            </div>
+            <div>
+              <div class="lg-hint">Second · {{ cv.bLabel }} · {{ charCount(cv.b) }}</div>
+              <ng-container *ngTemplateOutlet="cmpFull; context: { $implicit: cv.b }" />
+            </div>
+          </div>
+        }
+        @case ('DIFF') {
+          @if (cmpDiff(); as d) {
+            <div class="lg-hint">
+              <span class="lg-cmp-del">− First · {{ cv.aLabel }}</span> &nbsp; <span class="lg-cmp-add">+ Second · {{ cv.bLabel }}</span>
+              &nbsp;·&nbsp; {{ d.changed ? (d.removed | number) + ' removed, ' + (d.added | number) + ' added lines' : 'identical' }}
+            </div>
+            <div class="lg-cmp-full lg-cmp-diff">
+              @for (l of d.lines; track $index) {
+                <div [class]="'dl ' + l.kind"><span class="g">{{ l.kind === 'added' ? '+' : l.kind === 'removed' ? '−' : ' ' }}</span>{{ l.text }}</div>
+              }
+            </div>
+          }
+        }
+      }
+    </div>
+  </div>
+}
+<ng-template #cmpFull let-v>
+  @if (v === null) {
+    <div class="lg-cmp-full lg-faint">(absent on this line)</div>
+  } @else {
+    <pre class="lg-cmp-full">{{ prettyValue(v) }}</pre>
+  }
+</ng-template>

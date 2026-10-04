@@ -1,4 +1,4 @@
-import { Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
@@ -37,6 +37,18 @@ import { highlightSegments, parseQuery, pillClass, pillText, samePill } from '..
 import { summaryOrFields } from '../../shared/utils/logs-template';
 import { buildPathTree, itemsUnder, TreeNode, TreeRow, visibleRows } from '../../shared/utils/logs-field-tree';
 
+type CmpView = 'A' | 'B' | 'SIDE' | 'DIFF';
+
+/** One compare field opened in its own window: both lines' values, shown one at a time, side by side or as a diff. */
+interface CmpValue {
+  readonly field: string;
+  readonly a: string | null;
+  readonly b: string | null;
+  readonly aLabel: string;
+  readonly bLabel: string;
+  readonly view: CmpView;
+}
+
 interface CompareRow {
   readonly k: string;
   readonly x: string | null;
@@ -48,6 +60,7 @@ import { EMPTY_SELECTION, Selection, headerState, hiddenCount, selectAll, select
 import { buildLogsExport, LogsExportFormat } from '../../shared/utils/logs-export';
 import { downloadText } from '../../shared/utils/download';
 import { copyToClipboard } from '../../shared/utils/clipboard';
+import { diffLines, sharedBodyKind } from '../../shared/utils/interception-diff';
 
 /** Live loads refresh the list every second but the whole-result aggregates at most this often. */
 const AGGREGATE_EVERY_MS = 15_000;
@@ -1054,6 +1067,72 @@ export class LogsExplorerComponent implements OnInit {
     return itemsUnder(node).filter((r) => r.differs).length;
   }
 
+  /** A compare value opened in its own dialog because it was too long to show in the table. */
+  readonly cmpValue = signal<CmpValue | null>(null);
+  /** The Diff view's lines, computed only when that view is open (a line diff of two big values is real work). */
+  readonly cmpDiff = computed(() => {
+    const cv = this.cmpValue();
+    if (!cv || cv.view !== 'DIFF') return null;
+    const lines = diffLines(cv.a, cv.b, sharedBodyKind(cv.a, cv.b), false);
+    const removed = lines.filter((l) => l.kind === 'removed').length;
+    const added = lines.filter((l) => l.kind === 'added').length;
+    return { lines, removed, added, changed: removed + added > 0 };
+  });
+
+  openCmpValue(c: { a: LogLine; b: LogLine }, field: string, row: CompareRow, side: 'A' | 'B'): void {
+    this.cmpValue.set({
+      field,
+      a: row.x,
+      b: row.y,
+      aLabel: `${this.dateTime(c.a.ts)} · ${c.a.level}`,
+      bLabel: `${this.dateTime(c.b.ts)} · ${c.b.level}`,
+      view: side,
+    });
+  }
+
+  setCmpView(view: CmpView): void {
+    const cv = this.cmpValue();
+    if (!cv) return;
+    this.cmpValue.set({ ...cv, view });
+    // A long value usually differs in a line or two: bring the first change into view.
+    if (view === 'DIFF') {
+      afterNextRender(() => this.host.nativeElement.querySelector('.lg-cmp-diff .dl.added, .lg-cmp-diff .dl.removed')?.scrollIntoView({ block: 'center' }), { injector: this.injector });
+    }
+  }
+
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  charCount(v: string | null): string {
+    return v === null ? 'absent' : `${v.length.toLocaleString()} chars`;
+  }
+  readonly cmpCopied = signal(false);
+
+  /** Long values (a stack trace, a request body) collapse to their first lines in the compare table. */
+  isLargeValue(v: string): boolean {
+    return v.length > 400 || v.split('\n', 7).length > 6;
+  }
+
+  /** JSON shown indented in the full-value dialog; anything else exactly as it is. */
+  prettyValue(v: string): string {
+    const t = v.trim();
+    if (t.startsWith('{') || t.startsWith('[')) {
+      try {
+        return JSON.stringify(JSON.parse(t), null, 2);
+      } catch {
+        return v;
+      }
+    }
+    return v;
+  }
+
+  async copyCmpValue(v: string | null): Promise<void> {
+    if (v === null) return;
+    await copyToClipboard(v);
+    this.cmpCopied.set(true);
+    setTimeout(() => this.cmpCopied.set(false), 1500);
+  }
+
   compareRows(c: { a: LogLine; b: LogLine; onlyDiff: boolean }) {
     const keys = [...new Set([...Object.keys(c.a.fields), ...Object.keys(c.b.fields)])];
     const rows = keys.map((k) => {
@@ -1373,7 +1452,8 @@ export class LogsExplorerComponent implements OnInit {
       return;
     }
     if (ev.key === 'Escape') {
-      if (this.compare()) this.compare.set(null);
+      if (this.cmpValue()) this.cmpValue.set(null);
+      else if (this.compare()) this.compare.set(null);
       else if (this.stats()) this.stats.set(null);
       else if (this.sel().ids.size) this.clearSelection();
       return;

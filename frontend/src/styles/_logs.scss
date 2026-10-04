@@ -131,7 +131,7 @@
 .lg-listwrap { display: grid; grid-template-columns: minmax(0, 1fr) 14px; gap: 6px; }
 .lg-list { height: 720px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-bg); position: relative; }
 .lg-lhead, .lg-lr { display: grid; gap: 8px; align-items: center; padding: 4px 8px 4px 0; }
-.lg-lhead { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--border-strong); font-size: 11px; color: var(--text-faint); font-weight: 600;
+.lg-lhead { position: sticky; top: 0; z-index: 5; background: var(--popover-solid); border-bottom: 1px solid var(--border-strong); font-size: 11px; color: var(--text-faint); font-weight: 600;
   .col { display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; }
   .col button { background: none; border: none; color: inherit; cursor: pointer; opacity: 0.6; padding: 0; }
 }
@@ -198,7 +198,29 @@
   div.top { background: var(--red); }
 }
 .lg-overlay { position: fixed; inset: 0; background: rgba(3, 5, 20, 0.65); z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding-top: 60px; }
-.lg-dialog { width: min(980px, 94vw); max-height: 80vh; overflow: auto; padding: 16px; }
+// Solid, not var(--card-elevated): on the glass/slate themes that surface is translucent and the
+// explorer showed through the dialog.
+.lg-dialog { width: min(980px, 94vw); max-height: 80vh; overflow: auto; padding: 16px; background: var(--popover-solid); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); }
+.lg-dialog .lg-cmp th { position: sticky; top: -16px; z-index: 1; background: var(--popover-solid); }
+// A long compare value shows its first lines; the full value opens in its own dialog.
+.lg-cmp-clip { max-height: 7.6em; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent); mask-image: linear-gradient(to bottom, #000 55%, transparent); }
+.lg-cmp-open { margin-top: 4px; font-family: 'Segoe UI', sans-serif; }
+.lg-overlay.top { z-index: 70; }
+.lg-dialog.wide { width: min(1400px, 96vw); max-height: 88vh; }
+.lg-cmp-side { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+.lg-cmp-side .lg-cmp-full { max-height: 70vh; }
+.lg-cmp-add { color: var(--green); }
+.lg-cmp-del { color: var(--red); }
+.lg-cmp-diff { padding: 6px 0; max-height: 72vh;
+  .dl { padding: 0 12px 0 0; white-space: pre-wrap; word-break: break-all; }
+  .dl .g { display: inline-block; width: 22px; text-align: center; color: var(--text-faint); user-select: none; }
+  .dl.added { background: color-mix(in srgb, var(--green) 14%, transparent); }
+  .dl.added .g { color: var(--green); }
+  .dl.removed { background: color-mix(in srgb, var(--red) 14%, transparent); }
+  .dl.removed .g { color: var(--red); }
+}
+.lg-cmp-full { margin: 10px 0 0; padding: 10px 12px; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; max-height: 64vh; overflow: auto;
+  white-space: pre-wrap; word-break: break-all; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; color: var(--text); }
 .lg-cmp { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px;
   th, td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; word-break: break-all; font-family: Consolas, monospace; }
   th { font-family: 'Segoe UI'; color: var(--text-faint); font-size: 11px; }
