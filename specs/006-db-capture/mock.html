@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DB capture mock</title>
+<style>
+:root {
+  --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+  --card-elevated: linear-gradient(160deg, #141a45 0%, #101636 100%);
+  --card-inner: #070a24;
+  --panel-bg: rgba(10, 14, 42, .55);
+  --popover-solid: #161c4a;
+  --border: rgba(139, 92, 246, .22);
+  --border-strong: rgba(139, 92, 246, .45);
+  --text: #e5e9f5;
+  --text-dim: #93a0c2;
+  --text-faint: #5c6690;
+  --purple: #8b5cf6;
+  --purple-light: #c4b5fd;
+  --cyan: #22d3ee;
+  --green: #34d399;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --db: #2dd4bf;
+  --mono: "Cascadia Code", "Fira Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); background-color: #0a0e2a; min-height: 100vh; color: var(--text); font-family: "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 14px; }
+button, input { font-family: inherit; }
+
+.mock-note { max-width: 1180px; margin: 0 auto; padding: 14px 16px 0; color: var(--text-dim); font-size: 12.5px; line-height: 1.6; }
+.mock-note b { color: var(--purple-light); font-weight: 600; }
+.mock-note .new { color: var(--db); font-weight: 600; }
+.tabs { display: flex; gap: 26px; padding: 12px 24px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-dim); overflow-x: auto; }
+.tabs span { padding-bottom: 10px; white-space: nowrap; }
+.tabs .on { color: var(--text); border-bottom: 2px solid var(--purple); font-weight: 600; }
+.page { max-width: 1180px; margin: 0 auto; padding: 16px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg span, .seg button { padding: 6px 12px; font-size: 12px; color: var(--text-dim); background: none; border: none; cursor: pointer; }
+.seg .on { background: color-mix(in srgb, var(--purple) 22%, transparent); color: var(--text); }
+.list { display: flex; flex-direction: column; gap: .6rem; }
+
+/* ---- copied from Alfred styles.scss ---- */
+.call { background: var(--card-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.15rem; }
+.call:hover { border-color: var(--border-strong); }
+.call.sandwich { padding: 0; overflow: hidden; }
+.call-band { padding: .6rem .85rem; background: color-mix(in srgb, var(--depth-color, var(--purple)) 9%, transparent); }
+.call-band-request { border-bottom: 1px dashed color-mix(in srgb, var(--depth-color, var(--purple)) 45%, transparent); }
+.call-band-response { border-top: 1px dashed color-mix(in srgb, var(--purple) 45%, transparent); }
+.call-nested { padding: .55rem .85rem; }
+.depth-tint-0 { --depth-color: #8b5cf6; } .depth-tint-1 { --depth-color: #38bdf8; }
+.tree-children { margin: .35rem 0 .1rem .75rem; padding-left: .7rem; border-left: 2px solid color-mix(in srgb, var(--depth-color, var(--purple)) 45%, transparent); display: flex; flex-direction: column; gap: .5rem; }
+.call-top { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .5rem; }
+.call-select { width: 17px; height: 17px; accent-color: var(--purple); opacity: .5; }
+.badge { font-size: .72rem; font-weight: 700; padding: .22rem .6rem; border-radius: 6px; letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; }
+.method-GET { background: color-mix(in srgb, var(--cyan) 15%, transparent); color: var(--cyan); border: 1px solid color-mix(in srgb, var(--cyan) 35%, transparent); }
+.method-POST { background: color-mix(in srgb, var(--purple) 18%, transparent); color: var(--purple-light); border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent); }
+.status-2xx { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); }
+.status-sent { background: color-mix(in srgb, var(--text-dim) 12%, transparent); color: var(--text-dim); border: 1px solid var(--border); }
+.source-badge { background: color-mix(in srgb, var(--purple) 15%, transparent); color: var(--purple-light); border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); text-transform: none; }
+.source-badge-external { background: rgba(148,163,194,.15); color: var(--text-dim); border: 1px solid var(--border); text-transform: none; }
+.supplier-badge { background: var(--amber); color: #1a1247; border: 1px solid var(--amber); text-transform: none; }
+.duration { font-size: .72rem; padding: .22rem .55rem; border-radius: 6px; font-weight: 600; background: rgba(148,163,194,.1); color: var(--text-dim); }
+.duration.fast { color: var(--green); } .duration.mid { color: var(--amber); }
+.call-actions { display: flex; gap: .4rem; margin-left: auto; }
+.action-btn { background: color-mix(in srgb, var(--purple) 12%, transparent); border: 1px solid var(--border); color: var(--purple-light); font-size: .68rem; font-weight: 600; padding: .22rem .55rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.action-btn:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--purple) 22%, transparent); }
+.call-time { color: var(--text-faint); font-size: .75rem; white-space: nowrap; }
+.band-marker { margin-left: auto; font-size: .7rem; letter-spacing: .04em; color: var(--purple-light); white-space: nowrap; }
+.call-urls { display: flex; flex-direction: column; gap: .3rem; margin: .15rem 0 .65rem; font-family: var(--mono); font-size: .82rem; }
+.uri-row { display: flex; align-items: baseline; gap: .5rem; word-break: break-all; }
+.uri-label { flex: 0 0 auto; font-family: "Segoe UI", system-ui, sans-serif; font-size: .68rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: .1rem .45rem; border-radius: 5px; }
+.uri-label.to { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 10%, transparent); border: 1px solid color-mix(in srgb, var(--cyan) 28%, transparent); }
+.uri-value.to { color: var(--cyan); }
+.call-ids-row { display: flex; flex-wrap: wrap; gap: .4rem; margin: -.3rem 0 .65rem; }
+.call-id-chip { font-family: var(--mono); font-size: .68rem; color: var(--text-faint); background: var(--card-inner); border: 1px solid var(--border); border-radius: 5px; padding: .1rem .45rem; white-space: nowrap; }
+.blocks-strip { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin-top: .4rem; }
+.blocks-group { font-size: .62rem; letter-spacing: .06em; color: var(--text-dim); margin-right: .1rem; }
+.blocks-group:not(:first-child) { margin-left: .45rem; }
+.block-chip { padding: .12rem .5rem; font-size: .72rem; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 5px; cursor: pointer; white-space: nowrap; }
+.block-chip:hover { color: var(--purple-light); border-color: color-mix(in srgb, var(--purple) 45%, transparent); }
+.dialog-backdrop { position: fixed; inset: 0; background: rgba(5,7,20,.55); backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1.5rem; }
+.dialog-card { background-color: color-mix(in srgb, var(--popover-solid) 92%, transparent); border: 1px solid var(--border-strong); border-radius: 14px; width: 100%; max-height: 90vh; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.dialog-card h2 { margin: 0 0 .35rem; font-size: 1.15rem; color: var(--text); }
+.dialog-sub { color: var(--text-dim); font-size: .82rem; margin: 0; }
+
+/* ---- NEW: the one thing added to the call card ---- */
+.db-chip { display: inline-flex; gap: .45rem; align-items: center; font-size: .72rem; font-weight: 600; color: var(--db); border: 1px solid color-mix(in srgb, var(--db) 38%, transparent); background: color-mix(in srgb, var(--db) 10%, transparent); border-radius: 6px; padding: .2rem .55rem; cursor: pointer; white-space: nowrap; }
+.db-chip:hover { background: color-mix(in srgb, var(--db) 20%, transparent); border-color: color-mix(in srgb, var(--db) 60%, transparent); }
+.db-chip .w { color: var(--amber); }
+.db-chip .x { color: var(--red); }
+.db-chip .sep { color: color-mix(in srgb, var(--db) 45%, transparent); font-weight: 400; }
+
+.section-title { margin: 28px 0 10px; font-size: 13px; font-weight: 600; letter-spacing: .04em; color: var(--purple-light); text-transform: uppercase; }
+.section-title small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-dim); margin-left: 8px; }
+.states { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.state-card { border: 1px dashed var(--border-strong); border-radius: 12px; padding: .7rem .85rem; font-size: .78rem; color: var(--text-dim); line-height: 1.55; }
+.state-card p { margin: .5rem 0 0; } .state-card code { font-family: var(--mono); color: var(--db); }
+.state-h { color: var(--text); font-weight: 600; margin-bottom: .5rem; }
+.db-chip.off { opacity: .45; cursor: default; }
+.db-chip.live { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--db) 25%, transparent); } }
+.banner { padding: .5rem .7rem; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); color: var(--text); display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.settings { background: var(--card-elevated); border: 1px solid var(--border); border-radius: 14px; padding: .3rem .9rem; }
+.set-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: .8rem; padding: .65rem 0; border-top: 1px solid var(--border); font-size: .8rem; align-items: start; }
+.set-row:first-child { border-top: none; }
+.set-l { color: var(--text-dim); font-size: .76rem; padding-top: .15rem; }
+.set-row code { font-family: var(--mono); color: var(--purple-light); }
+.tchip { display: inline-block; font-family: var(--mono); font-size: .72rem; color: var(--purple-light); border: 1px solid var(--border); border-radius: 6px; padding: .1rem .45rem; margin: 0 .3rem .2rem 0; }
+.tchip.on { color: var(--db); border-color: color-mix(in srgb, var(--db) 40%, transparent); }
+@media (max-width: 640px) { .set-row { grid-template-columns: minmax(0, 1fr); } }
+.sources-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: .2rem 0 .6rem; padding-top: .6rem; border-top: 1px solid var(--border); }
+.sources-label { font-size: .68rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); margin-right: .25rem; }
+.source-pill { background: #0f1438; border: 1px solid var(--border); color: var(--text-dim); padding: .4rem .8rem; border-radius: 999px; font-size: .78rem; cursor: pointer; }
+.source-pill.active { background: color-mix(in srgb, var(--purple) 22%, transparent); border-color: var(--border-strong); color: var(--text); }
+.source-pill-group { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.source-pill-group.active { background: color-mix(in srgb, var(--purple) 22%, transparent); border-color: var(--border-strong); }
+.source-pill-group.active .source-pill-main { color: var(--text); }
+.source-pill-main { background: transparent; border: none; color: var(--text-dim); padding: .4rem .7rem .4rem .8rem; font-size: .78rem; cursor: pointer; }
+.source-pill-switch { background: transparent; border: none; border-left: 1px solid var(--border); padding: .4rem .6rem; cursor: pointer; display: flex; align-items: center; color: var(--text-faint); }
+.switch-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); display: inline-block; }
+.source-pill-switch.on .switch-dot { background: var(--green); }
+.db-glyph { font-size: .72rem; line-height: 1; color: var(--text-faint); }
+.source-pill-switch.db-sw.on .db-glyph { color: var(--db); text-shadow: 0 0 6px color-mix(in srgb, var(--db) 60%, transparent); }
+.source-pill-switch.db-sw.blocked { cursor: not-allowed; opacity: .4; }
+.source-pill-switch.db-more { font-size: .7rem; padding: .4rem .55rem; }
+.source-pill-switch.db-more[aria-expanded="true"] { color: var(--purple-light); background: color-mix(in srgb, var(--purple) 20%, transparent); }
+.sources-spacer { flex: 1; }
+.sources-reset { background: transparent; border: none; color: var(--text-faint); font-size: .75rem; cursor: pointer; }
+.mock-callout { font-size: .74rem; color: var(--text-dim); border-left: 2px solid var(--db); padding: .2rem .6rem; margin: 0 0 .9rem; border-radius: 0; }
+.mock-callout b { color: var(--text); } .dbc { color: var(--db) !important; }
+.page { position: relative; }
+.db-pop { position: absolute; z-index: 20; width: min(420px, calc(100% - 32px)); background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 10px; padding: .7rem .8rem; font-size: .78rem; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
+.db-pop h4 { margin: 0 0 .5rem; font-size: .8rem; color: var(--text); display: flex; align-items: center; gap: .5rem; }
+.db-pop .pr { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: .6rem; padding: .4rem 0; border-top: 1px solid var(--border); align-items: center; }
+.db-pop .pl { color: var(--text-dim); font-size: .74rem; }
+.db-pop .foot { display: flex; gap: .5rem; align-items: center; border-top: 1px solid var(--border); padding-top: .5rem; margin-top: .2rem; }
+.agent-ok { color: var(--green); } .agent-no { color: var(--amber); }
+.cw-demo { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.cw-popover { background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 10px; padding: 6px; font-size: 13px; }
+.cw-sources-head, .cw-source-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
+.cw-sources-head { font-size: 11px; color: var(--text-faint); padding-bottom: 6px; }
+.cw-source-row { border-radius: 6px; font-size: 12.5px; min-height: 30px; }
+.cw-source-row:hover { background: color-mix(in srgb, var(--purple) 7%, transparent); }
+.cw-spacer { flex: 1; min-width: 0; }
+.cw-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cw-col-view { width: 78px; display: flex; gap: 3px; justify-content: center; align-items: center; flex: none; }
+.cw-col-log { width: 66px; display: flex; justify-content: center; flex: none; }
+.cw-col-log.db { width: 54px; }
+.cw-sources-head .cw-col-log.db { color: var(--db); }
+.cw-ib { width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; filter: grayscale(1); }
+.cw-ib.active { background: color-mix(in srgb, var(--purple) 22%, transparent); }
+.cw-only { font-size: 10.5px; color: var(--text-dim); padding: 0 6px; height: 20px; line-height: 18px; border-radius: 5px; border: 1px solid var(--border); }
+.cw-faint { color: var(--text-faint); font-size: 11px; }
+.cw-warn { color: var(--amber); font-size: 11px; }
+.cw-dir { color: var(--cyan); width: 14px; text-align: center; } .cw-dir.inbound { color: var(--green); }
+.cw-switch { width: 28px; height: 16px; border-radius: 999px; position: relative; background: rgba(148,163,194,.3); border: none; cursor: pointer; padding: 0; transition: background .2s; }
+.cw-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: left .2s; }
+.cw-switch.on { background: var(--green); } .cw-switch.on::after { left: 14px; }
+.cw-switch.db.on { background: var(--db); }
+.cw-switch.blocked { opacity: .35; cursor: not-allowed; }
+.cw-sources-foot { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--border); margin-top: 4px; padding: 6px 4px 0; }
+.cw-link { font-size: 11px; color: var(--purple-light); padding: 2px 6px; }
+.cw-notes { font-size: .78rem; color: var(--text-dim); line-height: 1.6; }
+.cw-notes p { margin: 0 0 .5rem; } .cw-notes b { color: var(--text); }
+.cw-chip-demo { font-size: 11px; color: var(--db); border: 1px solid color-mix(in srgb, var(--db) 40%, transparent); border-radius: 999px; padding: 1px 8px; }
+@media (max-width: 720px) { .cw-demo { grid-template-columns: minmax(0, 1fr); } }
+/* ---- NEW: the database window ---- */
+.db-window { max-width: 1100px; height: 86vh; display: flex; flex-direction: column; overflow: hidden; }
+.dbw-head { padding: 1.1rem 1.3rem .8rem; border-bottom: 1px solid var(--border); display: flex; gap: 1rem; align-items: flex-start; }
+.dbw-head .title { flex: 1 1 auto; min-width: 0; }
+.dbw-head .url { font-family: var(--mono); color: var(--cyan); font-size: .8rem; word-break: break-all; }
+.dbw-close { background: none; border: 1px solid var(--border); color: var(--text-dim); border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 1rem; flex: 0 0 auto; }
+.dbw-close:hover { color: var(--text); border-color: var(--border-strong); }
+.stats { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; }
+.stat { font-size: .72rem; padding: .2rem .55rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); background: color-mix(in srgb, var(--purple) 6%, transparent); }
+.stat b { color: var(--text); font-weight: 600; }
+.stat.w b { color: var(--amber); }
+.dbw-tools { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; padding: .6rem 1.3rem; border-bottom: 1px solid var(--border); }
+.dbw-search { flex: 1 1 220px; min-width: 0; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: .4rem .65rem; font-size: .8rem; }
+.dbw-search:focus { outline: none; border-color: var(--border-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--purple) 18%, transparent); }
+.chk { display: inline-flex; gap: .35rem; align-items: center; font-size: .74rem; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+.chk input { accent-color: var(--purple); }
+.dbw-body { flex: 1 1 auto; overflow-y: auto; padding: .5rem .8rem 1rem; }
+.dbw-foot { display: flex; gap: .5rem; align-items: center; padding: .6rem 1.3rem; border-top: 1px solid var(--border); font-size: .72rem; color: var(--text-faint); }
+.dbw-foot .right { margin-left: auto; display: flex; gap: .4rem; }
+
+/* collapsed rows */
+.r { border: 1px solid transparent; border-radius: 8px; }
+.r + .r { margin-top: 1px; }
+.r.open { border-color: var(--border); background: color-mix(in srgb, var(--purple) 5%, transparent); margin: .25rem 0; }
+.rh { display: grid; grid-template-columns: 14px 34px 84px minmax(0, 1fr) auto auto 52px; gap: .55rem; align-items: center; padding: .32rem .5rem; border-radius: 8px; cursor: pointer; font-size: .76rem; }
+.rh:hover { background: color-mix(in srgb, var(--purple) 10%, transparent); }
+.chev { color: var(--text-faint); font-size: .7rem; transition: transform .12s; }
+.r.open .chev { transform: rotate(90deg); color: var(--purple-light); }
+.num { font-family: var(--mono); font-size: .68rem; color: var(--text-faint); }
+.verb { font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-align: center; padding: .12rem .3rem; border-radius: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v-read { color: var(--db); background: color-mix(in srgb, var(--db) 10%, transparent); border: 1px solid color-mix(in srgb, var(--db) 28%, transparent); }
+.v-write { color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 36%, transparent); }
+.v-tx { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--green) 30%, transparent); }
+.sql1 { font-family: var(--mono); font-size: .74rem; color: #cfeee9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kw { color: #7dd3fc; } .val { color: var(--amber); } .ph { color: var(--purple-light); }
+.res { font-size: .7rem; color: var(--text-dim); white-space: nowrap; }
+.ms { font-size: .7rem; font-weight: 600; white-space: nowrap; color: var(--green); }
+.ms.mid { color: var(--amber); }
+.off { font-size: .68rem; color: var(--text-faint); text-align: right; white-space: nowrap; }
+.rep { font-size: .66rem; font-weight: 700; color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); border-radius: 999px; padding: 0 .4rem; margin-left: .4rem; }
+
+/* tree nodes: a transaction / repeated query is a parent row, its statements hang under it */
+.g { --branch: var(--green); }
+.g.repeat { --branch: var(--amber); }
+.g > .rh { background: color-mix(in srgb, var(--branch) 6%, transparent); border: 1px solid color-mix(in srgb, var(--branch) 22%, transparent); }
+.g > .rh:hover { background: color-mix(in srgb, var(--branch) 12%, transparent); }
+.g > .rh .lbl { color: var(--branch); font-family: var(--mono); font-size: .74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g > .rh .lbl .meta { color: var(--text-dim); font-family: "Segoe UI", system-ui, sans-serif; }
+.g.closed > .gb { display: none; }
+.g:not(.closed) > .rh .chev { transform: rotate(90deg); color: var(--branch); }
+.g-warn { grid-column: 2 / -1; font-size: .7rem; color: var(--amber); margin-top: -.05rem; }
+.gb { position: relative; margin: .15rem 0 .35rem 1.05rem; padding-left: 1rem; }
+.gb::before { content: ""; position: absolute; left: 0; top: 0; bottom: 1rem; border-left: 2px solid color-mix(in srgb, var(--branch) 45%, transparent); }
+.gb > * { position: relative; }
+.gb > *::before { content: ""; position: absolute; left: -1rem; top: 1rem; width: .8rem; border-top: 2px solid color-mix(in srgb, var(--branch) 45%, transparent); }
+.gb > .r.open::before { top: 1.05rem; }
+
+/* supplier call markers between statements */
+.sup { display: flex; gap: .55rem; align-items: center; margin: .3rem 0; padding: .3rem .5rem; font-size: .74rem; border-top: 1px dashed color-mix(in srgb, var(--cyan) 30%, transparent); border-bottom: 1px dashed color-mix(in srgb, var(--cyan) 30%, transparent); background: color-mix(in srgb, var(--cyan) 5%, transparent); }
+.sup .u { font-family: var(--mono); color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; }
+.sup a { color: var(--purple-light); font-size: .7rem; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.hide-sup .sup { display: none; }
+
+/* expanded detail */
+.rd { padding: .2rem .7rem .7rem 2.4rem; }
+.tabs2 { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: .45rem; }
+.tab2 { padding: .12rem .5rem; font-size: .72rem; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 5px; cursor: pointer; }
+.tab2.on { color: #0b0e22; background: var(--purple); border-color: var(--purple); }
+.tabs2 .sp { flex: 1; }
+.sqlb { padding: .55rem .7rem; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; font-family: var(--mono); font-size: .78rem; line-height: 1.6; white-space: pre-wrap; color: #d7f7f2; }
+.kvt { width: 100%; border-collapse: collapse; font-size: .75rem; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.kvt th { text-align: left; font-weight: 600; color: var(--text-dim); font-size: .66rem; letter-spacing: .04em; text-transform: uppercase; padding: .3rem .55rem; border-bottom: 1px solid var(--border); }
+.kvt td { padding: .3rem .55rem; border-bottom: 1px solid color-mix(in srgb, var(--purple) 10%, transparent); font-family: var(--mono); }
+.kvt td.dim { color: var(--text-dim); font-family: inherit; }
+.kvt .chg { color: var(--amber); }
+.empty { padding: 2rem; text-align: center; color: var(--text-dim); font-size: .8rem; }
+
+/* ---- v3 additions ---- */
+/* failures and rollbacks */
+.v-fail { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); }
+.r.fail > .rh { background: color-mix(in srgb, var(--red) 8%, transparent); }
+.r.fail .res { color: var(--red); font-weight: 600; }
+.r.undone .sql1 { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--red) 70%, transparent); opacity: .7; }
+.r.undone .res { color: var(--red); }
+.g.rolled { --branch: var(--red); }
+.errbox { padding: .55rem .7rem; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); border-radius: 8px; font-size: .76rem; line-height: 1.6; }
+.errbox code { font-family: var(--mono); color: var(--amber); }
+/* redaction */
+.redacted { font-family: var(--mono); color: var(--text-faint); background: color-mix(in srgb, var(--text-dim) 12%, transparent); border-radius: 4px; padding: 0 .3rem; }
+/* value tracing */
+[data-v] { cursor: pointer; border-radius: 3px; }
+[data-v]:hover { outline: 1px dashed color-mix(in srgb, var(--amber) 60%, transparent); }
+.hit { background: color-mix(in srgb, var(--amber) 30%, transparent) !important; outline: 1px solid var(--amber); color: #fff !important; }
+.trace { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .2rem 0 .5rem; padding: .45rem .65rem; border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); border-radius: 8px; font-size: .74rem; }
+.trace b { color: var(--amber); font-family: var(--mono); }
+.loc { font-size: .7rem; color: var(--text); border: 1px solid var(--border); background: var(--card-inner); border-radius: 999px; padding: .08rem .5rem; cursor: pointer; white-space: nowrap; }
+.loc:hover { border-color: var(--amber); }
+.sup-body { flex-basis: 100%; font-family: var(--mono); font-size: .7rem; color: var(--text-dim); padding-left: 2.2rem; }
+/* flags */
+.flags { display: flex; gap: .4rem; flex-wrap: nowrap; overflow-x: auto; margin-top: .55rem; padding-bottom: .2rem; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.flags::-webkit-scrollbar { height: 5px; } .flags::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; } .flags::-webkit-scrollbar-track { background: transparent; }
+.flag { font-size: .7rem; padding: .16rem .55rem; border-radius: 6px; cursor: pointer; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); color: var(--amber); background: color-mix(in srgb, var(--amber) 9%, transparent); }
+.flag.bad { border-color: color-mix(in srgb, var(--red) 45%, transparent); color: var(--red); background: color-mix(in srgb, var(--red) 9%, transparent); }
+.flag:hover { filter: brightness(1.25); }
+/* time strip */
+.strip-wrap { margin-top: .6rem; }
+.strip { position: relative; height: 14px; border-radius: 4px; background: color-mix(in srgb, var(--text-dim) 14%, transparent); overflow: hidden; }
+.tseg { position: absolute; top: 0; bottom: 0; min-width: 2px; cursor: pointer; }
+.tseg.db { background: var(--db); } .tseg.sup { background: var(--cyan); opacity: .75; } .tseg.fail { background: var(--red); }
+.tseg:hover { filter: brightness(1.4); outline: 1px solid #fff; z-index: 2; }
+.strip-legend { display: flex; gap: .9rem; flex-wrap: wrap; margin-top: .3rem; font-size: .68rem; color: var(--text-dim); }
+.strip-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: .3rem; vertical-align: -1px; }
+/* views */
+.views { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 1.3rem; }
+.views button { background: none; border: none; color: var(--text-dim); font-size: .8rem; padding: .55rem .9rem; cursor: pointer; border-bottom: 2px solid transparent; }
+.views button.on { color: var(--text); border-bottom-color: var(--purple); font-weight: 600; }
+.views .count { font-size: .68rem; color: var(--text-faint); margin-left: .3rem; }
+.table-chip { font-size: .72rem; color: var(--db); border: 1px solid color-mix(in srgb, var(--db) 40%, transparent); border-radius: 6px; padding: .15rem .5rem; cursor: pointer; }
+.tbl-view td { cursor: pointer; }
+.tbl-view tr:hover td { background: color-mix(in srgb, var(--purple) 8%, transparent); }
+.tbl-view .w { color: var(--amber); } .tbl-view .x { color: var(--red); }
+/* compare */
+.cmp-head { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .3rem 0 .7rem; font-size: .76rem; color: var(--text-dim); }
+.cmp-head select { background: var(--card-inner); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: .25rem .4rem; font-size: .74rem; }
+.dchip { font-size: .7rem; padding: .14rem .5rem; border-radius: 999px; border: 1px solid var(--border); }
+.dchip.same { color: var(--text-dim); } .dchip.chg { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.dchip.miss { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); } .dchip.extra { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.diff { border: 1px solid var(--border); border-radius: 8px; margin-bottom: .45rem; overflow: hidden; }
+.diff-h { display: flex; gap: .55rem; align-items: center; padding: .35rem .6rem; font-size: .76rem; background: color-mix(in srgb, var(--purple) 5%, transparent); }
+.diff-b { padding: .45rem .7rem .55rem; font-size: .74rem; line-height: 1.6; border-top: 1px solid var(--border); }
+.diff-b code { font-family: var(--mono); }
+.del { color: var(--red); text-decoration: line-through; } .ins { color: var(--green); }
+.same-line { padding: .4rem .6rem; font-size: .74rem; color: var(--text-faint); border: 1px dashed var(--border); border-radius: 8px; margin-bottom: .45rem; }
+/* relive powers */
+.mark { font-size: .62rem; font-weight: 700; padding: 0 .35rem; border-radius: 4px; margin-right: .35rem; vertical-align: 1px; }
+.mark.bp { color: var(--purple-light); background: color-mix(in srgb, var(--purple) 25%, transparent); }
+.mark.wi { color: #1a1247; background: var(--amber); }
+.edit-note { margin-top: .45rem; padding: .45rem .65rem; border-radius: 8px; font-size: .74rem; border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.kvt input { width: 100%; background: transparent; border: 1px solid color-mix(in srgb, var(--amber) 50%, transparent); border-radius: 4px; color: var(--amber); font-family: var(--mono); font-size: .75rem; padding: .1rem .3rem; }
+.action-btn.on { border-color: var(--purple); color: #fff; background: color-mix(in srgb, var(--purple) 40%, transparent); }
+.db-window.compact .stats, .db-window.compact .flags, .db-window.compact .strip-wrap, .db-window.compact .dialog-sub { display: none; }
+.db-window.compact .dbw-head { padding-bottom: .5rem; }
+.v-del { color: #fca5a5; background: color-mix(in srgb, var(--red) 10%, transparent); border: 1px solid color-mix(in srgb, var(--red) 38%, transparent); }
+.v-call { color: var(--purple-light); background: color-mix(in srgb, var(--purple) 14%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent); }
+.mark.bt { color: var(--db); background: color-mix(in srgb, var(--db) 18%, transparent); }
+.mark.fi { color: #fff; background: color-mix(in srgb, var(--red) 70%, transparent); }
+.blob { font-family: var(--mono); color: var(--purple-light); background: color-mix(in srgb, var(--purple) 14%, transparent); border-radius: 4px; padding: 0 .3rem; }
+.lnk { color: var(--purple-light); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; font-size: .72rem; }
+.dimtxt { color: var(--text-dim); font-size: .72rem; font-family: "Segoe UI", system-ui, sans-serif; }
+.dimline { color: var(--text-dim); font-size: .74rem; margin: 0 0 .4rem; line-height: 1.5; }
+.dimline code, .infobox code, .warnbox code, .errbox code, .empty-cap code { font-family: var(--mono); color: var(--purple-light); }
+.infobox span { flex: 1 1 260px; }
+.infobox { margin-top: .45rem; padding: .5rem .7rem; border-radius: 8px; font-size: .74rem; line-height: 1.55; border: 1px solid color-mix(in srgb, var(--db) 40%, transparent); background: color-mix(in srgb, var(--db) 7%, transparent); display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.infobox .action-btn { margin-left: auto; }
+.warnbox { margin-bottom: .45rem; padding: .45rem .7rem; border-radius: 8px; font-size: .74rem; border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); color: var(--text); }
+.empty-cap { padding: .55rem .7rem; border: 1px dashed var(--border-strong); border-radius: 8px; font-size: .76rem; color: var(--text-dim); line-height: 1.55; }
+.empty-cap b { color: var(--text); }
+.relive-t th { width: 190px; text-transform: none; letter-spacing: 0; font-size: .72rem; vertical-align: top; padding-top: .45rem; }
+.relive-t td { font-family: "Segoe UI", system-ui, sans-serif; font-size: .76rem; }
+.relive-t select, input.mini { background: var(--card-inner); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: .2rem .4rem; font-size: .74rem; }
+input.mini { width: 70px; font-family: var(--mono); }
+.stmt-sql { padding: .5rem 1.3rem .2rem; border-bottom: 1px solid var(--border); }
+.stmt-sql .rq-actions + .rq-actions { margin-top: .25rem; }
+.sq-note { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: .2rem 0 .5rem; padding: .4rem .65rem; border: 1px solid color-mix(in srgb, var(--db) 40%, transparent); background: color-mix(in srgb, var(--db) 7%, transparent); border-radius: 8px; font-size: .74rem; }
+.sq-note b { color: var(--db); } .sq-note code { font-family: var(--mono); color: var(--purple-light); }
+.toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.toggle button { background: none; border: none; color: var(--text-dim); font-size: .72rem; padding: .3rem .7rem; cursor: pointer; }
+.toggle button.on { background: color-mix(in srgb, var(--purple) 25%, transparent); color: var(--text); font-weight: 600; }
+.rq-bar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .45rem; }
+.rq-bar .rq-search { flex: 1 1 240px; }
+.rq-hint { font-size: .7rem; color: var(--text-faint); }
+.rq-hint code { font-family: var(--mono); color: var(--purple-light); }
+.rq-sql { margin-bottom: .45rem; }
+.rq-sql textarea { width: 100%; resize: vertical; min-height: 54px; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; color: #d7f7f2; font-family: var(--mono); font-size: .78rem; line-height: 1.5; padding: .45rem .6rem; }
+.rq-sql textarea:focus { outline: none; border-color: var(--border-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--purple) 18%, transparent); }
+.rq-actions { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-top: .35rem; }
+.action-btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+.rq-err { margin-bottom: .4rem; padding: .35rem .6rem; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); color: var(--red); border-radius: 8px; font-size: .74rem; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--purple-light); }
+.rows-scroll.fixed { height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.rows-scroll.fixed .kvt { border: none; border-radius: 0; overflow: visible; }
+.rows-scroll.fixed thead th { position: sticky; top: 0; z-index: 1; background: #10143a; }
+.more { display: flex; gap: .5rem; align-items: center; margin-top: .4rem; font-size: .72rem; color: var(--text-dim); }
+.ide a { color: var(--purple-light); margin-right: .7rem; text-decoration: none; font-family: "Segoe UI", system-ui, sans-serif; font-size: .72rem; }
+.flash { animation: flash 1.4s ease-out; }
+@keyframes flash { 0% { box-shadow: 0 0 0 2px var(--amber); } 100% { box-shadow: 0 0 0 2px transparent; } }
+
+@media (max-width: 720px) {
+  .rh { grid-template-columns: 12px 28px 70px minmax(0, 1fr) 46px; }
+  .rh .res, .rh .off { display: none; }
+  .rd { padding-left: .7rem; }
+  .dialog-backdrop { padding: .5rem; }
+  .db-window { height: 94vh; }
+}
+</style>
+</head>
+<body>
+
+<div class="tabs"><span class="on">Live Calls</span><span>Session Cycles</span><span>Profiles</span><span>Interception</span><span>Relive</span><span>Logs</span><span>Settings</span></div>
+
+<div class="mock-note">
+  <b>Mock v5 - database capture.</b> The call list stays exactly as today; each call gets one <span class="new">◆ DB</span> chip - click it to open the database window. Capture is switched per project from the <b>Sources</b> bar (below), the cycle widget and Settings.
+  Try: the <b>flags</b> under the header, the <b>time strip</b>, clicking any <b>value</b> (e.g. <code>CHG-88213</code>) to trace it, the <b>Tables</b> and <b>Compare</b> views, and in an expanded statement <b>Pause here in Relive</b> / <b>Edit for replay</b>.
+  The Relive run card's chip opens straight into Compare.
+</div>
+
+<div class="page">
+  <div class="toolbar">
+    <div class="seg"><span>Flat</span><span class="on">Nested</span><span>Waterfall</span></div>
+  </div>
+  <!-- Live Calls sources bar: the existing pill + inbound-logging dot, and a NEW database switch next to it -->
+  <div class="sources-bar">
+    <span class="sources-label">Sources</span>
+    <button type="button" class="source-pill active">External</button>
+    <span class="source-pill-group active" data-proj="wallet-app">
+      <button type="button" class="source-pill-main">wallet-app</button>
+      <button type="button" class="source-pill-switch on" data-sw="log" title="Inbound logging is on - click to turn off"><span class="switch-dot"></span></button>
+      <button type="button" class="source-pill-switch db-sw" data-sw="db" title="Database capture is on - click to turn off"><span class="db-glyph">◆</span></button>
+      <button type="button" class="source-pill-switch db-more" data-sw="more" title="Database capture settings for wallet-app" aria-expanded="false">▾</button>
+    </span>
+    <span class="source-pill-group active" data-proj="core-service">
+      <button type="button" class="source-pill-main">core-service</button>
+      <button type="button" class="source-pill-switch on" data-sw="log" title="Inbound logging is on - click to turn off"><span class="switch-dot"></span></button>
+      <button type="button" class="source-pill-switch db-sw" data-sw="db" title="Database capture is off - click to turn on"><span class="db-glyph">◆</span></button>
+      <button type="button" class="source-pill-switch db-more" data-sw="more" title="Database capture settings for core-service" aria-expanded="false">▾</button>
+    </span>
+    <span class="sources-spacer"></span>
+    <button type="button" class="sources-reset">Reset</button>
+  </div>
+  <div class="db-pop" id="dbPop" hidden></div>
+  <div class="mock-callout">New: each project pill gets a <b class="dbc">◆</b> switch for database capture, right after its inbound-logging dot - the same switch as in the Session Cycles widget and in Settings (one setting, three places). <b>▾</b> opens that project's database settings.</div>
+
+  <div class="list">
+    <!-- inbound call with supplier children: unchanged except the DB chip -->
+    <div class="depth-tint-0">
+    <div class="call sandwich">
+      <div class="call-band call-band-request">
+        <div class="call-top">
+          <input type="checkbox" class="call-select">
+          <span class="badge method-POST">POST</span>
+          <span class="badge status-sent">Sent</span>
+          <span class="badge source-badge">wallet-app</span>
+          <button class="db-chip" id="card-chip" data-open-db title="Open this call's database statements"></button>
+          <button class="action-btn">⚡+ Rule</button>
+          <div class="call-actions"><button class="action-btn">Resend…</button><button class="action-btn">☆ Pin</button><button class="action-btn">Export ▾</button><button class="action-btn">Relive ▾</button></div>
+          <span class="band-marker">↓ request</span>
+          <span class="call-time">10/4/2026, 6:02:43 PM</span>
+        </div>
+        <div class="call-urls"><div class="uri-row"><span class="uri-label to">URL</span><span class="uri-value to">/wallet-app/api/wallet/pay</span></div></div>
+        <div class="call-ids-row"><span class="call-id-chip">Request: 7c1e09a2…</span><span class="call-id-chip">Session: 3f88b1d0…</span></div>
+        <div class="blocks-strip"><span class="blocks-group">REQ</span><button class="block-chip">▸ Headers</button><button class="block-chip">▸ Body</button></div>
+      </div>
+      <div class="call-nested">
+        <div class="tree-children depth-tint-1">
+          <div class="call" id="sup-17" style="padding:.75rem .9rem">
+            <div class="call-top">
+              <input type="checkbox" class="call-select">
+              <span class="badge method-POST">POST</span><span class="badge status-2xx">200</span><span class="duration mid">310.4 ms</span>
+              <span class="badge supplier-badge">PaySupplier</span><span class="badge source-badge-external">External</span>
+              <div class="call-actions"><button class="action-btn">Resend…</button><button class="action-btn">☆ Pin</button><button class="action-btn">Export ▾</button></div>
+              <span class="call-time">6:02:43 PM</span>
+            </div>
+            <div class="call-urls" style="margin-bottom:0"><div class="uri-row"><span class="uri-label to">URL</span><span class="uri-value to">https://pay.supplier.com/v1/charge</span></div></div>
+          </div>
+          <div class="call" id="sup-46" style="padding:.75rem .9rem">
+            <div class="call-top">
+              <input type="checkbox" class="call-select">
+              <span class="badge method-POST">POST</span><span class="badge status-2xx">202</span><span class="duration fast">55.2 ms</span>
+              <span class="badge supplier-badge">SmsGateway</span><span class="badge source-badge-external">External</span>
+              <div class="call-actions"><button class="action-btn">Resend…</button><button class="action-btn">☆ Pin</button><button class="action-btn">Export ▾</button></div>
+              <span class="call-time">6:02:43 PM</span>
+            </div>
+            <div class="call-urls" style="margin-bottom:0"><div class="uri-row"><span class="uri-label to">URL</span><span class="uri-value to">https://notify.sms.com/send</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="call-band call-band-response">
+        <div class="call-top" style="margin-bottom:0">
+          <span class="badge status-2xx">200</span><span class="duration slow" id="card-total"></span>
+          <span class="band-marker">↑ response</span><span class="call-time">6:02:43 PM</span>
+        </div>
+        <div class="blocks-strip"><span class="blocks-group">RES</span><button class="block-chip">▸ Headers</button><button class="block-chip">▸ Body</button></div>
+      </div>
+    </div>
+    </div>
+
+    <!-- a plain call in the flat list, to show the chip on a normal card -->
+    <div class="call">
+      <div class="call-top">
+        <input type="checkbox" class="call-select">
+        <span class="badge method-GET">GET</span><span class="badge status-2xx">200</span><span class="duration fast">22.1 ms</span>
+        <span class="badge source-badge">wallet-app</span>
+        <button class="db-chip" title="Open this call's database statements">◆ DB 3 <span class="sep">·</span> 4 ms</button>
+        <button class="action-btn">⚡+ Rule</button>
+        <div class="call-actions"><button class="action-btn">Resend…</button><button class="action-btn">☆ Pin</button><button class="action-btn">Export ▾</button><button class="action-btn">Relive ▾</button></div>
+        <span class="call-time">10/4/2026, 6:02:41 PM</span>
+      </div>
+      <div class="call-urls"><div class="uri-row"><span class="uri-label to">URL</span><span class="uri-value to">/wallet-app/api/wallet/balance</span></div></div>
+      <div class="blocks-strip"><span class="blocks-group">REQ</span><button class="block-chip">▸ Headers</button><button class="block-chip">▸ Body</button><span class="blocks-group">RES</span><button class="block-chip">▸ Headers</button><button class="block-chip">▸ Body</button></div>
+    </div>
+
+    <!-- Relive run: same chip, with replay outcome -->
+    <div class="call">
+      <div class="call-top">
+        <input type="checkbox" class="call-select">
+        <span class="badge method-POST">POST</span><span class="badge status-2xx">200</span><span class="duration fast">96.0 ms</span>
+        <span class="badge source-badge">wallet-app</span>
+        <span class="badge" style="background:color-mix(in srgb,var(--purple) 18%,transparent);color:var(--purple-light);border:1px solid var(--border-strong);text-transform:none">Relive run #12 · Pay</span>
+        <button class="db-chip" data-view="compare" title="Open this run's statements compared with the recording">◆ DB 49 <span class="sep">·</span> replayed all but 1 <span class="sep">·</span> <span class="x">1 no match</span> <span class="sep">·</span> compare</button>
+        <div class="call-actions"><button class="action-btn">Resend…</button><button class="action-btn">Export ▾</button></div>
+        <span class="call-time">10/4/2026, 6:20:05 PM</span>
+      </div>
+      <div class="call-urls" style="margin-bottom:0"><div class="uri-row"><span class="uri-label to">URL</span><span class="uri-value to">/wallet-app/api/wallet/pay</span></div></div>
+    </div>
+  </div>
+
+  <div class="section-title">Other states</div>
+  <div class="states">
+    <div class="state-card"><div class="state-h">Call with no database work</div>
+      <div class="call" style="padding:.6rem .8rem"><div class="call-top" style="margin:0"><span class="badge method-GET">GET</span><span class="badge status-2xx">200</span><span class="duration fast">4.0 ms</span><span class="badge source-badge">wallet-app</span><span class="db-chip off" title="The agent saw no statements for this call">◆ DB 0</span></div></div>
+      <p>A dimmed <code>◆ DB 0</code> - the agent was attached and saw nothing, which is different from "not captured".</p></div>
+    <div class="state-card"><div class="state-h">Call still running</div>
+      <div class="call" style="padding:.6rem .8rem"><div class="call-top" style="margin:0"><span class="badge method-POST">POST</span><span class="badge status-sent">Sent</span><span class="badge source-badge">wallet-app</span><span class="db-chip live">◆ DB 12 <span class="sep">·</span> live</span></div></div>
+      <p>Statements stream in over the WebSocket as they run; an open window keeps adding lines. No polling.</p></div>
+    <div class="state-card"><div class="state-h">Agent not attached</div>
+      <div class="banner"><span>◆ Database capture is off for <b>wallet-app</b> - the agent isn't attached to its JVM.</span><button class="action-btn">How to attach</button></div>
+      <p>Calls look exactly like today: no chip, supplier calls linked the old way and marked "approximate order".</p></div>
+    <div class="state-card"><div class="state-h">Database work outside any call</div>
+      <div class="call" style="padding:.6rem .8rem"><div class="call-top" style="margin:0"><span class="db-chip">◆ Outside calls · 14 statements</span><span class="dimtxt">EJB timer-3 · JMS PaymentListener · startup</span></div></div>
+      <p>Scheduled jobs, JMS listeners and startup have no inbound call. They get their own window, grouped by thread, and never mix into a call.</p></div>
+    <div class="state-card"><div class="state-h">Too many rows to keep</div>
+      <div class="empty-cap"><b>120,480 rows returned - 50,000 stored.</b> Over the per-result limit (Settings → Database capture). Counts and the statement are complete; only rows past 50,000 are dropped, and the window says so.</div>
+      <p>The one place data is capped - shown, never silent.</p></div>
+    <div class="state-card"><div class="state-h">Deleting captured data</div>
+      <p style="margin-top:0">Statements belong to their call: deleting the call, clearing calls, or the call ageing out of retention removes them too. Recorded into a Session Cycle or a Relive cycle, they stay as long as that does.</p></div>
+  </div>
+
+  <div class="section-title">Session Cycles · cycle widget → Sources <small>the existing popover, with a new "Log DB" column</small></div>
+  <div class="cw-demo">
+    <div class="cw-popover cw-sources">
+      <div class="cw-sources-head">
+        <span class="cw-spacer">Source</span>
+        <span class="cw-col-view">Show here</span>
+        <span class="cw-col-log">Log inbound</span>
+        <span class="cw-col-log db">Log DB</span>
+      </div>
+      <div class="cw-source-row"><span class="cw-dir">→</span><span class="cw-spacer cw-ellipsis">External</span>
+        <span class="cw-col-view"><span class="cw-ib active">👁</span><span class="cw-only">Only</span></span>
+        <span class="cw-col-log"><span class="cw-faint" title="Outbound calls are always logged by the forward proxy">always</span></span>
+        <span class="cw-col-log db"><span class="cw-faint" title="Suppliers are other systems - Alfred only captures your own app's database">-</span></span></div>
+      <div class="cw-source-row" data-proj="wallet-app"><span class="cw-dir inbound">←</span><span class="cw-spacer cw-ellipsis">wallet-app</span>
+        <span class="cw-col-view"><span class="cw-ib active">👁</span><span class="cw-only">Only</span></span>
+        <span class="cw-col-log"><button type="button" class="cw-switch on" role="switch" data-sw="log" aria-label="Inbound logging for wallet-app"></button></span>
+        <span class="cw-col-log db"><button type="button" class="cw-switch db" role="switch" data-sw="db" aria-label="Database capture for wallet-app"></button></span></div>
+      <div class="cw-source-row" data-proj="core-service"><span class="cw-dir inbound">←</span><span class="cw-spacer cw-ellipsis">core-service <span class="cw-warn" data-agentwarn>· agent not attached</span></span>
+        <span class="cw-col-view"><span class="cw-ib active">👁</span><span class="cw-only">Only</span></span>
+        <span class="cw-col-log"><button type="button" class="cw-switch on" role="switch" data-sw="log" aria-label="Inbound logging for core-service"></button></span>
+        <span class="cw-col-log db"><button type="button" class="cw-switch db" role="switch" data-sw="db" aria-label="Database capture for core-service"></button></span></div>
+      <div class="cw-sources-foot"><span class="cw-link">Show all</span><span class="cw-spacer"></span><span class="cw-faint">Logging and DB switches apply to every cycle and user</span></div>
+    </div>
+    <div class="cw-notes">
+      <p><b>Log DB</b> sits next to <b>Log inbound</b> and works the same way: one switch per project, live, shared by every cycle and user.</p>
+      <p>The DB switch can only be on while inbound logging is on - statements are linked to inbound calls, so with inbound off there is nothing to attach them to. Turning inbound off greys the DB switch out (try it).</p>
+      <p>A cycle that is recording keeps the statements of its captured calls, like it keeps their bodies - deleting the cycle removes them.</p>
+      <p>The chips row shows <span class="cw-chip-demo">◆ wallet-app</span> while capture is on.</p>
+    </div>
+  </div>
+
+  <div class="section-title">Settings → Database capture <small>new card in the Settings tab</small></div>
+  <div class="settings">
+    <div class="set-row"><div class="set-l">Capture</div><div><label class="chk" data-proj="wallet-app"><input type="checkbox" data-sw="db"> wallet-app</label> <label class="chk" data-proj="core-service"><input type="checkbox" data-sw="db"> core-service</label> <span class="dimtxt">· the same switches as Live Calls and the cycle widget · agent attached to wallet-app (WildFly · Java 8) - seen 4 s ago; core-service - not attached</span></div></div>
+    <div class="set-row"><div class="set-l">Rows kept per result</div><div><input class="mini" value="50000"> <span class="dimtxt">beyond this only the count is kept; the window shows it</span></div></div>
+    <div class="set-row"><div class="set-l">Before-image</div><div><span class="tchip on">payment_holds ✕</span><span class="tchip on">loyalty_pending ✕</span><button class="action-btn">+ Add table</button>
+      <div class="dimtxt" style="margin-top:.3rem">For these tables the agent reads the rows just before each UPDATE or DELETE, so "Deleted rows" and "Before → after" are always complete. Costs one extra read per write.</div></div></div>
+    <div class="set-row"><div class="set-l">Flags</div><div class="dimtxt">Slow over <input class="mini" value="20"> ms · Huge result over <input class="mini" value="1000"> rows · N+1 from <input class="mini" value="5"> repeats · Large delete over <input class="mini" value="100"> rows · DELETE/UPDATE without WHERE <label class="chk"><input type="checkbox" checked> always</label></div></div>
+    <div class="set-row"><div class="set-l">Expected</div><div><span class="tchip">DELETE FROM rate_cache ✕</span> <span class="dimtxt">statements marked expected never raise a flag</span></div></div>
+    <div class="set-row"><div class="set-l">Ignore</div><div><span class="tchip">SELECT 1 ✕</span><span class="tchip">QRTZ_* ✕</span><button class="action-btn">+ Add</button> <span class="dimtxt">health checks and scheduler tables are not recorded</span></div></div>
+    <div class="set-row"><div class="set-l">Redaction</div><div class="dimtxt">Uses the rules from Settings → Redactions on params and rows. Now hiding: <code>national_id</code>, <code>card_token</code>.</div></div>
+  </div>
+</div>
+
+<!-- ================= DATABASE WINDOW ================= -->
+<div class="dialog-backdrop" id="dbw" style="display:none">
+  <div class="dialog-card db-window" role="dialog" aria-label="Database statements">
+    <div class="dbw-head">
+      <div class="title">
+        <h2>Database · POST <span class="url">/wallet-app/api/wallet/pay</span></h2>
+        <p class="dialog-sub">Request 7c1e09a2 · wallet-app · 10/4/2026, 6:02:43 PM · in the order they ran</p>
+        <div class="stats" id="stats"></div>
+        <div class="flags" id="flags"></div>
+        <div class="strip-wrap"><div class="strip" id="strip"></div><div class="strip-legend" id="legend"></div></div>
+      </div>
+      <div style="display:flex;gap:.4rem;flex:0 0 auto"><button class="dbw-close" id="dbw-compact" aria-label="Hide summary" title="Hide summary - more room for statements">▴</button><button class="dbw-close" id="dbw-close" aria-label="Close">✕</button></div>
+    </div>
+    <div class="views" id="views">
+      <button data-view="stmts" class="on">Statements<span class="count" id="c-stmts"></span></button>
+      <button data-view="tables">Tables<span class="count" id="c-tables"></span></button>
+      <button data-view="compare">Compare</button>
+    </div>
+    <div class="dbw-tools" id="tools">
+      <div class="toggle" id="smode"><button class="on" data-m="search">Search</button><button data-m="sql">SQL</button></div>
+      <input class="dbw-search" id="q" placeholder="Search SQL, table or value - e.g. wallet, 1042">
+      <span id="tableFilter"></span>
+      <div class="seg" id="kind"><button class="on" data-k="all">All</button><button data-k="read">Reads</button><button data-k="write">Writes</button><button data-k="delete">Deletes</button><button data-k="fail">Failed</button></div>
+      <label class="chk"><input type="checkbox" id="showSup" checked> Supplier calls</label>
+      <label class="chk"><input type="checkbox" id="fill" checked> Fill in values</label>
+      <button class="action-btn" id="expandAll">Expand all</button>
+      <button class="action-btn" id="collapseAll">Collapse all</button>
+    </div>
+    <div class="stmt-sql" id="stmtSql" hidden>
+      <div class="rq-sql"><textarea id="ssql" rows="2" spellcheck="false" placeholder="SELECT * FROM statements WHERE ms > 5 ORDER BY ms DESC"></textarea>
+      <div class="rq-actions"><button class="action-btn primary" id="ssqlRun">▶ Run</button><button class="action-btn" id="ssqlClear">Clear</button>
+      <span class="rq-hint">Table <code>statements</code>: <code id="scols"></code> · Ctrl+Enter runs</span></div>
+      <div class="rq-actions"><span class="rq-hint">Try:</span><span id="sex"></span></div></div>
+    </div>
+    <div class="dbw-body" id="body"></div>
+    <div class="dbw-foot">
+      <span id="shown"></span>
+      <span>· Click any value to trace it · included in this call's .md / .json / .html exports</span>
+      <div class="right"><button class="action-btn">Copy all SQL</button><button class="action-btn">Export .sql</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---------- recorded data for one call (what the agent would send) ----------
+const S = (sql, params, o = {}) => ({ t: 's', sql, params, ...o });
+const fare = id => S('SELECT rule, fee FROM fare_rules WHERE route_id = ?', [['BIGINT', id]], { res: '2 rows', ms: 0.9, rows: [['rule', 'fee'], ['MIN_AMOUNT', '0.00'], ['FX_MARGIN', '1.50']], where: 'FareRuleDao.byRoute(FareRuleDao.java:41)' });
+const i18n = k => S('SELECT text FROM i18n_messages WHERE msg_key = ? AND lang = ?', [['VARCHAR', k], ['VARCHAR', 'ar']], { res: '1 row', ms: 0.6, rows: [['text'], ['…']], where: 'Messages.get(Messages.java:73)' });
+const routes = [501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511, 512];
+const keys = ['pay.ok', 'pay.title', 'pay.amount', 'pay.fee', 'pay.total', 'pay.ref', 'pay.date', 'pay.wallet', 'pay.balance', 'pay.receipt', 'pay.help', 'pay.footer', 'pay.sms', 'pay.mail', 'pay.terms', 'pay.privacy', 'pay.contact', 'pay.back', 'pay.home', 'pay.close'];
+const bigRows = [['id', 'amount', 'kind', 'created_at']].concat(Array.from({ length: 2431 }, (_, i) => [String(99816 - i), (((i * 37) % 900) + 5).toFixed(2), i % 3 ? 'PAY' : 'TOPUP', `2026-10-${String(4 - Math.floor(i / 800)).padStart(2, '0')} ${String(17 - (i % 17)).padStart(2, '0')}:${String((i * 7) % 60).padStart(2, '0')}`]));
+
+const items = [
+  S('SELECT id, name, status, national_id FROM users WHERE id = ?', [['BIGINT', 1042]], { res: '1 row', ms: 3.9, rows: [['id', 'name', 'status', 'national_id'], ['1042', 'Sara Hassan', 'ACTIVE', { red: 'National IDs' }]], where: 'UserDao.find(UserDao.java:30)' }),
+  S('SELECT role FROM user_roles WHERE user_id = ?', [['BIGINT', 1042]], { res: '3 rows', ms: 1.2, rows: [['role'], ['CUSTOMER'], ['WALLET'], ['SMS_OPT_IN']], where: 'RoleDao.forUser(RoleDao.java:22)' }),
+  S('SELECT id, sku, qty FROM cart_items WHERE user_id = ?', [['BIGINT', 1042]], { res: '3 rows', ms: 1.1, rows: [['id', 'sku', 'qty'], ['5501', 'TOPUP-120', '1'], ['5502', 'FEE-AED', '1'], ['5503', 'PROMO-OCT', '1']], where: 'CartDao.items(CartDao.java:25)' }),
+  { t: 'rep', key: 'rep-fare', label: 'SELECT rule, fee FROM fare_rules WHERE route_id = ?', hint: 'same query 12× with different params - looks like N+1', items: routes.map(fare) },
+  S('SELECT value FROM config WHERE cfg_key = ?', [['VARCHAR', 'pay.limit']], { res: '1 row', ms: 0.8, rows: [['value'], ['5000.00']], where: 'Config.get(Config.java:19)' }),
+  S('{call calc_fees(?, ?, ?)}', [['DECIMAL', '120.00'], ['VARCHAR', 'AED'], ['OUT DECIMAL', { out: '1.80' }]], { call: 1, res: 'OUT fee = 1.80', ms: 2.4, where: 'FeeService.calc(FeeService.java:33)' }),
+  S('SELECT id, amount, kind, created_at FROM transactions WHERE user_id = ? ORDER BY created_at DESC', [['BIGINT', 1042]], { res: '2,431 rows', ms: 48.2, rows: bigRows, big: true, where: 'HistoryDao.all(HistoryDao.java:64)' }),
+  { t: 'tx', key: 'tx-7', label: 'tx-7 · pool-3 · committed', held: '348 ms', warn: 'a supplier call ran while this transaction held a row lock on wallet', items: [
+    S('SELECT balance, currency, version FROM wallet WHERE user_id = ? FOR UPDATE', [['BIGINT', 1042]], { res: '1 row', ms: 6.2, rows: [['balance', 'currency', 'version'], ['500.00', 'AED', '41']], where: 'WalletRepository.lockByUser(WalletRepository.java:88)' }),
+    { t: 'sup', id: 'sup-17', method: 'POST', url: 'https://pay.supplier.com/v1/charge', status: 200, ms: 310, req: '{"user":1042,"amount":120.00,"currency":"AED"}', resp: '{"chargeId":"CHG-88213","status":"CAPTURED","amount":120.00}' },
+    S('UPDATE wallet SET balance = ?, version = ? WHERE user_id = ? AND version = ?', [['DECIMAL', '380.00'], ['INTEGER', 42], ['BIGINT', 1042], ['INTEGER', 41]], { w: 1, res: '1 updated', ms: 4.8, diff: [['balance', '500.00', '380.00'], ['version', '41', '42']], diffFrom: 'SELECT balance', where: 'WalletRepository.debit(WalletRepository.java:112)' }),
+    S('INSERT INTO payments (user_id, amount, currency, supplier_ref, card_token, created_at) VALUES (?, ?, ?, ?, ?, ?)', [['BIGINT', 1042], ['DECIMAL', '120.00'], ['VARCHAR', 'AED'], ['VARCHAR', 'CHG-88213'], ['VARCHAR', { red: 'Card tokens' }], ['TIMESTAMP', '2026-10-04 18:02:43.456']], { w: 1, res: '1 inserted · key 99817', ms: 7.1, keysOut: [['id'], ['99817']], where: 'PaymentDao.insert(PaymentDao.java:54)' }),
+    S('INSERT INTO ledger_entries (payment_id, side, amount) VALUES (?, ?, ?)', [['BIGINT', 99817], ['VARCHAR', 'DEBIT'], ['DECIMAL', '120.00']], { w: 1, batch: [[['BIGINT', 99817], ['VARCHAR', 'DEBIT'], ['DECIMAL', '120.00']], [['BIGINT', 99817], ['VARCHAR', 'CREDIT'], ['DECIMAL', '120.00']]], res: '2 inserted · batch of 2', ms: 3.6, where: 'Ledger.post(Ledger.java:61)' }),
+    S('INSERT INTO receipts (payment_id, pdf) VALUES (?, ?)', [['BIGINT', 99817], ['BLOB', { blob: '48.2 KB · application/pdf' }]], { w: 1, res: '1 inserted', ms: 5.3, where: 'Receipts.store(Receipts.java:48)' }),
+    S('DELETE FROM cart_items WHERE user_id = ?', [['BIGINT', 1042]], { w: 1, del: 1, res: '3 deleted', ms: 2.9, delFrom: 'SELECT id, sku, qty FROM cart_items', where: 'CartDao.clear(CartDao.java:58)' }),
+    S('DELETE FROM payment_holds WHERE payment_id = ?', [['BIGINT', 99817]], { w: 1, del: 1, res: '1 deleted', ms: 1.7, before: [['id', 'payment_id', 'amount', 'reason'], ['7712', '99817', '120.00', 'PENDING_CHARGE']], beforeMs: 0.8, cascade: 'hold_items', where: 'Holds.release(Holds.java:71)' }),
+    S('COMMIT', [], { txEnd: 1, res: 'committed', ms: 2.6 }),
+  ]},
+  S('SELECT id, status FROM payments WHERE id = ?', [['BIGINT', 99817]], { res: '1 row', ms: 1.4, rows: [['id', 'status'], ['99817', 'PAID']], where: 'PaymentDao.find(PaymentDao.java:33)' }),
+  { t: 'tx', key: 'tx-8', label: 'tx-8 · pool-1 · committed', held: '9 ms', items: [
+    S('INSERT INTO audit_log (actor, action, ref) VALUES (?, ?, ?)', [['BIGINT', 1042], ['VARCHAR', 'PAY'], ['VARCHAR', '99817']], { w: 1, res: '1 inserted', ms: 3.0, where: 'Audit.record(Audit.java:27)' }),
+    S('COMMIT', [], { txEnd: 1, res: 'committed', ms: 1.9 }),
+  ]},
+  { t: 'tx', key: 'tx-9', rolled: true, label: 'tx-9 · pool-2 · rolled back', held: '16 ms', warn: 'rolled back - nothing in this transaction was saved or deleted', items: [
+    S('INSERT INTO loyalty_history (user_id, payment_id, points) VALUES (?, ?, ?)', [['BIGINT', 1042], ['BIGINT', 99817], ['INTEGER', 12]], { w: 1, undone: 1, res: '1 inserted · rolled back', ms: 2.2, where: 'Loyalty.award(Loyalty.java:40)' }),
+    S('DELETE FROM loyalty_pending WHERE user_id = ?', [['BIGINT', 1042]], { w: 1, del: 1, undone: 1, res: '2 deleted · rolled back', ms: 1.5, before: [['id', 'user_id', 'points'], ['301', '1042', '5'], ['302', '1042', '7']], beforeMs: 0.6, where: 'Loyalty.award(Loyalty.java:42)' }),
+    S('INSERT INTO loyalty_points (user_id, payment_id, points) VALUES (?, ?, ?)', [['BIGINT', 1042], ['BIGINT', 99817], ['INTEGER', 12]], { w: 1, fail: { state: '23000', code: 1, msg: 'ORA-00001: unique constraint (WALLET.LOYALTY_UQ) violated', caught: 'Caught by Loyalty.award(Loyalty.java:47) - the call still returned 200, so nobody saw it.' }, res: 'ORA-00001', ms: 3.1, where: 'Loyalty.award(Loyalty.java:44)' }),
+    S('ROLLBACK', [], { txEnd: 1, res: 'rolled back', ms: 1.2 }),
+  ]},
+  { t: 'rep', key: 'rep-i18n', label: 'SELECT text FROM i18n_messages WHERE msg_key = ? AND lang = ?', hint: 'same query 20× with different params - could be cached', items: keys.map(i18n) },
+  { t: 'sup', id: 'sup-46', method: 'POST', url: 'https://notify.sms.com/send', status: 202, ms: 55, req: '{"to":"+9715•••","text":"Paid 120.00 AED, ref CHG-88213"}', resp: '{"queued":true}' },
+  S('UPDATE notifications SET sent = ?, sent_at = ? WHERE payment_id = ?', [['BOOLEAN', 'true'], ['TIMESTAMP', '2026-10-04 18:02:43.522'], ['BIGINT', 99817]], { w: 1, res: '1 updated', ms: 3.4, noBefore: 1, after: [['sent', 'true'], ['sent_at', '2026-10-04 18:02:43.522']], thread: 'managed-executor-3 · carried over from request 7c1e09a2', where: 'Notifier.markSent(Notifier.java:90)' }),
+  S('DELETE FROM sessions_tmp WHERE expires_at < ?', [['TIMESTAMP', '2026-10-04 17:02:43']], { w: 1, del: 1, res: '14 deleted', ms: 4.1, where: 'SessionJanitor.sweep(SessionJanitor.java:22)' }),
+  S('DELETE FROM rate_cache', [], { w: 1, del: 1, noWhere: 1, res: '212 deleted', ms: 9.7, where: 'RateCache.reset(RateCache.java:15)' }),
+];
+
+// number in run order, like the agent's counter; offsets in ms from the start of the call
+let n = 0, off = 3;
+const flat = [];
+(function number(list, parent) { list.forEach(it => { if (it.items) { number(it.items, it); } else { it.n = ++n; it.off = off; it.parent = parent; off += (it.ms || 0) + (it.t === 'sup' ? 2 : 1.5); flat.push(it); } }); })(items, null);
+const TOTAL = Math.round(off + 12);
+const stmts = flat.filter(i => i.t === 's');
+const groups = []; (function g(l) { l.forEach(i => { if (i.items) { groups.push(i); g(i.items); } }); })(items);
+const dbMs = stmts.reduce((a, s) => a + s.ms, 0), supMs = flat.filter(i => i.t === 'sup').reduce((a, s) => a + s.ms, 0);
+const nOf = pred => stmts.find(pred).n;
+
+// ---------- helpers ----------
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const isRed = v => v && typeof v === 'object' && v.red;
+const isObj = v => v && typeof v === 'object';
+const valText = v => (!isObj(v) ? v : v.out != null ? v.out : '');
+const lit = ([type, v]) => (type === 'VARCHAR' ? `'${v}'` : type === 'TIMESTAMP' ? `TIMESTAMP '${v}'` : String(v));
+const redSpan = v => `<span class="redacted" title="Hidden by redaction rule '${v.red}'">•••• redacted</span>`;
+const blobSpan = v => `<span class="blob" title="Large value - stored in full, opened on demand">&lt;blob ${esc(v.blob)}&gt;</span>`;
+const valSpan = (v, shown) => `<span class="val" data-v="${esc(v)}">${esc(shown)}</span>`;
+const objHtml = v => v.red ? redSpan(v) : v.blob ? blobSpan(v) + ' <a class="lnk">Open ↗</a>' : `<span data-v="${esc(v.out)}">${esc(v.out)}</span> <span class="dimtxt">returned (OUT)</span>`;
+const cell = v => isObj(v) ? `<td>${objHtml(v)}</td>` : `<td data-v="${esc(v)}">${esc(v)}</td>`;
+const KW = /\b(SELECT|FROM|WHERE|AND|UPDATE|SET|INSERT INTO|DELETE FROM|VALUES|FOR UPDATE|ORDER BY|DESC|COMMIT|ROLLBACK|call)\b/g;
+function render(sql, params, filled, pretty) {
+  let i = 0;
+  let s = esc(sql).replace(KW, '\u0001$1\u0002');
+  s = s.replace(/\?/g, () => { const p = params[i++]; if (!filled || !p) return '\u0005?\u0004'; return isObj(p[1]) ? '\u0006' + (i - 1) + '\u0007' : '\u0003' + (i - 1) + '\u0007'; });
+  if (pretty) s = s.replace(/ \u0001(FROM|WHERE|SET|VALUES|FOR UPDATE|ORDER BY)/g, '\n\u0001$1');
+  return s.replace(/\u0001/g, '<span class="kw">').replace(/\u0002/g, '</span>').replace(/\u0005/g, '<span class="ph">').replace(/\u0004/g, '</span>')
+    .replace(/\u0003(\d+)\u0007/g, (_, k) => valSpan(params[k][1], lit(params[k])))
+    .replace(/\u0006(\d+)\u0007/g, (_, k) => { const v = params[k][1]; return v.red ? redSpan(v) : v.blob ? blobSpan(v) : '<span class="ph">OUT</span>'; });
+}
+const verbBase = it => it.txEnd ? it.sql : it.call ? 'CALL' : it.sql.match(/^(\w+)/)[1].toUpperCase();
+const verbOf = it => it.fail ? 'FAILED' : verbBase(it) + (/FOR UPDATE/.test(it.sql) ? ' ⋯' : '');
+const verbCls = it => it.fail ? 'v-fail' : it.txEnd ? (it.sql === 'ROLLBACK' ? 'v-fail' : 'v-tx') : it.del ? 'v-del' : it.call ? 'v-call' : it.w ? 'v-write' : 'v-read';
+const tableOf = it => it.call ? (it.sql.match(/call\s+(\w+)/) || [, ''])[1] : (it.sql.match(/(?:FROM|INTO|UPDATE)\s+(\w+)/) || [, ''])[1];
+const groupOf = it => it.parent;
+const countOf = it => +((it.res.match(/^(\d[\d,]*)/) || [, '0'])[1].replace(/,/g, ''));
+
+// ---------- state ----------
+const state = { view: 'stmts', q: '', kind: 'all', table: '', fill: true, open: new Set(), tab: {}, closed: new Set(['rep-fare', 'rep-i18n']), trace: '', bp: new Set(), edit: null, whatIf: {}, rowsShown: {}, rq: {}, rqRes: {}, smode: 'search', ssql: '', sres: null,
+  beforeOn: new Set(['payment_holds', 'loyalty_pending']), wiCount: {}, failInj: {} };
+
+// ---------- header: stats, flags, time strip ----------
+const writes = stmts.filter(s => s.w).length, failed = stmts.filter(s => s.fail).length, dels = stmts.filter(s => s.del).length;
+document.getElementById('stats').innerHTML = `
+  <span class="stat"><b>${stmts.length}</b> statements</span><span class="stat w"><b>${writes}</b> writes · ${dels} deletes</span>
+  <span class="stat" style="${failed ? 'border-color:color-mix(in srgb,var(--red) 45%,transparent)' : ''}"><b style="color:var(--red)">${failed}</b> failed</span>
+  <span class="stat"><b>3</b> transactions · 1 rolled back</span><span class="stat"><b>${dbMs.toFixed(0)} ms</b> in DB of ${TOTAL} ms</span>`;
+const FLAGS = [
+  { bad: 1, text: 'DELETE without WHERE · rate_cache · 212 rows', go: () => jump(nOf(s => s.noWhere), 'deleted') },
+  { bad: 1, text: 'Failed and swallowed · ORA-00001 · call still returned 200', go: () => jump(nOf(s => s.fail), 'error') },
+  { bad: 1, text: 'Rolled back · tx-9 · loyalty points not saved', go: () => jumpGroup('tx-9') },
+  { text: 'Row lock held during supplier call · tx-7 · 310 ms', go: () => jumpGroup('tx-7') },
+  { text: 'Cascade · payment_holds → hold_items not visible', go: () => jump(nOf(s => s.cascade), 'deleted') },
+  { text: 'Not captured · 2 deletes, 1 update have no before-image', go: () => jump(nOf(s => s.del && !s.before && !s.delFrom && !s.noWhere), 'deleted') },
+  { text: 'N+1 · fare_rules ×12', go: () => jumpGroup('rep-fare') },
+  { text: 'Slow · 48 ms · transactions', go: () => jump(nOf(s => s.big)) },
+  { text: 'Huge result · 2,431 rows', go: () => jump(nOf(s => s.big), 'rows') },
+  { text: 'Cacheable · i18n_messages ×20', go: () => jumpGroup('rep-i18n') },
+];
+document.getElementById('flags').innerHTML = FLAGS.map((f, i) => `<span class="flag${f.bad ? ' bad' : ''}" data-flag="${i}">${f.bad ? '✕' : '⚠'} ${f.text}</span>`).join('');
+document.getElementById('flags').addEventListener('click', e => { const f = e.target.closest('[data-flag]'); if (f) FLAGS[+f.dataset.flag].go(); });
+document.getElementById('strip').innerHTML = flat.map(it => `<span class="tseg ${it.t === 'sup' ? 'sup' : it.fail ? 'fail' : 'db'}" data-seg="${it.n}" title="#${it.n} · ${it.t === 'sup' ? it.method + ' ' + it.url : verbOf(it) + ' ' + tableOf(it)} · ${it.ms} ms" style="left:${(it.off / TOTAL * 100).toFixed(2)}%;width:${(it.ms / TOTAL * 100).toFixed(2)}%"></span>`).join('');
+document.getElementById('legend').innerHTML = `<span><i style="background:var(--db)"></i>DB ${dbMs.toFixed(0)} ms</span><span><i style="background:var(--cyan)"></i>Suppliers ${supMs} ms</span><span><i style="background:color-mix(in srgb,var(--text-dim) 30%,transparent)"></i>App ${(TOTAL - dbMs - supMs).toFixed(0)} ms</span><span><i style="background:var(--red)"></i>Failed</span><span style="margin-left:auto">0 ms</span><span>${TOTAL} ms</span>`;
+document.getElementById('strip').addEventListener('click', e => { const s = e.target.closest('[data-seg]'); if (s) jump(+s.dataset.seg); });
+document.getElementById('card-chip').innerHTML = `◆ DB ${stmts.length} <span class="sep">·</span> <span class="w">${writes} writes</span> <span class="sep">·</span> <span class="x">${failed} failed</span> <span class="sep">·</span> ${FLAGS.length} flags`;
+document.getElementById('card-total').textContent = TOTAL + ' ms';
+
+// ---------- statements view ----------
+const FAILS = [['ORA-00060', 'deadlock detected while waiting for resource', '40001'], ['ORA-00001', 'unique constraint violated', '23000'], ['ORA-01013', 'user requested cancel of current operation (timeout)', '72000'], ['08006', 'connection failure - socket closed', '08006']];
+function replayAnswer(it) {
+  if (state.failInj[it.n]) { const f = FAILS[state.failInj[it.n]]; return `<span style="color:var(--red)">fails with ${f[0]} - ${f[1]}</span>`; }
+  if (state.wiCount[it.n] != null) return `<span style="color:var(--amber)">what-if: ${state.wiCount[it.n]} ${verbBase(it).toLowerCase()}d instead of ${countOf(it)}</span>`;
+  if (state.whatIf[it.n]) return '<span style="color:var(--amber)">what-if: the edited rows</span>';
+  return `the recording - ${esc(it.res)}${it.w ? ', nothing is written to the database' : ''}`;
+}
+function row(it) {
+  const isOpen = state.open.has(it.n);
+  const marks = (it.batch ? `<span class="mark bt" title="executeBatch - ${it.batch.length} parameter sets in one round trip">BATCH ×${it.batch.length}</span>` : '') +
+    (state.bp.has(it.n) ? '<span class="mark bp" title="Relive pauses before answering this statement">⏸ PAUSE</span>' : '') +
+    (state.whatIf[it.n] || state.wiCount[it.n] != null ? '<span class="mark wi" title="Relive answers with an edited result">✎ WHAT-IF</span>' : '') +
+    (state.failInj[it.n] ? `<span class="mark fi" title="Relive makes this statement fail">⚡ FAIL ${FAILS[state.failInj[it.n]][0]}</span>` : '');
+  const res = state.wiCount[it.n] != null ? `<s>${countOf(it)}</s> → ${state.wiCount[it.n]} ${verbBase(it).toLowerCase()}d` : it.res;
+  let h = `<div class="r${isOpen ? ' open' : ''}${it.fail ? ' fail' : ''}${it.undone ? ' undone' : ''}${it.noWhere ? ' fail' : ''}" data-n="${it.n}">
+    <div class="rh" data-row="${it.n}"><span class="chev">▶</span><span class="num">#${it.n}</span><span class="verb ${verbCls(it)}">${verbOf(it)}</span>
+    <span class="sql1">${marks}${render(it.sql, it.params, state.fill)}</span><span class="res">${res}</span><span class="ms${it.ms > 5 ? ' mid' : ''}">${it.ms} ms</span><span class="off">+${it.off.toFixed(0)} ms</span></div>`;
+  if (isOpen) h += detail(it);
+  return h + '</div>';
+}
+function beforeImageBox(it, what) {
+  const t = tableOf(it), on = state.beforeOn.has(t);
+  return on
+    ? `<div class="infobox"><span>✓ Before-image is <b>on</b> for <code>${t}</code> - from the next call, the agent reads the affected rows just before each ${what} (one extra read on your database, same transaction).</span><button class="action-btn" data-act="bi:${t}">Turn off</button></div>`
+    : `<div class="infobox"><span>Turn on <b>before-image</b> for <code>${t}</code> to capture them: the agent reads the affected rows just before each ${what} - one extra read on your database, in the same transaction. Off by default.</span><button class="action-btn primary" data-act="bi:${t}">Turn on for ${t}</button></div>`;
+}
+function deletedTab(it) {
+  let h = '';
+  if (it.noWhere) h += `<div class="errbox" style="margin-bottom:.45rem"><b style="color:var(--red)">DELETE without WHERE</b> - every row in <code>${tableOf(it)}</code> was removed (${countOf(it)} rows). Intended for a cache reset? Mark it expected and this flag goes away.<div style="margin-top:.35rem"><button class="action-btn">Mark as expected for rate_cache</button></div></div>`;
+  if (it.undone) h += `<div class="errbox" style="margin-bottom:.45rem"><b style="color:var(--red)">Rolled back - nothing was deleted.</b> These are the rows it would have removed.</div>`;
+  if (it.cascade) h += `<div class="warnbox">⚠ <code>${tableOf(it)}</code> has <code>ON DELETE CASCADE</code> → <code>${it.cascade}</code>. The database removed the child rows on its own; JDBC never reports them, so the agent can't see them.</div>`;
+  if (it.delFrom) { const src = stmts.find(x => x.sql.startsWith(it.delFrom));
+    return h + `<div class="dimline">${countOf(it)} rows deleted - contents taken from <a class="lnk" data-jump="${src.n}">#${src.n}</a>, which read the same rows earlier in this call. Could differ if something changed them in between.</div>` +
+      `<table class="kvt">${src.rows.map((r, i) => i ? `<tr>${r.map(cell).join('')}</tr>` : `<tr>${r.map(c => `<th>${c}</th>`).join('')}</tr>`).join('')}</table>`; }
+  if (it.before) return h + `<div class="dimline">Captured by the agent just before the DELETE (before-image on for <code>${tableOf(it)}</code> · extra read ${it.beforeMs} ms, same transaction).</div>` +
+      `<table class="kvt">${it.before.map((r, i) => i ? `<tr>${r.map(cell).join('')}</tr>` : `<tr>${r.map(c => `<th>${c}</th>`).join('')}</tr>`).join('')}</table>`;
+  return h + `<div class="empty-cap"><b>${countOf(it)} rows deleted - contents not captured.</b> JDBC only reports how many rows a DELETE removed, and Alfred never reads your database by itself.</div>` + beforeImageBox(it, 'DELETE');
+}
+function detail(it) {
+  const tabs = [];
+  if (it.fail) tabs.push(['error', 'Error']);
+  if (it.del) tabs.push(['deleted', `Deleted rows${it.before || it.delFrom ? ` (${countOf(it)})` : ''}`]);
+  tabs.push(['sql', 'Statement']);
+  if (it.params.length) tabs.push(['params', it.batch ? `Params (${it.batch.length} sets)` : `Params (${it.params.length})`]);
+  if (it.rows) tabs.push(['rows', `Rows (${(it.rows.length - 1).toLocaleString()})`]);
+  if (it.keysOut) tabs.push(['keys', 'Generated keys']);
+  if (it.diff || it.noBefore) tabs.push(['diff', 'Before → after']);
+  if (it.where) tabs.push(['where', 'Where in code']);
+  if (!it.txEnd) tabs.push(['relive', 'In Relive']);
+  const cur = tabs.some(t => t[0] === state.tab[it.n]) ? state.tab[it.n] : tabs[0][0];
+  let body = '';
+  if (cur === 'error') body = `<div class="errbox"><div><b style="color:var(--red)">${esc(it.fail.msg)}</b></div><div>SQLState <code>${it.fail.state}</code> · vendor code <code>${it.fail.code}</code></div><div style="color:var(--amber)">⚠ ${esc(it.fail.caught)}</div><div style="color:var(--text-dim)">Its transaction (tx-9) was rolled back - see the struck-through statements above.</div></div>`;
+  if (cur === 'deleted') body = deletedTab(it);
+  if (cur === 'sql') body = `<div class="sqlb">${render(it.sql, it.params, state.fill, true)}</div>` + (it.batch ? `<div class="dimline">Sent once with executeBatch - ${it.batch.length} parameter sets. Shown with set 1; see Params for all.</div>` : '');
+  if (cur === 'params') body = it.batch
+    ? `<table class="kvt"><tr><th>Set</th>${it.params.map((p, i) => `<th>?${i + 1} ${p[0]}</th>`).join('')}</tr>${it.batch.map((set, si) => `<tr><td class="dim">${si + 1}</td>${set.map(p => cell(p[1])).join('')}</tr>`).join('')}</table>`
+    : `<table class="kvt"><tr><th>#</th><th>JDBC type</th><th>Value</th></tr>${it.params.map((p, i) => `<tr><td>${i + 1}</td><td class="dim">${p[0]}</td>${cell(p[1])}</tr>`).join('')}</table>`;
+  if (cur === 'rows') body = rowsTab(it);
+  if (cur === 'keys') body = `<table class="kvt"><tr><th>${it.keysOut[0][0]}</th></tr>${it.keysOut.slice(1).map(r => `<tr>${r.map(cell).join('')}</tr>`).join('')}</table>`;
+  if (cur === 'diff' && it.diff) { const src = stmts.find(x => x.sql.startsWith(it.diffFrom)); body = `<table class="kvt"><tr><th>Column</th><th>Read in #${src.n}</th><th>Written here</th></tr>${it.diff.map(d => `<tr><td>${d[0]}</td>${cell(d[1])}<td class="chg" data-v="${d[2]}">${d[2]}</td></tr>`).join('')}</table>`; }
+  if (cur === 'diff' && it.noBefore) body = `<table class="kvt"><tr><th>Column</th><th>Before</th><th>Written here</th></tr>${it.after.map(d => `<tr><td>${d[0]}</td><td class="dim">not captured</td><td class="chg" data-v="${d[1]}">${d[1]}</td></tr>`).join('')}</table>` +
+    `<div class="dimline" style="margin-top:.4rem">Nothing in this call read <code>${tableOf(it)}</code> before updating it, so the old values are unknown.</div>` + beforeImageBox(it, 'UPDATE');
+  if (cur === 'where') { const f = it.where.split('(')[1].split(':')[0], l = it.where.split(':')[1].replace(')', '');
+    body = `<table class="kvt"><tr><th>Thread</th><td>${it.thread || 'default task-14'}</td></tr><tr><th>Called from</th><td>${it.where}</td></tr><tr><th>Open</th><td class="ide"><a href="idea://open?file=${f}&line=${l}">IntelliJ ↗</a><a href="vscode://file/src/${f}:${l}">VS Code ↗</a></td></tr></table>`; }
+  if (cur === 'relive') body = reliveTab(it);
+  const canEdit = it.rows && !it.big && !it.w;
+  const actions = it.txEnd ? '' : `<button class="action-btn${state.bp.has(it.n) ? ' on' : ''}" data-act="bp:${it.n}" title="In a Relive run, stop before this statement is answered - inspect or edit the result, then continue (paused-calls screen)">⏸ Pause here in Relive</button>` +
+    (canEdit ? `<button class="action-btn${state.whatIf[it.n] ? ' on' : ''}" data-act="edit:${it.n}" title="Change the rows Relive replays for this statement">✎ Edit for replay</button>` : '') + `<button class="action-btn">Copy SQL</button>`;
+  return `<div class="rd"><div class="tabs2">${tabs.map(([k, l]) => `<button class="tab2${k === cur ? ' on' : ''}" data-tab="${it.n}:${k}">${l}</button>`).join('')}<span class="sp"></span>${actions}</div>${body}</div>`;
+}
+function reliveTab(it) {
+  const isWrite = it.w && !it.call;
+  return `<table class="kvt relive-t">
+    <tr><th>In REPLAY, Alfred answers with</th><td>${replayAnswer(it)}</td></tr>
+    <tr><th>Pause</th><td><label class="chk"><input type="checkbox" data-act="bp:${it.n}" ${state.bp.has(it.n) ? 'checked' : ''}> Stop the run before this statement is answered</label></td></tr>
+    ${isWrite ? `<tr><th>What-if result</th><td><span class="dimtxt">Answer with</span> <input class="mini" type="number" min="0" data-wi="${it.n}" value="${state.wiCount[it.n] != null ? state.wiCount[it.n] : countOf(it)}"> <span class="dimtxt">rows ${verbBase(it).toLowerCase()}d</span> <button class="action-btn" data-act="wiset:${it.n}">Save</button>${state.wiCount[it.n] != null ? `<button class="action-btn" data-act="wireset:${it.n}">Back to recording</button>` : ''}<div class="dimtxt" style="margin-top:.25rem">e.g. 0 to test the "nothing to ${verbBase(it).toLowerCase()}" path.</div></td></tr>` : ''}
+    ${it.rows && !it.big ? `<tr><th>What-if rows</th><td><button class="action-btn" data-act="edit:${it.n}">✎ Edit the rows Relive returns</button></td></tr>` : ''}
+    <tr><th>Fail it instead</th><td><select data-fi="${it.n}"><option value="">- answer normally -</option>${FAILS.map((f, i) => `<option value="${i}" ${state.failInj[it.n] == i ? 'selected' : ''}>${f[0]} · ${f[1]}</option>`).join('')}</select> <span class="dimtxt">tests the app's error handling - the same idea as interception's fault injection</span></td></tr>
+    <tr><th>In a LIVE run</th><td class="dimtxt">Runs on the real database${it.del ? ' - <b style="color:var(--red)">rows really are deleted</b>' : it.w ? ' - the write really happens' : ''}. Pause still works.</td></tr>
+  </table>`;
+}
+// ---------- result rows: search, sort, or query them with SQL (only the recorded rows - never the real database) ----------
+const rowHtml = (r, ri, editing) => `<tr>${r.map((c, ci) => editing && !isRed(c) ? `<td><input data-cell="${ri + 1}:${ci}" value="${esc(c)}"></td>` : cell(c)).join('')}</tr>`;
+const rq = n => state.rq[n] || (state.rq[n] = { mode: 'search', text: '', sql: '', sort: null });
+const num = v => (v !== '' && v != null && !isRed(v) && !isNaN(+v) ? +v : null);
+const cmpVals = (a, b) => { const x = num(a), y = num(b); return x != null && y != null ? x - y : String(a).localeCompare(String(b)); };
+
+// A small SELECT over one table named after the statement's result. Supports:
+// SELECT * | cols | COUNT(*) | SUM/AVG/MIN/MAX(col) [AS x] FROM result [WHERE a op v AND|OR …] [GROUP BY col] [ORDER BY x [ASC|DESC]] [LIMIT n]
+function runSql(sql, data) {
+  const head = data[0].map(h => h.toLowerCase()), rows = data.slice(1);
+  const strs = []; const masked = sql.replace(/'([^']*)'/g, (_, s) => { strs.push(s); return `\u0000${strs.length - 1}\u0000`; });
+  const m = masked.match(/^\s*SELECT\s+(.+?)\s+FROM\s+\w+(?:\s+WHERE\s+(.+?))?(?:\s+GROUP\s+BY\s+(\w+))?(?:\s+ORDER\s+BY\s+(.+?)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+(\d+))?\s*;?\s*$/i);
+  if (!m) throw new Error("Couldn't read that. Try: SELECT * FROM result WHERE amount > 500 ORDER BY amount DESC");
+  const [, selS, whereS, groupS, orderS, dir, limS] = m;
+  const unq = s => s.replace(/\u0000(\d+)\u0000/g, (_, i) => strs[i]);
+  const col = name => { const i = head.indexOf(name.toLowerCase()); if (i < 0) throw new Error(`No column "${name}". Columns: ${data[0].join(', ')}`); return i; };
+  let out = rows;
+  if (whereS) {
+    const ors = whereS.split(/\s+OR\s+/i).map(o => o.split(/\s+AND\s+/i).map(c => {
+      const cm = c.trim().match(/^(\w+)\s*(=|!=|<>|>=|<=|>|<|NOT\s+LIKE|LIKE)\s*(.+)$/i);
+      if (!cm) throw new Error(`Couldn't read the condition "${unq(c.trim())}"`);
+      const i = col(cm[1]), op = cm[2].toUpperCase().replace(/\s+/, ' '), raw = cm[3].trim();
+      const v = /^\u0000\d+\u0000$/.test(raw) ? unq(raw) : raw;
+      const re = /LIKE/.test(op) ? new RegExp('^' + v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', 'i') : null;
+      return r => { const x = r[i]; if (isRed(x)) return false; const d = cmpVals(x, v);
+        return op === '=' ? d === 0 : op === '!=' || op === '<>' ? d !== 0 : op === '>' ? d > 0 : op === '<' ? d < 0 : op === '>=' ? d >= 0 : op === '<=' ? d <= 0 : op === 'LIKE' ? re.test(x) : !re.test(x); };
+    }));
+    out = out.filter(r => ors.some(ands => ands.every(f => f(r))));
+  }
+  const items = selS.split(',').map(s => s.trim()).map(s => {
+    const am = s.match(/^(.+?)\s+AS\s+(\w+)$/i); const expr = am ? am[1].trim() : s, alias = am ? am[2] : null;
+    const ag = expr.match(/^(COUNT|SUM|AVG|MIN|MAX)\(\s*(\*|\w+)\s*\)$/i);
+    if (ag) return { agg: ag[1].toUpperCase(), i: ag[2] === '*' ? -1 : col(ag[2]), name: alias || `${ag[1].toUpperCase()}(${ag[2]})` };
+    if (expr === '*') return { star: true };
+    return { i: col(expr), name: alias || data[0][col(expr)] };
+  });
+  const aggregate = (it, rs) => { const vals = rs.map(r => num(r[it.i])).filter(v => v != null);
+    if (it.agg === 'COUNT') return rs.length;
+    if (!vals.length) return '';
+    const v = it.agg === 'SUM' ? vals.reduce((a, b) => a + b, 0) : it.agg === 'AVG' ? vals.reduce((a, b) => a + b, 0) / vals.length : it.agg === 'MIN' ? Math.min(...vals) : Math.max(...vals);
+    return Number.isInteger(v) ? v : v.toFixed(2); };
+  let header, result;
+  if (groupS || items.some(it => it.agg)) {
+    const gi = groupS ? col(groupS) : -1, groups = new Map();
+    out.forEach(r => { const k = gi < 0 ? '' : r[gi]; (groups.get(k) || groups.set(k, []).get(k)).push(r); });
+    if (!groups.size && gi < 0) groups.set('', []);
+    header = items.map(it => it.star ? (() => { throw new Error('Use column names with GROUP BY or COUNT/SUM'); })() : it.name);
+    result = [...groups.values()].map(rs => items.map(it => it.agg ? String(aggregate(it, rs)) : rs[0][it.i]));
+  } else {
+    const idx = items.flatMap(it => it.star ? head.map((_, i) => i) : [it.i]);
+    header = items.flatMap(it => it.star ? data[0] : [it.name]);
+    result = out.map(r => idx.map(i => r[i]));
+  }
+  if (orderS) { const o = orderS.trim(); let oi = header.findIndex(h => h.toLowerCase() === o.toLowerCase()); if (oi < 0) throw new Error(`Can't order by "${o}" - it isn't in the selected columns`); result = result.slice().sort((a, b) => cmpVals(a[oi], b[oi]) * (/DESC/i.test(dir || '') ? -1 : 1)); }
+  if (limS) result = result.slice(0, +limS);
+  return { header, rows: result };
+}
+function resultOf(it) {
+  const data = state.whatIf[it.n] || it.rows, q = rq(it.n);
+  if (q.mode === 'sql' && q.sql.trim()) { try { return { ...runSql(q.sql, data), sqlRan: true }; } catch (e) { return { header: data[0], rows: data.slice(1), error: e.message }; } }
+  let rows = data.slice(1);
+  if (q.mode === 'search' && q.text) { const t = q.text.toLowerCase(); rows = rows.filter(r => r.some(c => !isRed(c) && String(c).toLowerCase().includes(t))); }
+  if (q.sort) rows = rows.slice().sort((a, b) => cmpVals(a[q.sort.col], b[q.sort.col]) * q.sort.dir);
+  return { header: data[0], rows };
+}
+const EXAMPLES = it => {
+  const h = it.rows[0], n0 = h.find((c, i) => it.rows.slice(1, 6).every(r => num(r[i]) != null) && !/id$/i.test(c)) || h[0], s0 = h.find((c, i) => it.rows.slice(1, 6).some(r => num(r[i]) == null)) || h[0];
+  const sv = it.rows[1][h.indexOf(s0)];
+  return [
+    [`${s0} = '${sv}'`, `SELECT * FROM result WHERE ${s0} = '${sv}'`],
+    [`${n0} > 500`, `SELECT * FROM result WHERE ${n0} > 500 ORDER BY ${n0} DESC`],
+    [`count by ${s0}`, `SELECT ${s0}, COUNT(*), SUM(${n0}) FROM result GROUP BY ${s0} ORDER BY COUNT(*) DESC`],
+    [`top 10 ${n0}`, `SELECT * FROM result ORDER BY ${n0} DESC LIMIT 10`],
+  ];
+};
+function rowsTable(it) {
+  const editing = state.edit === it.n, q = rq(it.n), res = editing ? { header: (state.whatIf[it.n] || it.rows)[0], rows: (state.whatIf[it.n] || it.rows).slice(1) } : resultOf(it);
+  state.rqRes[it.n] = res;
+  const total = (state.whatIf[it.n] || it.rows).length - 1, matched = res.rows.length;
+  const limit = Math.min(state.rowsShown[it.n] || 100, matched);
+  const fixed = matched > 8;
+  const th = res.header.map((c, i) => { const s = !res.sqlRan && q.sort && q.sort.col === i ? (q.sort.dir > 0 ? ' ▲' : ' ▼') : ''; return `<th${res.sqlRan || editing ? '' : ` class="sortable" data-sort="${it.n}:${i}" title="Sort by ${c}"`}>${c}${s}</th>`; }).join('');
+  let h = res.error ? `<div class="rq-err">✕ ${esc(res.error)}</div>` : '';
+  h += `<div class="rows-scroll${fixed ? ' fixed' : ''}" data-rows="${it.n}"><table class="kvt"><thead><tr>${th}</tr></thead><tbody>${res.rows.slice(0, limit).map((r, ri) => rowHtml(r, ri, editing)).join('') || `<tr><td colspan="${res.header.length}" class="dim">No row matches.</td></tr>`}</tbody></table></div>`;
+  const filtered = res.sqlRan || (q.mode === 'search' && q.text);
+  h += `<div class="more" id="more-${it.n}">${rowsCount(limit, matched, total, filtered, res.sqlRan)}</div>`;
+  return h;
+}
+const rowsCount = (loaded, matched, total, filtered, sql) =>
+  `${filtered ? `<b style="color:var(--text)">${matched.toLocaleString()}</b> ${sql ? 'result rows' : 'match'} · ` : ''}${total.toLocaleString()} rows recorded${loaded < matched ? ` · ${loaded.toLocaleString()} loaded - scroll the table for more` : ''} · runs on the recorded rows, never the real database`;
+function rowsTab(it) {
+  const editing = state.edit === it.n, q = rq(it.n);
+  let h = '';
+  if (!editing && it.rows.length > 3) {
+    h += `<div class="rq-bar"><div class="toggle" data-rqmode="${it.n}"><button class="${q.mode === 'search' ? 'on' : ''}" data-m="search">Search</button><button class="${q.mode === 'sql' ? 'on' : ''}" data-m="sql">SQL</button></div>`;
+    h += q.mode === 'search'
+      ? `<input class="dbw-search rq-search" data-rqtext="${it.n}" placeholder="Filter rows - any column, e.g. TOPUP or 2026-10-03" value="${esc(q.text)}"><span class="rq-hint">click a column name to sort</span></div>`
+      : `<span class="rq-hint">Query this result as a table named <code>result</code> · Ctrl+Enter runs</span></div>
+         <div class="rq-sql"><textarea data-rqsql="${it.n}" rows="2" spellcheck="false" placeholder="SELECT * FROM result WHERE amount > 500 AND kind = 'PAY' ORDER BY amount DESC">${esc(q.sql)}</textarea>
+         <div class="rq-actions"><button class="action-btn primary" data-act="rqrun:${it.n}">▶ Run</button><button class="action-btn" data-act="rqclear:${it.n}">Clear</button>
+         <span class="rq-hint">Try:</span>${EXAMPLES(it).map(([l, s], i) => `<button class="loc" data-act="rqex:${it.n}:${i}">${esc(l)}</button>`).join('')}</div></div>`;
+  }
+  h += `<div id="rq-out-${it.n}">${rowsTable(it)}</div>`;
+  if (editing) h += `<div class="edit-note">✎ Relive step <b>Pay</b> will answer #${it.n} with these rows instead of the recording. The real database is never touched.<button class="action-btn" data-act="save:${it.n}">Save to step</button><button class="action-btn" data-act="cancel:${it.n}">Cancel</button></div>`;
+  else if (state.whatIf[it.n]) h += `<div class="edit-note">✎ What-if: Relive replays these edited rows for step <b>Pay</b>.<button class="action-btn" data-act="edit:${it.n}">Edit again</button><button class="action-btn" data-act="reset:${it.n}">Back to recording</button></div>`;
+  return h;
+}
+function refreshRows(n) {
+  const it = flat.find(i => i.n === n), out = document.getElementById('rq-out-' + n);
+  state.rowsShown[n] = 100;
+  out.innerHTML = rowsTable(it);
+  if (state.trace) out.querySelectorAll('[data-v]').forEach(el => { if (el.dataset.v === state.trace) el.classList.add('hit'); });
+}
+// typing filters in place, so the input keeps focus
+document.getElementById('body').addEventListener('input', e => { const t = e.target.closest('[data-rqtext]'); if (t) { const n = +t.dataset.rqtext; rq(n).text = t.value.trim(); refreshRows(n); } const s = e.target.closest('[data-rqsql]'); if (s) rq(+s.dataset.rqsql).sql = s.value; });
+document.getElementById('body').addEventListener('change', e => { const f = e.target.closest('[data-fi]'); if (f) { const k = +f.dataset.fi; if (f.value === '') delete state.failInj[k]; else state.failInj[k] = +f.value; draw(); } });
+document.getElementById('body').addEventListener('keydown', e => { const s = e.target.closest('[data-rqsql]'); if (s && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); refreshRows(+s.dataset.rqsql); } });
+// a fixed-height result box: scrolling near its bottom appends the next 100 rows in place (scroll position kept)
+document.getElementById('body').addEventListener('scroll', e => {
+  const box = e.target;
+  if (!box.classList || !box.classList.contains('fixed')) return;
+  if (box.scrollTop + box.clientHeight < box.scrollHeight - 40) return;
+  const n = +box.dataset.rows, res = state.rqRes[n], from = state.rowsShown[n] || 100, matched = res.rows.length;
+  if (from >= matched) return;
+  const to = Math.min(from + 100, matched), it = flat.find(i => i.n === n), q = rq(n);
+  box.querySelector('tbody').insertAdjacentHTML('beforeend', res.rows.slice(from, to).map((r, ri) => rowHtml(r, from + ri, false)).join(''));
+  state.rowsShown[n] = to;
+  document.getElementById('more-' + n).innerHTML = rowsCount(to, matched, (state.whatIf[n] || it.rows).length - 1, res.sqlRan || (q.mode === 'search' && q.text), res.sqlRan);
+  if (state.trace) box.querySelectorAll('[data-v]').forEach(el => { if (el.dataset.v === state.trace) el.classList.add('hit'); });
+}, true);
+const matches = it => {
+  const sqlOn = state.smode === 'sql' && state.sres && state.sres.ns;
+  if (it.t === 'sup') return state.kind === 'all' && !state.q && !state.table && !sqlOn;
+  if (sqlOn && !state.sres.ns.has(it.n)) return false;
+  if (state.kind === 'read' && (it.w || it.txEnd)) return false;
+  if (state.kind === 'write' && !it.w) return false;
+  if (state.kind === 'delete' && !it.del) return false;
+  if (state.kind === 'fail' && !(it.fail || it.undone || it.sql === 'ROLLBACK')) return false;
+  if (state.table && tableOf(it) !== state.table) return false;
+  if (!state.q || state.smode === 'sql') return true;
+  return (it.sql + ' ' + (it.batch || [it.params]).flat().map(p => valText(p[1])).join(' ')).toLowerCase().includes(state.q);
+};
+
+// ---------- statements as a queryable table ----------
+const STMT_COLS = ['n', 'verb', 'table', 'sql', 'ms', 'rows', 'tx', 'write', 'failed', 'offset', 'code'];
+const stmtTable = [STMT_COLS].concat(stmts.map(s => [String(s.n), verbBase(s), s.txEnd ? '' : tableOf(s), s.sql, String(s.ms),
+  String(s.rows ? s.rows.length - 1 : countOf(s)), s.parent && s.parent.t === 'tx' ? s.parent.key : '', s.w ? '1' : '0', s.fail ? '1' : '0', s.off.toFixed(0), s.where || '']));
+const STMT_EX = [
+  ['slowest', 'SELECT * FROM statements WHERE ms > 5 ORDER BY ms DESC'],
+  ['writes to wallet', "SELECT * FROM statements WHERE write = 1 AND table = 'wallet'"],
+  ['time per table', 'SELECT table, COUNT(*), SUM(ms) AS time FROM statements GROUP BY table ORDER BY time DESC'],
+  ['failed or rolled back', "SELECT * FROM statements WHERE failed = 1 OR verb = 'ROLLBACK'"],
+  ['deletes', "SELECT * FROM statements WHERE verb = 'DELETE' ORDER BY rows DESC"],
+  ['inside tx-7', "SELECT * FROM statements WHERE tx = 'tx-7'"],
+  ['from Ledger code', "SELECT n, verb, table, ms FROM statements WHERE code LIKE 'Ledger%'"],
+];
+document.getElementById('scols').textContent = STMT_COLS.join(', ');
+document.getElementById('sex').innerHTML = STMT_EX.map(([l], i) => `<button class="loc" data-sex="${i}">${l}</button>`).join(' ');
+function runStmtSql() {
+  const q = document.getElementById('ssql').value.trim();
+  state.ssql = q;
+  if (!q) { state.sres = null; draw(); return; }
+  try {
+    const r = runSql(q, stmtTable), ni = r.header.indexOf('n');
+    state.sres = { ...r, ns: ni >= 0 ? new Set(r.rows.map(x => +x[ni])) : null, order: ni >= 0 && /ORDER\s+BY/i.test(q) ? r.rows.map(x => +x[ni]) : null };
+  } catch (e) { state.sres = { error: e.message }; }
+  draw();
+}
+function stmtSqlView() {
+  const r = state.sres;
+  if (r.error) return `<div class="rq-err">✕ ${esc(r.error)}</div>` + (list(items) || '');
+  const note = t => `<div class="sq-note">${t}<button class="action-btn" id="sqlBack" style="margin-left:auto">Back to all statements</button></div>`;
+  if (!r.ns) return note(`<b>${r.rows.length}</b> result rows from <code>statements</code> - a summary, not a list of statements. Add <code>n</code> to the columns to get the statements themselves.`) +
+      `<table class="kvt"><thead><tr>${r.header.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${r.rows.map(x => `<tr>${x.map(c => `<td data-v="${esc(c)}">${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  if (r.order) { const out = r.order.map(n => flat.find(i => i.n === n)).filter(it => matches(it)).map(it => { shown++; return row(it); }).join('');
+    return note(`<b>${r.rows.length}</b> statements, in the query's order - the tree is flattened because of <code>ORDER BY</code>.`) + (out || '<div class="empty">No statement matches.</div>'); }
+  const out = list(items);
+  return note(`<b>${r.rows.length}</b> statements match - shown in run order, inside their transactions.`) + (out || '<div class="empty">No statement matches.</div>');
+}
+let shown = 0;
+function list(arr) {
+  return arr.map(it => {
+    if (it.t === 'sup') {
+      if (!matches(it)) return '';
+      const hitIn = state.trace && (it.req.includes(state.trace) || it.resp.includes(state.trace));
+      const mark = s => esc(s).split(esc(state.trace)).join(`<span class="hit">${esc(state.trace)}</span>`);
+      return `<div class="sup" data-sup="${it.n}" style="flex-wrap:wrap"><span class="num">#${it.n}</span><span class="verb" style="color:var(--cyan);border:1px solid color-mix(in srgb,var(--cyan) 35%,transparent)">${it.method}</span><span class="u">${it.url}</span><span class="res" style="color:var(--green)">${it.status}</span><span class="ms mid">${it.ms} ms</span><a data-goto="${it.id}">show call ↗</a>${hitIn ? `<div class="sup-body">request ${mark(it.req)}<br>response ${mark(it.resp)}</div>` : ''}</div>`;
+    }
+    if (it.items) {
+      const inner = list(it.items);
+      if (!inner.trim()) return '';
+      const st = it.items.filter(x => x.t === 's'), first = it.items[0], last = st[st.length - 1];
+      const total = st.reduce((a, s) => a + s.ms, 0).toFixed(1), w = st.filter(s => s.w).length;
+      const head = it.t === 'tx'
+        ? `<span class="chev">▶</span><span class="num">#${first.n}</span><span class="verb ${it.rolled ? 'v-fail' : 'v-tx'}">TX</span><span class="lbl">${it.label} <span class="meta">· ${st.length} statements · ${w} writes · held ${it.held}</span></span><span class="res">#${first.n}–#${last.n}</span><span class="ms">${total} ms</span><span class="off">+${first.off.toFixed(0)} ms</span>${it.warn ? `<span class="g-warn"${it.rolled ? ' style="color:var(--red)"' : ''}>⚠ ${it.warn}</span>` : ''}`
+        : `<span class="chev">▶</span><span class="num">#${first.n}</span><span class="verb v-read">SELECT</span><span class="lbl">${render(it.label, [], false)} <span class="rep">×${st.length}</span></span><span class="res">#${first.n}–#${last.n}</span><span class="ms">${total} ms</span><span class="off">+${first.off.toFixed(0)} ms</span><span class="g-warn">${it.hint}</span>`;
+      return `<div class="g${it.t === 'rep' ? ' repeat' : ''}${it.rolled ? ' rolled' : ''}${state.closed.has(it.key) ? ' closed' : ''}"><div class="rh" data-g="${it.key}">${head}</div><div class="gb">${inner}</div></div>`;
+    }
+    if (!matches(it)) return '';
+    shown++;
+    return row(it);
+  }).join('');
+}
+
+// ---------- value tracing ----------
+function locate(v) {
+  const out = [];
+  flat.forEach(it => {
+    if (it.t === 'sup') { if (it.req.includes(v)) out.push({ n: it.n, text: `supplier #${it.n} request` }); if (it.resp.includes(v)) out.push({ n: it.n, text: `supplier #${it.n} response` }); return; }
+    (it.batch || [it.params]).forEach((set, si) => set.forEach((p, i) => { if (String(valText(p[1])) === v) out.push({ n: it.n, tab: 'params', text: `#${it.n} ${tableOf(it)} · ${it.batch ? `set ${si + 1} ` : ''}param ?${i + 1}` }); }));
+    const imgRows = it.before || (it.delFrom && stmts.find(x => x.sql.startsWith(it.delFrom)).rows);
+    if (imgRows && it.del && imgRows.slice(1).some(r => r.some(c => String(c) === v))) out.push({ n: it.n, tab: 'deleted', text: `#${it.n} ${tableOf(it)} · deleted row` });
+    if (it.rows && !it.big && it.rows.slice(1).some(r => r.some(c => String(c) === v))) out.push({ n: it.n, tab: 'rows', text: `#${it.n} ${tableOf(it)} · rows` });
+    if (it.keysOut && it.keysOut.slice(1).some(r => r.includes(v))) out.push({ n: it.n, tab: 'keys', text: `#${it.n} ${tableOf(it)} · generated key` });
+  });
+  return out;
+}
+function traceBar() {
+  if (!state.trace) return '';
+  const locs = locate(state.trace);
+  return `<div class="trace">Tracing <b>${esc(state.trace)}</b> · found in ${locs.length} places, in order:${locs.map((l, i) => `<span class="loc" data-loc="${i}">${l.text}</span>`).join('<span style="color:var(--text-faint)">→</span>')}<button class="action-btn" data-act="untrace" style="margin-left:auto">✕ Stop tracing</button></div>`;
+}
+
+// ---------- tables view ----------
+function tablesView() {
+  const by = {};
+  stmts.filter(s => !s.txEnd).forEach(s => {
+    const t = tableOf(s) + (s.call ? ' (procedure)' : ''); const r = by[t] || (by[t] = { reads: 0, ins: 0, upd: 0, del: 0, fail: 0, rows: 0, ms: 0 });
+    if (s.fail) r.fail++; else if (/^INSERT/.test(s.sql)) r.ins += s.batch ? s.batch.length : 1; else if (/^UPDATE/.test(s.sql)) r.upd++; else if (s.del) r.del += countOf(s); else r.reads++;
+    r.rows += s.rows ? s.rows.length - 1 : 0; r.ms += s.ms;
+  });
+  const rowsHtml = Object.entries(by).sort((a, b) => (b[1].ins + b[1].upd + b[1].del + b[1].fail) - (a[1].ins + a[1].upd + a[1].del + a[1].fail) || b[1].ms - a[1].ms).map(([t, r]) =>
+    `<tr data-table="${t}"><td>${t}</td><td>${r.reads || ''}</td><td class="w">${r.ins || ''}</td><td class="w">${r.upd || ''}</td><td class="x">${r.del ? r.del + ' rows' : ''}</td><td class="x">${r.fail || ''}</td><td>${r.rows ? r.rows.toLocaleString() : ''}</td><td>${r.ms.toFixed(1)} ms</td></tr>`).join('');
+  return `<p class="dialog-sub" style="margin:.3rem 0 .6rem">What this call read and changed, per table. Click a table to see its statements.</p>
+    <table class="kvt tbl-view"><tr><th>Table</th><th>Reads</th><th>Inserts</th><th>Updates</th><th>Deleted</th><th>Failed</th><th>Rows read</th><th>Time</th></tr>${rowsHtml}</table>`;
+}
+
+// ---------- compare view ----------
+function compareView() {
+  const pay = stmts.find(s => s.sql.startsWith('INSERT INTO payments'));
+  const commit = stmts.find(s => s.txEnd && s.parent && s.parent.key === 'tx-7');
+  return `<div class="cmp-head">Compare
+      <select><option>Recording · 10/4/2026 6:02:43 PM</option><option>Live call · 10/3/2026 11:14:09 AM</option></select> with
+      <select><option>Relive run #12 · step Pay · 6:20:05 PM</option><option>Relive run #11 · step Pay</option><option>Another call…</option></select>
+      <span style="flex:1"></span><span class="dchip same">${stmts.length - 3} identical</span><span class="dchip chg">1 changed</span><span class="dchip miss">1 missing</span><span class="dchip extra">1 extra</span>
+    </div>
+    <div class="same-line">#1 – #${pay.n - 1} · ${pay.n - 1 - 0} statements identical (matched SQL and params; <code>created_at</code> ignored)</div>
+    <div class="diff"><div class="diff-h"><span class="dchip chg">changed</span><span class="num">#${pay.n}</span><span class="verb v-write">INSERT</span><span class="sql1">INSERT INTO payments (…)</span><span class="res" style="margin-left:auto;color:var(--red)">no match · not sent to the database</span></div>
+      <div class="diff-b">Param <code>?4 supplier_ref</code>: <span class="del">'CHG-88213'</span> → <span class="ins">'CHG-90577'</span><br>
+      <span style="color:var(--text-dim)">The supplier reply (#${flat.find(i => i.id === 'sup-17').n}) was replayed with <code>CHG-88213</code>, so <code>CHG-90577</code> came from the app itself - trace it to find where.</span>
+      <div style="margin-top:.45rem;display:flex;gap:.4rem;flex-wrap:wrap"><button class="action-btn">Ignore ?4 for this step</button><button class="action-btn">Answer with recording anyway</button><button class="action-btn" data-act="trace:CHG-88213">Trace CHG-88213</button><button class="action-btn">Open in code ↗</button></div></div></div>
+    <div class="diff"><div class="diff-h"><span class="dchip miss">missing</span><span class="num">#${commit.n}</span><span class="verb v-tx">COMMIT</span><span class="sql1">tx-7 committed in the recording</span></div>
+      <div class="diff-b">Not in the run: the failed #${pay.n} made the app roll tx-7 back instead.</div></div>
+    <div class="diff"><div class="diff-h"><span class="dchip extra">extra</span><span class="num">#${commit.n}</span><span class="verb v-fail">ROLLBACK</span><span class="sql1">tx-7 rolled back in the run</span></div>
+      <div class="diff-b">Only in the run. The wallet UPDATE (#${pay.n - 1}) was replayed, never written - the real balance is unchanged either way.</div></div>
+    <div class="same-line">#${commit.n + 1} – #${flat.length} · identical</div>`;
+}
+
+// ---------- draw + jumping ----------
+function draw() {
+  shown = 0;
+  const body = document.getElementById('body');
+  document.querySelectorAll('#views button').forEach(b => b.classList.toggle('on', b.dataset.view === state.view));
+  document.getElementById('tools').style.display = state.view === 'stmts' ? '' : 'none';
+  document.getElementById('c-stmts').textContent = stmts.length;
+  document.getElementById('c-tables').textContent = new Set(stmts.filter(s => !s.txEnd).map(tableOf)).size;
+  document.getElementById('tableFilter').innerHTML = state.table ? `<span class="table-chip" data-act="untable">table: ${state.table} ✕</span>` : '';
+  if (state.view === 'tables') body.innerHTML = tablesView();
+  else if (state.view === 'compare') body.innerHTML = compareView();
+  else body.innerHTML = traceBar() + (state.smode === 'sql' && state.sres ? stmtSqlView() : (list(items) || '<div class="empty">No statement matches.</div>'));
+  document.getElementById('stmtSql').hidden = !(state.view === 'stmts' && state.smode === 'sql');
+  document.getElementById('q').style.display = state.smode === 'sql' ? 'none' : '';
+  body.classList.toggle('hide-sup', !document.getElementById('showSup').checked);
+  if (state.trace) body.querySelectorAll('[data-v]').forEach(el => { if (el.dataset.v === state.trace) el.classList.add('hit'); });
+  document.getElementById('shown').textContent = state.view !== 'stmts' ? '' : state.smode === 'sql' && state.sres && !state.sres.ns && !state.sres.error ? `Summary of ${stmts.length} statements` : `Showing ${shown} of ${stmts.length} statements`;
+}
+function reveal(it) { for (let g = groupOf(it); g; g = parentGroup(g)) state.closed.delete(g.key); }
+function parentGroup(g) { let p = null; (function f(l, par) { l.forEach(i => { if (i === g) p = par; else if (i.items) f(i.items, i); }); })(items, null); return p; }
+function flash(el) { if (!el) return; el.scrollIntoView({ block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+function jump(num, tab) {
+  const it = flat.find(i => i.n === num);
+  state.view = 'stmts'; state.q = ''; state.kind = 'all'; state.table = '';
+  document.getElementById('q').value = ''; document.querySelectorAll('#kind button').forEach(b => b.classList.toggle('on', b.dataset.k === 'all'));
+  reveal(it);
+  if (it.t === 's') { state.open.add(num); if (tab) state.tab[num] = tab; }
+  draw();
+  flash(document.querySelector(`[data-n="${num}"], [data-sup="${num}"]`));
+}
+function jumpGroup(key) { state.view = 'stmts'; state.closed.delete(key); draw(); flash(document.querySelector(`[data-g="${key}"]`)); }
+
+document.getElementById('body').addEventListener('click', e => {
+  const v = e.target.closest('[data-v]'), act = e.target.closest('[data-act]'), loc = e.target.closest('[data-loc]'), t = e.target.closest('[data-tab]'),
+    r = e.target.closest('[data-row]'), g = e.target.closest('[data-g]'), go = e.target.closest('[data-goto]'), tb = e.target.closest('[data-table]');
+  const jl = e.target.closest('[data-jump]');
+  if (jl) { jump(+jl.dataset.jump, 'rows'); return; }
+  if (e.target.matches('input[type=checkbox][data-act^="bp:"]')) { const k = +e.target.dataset.act.slice(3); state.bp.has(k) ? state.bp.delete(k) : state.bp.add(k); draw(); return; }
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  const mode = e.target.closest('[data-rqmode] button'), so = e.target.closest('[data-sort]');
+  if (mode) { rq(+mode.parentElement.dataset.rqmode).mode = mode.dataset.m; draw(); return; }
+  if (so) { const [n, c] = so.dataset.sort.split(':').map(Number), q = rq(n); q.sort = q.sort && q.sort.col === c ? (q.sort.dir > 0 ? { col: c, dir: -1 } : null) : { col: c, dir: 1 }; refreshRows(n); return; }
+  if (v) { state.trace = state.trace === v.dataset.v ? '' : v.dataset.v; draw(); return; }
+  if (loc) { const l = locate(state.trace)[+loc.dataset.loc]; jump(l.n, l.tab); return; }
+  if (act) {
+    const [a, x] = act.dataset.act.split(/:(.*)/); const num = +x;
+    if (a === 'untrace') state.trace = '';
+    if (a === 'trace') { state.view = 'stmts'; state.trace = x; }
+    if (a === 'bp') state.bp.has(num) ? state.bp.delete(num) : state.bp.add(num);
+    if (a === 'edit') { state.edit = num; state.tab[num] = 'rows'; }
+    if (a === 'cancel') state.edit = null;
+    if (a === 'save') { const it = flat.find(i => i.n === num); const copy = (state.whatIf[num] || it.rows).map(r => r.slice()); document.querySelectorAll('[data-cell]').forEach(inp => { const [ri, ci] = inp.dataset.cell.split(':').map(Number); copy[ri][ci] = inp.value; }); state.whatIf[num] = copy; state.edit = null; }
+    if (a === 'reset') delete state.whatIf[num];
+    if (a === 'more') state.rowsShown[num] = (state.rowsShown[num] || 50) + 50;
+    if (a === 'all') state.rowsShown[num] = Infinity;
+    if (a === 'untable') state.table = '';
+    if (a === 'bi') { state.beforeOn.has(x) ? state.beforeOn.delete(x) : state.beforeOn.add(x); }
+    if (a === 'wiset') { const inp = document.querySelector(`[data-wi="${num}"]`); state.wiCount[num] = Math.max(0, +inp.value || 0); }
+    if (a === 'wireset') delete state.wiCount[num];
+    if (a === 'rqrun') { refreshRows(num); return; }
+    if (a === 'rqclear') { rq(num).sql = ''; }
+    if (a === 'rqex') { const [n2, i] = x.split(':').map(Number); rq(n2).sql = EXAMPLES(flat.find(f => f.n === n2))[i][1]; draw(); refreshRows(n2); return; }
+    draw(); return;
+  }
+  if (tb) { state.table = tb.dataset.table; state.view = 'stmts'; draw(); return; }
+  if (t) { const [num, k] = t.dataset.tab.split(':'); state.tab[num] = k; }
+  else if (r) { const num = +r.dataset.row; state.open.has(num) ? state.open.delete(num) : state.open.add(num); }
+  else if (g) { const k = g.dataset.g; state.closed.has(k) ? state.closed.delete(k) : state.closed.add(k); }
+  else if (go) { close(); const el = document.getElementById(go.dataset.goto); el.scrollIntoView({ block: 'center' }); el.style.boxShadow = '0 0 0 2px var(--purple)'; setTimeout(() => el.style.boxShadow = '', 1600); return; }
+  else return;
+  draw();
+});
+document.getElementById('views').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) { state.view = b.dataset.view; draw(); document.getElementById('body').scrollTop = 0; } });
+document.getElementById('q').addEventListener('input', e => { state.q = e.target.value.trim().toLowerCase(); draw(); });
+document.getElementById('tools').addEventListener('click', e => { if (e.target.closest('[data-act="untable"]')) { state.table = ''; draw(); } });
+document.querySelectorAll('#kind button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('#kind button').forEach(x => x.classList.toggle('on', x === b)); state.kind = b.dataset.k; draw(); }));
+document.getElementById('showSup').addEventListener('change', draw);
+document.getElementById('smode').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; state.smode = b.dataset.m; document.querySelectorAll('#smode button').forEach(x => x.classList.toggle('on', x === b)); draw(); if (state.smode === 'sql') document.getElementById('ssql').focus(); });
+document.getElementById('ssqlRun').addEventListener('click', runStmtSql);
+document.getElementById('ssqlClear').addEventListener('click', () => { document.getElementById('ssql').value = ''; runStmtSql(); });
+document.getElementById('ssql').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runStmtSql(); } });
+document.getElementById('sex').addEventListener('click', e => { const b = e.target.closest('[data-sex]'); if (b) { document.getElementById('ssql').value = STMT_EX[+b.dataset.sex][1]; runStmtSql(); } });
+document.getElementById('body').addEventListener('click', e => { if (e.target.id === 'sqlBack') { e.stopPropagation(); document.getElementById('ssql').value = ''; runStmtSql(); } }, true);
+document.getElementById('fill').addEventListener('change', e => { state.fill = e.target.checked; draw(); });
+document.getElementById('expandAll').addEventListener('click', () => { state.closed.clear(); stmts.forEach(s => !s.big && state.open.add(s.n)); draw(); });
+document.getElementById('collapseAll').addEventListener('click', () => { state.open.clear(); ['rep-fare', 'rep-i18n'].forEach(k => state.closed.add(k)); draw(); });
+
+// ---------- capture switches: one shared setting shown in Live Calls, the cycle widget and Settings ----------
+const projects = { 'wallet-app': { log: true, db: true, agent: true, before: ['payment_holds', 'loyalty_pending'] }, 'core-service': { log: true, db: false, agent: false, before: [] } };
+let popFor = null;
+function syncSwitches() {
+  document.querySelectorAll('[data-proj]').forEach(el => {
+    const pr = projects[el.dataset.proj]; if (!pr) return;
+    el.querySelectorAll('[data-sw="log"]').forEach(b => { b.classList.toggle('on', pr.log); b.title = `Inbound logging is ${pr.log ? 'on' : 'off'} - click to turn ${pr.log ? 'off' : 'on'}`; });
+    el.querySelectorAll('[data-sw="db"]').forEach(b => {
+      const blocked = !pr.log;
+      if (b.type === 'checkbox') { b.checked = pr.db && pr.log; b.disabled = blocked; return; }
+      b.classList.toggle('on', pr.db && pr.log); b.classList.toggle('blocked', blocked);
+      b.title = blocked ? 'Turn inbound logging on first - statements are attached to inbound calls' : !pr.agent && !pr.db ? `Database capture is off - turning it on waits for the agent (not attached to ${el.dataset.proj} yet)` : `Database capture is ${pr.db ? 'on' : 'off'} - click to turn ${pr.db ? 'off' : 'on'}`;
+    });
+    el.querySelectorAll('[data-sw="more"]').forEach(b => b.setAttribute('aria-expanded', String(popFor === el.dataset.proj)));
+  });
+  const pop = document.getElementById('dbPop');
+  if (!popFor) { pop.hidden = true; return; }
+  const pr = projects[popFor];
+  pop.hidden = false;
+  const btn = document.querySelector(`.sources-bar [data-proj="${popFor}"] [data-sw="more"]`), pg = document.querySelector('.page').getBoundingClientRect(), br = btn.getBoundingClientRect();
+  pop.style.top = (br.bottom - pg.top + 6) + 'px'; pop.style.left = Math.max(16, Math.min(br.right - pg.left - 420, pg.width - 436)) + 'px';
+  pop.innerHTML = `<h4>◆ Database capture · ${popFor}<span class="cw-spacer"></span><button type="button" class="cw-switch db ${pr.db && pr.log ? 'on' : ''} ${pr.log ? '' : 'blocked'}" data-popsw aria-label="Database capture for ${popFor}"></button></h4>
+    <div class="pr"><span class="pl">Agent</span><span>${pr.agent ? '<span class="agent-ok">● attached</span> <span class="dimtxt">WildFly · Java 8 · seen 4 s ago</span>' : '<span class="agent-no">● not attached</span> <button class="action-btn">How to attach</button>'}</span></div>
+    <div class="pr"><span class="pl">Before-image</span><span>${pr.before.map(t => `<span class="tchip on">${t} ✕</span>`).join('') || '<span class="dimtxt">no tables</span>'} <button class="action-btn">+ Add table</button></span></div>
+    <div class="pr"><span class="pl">Rows per result</span><span><input class="mini" value="50000"> <span class="dimtxt">then count only</span></span></div>
+    <div class="pr"><span class="pl">This page</span><span><label class="chk"><input type="checkbox" checked> Show the ◆ DB chip on calls</label></span></div>
+    <div class="foot"><span class="dimtxt">Applies to every page and user, live.</span><span class="cw-spacer"></span><a class="lnk">All database settings →</a></div>`;
+}
+document.addEventListener('click', e => {
+  const sw = e.target.closest('[data-sw]'), host = sw && sw.closest('[data-proj]');
+  if (e.target.closest('[data-popsw]')) { const pr = projects[popFor]; if (pr.log) pr.db = !pr.db; syncSwitches(); return; }
+  if (!host) return;
+  const pr = projects[host.dataset.proj], k = sw.dataset.sw;
+  if (k === 'log') pr.log = !pr.log;
+  if (k === 'db') { if (!pr.log) { e.preventDefault(); return; } pr.db = sw.type === 'checkbox' ? sw.checked : !pr.db; }
+  if (k === 'more') popFor = popFor === host.dataset.proj ? null : host.dataset.proj;
+  syncSwitches();
+});
+syncSwitches();
+
+const dbw = document.getElementById('dbw');
+document.getElementById('dbw-compact').addEventListener('click', e => { const w = document.querySelector('.db-window'), on = w.classList.toggle('compact'); e.currentTarget.textContent = on ? '▾' : '▴'; e.currentTarget.title = on ? 'Show summary' : 'Hide summary - more room for statements'; });
+const close = () => { dbw.style.display = 'none'; };
+document.getElementById('dbw-close').addEventListener('click', close);
+dbw.addEventListener('click', e => { if (e.target === dbw) close(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+document.querySelectorAll('.db-chip').forEach(c => c.addEventListener('click', () => { state.view = c.dataset.view || 'stmts'; dbw.style.display = 'flex'; draw(); }));
+draw();
+</script>
+</body>
+</html>

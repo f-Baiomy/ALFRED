@@ -50,6 +50,7 @@ One module per feature. Maven module boundaries make an undeclared cross-slice i
 | `backend-interception` | Traffic interception/fault-injection rules, the paused-call registry, and stored answers (recorded-call or uploaded-file, for the ANSWER_WITH_*/REPLACE_WITH_RECORDED_RESPONSE actions) |
 | `backend-resend` | Resends a previously-logged call (outbound or inbound, optionally edited) back through the appropriate mitmproxy service; a leaf slice reached only through `backend-app`'s `resendbridge` |
 | `backend-logs` | Logs Explorer: loads JSON-per-line logs of any structure (upload, server file, followed file), per-source SQLite tables with per-field and trigram indexes, grouping levels, patterns, comments; a leaf slice, see `docs/logs.md` |
+| `backend-db-capture` | Database Capture: stores the statements the `db-agent` records inside the app, tied to their inbound call; summaries, flags, paged rows, sandboxed queries over recorded data; a leaf slice, see `docs/db-capture.md` |
 | `backend-relive` | Relive Cycle: builds and runs a controlled replay workflow from recorded calls (LIVE/REPLAY per outbound child, cycle-scoped variables/rules, run history, Live calls log); a leaf slice reached only through `backend-app`'s `relivebridge` |
 | `backend-app` | Composition root: main class, `DatabaseStatsController`, migrations, `interceptionbridge`/`resendbridge`/`relivebridge` |
 | `backend-architecture-test` | Test-only, holds the ArchUnit suite |
@@ -96,5 +97,6 @@ cd frontend && npm test && npm run build  # Karma/Jasmine; ng build
 - `docs/testing.md` — test strategy per layer, ArchUnit enforcement, no-truncation guard tests
 - `docs/relive.md` — Relive Cycle: the call-rule model, attribution, evaluation tiers, the snapshot, run history, the Live calls log
 - `docs/logs.md` — Logs Explorer: ingest pipeline, storage, LogQuery, settings, measured throughput
+- `docs/db-capture.md` — Database Capture: db-agent, proxy headers, switch flag file, storage, Relive-ready seams
 - `wildfly-proxy-toggle/README.md` — the outbound Attach-API tool in full
 - `README.md` — human-facing setup/usage walkthrough

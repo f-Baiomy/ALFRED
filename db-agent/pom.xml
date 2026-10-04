@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    Alfred's database capture agent. Loaded INTO the user's application JVM (attach or -javaagent), so it is
+    deliberately NOT part of the backend reactor: it must compile to Java 8 bytecode, must not drag Spring or
+    Jackson into a foreign classpath, and ships as one self-contained jar. ByteBuddy is its only runtime
+    dependency and is shaded under the agent's own package so it can never clash with a ByteBuddy the
+    application already has. See specs/006-db-capture/research.md D1/D2 and docs/db-capture.md.
+  -->
+  <groupId>com.fathy.alfred</groupId>
+  <artifactId>alfred-db-agent</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>alfred-db-agent</name>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>8</maven.compiler.release>
+    <bytebuddy.version>1.15.10</bytebuddy.version>
+    <junit.version>5.10.2</junit.version>
+    <assertj.version>3.25.3</assertj.version>
+    <h2.version>2.2.224</h2.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy</artifactId>
+      <version>${bytebuddy.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>${assertj.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>${h2.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy-agent</artifactId>
+      <version>${bytebuddy.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>alfred-db-agent</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <!-- The tests install the agent into this very JVM through ByteBuddyAgent (self-attach). -->
+          <argLine>-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.3</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <relocations>
+                <relocation>
+                  <pattern>net.bytebuddy</pattern>
+                  <shadedPattern>com.fathy.alfred.dbagent.shaded.bytebuddy</shadedPattern>
+                </relocation>
+              </relocations>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>META-INF/versions/**</exclude>
+                    <exclude>module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <manifestEntries>
+                    <Premain-Class>com.fathy.alfred.dbagent.AlfredDbAgent</Premain-Class>
+                    <Agent-Class>com.fathy.alfred.dbagent.AlfredDbAgent</Agent-Class>
+                    <Can-Retransform-Classes>true</Can-Retransform-Classes>
+                    <Can-Redefine-Classes>true</Can-Redefine-Classes>
+                    <Implementation-Version>${project.version}</Implementation-Version>
+                  </manifestEntries>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

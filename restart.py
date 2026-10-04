@@ -97,6 +97,9 @@ def ensure_backend_port():
 
 
 REVERSE_PROXY_FLAG_FILE = os.path.join(SCRIPT_DIR, "proxy", "reverse-proxy-enabled.flag")
+# Database capture's per-project switch - same bind-mount trap as above, but empty by default: a project
+# with no line is OFF (see docs/db-capture.md).
+DB_CAPTURE_FLAG_FILE = os.path.join(SCRIPT_DIR, "proxy", "db-capture-enabled.flag")
 
 
 def ensure_reverse_proxy_flag_file():
@@ -115,6 +118,15 @@ def ensure_reverse_proxy_flag_file():
         os.makedirs(os.path.dirname(REVERSE_PROXY_FLAG_FILE), exist_ok=True)
         with open(REVERSE_PROXY_FLAG_FILE, "w", encoding="utf-8") as f:
             f.write("on\n")
+    if os.path.isdir(DB_CAPTURE_FLAG_FILE):
+        try:
+            os.rmdir(DB_CAPTURE_FLAG_FILE)
+        except OSError as e:
+            print(f"Could not remove the directory {DB_CAPTURE_FLAG_FILE}: {e} - remove it by hand, then re-run.")
+            return
+    if not os.path.exists(DB_CAPTURE_FLAG_FILE):
+        with open(DB_CAPTURE_FLAG_FILE, "w", encoding="utf-8") as f:
+            f.write("")
 
 
 SETTINGS_FILE = os.path.join(SCRIPT_DIR, "settings.properties")

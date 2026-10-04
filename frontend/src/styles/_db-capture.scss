@@ -1,0 +1,8 @@
+// Database Capture (specs/006-db-capture). The agreed design is specs/006-db-capture/mock.html; this file holds
+// ONLY the rules that design added - everything it shares with the rest of Alfred (.call, .badge, .action-btn,
+// .block-chip, .dialog-backdrop/.dialog-card, .source-pill-*, .cw-*) is the existing class, not a copy.
+// One colour means "database" everywhere: --db (teal). Amber = writes, red = deletes/failures, green = transactions.
+
+:root {
+  --db: #2dd4bf;
+}
