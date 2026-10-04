@@ -105,7 +105,7 @@ export class DbStatementListComponent {
     return this.state.open().has(s.seq);
   }
 
-  /** Folded unless a filter is on (then matches inside must show) - a group starts folded only if repeated. */
+  /** Folded unless a filter is on (then matches inside must show). Transactions and repeats start folded. */
   isFolded(g: DbGroupNode): boolean {
     return !this.anyFiltering() && this.state.folded().has(g.key);
   }

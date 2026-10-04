@@ -83,6 +83,27 @@
         </fieldset>
       }
 
+      @if (dbAvailable(); as db) {
+        @if (effectiveFormat() !== 'postman') {
+          <div class="dialog-db-option">
+            <label>
+              <input type="checkbox" [checked]="includeDb()" (change)="setIncludeDb($any($event.target).checked)" />
+              <span><b>◆ Include database statements</b>
+                <small class="dialog-hint">
+                  @if (isBulk()) {
+                    {{ db.calls }} of these calls {{ db.calls === 1 ? 'has' : 'have' }} captured statements ({{ db.statements.toLocaleString() }} in all).
+                  } @else {
+                    This call has {{ db.statements.toLocaleString() }} captured statement{{ db.statements === 1 ? '' : 's' }}.
+                  } Off by default - the file stays small and carries no table data. When on,
+                  each of those calls gets a closed "Database" section with every statement and stored row; hidden columns stay masked.
+                </small>
+              </span>
+            </label>
+            @if (includeDb() && loadingDb()) {<small class="dialog-hint">Loading database statements…</small>}
+          </div>
+        }
+      }
+
       <div class="dialog-actions">
         <button type="button" class="dialog-btn secondary" (click)="close()">{{ hasExported() ? 'Close' : 'Cancel' }}</button>
         <button type="button" class="dialog-btn secondary" (click)="copyAsDiscordReport()">
@@ -91,7 +112,7 @@
         <button type="button" class="dialog-btn secondary" (click)="copyToClipboard()">
           {{ copyFeedback() ? 'Copied!' : 'Copy to Clipboard' }}
         </button>
-        <button type="button" class="dialog-btn primary" [disabled]="loadingDb()" (click)="confirmExport()">{{ loadingDb() ? 'Loading database statements…' : exportFeedback() ? 'Saved!' : 'Export ' + formatExtension() }}</button>
+        <button type="button" class="dialog-btn primary" [disabled]="includeDb() && loadingDb()" (click)="confirmExport()">{{ includeDb() && loadingDb() ? 'Loading database statements…' : exportFeedback() ? 'Saved!' : 'Export ' + formatExtension() }}</button>
       </div>
     </div>
   </div>

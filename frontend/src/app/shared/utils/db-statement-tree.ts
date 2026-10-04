@@ -47,8 +47,8 @@ export function buildStatementTree(
     ...markers.map((m) => ({ type: 'supplier' as const, seq: m.seq, marker: m })),
   ].sort((a, b) => a.seq - b.seq || (a.type === 'supplier' ? 1 : -1));
 
-  // Transactions that did something, in order; an overlapping one (another connection) stays flat.
-  const txs = [...transactions].filter((t) => t.statementCount > 0).sort((a, b) => a.firstSeq - b.firstSeq);
+  // Transactions worth a group, in order; an overlapping one (another connection) stays flat.
+  const txs = transactions.filter(isMeaningfulTransaction).sort((a, b) => a.firstSeq - b.firstSeq);
   const out: DbNode[] = [];
   let i = 0;
   let t = 0;
@@ -109,6 +109,15 @@ function groupRepeats(nodes: readonly (DbStatementNode | DbSupplierNode)[], thre
   return out;
 }
 
+/**
+ * A transaction is shown as a group when it wrote something, or ended (commit/rollback) around several statements.
+ * Applications that leave auto-commit off for plain reads (odeysys does) open a "transaction" per read that never
+ * ends - hundreds of one-statement, nothing-written groups that would only bury the statements.
+ */
+export function isMeaningfulTransaction(t: StatementTransaction): boolean {
+  return t.statementCount > 0 && (t.writeCount > 0 || t.outcome === 'ROLLED_BACK' || (t.outcome === 'COMMITTED' && t.statementCount > 1));
+}
+
 /** Every statement under a node, in order. */
 export function statementsOf(node: DbNode): CapturedStatement[] {
   if (node.type === 'stmt') return [node.statement];
@@ -128,12 +137,12 @@ export function pathTo(nodes: readonly DbNode[], seq: number): string[] {
   return [];
 }
 
-/** Groups that start folded: repeated statements. */
+/** Groups that start folded: transactions and repeated statements - one line each until opened. */
 export function initiallyFolded(nodes: readonly DbNode[]): Set<string> {
   const keys = new Set<string>();
   const walk = (list: readonly DbNode[]) => {
     for (const n of list) {
-      if (n.type === 'repeat') keys.add(n.key);
+      if (n.type === 'repeat' || n.type === 'tx') keys.add(n.key);
       if (n.type === 'tx' || n.type === 'repeat') walk(n.children);
     }
   };

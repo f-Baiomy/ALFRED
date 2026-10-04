@@ -9,7 +9,7 @@ import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative, NarrativeTimingRow } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
 import { REPORT_CHROME_SCRIPT, REPORT_CHROME_STYLE, TOC_OPEN_HTML, TOC_TOGGLE_HTML } from './report-chrome';
-import { DB_SECTION_STYLE, dbSectionHtml } from './db-export-section';
+import { DB_SECTION_SCRIPT, DB_SECTION_STYLE, dbSectionHtml, dbSummaryCell } from './db-export-section';
 import { CallExportOverview, ExportListOrder, GlossaryUse, orderBlocksAsShown, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
 /** Exported so every HTML export (calls, log lines) escapes through this one function. */
@@ -885,6 +885,7 @@ function openTarget() {
 }
 window.addEventListener('hashchange', openTarget);
 openTarget();
+${DB_SECTION_SCRIPT}
 ${REPORT_CHROME_SCRIPT}
 `;
 
@@ -1344,6 +1345,8 @@ export function buildBulkExportHtml(
   const summaryRows: string[] = [];
   // Only when calls nest: then "own work" differs from the total and is worth a column.
   const timed = narrative.timingRows.length > 0;
+  // A "DB" column only when the user included database statements and some call carries them.
+  const withDb = calls.some((c) => c.dbCapture);
   const timingByNumber = new Map(narrative.timingRows.map((row) => [row.number, row]));
   const callSections: string[] = [];
   const tocRows: string[] = [];
@@ -1378,7 +1381,7 @@ export function buildBulkExportHtml(
         call.url
       )}</td><td class="sum-tag">${blockStatusHtml(block)}</td><td class="sum-num">${duration}</td>${timed ? timingCellsHtml(block.variant === 'request' ? undefined : timingByNumber.get(block.n)) : ''}<td class="sum-tag">${
         flaggedCount > 0 ? `🚩 ${flaggedCount}` : '—'
-      }</td></tr>`
+      }</td>${withDb ? `<td class="sum-tag">${block.variant === 'request' ? '—' : dbSummaryCell(call)}</td>` : ''}</tr>`
     );
 
     let sectionHtml: string;
@@ -1481,7 +1484,7 @@ export function buildBulkExportHtml(
         filters +
         `<div class="summary-scroll"><table class="metadata summary-table"><thead><tr><th>#</th><th>Method</th><th>URL</th><th>Status</th><th class="sum-num">${timed ? 'Total' : 'Duration'}</th>${
           timed ? '<th class="sum-num">Waiting on downstream</th><th class="sum-num">Own work</th>' : ''
-        }<th>Flagged</th></tr></thead><tbody>${summaryRows.join('')}</tbody></table></div>` +
+        }<th>Flagged</th>${withDb ? '<th>DB</th>' : ''}</tr></thead><tbody>${summaryRows.join('')}</tbody></table></div>` +
         (narrative.timingNote ? `<p class="about-note">${escapeHtml(narrative.timingNote)}</p>` : '') +
         '</div>'
     ),

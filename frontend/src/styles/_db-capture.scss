@@ -590,3 +590,28 @@
 }
 
 .db-window .kvt .chg { color: var(--amber); }
+
+// A result with many columns scrolls sideways inside its own box - never the whole window. Grid and flex
+// children default to min-width: auto, so without these a wide table pushed every row and the body wider.
+.db-window {
+  .dbw-body { overflow-x: hidden; }
+  .r, .g, .gb, .rd { min-width: 0; }
+  .rows-scroll { max-width: 100%; overflow-x: auto; }
+  .rows-scroll .kvt th { white-space: nowrap; }
+  .rd .kvt { display: table; }
+  .rd > .kvt { display: block; overflow-x: auto; max-width: 100%; }
+}
+
+// Export dialog: "◆ Include database statements" (off by default)
+.dialog-db-option {
+  margin: 0.9rem 0 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--db) 35%, transparent);
+  background: color-mix(in srgb, var(--db) 6%, transparent);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+
+  label { display: flex; gap: 0.55rem; align-items: flex-start; cursor: pointer; font-size: 0.86rem; }
+  input { accent-color: var(--db); margin-top: 0.2rem; width: 16px; height: 16px; flex: none; }
+  b { color: var(--db); }
+  .dialog-hint { display: block; margin-top: 0.15rem; }
+}

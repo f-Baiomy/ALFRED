@@ -2,7 +2,7 @@ import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
-import { dbSectionMarkdown } from './db-export-section';
+import { dbSectionMarkdown, dbSummaryCell } from './db-export-section';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
@@ -660,16 +660,17 @@ export function buildBulkExportMarkdown(
   // table above already gives the counts. Only when calls nest does it carry the timing columns -
   // then "own work" differs from the total and is worth a column.
   const timed = narrative.timingRows.length > 0;
+  const withDb = calls.some((c) => c.dbCapture);
   const timingByNumber = new Map(narrative.timingRows.map((row) => [row.number, row]));
   const summaryLines: string[] = [
     '<a id="all-calls"></a>',
     '<details>',
     `<summary><b>📊 Summary — ${blocks.length} row${blocks.length === 1 ? '' : 's'}</b></summary>`,
     '',
-    timed
+    (timed
       ? '| # | Method | Path | Status | Total | Waiting on downstream | Own work | Flagged |'
-      : '| # | Method | Path | Status | Duration | Flagged |',
-    timed ? '|---|---|---|---|---|---|---|---|' : '|---|--------|------|--------|----------|---------|',
+      : '| # | Method | Path | Status | Duration | Flagged |') + (withDb ? ' DB |' : ''),
+    (timed ? '|---|---|---|---|---|---|---|---|' : '|---|--------|------|--------|----------|---------|') + (withDb ? '---|' : ''),
   ];
   blocks.forEach((block) => {
     const { call } = block;
@@ -679,7 +680,7 @@ export function buildBulkExportMarkdown(
     const flaggedCell = flaggedCount > 0 ? `🚩 ${flaggedCount} issue${flaggedCount === 1 ? '' : 's'}` : '—';
     const timing = timed ? timingCellsMarkdown(block.variant === 'request' ? undefined : timingByNumber.get(block.n)) : '';
     summaryLines.push(
-      `| [${block.n}${blockSuffix(block)}](#${blockAnchor(block)}) | \`${call.method}\` | \`${uriPath(call.url)}\`<br>${call.url} | ${blockStatusCell(block)} | ${duration} |${timing} ${flaggedCell} |`
+      `| [${block.n}${blockSuffix(block)}](#${blockAnchor(block)}) | \`${call.method}\` | \`${uriPath(call.url)}\`<br>${call.url} | ${blockStatusCell(block)} | ${duration} |${timing} ${flaggedCell} |${withDb ? ` ${block.variant === 'request' ? '—' : dbSummaryCell(call)} |` : ''}`
     );
   });
   summaryLines.push('');

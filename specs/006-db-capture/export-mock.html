@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DB export mock</title>
+<style>
+/* The .html export's own palette and blocks (html-builder.ts STYLE), so this reads as the real file. */
+:root {
+  --bg: #141416; --card: #1b1b1d; --card-inner: #0e0e10;
+  --border: rgba(255, 255, 255, 0.09); --border-strong: rgba(255, 255, 255, 0.18);
+  --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8; --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
+  --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a; --db: #2dd4bf;
+  --mono: "SFMono-Regular", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; line-height: 1.55; }
+a { color: var(--purple-light); text-decoration: none; }
+code { font-family: var(--mono); }
+.page { max-width: 1000px; margin: 0 auto; padding: 1.5rem 1.2rem 4rem; }
+.note { color: var(--text-dim); font-size: 13px; border-left: 3px solid var(--db); padding: 0.4rem 0.8rem; margin: 0 0 1rem; background: var(--card); border-radius: 0 8px 8px 0; }
+.note b { color: var(--text); }
+.part { margin: 2.2rem 0 0.8rem; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); }
+.part b { color: var(--db); }
+.tabs { display: flex; gap: 6px; margin-bottom: 0.8rem; }
+.tabs button { font: inherit; font-size: 12px; background: var(--card-inner); color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+.tabs button.on { border-color: var(--purple); color: var(--text); }
+
+/* ---------- 1. export dialog (Alfred's dialog look) ---------- */
+.dlg { max-width: 560px; background: #161c4a; border: 1px solid rgba(139, 92, 246, .45); border-radius: 14px; padding: 1.2rem 1.3rem; color: #e5e9f5; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.dlg h2 { margin: 0 0 .3rem; font-size: 1.1rem; }
+.dlg .sub { color: #93a0c2; font-size: .82rem; margin: 0 0 .7rem; }
+.dlg .field { display: block; margin: .55rem 0; font-size: .8rem; color: #93a0c2; }
+.dlg .field input { display: block; width: 100%; margin-top: .25rem; background: #070a24; border: 1px solid rgba(139, 92, 246, .22); border-radius: 8px; color: #e5e9f5; padding: .45rem .6rem; font: inherit; }
+.dlg .faded { opacity: .45; }
+.opt { margin: .9rem 0 .4rem; border: 1px solid rgba(45, 212, 191, .35); background: rgba(45, 212, 191, .06); border-radius: 10px; padding: .7rem .8rem; }
+.opt label { display: flex; gap: .55rem; align-items: flex-start; cursor: pointer; font-size: .86rem; }
+.opt input { accent-color: var(--db); margin-top: .2rem; width: 16px; height: 16px; }
+.opt b { color: var(--db); }
+.opt .hint { display: block; color: #93a0c2; font-size: .76rem; margin-top: .15rem; }
+.opt .count { color: #e5e9f5; }
+.dlg .actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1rem; flex-wrap: wrap; }
+.dlg .btn { font: inherit; font-size: .8rem; border-radius: 8px; padding: .45rem .9rem; border: 1px solid rgba(139, 92, 246, .45); background: transparent; color: #c4b5fd; cursor: pointer; }
+.dlg .btn.primary { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
+.dlg .loading { color: #93a0c2; font-size: .76rem; margin-top: .4rem; display: none; }
+.dlg.on .loading { display: block; }
+
+/* ---------- 2. the .html export ---------- */
+.call-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 0.6rem; overflow: hidden; }
+.call-card > summary { cursor: pointer; list-style: none; padding: 0.7rem 1rem; font-weight: 600; }
+.call-card > summary::-webkit-details-marker, .dbx summary::-webkit-details-marker, .st summary::-webkit-details-marker, .tx summary::-webkit-details-marker { display: none; }
+.call-card > summary::before { content: "▸ "; color: var(--text-faint); }
+.call-card[open] > summary::before { content: "▾ "; }
+.call-card[open] > summary { border-bottom: 1px solid var(--border); }
+.body { padding: 0.9rem 1rem 1rem; }
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-dim); vertical-align: middle; }
+.pill-in { color: var(--purple-light); border-color: rgba(91, 141, 239, 0.5); }
+.pill-db { color: var(--db); border-color: rgba(45, 212, 191, .5); }
+.method { display: inline-block; padding: 1px 9px; border-radius: 6px; font-weight: 700; font-size: 12px; color: #c4b5fd; background: rgba(139, 92, 246, 0.18); border: 1px solid rgba(139, 92, 246, 0.45); }
+.ok { color: var(--green); }
+.dur { color: var(--text-dim); font-family: var(--mono); font-size: 12px; font-weight: 400; }
+h2.sec { font-size: 1.02rem; color: var(--purple-light); border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; margin: 1.4rem 0 0.8rem; }
+.json-block { background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; margin-bottom: .6rem; padding: .5rem .9rem; color: var(--purple-light); font-size: .85rem; font-weight: 600; }
+.json-block span { float: right; color: var(--text-faint); font-weight: 400; font-size: .78rem; }
+
+/* The Database section: one closed block per call, its own colour, a one-line headline */
+.dbx { border: 1px solid rgba(45, 212, 191, .35); border-radius: 12px; background: rgba(45, 212, 191, .04); margin-top: 1.2rem; }
+.dbx > summary { cursor: pointer; list-style: none; padding: .7rem .9rem; display: flex; flex-wrap: wrap; gap: .45rem .6rem; align-items: center; }
+.dbx > summary .t { font-weight: 700; color: var(--db); }
+.dbx > summary::before { content: "▸"; color: var(--db); }
+.dbx[open] > summary::before { content: "▾"; }
+.dbx[open] > summary { border-bottom: 1px solid rgba(45, 212, 191, .25); }
+.chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-dim); white-space: nowrap; }
+.chip b { color: var(--text); }
+.chip.w b { color: var(--amber); } .chip.x { border-color: rgba(227,106,106,.5); } .chip.x b { color: var(--red); }
+.dbx .inner { padding: .8rem .9rem 1rem; }
+.lead { color: var(--text-dim); font-size: 13px; margin: 0 0 .7rem; }
+.lead b { color: var(--text); }
+.flags { display: flex; flex-direction: column; gap: 4px; margin-bottom: .9rem; }
+.flag { font-size: 12.5px; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(227,162,74,.4); background: rgba(227,162,74,.07); color: var(--amber); }
+.flag.bad { color: var(--red); border-color: rgba(227,106,106,.45); background: rgba(227,106,106,.07); }
+.flag a { margin-left: .4rem; font-size: 12px; }
+.tools { display: flex; gap: 6px; margin: 0 0 .6rem; }
+.tools button { font: inherit; font-size: 12px; background: var(--card-inner); color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 2px 11px; cursor: pointer; }
+/* one row per statement - closed */
+.stmts { height: 560px; overflow-y: auto; padding-right: 4px; border-top: 1px solid rgba(45,212,191,.2); border-bottom: 1px solid rgba(45,212,191,.2); padding-top: 6px; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.st { border: 1px solid var(--border); border-radius: 8px; background: var(--card); margin-bottom: 4px; }
+.st > summary { cursor: pointer; list-style: none; display: grid; grid-template-columns: 34px 70px minmax(0,1fr) auto 58px; gap: .6rem; align-items: center; padding: .35rem .6rem; font-size: 12.5px; }
+.st > summary:hover { background: rgba(255,255,255,.03); }
+.st[open] > summary { border-bottom: 1px solid var(--border); }
+.num { color: var(--text-faint); font-family: var(--mono); font-size: 11.5px; }
+.verb { font-size: 10.5px; font-weight: 700; text-align: center; padding: 1px 4px; border-radius: 5px; border: 1px solid; }
+.v-read { color: var(--db); border-color: rgba(45,212,191,.35); background: rgba(45,212,191,.08); }
+.v-write { color: var(--amber); border-color: rgba(227,162,74,.4); background: rgba(227,162,74,.08); }
+.v-del, .v-fail { color: var(--red); border-color: rgba(227,106,106,.45); background: rgba(227,106,106,.08); }
+.v-tx { color: var(--green); border-color: rgba(126,227,160,.35); background: rgba(126,227,160,.07); }
+.sql1 { font-family: var(--mono); font-size: 12px; color: #cfeee9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+.ms { color: var(--green); font-size: 12px; text-align: right; font-family: var(--mono); }
+.ms.slow { color: var(--amber); }
+.st.fail > summary .res { color: var(--red); font-weight: 600; }
+.st.undone .sql1 { text-decoration: line-through; opacity: .7; }
+.st .d { padding: .7rem .8rem .8rem; }
+.lbl { color: var(--text-faint); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; font-weight: 600; margin: .6rem 0 .3rem; }
+.lbl:first-child { margin-top: 0; }
+pre.sql { margin: 0; padding: .55rem .7rem; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; color: #d7f7f2; }
+.kw { color: #7dd3fc; } .val { color: var(--amber); }
+table.kv { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+table.kv th { text-align: left; color: var(--text-dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; padding: .3rem .6rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #151517; }
+table.kv td { padding: .28rem .6rem; border-bottom: 1px solid rgba(255,255,255,.04); font-family: var(--mono); }
+.rows { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.rows table.kv { border: none; border-radius: 0; }
+.where { color: var(--text-dim); font-size: 12px; margin-top: .6rem; }
+.where code { color: var(--text); }
+.err { color: var(--red); font-size: 12.5px; padding: .45rem .7rem; border: 1px solid rgba(227,106,106,.4); border-radius: 8px; background: rgba(227,106,106,.06); }
+/* transaction = a closed group with its own headline */
+.tx { border-left: 2px solid rgba(126,227,160,.45); padding-left: .6rem; margin: .5rem 0 .6rem; }
+.tx.rolled { border-left-color: rgba(227,106,106,.6); }
+.tx > summary { cursor: pointer; list-style: none; font-size: 12.5px; padding: .3rem .2rem; color: var(--green); font-weight: 600; }
+.tx.rolled > summary { color: var(--red); }
+.tx > summary::before { content: "▸ "; } .tx[open] > summary::before { content: "▾ "; }
+.tx > summary span { color: var(--text-dim); font-weight: 400; }
+.sup { display: flex; gap: .6rem; align-items: center; font-size: 12px; padding: .3rem .6rem; margin: 4px 0; border-top: 1px dashed rgba(126,227,216,.35); border-bottom: 1px dashed rgba(126,227,216,.35); color: var(--cyan); font-family: var(--mono); }
+.sup .num { color: var(--text-faint); }
+
+/* ---------- 3. markdown ---------- */
+.md-wrap { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+@media (max-width: 860px) { .md-wrap { grid-template-columns: minmax(0,1fr); } }
+pre.raw { margin: 0; background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; padding: .8rem; font-size: 11.5px; line-height: 1.5; color: #c9d1d9; white-space: pre-wrap; overflow: auto; max-height: 640px; }
+.gh { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: .9rem 1rem; color: #e6edf3; font-size: 14px; max-height: 640px; overflow: auto; }
+.gh h3 { margin: .2rem 0 .6rem; font-size: 1.1rem; border-bottom: 1px solid #30363d; padding-bottom: .3rem; }
+.gh details { margin: .3rem 0; }
+.gh summary { cursor: pointer; }
+.gh table { border-collapse: collapse; font-size: 13px; margin: .5rem 0; }
+.gh th, .gh td { border: 1px solid #30363d; padding: 3px 9px; }
+.gh th { background: #161b22; }
+.gh pre { background: #161b22; border-radius: 6px; padding: .5rem .7rem; font-size: 12.5px; white-space: pre-wrap; }
+.gh blockquote { margin: .4rem 0; padding: 0 .8rem; border-left: 3px solid #3d444d; color: #9198a1; }
+@media (max-width: 640px) {
+  .st > summary { grid-template-columns: 30px 62px minmax(0,1fr) 50px; }
+  .st > summary .res { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="note"><b>Export mock - database statements.</b> Three parts: <b>1</b> the export dialog (same dialog for call, selection and whole-cycle exports) gets one unchecked option; <b>2</b> the .html export's call card gets one <b>closed</b> "Database" block with a one-line headline - open it for flags, then statements as closed one-line rows, transactions as closed groups, each statement opening to its SQL, params and rows; <b>3</b> the .md export, same shape with &lt;details&gt; (shown raw and as GitHub renders it). Nothing is cut when included - every statement and stored row is still in the file, just folded.</div>
+
+<!-- ======================= 1. DIALOG ======================= -->
+<div class="part"><b>1</b> · Export dialog (calls, selection and cycle export)</div>
+<div class="dlg" id="dlg">
+  <h2>Export 6 calls as HTML</h2>
+  <p class="sub">Pre-filled where possible - review and edit before exporting. Nothing here is required.</p>
+  <label class="field faded">Supplier Name <input value="PaySupplier"></label>
+  <label class="field faded">Description (optional) <input placeholder="Any context worth noting..."></label>
+
+  <div class="opt">
+    <label><input type="checkbox" id="incl" onchange="document.getElementById('dlg').classList.toggle('on', this.checked)">
+      <span><b>◆ Include database statements</b>
+        <span class="hint"><span class="count">2 of these calls</span> have captured statements (61 statements, 2,433 rows). Off by default - the file stays small and shows no table data. When on, each call gets a closed "Database" section with every statement and stored row; hidden columns (⊘) stay masked.</span>
+      </span>
+    </label>
+    <div class="loading">Loading database statements… (only fetched when this is ticked)</div>
+  </div>
+
+  <div class="actions">
+    <button class="btn">Cancel</button><button class="btn">Copy to Clipboard</button><button class="btn primary">Export .html</button>
+  </div>
+</div>
+<p class="note" style="margin-top:.8rem">The option appears only when at least one exported call was captured. It is the same for <b>.md</b>, <b>.html</b> and <b>.json</b> (where it decides whether <code>dbCapture</code> is written, so a re-import carries statements only when they were exported). Postman and Discord never include them. The choice is not remembered - every export starts unticked.</p>
+
+<!-- ======================= 2. HTML EXPORT ======================= -->
+<div class="part"><b>2</b> · .html export - a call card, ticked</div>
+
+<details class="call-card" open>
+  <summary><b>Call 1</b> <span class="pill pill-in">← inbound</span> <span class="method">POST</span> <code>/wallet-app/api/wallet/pay</code> <span class="ok">200</span> <span class="dur">412 ms</span> <span class="pill pill-db">◆ 49 statements</span></summary>
+  <div class="body">
+    <h2 class="sec">📤 Request</h2>
+    <div class="json-block">▸ Headers <span>14 lines</span></div>
+    <div class="json-block">▸ Body <span>6 lines</span></div>
+    <h2 class="sec">📥 Response</h2>
+    <div class="json-block">▸ Headers <span>9 lines</span></div>
+    <div class="json-block">▸ Body <span>8 lines</span></div>
+
+    <!-- The Database block: closed by default -->
+    <details class="dbx">
+      <summary>
+        <span class="t">🗄 Database</span>
+        <span class="chip"><b>49</b> statements</span>
+        <span class="chip w"><b>9</b> writes</span>
+        <span class="chip x"><b>1</b> failed</span>
+        <span class="chip"><b>3</b> transactions · 1 rolled back</span>
+        <span class="chip"><b>94 ms</b> in DB</span>
+        <span class="chip x"><b>4</b> flags</span>
+      </summary>
+      <div class="inner">
+        <p class="lead">Every statement the application ran while handling this call, <b>in the order it ran</b>, values filled in. Supplier calls are shown where they happened. Open a row for its SQL, parameters and rows.</p>
+
+        <div class="flags">
+          <div class="flag bad">✕ DELETE without WHERE · rate_cache · 212 rows <a href="#s49">#49 ↓</a></div>
+          <div class="flag bad">✕ Failed and swallowed · ORA-00001 · the call still answered normally <a href="#s34">#34 ↓</a></div>
+          <div class="flag bad">✕ Rolled back · tx-9 · 2 writes not saved <a href="#tx9">tx-9 ↓</a></div>
+          <div class="flag">⚠ N+1 · fare_rules ×12 <a href="#s4">#4 ↓</a></div>
+        </div>
+
+        <div class="tools"><button>Open all statements</button><button>Close all</button></div>
+        <p class="lead" style="font-size:12px">Transactions and repeated queries start <b>closed</b> - one line each, with their range (#18–#27). Open one to see its statements. "Open all" opens them too.</p>
+        <div class="stmts">
+
+        <details class="st" id="s1"><summary><span class="num">#1</span><span class="verb v-read">SELECT</span><span class="sql1"><span class="kw">SELECT</span> id, name, status <span class="kw">FROM</span> users <span class="kw">WHERE</span> id = <span class="val">1042</span></span><span class="res">1 row</span><span class="ms">3.9 ms</span></summary>
+          <div class="d">
+            <div class="lbl">Statement</div>
+            <pre class="sql"><span class="kw">SELECT</span> id, name, status
+<span class="kw">FROM</span> users
+<span class="kw">WHERE</span> id = <span class="val">1042</span></pre>
+            <div class="lbl">Rows (1)</div>
+            <table class="kv"><tr><th>id</th><th>name</th><th>status</th></tr><tr><td>1042</td><td>Sara Hassan</td><td>ACTIVE</td></tr></table>
+            <div class="where">Called from <code>UserDao.find(UserDao.java:30)</code> · thread default task-14 · +3 ms</div>
+          </div>
+        </details>
+
+        <details class="st" id="s4"><summary><span class="num">#4</span><span class="verb v-read">SELECT ×12</span><span class="sql1"><span class="kw">SELECT</span> rule, fee <span class="kw">FROM</span> fare_rules <span class="kw">WHERE</span> route_id = ? <span style="color:var(--amber)">· 12 times, different values</span></span><span class="res">#4–#15</span><span class="ms">10.8 ms</span></summary>
+          <div class="d"><div class="lbl">The 12 runs</div>
+            <table class="kv"><tr><th>#</th><th>route_id</th><th>result</th><th>ms</th></tr>
+              <tr><td>4</td><td>501</td><td>2 rows</td><td>0.9</td></tr><tr><td>5</td><td>502</td><td>2 rows</td><td>0.9</td></tr><tr><td colspan="4" style="color:var(--text-faint)">… #6 – #15, every one listed in the real file</td></tr></table>
+          </div>
+        </details>
+
+        <details class="st"><summary><span class="num">#17</span><span class="verb v-read">SELECT</span><span class="sql1"><span class="kw">SELECT</span> id, amount, kind, created_at <span class="kw">FROM</span> transactions <span class="kw">WHERE</span> user_id = <span class="val">1042</span></span><span class="res">2,431 rows</span><span class="ms slow">48.2 ms</span></summary>
+          <div class="d">
+            <div class="lbl">Rows (2,431 stored - all of them, scroll the box)</div>
+            <div class="rows"><table class="kv"><tr><th>id</th><th>amount</th><th>kind</th><th>created_at</th></tr>
+              <tr><td>99816</td><td>5.00</td><td>TOPUP</td><td>2026-10-04 17:00</td></tr><tr><td>99815</td><td>42.00</td><td>PAY</td><td>2026-10-04 16:07</td></tr><tr><td>99814</td><td>79.00</td><td>PAY</td><td>2026-10-04 15:14</td></tr><tr><td>99813</td><td>116.00</td><td>TOPUP</td><td>2026-10-04 14:21</td></tr><tr><td>99812</td><td>153.00</td><td>PAY</td><td>2026-10-04 13:28</td></tr><tr><td>99811</td><td>190.00</td><td>PAY</td><td>2026-10-04 12:35</td></tr><tr><td>99810</td><td>227.00</td><td>TOPUP</td><td>2026-10-04 11:42</td></tr><tr><td>99809</td><td>264.00</td><td>PAY</td><td>2026-10-04 10:49</td></tr><tr><td>99808</td><td>301.00</td><td>PAY</td><td>2026-10-04 09:56</td></tr><tr><td colspan="4" style="color:var(--text-faint)">… 2,422 more rows in the real file</td></tr></table></div>
+          </div>
+        </details>
+
+        <details class="tx" id="tx7"><summary>Transaction tx-7 · committed <span>· 9 statements · 6 writes · held 348 ms · #18–#27</span></summary>
+          <details class="st"><summary><span class="num">#18</span><span class="verb v-read">SELECT ⋯</span><span class="sql1"><span class="kw">SELECT</span> balance, currency, version <span class="kw">FROM</span> wallet <span class="kw">WHERE</span> user_id = <span class="val">1042</span> <span class="kw">FOR UPDATE</span></span><span class="res">1 row</span><span class="ms slow">6.2 ms</span></summary><div class="d"><div class="lbl">Rows (1)</div><table class="kv"><tr><th>balance</th><th>currency</th><th>version</th></tr><tr><td>500.00</td><td>AED</td><td>41</td></tr></table></div></details>
+          <div class="sup"><span class="num">#19</span>↗ POST https://pay.supplier.com/v1/charge</div>
+          <details class="st"><summary><span class="num">#20</span><span class="verb v-write">UPDATE</span><span class="sql1"><span class="kw">UPDATE</span> wallet <span class="kw">SET</span> balance = <span class="val">380.00</span>, version = <span class="val">42</span> <span class="kw">WHERE</span> user_id = <span class="val">1042</span></span><span class="res">1 updated</span><span class="ms">4.8 ms</span></summary>
+            <div class="d">
+              <div class="lbl">Statement</div>
+              <pre class="sql"><span class="kw">UPDATE</span> wallet
+<span class="kw">SET</span> balance = <span class="val">380.00</span>, version = <span class="val">42</span>
+<span class="kw">WHERE</span> user_id = <span class="val">1042</span> <span class="kw">AND</span> version = <span class="val">41</span></pre>
+              <div class="lbl">Parameters</div>
+              <table class="kv"><tr><th>#</th><th>type</th><th>value</th></tr><tr><td>1</td><td>DECIMAL</td><td>380.00</td></tr><tr><td>2</td><td>INTEGER</td><td>42</td></tr><tr><td>3</td><td>BIGINT</td><td>1042</td></tr><tr><td>4</td><td>INTEGER</td><td>41</td></tr></table>
+              <div class="lbl">Before → after (read in #18)</div>
+              <table class="kv"><tr><th>column</th><th>before</th><th>after</th></tr><tr><td>balance</td><td>500.00</td><td style="color:var(--amber)">380.00</td></tr><tr><td>version</td><td>41</td><td style="color:var(--amber)">42</td></tr></table>
+              <div class="where">Called from <code>WalletRepository.debit(WalletRepository.java:112)</code> · +341 ms</div>
+            </div>
+          </details>
+          <details class="st"><summary><span class="num">#21</span><span class="verb v-write">INSERT</span><span class="sql1"><span class="kw">INSERT INTO</span> payments (user_id, amount, card_token) <span class="kw">VALUES</span> (<span class="val">1042</span>, <span class="val">120.00</span>, <span class="val">'***REDACTED***'</span>)</span><span class="res">1 inserted · key 99817</span><span class="ms slow">7.1 ms</span></summary><div class="d"><div class="lbl">Generated key</div><table class="kv"><tr><th>id</th></tr><tr><td>99817</td></tr></table></div></details>
+          <details class="st"><summary><span class="num">#27</span><span class="verb v-tx">COMMIT</span><span class="sql1"><span class="kw">COMMIT</span></span><span class="res">committed</span><span class="ms">2.6 ms</span></summary><div class="d"></div></details>
+        </details>
+
+        <details class="tx rolled" id="tx9"><summary>Transaction tx-9 · rolled back - nothing in it was saved <span>· 4 statements · #31–#35</span></summary>
+          <details class="st undone"><summary><span class="num">#32</span><span class="verb v-del">DELETE</span><span class="sql1"><span class="kw">DELETE FROM</span> loyalty_pending <span class="kw">WHERE</span> user_id = <span class="val">1042</span></span><span class="res">2 deleted · rolled back</span><span class="ms">1.5 ms</span></summary>
+            <div class="d"><div class="lbl">Rows it would have deleted (before-image)</div><table class="kv"><tr><th>id</th><th>user_id</th><th>points</th></tr><tr><td>301</td><td>1042</td><td>5</td></tr><tr><td>302</td><td>1042</td><td>7</td></tr></table></div></details>
+          <details class="st fail" id="s34"><summary><span class="num">#34</span><span class="verb v-fail">FAILED</span><span class="sql1"><span class="kw">INSERT INTO</span> loyalty_points (user_id, points) <span class="kw">VALUES</span> (<span class="val">1042</span>, <span class="val">12</span>)</span><span class="res">ORA-00001</span><span class="ms">3.1 ms</span></summary>
+            <div class="d"><div class="err">✕ ORA-00001: unique constraint (WALLET.LOYALTY_UQ) violated · SQLState 23000 · code 1<br>Caught by the application - the call still answered 200.</div></div></details>
+        </details>
+
+        <div class="sup"><span class="num">#46</span>↗ POST https://notify.sms.com/send</div>
+        <details class="st fail" id="s49"><summary><span class="num">#49</span><span class="verb v-del">DELETE</span><span class="sql1"><span class="kw">DELETE FROM</span> rate_cache</span><span class="res">212 deleted · no WHERE</span><span class="ms slow">9.7 ms</span></summary>
+          <div class="d"><div class="err">Every row in rate_cache was removed (212). Contents not captured - before-image is off for this table.</div></div></details>
+        <p class="lead" style="margin-top:.6rem;font-size:12px">… #2, #3, #16, #22–#26, #28–#30, #36–#45, #47, #48 are in the real file the same way - every statement, folded.</p>
+        </div>
+        <p class="lead" style="margin:.5rem 0 0;font-size:12px">The statement list scrolls inside a fixed box (560 px) - the headline, flags and buttons stay put, and opening a big call never pushes the rest of the report away.</p>
+      </div>
+    </details>
+  </div>
+</details>
+
+<details class="call-card"><summary><b>Call 2</b> <span class="pill">→ outbound</span> <span class="method">POST</span> <code>https://pay.supplier.com/v1/charge</code> <span class="ok">200</span> <span class="dur">310 ms</span></summary><div class="body"><p class="lead">An outbound call - nothing database here, so no Database block.</p></div></details>
+
+<p class="note">The summary table at the top of the export gets a small <b>◆ 49</b> in a "DB" column for captured calls, and the "About" text gets one sentence ("2 of the calls also carry the database statements they ran…"). Unticked: no column, no sentence, no block - the file is exactly today's.</p>
+
+<!-- ======================= 3. MARKDOWN ======================= -->
+<div class="part"><b>3</b> · .md export - the same call, ticked</div>
+<div class="md-wrap">
+<pre class="raw">#### 🗄 Database
+
+&lt;details&gt;
+&lt;summary&gt;&lt;b&gt;49 statements&lt;/b&gt; · 9 writes · 1 failed · 3 transactions (1 rolled back) · 94 ms in DB · 4 flags&lt;/summary&gt;
+
+**Flags**
+
+- ✕ DELETE without WHERE · rate_cache · 212 rows (#49)
+- ✕ Failed and swallowed · ORA-00001 (#34)
+- ✕ Rolled back · tx-9 · 2 writes not saved
+- ⚠ N+1 · fare_rules ×12 (#4)
+
+| # | Statement | Result | ms |
+|---|---|---|---|
+| 1 | `SELECT` users | 1 row | 3.9 |
+| 4–15 | `SELECT` fare_rules ×12 | 2 rows each | 10.8 |
+| 17 | `SELECT` transactions | 2,431 rows | 48.2 |
+| | **tx-7 · committed · held 348 ms** | | |
+| 18 | `SELECT … FOR UPDATE` wallet | 1 row | 6.2 |
+| 19 | ↗ POST pay.supplier.com/v1/charge | | |
+| 20 | `UPDATE` wallet | 1 updated | 4.8 |
+| … | | | |
+
+&lt;details&gt;
+&lt;summary&gt;#20 UPDATE wallet · 1 updated · 4.8 ms&lt;/summary&gt;
+
+```sql
+UPDATE wallet
+SET balance = 380.00, version = 42
+WHERE user_id = 1042 AND version = 41
+```
+
+| column | before (#18) | after |
+|---|---|---|
+| balance | 500.00 | 380.00 |
+| version | 41 | 42 |
+
+WalletRepository.debit(WalletRepository.java:112)
+&lt;/details&gt;
+
+&lt;details&gt;
+&lt;summary&gt;#17 SELECT transactions · 2,431 rows · 48.2 ms&lt;/summary&gt;
+
+```sql
+SELECT id, amount, kind, created_at FROM transactions
+WHERE user_id = 1042
+```
+
+| id | amount | kind | created_at |
+|---|---|---|---|
+| 99816 | 5.00 | TOPUP | 2026-10-04 17:00 |
+… every one of the 2,431 rows
+&lt;/details&gt;
+
+… one closed &lt;details&gt; per statement, in run order
+
+&lt;/details&gt;</pre>
+
+<div class="gh">
+<h3>🗄 Database</h3>
+<details><summary><b>49 statements</b> · 9 writes · 1 failed · 3 transactions (1 rolled back) · 94 ms in DB · 4 flags</summary>
+<p><b>Flags</b></p>
+<ul><li>✕ DELETE without WHERE · rate_cache · 212 rows (#49)</li><li>✕ Failed and swallowed · ORA-00001 (#34)</li><li>✕ Rolled back · tx-9 · 2 writes not saved</li><li>⚠ N+1 · fare_rules ×12 (#4)</li></ul>
+<table><tr><th>#</th><th>Statement</th><th>Result</th><th>ms</th></tr>
+<tr><td>1</td><td><code>SELECT</code> users</td><td>1 row</td><td>3.9</td></tr>
+<tr><td>4–15</td><td><code>SELECT</code> fare_rules ×12</td><td>2 rows each</td><td>10.8</td></tr>
+<tr><td>17</td><td><code>SELECT</code> transactions</td><td>2,431 rows</td><td>48.2</td></tr>
+<tr><td></td><td><b>tx-7 · committed · held 348 ms</b></td><td></td><td></td></tr>
+<tr><td>18</td><td><code>SELECT … FOR UPDATE</code> wallet</td><td>1 row</td><td>6.2</td></tr>
+<tr><td>19</td><td>↗ POST pay.supplier.com/v1/charge</td><td></td><td></td></tr>
+<tr><td>20</td><td><code>UPDATE</code> wallet</td><td>1 updated</td><td>4.8</td></tr>
+<tr><td>…</td><td></td><td></td><td></td></tr></table>
+<details><summary>#20 UPDATE wallet · 1 updated · 4.8 ms</summary>
+<pre>UPDATE wallet
+SET balance = 380.00, version = 42
+WHERE user_id = 1042 AND version = 41</pre>
+<table><tr><th>column</th><th>before (#18)</th><th>after</th></tr><tr><td>balance</td><td>500.00</td><td>380.00</td></tr><tr><td>version</td><td>41</td><td>42</td></tr></table>
+<p>WalletRepository.debit(WalletRepository.java:112)</p>
+</details>
+<details><summary>#17 SELECT transactions · 2,431 rows · 48.2 ms</summary>
+<pre>SELECT id, amount, kind, created_at FROM transactions
+WHERE user_id = 1042</pre>
+<table><tr><th>id</th><th>amount</th><th>kind</th><th>created_at</th></tr><tr><td>99816</td><td>5.00</td><td>TOPUP</td><td>2026-10-04 17:00</td></tr><tr><td colspan="4">… every one of the 2,431 rows</td></tr></table>
+</details>
+<p>… one closed &lt;details&gt; per statement, in run order</p>
+</details>
+</div>
+</div>
+<p class="note" style="margin-top:.8rem">Markdown has no scroll box, so the overview table comes first (one line per statement - quick to scan in any viewer, even one that shows &lt;details&gt; open), then one closed block per statement with its SQL, parameters, before → after and rows. Everything sits inside one outer closed block, so a reader who doesn't care sees a single line.</p>
+
+</div>
+</body>
+</html>

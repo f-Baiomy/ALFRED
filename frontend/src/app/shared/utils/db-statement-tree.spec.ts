@@ -28,6 +28,14 @@ describe('buildStatementTree', () => {
     expect(tree[0].type).toBe('repeat');
     expect(tree.length).toBe(1 + 1 + 4);
     expect([...initiallyFolded(tree)]).toEqual(['rep:1']);
+    expect([...initiallyFolded(buildStatementTree([stmt(1, 'SELECT', 'SELECT 1', { txId: 'tx-1' })], [], [tx('tx-1', 1, 1)], 5))]).toEqual(['tx:tx-1']);
+  });
+
+  it('keeps a read-only transaction that never ended flat - one group per read would bury the statements', () => {
+    const open = (txId: string, seq: number): StatementTransaction => ({ ...tx(txId, seq, seq, 'OPEN'), writeCount: 0, statementCount: 1 });
+    const tree = buildStatementTree([stmt(1, 'SELECT', 'SELECT a', { txId: 'r1' }), stmt(2, 'SELECT', 'SELECT b', { txId: 'r2' })], [],
+      [open('r1', 1), open('r2', 2)], 5);
+    expect(tree.map((n) => n.type)).toEqual(['stmt', 'stmt']);
   });
 
   it('finds the groups to unfold for a statement inside a repeat inside a transaction', () => {

@@ -17,7 +17,7 @@ import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clip
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { redactCalls } from '../../shared/utils/redact';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
-import { CallDbCapture } from '../../core/models/db-capture.model';
+import { CallDbCapture, CallDbSummary } from '../../core/models/db-capture.model';
 import { CallRecord } from '../../core/models/call.model';
 import { catchError, from, map, mergeMap, of, toArray } from 'rxjs';
 
@@ -46,20 +46,25 @@ export class ExportDialogComponent {
   readonly state = this.dialogService.state;
 
   /**
-   * The database statements of the inbound calls being exported (docs/db-capture.md), fetched when the dialog opens -
-   * every statement and stored row, since exports never cut anything. Export waits for them: a file written before
-   * they arrived would silently lack its Database sections.
+   * "Include database statements" (docs/db-capture.md) - off on every open, so an export is today's file unless the
+   * user asks. Offered only when some exported call was captured (`dbAvailable`, from the cheap summaries); ticking it
+   * fetches every statement and stored row of those calls (exports never cut anything), and Export waits for them -
+   * a file written before they arrived would silently lack its Database sections.
    */
+  readonly includeDb = signal(false);
+  readonly dbAvailable = signal<{ readonly calls: number; readonly statements: number } | null>(null);
   private readonly dbCaptures = signal<ReadonlyMap<string, CallDbCapture>>(new Map());
   readonly loadingDb = signal(false);
   private dbRequest = 0;
 
-  /** The calls to export, with their database capture attached. */
+  /** The calls to export - with their database capture attached only when the user included it. */
   private readonly callsWithDb = computed<readonly CallRecord[]>(() => {
     const current = this.state();
     if (!current) return [];
+    const calls = current.calls.map((c) => (c.dbCapture ? { ...c, dbCapture: undefined } : c));
     const captures = this.dbCaptures();
-    return captures.size ? current.calls.map((c) => (captures.has(c.id) ? { ...c, dbCapture: captures.get(c.id) } : c)) : current.calls;
+    if (!this.includeDb() || !captures.size) return calls;
+    return calls.map((c) => (captures.has(c.id) ? { ...c, dbCapture: captures.get(c.id) } : c));
   });
 
   /** How many values the current selection would have masked, so the dialog can say so before the user commits to sending the file. */
@@ -131,17 +136,48 @@ export class ExportDialogComponent {
         this.exportedFormats.set(new Set());
         this.exportFeedback.set(false);
         this.reportFormat.set(current.format === 'html' ? 'html' : 'markdown');
-        this.loadDbCaptures(current.calls, current.format);
+        this.includeDb.set(false);
+        this.dbCaptures.set(new Map());
+        this.loadingDb.set(false);
+        this.dbRequest++;
+        this.checkDbAvailable(current.calls, current.format);
       },
       { allowSignalWrites: true }
     );
   }
 
+  /** Only inbound calls can have captured statements; a Postman collection never carries them. */
+  private capturable(calls: readonly CallRecord[], format: ExportFormat): CallRecord[] {
+    return format === 'postman' ? [] : calls.filter((c) => c.source === 'internal');
+  }
+
+  /** Whether to offer the option at all, and what it would add - from the summaries, not the statements. */
+  private checkDbAvailable(calls: readonly CallRecord[], format: ExportFormat): void {
+    this.dbAvailable.set(null);
+    const ids = this.capturable(calls, format).map((c) => c.id);
+    if (!ids.length) return;
+    const request = this.dbRequest;
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 500) chunks.push(ids.slice(i, i + 500));
+    from(chunks)
+      .pipe(mergeMap((chunk) => this.dbCaptureApi.summaries(chunk).pipe(catchError(() => of({} as Record<string, CallDbSummary>))), 2), toArray())
+      .subscribe((pages) => {
+        if (request !== this.dbRequest) return;
+        const found = pages.flatMap((p) => Object.values(p)).filter((s) => s.statementCount > 0);
+        this.dbAvailable.set(found.length ? { calls: found.length, statements: found.reduce((n, s) => n + s.statementCount, 0) } : null);
+      });
+  }
+
+  setIncludeDb(include: boolean): void {
+    this.includeDb.set(include);
+    const current = this.state();
+    if (include && current && !this.dbCaptures().size && !this.loadingDb()) this.loadDbCaptures(current.calls, current.format);
+  }
+
   private loadDbCaptures(calls: readonly CallRecord[], format: ExportFormat): void {
     const request = ++this.dbRequest;
     this.dbCaptures.set(new Map());
-    // Only inbound calls can have captured statements; a Postman collection never carries them.
-    const inbound = format === 'postman' ? [] : calls.filter((c) => c.source === 'internal' && !c.dbCapture);
+    const inbound = this.capturable(calls, format);
     if (!inbound.length) {
       this.loadingDb.set(false);
       return;
@@ -183,7 +219,7 @@ export class ExportDialogComponent {
    * failed.
    */
   confirmExport(): void {
-    if (this.loadingDb()) return;
+    if (this.includeDb() && this.loadingDb()) return;
     const built = this.buildContent(this.effectiveFormat());
     if (!built) return;
 
@@ -204,7 +240,7 @@ export class ExportDialogComponent {
    * in both. 'json'/'postman' export is a different case entirely (raw data, not a report) and
    * keeps copying that same raw data as-is. */
   copyToClipboard(): void {
-    if (this.loadingDb()) return;
+    if (this.includeDb() && this.loadingDb()) return;
     const built = this.buildContent(this.isRawExportMode() ? this.state()!.format : 'markdown');
     if (!built) return;
 

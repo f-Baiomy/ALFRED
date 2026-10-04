@@ -12,7 +12,7 @@ import { DbNode } from '../../shared/utils/db-statement-tree';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { CallsStateService } from '../../core/state/calls-state.service';
-import { buildStatementTree, initiallyFolded, pathTo } from '../../shared/utils/db-statement-tree';
+import { buildStatementTree, initiallyFolded, isMeaningfulTransaction, pathTo } from '../../shared/utils/db-statement-tree';
 import { isDelete, isFailed, isWrite, msText } from '../../shared/utils/db-statement-display';
 import { flagTarget, flagText } from '../../shared/utils/db-flags';
 import { buildSqlScript } from '../../shared/utils/sql-export-builder';
@@ -111,7 +111,9 @@ export class DbWindowComponent implements OnInit {
   readonly writeCount = computed(() => this.summary()?.writeCount ?? this.statements().filter(isWrite).length);
   readonly deleteCount = computed(() => this.summary()?.deleteCount ?? this.statements().filter(isDelete).length);
   readonly failedCount = computed(() => this.summary()?.failedCount ?? this.statements().filter(isFailed).length);
-  readonly txCount = computed(() => this.summary()?.transactionCount ?? this.transactions().length);
+  readonly txCount = computed(() => this.transactions().length
+    ? this.transactions().filter(isMeaningfulTransaction).length
+    : this.summary()?.transactionCount ?? 0);
   readonly rolledBackCount = computed(() => this.summary()?.rolledBackCount ?? this.transactions().filter((t) => t.outcome === 'ROLLED_BACK').length);
   readonly dbMicros = computed(() => this.summary()?.dbMicros ?? this.statements().reduce((a, s) => a + s.durationMicros, 0));
   readonly droppedCount = computed(() => this.summary()?.droppedCount ?? 0);

@@ -86,10 +86,20 @@ describe('database capture in exports', () => {
     expect(html).toContain('<td>row 4999</td>');
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).not.toContain('(<b>X</b>)');
-    expect(html).toContain('↗ supplier call');
+    expect(html).toContain('↗ POST https://pay.example/charge');
+    // One closed Database block, statements as closed rows in a fixed scrolling box, transactions closed.
+    expect(html).toContain('<details class="dbx" id="db-in-1">');
+    expect(html).not.toMatch(/<details class="dbx"[^>]*open/);
+    expect(html).toContain('<div class="stmts">');
+    expect(html).toMatch(/<details class="grp" id="db-in-1-tx-tx-7">/);
+    expect(html).toContain('data-db-all="open"');
 
     const bulk = buildBulkExportMarkdown([inbound()], FORM, new Map(), '2026-10-05T00:00:00Z');
     expect(bulk).toContain('| 4999 | row 4999 |');
+    expect(bulk).toContain('| ◆ 4 |'); // the summary table's DB column
+    expect(md).toContain(['### 🗄 Database', '', '<details>', '<summary><b>4 statements'].join('\n'));
+    expect(md).toContain('| # | Statement | Result | ms |');
+    expect(md).toContain('<summary>#2 INSERT ');
     expect(buildBulkExportHtml([inbound()], FORM, new Map(), '2026-10-05T00:00:00Z')).toContain('<td>row 4999</td>');
   });
 
