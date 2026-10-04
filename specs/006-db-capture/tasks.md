@@ -249,12 +249,12 @@ switch; a no-WHERE delete is flagged red and can be marked expected.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T112 [P] Vendor verification (SC-010): run the app or a JDBC harness against Oracle Free, PostgreSQL, MySQL and SQL Server containers; fix any value shown as opaque/unreadable; record results in `docs/db-capture.md`
-- [ ] T113 [P] Measurements in `docs/db-capture.md`: overhead (SC-002) against H2 **and** one real database container (PostgreSQL) so the ratio reflects real statement latency, ingest throughput at 50 concurrent calls, window open time at 500 statements and end-to-end scroll of 50,000 stored rows (SC-005), `db-capture.db` growth per 1,000 calls
-- [ ] T114 [P] Docs: finish `docs/db-capture.md`; update `CLAUDE.md` (what-this-is paragraph, gateway prefixes, non-obvious rules: agent + headers + flag default off + Relive-later seams), `AGENTS.md`, `docs/architecture.md` (new slice, bridges), `docs/supplier-integrations.md` (headers, flag file), `docs/frontend-architecture.md` (db-capture state/socket, call-tree explicit parents), `docs/testing.md` (agent tests, Java 8 run)
-- [ ] T115 Security pass: grep agent and backend logs for SQL values/secret; confirm `X-Alfred-Call` spoofing is stripped; confirm no `innerHTML` in new components; confirm sandbox rejects write/attach statements
-- [ ] T116 Full suites: backend `mvn test` (Docker), `db-agent` verify + Java 8 self-test, `python -m pytest proxy`, `npm test`, `npm run build`; walk through quickstart.md end to end
-- [ ] T117 Commit Phase 7: `docs(db-capture): measurements, vendor verification and docs`
+- [X] T112 [P] Vendor verification (SC-010): run the app or a JDBC harness against Oracle Free, PostgreSQL, MySQL and SQL Server containers; fix any value shown as opaque/unreadable; record results in `docs/db-capture.md`
+- [X] T113 [P] Measurements in `docs/db-capture.md`: overhead (SC-002) against H2 **and** one real database container (PostgreSQL) so the ratio reflects real statement latency, ingest throughput at 50 concurrent calls, window open time at 500 statements and end-to-end scroll of 50,000 stored rows (SC-005), `db-capture.db` growth per 1,000 calls
+- [X] T114 [P] Docs: finish `docs/db-capture.md`; update `CLAUDE.md` (what-this-is paragraph, gateway prefixes, non-obvious rules: agent + headers + flag default off + Relive-later seams), `AGENTS.md`, `docs/architecture.md` (new slice, bridges), `docs/supplier-integrations.md` (headers, flag file), `docs/frontend-architecture.md` (db-capture state/socket, call-tree explicit parents), `docs/testing.md` (agent tests, Java 8 run)
+- [X] T115 Security pass: grep agent and backend logs for SQL values/secret; confirm `X-Alfred-Call` spoofing is stripped; confirm no `innerHTML` in new components; confirm sandbox rejects write/attach statements
+- [X] T116 Full suites: backend `mvn test` (Docker), `db-agent` verify + Java 8 self-test, `python -m pytest proxy`, `npm test`, `npm run build`; walk through quickstart.md end to end
+- [X] T117 Commit Phase 7: `docs(db-capture): measurements, vendor verification and docs`
 
 ---
 

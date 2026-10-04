@@ -86,7 +86,49 @@ and re-imports it (`POST /db-capture/import`); Export .sql in the window writes 
 
 ## Measurements
 
-- Agent overhead (`OverheadMeasurementIT`, 50-statement call, H2 in memory, 1,000 iterations): ~19 us added per
-  statement on Java 8 (1.8.0_504) and Java 21 - against a real database round trip of 0.3-5 ms that is well inside
-  the 5 % budget. The main costs were the regex passes over the SQL and the stack walk for "where in code"; both are
-  now cached per SQL text / walked lazily (`StackWalker` on 9+, per-frame access on 8).
+All measured on the development machine (Windows, Docker Desktop), 2026-10-05.
+
+| What | Result |
+|---|---|
+| Agent cost per statement (`OverheadMeasurementIT`, 50-statement call, H2 in memory, 1,000 iterations) | ~17-21 us added per statement, Java 8 (1.8.0_504) and Java 21 alike (varies with machine load) |
+| Same call against PostgreSQL 16 in a container on the same host (a statement takes ~0.4 ms there) | +5 % to +8 % of the call - the worst case, a call that is nothing but back-to-back statements; a typical call (application and supplier time too, or a database on another machine) stays under the 5 % of SC-002 |
+| Ingest (`DbCaptureThroughputTest`): 1,000 calls x 20 statements arriving 50 at a time | ~3,900 statements/s into `db-capture.db` |
+| `db-capture.db` growth | ~19 MB per 1,000 calls of 20 statements with 5 rows each (~1 KB per statement incl. rows) |
+| Window: first page of a 500-statement call | ~20 ms server time |
+| Scrolling all 50,000 stored rows of one result, 100 at a time | ~3 ms per page server time |
+
+What made the agent cheap: the regex passes over the SQL (kind, table, fingerprint, ignore patterns) are cached per
+SQL text; "where in code" walks the stack lazily (`StackWalker` on 9+, per-frame access on 8) and caches each class's
+"application frame or not". A static-initialisation-order slip in that cache once silently fell back to full
+`Throwable` stack traces and quadrupled the cost - `OverheadMeasurementIT` is what showed it.
+
+## Vendor verification (SC-010)
+
+`VendorCaptureIT` (`-Pvendors`, Java 8 agent, real drivers) against PostgreSQL 16.15, MySQL 8.4.11, SQL Server 2022
+(16.0.4295) and Oracle Free 23.26: every column below is captured as readable text - nothing opaque - and parameters,
+rows, an UPDATE, a DELETE and a failure (with SQLState and vendor code) are all recorded.
+
+| Column | PostgreSQL | MySQL | SQL Server | Oracle |
+|---|---|---|---|---|
+| id | int8 `1042` | BIGINT `1042` | bigint `1042` | NUMBER `1042` |
+| amount | numeric `120.50` | DECIMAL `120.50` | decimal `120.50` | NUMBER `120.5` |
+| name | varchar `O'Brien` | VARCHAR `O'Brien` | nvarchar `O'Brien` | VARCHAR2 `O'Brien` |
+| note | text | TEXT | nvarchar(max) | CLOB (read in full) |
+| created | timestamp `2026-10-04 18:02:43.456` | DATETIME (same form) | datetime2 (same form) | TIMESTAMP (same form) |
+| day | date `2026-10-04` | DATE | date | DATE `2026-10-04 00:00:00.0` (Oracle DATE has a time) |
+| active | bool `true` | BIT `true` | bit `true` | NUMBER `1` |
+| data | bytea (base64) | BLOB (base64) | varbinary (base64) | BLOB (base64, read in full) |
+| ref_id | uuid | CHAR(36) | uniqueidentifier (upper-case) | RAW (base64) |
+| doc | jsonb `{"chargeId": "CHG-88213"}` | JSON | nvarchar | CLOB |
+| failure | 23505 duplicate key | 23000 / 1062 | 23000 / 2627 | 23000 / ORA-00001 |
+
+Found and fixed by this run: pgjdbc answers result-set metadata (`getColumnTypeName`) with a JDBC query of its own,
+which the agent captured and then read the metadata of - recursing into a StackOverflowError. Every agent-internal
+driver call now runs under the dispatcher's agent-work guard. CLOB/BLOB values were recorded as opaque placeholders;
+they are now read in full up to 16 MB (`truncatedAt` says when a longer one was cut). MySQL returns `DATETIME` as
+`LocalDateTime`; it is now written in the same form as every other timestamp.
+
+To repeat: start the four containers on one Docker network (`postgres:16-alpine`, `mysql:8.4`,
+`mcr.microsoft.com/mssql/server:2022-latest`, `gvenzl/oracle-free:23-slim-faststart`) and run, in `db-agent/`,
+`mvn -Pvendors test -Dtest=VendorCaptureIT` with `VENDOR_PG_URL`, `VENDOR_MYSQL_URL`, `VENDOR_MSSQL_URL`,
+`VENDOR_ORACLE_URL` (and `_USER`/`_PASSWORD`) set.

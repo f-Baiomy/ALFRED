@@ -1,5 +1,6 @@
 package com.fathy.alfred.dbagent.capture;
 
+import com.fathy.alfred.dbagent.AgentLog;
 import com.fathy.alfred.dbagent.transport.Value;
 import com.fathy.alfred.dbagent.values.ValueCodec;
 
@@ -53,6 +54,7 @@ final class ResultCapture {
                 byLabel.putIfAbsent(label.toLowerCase(Locale.ROOT), i);
             }
         } catch (Throwable t) {
+            AgentLog.failure("result columns", t);
             columns = new String[0][];
             byLabel = new HashMap<>();
         }

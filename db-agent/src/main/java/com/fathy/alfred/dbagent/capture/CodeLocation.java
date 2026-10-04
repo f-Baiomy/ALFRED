@@ -27,6 +27,12 @@ final class CodeLocation {
             "com.ibm.db2.", "org.junit.", "org.apache.maven.", "jdk.internal."
     };
 
+    /** Per class name: an application frame or not. A stack is mostly the same few hundred classes, and the prefix
+     *  scan was the walk's main cost. Bounded - cleared when it outgrows the limit. Declared
+     *  before WALKER: creating the walker already walks once. */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> SKIPPED = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final int CACHE_LIMIT = 8192;
+
     private static final Walker WALKER = Walker.create();
 
     private CodeLocation() {
@@ -52,19 +58,26 @@ final class CodeLocation {
 
     /** The location string when this frame belongs to the application, else null. */
     static String format(String cls, String method, String file, int line) {
-        if (skipped(cls) || cls.contains("$$")) {
+        if (skipped(cls)) {
             return null;
         }
         return cls.substring(cls.lastIndexOf('.') + 1) + "." + method + "(" + file + ":" + line + ")";
     }
 
     private static boolean skipped(String cls) {
-        for (String prefix : SKIP) {
-            if (cls.startsWith(prefix)) {
-                return true;
-            }
+        Boolean known = SKIPPED.get(cls);
+        if (known != null) {
+            return known;
         }
-        return false;
+        boolean skip = cls.contains("$$");
+        for (int i = 0; !skip && i < SKIP.length; i++) {
+            skip = cls.startsWith(SKIP[i]);
+        }
+        if (SKIPPED.size() >= CACHE_LIMIT) {
+            SKIPPED.clear();
+        }
+        SKIPPED.put(cls, skip);
+        return skip;
     }
 
     private abstract static class Walker {
@@ -121,7 +134,7 @@ final class CodeLocation {
                 while (it.hasNext()) {
                     Object frame = it.next();
                     String cls = (String) className.invoke(frame);
-                    if (skipped(cls) || cls.contains("$$")) {
+                    if (skipped(cls)) {
                         continue;
                     }
                     return format(cls, (String) methodName.invoke(frame), (String) fileName.invoke(frame), (Integer) lineNumber.invoke(frame));

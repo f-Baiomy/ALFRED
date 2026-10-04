@@ -38,6 +38,51 @@ class OverheadMeasurementIT {
         }
     }
 
+    /** The same call against a real database (VENDOR_PG_URL, -Pvendors): the ratio a real application sees. */
+    @Test
+    void againstPostgres() throws Exception {
+        String url = System.getenv("VENDOR_PG_URL");
+        org.junit.jupiter.api.Assumptions.assumeTrue(url != null && !url.isEmpty(), "VENDOR_PG_URL not set");
+        Connection h2 = connection;
+        connection = DriverManager.getConnection(url, System.getenv("VENDOR_PG_USER"), System.getenv("VENDOR_PG_PASSWORD"));
+        try {
+            try (Statement s = connection.createStatement()) {
+                s.execute("DROP TABLE IF EXISTS wallet");
+                s.execute("CREATE TABLE wallet (id BIGINT PRIMARY KEY, user_id BIGINT, balance DECIMAL(12,2), currency VARCHAR(3))");
+                for (int i = 0; i < 20; i++) {
+                    s.execute("INSERT INTO wallet VALUES (" + i + ", " + (i % 5) + ", 100.00, 'AED')");
+                }
+            }
+            for (int i = 0; i < 50; i++) {
+                timeCall("pg-warm-off-" + i, false);
+                timeCall("pg-warm-on-" + i, true);
+            }
+            AgentTestSupport.reset();
+            long off = 0;
+            long on = 0;
+            int iterations = 200;
+            for (int i = 0; i < iterations; i++) {
+                off += timeCall("pg-off-" + i, false);
+                on += timeCall("pg-on-" + i, true);
+                if (i % 50 == 49) {
+                    AgentTestSupport.reset();
+                }
+            }
+            double offMs = off / 1e6 / iterations;
+            double onMs = on / 1e6 / iterations;
+            System.out.printf("[overhead] PostgreSQL (container, same host), %d-statement call, %d iterations, Java %s: capture off %.2f ms/call,"
+                    + " on %.2f ms/call, +%.1f %%%n", STATEMENTS_PER_CALL, iterations, System.getProperty("java.version"), offMs, onMs,
+                    (onMs - offMs) / offMs * 100);
+            // A call that is nothing but 50 back-to-back statements on a same-host database is the worst case for the
+            // ratio (no application or supplier time at all) and swings with the machine; the stable number is the
+            // absolute cost per statement, as in the H2 test.
+            assertThat((onMs - offMs) * 1000 / STATEMENTS_PER_CALL).isLessThan(75.0);
+        } finally {
+            connection.close();
+            connection = h2;
+        }
+    }
+
     private static void oneCall() throws Exception {
         for (int i = 0; i < STATEMENTS_PER_CALL; i++) {
             if (i % 5 == 4) {

@@ -31,6 +31,8 @@ import java.util.Map;
 public final class ValueCodec {
 
     private static final Map<String, String> SETTER_TYPES = new HashMap<>();
+    /** Bytes (BLOB) or characters (CLOB) of a LOB the agent keeps - research D8's 16 MB tee. */
+    static final int MAX_LOB = 16 * 1024 * 1024;
 
     static {
         SETTER_TYPES.put("setString", "VARCHAR");
@@ -107,6 +109,11 @@ public final class ValueCodec {
             if (value instanceof byte[]) {
                 return Value.of(type, Base64.getEncoder().encodeToString((byte[]) value));
             }
+            if (value instanceof java.time.LocalDateTime) {
+                // the same form as java.sql.Timestamp ("2026-10-04 18:02:43.456"), so a value reads the same whichever
+                // getter the driver answers with - MySQL's getObject returns LocalDateTime for DATETIME
+                return Value.of(type, value.toString().replace('T', ' '));
+            }
             if (value instanceof java.time.temporal.TemporalAccessor || value instanceof java.util.UUID) {
                 return Value.of(type, value.toString());
             }
@@ -114,10 +121,19 @@ public final class ValueCodec {
                 return new Value(type, "<stream - not read by the agent>", true, null, null);
             }
             if (value instanceof Blob) {
-                return new Value(type, "<blob " + length((Blob) value) + " bytes>", true, null, null);
+                // A LOB the application fetched is read in full up to the agent's limit - the one value that can be cut,
+                // and then it says where (truncatedAt).
+                Blob blob = (Blob) value;
+                long length = blob.length();
+                int take = (int) Math.min(length, MAX_LOB);
+                String text = Base64.getEncoder().encodeToString(take == 0 ? new byte[0] : blob.getBytes(1, take));
+                return new Value(type, text, false, length > MAX_LOB ? (long) MAX_LOB : null, null);
             }
             if (value instanceof Clob) {
-                return new Value(type, "<clob " + length((Clob) value) + " chars>", true, null, null);
+                Clob clob = (Clob) value;
+                long length = clob.length();
+                int take = (int) Math.min(length, MAX_LOB);
+                return new Value(type, take == 0 ? "" : clob.getSubString(1, take), false, length > MAX_LOB ? (long) MAX_LOB : null, null);
             }
             if (value instanceof SQLXML) {
                 return new Value(type, "<sqlxml>", true, null, null);
@@ -195,22 +211,6 @@ public final class ValueCodec {
             return Arrays.deepToString((Object[]) values);
         }
         return String.valueOf(values);
-    }
-
-    private static long length(Blob blob) {
-        try {
-            return blob.length();
-        } catch (Throwable t) {
-            return -1;
-        }
-    }
-
-    private static long length(Clob clob) {
-        try {
-            return clob.length();
-        } catch (Throwable t) {
-            return -1;
-        }
     }
 
     static String jdbcName(int sqlType) {

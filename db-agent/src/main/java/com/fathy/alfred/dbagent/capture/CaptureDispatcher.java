@@ -54,6 +54,13 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     private final WeakIdentityMap<ConnectionState> connections = new WeakIdentityMap<>();
     private final ThreadLocal<int[]> executeDepth = ThreadLocal.withInitial(() -> new int[1]);
     private final ThreadLocal<int[]> transactionDepth = ThreadLocal.withInitial(() -> new int[1]);
+    /**
+     * Set while the agent itself talks to the driver (result-set metadata, the data-source name, a before-image read,
+     * cascade metadata). Drivers answer some of those with JDBC queries of their own - pgjdbc looks column types up in
+     * pg_type - and every hook must ignore them: recording them would be wrong, and reading THEIR metadata recursed
+     * until the stack overflowed (found against a real PostgreSQL, VendorCaptureIT).
+     */
+    private final ThreadLocal<int[]> agentWork = ThreadLocal.withInitial(() -> new int[1]);
     private final ConcurrentHashMap<Class<?>, Method> headerGetters = new ConcurrentHashMap<>();
 
     public CaptureDispatcher(StatementSink sink, AgentSettings settings, String agentId) {
@@ -61,6 +68,18 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         this.settings = settings;
         this.agentId = agentId;
         this.recorder = new Recorder(sink);
+    }
+
+    private boolean agentBusy() {
+        return agentWork.get()[0] > 0;
+    }
+
+    private void beginAgentWork() {
+        agentWork.get()[0]++;
+    }
+
+    private void endAgentWork() {
+        agentWork.get()[0]--;
     }
 
     public void flushStale() {
@@ -139,6 +158,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void statementCreated(Object connection, Object statement, String sql) {
+        if (agentBusy()) {
+            return;
+        }
         try {
             if (statement != null) {
                 statements.put(statement, new StatementState(connection, sql));
@@ -178,6 +200,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void parameter(Object statement, String method, Object[] args) {
+        if (agentBusy()) {
+            return;
+        }
         try {
             if (args == null || args.length == 0) {
                 return;
@@ -205,6 +230,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void addBatch(Object statement, Object[] args) {
+        if (agentBusy()) {
+            return;
+        }
         try {
             StatementState state = state(statement);
             synchronized (state) {
@@ -221,6 +249,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void clearParameters(Object statement) {
+        if (agentBusy()) {
+            return;
+        }
         try {
             StatementState state = statements.get(statement);
             if (state != null) {
@@ -238,7 +269,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     public Object executeEnter(Object statement, String method, Object[] args) {
         int[] depth = executeDepth.get();
         depth[0]++;
-        if (depth[0] > 1) {
+        if (depth[0] > 1 || agentBusy()) {
             return NESTED;
         }
         try {
@@ -288,7 +319,12 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             ConnectionState conn = connection(state.connection);
             if (conn != null) {
                 record.connectionId = conn.id;
-                record.dataSource = dataSource(conn, state.connection);
+                beginAgentWork();
+                try {
+                    record.dataSource = dataSource(conn, state.connection);
+                } finally {
+                    endAgentWork();
+                }
                 if (!conn.autoCommit && !"COMMIT".equals(record.kind) && !"ROLLBACK".equals(record.kind)) {
                     if (conn.txId == null && context != null) {
                         conn.txId = context.nextTxId();
@@ -303,7 +339,12 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                 }
             }
             if (!batch && state.connection instanceof Connection && ("DELETE".equals(record.kind) || "UPDATE".equals(record.kind))) {
-                beforeWrite(state, (Connection) state.connection, sql, record);
+                beginAgentWork();
+                try {
+                    beforeWrite(state, (Connection) state.connection, sql, record);
+                } finally {
+                    endAgentWork();
+                }
             }
             // The statement's own time starts here - after any before-image read, which is reported on its own.
             PendingStatement pending = new PendingStatement(record, context, System.nanoTime(), new Outcome("UPDATED"));
@@ -441,6 +482,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void resultSetOpened(Object statement, Object resultSet, String method) {
+        if (agentBusy()) {
+            return;
+        }
         try {
             if (resultSet == null) {
                 return;
@@ -464,6 +508,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void outParameterRead(Object statement, Object[] args, Object value) {
+        if (agentBusy()) {
+            return;
+        }
         try {
             StatementState state = statements.get(statement);
             PendingStatement p = state == null ? null : state.pending;
@@ -498,39 +545,58 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void resultSetNext(Object resultSet, boolean hasRow) {
+        if (agentBusy()) {
+            return;
+        }
+        beginAgentWork();
         try {
-            ResultCapture capture = resultSets.get(resultSet);
-            if (capture == null) {
-                return;
+            try {
+                ResultCapture capture = resultSets.get(resultSet);
+                if (capture == null) {
+                    return;
+                }
+                if (hasRow) {
+                    capture.startRow(resultSet, recorder);
+                } else {
+                    capture.commitRow(recorder);
+                    capture.exhausted = true;
+                }
+            } catch (Throwable t) {
+                AgentLog.failure("next", t);
             }
-            if (hasRow) {
-                capture.startRow(resultSet, recorder);
-            } else {
-                capture.commitRow(recorder);
-                capture.exhausted = true;
-            }
-        } catch (Throwable t) {
-            AgentLog.failure("next", t);
+        } finally {
+            endAgentWork();
         }
     }
 
     @Override
     public void resultSetGet(Object resultSet, String method, Object[] args, Object value) {
+        if (agentBusy()) {
+            return;
+        }
+        beginAgentWork();
         try {
-            if (args == null || args.length == 0) {
-                return;
+            try {
+                if (args == null || args.length == 0) {
+                    return;
+                }
+                ResultCapture capture = resultSets.get(resultSet);
+                if (capture != null) {
+                    capture.cell(resultSet, args[0], method, value);
+                }
+            } catch (Throwable t) {
+                AgentLog.failure("get", t);
             }
-            ResultCapture capture = resultSets.get(resultSet);
-            if (capture != null) {
-                capture.cell(resultSet, args[0], method, value);
-            }
-        } catch (Throwable t) {
-            AgentLog.failure("get", t);
+        } finally {
+            endAgentWork();
         }
     }
 
     @Override
     public void resultSetWasNull(Object resultSet, boolean wasNull) {
+        if (agentBusy()) {
+            return;
+        }
         if (!wasNull) {
             return;
         }
@@ -546,26 +612,34 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void resultSetClosed(Object resultSet) {
+        if (agentBusy()) {
+            return;
+        }
+        beginAgentWork();
         try {
-            ResultCapture capture = resultSets.remove(resultSet);
-            if (capture == null) {
-                return;
-            }
-            capture.ensureColumns(resultSet);
-            capture.commitRow(recorder);
-            PendingStatement p = capture.pending;
-            if (capture.mode == ResultCapture.Mode.KEYS) {
-                synchronized (p) {
-                    p.outcome.generatedKeys = capture.keys;
+            try {
+                ResultCapture capture = resultSets.remove(resultSet);
+                if (capture == null) {
+                    return;
                 }
-                return;
+                capture.ensureColumns(resultSet);
+                capture.commitRow(recorder);
+                PendingStatement p = capture.pending;
+                if (capture.mode == ResultCapture.Mode.KEYS) {
+                    synchronized (p) {
+                        p.outcome.generatedKeys = capture.keys;
+                    }
+                    return;
+                }
+                synchronized (p) {
+                    p.outcome.partial = !capture.exhausted;
+                }
+                recorder.finish(p);
+            } catch (Throwable t) {
+                AgentLog.failure("result set close", t);
             }
-            synchronized (p) {
-                p.outcome.partial = !capture.exhausted;
-            }
-            recorder.finish(p);
-        } catch (Throwable t) {
-            AgentLog.failure("result set close", t);
+        } finally {
+            endAgentWork();
         }
     }
 
@@ -573,6 +647,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void autoCommit(Object connection, boolean autoCommit) {
+        if (agentBusy()) {
+            return;
+        }
         try {
             ConnectionState conn = connection(connection);
             if (conn == null) {
@@ -591,7 +668,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     public Object transactionEnter(Object connection, String method, Object[] args) {
         int[] depth = transactionDepth.get();
         depth[0]++;
-        if (depth[0] > 1) {
+        if (depth[0] > 1 || agentBusy()) {
             return NESTED;
         }
         return new TxCall(connection, method, args != null && args.length > 0);

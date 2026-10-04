@@ -274,3 +274,19 @@ Body keys match by name at any depth including inside arrays, since a token nest
 **The cycle widget's sorting, spacers and "Show in cycle".** The cycle list sorts by newest, oldest, recording first or name, and the waterfall by oldest or newest first. Only those two for calls, because a tree only reads in time order; sub-calls always stay chronological. Both choices are remembered per browser. The widget shows, adds, renames and deletes the cycle's own spacers through the existing spacer endpoints. `MiniWaterfallComponent` places them with the same `layoutSpacers` (plus `rootIndex` for spacers anchored to a nested call) as the cycle page's waterfall, so a spacer sits in the same place in both. The minimized pill's spacer goes after the latest call in the cycle (`CycleWidgetStateService.latestAnchor`), so it marks "now" while recording. Spacer changes aren't pushed live between the widget and an open cycle page: there's no spacer WebSocket, so the other side sees them on its next load. Clicking a call in the widget opens its detail with **Show in cycle**, which calls `CallFocusService.revealIn`. That opens `/cycles/<id>?reveal=<callId>`, unlike `go()`'s `?requestId=` filter, so every call stays listed. The page then switches on the call's source (and OPTIONS for a preflight), unfolds its parents, and once the call is in the DOM points at it with `pointAtCall` (`shared/utils/call-reveal.ts`): a "This call" tag and a pulsing outline that stays until the next click or key press. It works in the flat, nested and waterfall views alike (`#call-row-<id>` or `[data-call-row]`). The page removes `?reveal=` once it has pointed, so a reload doesn't point again.
 
 **"Show OPTIONS" is one rule everywhere.** `isPreflight` (`shared/utils/call-utils.ts`) drives the filter in `createCallListView` (Live Calls and every cycle page) and in the cycle widget. Off, the default and remembered in `alfred_show_options_calls`, hides every OPTIONS call, failed ones included; on, shows them all. Other failed calls always show. When a cycle holds nothing but hidden preflights, as one recorded against a refusing upstream does (the browser never sends the real request after a failed preflight), the widget's waterfall says so and offers **Show OPTIONS** rather than looking empty.
+
+## Database capture (`components/db-capture/*`)
+
+- `DbCaptureStateService` (root) owns the one `/ws/db-capture` socket, the per-project switches (the same switch is
+  rendered by the Sources bar, the cycle widget's Log DB column and Settings → Database capture - one signal, three
+  views) and the ◆ DB chip summaries, batched: every chip on a page asks in the same microtask and one
+  `GET /db-capture/summaries` answers them. No timers - `statements-appended` / `capture-settings-changed` trigger
+  the refetches.
+- The database window is rendered once by `DbWindowHostComponent` in the app shell (`@defer`, so its code loads on
+  first open) and opened through `DbWindowService` from any chip. Its view state is a per-window `DbWindowState`
+  provider shared by the statement list, rows table and details. Statements load in pages of 500; rows 100 at a time
+  in a fixed box; search/SQL over rows and statements run on the server.
+- `call-tree.ts` prefers an outbound call's exact parent (`parentCallId`, from the agent's `X-Alfred-Parent`) over the
+  time-window guess, and orders siblings by `parentSeq`.
+- Exports: `db-export-section.ts` renders the Database section for .md/.html; `bulk-json-builder.ts`/`import-parser.ts`
+  carry `dbCapture`; `redact.ts` masks `db-column` redactions (via `sql-param-columns.ts`) - the window is never masked.

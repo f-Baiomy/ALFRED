@@ -150,3 +150,15 @@ history to find a live session value without paying to walk an entire deployment
 answer "what's the newest header this host has seen."
 
 **Security posture:** DTOs validated via `@Valid` + `GlobalExceptionHandler`; `GET /calls?limit=` clamped; deletes return 404/204/409 (`409` = session-cycle still recording, must pause first) via explicit outcome enums, not re-derived checks; CORS origins and webhook secret (`X-Webhook-Secret` vs `alfred.webhook.secret`/`WEBHOOK_SECRET`) are env-configurable, default permissive; adapters never swallow file I/O errors silently (SLF4J WARN/ERROR) and check writability at `@PostConstruct`.
+
+## Database capture (`backend-db-capture`, `db-agent/`)
+
+A leaf slice with its own SQLite file (`db-capture.db`, SQLite only - no file adapter): statements, their stored rows
+(`result_rows`, paged), transactions, per-call markers (CALL_OPEN, HTTP_OUT) and a per-call summary that the ◆ DB chip
+reads. It knows no other slice; everything cross-slice goes through `backend-app/dbcapturebridge`:
+`InboundCallCompletionAdapter` (a `NewInternalCallObserverPort` - marks swallowed failures, "ended early"),
+`RetainedCallIdsAdapter` (calls a session cycle holds survive the size cap), `InboundProjectsAdapter` (projects and
+their inbound-logging switch), and `relivebridge/RelatedCallsDeletionAdapter` deletes a Relive run's statements by
+run tag. Queries over recorded data run in `InMemoryQuerySandbox` - a fresh in-memory SQLite per request, never
+`db-capture.db`. The agent (`db-agent/`, Java 8 bytecode, ByteBuddy shaded) is not part of the reactor. See
+docs/db-capture.md.

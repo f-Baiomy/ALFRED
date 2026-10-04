@@ -108,12 +108,14 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             throw new UncheckedIOException("Could not create directory for " + dbFile, e);
         }
         HikariConfig config = new HikariConfig();
-        // IMMEDIATE for the same reason as logs.db: ingest reads (does this sid exist?) then writes.
-        config.setJdbcUrl("jdbc:sqlite:" + path + "?transaction_mode=IMMEDIATE");
+        // IMMEDIATE: ingest reads (does this sid exist?) then writes. Every pragma goes in the URL, never a compound
+        // connectionInitSql - the driver runs only the FIRST statement of that string, which left busy_timeout at its
+        // 3 s default and made concurrent agent batches fail with SQLITE_BUSY (DbCaptureThroughputTest; the same trap
+        // SqliteCallsRepository documents).
+        config.setJdbcUrl("jdbc:sqlite:" + path + "?transaction_mode=IMMEDIATE&journal_mode=WAL&synchronous=NORMAL&busy_timeout=30000"
+                + "&cache_size=-8192&temp_store=MEMORY");
         config.setMaximumPoolSize(4);
         config.setPoolName("db-capture-sqlite-pool");
-        config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000; "
-                + "PRAGMA cache_size=-8192; PRAGMA temp_store=MEMORY;");
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
         this.transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));

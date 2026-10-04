@@ -1,8 +1,9 @@
 # Contract: agent → backend
 
 All agent endpoints require `X-Webhook-Secret` (the existing `alfred.webhook.secret`); a wrong or missing secret is
-`401` with no body. Bodies are JSON, `Content-Encoding: gzip` accepted. Served under the `/db-capture` prefix, which
-is added to the gateway regex.
+`401` with no body. Bodies are plain JSON (the agent does not compress: batches are small and sent on the same host
+or LAN, and skipping gzip keeps the agent JDK-only). Served under the `/db-capture` prefix, which is added to the
+gateway regex.
 
 ## Agent arguments
 
@@ -35,13 +36,16 @@ uses):
   "rowsPerResult": 50000,
   "beforeImageTables": ["payment_holds", "loyalty_pending"],
   "outsideCallCapture": true,
+  "captureEnabled": true,
   "ignorePatterns": ["SELECT 1", "QRTZ_%"]
 }
 ```
+`captureEnabled` is the project's switch (the flag file). Inside calls the agent follows `db=` in `X-Alfred-Call`;
+outside calls it captures only when `captureEnabled` AND `outsideCallCapture` are both true.
 
 ## `POST /db-capture/agent/batch`
 
-Request (≤ 2,000 statements, ≤ 32 MB decompressed):
+Request (≤ 2,000 statements, ≤ 32 MB):
 ```json
 {
   "agentId": "b1f…", "project": "wallet-app", "droppedSinceLastBatch": 0,

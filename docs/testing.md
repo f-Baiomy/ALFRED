@@ -18,3 +18,19 @@ No test suite/linter for `proxy` beyond the Docker build itself.
 - Export builders (`markdown-builder.spec.ts`, `bulk-json-builder.spec.ts`, `curl-builder.spec.ts`, `html-builder.spec.ts`) specifically assert against large generated bodies to guard the no-truncation requirement (see docs/architecture.md) — don't weaken these into small fixtures when refactoring.
 - `npm run build` (`ng build`) is the production build; output in `dist/frontend/browser`.
 - **`call-card.component.spec.ts` is the first full-component (`TestBed.createComponent` + `HttpTestingController`) test in this codebase** - everything else tests pure functions or services in isolation. Justified here because the behavior under test (an `IntersectionObserver`-gated fetch) only exists as an interaction between a real DOM element, a real component lifecycle, and a real HTTP call - there's no smaller unit to extract it into. It mocks the global `window.IntersectionObserver` (capturing each instance's callback so a test can invoke it manually) since Karma's test fixtures aren't attached to a visible viewport, so a real browser `IntersectionObserver` never reports true intersection there - a bug gated on "don't fetch until visible" would otherwise pass its tests while being broken live (which is exactly what happened once - see docs/frontend-architecture.md).
+
+## Database capture agent (`db-agent/`, `mvn verify`)
+
+- The agent is tested by **installing it into the test JVM** (ByteBuddy self-attach - the same Attach-API path
+  `wildfly-proxy-toggle` uses against WildFly) with a collecting sink instead of the HTTP sender
+  (`AgentTestSupport`). H2 and a thread pool are used *before* the attach so every test exercises retransformation of
+  already-loaded driver classes - the production case. Calls are opened through the instrumented `HttpServlet.service`
+  with the `X-Alfred-Call` header, exactly as in production.
+- Run on **Java 8 and Java 21** - the owner's applications run Java 8:
+  `docker run ... maven:3.9-eclipse-temurin-8 mvn -B verify` and the same with `temurin-21`. A lambda in a class whose
+  static initialiser runs during the attach deadlocks; use an anonymous class there (see `AgentTestSupport`).
+- `OverheadMeasurementIT` prints the per-statement cost; `VendorCaptureIT` runs against real PostgreSQL, MySQL,
+  SQL Server and Oracle only with `-Pvendors` and `VENDOR_<DB>_URL`/`_USER`/`_PASSWORD` set (otherwise skipped) - see
+  docs/db-capture.md for the containers and the results.
+- `backend-db-capture`: repository and lifecycle tests run against a real SQLite file in `@TempDir`; the query sandbox
+  test proves a user's SQL cannot write, attach, run twice or outlive 3 s.

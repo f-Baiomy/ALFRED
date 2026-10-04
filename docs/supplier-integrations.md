@@ -86,3 +86,14 @@ Alfred runs **two** mitmproxy services in `docker-compose.yml`, one per traffic 
 - `stop.py` = detach the outbound Attach-API proxy, remove WildFly's port-offset (`sync-wildfly-port-offset.py --disable`), then `docker compose down --remove-orphans`.
 - `frontend/.dockerignore` / `backend/.dockerignore` exist specifically to stop `node_modules`/module `target/` dirs from bloating the Docker build context on every rebuild — check these first if a build reports a suspiciously large context.
 - `docker_storage_report.py` — standalone diagnostic/cleanup for Docker's own disk usage (images/containers/volumes/build cache/log sizes, plus WSL2 vhdx size on Windows) with an optional safe-cleanup pass (`--yes`/`--no-clean`/`--log-threshold-mb`/`--compact-vhdx`) — never touches volumes, so it can't lose call history.
+
+## Database capture headers and switch
+
+- **`X-Alfred-Call: id=<callId>; db=<0|1>[; run=<runId>/<stepKey>]`** - added by `log_and_route_reverse.py` to every
+  inbound request it forwards while that project's inbound logging is on (a client-sent copy is always stripped, so it
+  cannot be spoofed). `db=1` only when the project's line in `proxy/db-capture-enabled.flag` says `on` (a missing
+  line or file is **off**). The db-agent inside the application reads it at the servlet entry.
+- **`X-Alfred-Parent: <callId>; seq=<n>`** - added by the agent to the application's outbound requests;
+  `log_and_route.py` pops it (the supplier never sees it) and stores `parent_call_id`/`parent_seq` on the outbound
+  call, which is how the call tree and the database window place supplier calls exactly between statements.
+- Both are documented in `specs/006-db-capture/contracts/proxy-headers.md` and docs/db-capture.md.
