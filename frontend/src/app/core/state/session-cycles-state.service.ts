@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Observable, Subject, forkJoin, merge, of, timer } from 'rxjs';
-import { catchError, map, switchMap, tap } from 'rxjs/operators';
+import { catchError, filter, map, share, switchMap, tap } from 'rxjs/operators';
 import { reconnectingSocket } from './reconnecting-socket';
 import { SessionCycle } from '../models/call.model';
 import { AppConfigService } from '../services/app-config.service';
@@ -39,6 +39,16 @@ export class SessionCyclesStateService {
   private readonly changed$ = reconnectingSocket<unknown>(
     this.config.backendUrl.replace(/^http/, 'ws') + '/ws/session-cycles',
     () => this.manualRefresh.next()
+  ).pipe(share());
+
+  /**
+   * The id of a cycle whose contents (captured calls or spacers) just changed - cleared, removed,
+   * copied or imported in, a spacer added/renamed/moved/deleted - from any page or window. Live
+   * capture is not on this channel: each captured call arrives on the calls sockets.
+   */
+  readonly contentChanged$: Observable<string> = this.changed$.pipe(
+    filter((m): m is { type: string; cycleId: string } => (m as { type?: string } | null)?.type === 'cycle-content-changed'),
+    map((m) => m.cycleId)
   );
 
   private readonly polled$ = merge(timer(0), this.manualRefresh, this.changed$).pipe(

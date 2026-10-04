@@ -197,6 +197,7 @@ class SessionCyclesServiceTest {
         when(metadataStore.findById("missing")).thenReturn(Optional.empty());
 
         assertThat(service.clearCalls("missing")).isFalse();
+        verify(notificationPort, never()).notifyCycleContentChanged(any());
         verify(capturedCallsStore, never()).deleteAllForCycle(any());
         verify(capturedInternalCallsStore, never()).deleteAllForCycle(any());
     }
@@ -210,6 +211,8 @@ class SessionCyclesServiceTest {
         verify(capturedCallsStore).deleteAllForCycle("c1");
         verify(capturedInternalCallsStore).deleteAllForCycle("c1");
         verify(spacersStore).deleteAllForCycle("c1");
+        // Every open view of this cycle (its page, the session-cycle widget in any window) reloads.
+        verify(notificationPort).notifyCycleContentChanged("c1");
     }
 
     @Test
@@ -324,6 +327,7 @@ class SessionCyclesServiceTest {
 
         assertThat(service.removeCall("c1", "call-1")).isTrue();
         verify(capturedCallsStore).removeById(eq("c1"), eq("call-1"));
+        verify(notificationPort).notifyCycleContentChanged("c1");
     }
 
     @Test
@@ -349,6 +353,7 @@ class SessionCyclesServiceTest {
         service.removeCall("c1", "missing");
 
         verify(spacersStore, never()).dropAnchorsTo(any(), any());
+        verify(notificationPort, never()).notifyCycleContentChanged(any());
     }
 
     @Test

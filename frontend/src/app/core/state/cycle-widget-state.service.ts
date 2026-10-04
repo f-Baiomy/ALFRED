@@ -223,6 +223,9 @@ export class CycleWidgetStateService {
       reconnectingSocket<InternalCallsWsMessage>(`${wsBase}/ws/internal-calls`, () => this.reload()).subscribe((m) =>
         this.onWsMessage(m, 'internal')
       ),
+      // Calls cleared, removed, copied or imported into this cycle, or its spacers changed - on the
+      // cycle's page, another window, or by another user.
+      this.cyclesState.contentChanged$.subscribe((cycleId) => this.onCycleContentChanged(cycleId)),
     ];
     this.load(this.selectedCycle()?.id ?? null);
   }
@@ -403,6 +406,11 @@ export class CycleWidgetStateService {
       this.announced.clear();
       for (const c of this.calls()) this.announced.add(c.id);
     });
+  }
+
+  /** Another view changed a cycle's calls or spacers: reload when it is the one shown here. */
+  private onCycleContentChanged(cycleId: string): void {
+    if (cycleId === this.selectedCycle()?.id) this.reload();
   }
 
   private onWsMessage(message: CallsWsMessage | InternalCallsWsMessage, source: CallEndpointSource): void {

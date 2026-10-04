@@ -114,6 +114,22 @@ describe('CycleWidgetStateService', () => {
     expect(localStorage.getItem('alfred-cycle-widget-cycle-sort')).toBe('name');
   });
 
+  it('reloads its cycle when that cycle is cleared or edited elsewhere, and ignores other cycles', () => {
+    const { state, api } = setup([cycle({ id: 'c1' })], { external: [call('a', 'external', {}, 0), call('b', 'external', {}, 1000)] });
+    load(state);
+    expect(state.calls().length).toBe(2);
+    const changed = (id: string) => (state as unknown as { onCycleContentChanged(id: string): void }).onCycleContentChanged(id);
+
+    // "Clear all calls" on the cycle's page (or another window): the backend now holds nothing.
+    api.listCalls.and.returnValue(of({ calls: [], total: 0 }));
+    api.listSpacers.and.returnValue(of([]));
+    changed('another-cycle');
+    expect(state.calls().length).toBe(2);
+    changed('c1');
+    expect(state.calls()).toEqual([]);
+    expect(state.spacers()).toEqual([]);
+  });
+
   it('orders the waterfall roots oldest or newest first', () => {
     const { state } = setup([cycle({ id: 'c1' })], { external: [call('first', 'external', {}, 0), call('second', 'external', {}, 5000)] });
     load(state);

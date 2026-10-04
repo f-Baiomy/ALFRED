@@ -11,6 +11,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCaptured
 import com.fathy.alfred.backend.sessioncycles.application.port.in.RemoveCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedInternalCallsStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CycleSpacersStorePort;
+import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallSummary;
@@ -60,10 +61,24 @@ public class SessionCyclesInternalCallsService implements
     @Value("${alfred.session-cycles.pagination-enabled:false}")
     private boolean paginationEnabled;
 
-    public SessionCyclesInternalCallsService(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore, CycleSpacersStorePort spacersStore) {
+    private final SessionCycleNotificationPort notificationPort;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SessionCyclesInternalCallsService(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore,
+                                             CycleSpacersStorePort spacersStore, SessionCycleNotificationPort notificationPort) {
         this.metadataStore = metadataStore;
         this.capturedInternalCallsStore = capturedInternalCallsStore;
         this.spacersStore = spacersStore;
+        this.notificationPort = notificationPort;
+    }
+
+    /** Without change signals (tests). */
+    public SessionCyclesInternalCallsService(SessionCycleMetadataStorePort metadataStore, CapturedInternalCallsStorePort capturedInternalCallsStore, CycleSpacersStorePort spacersStore) {
+        this(metadataStore, capturedInternalCallsStore, spacersStore, new SessionCycleNotificationPort() {
+            @Override
+            public void notifySessionCyclesChanged() {
+            }
+        });
     }
 
     /** Mirrors SessionCyclesService.listCalls exactly, delegating to CapturedInternalCallsStorePort instead. */
@@ -110,6 +125,9 @@ public class SessionCyclesInternalCallsService implements
         if (removed && underlyingCallId != null) {
             spacersStore.dropAnchorsTo(cycleId, List.of(underlyingCallId));
         }
+        if (removed) {
+            notificationPort.notifyCycleContentChanged(cycleId);
+        }
         return removed;
     }
 
@@ -123,6 +141,9 @@ public class SessionCyclesInternalCallsService implements
                     .toList();
             int removed = capturedInternalCallsStore.removeByIds(cycleId, callIds);
             spacersStore.dropAnchorsTo(cycleId, underlyingCallIds);
+            if (removed > 0) {
+                notificationPort.notifyCycleContentChanged(cycleId);
+            }
             return new RemoveCallsResult(removed, callIds.size() - removed);
         });
     }
@@ -154,6 +175,9 @@ public class SessionCyclesInternalCallsService implements
                 }
                 capturedInternalCallsStore.append(cycleId, call);
                 added++;
+            }
+            if (added > 0) {
+                notificationPort.notifyCycleContentChanged(cycleId);
             }
             return new CopyCallsResult(added, skipped);
         });

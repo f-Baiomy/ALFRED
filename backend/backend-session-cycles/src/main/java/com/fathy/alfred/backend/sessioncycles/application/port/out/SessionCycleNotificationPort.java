@@ -10,4 +10,13 @@ package com.fathy.alfred.backend.sessioncycles.application.port.out;
 public interface SessionCycleNotificationPort {
 
     void notifySessionCyclesChanged();
+
+    /**
+     * One cycle's contents changed - its captured calls (cleared, removed, copied or imported in) or its
+     * spacers - by anyone, from any page or window. Live capture is not signalled here: each captured
+     * call already arrives on the calls sockets. Carries the cycle id so a view showing another cycle
+     * ignores it (the session-cycle widget, possibly in its own window, reloads only its own cycle).
+     */
+    default void notifyCycleContentChanged(String cycleId) {
+    }
 }

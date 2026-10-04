@@ -18,4 +18,10 @@ public class WebSocketSessionCycleNotificationAdapter implements SessionCycleNot
     public void notifySessionCyclesChanged() {
         handler.broadcast(CHANGED_EVENT);
     }
+
+    @Override
+    public void notifyCycleContentChanged(String cycleId) {
+        // Cycle ids are generated ids (letters, digits, '-'), but escape quotes anyway: this is hand-built JSON.
+        handler.broadcast("{\"type\":\"cycle-content-changed\",\"cycleId\":\"" + cycleId.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}");
+    }
 }

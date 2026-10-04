@@ -208,6 +208,7 @@ public class SessionCyclesService implements
         capturedCallsStore.deleteAllForCycle(id);
         capturedInternalCallsStore.deleteAllForCycle(id);
         spacersStore.deleteAllForCycle(id);
+        notificationPort.notifyCycleContentChanged(id);
         return true;
     }
 
@@ -265,6 +266,9 @@ public class SessionCyclesService implements
         if (removed && underlyingCallId != null) {
             spacersStore.dropAnchorsTo(cycleId, List.of(underlyingCallId));
         }
+        if (removed) {
+            notificationPort.notifyCycleContentChanged(cycleId);
+        }
         return removed;
     }
 
@@ -278,6 +282,9 @@ public class SessionCyclesService implements
                     .toList();
             int removed = capturedCallsStore.removeByIds(cycleId, callIds);
             spacersStore.dropAnchorsTo(cycleId, underlyingCallIds);
+            if (removed > 0) {
+                notificationPort.notifyCycleContentChanged(cycleId);
+            }
             return new RemoveCallsResult(removed, callIds.size() - removed);
         });
     }
@@ -327,7 +334,11 @@ public class SessionCyclesService implements
 
     @Override
     public Optional<CycleSpacer> createSpacer(String cycleId, String label, String afterCallId, String anchorTimestamp) {
-        return metadataStore.findById(cycleId).map(cycle -> spacersStore.create(cycleId, label, afterCallId, anchorTimestamp));
+        return metadataStore.findById(cycleId).map(cycle -> {
+            CycleSpacer created = spacersStore.create(cycleId, label, afterCallId, anchorTimestamp);
+            notificationPort.notifyCycleContentChanged(cycleId);
+            return created;
+        });
     }
 
     @Override
@@ -335,7 +346,7 @@ public class SessionCyclesService implements
         if (metadataStore.findById(cycleId).isEmpty()) {
             return Optional.empty();
         }
-        return spacersStore.rename(cycleId, spacerId, label);
+        return spacersStore.rename(cycleId, spacerId, label).map(this.<CycleSpacer>signalled(cycleId));
     }
 
     @Override
@@ -343,12 +354,24 @@ public class SessionCyclesService implements
         if (metadataStore.findById(cycleId).isEmpty()) {
             return Optional.empty();
         }
-        return spacersStore.move(cycleId, spacerId, afterCallId, anchorTimestamp);
+        return spacersStore.move(cycleId, spacerId, afterCallId, anchorTimestamp).map(this.<CycleSpacer>signalled(cycleId));
     }
 
     @Override
     public boolean deleteSpacer(String cycleId, String spacerId) {
-        return spacersStore.delete(cycleId, spacerId);
+        boolean deleted = spacersStore.delete(cycleId, spacerId);
+        if (deleted) {
+            notificationPort.notifyCycleContentChanged(cycleId);
+        }
+        return deleted;
+    }
+
+    /** Passes a result through after signalling that this cycle's contents changed. */
+    private <T> java.util.function.Function<T, T> signalled(String cycleId) {
+        return result -> {
+            notificationPort.notifyCycleContentChanged(cycleId);
+            return result;
+        };
     }
 
     /**
@@ -377,6 +400,9 @@ public class SessionCyclesService implements
                 }
                 capturedCallsStore.append(cycleId, call);
                 added++;
+            }
+            if (added > 0) {
+                notificationPort.notifyCycleContentChanged(cycleId);
             }
             return new CopyCallsResult(added, skipped);
         });
