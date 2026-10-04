@@ -391,8 +391,25 @@ public class SqliteLogLineStoreAdapter implements LogLineStorePort {
         return present.contains(fc) ? rs.getString(fc) : null;
     }
 
-    private String order(LogQuery q) {
-        return q.sort() != null && q.sort().ascending() ? "ts_ms ASC, rid ASC" : "ts_ms DESC, rid DESC";
+    /**
+     * The column a field sort orders by, or null for time order. A field's typed shadow column when it
+     * has one (numbers sort as numbers, datetimes as instants), else its text; the level role's first
+     * field sorts by the line's level, like its filters.
+     */
+    private String sortCol(LogStructure s, LogQuery q) {
+        if (q.sort() == null || q.sort().field() == null || q.sort().field().isBlank()) {
+            return null;
+        }
+        FieldDef f = s.byLabel(q.sort().field()).filter(FieldDef::stored)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown field to sort by: " + q.sort().field()));
+        return SqliteLogQueryTranslator.filterCol(s, f, true);
+    }
+
+    /** Time order, or a field's order with lines lacking the field last (time breaks ties). */
+    private String order(LogStructure s, LogQuery q) {
+        String dir = q.sort() != null && q.sort().ascending() ? "ASC" : "DESC";
+        String col = sortCol(s, q);
+        return col == null ? "ts_ms " + dir + ", rid " + dir : "(" + col + " IS NULL) ASC, " + col + " " + dir + ", ts_ms " + dir + ", rid " + dir;
     }
 
     @Override
@@ -440,30 +457,45 @@ public class SqliteLogLineStoreAdapter implements LogLineStorePort {
         List<Object> params = new ArrayList<>(w.params());
         params.addAll(extraParams);
         boolean asc = q.sort() != null && q.sort().ascending();
+        String sc = sortCol(s, q);
+        String cmp = asc ? ">" : "<";
         String keyset = "";
         List<Object> keyParams = new ArrayList<>();
         if (q.cursor() != null && !q.cursor().isBlank()) {
-            String[] c = q.cursor().split(":");
-            long ts = Long.parseLong(c[0]);
-            long rid = Long.parseLong(c[1]);
-            keyset = asc ? " AND (ts_ms > ? OR (ts_ms = ? AND rid > ?))" : " AND (ts_ms < ? OR (ts_ms = ? AND rid < ?))";
-            keyParams.addAll(List.of(ts, ts, rid));
+            if (sc == null) {
+                String[] c = q.cursor().split(":");
+                long ts = Long.parseLong(c[0]);
+                long rid = Long.parseLong(c[1]);
+                keyset = " AND (ts_ms " + cmp + " ? OR (ts_ms = ? AND rid " + cmp + " ?))";
+                keyParams.addAll(List.of(ts, ts, rid));
+            } else {
+                FieldCursor fc = FieldCursor.parse(q.cursor());
+                String tie = "(ts_ms " + cmp + " ? OR (ts_ms = ? AND rid " + cmp + " ?))";
+                if (fc.value() == null) {
+                    keyset = " AND (" + sc + " IS NULL AND " + tie + ")";
+                    keyParams.addAll(List.of(fc.ts(), fc.ts(), fc.rid()));
+                } else {
+                    keyset = " AND ((" + sc + " IS NOT NULL AND (" + sc + " " + cmp + " ? OR (" + sc + " = ? AND " + tie + "))) OR "
+                            + sc + " IS NULL)";
+                    keyParams.addAll(List.of(fc.value(), fc.value(), fc.ts(), fc.ts(), fc.rid()));
+                }
+            }
         }
         List<Object> all = new ArrayList<>(params);
         all.addAll(keyParams);
         all.add(q.limit() + 1);
         List<Object[]> rows = new ArrayList<>();
-        List<LogLineSummary> lines = jdbc().query("SELECT " + summaryCols(sourceId, fields) + " FROM " + ll + " WHERE " + where + keyset
-                        + " ORDER BY " + order(q) + " LIMIT ?",
+        List<LogLineSummary> lines = jdbc().query("SELECT " + summaryCols(sourceId, fields) + (sc == null ? "" : ", " + sc + " AS sort_v")
+                        + " FROM " + ll + " WHERE " + where + keyset + " ORDER BY " + order(s, q) + " LIMIT ?",
                 (rs, i) -> {
-                    rows.add(new Object[]{rs.getLong("ts_ms"), rs.getLong("rid")});
+                    rows.add(new Object[]{rs.getLong("ts_ms"), rs.getLong("rid"), sc == null ? null : rs.getObject("sort_v")});
                     return summary(rs, fields);
                 }, all.toArray());
         String next = null;
         if (lines.size() > q.limit()) {
             lines = new ArrayList<>(lines.subList(0, q.limit()));
             Object[] last = rows.get(q.limit() - 1);
-            next = last[0] + ":" + last[1];
+            next = sc == null ? last[0] + ":" + last[1] : new FieldCursor(last[2], (Long) last[0], (Long) last[1]).encode();
         }
         long total = -1;
         if (q.cursor() == null || q.cursor().isBlank()) {
@@ -584,7 +616,9 @@ public class SqliteLogLineStoreAdapter implements LogLineStorePort {
         List<Map<String, Long>> counts = new ArrayList<>();
         cols.forEach(f -> counts.add(new HashMap<>()));
         long[] rows = {0};
-        String select = cols.isEmpty() ? "rid" : cols.stream().map(SqliteLogQueryTranslator::text).collect(Collectors.joining(", "));
+        // The level field counts the line's level - what its filter matches (SqliteLogQueryTranslator.isLevelField).
+        String select = cols.isEmpty() ? "rid" : cols.stream().map(f -> SqliteLogQueryTranslator.filterCol(structure, f, false))
+                .collect(Collectors.joining(", "));
         jdbc().query("SELECT " + select + " FROM " + SqliteLogsRepository.lines(sourceId) + " WHERE " + w.where()
                 + " ORDER BY ts_ms DESC, rid DESC LIMIT ?", rs -> {
             rows[0]++;
@@ -719,7 +753,7 @@ public class SqliteLogLineStoreAdapter implements LogLineStorePort {
         List<Long> errors = new ArrayList<>(Collections.nCopies(buckets, 0L));
         List<Long> warns = new ArrayList<>(Collections.nCopies(buckets, 0L));
         jdbc().query("SELECT b, sum(m) m, sum(level = 'ERROR') e, sum(level = 'WARN') wn FROM ("
-                + "SELECT CASE WHEN " + cond + " THEN 1 ELSE 0 END m, level, ntile(?) OVER (ORDER BY " + order(query) + ") b FROM "
+                + "SELECT CASE WHEN " + cond + " THEN 1 ELSE 0 END m, level, ntile(?) OVER (ORDER BY " + order(structure, query) + ") b FROM "
                 + ll + " WHERE " + where + ") GROUP BY b", rs -> {
             int b = rs.getInt("b") - 1;
             if (b >= 0 && b < buckets) {
@@ -938,7 +972,7 @@ public class SqliteLogLineStoreAdapter implements LogLineStorePort {
         List<Object> p = new ArrayList<>(w.params());
         p.add(max);
         return jdbc().queryForList("SELECT line_id FROM " + SqliteLogsRepository.lines(sourceId) + " WHERE " + w.where()
-                + " ORDER BY " + order(query) + " LIMIT ?", String.class, p.toArray());
+                + " ORDER BY " + order(structure, query) + " LIMIT ?", String.class, p.toArray());
     }
 
     @Override
@@ -1315,5 +1349,31 @@ public class SqliteLogLineStoreAdapter implements LogLineStorePort {
         }
         jdbc().execute("INSERT INTO " + fts + " (rowid, txt) SELECT rid, txt FROM (SELECT rid, concat_ws(char(10), "
                 + String.join(", ", cols) + ") txt FROM " + SqliteLogsRepository.lines(sourceId) + ") WHERE txt <> ''");
+    }
+
+    /**
+     * Page cursor of a field sort: the last row's sort value (null = the lines lacking the field, which
+     * come last), time and rowid. Typed so a number is compared as a number on the next page.
+     */
+    record FieldCursor(Object value, long ts, long rid) {
+
+        String encode() {
+            String v = value == null ? "-" : (value instanceof Number ? "n" : "s")
+                    + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(String.valueOf(value).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return "f:" + ts + ":" + rid + ":" + v;
+        }
+
+        static FieldCursor parse(String cursor) {
+            String[] c = cursor.split(":", 4);
+            if (c.length != 4 || !"f".equals(c[0])) {
+                throw new IllegalArgumentException("This page cursor belongs to another sort - reload the list");
+            }
+            Object v = null;
+            if (!"-".equals(c[3])) {
+                String text = new String(java.util.Base64.getUrlDecoder().decode(c[3].substring(1)), java.nio.charset.StandardCharsets.UTF_8);
+                v = c[3].charAt(0) == 'n' ? (Object) Double.parseDouble(text) : text;
+            }
+            return new FieldCursor(v, Long.parseLong(c[1]), Long.parseLong(c[2]));
+        }
     }
 }

@@ -370,6 +370,27 @@ class LogsIngestAndQueryIntegrationTest {
         long day2 = java.time.Instant.parse("2026-10-02T00:00:00Z").toEpochMilli();
         await(() -> query.lines(id, new LogQuery(List.of(), day2, null, null, null, 0)).total() == 4);
         await(() -> query.lines(id, q()).lines().stream().filter(l -> "ERROR".equals(l.level())).count() == 4);
+        // `level:ERROR` matches what the histogram counts as ERROR - the job lines say it in `severity`,
+        // in lower case - and agrees with the sidebar's count for the level field.
+        assertThat(query.lines(id, q(pill(LogQuery.Op.EQ, "level", "ERROR"))).total()).isEqualTo(4);
+        assertThat(query.lines(id, q(pill(LogQuery.Op.EQ, "level", "error"))).total()).isEqualTo(4);
+        assertThat(query.lines(id, q(pill(LogQuery.Op.NEQ, "level", "ERROR"))).total()).isEqualTo(6);
+        assertThat(query.lines(id, q(pill(LogQuery.Op.EQ, "severity", "error"))).total()).isEqualTo(4);
+        assertThat(query.fieldValues(id, q()).fields().get("level").top())
+                .extracting(v -> v.value() + "=" + v.count()).containsExactlyInAnyOrder("INFO=6", "ERROR=4");
+
+        // Sorting by a field: numbers as numbers, lines lacking the field last, paged without gaps.
+        List<String> order = new ArrayList<>();
+        String cursor = null;
+        do {
+            var page = query.lines(id, new LogQuery(List.of(), null, null, new LogQuery.Sort("records", false), cursor, 3));
+            page.lines().forEach(l -> order.add(String.valueOf(l.fields().get("records"))));
+            cursor = page.nextCursor();
+        } while (cursor != null);
+        assertThat(order).containsExactly("30", "20", "10", "0", "null", "null", "null", "null", "null", "null");
+        var ascending = query.lines(id, new LogQuery(List.of(pill(LogQuery.Op.EXISTS, "records", null)), null, null,
+                new LogQuery.Sort("records", true), null, 10));
+        assertThat(ascending.lines()).extracting(l -> String.valueOf(l.fields().get("records"))).containsExactly("0", "10", "20", "30");
         String bLine = query.lines(id, q(pill(LogQuery.Op.EQ, "job", "nightly"))).lines().get(0).lineId();
         assertThat(query.trace(id, bLine)).hasSize(7); // 3 api calls with T1 + the 4 job lines
 

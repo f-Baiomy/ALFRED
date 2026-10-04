@@ -34,6 +34,22 @@ class StructureDetectorTest {
     }
 
     @Test
+    void aTopLevelPathNeverReusesALabelAnotherStructureAlreadyHas() {
+        // Line structure A brought `_source.attributes.timestamp` (labelled "timestamp"); a raw line then
+        // brings a top-level `timestamp`, which has no longer suffix to fall back to.
+        List<String> paths = List.of("_source.attributes.timestamp", "timestamp");
+        assertThat(StructureDetector.shortestUniqueSuffix("timestamp", paths, List.of("timestamp"))).isEqualTo("timestamp_2");
+        assertThat(StructureDetector.shortestUniqueSuffix("timestamp", paths, List.of())).isEqualTo("timestamp");
+
+        // A structure saved before the check is repaired when loaded: the later field gets its own label.
+        FieldDef a = StructureDetector.newField(0, "_source.attributes.timestamp", "timestamp", "2026-10-03T16:58:11Z", 0);
+        FieldDef b = StructureDetector.newField(1, "timestamp", "timestamp", "2026-10-03T16:58:11Z", 9);
+        LogStructure s = new LogStructure("x", List.of(a, b), List.of(), null, List.of(), null, "UTC");
+        assertThat(s.fields()).extracting(FieldDef::label).containsExactly("timestamp", "timestamp_2");
+        assertThat(s.byLabel("timestamp_2")).map(FieldDef::path).contains("timestamp");
+    }
+
+    @Test
     void openSearchHitIsFlattenedTypedAndItsBodyMarkedDuplicate() throws Exception {
         LogStructure s = detect(fixture());
 

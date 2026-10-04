@@ -258,6 +258,8 @@ public class SqliteLogsRepository {
             jdbcTemplate.execute("ALTER TABLE " + ll + " ADD COLUMN shape INTEGER");
         }
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_" + ll + "_shape ON " + ll + "(shape)");
+        // Level filters and sorts read the line's level (the level role, across its fields).
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_" + ll + "_level ON " + ll + "(level, ts_ms)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS " + shapes(sourceId) + " (id INTEGER PRIMARY KEY, name TEXT, template TEXT, "
                 + "fields TEXT NOT NULL DEFAULT '', line_count INTEGER NOT NULL DEFAULT 0, field_counts TEXT NOT NULL DEFAULT '')");
     }
@@ -275,6 +277,7 @@ public class SqliteLogsRepository {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_" + ll + "_group ON " + ll + "(group_path, group_level, ts_ms)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_" + ll + "_pattern ON " + ll + "(pattern_id)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_" + ll + "_ingested ON " + ll + "(ingested_ms)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_" + ll + "_level ON " + ll + "(level, ts_ms)");
         // Contentless (the text is already in ll_), trigram for fragment search, deletable for retention.
         jdbcTemplate.execute("CREATE VIRTUAL TABLE IF NOT EXISTS " + fts(sourceId)
                 + " USING fts5(txt, content='', contentless_delete=1, tokenize='trigram')");

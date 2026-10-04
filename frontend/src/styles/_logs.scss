@@ -134,6 +134,8 @@
 .lg-lhead { position: sticky; top: 0; z-index: 5; background: var(--popover-solid); border-bottom: 1px solid var(--border-strong); font-size: 11px; color: var(--text-faint); font-weight: 600;
   .col { display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; }
   .col button { background: none; border: none; color: inherit; cursor: pointer; opacity: 0.6; padding: 0; }
+  .sortable { cursor: pointer; user-select: none; }
+  .sortable:hover { color: var(--text); }
 }
 .lg-lr { border-bottom: 1px solid color-mix(in srgb, var(--purple) 10%, transparent); font-size: 12px; cursor: pointer;
   &:hover { background: color-mix(in srgb, var(--purple) 8%, transparent); }

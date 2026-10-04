@@ -1,4 +1,4 @@
-import { highlightSegments, parseQuery, pillClass, pillText, samePill } from './logs-query-parse';
+import { enterTakesSuggestion, highlightSegments, parseQuery, pillClass, pillText, samePill } from './logs-query-parse';
 
 describe('logs-query-parse', () => {
   const fields = new Set(['level', 'statusCode', 'timeTaken', 'externalService', '@timestamp']);
@@ -13,6 +13,38 @@ describe('logs-query-parse', () => {
     expect(parseQuery('"Read timed out"', fields)).toEqual({ op: 'TEXT', value: 'Read timed out' });
     expect(parseQuery('anotrav', fields)).toEqual({ op: 'TEXT', value: 'anotrav' });
     expect(parseQuery('   ', fields)).toBeNull();
+  });
+
+  it('reads any field name, including ones with spaces, slashes or colons, and unquotes values', () => {
+    const odd = new Set(['level', 'first name', 'http/status', 'a:b', 'a']);
+    expect(parseQuery('first name:Ann', odd)).toEqual({ op: 'EQ', field: 'first name', value: 'Ann' });
+    expect(parseQuery('-http/status:500', odd)).toEqual({ op: 'NEQ', field: 'http/status', value: '500' });
+    expect(parseQuery('a:b:c', odd)).toEqual({ op: 'EQ', field: 'a:b', value: 'c' }); // the longest known field wins
+    expect(parseQuery('level:"API request"', odd)).toEqual({ op: 'EQ', field: 'level', value: 'API request' });
+    expect(parseQuery('url:http://x:8080/a', new Set(['url']))).toEqual({ op: 'EQ', field: 'url', value: 'http://x:8080/a' });
+    expect(parseQuery('levelx:1', odd)).toEqual({ op: 'TEXT', value: 'levelx:1' });
+  });
+
+  it('never turns an unfinished field filter into a text search', () => {
+    expect(parseQuery('level:', fields)).toBeNull();
+    expect(parseQuery('-level:', fields)).toBeNull();
+    expect(parseQuery('nope:', fields)).toEqual({ op: 'TEXT', value: 'nope:' });
+  });
+
+  it('lets Enter take the highlighted suggestion only when it completes what was typed', () => {
+    // level:E with level:ERROR highlighted (the reported bug: it searched level = E).
+    expect(enterTakesSuggestion('level:E', 'level:ERROR', false)).toBeTrue();
+    expect(enterTakesSuggestion('-level:e', '-level:ERROR', false)).toBeTrue();
+    // level: with nothing typed yet: the highlighted value (or "exists").
+    expect(enterTakesSuggestion('level:', 'level:ERROR', false)).toBeTrue();
+    expect(enterTakesSuggestion('level:', 'level:*', false)).toBeTrue();
+    // A typed value no suggestion starts with stays as typed; "exists" is never taken over a typed value.
+    expect(enterTakesSuggestion('message:timeout', 'message:*', false)).toBeFalse();
+    expect(enterTakesSuggestion('statusCode:2', 'statusCode:500', false)).toBeFalse();
+    expect(enterTakesSuggestion('timeTaken>6000', 'timeTaken:', false)).toBeFalse();
+    // A field name completes to "field:"; arrow keys always win.
+    expect(enterTakesSuggestion('lev', 'level:', false)).toBeTrue();
+    expect(enterTakesSuggestion('message:timeout', 'message:*', true)).toBeTrue();
   });
 
   it('treats an unknown field as free text instead of a broken filter', () => {

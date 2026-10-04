@@ -44,6 +44,34 @@ env/config). The backend rejects those input kinds with 503 until then; the wiza
   `comment-changed`; pages refetch. The explorer coalesces a burst of `lines-added` into one refetch per second (a
   one-shot delay, not polling).
 
+## Search rules (audited 2026-10-04)
+
+Every filter, page, sort and aggregate was checked against a brute-force evaluation over every line of three
+sources (3,000 / 5,000 / 36,880 lines, up to 900 fields); `SqliteLogQueryTranslator` is the one place the rules live.
+
+- **Query bar**: `field:value` =, `-field:value` ≠, `field:*` / `-field:*` present / missing, `field>v` / `field<v`,
+  `"text"` or anything else = free text. The field is the longest KNOWN label the text starts with, so a label with
+  spaces, slashes or colons (any JSON key) can be typed; `"quoted"` values lose their quotes; `field:` with nothing
+  after it is an unfinished filter, never a text search. **Enter** takes the highlighted suggestion when it was
+  picked with the arrow keys, when only a field name or `field:` is typed, or when it completes the typed value
+  (`level:E` -> `level:ERROR`); otherwise the typed text is the filter.
+- **=, ≠** are exact and case-sensitive on the original text (typed fields compare as their type: `2201.0` = `2201`).
+  ≠ and "missing" include lines without the field (as OpenSearch does). Pills are ANDed.
+- **The level role's first field** filters, counts (sidebar) and sorts by the LINE's level - that field or the
+  role's next field a line has, normalised (WARNING = WARN, FATAL/SEVERE = ERROR, any case) - so `level:ERROR`
+  matches what the histogram and minimap count as ERROR. Its other fields keep their own values.
+- **Free text** searches the Text-search fields (trigram index; 1-2 character terms scan with LIKE and are flagged
+  slow), case-insensitive. A NUL byte in a value is stored as `␀` (U+2400): SQLite's text index and LIKE stop at
+  NUL, so text after it was unsearchable. The raw line keeps the original bytes.
+- **Sort**: newest first by default; click Time for oldest first, or any column / Level heading for largest first,
+  smallest first, back to time. Typed fields sort as their type, lines lacking the field come last, and pages
+  continue with a value cursor (`f:ts:rid:value`), so nothing is skipped or repeated. A sorted list does not insert
+  live lines on top - it shows "N new lines · reload".
+- **Labels are unique per source**: a top-level path that arrives after another structure already took its short
+  label (`timestamp` after `_source.attributes.timestamp`) is labelled `timestamp_2`; structures saved before this
+  are repaired on load. Two fields sharing a label made every filter reach only the first.
+- Saved views keep pills, range or zoomed time range, view and sort.
+
 ## Lines with different structures (FR-045 as amended 2026-10-04)
 
 Each line may have its own structure - decided case by case against OpenSearch's behaviour (spec.md, Session

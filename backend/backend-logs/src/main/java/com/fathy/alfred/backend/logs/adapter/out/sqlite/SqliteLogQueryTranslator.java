@@ -1,10 +1,12 @@
 package com.fathy.alfred.backend.logs.adapter.out.sqlite;
 
+import com.fathy.alfred.backend.logs.domain.ingest.LineBuilder;
 import com.fathy.alfred.backend.logs.domain.ingest.ValueTyper;
 import com.fathy.alfred.backend.logs.domain.model.FieldDef;
 import com.fathy.alfred.backend.logs.domain.model.FieldType;
 import com.fathy.alfred.backend.logs.domain.model.LogQuery;
 import com.fathy.alfred.backend.logs.domain.model.LogStructure;
+import com.fathy.alfred.backend.logs.domain.model.Role;
 import com.fathy.alfred.backend.logs.domain.model.SearchMode;
 
 import java.util.ArrayList;
@@ -42,6 +44,24 @@ final class SqliteLogQueryTranslator {
     /** The column filters and sorts use: the typed shadow for typed fields, else the original text. */
     static String valueCol(FieldDef f) {
         return f.typed() ? typedCol(f) : text(f);
+    }
+
+    /**
+     * The level role's first field: what the list shows as Level, what the histogram and minimap count.
+     * Filters, sidebar counts and sorts on it use the line's level (that field, or the role's next field
+     * a line has; normalised: WARNING = WARN, FATAL = ERROR), so `level:ERROR` matches what the
+     * histogram shows as ERROR. Its other fields keep their own values.
+     */
+    static boolean isLevelField(LogStructure s, FieldDef f) {
+        return s != null && f.role() == Role.LEVEL && s.byRole(Role.LEVEL).map(x -> x.path().equals(f.path())).orElse(false);
+    }
+
+    /** The column a filter, sidebar count or sort reads for this field. */
+    static String filterCol(LogStructure s, FieldDef f, boolean typed) {
+        if (isLevelField(s, f)) {
+            return "level";
+        }
+        return typed ? valueCol(f) : text(f);
     }
 
     /** WHERE body (never empty: "1=1" when unfiltered) for pills + time range; no cursor. */
@@ -86,15 +106,21 @@ final class SqliteLogQueryTranslator {
                 long to = p.to() == null || p.to().isBlank() ? Long.MAX_VALUE : Long.parseLong(p.to());
                 yield Sql.of("ingested_ms BETWEEN ? AND ?", List.of(from, to));
             }
-            case EXISTS -> Sql.of(text(field(s, p)) + " IS NOT NULL", List.of());
-            case NOT_EXISTS -> Sql.of(text(field(s, p)) + " IS NULL", List.of());
+            case EXISTS -> Sql.of(filterCol(s, field(s, p), false) + " IS NOT NULL", List.of());
+            case NOT_EXISTS -> Sql.of(filterCol(s, field(s, p), false) + " IS NULL", List.of());
             case EQ -> {
                 FieldDef f = field(s, p);
+                if (isLevelField(s, f)) {
+                    yield Sql.of("level = ?", List.of(nn(LineBuilder.normalizeLevel(p.value()))));
+                }
                 Object typed = typedOrNull(f, p.value());
                 yield typed != null ? Sql.of(typedCol(f) + " = ?", List.of(typed)) : Sql.of(text(f) + " = ?", List.of(nn(p.value())));
             }
             case NEQ -> {
                 FieldDef f = field(s, p);
+                if (isLevelField(s, f)) {
+                    yield Sql.of("level IS NULL OR level <> ?", List.of(nn(LineBuilder.normalizeLevel(p.value()))));
+                }
                 Object typed = typedOrNull(f, p.value());
                 yield typed != null
                         ? Sql.of(typedCol(f) + " IS NULL OR " + typedCol(f) + " <> ?", List.of(typed))

@@ -33,7 +33,7 @@ import {
   STRUCTURE_FIELD,
 } from '../../core/models/logs.model';
 import { LogLineDataComponent, FieldAction } from '../../components/logs/log-line-data.component';
-import { highlightSegments, parseQuery, pillClass, pillText, samePill } from '../../shared/utils/logs-query-parse';
+import { enterTakesSuggestion, highlightSegments, parseQuery, pillClass, pillText, samePill } from '../../shared/utils/logs-query-parse';
 import { summaryOrFields } from '../../shared/utils/logs-template';
 import { buildPathTree, itemsUnder, TreeNode, TreeRow, visibleRows } from '../../shared/utils/logs-field-tree';
 
@@ -169,6 +169,8 @@ export class LogsExplorerComponent implements OnInit {
   readonly qtext = signal('');
   readonly ac = signal<AcItem[]>([]);
   readonly acIdx = signal(0);
+  /** The highlighted suggestion was chosen with the arrow keys (Enter then always takes it). */
+  private acPicked = false;
 
   // ---- results
   readonly mode = signal<ExplorerView>('lines');
@@ -188,6 +190,8 @@ export class LogsExplorerComponent implements OnInit {
   readonly minimap = signal<Minimap | null>(null);
   readonly minimapCond = signal<string>('');
   readonly newCount = signal(0);
+  /** List order: null = newest first; a field (null field = time) and direction otherwise. Click a column heading. */
+  readonly sort = signal<{ field: string | null; ascending: boolean } | null>(null);
   readonly live = signal(true);
   readonly drag = signal<{ a: number; b: number } | null>(null);
 
@@ -352,7 +356,26 @@ export class LogsExplorerComponent implements OnInit {
     const newest = this.newestTs();
     const from = c ? c.from : span !== null && newest !== null ? newest - span : null;
     const to = c ? c.to : null;
-    return { pills: [...this.pills(), ...extra], from, to, limit, cursor };
+    return { pills: [...this.pills(), ...extra], from, to, limit, cursor, sort: this.sort() };
+  }
+
+  /**
+   * Column heading click: a field sorts largest / latest first, then smallest first, then back to the
+   * default (newest line first). Time toggles newest / oldest first.
+   */
+  sortBy(field: string | null): void {
+    const cur = this.sort();
+    const same = cur !== null && cur.field === field;
+    if (field === null) this.sort.set(cur && cur.field === null && cur.ascending ? null : { field: null, ascending: true });
+    else this.sort.set(!same ? { field, ascending: false } : !cur!.ascending ? { field, ascending: true } : null);
+    this.refreshList();
+  }
+
+  /** ▼ / ▲ beside the heading the list is sorted by. */
+  sortMark(field: string | null): string {
+    const cur = this.sort();
+    if (cur === null) return field === null ? '▼' : '';
+    return cur.field === field ? (cur.ascending ? '▲' : '▼') : '';
   }
 
   refreshAll(): void {
@@ -514,9 +537,12 @@ export class LogsExplorerComponent implements OnInit {
   onQueryInput(text: string): void {
     this.qtext.set(text);
     const out: AcItem[] = [];
-    const m = text.match(/^-?([\w.@$-]+):(.*)$/);
     const neg = text.startsWith('-') ? '-' : '';
-    if (m && this.labels().has(m[1])) {
+    const body = neg ? text.slice(1) : text;
+    // The longest field name the text starts with, followed by ':' (names may hold spaces or colons).
+    const field = [...this.labels()].filter((l) => body.startsWith(l + ':')).sort((a, b) => b.length - a.length)[0];
+    const m = field ? [text, field, body.slice(field.length + 1)] : null;
+    if (m) {
       const top = this.values()?.fields[m[1]]?.top ?? [];
       top.filter((v) => v.value.toLowerCase().includes(m[2].toLowerCase())).slice(0, 8)
         .forEach((v) => out.push({ insert: `${neg}${m[1]}:${v.value}`, show: `${m[1]}:${v.value}`, note: String(v.count) }));
@@ -529,22 +555,26 @@ export class LogsExplorerComponent implements OnInit {
     }
     this.ac.set(out);
     this.acIdx.set(0);
+    this.acPicked = false;
   }
 
   onQueryKey(ev: KeyboardEvent): void {
     const ac = this.ac();
     if (ev.key === 'ArrowDown' && ac.length) {
       this.acIdx.set((this.acIdx() + 1) % ac.length);
+      this.acPicked = true;
       ev.preventDefault();
     } else if (ev.key === 'ArrowUp' && ac.length) {
       this.acIdx.set((this.acIdx() - 1 + ac.length) % ac.length);
+      this.acPicked = true;
       ev.preventDefault();
     } else if (ev.key === 'Tab' && ac.length) {
       ev.preventDefault();
       this.applyAc(ac[this.acIdx()]);
     } else if (ev.key === 'Enter') {
       const text = this.qtext();
-      if (ac.length && text && !text.includes(':') && !/[<>"]/.test(text)) return this.applyAc(ac[this.acIdx()]);
+      const item = ac[this.acIdx()];
+      if (item && enterTakesSuggestion(text, item.insert, this.acPicked)) return this.applyAc(item);
       this.commitQuery(text);
     } else if (ev.key === 'Backspace' && !this.qtext() && this.pills().length) {
       this.removePill(this.pills().length - 1);
@@ -729,7 +759,8 @@ export class LogsExplorerComponent implements OnInit {
     this.liveRate.set(Math.round(this.rateWindow.reduce((a, x) => a + x.n, 0) / 5));
     this.lastLineAt.set(now);
     const el = this.listEl()?.nativeElement;
-    if (this.live() && this.mode() === 'lines' && (!el || el.scrollTop < 10)) this.scheduleRefresh();
+    // Inserting on top is only right for newest-first; a sorted list says how many arrived instead.
+    if (this.live() && this.mode() === 'lines' && this.sort() === null && (!el || el.scrollTop < 10)) this.scheduleRefresh();
     else this.newCount.update((n) => n + count);
   }
 
@@ -1419,6 +1450,8 @@ export class LogsExplorerComponent implements OnInit {
     this.pills.set([...v.state.pills]);
     if (v.state.range) this.range.set(v.state.range);
     if (v.state.view) this.mode.set(v.state.view);
+    this.sort.set(v.state.sort ?? null);
+    this.customRange.set(v.state.customRange ?? null);
     this.refreshAll();
   }
 
@@ -1431,7 +1464,7 @@ export class LogsExplorerComponent implements OnInit {
   saveView(): void {
     const name = (this.saveViewName() ?? '').trim();
     if (!name) return;
-    this.api.saveView(this.id, name, { pills: this.pills(), range: this.range(), view: this.mode() }).subscribe({
+    this.api.saveView(this.id, name, { pills: this.pills(), range: this.range(), view: this.mode(), sort: this.sort(), customRange: this.customRange() }).subscribe({
       next: () => {
         this.saveViewName.set(null);
         this.loadViews();

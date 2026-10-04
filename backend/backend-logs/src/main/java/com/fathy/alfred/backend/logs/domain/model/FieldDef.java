@@ -60,6 +60,11 @@ public record FieldDef(
                 suggestBoolean, searchMode, role, sensitive, duplicateOf, firstSeenLine, sample, roleRank);
     }
 
+    public FieldDef withLabel(String newLabel) {
+        return new FieldDef(index, path, newLabel, type, typeSource, format, matchRate, invalidCount,
+                suggestBoolean, searchMode, role, sensitive, duplicateOf, firstSeenLine, sample, roleRank);
+    }
+
     public FieldDef withIndex(int newIndex) {
         return new FieldDef(newIndex, path, label, type, typeSource, format, matchRate, invalidCount,
                 suggestBoolean, searchMode, role, sensitive, duplicateOf, firstSeenLine, sample, roleRank);

@@ -342,16 +342,23 @@
           <div class="lg-lhead" [style.grid-template-columns]="gridColumns()">
             <span></span><span title="children">{{ mode() === 'grouped' ? '⊞' : '' }}</span><span title="data">{{ '{}' }}</span>
             <span><input type="checkbox" [checked]="header() === 'all'" [indeterminate]="header() === 'some'" (click)="pickAll($event)" title="Select all loaded rows (shift: all matching)" aria-label="Select all" /></span>
-            <span>Time</span><span>Level</span>
+            <span class="sortable" (click)="sortBy(null)" title="Sort by time">Time {{ sortMark(null) }}</span>
+            @if (roleLabel()['LEVEL']; as lv) {
+              <span class="sortable" (click)="sortBy(lv)" [title]="'Sort by ' + lv">Level {{ sortMark(lv) }}</span>
+            } @else {
+              <span>Level</span>
+            }
             @if (columns().length) {
-              @for (c of columns(); track c) { <span class="col" [title]="c">{{ c }}<button (click)="toggleColumn(c)" aria-label="Remove column">✕</button></span> }
+              @for (c of columns(); track c) {
+                <span class="col sortable" [title]="'Sort by ' + c" (click)="sortBy(c)">{{ c }} {{ sortMark(c) }}<button (click)="$event.stopPropagation(); toggleColumn(c)" aria-label="Remove column">✕</button></span>
+              }
             } @else {
               <span class="col">Summary <span class="lg-faint" style="font-weight: 400">(template - toggle ▥ on any field to show columns instead)</span></span>
             }
             <span>Duration</span><span></span>
           </div>
           @if (newCount()) {
-            <div class="lg-newpill"><button class="lg-pill live" (click)="jumpToNewest()">↑ {{ newCount() | number }} new lines · paused while you're scrolled · jump to newest</button></div>
+            <div class="lg-newpill"><button class="lg-pill live" (click)="jumpToNewest()">↑ {{ newCount() | number }} new lines · {{ sort() ? 'the list is sorted · reload it' : "paused while you're scrolled · jump to newest" }}</button></div>
           }
 
           @if (mode() === 'lines') {

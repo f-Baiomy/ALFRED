@@ -8,16 +8,50 @@ import { Pill } from '../../core/models/logs.model';
 export function parseQuery(input: string, knownFields: ReadonlySet<string>): Pill | null {
   const s = input.trim();
   if (!s) return null;
-  let m: RegExpMatchArray | null;
-  if ((m = s.match(/^"(.+)"$/))) return { op: 'TEXT', value: m[1] };
-  if ((m = s.match(/^-([\w.@$-]+):\*$/)) && knownFields.has(m[1])) return { op: 'NOT_EXISTS', field: m[1] };
-  if ((m = s.match(/^([\w.@$-]+):\*$/)) && knownFields.has(m[1])) return { op: 'EXISTS', field: m[1] };
-  if ((m = s.match(/^-([\w.@$-]+):(.+)$/)) && knownFields.has(m[1])) return { op: 'NEQ', field: m[1], value: m[2] };
-  if ((m = s.match(/^([\w.@$-]+)\s*([<>])\s*(.+)$/)) && knownFields.has(m[1])) {
-    return { op: m[2] === '>' ? 'GT' : 'LT', field: m[1], value: m[3].trim() };
+  const m = s.match(/^"(.+)"$/);
+  if (m) return { op: 'TEXT', value: m[1] };
+  const neg = s.startsWith('-');
+  const body = neg ? s.slice(1) : s;
+  // The field is the longest known label the text starts with, followed by its operator - so a label
+  // with spaces, slashes or colons of its own (any JSON key) can be typed as well.
+  let best: { field: string; op: ':' | '>' | '<'; rest: string } | null = null;
+  for (const f of knownFields) {
+    if (!body.startsWith(f) || (best && best.field.length >= f.length)) continue;
+    const after = body.slice(f.length).trimStart();
+    const op = after.charAt(0);
+    if (op === ':' || ((op === '>' || op === '<') && !neg)) best = { field: f, op, rest: after.slice(1).trim() };
   }
-  if ((m = s.match(/^([\w.@$-]+):(.+)$/)) && knownFields.has(m[1])) return { op: 'EQ', field: m[1], value: m[2] };
-  return { op: 'TEXT', value: s };
+  if (!best) return { op: 'TEXT', value: s };
+  const { field, op, rest } = best;
+  // A known field with nothing after its operator is an unfinished filter, not text to search for.
+  if (!rest) return null;
+  if (op === '>' || op === '<') return { op: op === '>' ? 'GT' : 'LT', field, value: unquote(rest) };
+  if (rest === '*') return { op: neg ? 'NOT_EXISTS' : 'EXISTS', field };
+  return { op: neg ? 'NEQ' : 'EQ', field, value: unquote(rest) };
+}
+
+/** `"API request"` -> `API request`: quotes group a value, they are not part of it. */
+function unquote(v: string): string {
+  const m = v.match(/^"(.*)"$/);
+  return m ? m[1] : v;
+}
+
+/**
+ * Whether Enter takes the highlighted suggestion instead of the typed text. It does when the user picked
+ * it with the arrow keys, when the text is only part of a filter (`level`, `level:`), and when the
+ * highlighted value completes the value typed so far (`level:E` -> `level:ERROR`). Otherwise the typed
+ * text is the filter (`message:timeout` with no such value listed stays `message = timeout`).
+ */
+export function enterTakesSuggestion(text: string, insert: string, picked: boolean): boolean {
+  if (picked) return true;
+  const t = text.trim();
+  if (!t) return false;
+  if (!t.includes(':') && !/[<>"]/.test(t)) return true;
+  const m = t.match(/^(-?[\w.@$-]+):(.*)$/);
+  if (!m) return false;
+  if (m[2] === '') return true;
+  if (insert.endsWith(':*')) return false;
+  return insert.toLowerCase().startsWith(t.toLowerCase());
 }
 
 const OP_SIGN: Partial<Record<Pill['op'], string>> = { EQ: '=', NEQ: '≠', GT: '>', LT: '<' };

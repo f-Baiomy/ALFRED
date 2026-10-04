@@ -338,6 +338,9 @@ export interface SavedViewState {
   readonly range?: string;
   readonly view?: ExplorerView;
   readonly columns?: readonly string[];
+  readonly sort?: { readonly field: string | null; readonly ascending: boolean } | null;
+  /** A zoomed time range (histogram drag); overrides `range`. */
+  readonly customRange?: { readonly from: number; readonly to: number } | null;
 }
 
 export type ExplorerView = 'lines' | 'grouped' | 'patterns';

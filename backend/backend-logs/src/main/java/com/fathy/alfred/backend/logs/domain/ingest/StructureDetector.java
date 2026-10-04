@@ -129,8 +129,11 @@ public final class StructureDetector {
                 return suffix;
             }
         }
-        return path;
+        // The whole path: unique as a path, but a label may already be taken by it (another line structure's
+        // `_source.attributes.timestamp` labelled "timestamp" before a top-level `timestamp` appeared).
+        return LogStructure.freeLabel(path, taken, all);
     }
+
 
     private static FieldDef field(int index, String path, String label, List<Object> vals, String duplicateOf) {
         List<Object> present = vals.stream().filter(Objects::nonNull).toList();

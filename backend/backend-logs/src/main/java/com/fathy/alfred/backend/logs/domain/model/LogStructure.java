@@ -41,6 +41,7 @@ public record LogStructure(
     public static final int MAX_OVERFLOW_LISTED = 1_000;
 
     public LogStructure {
+        fields = fields == null ? null : uniqueLabels(fields);
         overflowPaths = overflowPaths == null ? List.of() : List.copyOf(overflowPaths);
         payloadPaths = payloadPaths == null ? List.of() : List.copyOf(payloadPaths);
         defaultFieldLayout = defaultFieldLayout == null ? FieldLayout.GROUPED : defaultFieldLayout;
@@ -59,6 +60,46 @@ public record LogStructure(
     public LogStructure(String id, List<FieldDef> fields, List<GroupLevel> groupLevels, String template, List<String> columns,
                         DataView defaultDataView, String timeZone) {
         this(id, fields, groupLevels, template, columns, defaultDataView, timeZone, List.of(), List.of());
+    }
+
+    /**
+     * Every field has its own label: a later field whose label is already used gets {@code label_2}, ...
+     * Repairs structures saved before labels were checked across line structures, where two fields
+     * shared one (filters, columns and the line view all reached only the first).
+     */
+    private static List<FieldDef> uniqueLabels(List<FieldDef> fields) {
+        java.util.Set<String> used = new java.util.HashSet<>();
+        java.util.Set<String> paths = new java.util.HashSet<>();
+        fields.forEach(f -> paths.add(f.path()));
+        List<FieldDef> out = null;
+        for (int i = 0; i < fields.size(); i++) {
+            FieldDef f = fields.get(i);
+            if (f.label() != null && !used.add(f.label())) {
+                String label = freeLabel(f.label(), used, paths);
+                used.add(label);
+                if (out == null) {
+                    out = new java.util.ArrayList<>(fields);
+                }
+                out.set(i, f.withLabel(label));
+            }
+        }
+        return out == null ? fields : List.copyOf(out);
+    }
+
+    /**
+     * {@code base}, or {@code base_2}, {@code base_3}, ... - the first that is neither a taken label nor
+     * another field's path. Two fields sharing a label made every filter on it hit the first one only.
+     */
+    public static String freeLabel(String base, java.util.Collection<String> taken, java.util.Collection<String> paths) {
+        if (!taken.contains(base)) {
+            return base;
+        }
+        for (int k = 2; ; k++) {
+            String candidate = base + "_" + k;
+            if (!taken.contains(candidate) && !paths.contains(candidate)) {
+                return candidate;
+            }
+        }
     }
 
     public Optional<FieldDef> byLabel(String label) {
