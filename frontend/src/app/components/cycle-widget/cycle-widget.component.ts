@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, ElementRef, Injector, NgZone, OnDestroy, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CallRecord } from '../../core/models/call.model';
 import { CycleWidgetWindowService } from '../../core/services/cycle-widget-window.service';
@@ -47,6 +48,8 @@ interface ToastView {
 })
 export class CycleWidgetComponent implements OnDestroy {
   readonly state = inject(CycleWidgetStateService);
+  /** The "Log DB" column - the same per-project switch as the Sources bar and Settings (docs/db-capture.md). */
+  readonly db = inject(DbCaptureStateService);
   readonly win = inject(CycleWidgetWindowService);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly injector = inject(Injector);

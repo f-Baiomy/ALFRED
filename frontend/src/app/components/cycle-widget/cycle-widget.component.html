@@ -279,6 +279,9 @@
               >
                 <app-cw-icon [name]="s.loggingEnabled === false ? 'mic-off' : s.direction" [class.cw-muted-icon]="s.loggingEnabled === false" />
                 <span class="cw-chip-label">{{ s.label }}</span>
+                @if (s.loggingEnabled && db.isOn(s.key, true)) {
+                  <span class="cw-db-mark" title="Database capture is on for this project">◆</span>
+                }
               </button>
             }
           </div>
@@ -293,6 +296,7 @@
               <span class="cw-spacer">Source</span>
               <span class="cw-col-view">Show here</span>
               <span class="cw-col-log">Log inbound</span>
+              <span class="cw-col-log db">Log DB</span>
             </div>
             @for (s of state.sources(); track s.key) {
               <div class="cw-source-row">
@@ -301,6 +305,8 @@
                   {{ s.label }}
                   @if (s.loggingEnabled === false) {
                     <span class="cw-warn">· not logging</span>
+                  } @else if (s.loggingEnabled && db.isOn(s.key, true) && !db.projectStatus(s.key)?.attached) {
+                    <span class="cw-warn">· agent not attached</span>
                   }
                 </span>
                 <span class="cw-col-view">
@@ -330,10 +336,28 @@
                     ></button>
                   }
                 </span>
+                <span class="cw-col-log db">
+                  @if (s.loggingEnabled === null) {
+                    <span class="cw-faint" title="Suppliers are other systems - Alfred only captures your own app's database">-</span>
+                  } @else {
+                    <button
+                      type="button"
+                      class="cw-switch db"
+                      role="switch"
+                      [class.on]="db.isOn(s.key, !!s.loggingEnabled)"
+                      [class.blocked]="!s.loggingEnabled"
+                      [attr.aria-checked]="db.isOn(s.key, !!s.loggingEnabled)"
+                      [attr.aria-label]="'Database capture for ' + s.label"
+                      [title]="db.switchTitle(s.key, !!s.loggingEnabled)"
+                      (click)="db.toggle(s.key, !!s.loggingEnabled)"
+                    ></button>
+                  }
+                </span>
               </div>
             }
             <div class="cw-sources-foot">
               <button type="button" class="cw-link" (click)="state.showAll()">Show all</button>
+              <span class="cw-faint" title="One switch per project, live, shared by every cycle and user">Logging and DB switches apply to every cycle and user</span>
               <label class="cw-check-label" title="CORS preflights - hidden unless this is on">
                 <input type="checkbox" [checked]="state.showOptionsCalls()" (change)="state.setShowOptionsCalls($any($event.target).checked)" />
                 Show OPTIONS

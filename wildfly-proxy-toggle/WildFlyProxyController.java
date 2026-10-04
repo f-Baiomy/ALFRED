@@ -40,14 +40,19 @@ import java.util.Scanner;
  * for com.sun.tools.attach.*, which isn't included by default; see proxy-on.bat/proxy-on.sh.
  *
  * Usage: java -cp <out>;<tools.jar> -DAGENT_JAR=<path-to-built-agent-jar> WildFlyProxyController <on|off|status>
+ *        java -cp <out>;<tools.jar> WildFlyProxyController load-agent <agent.jar> <agent-args>
+ * The second form loads any agent (Alfred's database capture agent - db-capture-on.sh/.bat) into the same
+ * auto-detected WildFly JVM.
  * Env vars: WILDFLY_PID (skip the prompt, pick a specific detected PID), PROXY_HOST/PROXY_PORT
  * (default 127.0.0.2/443).
  */
 public class WildFlyProxyController {
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 1 || !(args[0].equals("on") || args[0].equals("off") || args[0].equals("status"))) {
+        boolean loadAgent = args.length == 3 && args[0].equals("load-agent");
+        if (!loadAgent && (args.length != 1 || !(args[0].equals("on") || args[0].equals("off") || args[0].equals("status")))) {
             System.err.println("Usage: java WildFlyProxyController <on|off|status>");
+            System.err.println("       java WildFlyProxyController load-agent <agent.jar> <agent-args>");
             System.exit(1);
             return;
         }
@@ -62,6 +67,19 @@ public class WildFlyProxyController {
         }
 
         System.out.println("Using WildFly at PID " + chosen.id());
+
+        if (loadAgent) {
+            // Generic: any agent jar, its own argument string. An agent stays loaded for the JVM's lifetime -
+            // the Attach API has no unload - so "off" for such an agent is whatever switch the agent itself reads.
+            VirtualMachine vm = VirtualMachine.attach(chosen);
+            try {
+                vm.loadAgent(args[1], args[2]);
+            } finally {
+                vm.detach();
+            }
+            System.out.println("Agent loaded into WildFly at PID " + chosen.id() + ": " + args[1]);
+            return;
+        }
 
         if (command.equals("status")) {
             VirtualMachine vm = VirtualMachine.attach(chosen);

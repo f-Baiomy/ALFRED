@@ -62,3 +62,16 @@ None of these are required for the common case (one WildFly instance running, vi
 ## Known limitation
 
 Once `WildFlyProxyAgent`'s jar is loaded into a JVM, that JVM keeps its file handle open (and locked, on Windows) for the JVM's remaining lifetime — confirmed live. The wrapper scripts build a freshly-named jar (`wildfly-agent-<random>.jar`) on every run specifically to avoid colliding with one a still-running instance already has open; `out/`'s jars accumulate slightly over repeated runs against a long-lived WildFly instance as a result. Harmless (gitignored build output), but delete `wildfly-proxy-toggle/out/` occasionally if it bothers you — anything currently loaded will simply fail to delete until that JVM exits.
+
+## Database capture agent (`db-capture-on` / `db-capture-off`)
+
+The same detection loads Alfred's **database capture agent** (`db-agent/`, see `docs/db-capture.md`) into the running WildFly, through the controller's generic mode `WildFlyProxyController load-agent <agent.jar> <agent-args>`:
+
+```bash
+./wildfly-proxy-toggle/db-capture-on.sh wallet-app     # Windows: wildfly-proxy-toggle\db-capture-on.bat wallet-app
+./wildfly-proxy-toggle/db-capture-off.sh wallet-app
+```
+
+- `on` builds `db-agent/target/alfred-db-agent.jar` the first time (local Maven, else Docker Maven), loads a fresh copy of it (same jar-locking reason as above) with `alfredUrl` (env `ALFRED_URL`, default `http://localhost:3000`), the project name and `secretFile` = this repo's `.env` (the agent reads `WEBHOOK_SECRET` from it - the secret never appears on a command line), then switches capture on for that project - the same switch as the ◆ in Live Calls' Sources bar, the cycle widget's **Log DB** column and Settings → Database capture.
+- `off` only switches capture off through Alfred's API. **An agent cannot be unloaded from a running JVM** (the Attach API has no unload): it stays loaded and records nothing for that project; a WildFly restart removes it completely. Loading it a second time is harmless - the agent notices it is already running and ignores the second load.
+- Inbound logging must be on for the project (statements are attached to inbound calls); `on` tells you if it is not.

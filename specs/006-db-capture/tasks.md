@@ -178,16 +178,16 @@ Database capture, all one setting, plus agent status and attach tooling.
 **Independent Test**: toggle in one place, the other two update within 2 s (SC-009); calls made while off are not
 captured; the switch is unavailable while inbound logging is off; an unattached project says so.
 
-- [ ] T075 [US2] `ManageDbCaptureUseCase` + endpoints `GET /db-capture/projects`, `PUT /db-capture/projects/{p}/enabled` (409 when inbound logging is off - read through a `backend-app` adapter over `LoggingToggleUseCase`, no slice edge), `GET|PUT /db-capture/projects/{p}/settings` (validation per data-model), broadcast `capture-settings-changed`; tests in `DbCaptureServiceTest` / `DbCaptureControllerTest`
-- [ ] T076 [P] [US2] `components/db-capture/db-capture-popover` (mock ▾ panel: switch, agent ● attached / not attached + How to attach, before-image chips, rows per result, "Show the ◆ DB chip on calls", "All database settings →") anchored under the pill
-- [ ] T077 [US2] `components/sources-bar/sources-bar.component.html|ts`: add `◆` switch (`db-sw`, glows teal when on, blocked with tooltip when inbound off) and `▾` after each project's inbound dot, exactly as the mock; wire to `DbCaptureStateService`
-- [ ] T078 [US2] `components/cycle-widget/cycle-widget.component.html|ts`: "Log DB" column in the Sources popover (`cw-switch db`, teal), `-` for External, "· agent not attached" warning, footer "Logging and DB switches apply to every cycle and user"; chip row shows the project as captured when on
-- [ ] T079 [US2] `pages/settings`: new `app-db-capture-settings` section (Capture checkboxes = same switch + agent status, Rows kept per result; before-image/thresholds/expected/ignore rows render here and become editable in US3/US4)
-- [ ] T080 [P] [US2] Frontend tests: switch disabled when inbound off; one WS `capture-settings-changed` updates all three (state service spec)
-- [ ] T081 [P] [US2] `wildfly-proxy-toggle/WildFlyProxyController.java`: generic `load-agent <jar> <args>` mode reusing WildFly detection; `db-capture-on.sh|.bat` / `db-capture-off.sh|.bat` (on: build jar via Docker Maven if missing, load with `alfredUrl`, `project`, `secretFile`; off: switch the project off through the API); update `wildfly-proxy-toggle/README.md` (incl. "agents cannot be unloaded")
-- [ ] T082 [US2] `start.py`/`restart.py`: `--db-capture on|off` (mirrors `--wildfly-proxy`); docs in `docs/db-capture.md`
-- [ ] T083 [US2] Run suites; manual SC-009 check with three tabs open
-- [ ] T084 [US2] Commit Phase 4: `feat(db-capture): per-project capture switch in Sources bar, cycle widget and Settings, plus agent attach`
+- [X] T075 [US2] `ManageDbCaptureUseCase` + endpoints `GET /db-capture/projects`, `PUT /db-capture/projects/{p}/enabled` (409 when inbound logging is off - read through a `backend-app` adapter over `LoggingToggleUseCase`, no slice edge), `GET|PUT /db-capture/projects/{p}/settings` (validation per data-model), broadcast `capture-settings-changed`; tests in `DbCaptureServiceTest` / `DbCaptureControllerTest`
+- [X] T076 [P] [US2] `components/db-capture/db-capture-popover` (mock ▾ panel: switch, agent ● attached / not attached + How to attach, before-image chips, rows per result, "Show the ◆ DB chip on calls", "All database settings →") anchored under the pill
+- [X] T077 [US2] `components/sources-bar/sources-bar.component.html|ts`: add `◆` switch (`db-sw`, glows teal when on, blocked with tooltip when inbound off) and `▾` after each project's inbound dot, exactly as the mock; wire to `DbCaptureStateService`
+- [X] T078 [US2] `components/cycle-widget/cycle-widget.component.html|ts`: "Log DB" column in the Sources popover (`cw-switch db`, teal), `-` for External, "· agent not attached" warning, footer "Logging and DB switches apply to every cycle and user"; chip row shows the project as captured when on
+- [X] T079 [US2] `pages/settings`: new `app-db-capture-settings` section (Capture checkboxes = same switch + agent status, Rows kept per result; before-image/thresholds/expected/ignore rows render here and become editable in US3/US4)
+- [X] T080 [P] [US2] Frontend tests: switch disabled when inbound off; one WS `capture-settings-changed` updates all three (state service spec)
+- [X] T081 [P] [US2] `wildfly-proxy-toggle/WildFlyProxyController.java`: generic `load-agent <jar> <args>` mode reusing WildFly detection; `db-capture-on.sh|.bat` / `db-capture-off.sh|.bat` (on: build jar via Docker Maven if missing, load with `alfredUrl`, `project`, `secretFile`; off: switch the project off through the API); update `wildfly-proxy-toggle/README.md` (incl. "agents cannot be unloaded")
+- [X] T082 [US2] `start.py`/`restart.py`: `--db-capture on|off` (mirrors `--wildfly-proxy`); docs in `docs/db-capture.md`
+- [X] T083 [US2] Run suites; manual SC-009 check with three tabs open
+- [X] T084 [US2] Commit Phase 4: `feat(db-capture): per-project capture switch in Sources bar, cycle widget and Settings, plus agent attach`
 
 **Checkpoint**: Stories 1-2 complete - the first shippable increment.
 

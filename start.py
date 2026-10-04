@@ -34,6 +34,8 @@ Usage (same command on any OS):
     python3 start.py       (Linux/macOS - will re-exec itself with sudo if needed)
     python start.py        (Windows - run from an Administrator terminal)
     python3 start.py --wildfly-proxy off            turn the OUTBOUND JVM Attach-API proxy off
+    python3 start.py --db-capture on [project]      load the database capture agent into WildFly and
+                                                    switch capture on (off: switch it off) - docs/db-capture.md
 """
 
 import os
@@ -42,6 +44,7 @@ import re
 import socket
 import subprocess
 
+import alfred_dbcapture
 import alfred_logwatch
 import sys
 
@@ -500,7 +503,7 @@ def sync_env_from_settings():
     sync_wildfly_port_offset()
 
 
-USAGE = "Usage: python3 start.py [--wildfly-proxy [on|off]]"
+USAGE = "Usage: python3 start.py [--wildfly-proxy [on|off]] [--db-capture [on|off] [project]]"
 
 
 def _parse_toggle_args(args):
@@ -553,7 +556,8 @@ def main():
     ensure_backend_port()
     ensure_reverse_proxy_flag_file()
     sync_env_from_settings()
-    wildfly_action = _parse_toggle_args(sys.argv[1:])
+    args, db_capture_action, db_capture_project = alfred_dbcapture.take_flag(sys.argv[1:])
+    wildfly_action = _parse_toggle_args(args)
     system = platform.system()
 
     if system == "Windows":
@@ -588,6 +592,11 @@ def main():
     print()
     print("=== Step: WildFly proxy (outbound, JVM Attach API) ===")
     toggle_wildfly_proxy(wildfly_action)
+
+    if db_capture_action:
+        print()
+        print("=== Step: database capture agent (JVM Attach API) ===")
+        alfred_dbcapture.toggle(db_capture_action, db_capture_project)
 
     sys.exit(0)
 

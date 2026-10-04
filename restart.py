@@ -39,6 +39,8 @@ Usage:
     python3 restart.py --wildfly-proxy off            turn the OUTBOUND JVM Attach-API proxy off -
                                                        combinable with the above, e.g.:
                                                        python3 restart.py backend --wildfly-proxy off
+    python3 restart.py --db-capture on [project]      load the database capture agent into WildFly and
+                                                       switch capture on (off: switch it off) - docs/db-capture.md
 """
 
 import os
@@ -47,6 +49,7 @@ import re
 import socket
 import subprocess
 
+import alfred_dbcapture
 import alfred_logwatch
 import sys
 
@@ -480,7 +483,7 @@ def toggle_wildfly_proxy(action):
         print("convenience step, not required for the restart itself to succeed.")
 
 
-def restart_everything(wildfly_action):
+def restart_everything(wildfly_action, db_capture_action=None, db_capture_project=None):
     """A full restart (no service names given) is just "stop everything, then start
     everything" - delegated to stop.py and start.py as separate processes rather than
     reimplemented here, so there's exactly one place that knows how to fully tear down
@@ -499,17 +502,20 @@ def restart_everything(wildfly_action):
 
     start_script = os.path.join(SCRIPT_DIR, "start.py")
     start_cmd = [sys.executable, start_script, "--wildfly-proxy", wildfly_action]
+    if db_capture_action:
+        start_cmd += ["--db-capture", db_capture_action] + ([db_capture_project] if db_capture_project else [])
     print(f"$ {' '.join(start_cmd)}")
     result = subprocess.run(start_cmd, cwd=SCRIPT_DIR)
     sys.exit(result.returncode)
 
 
 def main():
-    services, wildfly_action = _parse_args(sys.argv[1:])
+    args, db_capture_action, db_capture_project = alfred_dbcapture.take_flag(sys.argv[1:])
+    services, wildfly_action = _parse_args(args)
 
     if not services:
         print("Restarting everything (stop.py, then start.py)")
-        restart_everything(wildfly_action)
+        restart_everything(wildfly_action, db_capture_action, db_capture_project)
         return  # unreachable - restart_everything always exits - kept for clarity
 
     # Targeted restart of specific service(s) - a full stop.py/start.py round trip would
@@ -526,6 +532,11 @@ def main():
     print()
     print("=== Step: WildFly proxy (outbound, JVM Attach API) ===")
     toggle_wildfly_proxy(wildfly_action)
+
+    if db_capture_action:
+        print()
+        print("=== Step: database capture agent (JVM Attach API) ===")
+        alfred_dbcapture.toggle(db_capture_action, db_capture_project)
 
     print("Done.")
 

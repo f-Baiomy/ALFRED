@@ -14,7 +14,7 @@ import { DbWindowService } from './db-window.service';
   selector: 'app-db-chip',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (summary(); as s) {
+    @if (dbState.showChips() && summary(); as s) {
       @if (s.statementCount === 0 && !live()) {
         <span class="db-chip off" title="The agent was attached and saw no statements for this call">◆ DB 0</span>
       } @else {
@@ -32,7 +32,7 @@ import { DbWindowService } from './db-window.service';
   `,
 })
 export class DbChipComponent implements OnInit {
-  private readonly dbState = inject(DbCaptureStateService);
+  protected readonly dbState = inject(DbCaptureStateService);
   private readonly window = inject(DbWindowService);
 
   readonly call = input.required<CallRecord>();

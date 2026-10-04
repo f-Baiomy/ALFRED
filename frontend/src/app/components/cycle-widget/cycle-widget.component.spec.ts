@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { ApplicationRef, computed, signal } from '@angular/core';
 import { Subject, of } from 'rxjs';
 import { CycleWidgetComponent, relativeTime } from './cycle-widget.component';
@@ -110,6 +111,8 @@ describe('CycleWidgetComponent', () => {
       providers: [
         { provide: CycleWidgetStateService, useValue: state },
         { provide: CycleWidgetWindowService, useValue: win },
+        // The Log DB column reads the shared capture switch; none of these tests are about it.
+        { provide: DbCaptureStateService, useValue: { isOn: () => false, projectStatus: () => undefined, switchTitle: () => '', toggle: () => undefined } },
       ],
     });
     fixture = TestBed.createComponent(CycleWidgetComponent);

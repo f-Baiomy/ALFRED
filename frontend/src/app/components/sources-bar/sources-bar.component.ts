@@ -1,6 +1,8 @@
-import { Component, input, output } from '@angular/core';
+import { Component, inject, input, output, signal } from '@angular/core';
 import { InternalCallServiceDto } from '../../core/services/internal-logging-api.service';
 import { EXTERNAL_SOURCE_KEY } from '../../shared/utils/call-utils';
+import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
+import { DbCapturePopoverComponent } from '../db-capture/db-capture-popover.component';
 
 /**
  * Replaces the old three-option External/Internal/Both dropdown with a per-source pill row: one
@@ -18,9 +20,15 @@ import { EXTERNAL_SOURCE_KEY } from '../../shared/utils/call-utils';
 @Component({
   selector: 'app-sources-bar',
   standalone: true,
+  imports: [DbCapturePopoverComponent],
   templateUrl: './sources-bar.component.html',
 })
 export class SourcesBarComponent {
+  /** Database capture's per-project switch rides next to each project's inbound-logging dot (docs/db-capture.md). */
+  protected readonly db = inject(DbCaptureStateService);
+  readonly popoverFor = signal<string | null>(null);
+  readonly popoverAnchor = signal<HTMLElement | null>(null);
+
   readonly selected = input.required<ReadonlySet<string>>();
   readonly internalServices = input<readonly InternalCallServiceDto[]>([]);
   readonly featureEnabled = input(false);
@@ -48,6 +56,16 @@ export class SourcesBarComponent {
 
   private allKeys(): string[] {
     return [this.externalKey, ...this.internalServices().map((s) => s.name)];
+  }
+
+  inboundOn(project: string): boolean {
+    return this.internalServices().some((s) => s.name === project && s.enabled);
+  }
+
+  togglePopover(project: string, anchor: HTMLElement): void {
+    const open = this.popoverFor() === project;
+    this.popoverAnchor.set(anchor);
+    this.popoverFor.set(open ? null : project);
   }
 
   onToggleLogging(name: string, currentlyEnabled: boolean, event: Event): void {

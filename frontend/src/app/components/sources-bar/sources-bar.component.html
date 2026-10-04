@@ -24,7 +24,36 @@
       >
         <span class="switch-dot"></span>
       </button>
+      @if (service.name !== 'unknown') {
+        <button
+          type="button"
+          class="source-pill-switch db-sw"
+          [class.on]="db.isOn(service.name, service.enabled)"
+          [class.blocked]="!service.enabled"
+          [title]="db.switchTitle(service.name, service.enabled)"
+          (click)="db.toggle(service.name, service.enabled); $event.stopPropagation()"
+        >
+          <span class="db-glyph">◆</span>
+        </button>
+        <button
+          #more
+          type="button"
+          class="source-pill-switch db-more"
+          [title]="'Database capture settings for ' + service.name"
+          [attr.aria-expanded]="popoverFor() === service.name"
+          (click)="togglePopover(service.name, more); $event.stopPropagation()"
+        >▾</button>
+      }
     </span>
+  }
+
+  @if (popoverFor(); as project) {
+    @defer {
+      <app-db-capture-popover [project]="project" [inboundOn]="inboundOn(project)" [anchor]="popoverAnchor()" (closed)="popoverFor.set(null)" />
+    }
+  }
+  @if (db.switchError(); as err) {
+    <span class="db-switch-err" (click)="db.switchError.set(null)" title="Dismiss">{{ err }}</span>
   }
 
   <span class="sources-spacer"></span>

@@ -5,13 +5,15 @@ import { DatabaseStatsStateService } from '../../core/state/database-stats-state
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../../core/services/internal-logging-api.service';
+import { DbCaptureSettingsComponent } from '../../components/db-capture/db-capture-settings.component';
+import { ActivatedRoute } from '@angular/router';
 
-type Partition = 'call-filtering' | 'database' | 'inbound-logging';
+type Partition = 'call-filtering' | 'database' | 'inbound-logging' | 'database-capture';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [ConfirmDialogComponent],
+  imports: [ConfirmDialogComponent, DbCaptureSettingsComponent],
   templateUrl: './settings.component.html',
 })
 export class SettingsComponent implements OnInit {
@@ -19,6 +21,7 @@ export class SettingsComponent implements OnInit {
   readonly databaseStats = inject(DatabaseStatsStateService);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly internalLoggingApi = inject(InternalLoggingApiService);
+  private readonly route = inject(ActivatedRoute, { optional: true });
 
   readonly activePartition = signal<Partition>('call-filtering');
 
@@ -46,6 +49,10 @@ export class SettingsComponent implements OnInit {
 
   ngOnInit(): void {
     this.state.loadIfNeeded();
+    // "All database settings →" from the Sources bar lands here (?section=database-capture).
+    if (this.route?.snapshot.queryParamMap.get('section') === 'database-capture') {
+      this.activePartition.set('database-capture');
+    }
 
     // Fetched once up front (not lazily on nav click) so the "Inbound logging" nav item's
     // visibility is decided before the user could ever click it - a deploy-time flag, so this

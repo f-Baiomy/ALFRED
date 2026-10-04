@@ -11,6 +11,16 @@ import { CallDbSummary, DbCaptureSocketEvent, ProjectCaptureStatus } from '../mo
  * screen. Summaries are fetched in batches: every chip asks in the same frame, one request answers them all. No
  * timers - a change on the socket is what triggers a re-fetch.
  */
+const SHOW_CHIPS_KEY = 'alfred.dbCapture.showChips';
+
+function readShowChips(): boolean {
+  try {
+    return localStorage.getItem(SHOW_CHIPS_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class DbCaptureStateService {
   private readonly api = inject(DbCaptureApiService);
@@ -32,6 +42,12 @@ export class DbCaptureStateService {
   private readonly queued = new Set<string>();
   private flushScheduled = false;
   readonly summaries: Signal<ReadonlyMap<string, CallDbSummary>> = this.summariesSignal.asReadonly();
+
+  /** This viewer's choice to show the ◆ DB chip on call cards - a per-browser convenience, not a shared setting. */
+  private readonly showChipsSignal = signal(readShowChips());
+  readonly showChips = this.showChipsSignal.asReadonly();
+  /** The last switch the server refused (e.g. inbound logging is off), shown next to the switch. */
+  readonly switchError = signal<string | null>(null);
 
   constructor() {
     const subscription = this.events$.subscribe((event) => this.onEvent(event));
@@ -55,7 +71,38 @@ export class DbCaptureStateService {
   }
 
   setEnabled(project: string, enabled: boolean): void {
-    this.api.setEnabled(project, enabled).subscribe((projects) => this.projectsSignal.set(projects));
+    this.switchError.set(null);
+    this.api.setEnabled(project, enabled).subscribe({
+      next: (projects) => this.projectsSignal.set(projects),
+      error: (e) => this.switchError.set(e?.error?.error ?? 'Could not change database capture.'),
+    });
+  }
+
+  /** The one switch behind the Sources bar, the cycle widget and Settings. Does nothing while inbound logging is off. */
+  toggle(project: string, inboundOn: boolean): void {
+    if (!inboundOn) return;
+    this.setEnabled(project, !this.projectStatus(project)?.enabled);
+  }
+
+  isOn(project: string, inboundOn: boolean): boolean {
+    return inboundOn && !!this.projectStatus(project)?.enabled;
+  }
+
+  switchTitle(project: string, inboundOn: boolean): string {
+    if (!inboundOn) return 'Turn inbound logging on first - statements are attached to inbound calls';
+    const status = this.projectStatus(project);
+    if (status?.enabled) return 'Database capture is on - click to turn off';
+    if (!status?.attached) return `Database capture is off - turning it on waits for the agent (not attached to ${project} yet)`;
+    return 'Database capture is off - click to turn on';
+  }
+
+  setShowChips(show: boolean): void {
+    this.showChipsSignal.set(show);
+    try {
+      localStorage.setItem(SHOW_CHIPS_KEY, show ? '1' : '0');
+    } catch {
+      // private window / blocked storage: the choice simply lasts for this page
+    }
   }
 
   /** A chip on screen wants its summary; batched into one request per frame. */

@@ -31,6 +31,14 @@
         >
           Inbound logging
         </button>
+        <button
+          type="button"
+          class="settings-nav-item"
+          [class.active]="activePartition() === 'database-capture'"
+          (click)="setActivePartition('database-capture')"
+        >
+          Database capture
+        </button>
       }
     </nav>
 
@@ -126,6 +134,8 @@
           }
           }
         </section>
+      } @else if (activePartition() === 'database-capture' && inboundLoggingFeatureEnabled()) {
+        <app-db-capture-settings />
       } @else if (activePartition() === 'inbound-logging' && inboundLoggingFeatureEnabled()) {
         <section class="panel settings-panel">
           <h3>Inbound logging</h3>

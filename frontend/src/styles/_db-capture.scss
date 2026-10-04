@@ -474,3 +474,68 @@
   &:hover { color: var(--purple-light); border-color: var(--border); }
   &.on { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
 }
+
+// ---- the capture switch: Sources bar ◆ + ▾, its popover, the cycle widget's Log DB column ----
+.db-glyph { font-size: 0.72rem; line-height: 1; color: var(--text-faint); }
+.source-pill-switch.db-sw.on .db-glyph { color: var(--db); text-shadow: 0 0 6px color-mix(in srgb, var(--db) 60%, transparent); }
+.source-pill-switch.db-sw.blocked { cursor: not-allowed; opacity: 0.4; }
+.source-pill-switch.db-more { font-size: 0.7rem; padding: 0.4rem 0.55rem; }
+.source-pill-switch.db-more[aria-expanded='true'] { color: var(--purple-light); background: color-mix(in srgb, var(--purple) 20%, transparent); }
+.db-switch-err { font-size: 0.72rem; color: var(--amber); cursor: pointer; }
+
+.cw-switch.db.on { background: var(--db); }
+.cw-switch.blocked { opacity: 0.35; cursor: not-allowed; }
+.cw-col-log.db { width: 54px; }
+.cw-sources-head .cw-col-log.db { color: var(--db); }
+.cw-chip .cw-db-mark { color: var(--db); margin-left: 0.15rem; }
+
+.db-pop {
+  position: fixed;
+  z-index: 1000;
+  width: min(420px, calc(100vw - 32px));
+  background: var(--popover-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+
+  h4 { margin: 0 0 0.5rem; font-size: 0.8rem; color: var(--text); display: flex; align-items: center; gap: 0.5rem; }
+  .cw-spacer { flex: 1; min-width: 0; }
+  .pr { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 0.6rem; padding: 0.4rem 0; border-top: 1px solid var(--border); align-items: center; }
+  .pl { color: var(--text-dim); font-size: 0.74rem; }
+  .foot { display: flex; gap: 0.6rem; align-items: center; border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.2rem; }
+  .db-how { font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; padding: 0.3rem 0 0.4rem; }
+  .db-how code { font-family: var(--db-mono); color: var(--purple-light); }
+  .db-pop-err { color: var(--red); font-size: 0.72rem; padding-top: 0.3rem; }
+}
+
+.db-pop, .db-settings {
+  .agent-ok { color: var(--green); }
+  .agent-no { color: var(--amber); }
+  .dimtxt { color: var(--text-dim); font-size: 0.72rem; }
+  .lnk { color: var(--purple-light); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; font-size: 0.72rem; }
+  .chk { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.74rem; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+  .chk input { accent-color: var(--purple); }
+  .tchip { display: inline-block; font-family: var(--db-mono); font-size: 0.72rem; color: var(--purple-light); border: 1px solid var(--border); border-radius: 6px; padding: 0.1rem 0.45rem; margin: 0 0.3rem 0.2rem 0; }
+  .tchip.on { color: var(--db); border-color: color-mix(in srgb, var(--db) 40%, transparent); }
+  .tchip a { cursor: pointer; margin-left: 0.2rem; }
+  input.mini { width: 70px; background: var(--card-inner); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.2rem 0.4rem; font-size: 0.74rem; font-family: var(--db-mono); }
+  input.mini.wide { width: 150px; }
+}
+
+// ---- Settings → Database capture ----
+.db-settings {
+  .set-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 0.8rem; padding: 0.65rem 0; border-top: 1px solid var(--border); font-size: 0.8rem; align-items: start; }
+  .set-row:first-of-type { border-top: none; }
+  .set-l { color: var(--text-dim); font-size: 0.76rem; padding-top: 0.15rem; }
+  .set-row code { font-family: var(--db-mono); color: var(--purple-light); }
+  .db-proj { margin-top: 1rem; padding: 0.3rem 0.9rem; border: 1px solid var(--border); border-radius: 12px; }
+  .db-proj h4 { margin: 0.6rem 0 0.2rem; display: flex; gap: 0.5rem; align-items: center; }
+  .db-err { color: var(--red); font-size: 0.74rem; }
+}
+
+@media (max-width: 640px) {
+  .db-settings .set-row { grid-template-columns: minmax(0, 1fr); }
+}
