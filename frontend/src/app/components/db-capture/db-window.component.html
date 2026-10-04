@@ -80,6 +80,9 @@
         <label class="chk"><input type="checkbox" [checked]="state.showSuppliers()" (change)="state.showSuppliers.set(!state.showSuppliers())"> Supplier calls</label>
       }
       <label class="chk"><input type="checkbox" [checked]="state.fill()" (change)="state.fill.set(!state.fill())"> Fill in values</label>
+      @if (call()) {
+        <label class="chk" title="Off: every statement in one plain list, in the order it ran"><input type="checkbox" [checked]="grouped()" (change)="setGrouped(!grouped())"> Group by transaction</label>
+      }
       <button type="button" class="action-btn" (click)="expandAll()">Expand all</button>
       <button type="button" class="action-btn" (click)="collapseAll()">Collapse all</button>
     </div>

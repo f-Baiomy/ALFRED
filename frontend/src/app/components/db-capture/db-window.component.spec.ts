@@ -74,4 +74,22 @@ describe('DbWindowComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.sqlb').textContent).toContain('WHERE id = 1042');
   });
+
+  it('groups statements by transaction (folded), and shows a plain list with the switch off', () => {
+    localStorage.removeItem('alfred.dbCapture.groupByTransaction');
+    statements = jasmine.createSpy('statements').and.returnValue(of({
+      statements: [stmt(1, 'SELECT', 'SELECT a', { txId: 'tx-1' }), stmt(2, 'SELECT', 'SELECT b', { txId: 'tx-1' })],
+      transactions: [{ callId: 'call-1', txId: 'tx-1', firstSeq: 1, lastSeq: 2, outcome: 'OPEN', heldMicros: 0, statementCount: 2, writeCount: 0 }],
+      supplierMarkers: [], hasMore: false,
+    }));
+    const fixture = create();
+    expect(fixture.nativeElement.querySelectorAll('.g').length).toBe(1);
+    expect(fixture.nativeElement.querySelector('.g').classList).toContain('closed');
+
+    fixture.componentInstance.setGrouped(false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.g').length).toBe(0);
+    expect(fixture.nativeElement.querySelectorAll('.r').length).toBe(2);
+    localStorage.removeItem('alfred.dbCapture.groupByTransaction');
+  });
 });

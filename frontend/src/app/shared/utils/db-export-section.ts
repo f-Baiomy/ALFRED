@@ -3,7 +3,7 @@ import { CallDbCapture, DbColumn, DbFlag, ExportedDbStatement, TypedValue } from
 import { beforeAfter } from './db-before-after';
 import { flagText } from './db-flags';
 import { msText, resultText, valueText, verbOf } from './db-statement-display';
-import { DbGroupNode, DbNode, buildStatementTree, isMeaningfulTransaction, statementsOf } from './db-statement-tree';
+import { DbGroupNode, DbNode, buildStatementTree, statementsOf } from './db-statement-tree';
 import { renderSql, sqlText } from './sql-render';
 
 /**
@@ -23,7 +23,7 @@ function stats(capture: CallDbCapture) {
     statements: s.length,
     writes: s.filter((x) => ['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'DDL'].includes(x.kind)).length,
     failed: s.filter((x) => x.outcome.kind === 'FAILED').length,
-    transactions: capture.transactions.filter(isMeaningfulTransaction).length,
+    transactions: capture.transactions.length,
     rolledBack: capture.transactions.filter((t) => t.outcome === 'ROLLED_BACK').length,
     micros: s.reduce((a, x) => a + x.durationMicros, 0),
     flags: capture.summary?.flags ?? [],

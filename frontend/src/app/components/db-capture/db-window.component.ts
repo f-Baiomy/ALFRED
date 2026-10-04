@@ -12,7 +12,7 @@ import { DbNode } from '../../shared/utils/db-statement-tree';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { CallsStateService } from '../../core/state/calls-state.service';
-import { buildStatementTree, initiallyFolded, isMeaningfulTransaction, pathTo } from '../../shared/utils/db-statement-tree';
+import { buildStatementTree, initiallyFolded, pathTo } from '../../shared/utils/db-statement-tree';
 import { isDelete, isFailed, isWrite, msText } from '../../shared/utils/db-statement-display';
 import { flagTarget, flagText } from '../../shared/utils/db-flags';
 import { buildSqlScript } from '../../shared/utils/sql-export-builder';
@@ -21,6 +21,15 @@ import { DbDetailTab, DbKindFilter, DbWindowState } from './db-window-state';
 import { DbWindowRequest } from './db-window.service';
 
 const PAGE = 500;
+const GROUPED_KEY = 'alfred.dbCapture.groupByTransaction';
+
+function readGrouped(): boolean {
+  try {
+    return localStorage.getItem(GROUPED_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 const DEFAULT_REPEAT_THRESHOLD = 5;
 
 interface StripSegment {
@@ -91,7 +100,24 @@ export class DbWindowComponent implements OnInit {
   });
   readonly flags = computed<readonly DbFlag[]>(() => this.summary()?.flags ?? []);
 
-  readonly tree = computed(() => buildStatementTree(this.statements(), this.markers(), this.transactions(), DEFAULT_REPEAT_THRESHOLD));
+  /**
+   * "Group by transaction" (on by default, remembered per browser): off shows the statements as one plain list in run
+   * order - no transaction or repeated-query groups, supplier calls still in place.
+   */
+  readonly grouped = signal(readGrouped());
+  readonly tree = computed(() => this.grouped()
+    ? buildStatementTree(this.statements(), this.markers(), this.transactions(), DEFAULT_REPEAT_THRESHOLD)
+    : buildStatementTree(this.statements(), this.markers(), [], Number.MAX_SAFE_INTEGER));
+
+  setGrouped(grouped: boolean): void {
+    this.grouped.set(grouped);
+    if (grouped) this.state.folded.set(initiallyFolded(this.tree()));
+    try {
+      localStorage.setItem(GROUPED_KEY, grouped ? '1' : '0');
+    } catch {
+      // private window / blocked storage: the choice lasts for this window only
+    }
+  }
   /** Outside-call statements, one section per thread. */
   readonly threads = computed(() => {
     const by = new Map<string, CapturedStatement[]>();
@@ -111,9 +137,7 @@ export class DbWindowComponent implements OnInit {
   readonly writeCount = computed(() => this.summary()?.writeCount ?? this.statements().filter(isWrite).length);
   readonly deleteCount = computed(() => this.summary()?.deleteCount ?? this.statements().filter(isDelete).length);
   readonly failedCount = computed(() => this.summary()?.failedCount ?? this.statements().filter(isFailed).length);
-  readonly txCount = computed(() => this.transactions().length
-    ? this.transactions().filter(isMeaningfulTransaction).length
-    : this.summary()?.transactionCount ?? 0);
+  readonly txCount = computed(() => this.summary()?.transactionCount ?? this.transactions().length);
   readonly rolledBackCount = computed(() => this.summary()?.rolledBackCount ?? this.transactions().filter((t) => t.outcome === 'ROLLED_BACK').length);
   readonly dbMicros = computed(() => this.summary()?.dbMicros ?? this.statements().reduce((a, s) => a + s.durationMicros, 0));
   readonly droppedCount = computed(() => this.summary()?.droppedCount ?? 0);

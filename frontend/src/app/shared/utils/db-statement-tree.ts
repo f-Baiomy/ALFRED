@@ -47,8 +47,8 @@ export function buildStatementTree(
     ...markers.map((m) => ({ type: 'supplier' as const, seq: m.seq, marker: m })),
   ].sort((a, b) => a.seq - b.seq || (a.type === 'supplier' ? 1 : -1));
 
-  // Transactions worth a group, in order; an overlapping one (another connection) stays flat.
-  const txs = transactions.filter(isMeaningfulTransaction).sort((a, b) => a.firstSeq - b.firstSeq);
+  // Every transaction that ran something is a group, in order; an overlapping one (another connection) stays flat.
+  const txs = [...transactions].filter((t) => t.statementCount > 0).sort((a, b) => a.firstSeq - b.firstSeq);
   const out: DbNode[] = [];
   let i = 0;
   let t = 0;
@@ -107,15 +107,6 @@ function groupRepeats(nodes: readonly (DbStatementNode | DbSupplierNode)[], thre
     }
   }
   return out;
-}
-
-/**
- * A transaction is shown as a group when it wrote something, or ended (commit/rollback) around several statements.
- * Applications that leave auto-commit off for plain reads (odeysys does) open a "transaction" per read that never
- * ends - hundreds of one-statement, nothing-written groups that would only bury the statements.
- */
-export function isMeaningfulTransaction(t: StatementTransaction): boolean {
-  return t.statementCount > 0 && (t.writeCount > 0 || t.outcome === 'ROLLED_BACK' || (t.outcome === 'COMMITTED' && t.statementCount > 1));
 }
 
 /** Every statement under a node, in order. */
