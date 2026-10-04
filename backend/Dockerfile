@@ -21,6 +21,7 @@ COPY backend-scenarios/pom.xml backend-scenarios/pom.xml
 COPY backend-relive/pom.xml backend-relive/pom.xml
 COPY backend-logs/pom.xml backend-logs/pom.xml
 COPY backend-resend/pom.xml backend-resend/pom.xml
+COPY backend-db-capture/pom.xml backend-db-capture/pom.xml
 COPY backend-app/pom.xml backend-app/pom.xml
 COPY backend-architecture-test/pom.xml backend-architecture-test/pom.xml
 RUN mvn -B dependency:go-offline
