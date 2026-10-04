@@ -194,6 +194,11 @@ export class LogsApiService {
     });
   }
 
+  /** How many lines each filter of the query hides (filter i: matches without it minus matches with it). */
+  pillImpact(id: string, query: LogQuery): Observable<(number | null)[]> {
+    return this.http.post<(number | null)[]>(`${this.src(id)}/pills/impact`, query);
+  }
+
   histogram(id: string, query: LogQuery, buckets = 60): Observable<Histogram> {
     return this.http.post<Histogram>(`${this.src(id)}/histogram`, query, { params: { buckets } });
   }

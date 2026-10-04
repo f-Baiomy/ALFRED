@@ -55,6 +55,12 @@ public class LogQueryController {
         return query.context(id, lineId, before, after);
     }
 
+    /** How many lines each filter of the query hides (filter i: matches without it minus matches with it). */
+    @PostMapping("/pills/impact")
+    public List<Long> pillImpact(@PathVariable String id, @RequestBody(required = false) LogQuery body) {
+        return query.pillImpact(id, body);
+    }
+
     @PostMapping("/histogram")
     public Histogram histogram(@PathVariable String id, @RequestBody(required = false) LogQuery body,
                                @RequestParam(defaultValue = "60") int buckets) {

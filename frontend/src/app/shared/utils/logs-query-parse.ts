@@ -1,4 +1,5 @@
 import { Pill } from '../../core/models/logs.model';
+import { excludes, pillWords } from './logs-filter';
 
 /**
  * The explorer's query-bar grammar (contracts/log-query.md), identical to mock.html's parseQ():
@@ -58,6 +59,9 @@ const OP_SIGN: Partial<Record<Pill['op'], string>> = { EQ: '=', NEQ: '≠', GT: 
 
 /** What a pill reads as (mock `pillText()`). */
 export function pillText(p: Pill, formatTime: (ms: number) => string = (ms) => new Date(ms).toISOString()): string {
+  const w = pillWords(p);
+  if (w && p.op !== 'TEXT') return `${w.not ? 'NOT ' : ''}${w.field} ${w.word}${w.value ? ' ' + w.value : ''}`;
+  if (p.op === 'TEXT' && p.not) return `NOT "${p.value ?? ''}"`;
   switch (p.op) {
     case 'TEXT':
       return `"${p.value ?? ''}"`;
@@ -80,7 +84,10 @@ export function pillText(p: Pill, formatTime: (ms: number) => string = (ms) => n
 
 /** Colour class per operator: = blue, ≠ red, exists green, text amber, ranges cyan (mock `.qp.*`). */
 export function pillClass(p: Pill): string {
+  if (excludes(p) && p.op !== 'NOT_EXISTS') return 'lg-qp-neq';
   switch (p.op) {
+    case 'CONTAINS':
+      return 'lg-qp-eq';
     case 'EQ':
       return 'lg-qp-eq';
     case 'NEQ':
@@ -97,7 +104,8 @@ export function pillClass(p: Pill): string {
 
 export function samePill(a: Pill, b: Pill): boolean {
   return a.op === b.op && (a.field ?? null) === (b.field ?? null) && (a.value ?? null) === (b.value ?? null)
-    && (a.from ?? null) === (b.from ?? null) && (a.to ?? null) === (b.to ?? null);
+    && (a.from ?? null) === (b.from ?? null) && (a.to ?? null) === (b.to ?? null)
+    && (a.values ?? []).join('\u0000') === (b.values ?? []).join('\u0000') && !!a.not === !!b.not;
 }
 
 /** Splits text into plain and matched segments for every TEXT pill term - rendered with bindings, never innerHTML. */

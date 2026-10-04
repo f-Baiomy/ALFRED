@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Logs - big values, no drawer (mock)</title>
+<style>
+  :root {
+    --bg: #0a0e2a; --card: #141a45; --card-inner: #070a24; --popover: #161c4a;
+    --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.18);
+    --text: #eef0ff; --dim: #a3a8d6; --faint: #6b70a3;
+    --purple: #7c6cf0; --purple-l: #a99ff7; --red: #f87171; --amber: #fbbf24; --green: #34d399; --cyan: #67e8f9;
+    --mono: Consolas, "SFMono-Regular", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .note { color: var(--dim); max-width: 1100px; margin: 0 0 14px; }
+  .note b { color: var(--text); }
+  .callout { border-left: 3px solid var(--purple); background: color-mix(in srgb, var(--purple) 10%, transparent); padding: 8px 12px; border-radius: 6px; margin: 10px 0 16px; max-width: 1100px; color: var(--dim); }
+  .callout b { color: var(--text); }
+  .num { display: inline-block; min-width: 18px; height: 18px; border-radius: 9px; background: var(--purple); color: #fff; font-size: 11px; font-weight: 700; text-align: center; line-height: 18px; margin-right: 4px; }
+
+  .list { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; max-width: 1240px; }
+  .lhead, .lr { display: grid; grid-template-columns: 26px 26px 120px 76px 200px 140px 1fr; gap: 8px; align-items: center; padding: 6px 10px; }
+  .lhead { background: var(--popover); color: var(--faint); font-size: 11px; font-weight: 600; border-bottom: 1px solid var(--border-strong); }
+  .lr { border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12.5px; cursor: pointer; }
+  .lr:hover { background: rgba(255,255,255,.03); }
+  .lr.open { background: color-mix(in srgb, var(--purple) 10%, transparent); }
+  .lr .stripe { width: 3px; height: 18px; background: var(--red); border-radius: 2px; }
+  .lvl { font-family: "Segoe UI"; font-size: 11px; font-weight: 700; border: 1px solid; border-radius: 6px; padding: 0 6px; }
+  .lvl.e { color: var(--red); border-color: var(--red); }
+  .ell { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* expanded line */
+  .detail { background: var(--card-inner); border-bottom: 1px solid var(--border); padding: 10px 14px 14px 56px; }
+  .dbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .tabs { display: flex; gap: 2px; background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 2px; }
+  .tabs button, .seg button { background: none; border: 0; color: var(--dim); font: 600 12px "Segoe UI"; padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+  .tabs button.on, .seg button.on { background: var(--purple); color: #fff; }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+  .sp { flex: 1; }
+  .btn { background: transparent; border: 1px solid var(--border-strong); color: var(--text); border-radius: 8px; font: 600 12px "Segoe UI"; padding: 4px 10px; cursor: pointer; }
+  .btn:hover { border-color: var(--purple-l); }
+  .removed { text-decoration: line-through; color: var(--faint); border-style: dashed; cursor: not-allowed; }
+  .tag-new { font: 700 10px "Segoe UI"; color: var(--green); border: 1px solid var(--green); border-radius: 5px; padding: 0 4px; margin-left: 4px; }
+
+  /* field table */
+  .grp { display: flex; gap: 6px; align-items: center; padding: 5px 4px; color: var(--purple-l); font-weight: 700; font-family: var(--mono); border-bottom: 1px solid var(--border); }
+  .grp .c { color: var(--faint); font-weight: 400; }
+  .fr { display: grid; grid-template-columns: 22px minmax(140px, 220px) 1fr; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); align-items: start; }
+  .fr .ic { color: var(--faint); font-family: var(--mono); }
+  .key { font-family: var(--mono); color: var(--dim); word-break: break-all; }
+  .size { display: block; font: 11px "Segoe UI"; color: var(--faint); margin-top: 2px; }
+  .val { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: break-word; min-width: 0; }
+  .val:has(.clamp) { white-space: normal; }
+  .val .clamp, .val .open { white-space: pre-wrap; }
+  .clamp { max-height: 4.6em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+  .more { display: flex; gap: 8px; align-items: center; margin-top: 4px; font-family: "Segoe UI"; }
+  .link { background: none; border: 0; color: var(--purple-l); font: 600 12px "Segoe UI"; cursor: pointer; padding: 0; }
+  .link:hover { text-decoration: underline; }
+  .faint { color: var(--faint); }
+
+  /* exception value */
+  .exc-head { font-family: "Segoe UI"; font-weight: 700; color: var(--red); }
+  .exc-type { font-family: var(--mono); background: color-mix(in srgb, var(--red) 14%, transparent); border-radius: 4px; padding: 0 4px; }
+  .exc-msg { color: var(--text); font-weight: 400; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+  .chip { font: 11.5px var(--mono); background: var(--card); border: 1px solid var(--border-strong); border-radius: 6px; padding: 1px 6px; color: var(--dim); }
+  .chip b { color: var(--text); font-weight: 600; }
+  .dup { font: 12px "Segoe UI"; color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent); border-radius: 6px; padding: 2px 8px; display: inline-flex; gap: 8px; align-items: center; }
+
+  /* stack trace */
+  .frames { font-family: var(--mono); font-size: 12px; border-left: 2px solid var(--border-strong); padding-left: 8px; }
+  .frame { padding: 1px 0; }
+  .frame .cls { color: var(--faint); }
+  .frame .m { color: var(--text); font-weight: 600; }
+  .frame .at { color: var(--cyan); }
+  .frame.app .m { color: var(--amber); }
+  .frame.app::before { content: "●"; color: var(--amber); font-size: 9px; margin-right: 5px; }
+  .fold { color: var(--faint); font: 12px "Segoe UI"; padding: 2px 0; cursor: pointer; }
+  .fold:hover { color: var(--purple-l); }
+
+  /* full value window */
+  .ov { position: fixed; inset: 0; background: rgba(3,5,20,.7); display: none; align-items: flex-start; justify-content: center; padding-top: 50px; z-index: 10; }
+  .ov.show { display: flex; }
+  .win { width: min(1100px, 94vw); max-height: 84vh; display: flex; flex-direction: column; background: var(--popover); border: 1px solid var(--border-strong); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.6); }
+  .whead { display: flex; gap: 8px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .whead h2 { font: 700 15px var(--mono); margin: 0; }
+  .find { background: var(--card-inner); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text); padding: 4px 8px; font: 12px var(--mono); width: 200px; }
+  .wbody { overflow: auto; padding: 12px 14px; font: 12.5px/1.55 var(--mono); }
+  .wbody.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .wbody.nowrap { white-space: pre; }
+  mark { background: color-mix(in srgb, var(--amber) 45%, transparent); color: var(--text); border-radius: 2px; }
+  .ln { color: var(--faint); user-select: none; display: inline-block; width: 34px; text-align: right; margin-right: 10px; }
+
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dim); }
+  .ctx { font-family: var(--mono); font-size: 12px; }
+  .ctx div { padding: 2px 6px; border-radius: 4px; }
+  .ctx .me { background: color-mix(in srgb, var(--purple) 22%, transparent); color: var(--text); }
+</style>
+</head>
+<body>
+<h1>Logs explorer - big values, and no side drawer (v2)</h1>
+<p class="note">Mock only (static data from your wildfly ERROR line). Click a row to open it, then try the controls. Nothing here talks to Alfred.</p>
+
+<div class="callout">
+  <b>What changes</b><br />
+  <span class="num">1</span><b>The side drawer goes away.</b> Its tabs move into the expanded line itself: <b>Fields · Raw · Context · Trace</b>.
+  Comments stay on each field, and "Comment on the whole line" stays at the top. The ⇥ button on every row and "Open in drawer" are removed.<br />
+  <span class="num">2</span><b>A long value shows its first 3 lines</b>, faded at the bottom, with its size beside the field name and two links under it:
+  <b>Show all</b> (opens it in place, <b>Show less</b> folds it back) and <b>⤢ Open</b> (the same text in its own window, with find and Copy).<br />
+  <span class="num">3</span><b>The value itself is never changed</b>: same text, same order, same wrapping as today. Short values look exactly as they do now.
+</div>
+
+<div class="list">
+  <div class="lhead"><span></span><span></span><span>Time ▼</span><span>Level</span><span>message.methodName</span><span>logger</span><span>correlationId</span></div>
+  <div class="lr" id="row1" onclick="toggleRow()">
+    <span class="stripe"></span><span id="caret">▸</span><span>00:22:40.598</span><span><span class="lvl e">ERROR</span></span>
+    <span class="ell">handleCallingError</span><span>DetailLogger</span><span class="ell">ZT5BIVok31et0lc5PdxPei9hZ59kHjkVzGEwi7gY</span>
+  </div>
+  <div class="detail" id="detail" style="display:none">
+    <div class="dbar">
+      <div class="tabs" id="tabs">
+        <button class="on" data-t="fields">Fields</button>
+        <button data-t="raw">Raw<span class="tag-new">moved in</span></button>
+        <button data-t="context">Context<span class="tag-new">moved in</span></button>
+        <button data-t="trace">Trace<span class="tag-new">moved in</span></button>
+      </div>
+      <div class="seg" id="view"><button class="on">Table</button><button>JSON</button></div>
+      <div class="seg"><button class="on">Grouped</button><button>Flat</button></div>
+      <span class="sp"></span>
+      <button class="btn">💬 Comment on the whole line</button>
+      <button class="btn">Copy</button>
+      <button class="btn removed" title="Removed">Open in drawer</button>
+    </div>
+
+    <!-- FIELDS -->
+    <div data-pane="fields">
+      <div class="grp">▾ log <span class="c">· 2</span></div>
+      <div class="fr"><span class="ic">t</span><span class="key">level</span><span class="val">ERROR</span></div>
+      <div class="fr"><span class="ic">t</span><span class="key">logger</span><span class="val">DetailLogger</span></div>
+
+      <div class="grp">▾ message <span class="c">· 5</span></div>
+      <div class="fr">
+        <span class="ic">t</span>
+        <span class="key">context.exception<span class="size">902 chars</span></span>
+        <div class="val">
+          <div class="clamp" id="v1">UnrecognizedPropertyException : Unrecognized field &quot;error&quot; (class com.ws.services.flight.connector.ndcintegration.refactor.types.ErrorType), not marked as ignorable (14 known properties: &quot;context&quot;, &quot;status&quot;, &quot;errorCode&quot;, &quot;transactionId&quot;, &quot;originalSupplierResponse&quot;, &quot;errorMessage&quot;, &quot;Context&quot;, &quot;originalSupplierRequest&quot;, &quot;ErrorCode&quot;, &quot;TransactionId&quot;, &quot;ErrorMessage&quot;, &quot;Status&quot;, &quot;OriginalSupplierResponse&quot;, &quot;OriginalSupplierRequest&quot;])
+ at [Source: (String)&quot;{&quot;error&quot;: &quot;Blocked by ALFRED Relive - claimed by more than one run&quot;, &quot;runIds&quot;: [&quot;77cfff1d-42c9-4657-a349-59a3d114c069&quot;]}&quot;; line: 1, column: 12] (through reference chain: com.ws.services.flight.connector.ndcintegration.refactor.types.ErrorType[&quot;error&quot;])</div>
+          <div class="more"><button class="link" onclick="clampToggle('v1', this)">Show all ▾</button><span class="faint">·</span><button class="link" onclick="openWin('context.exception')">⤢ Open</button></div>
+        </div>
+      </div>
+      <div class="fr"><span class="ic">t</span><span class="key">correlationId</span><span class="val">ZT5BIVok31et0lc5PdxPei9hZ59kHjkVzGEwi7gY</span></div>
+      <div class="fr">
+        <span class="ic">t</span>
+        <span class="key">message<span class="size">1,010 chars</span></span>
+        <div class="val">
+          <div class="clamp" id="v2">Generic error: com.ws.services.flight.connector.ndcintegration.refactor.abstracions.NDCOperation.handleCallingError failed: UnrecognizedPropertyException : Unrecognized field &quot;error&quot; (class com.ws.services.flight.connector.ndcintegration.refactor.types.ErrorType), not marked as ignorable (14 known properties: &quot;context&quot;, &quot;status&quot;, &quot;errorCode&quot;, &quot;transactionId&quot;, &quot;originalSupplierResponse&quot;, &quot;errorMessage&quot;, &quot;Context&quot;, &quot;originalSupplierRequest&quot;, &quot;ErrorCode&quot;, &quot;TransactionId&quot;, &quot;ErrorMessage&quot;, &quot;Status&quot;, &quot;OriginalSupplierResponse&quot;, &quot;OriginalSupplierRequest&quot;])
+ at [Source: (String)&quot;{&quot;error&quot;: &quot;Blocked by ALFRED Relive - claimed by more than one run&quot;, &quot;runIds&quot;: [&quot;77cfff1d-42c9-4657-a349-59a3d114c069&quot;]}&quot;; line: 1, column: 12] (through reference chain: com.ws.services.flight.connector.ndcintegration.refactor.types.ErrorType[&quot;error&quot;])</div>
+          <div class="more"><button class="link" onclick="clampToggle('v2', this)">Show all ▾</button><span class="faint">·</span><button class="link" onclick="openWin('message')">⤢ Open</button></div>
+        </div>
+      </div>
+      <div class="fr"><span class="ic">t</span><span class="key">methodName</span><span class="val">handleCallingError</span></div>
+      <div class="fr">
+        <span class="ic">t</span>
+        <span class="key">stacktrace<span class="size">11,482 chars</span></span>
+        <div class="val">
+          <div class="clamp" id="v3">[{&quot;className&quot;:&quot;com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException&quot;,&quot;fileName&quot;:&quot;UnrecognizedPropertyException.java&quot;,&quot;lineNumber&quot;:61,&quot;methodName&quot;:&quot;from&quot;,&quot;nativeMethod&quot;:false},{&quot;className&quot;:&quot;com.fasterxml.jackson.databind.DeserializationContext&quot;,&quot;fileName&quot;:&quot;DeserializationContext.java&quot;,&quot;lineNumber&quot;:840,&quot;methodName&quot;:&quot;handleUnknownProperty&quot;,&quot;nativeMethod&quot;:false},{&quot;className&quot;:&quot;com.ws.services.flight.connector.ndcintegration.refactor.abstracions.NDCOperation&quot;,&quot;fileName&quot;:&quot;NDCOperation.java&quot;,&quot;lineNumber&quot;:212,&quot;methodName&quot;:&quot;handleCallingError&quot;,&quot;nativeMethod&quot;:false},{&quot;className&quot;:&quot;sun.reflect.NativeMethodAccessorImpl&quot;,&quot;fileName&quot;:&quot;NativeMethodAccessorImpl.java&quot;,&quot;lineNumber&quot;:-2,&quot;methodName&quot;:&quot;invoke0&quot;,&quot;nativeMethod&quot;:true}, … 34 more frames]</div>
+          <div class="more"><button class="link" onclick="clampToggle('v3', this)">Show all ▾</button><span class="faint">·</span><button class="link" onclick="openWin('stacktrace')">⤢ Open</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RAW -->
+    <div data-pane="raw" style="display:none">
+      <div class="panel">{"timestamp":"2026-10-04T00:22:40.598Z","log.level":"ERROR","message":{"context":{"exception":"UnrecognizedPropertyException : Unrecognized field \"error\" …"},"methodName":"handleCallingError","correlationId":"ZT5BIVok31et0lc5PdxPei9hZ59kHjkVzGEwi7gY","message":"Generic error: …","stacktrace":"[{\"className\":…}]"},"logger":"DetailLogger"}</div>
+      <div class="more"><button class="link">Copy raw</button><span class="faint">· the line exactly as the file had it, never shortened</span></div>
+    </div>
+
+    <!-- CONTEXT -->
+    <div data-pane="context" style="display:none">
+      <div class="dbar"><span class="faint">Lines around this one, from the same file</span><span class="sp"></span><button class="btn">20 before</button><button class="btn">20 after</button></div>
+      <div class="ctx">
+        <div><span class="faint">00:22:38.104</span> INFO  priceOffer · API request</div>
+        <div><span class="faint">00:22:40.590</span> INFO  performOperation · End external system call · NDCGal</div>
+        <div class="me"><span class="faint">00:22:40.598</span> ERROR handleCallingError · Generic error: NDCOperation.handleCallingError failed</div>
+        <div><span class="faint">00:22:40.611</span> INFO  priceOffer · API response</div>
+      </div>
+    </div>
+
+    <!-- TRACE -->
+    <div data-pane="trace" style="display:none">
+      <div class="dbar"><span class="faint">Every line with correlationId ZT5BIVok31… (4 lines, 2.6 s)</span></div>
+      <div class="ctx">
+        <div>priceOffer · API request <span class="faint">00:22:38.104</span></div>
+        <div>performOperation · NDCGal <span class="faint">2.48 s</span></div>
+        <div class="me">handleCallingError · ERROR</div>
+        <div>priceOffer · API response <span class="faint">00:22:40.611</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- full value window -->
+<div class="ov" id="ov" onclick="if(event.target===this)closeWin()">
+  <div class="win">
+    <div class="whead">
+      <h2 id="wtitle">context.exception</h2>
+      <span class="faint" id="wsize">902 chars · 4 lines</span>
+      <span class="sp"></span>
+      <input class="find" id="find" placeholder="Find in value…" oninput="find(this.value)" />
+      <span class="faint" id="hits"></span>
+      <div class="seg" id="wrapseg"><button class="on" onclick="setWrap(true,this)">Wrap</button><button onclick="setWrap(false,this)">No wrap</button></div>
+      <button class="btn">Copy</button>
+      <button class="btn" onclick="closeWin()">Close</button>
+    </div>
+    <div class="wbody wrap" id="wbody"></div>
+  </div>
+</div>
+
+<script>
+  const FULL = {"context.exception": "UnrecognizedPropertyException : Unrecognized field \"error\" (class com.ws.services.flight.connector.ndcintegration.refactor.types.ErrorType), not marked as ignorable (14 known properties: \"context\", \"status\", \"errorCode\", \"transactionId\", \"originalSupplierResponse\", \"errorMessage\", \"Context\", \"originalSupplierRequest\", \"ErrorCode\", \"TransactionId\", \"ErrorMessage\", \"Status\", \"OriginalSupplierResponse\", \"OriginalSupplierRequest\"])\n at [Source: (String)\"{\"error\": \"Blocked by ALFRED Relive - claimed by more than one run\", \"runIds\": [\"77cfff1d-42c9-4657-a349-59a3d114c069\"]}\"; line: 1, column: 12] (through reference chain: com.ws.services.flight.connector.ndcintegration.refactor.types.ErrorType[\"error\"])", "message": "Generic error: com.ws.services.flight.connector.ndcintegration.refactor.abstracions.NDCOperation.handleCallingError failed: UnrecognizedPropertyException : Unrecognized field \"error\" (class com.ws.services.flight.connector.ndcintegration.refactor.types.ErrorType), not marked as ignorable (14 known properties: \"context\", \"status\", \"errorCode\", \"transactionId\", \"originalSupplierResponse\", \"errorMessage\", \"Context\", \"originalSupplierRequest\", \"ErrorCode\", \"TransactionId\", \"ErrorMessage\", \"Status\", \"OriginalSupplierResponse\", \"OriginalSupplierRequest\"])\n at [Source: (String)\"{\"error\": \"Blocked by ALFRED Relive - claimed by more than one run\", \"runIds\": [\"77cfff1d-42c9-4657-a349-59a3d114c069\"]}\"; line: 1, column: 12] (through reference chain: com.ws.services.flight.connector.ndcintegration.refactor.types.ErrorType[\"error\"])", "stacktrace": "[{\"className\":\"com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException\",\"fileName\":\"UnrecognizedPropertyException.java\",\"lineNumber\":61,\"methodName\":\"from\",\"nativeMethod\":false},{\"className\":\"com.fasterxml.jackson.databind.DeserializationContext\",\"fileName\":\"DeserializationContext.java\",\"lineNumber\":840,\"methodName\":\"handleUnknownProperty\",\"nativeMethod\":false},{\"className\":\"com.ws.services.flight.connector.ndcintegration.refactor.abstracions.NDCOperation\",\"fileName\":\"NDCOperation.java\",\"lineNumber\":212,\"methodName\":\"handleCallingError\",\"nativeMethod\":false},{\"className\":\"sun.reflect.NativeMethodAccessorImpl\",\"fileName\":\"NativeMethodAccessorImpl.java\",\"lineNumber\":-2,\"methodName\":\"invoke0\",\"nativeMethod\":true}, … 34 more frames]"};
+  let cur = '';
+  function toggleRow() {
+    const d = document.getElementById('detail'), open = d.style.display === 'none';
+    d.style.display = open ? '' : 'none';
+    document.getElementById('row1').classList.toggle('open', open);
+    document.getElementById('caret').textContent = open ? '▾' : '▸';
+  }
+  document.getElementById('tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
+    document.querySelectorAll('[data-pane]').forEach((p) => (p.style.display = p.dataset.pane === b.dataset.t ? '' : 'none'));
+  });
+  function clampToggle(id, btn) {
+    const el = document.getElementById(id), open = el.classList.toggle('clamp'); el.classList.toggle('open', !open);
+    btn.textContent = open ? 'Show all ▾' : 'Show less ▴';
+  }
+  function esc(s) { return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]); }
+  function render(q) {
+    const lines = FULL[cur].split('\n');
+    let hits = 0;
+    document.getElementById('wbody').innerHTML = lines.map((l, i) => {
+      let h = esc(l);
+      if (q) { const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'); h = h.replace(re, (m) => (hits++, `<mark>${m}</mark>`)); }
+      return `<span class="ln">${i + 1}</span>${h}`;
+    }).join('\n');
+    document.getElementById('hits').textContent = q ? `${hits} found` : '';
+  }
+  function openWin(k) {
+    cur = k;
+    document.getElementById('wtitle').textContent = k;
+    document.getElementById('wsize').textContent = `${FULL[k].length.toLocaleString()} chars · ${FULL[k].split('\n').length} lines`;
+    document.getElementById('find').value = '';
+    render('');
+    document.getElementById('ov').classList.add('show');
+  }
+  function closeWin() { document.getElementById('ov').classList.remove('show'); }
+  function find(q) { render(q); }
+  function setWrap(w, b) {
+    document.querySelectorAll('#wrapseg button').forEach((x) => x.classList.toggle('on', x === b));
+    const body = document.getElementById('wbody'); body.classList.toggle('wrap', w); body.classList.toggle('nowrap', !w);
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeWin(); });
+  toggleRow();
+</script>
+</body>
+</html>

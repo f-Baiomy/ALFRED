@@ -14,7 +14,6 @@
       </div>
     }
     <button class="lg-btn xs" [disabled]="line().raw === null" (click)="copy()">{{ copied() ? 'Copied' : 'Copy' }}</button>
-    <button class="lg-btn xs" (click)="openDrawer.emit()">Open in drawer</button>
   </div>
 }
 
@@ -34,7 +33,7 @@
   @if (view() === 'TABLE' || lines().length === 0) {
     <div class="lg-row" style="margin-bottom: 4px">
       @if (!showHeader()) {
-        <!-- Drawer / compare: no header row, so the per-line switch sits here. -->
+        <!-- Compare: no header row, so the per-line switch sits here. -->
         <div class="lg-seg" title="This line only - other lines keep their own">
           <button [class.on]="layout() === 'GROUPED'" (click)="setLayout('GROUPED')">Grouped</button>
           <button [class.on]="layout() === 'FLAT'" (click)="setLayout('FLAT')">Flat</button>
@@ -103,8 +102,20 @@
     <button class="lg-cbtn" [class.has]="commentsAt(r.path).length" [title]="commentsAt(r.path).length ? 'Add another comment' : 'Add a comment on this field'" (click)="startComment(r.path)">💬{{ commentsAt(r.path).length || '' }}</button>
     <span class="nm lg-dim" [title]="r.path" [style.padding-left.px]="indent">
       {{ name }}@if (isPayload(r.path)) {<span class="lg-mk" style="margin-left: 6px" title="Kept as one field holding its JSON">payload</span>}
+      @if (isLong(r.value)) {<span class="lg-vsize">{{ r.value.length.toLocaleString() }} chars</span>}
     </span>
-    <span class="v">@for (s of segments(r.value); track $index) {@if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>}}</span>
+    @if (isLong(r.value)) {
+      <span class="v">
+        <span class="lg-vtext" [class.lg-vclamp]="!isExpanded(r.path)">@for (s of segments(r.value); track $index) {@if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>}}</span>
+        <span class="lg-vmore">
+          <button class="lg-link" (click)="toggleExpanded(r.path)">{{ isExpanded(r.path) ? 'Show less ▴' : 'Show all ▾' }}</button>
+          <span class="lg-faint">·</span>
+          <button class="lg-link" (click)="openValue(r.path, r.value)">⤢ Open</button>
+        </span>
+      </span>
+    } @else {
+      <span class="v">@for (s of segments(r.value); track $index) {@if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>}}</span>
+    }
   </div>
   <ng-container *ngTemplateOutlet="commentBlock; context: { $implicit: r.path, indent: 120 + indent }" />
 </ng-template>
@@ -133,3 +144,83 @@
     </div>
   }
 </ng-template>
+
+<!-- ⤢ Open: one value in its own window. JSON or XML is recognised as it opens and can be shown formatted or as a
+     tree; "Original" is always the text exactly as stored. Read-only throughout. -->
+@if (opened(); as o) {
+  <div class="lg-overlay top" (click)="opened.set(null)" (keydown.escape)="opened.set(null)">
+    <div class="lg-card lg-dialog wide lg-vwin" (click)="$event.stopPropagation()">
+      <div class="lg-row">
+        <h2 class="lg-h2" style="word-break: break-all">{{ o.path }}</h2>
+        <span class="lg-hint">{{ o.value.length.toLocaleString() }} chars · {{ openedLines().length.toLocaleString() }} line{{ openedLines().length === 1 ? '' : 's' }}</span>
+        <span class="lg-sp"></span>
+        @if (openedDetected()) {
+          <div class="lg-seg" aria-label="How to show the value">
+            <button [class.on]="openedMode() === 'orig'" (click)="setOpenedMode('orig')" title="Exactly as stored">Original</button>
+            <button [class.on]="openedMode() === 'fmt'" (click)="setOpenedMode('fmt')">Formatted</button>
+            <button [class.on]="openedMode() === 'tree'" (click)="setOpenedMode('tree')">Tree</button>
+          </div>
+          @if (openedMode() === 'tree') {
+            <button class="lg-btn sm" (click)="setTreeOpen(true)">Expand all</button>
+            <button class="lg-btn sm" (click)="setTreeOpen(false)">Collapse all</button>
+          }
+        } @else {
+          <button class="lg-btn sm lg-vcheck" (click)="checkFormat()" title="Why isn't this shown as JSON or XML?">{{ '{ }' }} Check format</button>
+        }
+        <input class="lg-vfind" type="search" placeholder="Find in value…" [ngModel]="openedFind()" (ngModelChange)="setOpenedFind($event)" (keydown)="onFindKey($event)"
+               aria-label="Find in value" title="Enter: next match · Shift+Enter: previous" />
+        @if (openedFind().trim()) {
+          <span class="lg-hint lg-vcount">{{ openedTotal() ? (openedCur() + 1) + ' of ' + openedTotal() : 'not found' }}</span>
+          <button class="lg-ib" (click)="stepMatch(-1)" [disabled]="!openedTotal()" aria-label="Previous match" title="Previous match (Shift+Enter)">▲</button>
+          <button class="lg-ib" (click)="stepMatch(1)" [disabled]="!openedTotal()" aria-label="Next match" title="Next match (Enter)">▼</button>
+        }
+        @if (openedMode() !== 'tree') {
+          <div class="lg-seg">
+            <button [class.on]="openedWrap()" (click)="openedWrap.set(true)">Wrap</button>
+            <button [class.on]="!openedWrap()" (click)="openedWrap.set(false)">No wrap</button>
+          </div>
+        }
+        <button class="lg-btn sm" (click)="copyOpened()">{{ openedCopied() ? 'Copied' : 'Copy' }}</button>
+        <button class="lg-btn sm" (click)="opened.set(null)">Close</button>
+      </div>
+
+      @if (openedDetected(); as d) {
+        @if (openedOffer()) {
+          <div class="lg-vbar">
+            <span class="ok">✓ {{ d.kind === 'json' ? 'JSON' : 'XML' }}</span>
+            <span class="lg-hint">{{ d.summary }}{{ d.unwrapped ? ' · stored as a string inside quotes - unwrapped' : '' }}</span>
+            <span class="lg-sp"></span>
+            <button class="lg-btn sm" (click)="setOpenedMode('fmt')">Format</button>
+            <button class="lg-btn sm" (click)="setOpenedMode('tree')">Tree</button>
+            <button class="lg-btn sm" (click)="setOpenedMode('orig')">Keep as is</button>
+          </div>
+        }
+      }
+      @if (!openedDetected() && openedProblem(); as p) {
+        <div class="lg-vbar warn">
+          <span>{{ p.message }}</span>
+          @if (p.before !== undefined) {
+            <code class="lg-vsnip">…{{ p.before }}<mark class="lg-hit">{{ p.endsEarly ? '⏎' : p.at }}</mark>{{ p.after }}</code>
+          }
+          @if (p.endsEarly) { <span class="lg-hint">cut off - e.g. by the logger's length limit</span> }
+          <span class="lg-sp"></span>
+          <button class="lg-ib" (click)="openedProblem.set(null)" aria-label="Dismiss">✕</button>
+        </div>
+      }
+
+      @if (openedMode() === 'tree' && openedDetected(); as d) {
+        <div class="lg-vbody lg-vtree">
+          @if (d.kind === 'json') {
+            <app-json-tree [value]="d.json" [searchQuery]="openedFind().trim()" />
+          } @else {
+            <app-xml-tree-node [el]="d.xml!.documentElement" [searchQuery]="openedFind().trim()" />
+          }
+        </div>
+      } @else if (openedMode() === 'fmt' && openedFormatted()) {
+        <div class="lg-vbody" [class.nowrap]="!openedWrap()">@for (l of openedFormatted()!.lines; track $index) {<div class="lg-vline"><span class="ln">{{ $index + 1 }}</span><span><app-json-tokens [tokens]="l" /></span></div>}</div>
+      } @else {
+        <div class="lg-vbody" [class.nowrap]="!openedWrap()">@for (l of openedLines(); track $index) {<div class="lg-vline"><span class="ln">{{ $index + 1 }}</span><span>@for (s of openedSegments(l); track $index) {@if (s.hit) {<mark class="lg-hit">{{ s.text }}</mark>} @else {<ng-container>{{ s.text }}</ng-container>}}</span></div>}</div>
+      }
+    </div>
+  </div>
+}

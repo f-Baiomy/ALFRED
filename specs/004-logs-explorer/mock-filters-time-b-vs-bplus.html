@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Filters and time - B, B+, B++</title>
+<style>
+  :root { --bg: #0a0e2a; --card: #141a45; --border: rgba(255,255,255,.12); --text: #eef0ff; --dim: #a3a8d6; --faint: #6b70a3; --purple: #7c6cf0; --green: #34d399; --amber: #fbbf24; --cyan: #67e8f9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; padding: 14px; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  h3 { font-size: 13px; margin: 14px 0 6px; }
+  p { color: var(--dim); margin: 0 0 10px; max-width: 1200px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1300px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
+  th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--faint); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  td:first-child { color: var(--faint); width: 34px; text-align: center; font-weight: 700; }
+  td:nth-child(2) { font-weight: 600; width: 340px; }
+  td:last-child { color: var(--dim); }
+  .tag { font: 800 10px "Segoe UI"; border-radius: 4px; padding: 0 5px; }
+  .tag.bp { background: var(--amber); color: #3a2a00; } .tag.bpp { background: var(--cyan); color: #033; }
+  .pick { display: flex; gap: 12px; align-items: center; margin: 12px 0 10px; flex-wrap: wrap; }
+  select { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 5px 8px; font: 600 13px "Segoe UI"; }
+  .frames { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .frames.one { grid-template-columns: 1fr; }
+  .frame { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #000; }
+  .frame h2 { margin: 0; padding: 6px 10px; font-size: 13px; background: var(--card); }
+  iframe { width: 100%; height: 900px; border: 0; display: block; }
+</style>
+</head>
+<body>
+<h1>Design B, B+ and B++</h1>
+<p>Each step keeps everything from the one before. Every idea is independent - you can also answer "B plus 1, 4, 9 and 12". All three have the timeline coloured by level, like the explorer's histogram.</p>
+
+<h3><span class="tag bp">B+</span> eight ideas on top of B</h3>
+<table>
+  <tr><th>#</th><th>Idea</th><th>Why</th></tr>
+  <tr><td>1</td><td>Turn a filter off without deleting it (the dot on the pill)</td><td>Compare with and without a filter in one click.</td></tr>
+  <tr><td>2</td><td>Each filter shows how many lines it hides ("−87")</td><td>When the list goes empty you see which filter did it.</td></tr>
+  <tr><td>3</td><td>"is any of" - several values in one pill</td><td>level is ERROR, WARN in one filter.</td></tr>
+  <tr><td>4</td><td>◀ ▶ step the range by its own length</td><td>Read a log hour by hour.</td></tr>
+  <tr><td>5</td><td>Around From: ± 1 min / ± 5 min / ± 1 h</td><td>"What happened around this moment?"</td></tr>
+  <tr><td>6</td><td>Recent ranges</td><td>Back to the range you just looked at.</td></tr>
+  <tr><td>7</td><td>Double-click a timeline bar selects that slice</td><td>Jump straight into an error burst.</td></tr>
+  <tr><td>8</td><td>"To = now, keep moving" and "N lines in this range" before Apply</td><td>Live range; know before applying if it's empty.</td></tr>
+</table>
+<h3><span class="tag bpp">B++</span> seven more on top of B+</h3>
+<table>
+  <tr><th>#</th><th>Idea</th><th>Why</th></tr>
+  <tr><td>9</td><td>AND / OR between filters (click the "and" between two pills)</td><td>level is ERROR <b>or</b> timeTaken &gt; 6000 - without two searches.</td></tr>
+  <tr><td>10</td><td>Undo / Redo (↶ ↷, Ctrl+Z / Ctrl+Y)</td><td>Experiment freely; get the previous setup back.</td></tr>
+  <tr><td>11</td><td>Tick lines → "⏱ Use as time range" (optionally ± 1 min)</td><td>"Everything between these two lines" in one click.</td></tr>
+  <tr><td>12</td><td>Level chips above the list: ERROR 87 · WARN 15 · INFO 158</td><td>The most common filter, one click, with counts.</td></tr>
+  <tr><td>13</td><td>Search as text: copy it, edit it, paste one back</td><td>Share exactly what you were looking at; power users can type it all.</td></tr>
+  <tr><td>14</td><td>Keyboard: [ / ] previous / next window, / search, Ctrl+Z</td><td>Fast stepping through a log without the mouse.</td></tr>
+  <tr><td>15</td><td>Timeline selection shows its start, end and line count while you drag</td><td>No need to look away to the From / To fields.</td></tr>
+</table>
+
+<div class="pick">
+  <span>Left <select id="l" onchange="load()"><option value="b">B</option><option value="bp" selected>B+</option><option value="bpp">B++</option></select></span>
+  <span>Right <select id="r" onchange="load()"><option value="">- none (full width) -</option><option value="b">B</option><option value="bp">B+</option><option value="bpp" selected>B++</option></select></span>
+</div>
+<div class="frames" id="frames">
+  <div class="frame" id="fl"><h2 id="hl"></h2><iframe id="il"></iframe></div>
+  <div class="frame" id="fr"><h2 id="hr"></h2><iframe id="ir"></iframe></div>
+</div>
+<script>
+  const SRC = { b: ['mock-filters-time-b.html', 'B - as it is'], bp: ['mock-filters-time-b-plus.html', 'B+ - ideas 1-8 (NEW)'], bpp: ['mock-filters-time-b-plusplus.html', 'B++ - ideas 1-15 (NEW, NEW 2)'] };
+  function load() {
+    const l = document.getElementById('l').value, r = document.getElementById('r').value;
+    document.getElementById('il').src = SRC[l][0]; document.getElementById('hl').textContent = SRC[l][1];
+    document.getElementById('fr').style.display = r ? '' : 'none';
+    document.getElementById('frames').classList.toggle('one', !r);
+    if (r) { document.getElementById('ir').src = SRC[r][0]; document.getElementById('hr').textContent = SRC[r][1]; }
+  }
+  load();
+</script>
+</body>
+</html>

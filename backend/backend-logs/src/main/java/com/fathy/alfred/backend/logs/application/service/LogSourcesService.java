@@ -261,6 +261,11 @@ public class LogSourcesService implements ManageLogSourcesUseCase, ManageLogInpu
             LogStructure current = structure(id);
             merged = validate(requested, current);
             plan = StructureRebuildService.plan(current, merged);
+            // A re-typed field's typed column exists before the new type is visible: a filter or sort on it
+            // during the background conversion then finds no match yet, instead of failing on a missing column.
+            if (!plan.retype().isEmpty()) {
+                lines.ensureFields(id, plan.retype());
+            }
             sources.saveStructure(id, merged);
         }
         ingest.changed(id);

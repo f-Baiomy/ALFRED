@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Editable filters and time range (mock)</title>
+<style>
+  :root {
+    --bg: #0a0e2a; --card: #141a45; --inner: #070a24; --pop: #161c4a;
+    --border: rgba(255,255,255,.09); --border-s: rgba(255,255,255,.18);
+    --text: #eef0ff; --dim: #a3a8d6; --faint: #6b70a3; --purple: #7c6cf0; --purple-l: #c4b5fd;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --cyan: #67e8f9; --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  .note { color: var(--dim); max-width: 1150px; margin: 0 0 10px; }
+  .callout { border-left: 3px solid var(--purple); background: color-mix(in srgb, var(--purple) 10%, transparent); padding: 8px 12px; border-radius: 6px; margin: 0 0 14px; max-width: 1150px; color: var(--dim); }
+  .callout b { color: var(--text); }
+  .num { display: inline-block; min-width: 18px; height: 18px; border-radius: 9px; background: var(--purple); color: #fff; font-size: 11px; font-weight: 700; text-align: center; line-height: 18px; margin-right: 4px; }
+  .faint { color: var(--faint); }
+  .mono { font-family: Consolas, monospace; }
+
+  .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; max-width: 1150px; position: relative; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; font: 12px Consolas, monospace; border: 1px solid; border-radius: 7px; padding: 2px 4px 2px 8px; cursor: pointer; }
+  .pill:hover { filter: brightness(1.25); }
+  .pill.eq { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 50%, transparent); background: color-mix(in srgb, var(--blue) 10%, transparent); }
+  .pill.neq { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); background: color-mix(in srgb, var(--red) 10%, transparent); }
+  .pill.text { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 50%, transparent); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+  .pill.time { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 50%, transparent); background: color-mix(in srgb, var(--cyan) 10%, transparent); }
+  .pill button { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 2px; opacity: .75; font-size: 12px; }
+  .pill button:hover { opacity: 1; }
+  .pill-edit { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--purple-l); border-radius: 7px; padding: 1px 4px; background: var(--inner); }
+  .pill-edit input { background: none; border: 0; outline: none; color: var(--text); font: 12px Consolas, monospace; min-width: 220px; }
+  .pill-edit .hint { color: var(--faint); font-size: 11px; }
+  .qin { flex: 1; min-width: 200px; background: none; border: 0; outline: none; color: var(--text); font: 14px "Segoe UI"; }
+  .rangebtn { background: var(--inner); border: 1px solid var(--border-s); border-radius: 9px; color: var(--text); padding: 6px 10px; font: 600 13px "Segoe UI"; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+  .rangebtn:hover { border-color: var(--purple-l); }
+
+  .pop { position: absolute; right: 8px; top: calc(100% + 6px); width: 520px; background: var(--pop); border: 1px solid var(--border-s); border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.6); padding: 12px; z-index: 5; display: none; }
+  .pop.show { display: block; }
+  .pop h3 { margin: 0 0 8px; font-size: 13px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip { background: var(--card); border: 1px solid var(--border-s); color: var(--text); border-radius: 7px; padding: 3px 9px; font: 600 12px "Segoe UI"; cursor: pointer; }
+  .chip.on, .chip:hover { border-color: var(--purple); background: color-mix(in srgb, var(--purple) 25%, transparent); }
+  .grid { display: grid; grid-template-columns: 52px 1fr; gap: 8px 10px; align-items: center; }
+  .grid label { color: var(--dim); font-weight: 600; }
+  .dt { display: flex; gap: 6px; align-items: center; }
+  .dt input { background: var(--inner); border: 1px solid var(--border-s); border-radius: 8px; color: var(--text); padding: 5px 8px; font: 13px Consolas, monospace; color-scheme: dark; }
+  .dt input[type=date] { width: 150px; } .dt input[type=time] { width: 150px; }
+  .dt .now { font-size: 11.5px; }
+  .seg { display: inline-flex; border: 1px solid var(--border-s); border-radius: 8px; padding: 2px; }
+  .seg button { background: none; border: 0; color: var(--dim); font: 600 12px "Segoe UI"; padding: 3px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button.on { background: var(--purple); color: #fff; }
+  .zone { margin: 12px 0 8px; padding: 8px 10px; background: var(--inner); border: 1px solid var(--border); border-radius: 8px; }
+  .zone .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .conv { margin-top: 6px; font: 12px Consolas, monospace; color: var(--dim); }
+  .conv b { color: var(--cyan); font-weight: 400; }
+  .err { color: var(--red); font-size: 12px; margin-top: 6px; }
+  .tbtn { background: var(--inner); border: 1px solid var(--border-s); border-radius: 8px; color: var(--text); padding: 5px 10px; font: 13px Consolas, monospace; cursor: pointer; min-width: 96px; }
+  .tbtn:hover { border-color: var(--purple-l); }
+  .linkrow { display: flex; gap: 8px; align-items: center; }
+  .linkbtn { background: none; border: 1px dashed var(--border-s); color: var(--dim); border-radius: 8px; padding: 2px 10px; font: 600 12px "Segoe UI"; cursor: pointer; }
+  .linkbtn.on { border-style: solid; border-color: var(--purple); color: #fff; background: color-mix(in srgb, var(--purple) 35%, transparent); }
+  .clock { position: absolute; z-index: 9; background: #1d2458; border: 1px solid var(--border-s); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.7); padding: 10px; display: none; width: 244px; }
+  .clock.show { display: block; }
+  .chead { display: flex; justify-content: center; align-items: center; gap: 2px; font: 700 26px Consolas, monospace; color: var(--faint); margin-bottom: 6px; }
+  .chead button { background: none; border: 0; color: var(--dim); font: inherit; cursor: pointer; padding: 0 4px; border-radius: 6px; }
+  .chead button.on { color: #fff; background: color-mix(in srgb, var(--purple) 45%, transparent); }
+  #dial { display: block; margin: 0 auto; cursor: pointer; user-select: none; touch-action: none; }
+  #dial text { fill: var(--dim); font: 12px "Segoe UI"; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  #dial text.in { font-size: 10.5px; fill: var(--faint); }
+  #dial text.sel { fill: #fff; font-weight: 700; }
+  .cfoot { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+  .cfoot .sp { flex: 1; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .btn { background: transparent; border: 1px solid var(--border-s); color: var(--text); border-radius: 8px; font: 600 12px "Segoe UI"; padding: 5px 12px; cursor: pointer; }
+  .btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .link { background: none; border: 0; color: var(--purple-l); font: 600 12px "Segoe UI"; cursor: pointer; padding: 0; }
+
+  .lines { max-width: 1150px; margin-top: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .lh, .lr { display: grid; grid-template-columns: 200px 70px 1fr; gap: 10px; padding: 5px 12px; }
+  .lh { background: var(--pop); color: var(--faint); font-size: 11px; font-weight: 600; border-bottom: 1px solid var(--border-s); }
+  .lr { font: 12.5px Consolas, monospace; border-bottom: 1px solid var(--border); }
+  .lr.out { opacity: .25; }
+  .th { display: flex; align-items: center; gap: 8px; }
+  .seg.mini button { padding: 1px 7px; font-size: 11px; }
+  .srchead { max-width: 1150px; margin-top: 14px; color: var(--dim); }
+  .srchead b { color: var(--text); font-weight: 600; }
+  .lv { font: 700 11px "Segoe UI"; }
+  .lv.ERROR { color: var(--red); } .lv.INFO { color: var(--blue); } .lv.WARN { color: var(--amber); }
+  .q { margin-top: 8px; font: 12px Consolas, monospace; color: var(--faint); max-width: 1150px; }
+</style>
+</head>
+<body>
+<h1>Logs explorer - editable filters and a from / to time range</h1>
+<p class="note">Mock with static lines (times stored in UTC, as your wildfly source). Click a filter pill to edit it, ⇄ to flip it, and the time button to pick a range. Lines outside the filters fade out so you can see the effect.</p>
+<div class="callout">
+  <span class="num">1</span><b>Every filter pill can be edited</b>: click it and it turns back into its text (<code>message:API request</code>, <code>-level:ERROR</code>, <code>timeTaken&gt;6000</code>) in place -
+  change it, <b>Enter</b> saves, <b>Esc</b> cancels, emptying it removes it. <b>⇄</b> flips a filter between "filter for" (=) and "filter out" (≠) without retyping.<br />
+  <span class="num">2</span><b>The time button opens a range picker</b>: the quick ranges as before, plus <b>From</b> and <b>To</b> - each a date and a time down to the second
+  (milliseconds if typed). Either side can be left empty ("from 10:00 onwards"). "Now" and "Newest line" fill a side in one click.
+  Zooming on the histogram fills the same From / To.<br />
+  <span class="num">3</span><b>Which clock the times you type are in</b>: <b>Local</b> (your computer, e.g. UTC+03:00 - converted to UTC before searching) or
+  <b>UTC</b> (the source's own zone, the one the list shows - searched exactly as typed). The picker always shows what will actually be searched in UTC,
+  so a 3-hour shift is never a surprise. The choice is remembered.<br />
+  <span class="num">4</span><b>To follows From</b>: picking From sets To to the same moment, and To keeps following until you change To yourself - from then on they are independent.<br />
+  <span class="num">5</span><b>🔗 Keep the gap</b> (between From and To): turn it on with, say, 21-3-2026 → 21-4-2026, and moving either side moves the other by the same amount - the
+  range slides, its length stays one month. Turn it off to change one side alone.<br />
+  <span class="num">6</span><b>A clock picker for the time</b>: click a time to open a dial - pick the hour (outer ring 1-12, inner ring 13-00), then the minutes, then the seconds;
+  click or drag around the dial, or click HH / MM / SS at the top to jump back to one. "Now" fills the current time.<br />
+  <span class="num">8</span><b>Show times in UTC or Local</b>: a switch in the Time column heading. It changes how every time on the page reads - the list,
+  the histogram's edges, the line's own time fields, the range pill - and the header line ("times in UTC" / "times in local, UTC+03:00"). Hovering a time
+  shows it in the other clock too. Nothing is searched differently: lines are still stored and searched in UTC; this is only how they are shown.
+  The time picker starts in the same clock you are viewing, and the choice is remembered per source.<br />
+  <span class="num">7</span>The active range shows as a <b>cyan pill</b> in the search bar (<code>time 2026-10-04 12:00:00 → 15:00:00 local</code>) - click it to edit, ✕ to clear.
+</div>
+
+<div class="bar" id="bar">
+  <span class="faint">⌕</span>
+  <span id="pills"></span>
+  <input class="qin" placeholder="field:value · -field:value · field:* · timeTaken>6000 · &quot;free text&quot;" />
+  <button class="rangebtn" id="rangebtn" onclick="togglePop()">🕒 <span id="rangelabel">All time</span> ▾</button>
+  <div class="pop" id="pop">
+    <h3>Time range</h3>
+    <div class="presets">
+      <button class="chip" onclick="preset(1)">Last 1 h of data</button>
+      <button class="chip" onclick="preset(6)">Last 6 h</button>
+      <button class="chip" onclick="preset(24)">Last 24 h</button>
+      <button class="chip" onclick="preset(168)">Last 7 days</button>
+      <button class="chip" onclick="preset(0)">All time</button>
+    </div>
+    <div class="grid">
+      <label>From</label>
+      <div class="dt"><input type="date" id="fd" oninput="changed('f')" /><input type="hidden" id="ft" /><button class="tbtn" id="ftb" onclick="openClock('f', this)">--:--:--</button><button class="link now" onclick="fill('f','oldest')">oldest line</button></div>
+      <span></span>
+      <div class="linkrow">
+        <button class="linkbtn" id="linkbtn" onclick="toggleLink()" title="Keep the gap between From and To: moving one moves the other">🔗 Keep the gap</button>
+        <span class="faint" id="couple"></span>
+      </div>
+      <label>To</label>
+      <div class="dt"><input type="date" id="td" oninput="changed('t')" /><input type="hidden" id="tt" /><button class="tbtn" id="ttb" onclick="openClock('t', this)">--:--:--</button><button class="link now" onclick="fill('t','now')">now</button><span class="faint">·</span><button class="link now" onclick="fill('t','newest')">newest line</button></div>
+    </div>
+    <div class="clock" id="clock">
+      <div class="chead">
+        <button data-st="h" onclick="stage('h')" id="ch">00</button>:<button data-st="m" onclick="stage('m')" id="cm">00</button>:<button data-st="s" onclick="stage('s')" id="cs">00</button>
+      </div>
+      <svg id="dial" viewBox="-110 -110 220 220" width="220" height="220"></svg>
+      <div class="cfoot"><button class="link" onclick="clockNow()">Now</button><span class="sp"></span><button class="btn" onclick="closeClock()">Cancel</button><button class="btn primary" onclick="clockOk()">OK</button></div>
+    </div>
+    <div class="zone">
+      <div class="row">
+        <span>The times I type are</span>
+        <div class="seg" id="zoneseg">
+          <button data-z="local" onclick="setZone('local')">Local (<span id="localname"></span>)</button>
+          <button data-z="utc" onclick="setZone('utc')">UTC - the source's zone</button>
+        </div>
+      </div>
+      <div class="conv" id="conv"></div>
+    </div>
+    <div class="err" id="err"></div>
+    <div class="actions">
+      <button class="btn" onclick="clearRange()">Clear</button>
+      <button class="btn" onclick="togglePop(false)">Cancel</button>
+      <button class="btn primary" onclick="apply()">Apply</button>
+    </div>
+  </div>
+</div>
+<div class="q" id="q"></div>
+
+<div class="srchead" id="srchead">wildfly · 5,133 lines · raw copied into Alfred · <b id="tzline">times in UTC</b></div>
+<div class="lines">
+  <div class="lh"><span class="th">Time ▼ <span class="seg mini" id="viewseg"><button data-v="utc" class="on" onclick="setView('utc')">UTC</button><button data-v="local" onclick="setView('local')">Local</button></span></span><span>Level</span><span>message</span></div>
+  <div id="rows"></div>
+</div>
+
+<script>
+  // Lines stored in UTC.
+  const LINES = [
+    ['2026-10-04T08:59:43.231Z', 'WARN', 'performOperation · End external system call'],
+    ['2026-10-04T09:10:51.687Z', 'INFO', 'API request'],
+    ['2026-10-04T09:11:00.414Z', 'ERROR', 'Generic error: TTPortalLog.error failed'],
+    ['2026-10-04T10:33:13.221Z', 'INFO', 'API request'],
+    ['2026-10-04T11:47:05.454Z', 'ERROR', 'handleCallingError failed'],
+    ['2026-10-04T12:02:44.010Z', 'INFO', 'API response'],
+    ['2026-10-04T12:54:07.369Z', 'INFO', 'API request'],
+  ].map(([t, l, m]) => ({ ts: Date.parse(t), level: l, message: m, timeTaken: Math.round(Math.random() * 9000) }));
+
+  let pills = [{ op: 'EQ', field: 'message', value: 'API request' }, { op: 'NEQ', field: 'level', value: 'ERROR' }];
+  let editing = -1;
+  let range = null; // { from, to, zone, fromText, toText }
+  let zone = 'local';
+
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const utcText = (ms) => new Date(ms).toISOString().replace('T', ' ').replace('Z', '').replace(/\.000$/, '');
+  const localOffset = () => { const o = -new Date().getTimezoneOffset(); return `UTC${o >= 0 ? '+' : '-'}${pad(Math.floor(Math.abs(o) / 60))}:${pad(Math.abs(o) % 60)}`; };
+  document.getElementById('localname').textContent = localOffset();
+
+  function pillText(p) {
+    if (p.op === 'TEXT') return `"${p.value}"`;
+    if (p.op === 'GT' || p.op === 'LT') return `${p.field} ${p.op === 'GT' ? '>' : '<'} ${p.value}`;
+    return `${p.field} ${p.op === 'EQ' ? '=' : '≠'} ${p.value}`;
+  }
+  function pillQuery(p) {
+    if (p.op === 'TEXT') return `"${p.value}"`;
+    if (p.op === 'GT' || p.op === 'LT') return `${p.field}${p.op === 'GT' ? '>' : '<'}${p.value}`;
+    return `${p.op === 'NEQ' ? '-' : ''}${p.field}:${p.value}`;
+  }
+  function parse(s) {
+    s = s.trim(); if (!s) return null; let m;
+    if ((m = s.match(/^"(.+)"$/))) return { op: 'TEXT', value: m[1] };
+    if ((m = s.match(/^(-?)([\w.@]+):(.+)$/))) return { op: m[1] ? 'NEQ' : 'EQ', field: m[2], value: m[3].trim() };
+    if ((m = s.match(/^([\w.@]+)\s*([<>])\s*(.+)$/))) return { op: m[2] === '>' ? 'GT' : 'LT', field: m[1], value: m[3].trim() };
+    return { op: 'TEXT', value: s };
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+  function renderPills() {
+    let h = pills.map((p, i) => {
+      if (i === editing) return `<span class="pill-edit"><input id="pe" value="${esc(pillQuery(p))}" onkeydown="editKey(event, ${i})" onblur="saveEdit(${i})" /><span class="hint">Enter save · Esc cancel</span></span>`;
+      const cls = p.op === 'EQ' ? 'eq' : p.op === 'NEQ' ? 'neq' : 'text';
+      const flip = p.op === 'EQ' || p.op === 'NEQ' ? `<button title="Flip: filter for ⇄ filter out" onclick="event.stopPropagation(); flip(${i})">⇄</button>` : '';
+      return `<span class="pill ${cls}" title="Click to edit" onclick="edit(${i})">${esc(pillText(p))}${flip}<button title="Remove" onclick="event.stopPropagation(); removeP(${i})">✕</button></span>`;
+    }).join(' ');
+    if (range) {
+      const z = range.zone === 'local' ? 'local' : 'UTC';
+      h += ` <span class="pill time" title="Click to edit the range" onclick="togglePop(true)">time ${esc(range.fromText || '…')} → ${esc(range.toText || '…')} ${z}<button title="Clear" onclick="event.stopPropagation(); clearRange()">✕</button></span>`;
+    }
+    document.getElementById('pills').innerHTML = h;
+    if (editing >= 0) { const el = document.getElementById('pe'); el.focus(); el.select(); }
+    renderRows();
+  }
+  function edit(i) { editing = i; renderPills(); }
+  function editKey(e, i) {
+    if (e.key === 'Enter') { e.preventDefault(); saveEdit(i); }
+    if (e.key === 'Escape') { editing = -1; renderPills(); }
+  }
+  function saveEdit(i) {
+    if (editing !== i) return;
+    const v = document.getElementById('pe').value;
+    const p = parse(v);
+    editing = -1;
+    if (!p) pills.splice(i, 1); else pills[i] = p;
+    renderPills();
+  }
+  function flip(i) { pills[i] = { ...pills[i], op: pills[i].op === 'EQ' ? 'NEQ' : 'EQ' }; renderPills(); }
+  function removeP(i) { pills.splice(i, 1); renderPills(); }
+
+  // ---- time range
+  function togglePop(show) {
+    const pop = document.getElementById('pop');
+    const open = show ?? !pop.classList.contains('show');
+    pop.classList.toggle('show', open);
+    if (open) { setZone(range?.zone ?? zone); if (range) fillInputs(range); preview(); }
+  }
+  function setZone(z) {
+    const f = typeof get === 'function' ? get('f') : null, t = typeof get === 'function' ? get('t') : null;
+    zone = z;
+    if (f != null) setSide('f', f);
+    if (t != null) setSide('t', t); document.querySelectorAll('#zoneseg button').forEach((b) => b.classList.toggle('on', b.dataset.z === z)); preview();
+  }
+  /** Date + time typed in the chosen zone -> epoch ms. */
+  function toMs(d, t) {
+    if (!d) return null;
+    const [Y, M, D] = d.split('-').map(Number);
+    const [h, m, s] = (t || '00:00:00').split(':').map(Number);
+    return zone === 'utc' ? Date.UTC(Y, M - 1, D, h, m, s || 0) : new Date(Y, M - 1, D, h, m, s || 0).getTime();
+  }
+  function fromMs(ms) {
+    const d = new Date(ms);
+    return zone === 'utc'
+      ? [`${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`, `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`]
+      : [`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`];
+  }
+  function fillInputs(r) {
+    const [fd, ft] = r.from != null ? fromMs(r.from) : ['', '']; const [td, tt] = r.to != null ? fromMs(r.to) : ['', ''];
+    Object.entries({ fd, ft, td, tt }).forEach(([k, v]) => (document.getElementById(k).value = v));
+  }
+  function fill(side, what) {
+    const ms = what === 'now' ? Date.now() : what === 'newest' ? Math.max(...LINES.map((l) => l.ts)) : Math.min(...LINES.map((l) => l.ts));
+    const [d, t] = fromMs(ms);
+    document.getElementById(side + 'd').value = d; document.getElementById(side + 't').value = t; preview();
+  }
+  function preview() {
+    const f = toMs(fd.value, ft.value), t = toMs(td.value, tt.value);
+    const conv = document.getElementById('conv'), err = document.getElementById('err');
+    err.textContent = f != null && t != null && f > t ? 'From is after To.' : '';
+    if (f == null && t == null) { conv.innerHTML = 'Pick a From, a To, or both.'; return; }
+    conv.innerHTML = `Searched in UTC: <b>${f != null ? utcText(f) : 'the oldest line'}</b> → <b>${t != null ? utcText(t) : 'the newest line'}</b>`
+      + (zone === 'local' ? ` <span class="faint">(your ${localOffset()} times, converted)</span>` : ' <span class="faint">(as typed)</span>');
+  }
+  function apply() {
+    const f = toMs(fd.value, ft.value), t = toMs(td.value, tt.value);
+    if (f != null && t != null && f > t) return;
+    if (f == null && t == null) return clearRange();
+    const text = (d, tm) => (d ? `${d} ${tm || '00:00:00'}` : '');
+    range = { from: f, to: t, zone, fromText: text(fd.value, ft.value), toText: text(td.value, tt.value) };
+    if (range.fromText && range.toText && range.fromText.slice(0, 10) === range.toText.slice(0, 10)) range.toText = range.toText.slice(11);
+    document.getElementById('rangelabel').textContent = 'Custom range';
+    togglePop(false); renderPills();
+  }
+  function preset(h) {
+    const newest = Math.max(...LINES.map((l) => l.ts));
+    range = null;
+    document.getElementById('rangelabel').textContent = h ? (h === 168 ? 'Last 7 days of data' : `Last ${h} h of data`) : 'All time';
+    window.presetFrom = h ? newest - h * 3600e3 : null;
+    togglePop(false); renderPills();
+  }
+  function clearRange() { range = null; window.presetFrom = null; document.getElementById('rangelabel').textContent = 'All time'; togglePop(false); renderPills(); }
+
+  function matches(l) {
+    for (const p of pills) {
+      const v = p.field ? String(l[p.field] ?? '') : `${l.level} ${l.message}`;
+      if (p.op === 'EQ' && v !== p.value) return false;
+      if (p.op === 'NEQ' && v === p.value) return false;
+      if (p.op === 'TEXT' && !v.toLowerCase().includes(p.value.toLowerCase())) return false;
+      if (p.op === 'GT' && !(Number(v) > Number(p.value))) return false;
+      if (p.op === 'LT' && !(Number(v) < Number(p.value))) return false;
+    }
+    if (range && range.from != null && l.ts < range.from) return false;
+    if (range && range.to != null && l.ts > range.to) return false;
+    if (!range && window.presetFrom && l.ts < window.presetFrom) return false;
+    return true;
+  }
+  function renderRows() {
+    document.getElementById('rows').innerHTML = LINES.map((l) => `<div class="lr ${matches(l) ? '' : 'out'}"><span title="${viewZone === 'utc' ? 'Local: ' + localText(l.ts) : 'UTC: ' + utcText(l.ts)}">${viewText(l.ts)}</span><span class="lv ${l.level}">${l.level}</span><span>${esc(l.message)}</span></div>`).join('');
+    document.getElementById('q').textContent = `query sent: pills ${JSON.stringify(pills)}  from ${range?.from ?? window.presetFrom ?? 'null'}  to ${range?.to ?? 'null'}`;
+  }
+  const [fd, ft, td, tt] = ['fd', 'ft', 'td', 'tt'].map((id) => document.getElementById(id));
+
+  // ---- How times are shown: UTC (the stored zone) or this computer's local time. Display only.
+  let viewZone = 'utc';
+  const localText = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`; };
+  const viewText = (ms) => (viewZone === 'utc' ? new Date(ms).toISOString().replace('T', ' ').replace('Z', '') : localText(ms));
+  function setView(z) {
+    viewZone = z;
+    document.querySelectorAll('#viewseg button').forEach((b) => b.classList.toggle('on', b.dataset.v === z));
+    document.getElementById('tzline').textContent = z === 'utc' ? 'times in UTC' : `times in local, ${localOffset()}`;
+    zone = z; // the picker starts in the clock you are viewing
+    renderRows();
+  }
+
+  // ---- From / To coupling: To follows From until To is changed; "Keep the gap" moves both together.
+  let follows = true, linked = false, gap = 0;
+  const get = (side) => toMs(document.getElementById(side + 'd').value, document.getElementById(side + 't').value);
+  function setSide(side, ms) {
+    const [d, t] = fromMs(ms);
+    document.getElementById(side + 'd').value = d; document.getElementById(side + 't').value = t;
+    document.getElementById(side + 'tb').textContent = t;
+  }
+  /** A side was changed by the user (date typed, clock OK, or one of the quick links). */
+  function changed(side) {
+    const ms = get(side);
+    if (ms != null) {
+      if (linked) setSide(side === 'f' ? 't' : 'f', side === 'f' ? ms + gap : ms - gap);
+      else if (side === 'f' && follows) setSide('t', ms);
+      else if (side === 't') follows = false;
+    }
+    document.getElementById(side + 'tb').textContent = document.getElementById(side + 't').value || '--:--:--';
+    coupleText(); preview();
+  }
+  function toggleLink() {
+    const f = get('f'), t = get('t');
+    if (!linked && (f == null || t == null)) { document.getElementById('err').textContent = 'Pick both From and To first, then keep their gap.'; return; }
+    linked = !linked; gap = linked ? t - f : 0;
+    document.getElementById('linkbtn').classList.toggle('on', linked);
+    coupleText();
+  }
+  function human(ms) {
+    const s = Math.round(Math.abs(ms) / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return [d && `${d} day${d === 1 ? '' : 's'}`, h && `${h} h`, m && `${m} min`, x && `${x} s`].filter(Boolean).join(' ') || '0 s';
+  }
+  function coupleText() {
+    document.getElementById('couple').textContent = linked ? `moving one moves the other · gap ${human(gap)}`
+      : follows ? 'To follows From until you change To' : 'independent';
+  }
+  // fill() and the hidden time inputs go through changed() too
+  const _fill = fill;
+  fill = function (side, what) { _fill(side, what); changed(side); };
+  const _fillInputs = fillInputs;
+  fillInputs = function (r) { _fillInputs(r); ['f', 't'].forEach((x) => (document.getElementById(x + 'tb').textContent = document.getElementById(x + 't').value || '--:--:--')); follows = false; coupleText(); };
+
+  // ---- Clock picker: hours (outer 1-12, inner 13-00), then minutes, then seconds.
+  let clockSide = null, cst = 'h', cv = { h: 0, m: 0, s: 0 }, dragging = false;
+  function openClock(side, btn) {
+    clockSide = side;
+    const [h, m, sec] = (document.getElementById(side + 't').value || '00:00:00').split(':').map(Number);
+    cv = { h, m, s: sec || 0 };
+    const c = document.getElementById('clock'), pop = document.getElementById('pop');
+    const b = btn.getBoundingClientRect(), pr = pop.getBoundingClientRect();
+    c.style.left = (b.left - pr.left) + 'px'; c.style.top = (b.bottom - pr.top + 6) + 'px';
+    c.classList.add('show'); stage('h');
+  }
+  function closeClock() { document.getElementById('clock').classList.remove('show'); }
+  function clockOk() {
+    document.getElementById(clockSide + 't').value = `${pad(cv.h)}:${pad(cv.m)}:${pad(cv.s)}`;
+    if (!document.getElementById(clockSide + 'd').value) {
+      const other = document.getElementById((clockSide === 'f' ? 't' : 'f') + 'd').value;
+      document.getElementById(clockSide + 'd').value = other || fromMs(Date.now())[0];
+    }
+    closeClock(); changed(clockSide);
+  }
+  function clockNow() { const [, t] = fromMs(Date.now()); const [h, m, x] = t.split(':').map(Number); cv = { h, m, s: x }; drawDial(); }
+  function stage(st) { cst = st; document.querySelectorAll('.chead button').forEach((b) => b.classList.toggle('on', b.dataset.st === st)); drawDial(); }
+  function drawDial() {
+    document.getElementById('ch').textContent = pad(cv.h); document.getElementById('cm').textContent = pad(cv.m); document.getElementById('cs').textContent = pad(cv.s);
+    const svg = document.getElementById('dial');
+    const pos = (frac, r) => [Math.sin(frac * 2 * Math.PI) * r, -Math.cos(frac * 2 * Math.PI) * r];
+    let h = `<circle r="104" fill="#121741" />`;
+    let sel;
+    if (cst === 'h') {
+      const outer = cv.h >= 1 && cv.h <= 12;
+      sel = pos((cv.h % 12) / 12, outer ? 86 : 58);
+      h += `<line x1="0" y1="0" x2="${sel[0]}" y2="${sel[1]}" stroke="#7c6cf0" stroke-width="2"/><circle r="3" fill="#7c6cf0"/><circle cx="${sel[0]}" cy="${sel[1]}" r="14" fill="#7c6cf0"/>`;
+      for (let i = 1; i <= 12; i++) { const [x, y] = pos(i / 12, 86); h += `<text x="${x}" y="${y}" class="${cv.h === i ? 'sel' : ''}">${i}</text>`; }
+      for (let i = 13; i <= 24; i++) { const v = i % 24; const [x, y] = pos((i - 12) / 12, 58); h += `<text x="${x}" y="${y}" class="in ${cv.h === v ? 'sel' : ''}">${pad(v)}</text>`; }
+    } else {
+      const v = cv[cst];
+      sel = pos(v / 60, 86);
+      h += `<line x1="0" y1="0" x2="${sel[0]}" y2="${sel[1]}" stroke="#7c6cf0" stroke-width="2"/><circle r="3" fill="#7c6cf0"/><circle cx="${sel[0]}" cy="${sel[1]}" r="14" fill="#7c6cf0"/>`;
+      if (v % 5) h += `<circle cx="${sel[0]}" cy="${sel[1]}" r="3" fill="#fff"/>`;
+      for (let i = 0; i < 60; i += 5) { const [x, y] = pos(i / 60, 86); h += `<text x="${x}" y="${y}" class="${v === i ? 'sel' : ''}">${pad(i)}</text>`; }
+    }
+    svg.innerHTML = h;
+  }
+  function pick(ev) {
+    const svg = document.getElementById('dial'), r = svg.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width * 220 - 110, y = (ev.clientY - r.top) / r.height * 220 - 110;
+    let frac = Math.atan2(x, -y) / (2 * Math.PI); if (frac < 0) frac += 1;
+    if (cst === 'h') {
+      const inner = Math.hypot(x, y) < 72;
+      let n = Math.round(frac * 12) % 12; // 0..11
+      cv.h = inner ? (n === 0 ? 0 : n + 12) : (n === 0 ? 12 : n);
+    } else {
+      cv[cst] = Math.round(frac * 60) % 60;
+    }
+    drawDial();
+  }
+  const dial = document.getElementById('dial');
+  dial.addEventListener('pointerdown', (e) => { dragging = true; dial.setPointerCapture(e.pointerId); pick(e); });
+  dial.addEventListener('pointermove', (e) => { if (dragging) pick(e); });
+  dial.addEventListener('pointerup', () => { dragging = false; if (cst === 'h') stage('m'); else if (cst === 'm') stage('s'); });
+  coupleText();
+  setZone('local');
+  renderPills();
+  setView("utc");
+</script>
+</body>
+</html>

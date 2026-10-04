@@ -60,6 +60,10 @@ import { EMPTY_SELECTION, Selection, headerState, hiddenCount, selectAll, select
 import { buildLogsExport, LogsExportFormat } from '../../shared/utils/logs-export';
 import { downloadText } from '../../shared/utils/download';
 import { copyToClipboard } from '../../shared/utils/clipboard';
+import { LogFilterEditorComponent } from '../../components/logs/log-filter-editor.component';
+import { LogTimePanelComponent, TIME_PRESETS, TimeRange } from '../../components/logs/log-time-panel.component';
+import { clockText, dayText, fullText, lengthText, localZone, stepSpan, zoneOffsetText } from '../../shared/utils/logs-time-range';
+import { excludes, parseQueryText, pillWords, toQueryText } from '../../shared/utils/logs-filter';
 import { diffLines, sharedBodyKind } from '../../shared/utils/interception-diff';
 
 /** Live loads refresh the list every second but the whole-result aggregates at most this often. */
@@ -73,10 +77,10 @@ const GROUP_PAGE = 200;
 /** Lines the backend ships inside one group node (SqliteLogLineStoreAdapter.NODE_LINES); beyond it, page. */
 const NODE_LINES = 1000;
 const HOUR = 3_600_000;
-const RANGES: Record<string, number | null> = { all: null, '1h': HOUR, '6h': 6 * HOUR, '24h': 24 * HOUR, '7d': 168 * HOUR };
+const RANGES: Record<string, number | null> = { all: null, '15m': HOUR / 4, '1h': HOUR, '6h': 6 * HOUR, '24h': 24 * HOUR, '7d': 168 * HOUR };
 const CORR_COLORS = ['#a78bfa', '#22d3ee', '#f472b6', '#34d399', '#fbbf24', '#fb923c', '#60a5fa', '#e879f9', '#4ade80', '#f87171'];
 
-type DrawerTab = 'fields' | 'raw' | 'context' | 'trace' | 'comments';
+type LineTab = 'fields' | 'raw' | 'context' | 'trace';
 
 interface AcItem {
   readonly insert: string;
@@ -91,7 +95,7 @@ interface AcItem {
 @Component({
   selector: 'app-logs-explorer',
   standalone: true,
-  imports: [RouterLink, DecimalPipe, FormsModule, NgTemplateOutlet, LogLineDataComponent],
+  imports: [RouterLink, DecimalPipe, FormsModule, NgTemplateOutlet, LogLineDataComponent, LogFilterEditorComponent, LogTimePanelComponent],
   templateUrl: './logs-explorer.component.html',
 })
 export class LogsExplorerComponent implements OnInit {
@@ -164,8 +168,11 @@ export class LogsExplorerComponent implements OnInit {
   // ---- query
   readonly pills = signal<Pill[]>([]);
   readonly range = signal<string>(this.storedRange());
-  readonly customRange = signal<{ from: number; to: number } | null>(null);
+  /** A custom range; `to` null with a `from` = up to now, still moving. */
+  readonly customRange = signal<{ from: number | null; to: number | null } | null>(null);
   readonly newestTs = signal<number | null>(null);
+  /** The oldest line's time: the time panel's "oldest line" and its timeline's left edge. */
+  readonly oldestTs = signal<number | null>(null);
   readonly qtext = signal('');
   readonly ac = signal<AcItem[]>([]);
   readonly acIdx = signal(0);
@@ -202,12 +209,6 @@ export class LogsExplorerComponent implements OnInit {
   readonly sel = signal<Selection>(EMPTY_SELECTION);
   readonly current = signal<string | null>(null);
 
-  // ---- drawer
-  readonly drawer = signal<string | null>(null);
-  readonly dtab = signal<DrawerTab>('fields');
-  readonly contextRows = signal<LogLineSummary[]>([]);
-  readonly traceRows = signal<LogLineSummary[]>([]);
-  readonly drawerError = signal('');
 
   // ---- grouped / patterns
   readonly roots = signal<GroupNode[]>([]);
@@ -247,7 +248,14 @@ export class LogsExplorerComponent implements OnInit {
   readonly hiddenFieldCount = computed(() => this.fields().length - this.sideFields().length);
   readonly columns = computed(() => this.structure()?.columns ?? []);
   readonly levelLabels = computed(() => (this.structure()?.groupLevels ?? []).map((l) => l.fieldLabel));
-  readonly zone = computed(() => this.structure()?.timeZone ?? 'UTC');
+  /** The source's own display zone (usually UTC); every time is stored and searched in epoch ms. */
+  readonly sourceZone = computed(() => this.structure()?.timeZone ?? 'UTC');
+  /** One switch for the page: show, type and pick times in the source's zone or this computer's. */
+  readonly viewLocal = signal(this.storedClock());
+  readonly zone = computed(() => (this.viewLocal() ? localZone() : this.sourceZone()));
+  readonly otherZone = computed(() => (this.viewLocal() ? this.sourceZone() : localZone()));
+  readonly zoneLabel = computed(() => (this.viewLocal() ? `local, ${zoneOffsetText(localZone())}` : this.sourceZone()));
+  readonly otherLabel = computed(() => (this.viewLocal() ? this.sourceZone() : 'local'));
   readonly masked = computed(() => this.view$()?.source.privacyMode === 'MASK');
   /** Labels hidden in list rows under privacy MASK (FR-043); the data panel has its own per-view reveal. */
   readonly maskedLabels = computed(() => new Set(this.masked() ? (this.structure()?.fields ?? []).filter((f) => f.sensitive).map((f) => f.label) : []));
@@ -309,6 +317,7 @@ export class LogsExplorerComponent implements OnInit {
       this.dataView.set(this.storedDataView() ?? s.defaultDataView);
       this.api.lines(this.id, { pills: [], limit: 1 }).subscribe((p) => {
         this.newestTs.set(p.lines[0]?.ts ?? null);
+        this.api.lines(this.id, { pills: [], limit: 1, sort: { field: null, ascending: true } }).subscribe((o) => this.oldestTs.set(o.lines[0]?.ts ?? null));
         if (this.sessionParam) {
           this.api.session(this.id, this.sessionParam).subscribe({
             next: (sv) => this.applySession(sv),
@@ -356,7 +365,350 @@ export class LogsExplorerComponent implements OnInit {
     const newest = this.newestTs();
     const from = c ? c.from : span !== null && newest !== null ? newest - span : null;
     const to = c ? c.to : null;
-    return { pills: [...this.pills(), ...extra], from, to, limit, cursor, sort: this.sort() };
+    return { pills: [...this.activePills(), ...extra], from, to, limit, cursor, sort: this.sort() };
+  }
+
+  /** The pills sent: the ones turned on, without the explorer-only `off` flag. */
+  readonly activePills = computed<Pill[]>(() => this.pills().filter((p) => !p.off).map(({ off: _off, ...p }) => p));
+
+  // ------------------------------------------------------------------ clock switch
+
+  setClock(local: boolean): void {
+    this.viewLocal.set(local);
+    try {
+      localStorage.setItem(`alfred.logs.clock.${this.id}`, local ? 'local' : 'source');
+    } catch {
+      // A remembered clock is a convenience only.
+    }
+  }
+
+  private storedClock(): boolean {
+    try {
+      return localStorage.getItem(`alfred.logs.clock.${this.route.snapshot.paramMap.get('id')}`) === 'local';
+    } catch {
+      return false;
+    }
+  }
+
+  // ------------------------------------------------------------------ time panel
+
+  readonly timeOpen = signal(false);
+
+  /** The range as the time panel and the text form take it. */
+  readonly timeRange = computed<TimeRange | null>(() => {
+    const c = this.customRange();
+    if (c) return { from: c.from, to: c.to };
+    return this.range() !== 'all' ? { preset: this.range() } : null;
+  });
+
+  applyTime(r: TimeRange | null): void {
+    this.timeOpen.set(false);
+    if (!r) {
+      this.range.set('all');
+      this.customRange.set(null);
+    } else if (r.preset) {
+      this.range.set(r.preset);
+      this.customRange.set(null);
+    } else {
+      this.customRange.set({ from: r.from ?? null, to: r.to ?? null });
+    }
+    this.rememberRange();
+    this.refreshAll();
+  }
+
+  private rememberRange(): void {
+    try {
+      localStorage.setItem(`alfred.logs.range.${this.id}`, this.range());
+    } catch {
+      // A remembered range is a convenience only.
+    }
+  }
+
+  readonly timeButton = computed(() => {
+    const c = this.customRange();
+    const z = this.zone();
+    if (!c) {
+      const p = TIME_PRESETS[this.range()];
+      return { main: p ? p.label : 'All time', sub: p ? 'back from the newest line' : 'click to pick a range' };
+    }
+    const same = c.from !== null && c.to !== null && dayText(c.from, z) === dayText(c.to, z);
+    const a = c.from !== null ? fullText(c.from, z) : 'oldest';
+    const b = c.to === null ? 'now (live)' : same ? clockText(c.to, z) : fullText(c.to, z);
+    return { main: c.to === null ? 'From … to now' : 'Custom range', sub: `${a} → ${b}` };
+  });
+
+  readonly timePillText = computed(() => {
+    const c = this.customRange();
+    return c ? this.timeButton().sub : null;
+  });
+
+  /** ◀ ▶ the previous / next window of the same length ([ and ] on the keyboard). */
+  stepTime(dir: number): void {
+    const c = this.customRange();
+    const newest = this.newestTs();
+    let span: { from: number; to: number } | null = null;
+    if (c && c.from !== null && c.to !== null) span = { from: c.from, to: c.to };
+    else if (!c && RANGES[this.range()] && newest !== null) span = { from: newest - RANGES[this.range()]!, to: newest };
+    if (!span) return;
+    const s = stepSpan(span, dir);
+    this.customRange.set({ from: s.from, to: s.to });
+    this.refreshAll();
+  }
+
+  readonly rangeLength = computed(() => {
+    const c = this.customRange();
+    if (c && c.from !== null && c.to !== null) return lengthText(c.to - c.from);
+    const r = RANGES[this.range()];
+    return !c && r ? lengthText(r) : '';
+  });
+
+  // ------------------------------------------------------------------ filters: edit, on/off, AND/OR, counts
+
+  /** The filter being edited: its index, -1 for a new one, null when the form is closed. */
+  readonly editing = signal<number | null>(null);
+  /** Lines each pill hides (null: turned off, or not counted yet). */
+  readonly impacts = signal<(number | null)[]>([]);
+  pillWords = pillWords;
+  excludes = excludes;
+
+  /** Top values for the filter form: without the pill being edited, or `level is ERROR` could only offer ERROR. */
+  readonly editValues = signal<FieldValues | null>(null);
+
+  editPill(i: number): void {
+    this.timeOpen.set(false);
+    this.textOpen.set(false);
+    const next = this.editing() === i ? null : i;
+    this.editing.set(next);
+    this.editValues.set(null);
+    if (next === null || next < 0) return;
+    const pills = this.pills().filter((p, j) => j !== next && !p.off).map(({ off: _off, ...p }) => p);
+    this.api.fieldValues(this.id, { ...this.query(), pills }).subscribe((v) => {
+      if (this.editing() === next) this.editValues.set(v);
+    });
+  }
+
+  // ------------------------------------------------------------------ drag a pill to reorder
+
+  readonly dragPill = signal<number | null>(null);
+  readonly dropPill = signal<number | null>(null);
+
+  onPillDragStart(ev: DragEvent, i: number): void {
+    this.dragPill.set(i);
+    ev.dataTransfer?.setData('text/plain', String(i));
+    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+  }
+
+  onPillDragOver(ev: DragEvent, i: number): void {
+    if (this.dragPill() === null) return;
+    ev.preventDefault();
+    this.dropPill.set(i);
+  }
+
+  onPillDrop(ev: DragEvent, i: number): void {
+    ev.preventDefault();
+    const from = this.dragPill();
+    this.dragPill.set(null);
+    this.dropPill.set(null);
+    if (from === null || from === i) return;
+    const list = [...this.pills()];
+    const [moved] = list.splice(from, 1);
+    list.splice(i, 0, moved);
+    this.editing.set(null);
+    this.pills.set(list);
+    this.refreshAll();
+  }
+
+  onPillDragEnd(): void {
+    this.dragPill.set(null);
+    this.dropPill.set(null);
+  }
+
+  onFilterSave(p: Pill): void {
+    const i = this.editing();
+    this.editing.set(null);
+    if (i === null) return;
+    if (i < 0) this.pills.update((l) => [...l, p]);
+    else this.pills.update((l) => l.map((x, j) => (j === i ? p : x)));
+    this.refreshAll();
+  }
+
+  onFilterRemove(): void {
+    const i = this.editing();
+    this.editing.set(null);
+    if (i !== null && i >= 0) this.removePill(i);
+  }
+
+  togglePillOff(i: number): void {
+    this.pills.update((l) => l.map((x, j) => (j === i ? { ...x, off: !x.off } : x)));
+    this.refreshAll();
+  }
+
+  toggleOr(i: number): void {
+    this.pills.update((l) => l.map((x, j) => (j === i ? { ...x, or: !x.or } : x)));
+    this.refreshAll();
+  }
+
+  private fetchImpacts(): void {
+    const pills = this.pills();
+    if (!pills.some((p) => !p.off)) {
+      this.impacts.set(pills.map(() => null));
+      return;
+    }
+    this.api.pillImpact(this.id, this.query()).subscribe({
+      next: (list) => {
+        let k = 0;
+        this.impacts.set(pills.map((p) => (p.off ? null : list[k++] ?? null)));
+      },
+      error: () => this.impacts.set(pills.map(() => null)),
+    });
+  }
+
+  // ------------------------------------------------------------------ level chips
+
+  readonly levelCounts = signal<Record<string, number>>({});
+
+  /** Counts per level for the current filters except the ones on the level field itself. */
+  private fetchLevelCounts(): void {
+    const lv = this.roleLabel()['LEVEL'];
+    if (!lv) return;
+    const q = this.query();
+    this.api.histogram(this.id, { ...q, pills: q.pills.filter((p) => p.field !== lv) }, 1).subscribe({
+      next: (h) => {
+        const out: Record<string, number> = {};
+        h.buckets.forEach((b) => Object.entries(b.byLevel).forEach(([k, c]) => (out[k || 'none'] = (out[k || 'none'] ?? 0) + c)));
+        this.levelCounts.set(out);
+      },
+      error: () => this.levelCounts.set({}),
+    });
+  }
+
+  readonly levelChips = computed(() => {
+    const c = this.levelCounts();
+    const order = ['FATAL', 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'];
+    return Object.keys(c).filter((k) => k !== 'none').sort((a, b) => (order.indexOf(a) + 99) % 99 - (order.indexOf(b) + 99) % 99)
+      .map((k) => ({ level: k, count: c[k] }));
+  });
+
+  levelChipOn(level: string): boolean {
+    const lv = this.roleLabel()['LEVEL'];
+    return this.pills().some((p) => !p.off && p.op === 'EQ' && p.field === lv && p.value === level);
+  }
+
+  /** Click: show only that level (replacing other level filters); again: back to all levels. */
+  toggleLevelChip(level: string): void {
+    const lv = this.roleLabel()['LEVEL'];
+    if (!lv) return;
+    const on = this.levelChipOn(level);
+    const rest = this.pills().filter((p) => !((p.op === 'EQ' || p.op === 'NEQ') && p.field === lv));
+    this.pills.set(on ? rest : [...rest, { op: 'EQ', field: lv, value: level }]);
+    this.refreshAll();
+  }
+
+  // ------------------------------------------------------------------ ticked lines -> time range
+
+  /** From the first to the last selected line (optionally with a margin either side). */
+  selectionAsRange(margin = 0): void {
+    const ids = this.sel().ids;
+    const ts = this.rows().filter((r) => ids.has(r.lineId)).map((r) => r.ts);
+    if (!ts.length) return;
+    this.customRange.set({ from: Math.min(...ts) - margin, to: Math.max(...ts) + margin });
+    this.clearSelection();
+    this.refreshAll();
+  }
+
+  readonly selectionSpan = computed(() => {
+    const ids = this.sel().ids;
+    const ts = this.rows().filter((r) => ids.has(r.lineId)).map((r) => r.ts);
+    return ts.length > 1 ? lengthText(Math.max(...ts) - Math.min(...ts)) : '';
+  });
+
+  // ------------------------------------------------------------------ the search as text
+
+  readonly textOpen = signal(false);
+  readonly textValue = signal('');
+  readonly textError = signal('');
+  readonly textCopied = signal(false);
+
+  openText(): void {
+    this.editing.set(null);
+    this.timeOpen.set(false);
+    this.textValue.set(toQueryText(this.pills(), this.timeRange()));
+    this.textError.set('');
+    this.textOpen.set(!this.textOpen());
+  }
+
+  applyText(): void {
+    try {
+      const r = parseQueryText(this.textValue(), this.queryLabels());
+      this.pills.set(r.pills);
+      if (!r.range) {
+        this.range.set('all');
+        this.customRange.set(null);
+      } else if (r.range.preset) {
+        this.range.set(r.range.preset);
+        this.customRange.set(null);
+      } else this.customRange.set({ from: r.range.from ?? null, to: r.range.to ?? null });
+      this.textOpen.set(false);
+      this.refreshAll();
+    } catch (e) {
+      this.textError.set(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async copyText(): Promise<void> {
+    await copyToClipboard(this.textValue());
+    this.textCopied.set(true);
+    setTimeout(() => this.textCopied.set(false), 1500);
+  }
+
+  // ------------------------------------------------------------------ undo / redo of filters and time
+
+  private past: string[] = [];
+  private future: string[] = [];
+  private lastSnap: string | null = null;
+  private travelling = false;
+  readonly canUndo = signal(false);
+  readonly canRedo = signal(false);
+
+  private snapshot(): string {
+    return JSON.stringify({ pills: this.pills(), range: this.range(), customRange: this.customRange() });
+  }
+
+  /** Called on every refresh: a change of filters or time since the last one becomes an undo step. */
+  private recordHistory(): void {
+    const now = this.snapshot();
+    if (this.lastSnap !== null && now !== this.lastSnap && !this.travelling) {
+      this.past.push(this.lastSnap);
+      if (this.past.length > 100) this.past.shift();
+      this.future = [];
+    }
+    this.lastSnap = now;
+    this.travelling = false;
+    this.canUndo.set(this.past.length > 0);
+    this.canRedo.set(this.future.length > 0);
+  }
+
+  private restore(state: string): void {
+    const o = JSON.parse(state) as { pills: Pill[]; range: string; customRange: { from: number | null; to: number | null } | null };
+    this.travelling = true;
+    this.pills.set(o.pills);
+    this.range.set(o.range);
+    this.customRange.set(o.customRange);
+    this.refreshAll();
+  }
+
+  undo(): void {
+    const s = this.past.pop();
+    if (s === undefined) return;
+    this.future.push(this.snapshot());
+    this.restore(s);
+  }
+
+  redo(): void {
+    const s = this.future.pop();
+    if (s === undefined) return;
+    this.past.push(this.snapshot());
+    this.restore(s);
   }
 
   /**
@@ -379,6 +731,7 @@ export class LogsExplorerComponent implements OnInit {
   }
 
   refreshAll(): void {
+    this.recordHistory();
     this.refreshList();
     this.refreshAggregates();
   }
@@ -403,6 +756,8 @@ export class LogsExplorerComponent implements OnInit {
     this.api.fieldValues(this.id, this.query()).subscribe((v) => this.values.set(v));
     this.api.structures(this.id, this.query()).subscribe((s) => this.lineStructures.set(s));
     this.fetchMinimap();
+    this.fetchImpacts();
+    this.fetchLevelCounts();
     if (this.mode() === 'patterns') this.fetchPatterns();
   }
 
@@ -896,7 +1251,7 @@ export class LogsExplorerComponent implements OnInit {
   private reloadComments(lineId: string | null): void {
     const ids = lineId ? [lineId] : [...this.comments().keys()];
     for (const id of ids) {
-      if (!this.openData().has(id) && this.drawer() !== id && lineId === null) continue;
+      if (!this.openData().has(id) && lineId === null) continue;
       this.api.comments(this.id, id).subscribe((c) => this.comments.update((m) => new Map(m).set(id, c)));
     }
   }
@@ -1196,28 +1551,43 @@ export class LogsExplorerComponent implements OnInit {
     this.fetchMinimap();
   }
 
-  // ------------------------------------------------------------------ drawer
+  // ------------------------------------------------------------------ per-line tabs (were the side drawer)
 
-  openDrawer(lineId: string): void {
-    this.drawer.set(lineId);
-    this.current.set(lineId);
-    this.ensureFull(lineId);
-    this.setTab(this.dtab());
+  /** Each open line's tab: its fields (default), its raw text, the lines around it, or its trace. */
+  readonly lineTab = signal<ReadonlyMap<string, LineTab>>(new Map());
+  readonly lineContext = signal<ReadonlyMap<string, LogLineSummary[]>>(new Map());
+  readonly lineTrace = signal<ReadonlyMap<string, LogLineSummary[]>>(new Map());
+  readonly lineError = signal<ReadonlyMap<string, string>>(new Map());
+
+  tabOf(lineId: string): LineTab {
+    return this.lineTab().get(lineId) ?? 'fields';
   }
 
-  setTab(t: DrawerTab): void {
-    this.dtab.set(t);
-    const id = this.drawer();
-    if (!id) return;
-    this.drawerError.set('');
-    if (t === 'context') this.api.context(this.id, id, 20, 20).subscribe((r) => this.contextRows.set(r));
-    if (t === 'trace') {
-      this.api.trace(this.id, id).subscribe({ next: (r) => this.traceRows.set(r), error: (e) => this.drawerError.set(this.errorText(e)) });
+  /** Context and trace are fetched when their tab is first shown (and again when it is shown again). */
+  setLineTab(lineId: string, tab: LineTab): void {
+    this.lineTab.update((m) => new Map(m).set(lineId, tab));
+    this.lineError.update((m) => {
+      const n = new Map(m);
+      n.delete(lineId);
+      return n;
+    });
+    const fail = (e: unknown) => this.lineError.update((m) => new Map(m).set(lineId, this.errorText(e)));
+    if (tab === 'context') {
+      this.api.context(this.id, lineId, 20, 20).subscribe({ next: (r) => this.lineContext.update((m) => new Map(m).set(lineId, r)), error: fail });
+    }
+    if (tab === 'trace') {
+      this.api.trace(this.id, lineId).subscribe({ next: (r) => this.lineTrace.update((m) => new Map(m).set(lineId, r)), error: fail });
     }
   }
 
-  traceBars = computed(() => {
-    const rows = this.traceRows();
+  contextOf(lineId: string): LogLineSummary[] {
+    return this.lineContext().get(lineId) ?? [];
+  }
+
+  /** Bars of the trace waterfall, positioned on the trace's own time span. */
+  traceBarsOf(lineId: string): { r: LogLineSummary; left: number; width: number; d: number }[] | null {
+    const rows = this.lineTrace().get(lineId);
+    if (!rows) return null;
     if (!rows.length) return [];
     const lo = rows[0].ts;
     const ends = rows.map((r) => r.ts + Math.max(0, this.durationOf(r) ?? 0));
@@ -1227,7 +1597,20 @@ export class LogsExplorerComponent implements OnInit {
       const start = d && r.ts - d >= lo ? r.ts - d : r.ts;
       return { r, left: ((start - lo) / span) * 100, width: Math.max(0.6, (d / span) * 100), d };
     });
-  });
+  }
+
+  /** Whether a line from Context / Trace is in the list right now (then a click jumps to it). */
+  isListed(lineId: string): boolean {
+    return this.rows().some((r) => r.lineId === lineId);
+  }
+
+  /** Jumps to a line of the list: opens its data and scrolls it into view. */
+  goToLine(lineId: string): void {
+    if (!this.isListed(lineId)) return;
+    this.current.set(lineId);
+    if (!this.openData().has(lineId)) this.toggleData(lineId);
+    afterNextRender(() => document.getElementById(`lg-row-${lineId}`)?.scrollIntoView({ block: 'center' }), { injector: this.injector });
+  }
 
   // ------------------------------------------------------------------ grouped & patterns
 
@@ -1479,13 +1862,27 @@ export class LogsExplorerComponent implements OnInit {
   onKey(ev: KeyboardEvent): void {
     const t = ev.target as HTMLElement;
     if (t.matches('input, textarea, select')) return;
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'z' || ev.key === 'Z' || ev.key === 'y')) {
+      ev.preventDefault();
+      if (ev.key === 'y' || ev.shiftKey) this.redo();
+      else this.undo();
+      return;
+    }
+    if (ev.key === '[' || ev.key === ']') {
+      this.stepTime(ev.key === '[' ? -1 : 1);
+      return;
+    }
     if (ev.key === '/') {
       ev.preventDefault();
       this.queryInput()?.nativeElement.focus();
       return;
     }
     if (ev.key === 'Escape') {
-      if (this.cmpValue()) this.cmpValue.set(null);
+      if (this.editing() !== null || this.timeOpen() || this.textOpen()) {
+        this.editing.set(null);
+        this.timeOpen.set(false);
+        this.textOpen.set(false);
+      } else if (this.cmpValue()) this.cmpValue.set(null);
       else if (this.compare()) this.compare.set(null);
       else if (this.stats()) this.stats.set(null);
       else if (this.sel().ids.size) this.clearSelection();
@@ -1497,7 +1894,6 @@ export class LogsExplorerComponent implements OnInit {
     const move = (n: number) => {
       const id = order[Math.max(0, Math.min(order.length - 1, n))];
       this.current.set(id);
-      if (this.drawer()) this.openDrawer(id);
       document.getElementById(`lg-row-${id}`)?.scrollIntoView({ block: 'nearest' });
       return id;
     };

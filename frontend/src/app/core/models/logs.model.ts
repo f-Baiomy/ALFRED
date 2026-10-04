@@ -202,7 +202,8 @@ export interface LogPage {
   readonly slow: boolean;
 }
 
-export type PillOp = 'EQ' | 'NEQ' | 'GT' | 'LT' | 'BETWEEN' | 'EXISTS' | 'NOT_EXISTS' | 'TEXT' | 'SELECTION' | 'PATTERN' | 'INGESTED';
+/** CONTAINS = this one field's text holds the value (case-insensitive); TEXT searches every Text field. */
+export type PillOp = 'EQ' | 'NEQ' | 'GT' | 'LT' | 'BETWEEN' | 'EXISTS' | 'NOT_EXISTS' | 'TEXT' | 'SELECTION' | 'PATTERN' | 'INGESTED' | 'CONTAINS';
 
 export interface Pill {
   readonly op: PillOp;
@@ -211,6 +212,14 @@ export interface Pill {
   readonly from?: string | null;
   readonly to?: string | null;
   readonly lineIds?: readonly string[] | null;
+  /** EQ / NEQ on several values: "is any of" / "is none of" (instead of `value`). */
+  readonly values?: readonly string[] | null;
+  /** "Filter out": the opposite of the filter (lines without the field are kept). */
+  readonly not?: boolean | null;
+  /** Joined to the filter before it by OR instead of AND. */
+  readonly or?: boolean | null;
+  /** Turned off in the explorer: kept in the bar, never sent. */
+  readonly off?: boolean | null;
 }
 
 export interface LogQuery {
@@ -340,7 +349,7 @@ export interface SavedViewState {
   readonly columns?: readonly string[];
   readonly sort?: { readonly field: string | null; readonly ascending: boolean } | null;
   /** A zoomed time range (histogram drag); overrides `range`. */
-  readonly customRange?: { readonly from: number; readonly to: number } | null;
+  readonly customRange?: { readonly from: number | null; readonly to: number | null } | null;
 }
 
 export type ExplorerView = 'lines' | 'grouped' | 'patterns';

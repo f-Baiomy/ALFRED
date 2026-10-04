@@ -53,7 +53,10 @@ describe('logs-query-parse', () => {
   });
 
   it('labels and colours pills like the mock', () => {
-    expect(pillText({ op: 'NEQ', field: 'statusCode', value: '200' })).toBe('statusCode ≠ 200');
+    expect(pillText({ op: 'NEQ', field: 'statusCode', value: '200' })).toBe('NOT statusCode is 200');
+    expect(pillText({ op: 'EQ', field: 'level', values: ['ERROR', 'WARN'] })).toBe('level is any of ERROR, WARN');
+    expect(pillText({ op: 'GT', field: 'timeTaken', value: '6000', not: true })).toBe('NOT timeTaken > 6000');
+    expect(pillClass({ op: 'GT', field: 't', value: '1', not: true })).toBe('lg-qp-neq');
     expect(pillText({ op: 'EXISTS', field: 'error' })).toBe('error exists');
     expect(pillText({ op: 'SELECTION', lineIds: ['a', 'b'] })).toBe('selection only (2)');
     // A recorded session's window; a session still recording runs to "now".

@@ -19,13 +19,41 @@ public record LogQuery(List<Pill> pills, Long from, Long to, Sort sort, String c
 
     /**
      * PATTERN (value = pattern id) lists one pattern's lines in the Patterns view. INGESTED (from/to = epoch
-     * ms) selects lines by when ALFRED stored them - what a recorded session is.
+     * ms) selects lines by when ALFRED stored them - what a recorded session is. CONTAINS = the field's text
+     * holds the value (case-insensitive), as opposed to TEXT, which searches every Text field.
      */
-    public enum Op { EQ, NEQ, GT, LT, BETWEEN, EXISTS, NOT_EXISTS, TEXT, SELECTION, PATTERN, INGESTED }
+    public enum Op { EQ, NEQ, GT, LT, BETWEEN, EXISTS, NOT_EXISTS, TEXT, SELECTION, PATTERN, INGESTED, CONTAINS }
 
-    /** {@code field} is a label; {@code value}/{@code from}/{@code to} are compared using the field's type. */
-    public record Pill(Op op, String field, String value, String from, String to, List<String> lineIds) {
+    /**
+     * {@code field} is a label; {@code value}/{@code from}/{@code to} are compared using the field's type.
+     *
+     * @param values EQ / NEQ on any of several values ("is any of") - used instead of {@code value} when set
+     * @param not    the filter excludes what it matches ("filter out"); lines without the field are kept, as with NEQ
+     * @param or     joined to the filter before it by OR instead of AND: consecutive "or" filters form one group
+     *               that a line passes when any of them matches; groups are ANDed
+     */
+    public record Pill(Op op, String field, String value, String from, String to, List<String> lineIds, List<String> values,
+                       Boolean not, Boolean or) {
+
+        public Pill(Op op, String field, String value, String from, String to, List<String> lineIds) {
+            this(op, field, value, from, to, lineIds, null, null, null);
+        }
+
+        public boolean negated() {
+            return Boolean.TRUE.equals(not);
+        }
+
+        public boolean orWithPrevious() {
+            return Boolean.TRUE.equals(or);
+        }
+
+        public boolean anyOf() {
+            return values != null && !values.isEmpty();
+        }
     }
+
+    /** At most this many values in one "is any of" filter. */
+    public static final int MAX_VALUES = 200;
 
     /** Sort by a field label (null = time) and direction. */
     public record Sort(String field, boolean ascending) {
@@ -40,6 +68,9 @@ public record LogQuery(List<Pill> pills, Long from, Long to, Sort sort, String c
         for (Pill pill : p) {
             if (pill.op() == null) {
                 throw new IllegalArgumentException("Filter without an operator");
+            }
+            if (pill.values() != null && pill.values().size() > MAX_VALUES) {
+                throw new IllegalArgumentException("A filter matches at most " + MAX_VALUES + " values");
             }
             if (pill.op() == Op.SELECTION && (pill.lineIds() == null || pill.lineIds().size() > MAX_SELECTION)) {
                 throw new IllegalArgumentException("A selection filter holds 1-" + MAX_SELECTION + " lines");

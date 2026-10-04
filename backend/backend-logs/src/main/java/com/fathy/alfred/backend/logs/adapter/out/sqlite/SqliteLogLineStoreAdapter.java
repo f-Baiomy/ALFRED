@@ -545,13 +545,21 @@ public class SqliteLogLineStoreAdapter implements LogLineStorePort {
     public Histogram histogram(String sourceId, LogStructure structure, LogQuery query, int buckets) {
         String ll = SqliteLogsRepository.lines(sourceId);
         Sql w = SqliteLogQueryTranslator.where(sourceId, structure, query);
-        Map<String, Object> range = jdbc().queryForMap("SELECT min(ts_ms) lo, max(ts_ms) hi FROM " + ll + " WHERE " + w.where(), w.params().toArray());
-        if (range.get("lo") == null) {
-            return new Histogram(0, 0, 0, List.of());
+        long lo;
+        long hi;
+        if (query.from() != null && query.to() != null && query.to() > query.from()) {
+            // An explicit span (the time panel's timeline, the calendar's days): exactly that, empty edges included.
+            lo = query.from();
+            hi = query.to();
+        } else {
+            Map<String, Object> range = jdbc().queryForMap("SELECT min(ts_ms) lo, max(ts_ms) hi FROM " + ll + " WHERE " + w.where(), w.params().toArray());
+            if (range.get("lo") == null) {
+                return new Histogram(0, 0, 0, List.of());
+            }
+            lo = query.from() != null ? query.from() : ((Number) range.get("lo")).longValue();
+            hi = ((Number) range.get("hi")).longValue();
         }
-        long lo = ((Number) range.get("lo")).longValue();
-        long hi = ((Number) range.get("hi")).longValue();
-        long width = Math.max(1, (hi - lo) / buckets + 1);
+        long width = Math.max(1, (hi - lo + buckets) / buckets);
         List<Object> p = new ArrayList<>();
         p.add(lo);
         p.add(width);

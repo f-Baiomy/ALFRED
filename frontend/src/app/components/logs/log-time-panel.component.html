@@ -1,0 +1,116 @@
+<div class="lg-tp" (click)="$event.stopPropagation()" (keydown.escape)="clockSide() ? clockSide.set(null) : cancel.emit()">
+  <div class="lg-tp-head">
+    <input class="lg-tp-words" type="text" [value]="words()" (input)="words.set($any($event.target).value)" (keydown.enter)="useWords()"
+           placeholder='Type a range: "yesterday 14:00 to 16:30", "last 90 minutes", "today", "2026-10-04 09:00 to 12:00"' aria-label="Range in words" />
+    @if (wordsResult(); as w) { <span [class]="w.ok ? 'lg-tp-ok' : 'lg-tp-bad'">{{ w.text }}</span> }
+  </div>
+
+  <div class="lg-tp-body">
+    <div class="lg-tp-quick">
+      @for (p of presets; track p.k) {
+        <button [class.on]="preset() === p.k" (click)="quick(p.k)">{{ p.label }}</button>
+      }
+      <hr />
+      <button (click)="today(0)">Today</button>
+      <button (click)="today(1)">Yesterday</button>
+      <hr />
+      <button [class.on]="from() === null && to() === null" (click)="allTime()">All time</button>
+      <span class="lg-faint lg-tp-note">"Last …" counts back from the newest line, so a quiet log still shows something.</span>
+      @if (recent().length) {
+        <hr />
+        <span class="lg-faint lg-tp-note">Recent</span>
+        @for (r of recent(); track r.from + '-' + r.to) { <button class="recent" (click)="useRecent(r)">{{ recentText(r) }}</button> }
+      }
+    </div>
+
+    <div class="lg-tp-cal">
+      <div class="lg-tp-calh"><button (click)="month(-1)" aria-label="Previous month">‹</button><b>{{ monthTitle() }}</b><button (click)="month(1)" aria-label="Next month">›</button></div>
+      <div class="lg-tp-calg">
+        @for (d of ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']; track d) { <span class="dow">{{ d }}</span> }
+        @for (c of cells(); track $index) {
+          @if (c.d === null) { <span></span> } @else {
+            <span class="day" [class.sel]="c.sel" [class.inr]="c.inr" [class.dot]="c.dot" (click)="dayClick(c.d)">{{ c.d }}</span>
+          }
+        }
+      </div>
+      <div class="lg-faint lg-tp-calhint">{{ calHint() }}</div>
+    </div>
+
+    <div class="lg-tp-times">
+      @for (side of ['from', 'to']; track side) {
+        @let s = $any(side);
+        @let ms = s === 'from' ? from() : to();
+        <div class="lg-tp-card">
+          <div class="lg-tp-cardh">
+            <span class="lbl">{{ s === 'from' ? 'From' : 'To' }}</span>
+            <span class="date">{{ ms === null ? (s === 'from' ? 'the oldest line' : (live() ? 'now (keeps moving)' : 'the newest line')) : day(ms) }}</span>
+            <span class="twin">{{ twin(ms) }}</span>
+          </div>
+          @if (parts(ms); as p) {
+            <div class="lg-tp-time">
+              <span class="lg-tp-spin">
+                @for (u of ['h', 'm', 's']; track u; let last = $last) {
+                  <span class="unit">
+                    <button (click)="step(s, $any(u), 1)" [attr.aria-label]="'Up ' + u">▲</button>
+                    <input [value]="u === 'h' ? p.h : u === 'm' ? p.m : p.s" (change)="typed(s, $any(u), $any($event.target).value)" (focus)="$any($event.target).select()"
+                           (wheel)="wheelStep($event, s, $any(u))" [attr.aria-label]="(s === 'from' ? 'From ' : 'To ') + (u === 'h' ? 'hour' : u === 'm' ? 'minute' : 'second')" />
+                    <button (click)="step(s, $any(u), -1)" [attr.aria-label]="'Down ' + u">▼</button>
+                  </span>
+                  @if (!last) { <span class="colon">:</span> }
+                }
+              </span>
+              <button class="lg-tp-clockbtn" (click)="openClock(s)" title="Pick on a clock">🕒</button>
+            </div>
+          } @else {
+            <div class="lg-faint" style="font-size: 12px">Pick a day, a quick range, or type above.</div>
+          }
+          <div class="lg-tp-ctx">
+            @if (s === 'from') {
+              <button (click)="shortcut('from', 'sod')">start of day</button><button (click)="shortcut('from', 'oldest')">oldest line</button>
+            } @else {
+              <button (click)="shortcut('to', 'eod')">end of day</button><button (click)="shortcut('to', 'now')">now</button><button (click)="shortcut('to', 'newest')">newest line</button>
+              <label class="lg-tp-live"><input type="checkbox" [checked]="live()" (change)="live.set($any($event.target).checked)" /> To = now, keep moving</label>
+            }
+          </div>
+          @if (clockSide() === s) {
+            <app-log-clock-dial class="lg-tp-dial" [time]="clockTime(s)" [nowTime]="nowInZone" (ok)="clockOk(s, $event)" (cancel)="clockSide.set(null)" />
+          }
+        </div>
+        @if (s === 'from') {
+          <div class="lg-tp-mid">
+            ↕ <b [class.bad]="bad()">{{ bad() ? 'From is after To' : lengthWords() || '-' }}</b>
+            <button class="lg-btn xs" [class.primary]="locked()" (click)="toggleLock()" [disabled]="from() === null || to() === null"
+                    title="Keep the length: moving one side moves the other">{{ locked() ? '🔒 length kept' : '🔓 keep this length' }}</button>
+            @if (!locked() && follows()) { <span class="lg-faint">To follows From until you set To</span> }
+          </div>
+          <div class="lg-tp-mid">
+            <span class="lg-faint">Around From</span>
+            <button class="lg-btn xs" (click)="around(1)">± 1 min</button>
+            <button class="lg-btn xs" (click)="around(5)">± 5 min</button>
+            <button class="lg-btn xs" (click)="around(60)">± 1 h</button>
+          </div>
+        }
+      }
+    </div>
+  </div>
+
+  <div class="lg-tp-tl">
+    <app-log-timeline [sourceId]="sourceId()" [pills]="pills()" [oldest]="oldest()" [newest]="newest()" [selection]="selection()" [zone]="zone()"
+                      [count]="count()" (selectionChange)="fromTimeline($event)" />
+  </div>
+
+  <div class="lg-tp-foot">
+    @if (searchNote(); as n) {
+      <span class="lg-tp-note2">Searches <b>{{ n.from }}</b> → <b>{{ n.to }}</b> UTC <span class="lg-faint">(picked in {{ zoneLabel() }})</span></span>
+    } @else {
+      <span class="lg-tp-note2">All time</span>
+    }
+    @if (count() !== null) { <span class="lg-tp-count">· {{ count() }} line{{ count() === 1 ? '' : 's' }} in this range</span> }
+    <span class="lg-sp"></span>
+    <button class="lg-btn sm" (click)="stepWindow(-1)" [disabled]="from() === null || to() === null" title="Previous window of the same length">◀</button>
+    <button class="lg-btn sm" (click)="stepWindow(1)" [disabled]="from() === null || to() === null" title="Next window of the same length">▶</button>
+    <button class="lg-btn sm" (click)="apply.emit(null)">Clear</button>
+    <button class="lg-btn sm" (click)="cancel.emit()">Cancel</button>
+    <button class="lg-btn sm primary" (click)="doApply()" [disabled]="bad()">Apply</button>
+  </div>
+</div>

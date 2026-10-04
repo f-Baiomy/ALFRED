@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Filters and time - A vs B</title>
+<style>
+  :root { --bg: #0a0e2a; --card: #141a45; --border: rgba(255,255,255,.12); --text: #eef0ff; --dim: #a3a8d6; --faint: #6b70a3; --purple: #7c6cf0; --green: #34d399; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; padding: 14px; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+  .tabs button { background: var(--card); border: 1px solid var(--border); color: var(--dim); border-radius: 9px; padding: 6px 14px; font: 600 13px "Segoe UI"; cursor: pointer; }
+  .tabs button.on { background: var(--purple); color: #fff; border-color: var(--purple); }
+  table { border-collapse: collapse; width: 100%; max-width: 1300px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--faint); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  td:first-child { color: var(--dim); font-weight: 600; width: 170px; }
+  td b { color: var(--text); }
+  .a { border-left: 3px solid var(--purple); } .b { border-left: 3px solid var(--green); }
+  .frames { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .frames.one { grid-template-columns: 1fr; }
+  .frame { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #000; }
+  .frame h2 { margin: 0; padding: 6px 10px; font-size: 13px; background: var(--card); }
+  iframe { width: 100%; height: 900px; border: 0; display: block; }
+</style>
+</head>
+<body>
+<h1>Editable filters and time range - design A vs design B</h1>
+<table>
+  <tr><th></th><th class="a">A - compact, text first</th><th class="b">B - guided, point and click</th></tr>
+  <tr><td>Edit a filter</td><td class="a">Click the pill → it becomes its text (<code>-level:ERROR</code>), edit, Enter. ⇄ flips filter for / out.</td><td class="b">Click the pill → a small form: <b>Include / Exclude</b>, <b>Field</b>, <b>Condition</b>, <b>Value</b> with the field's top values and counts to click. "+ Add filter" opens the same form.</td></tr>
+  <tr><td>Exclude looks like</td><td class="a"><code>level ≠ ERROR</code> (red)</td><td class="b"><b>NOT</b> level is ERROR (red)</td></tr>
+  <tr><td>Pick dates</td><td class="a">Browser date fields for From and To.</td><td class="b">A <b>calendar</b>: click the start day, then the end day; days that have log lines get a dot.</td></tr>
+  <tr><td>Pick times</td><td class="a">A <b>clock dial</b> (hour ring, then minutes, then seconds).</td><td class="b"><b>▲▼ per hour / minute / second</b>, or type the numbers; shortcuts: start of day, end of day, now, oldest / newest line.</td></tr>
+  <tr><td>Quick ranges</td><td class="a">Last 1 h / 6 h / 24 h / 7 days, all time.</td><td class="b">Also last 15 min, <b>Today</b>, <b>Yesterday</b>.</td></tr>
+  <tr><td>Type a range in words</td><td class="a">-</td><td class="b">"yesterday 14:00 to 16:30", "last 90 minutes", "2026-10-04 09:00 to 12:00".</td></tr>
+  <tr><td>See where the data is</td><td class="a">-</td><td class="b">A <b>timeline of the source's lines</b> under the picker - drag the edges to resize, drag the middle to slide.</td></tr>
+  <tr><td>To follows From</td><td class="a">Yes, until you change To.</td><td class="b">Yes, until you change To (a calendar start day selects that whole day).</td></tr>
+  <tr><td>Keep the length</td><td class="a">🔗 Keep the gap button.</td><td class="b">🔒 keep this length button, and dragging the middle of the timeline always keeps it. The length is always shown ("2 h 30 min").</td></tr>
+  <tr><td>UTC / Local</td><td class="a">Two switches: how times are <b>shown</b> (Time column) and which clock you <b>type</b> in (picker).</td><td class="b"><b>One switch for the page</b>: showing, typing and picking all follow it; each picked time shows its twin in the other clock.</td></tr>
+  <tr><td>What's searched</td><td class="a">"Searched in UTC: …" line in the picker.</td><td class="b">Same line at the bottom of the panel.</td></tr>
+  <tr><td>Space it takes</td><td class="a">Small popover (≈ 520 px).</td><td class="b">Wide panel (≈ 860 px) - more to see at once.</td></tr>
+</table>
+<div class="tabs">
+  <button class="on" onclick="show('both', this)">Side by side</button>
+  <button onclick="show('a', this)">Only A</button>
+  <button onclick="show('b', this)">Only B</button>
+</div>
+<div class="frames" id="frames">
+  <div class="frame" id="fa"><h2>A - compact, text first</h2><iframe src="mock-filters-time.html"></iframe></div>
+  <div class="frame" id="fb"><h2>B - guided, point and click</h2><iframe src="mock-filters-time-b.html"></iframe></div>
+</div>
+<script>
+  function show(w, btn) {
+    document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b === btn));
+    document.getElementById('fa').style.display = w === 'b' ? 'none' : '';
+    document.getElementById('fb').style.display = w === 'a' ? 'none' : '';
+    document.getElementById('frames').classList.toggle('one', w !== 'both');
+  }
+</script>
+</body>
+</html>

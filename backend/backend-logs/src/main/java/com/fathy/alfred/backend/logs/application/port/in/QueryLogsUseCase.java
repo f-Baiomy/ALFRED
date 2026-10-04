@@ -25,6 +25,12 @@ public interface QueryLogsUseCase {
 
     Histogram histogram(String sourceId, LogQuery query, int buckets);
 
+    /**
+     * How many lines each filter hides: for filter i, the lines the query would match without it minus the lines it
+     * matches with it (null for a filter that is turned off or cannot be judged on its own).
+     */
+    List<Long> pillImpact(String sourceId, LogQuery query);
+
     FieldValues fieldValues(String sourceId, LogQuery query);
 
     FieldStats fieldStats(String sourceId, String label, LogQuery query);

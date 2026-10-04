@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, ElementRef, Injector, afterNextRender, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
 import { LogsApiService } from '../../core/services/logs-api.service';
@@ -9,6 +9,13 @@ import { commentsInside, jsonLines, JsonLine } from '../../shared/utils/logs-jso
 import { highlightSegments } from '../../shared/utils/logs-query-parse';
 import { copyToClipboard } from '../../shared/utils/clipboard';
 import { buildPathTree, groupKeys, visibleRows } from '../../shared/utils/logs-field-tree';
+import { detectValue, explainValue, FormatProblem } from '../../shared/utils/logs-value-format';
+import { highlightTokens, tokenizeJsonText } from '../../shared/utils/json-tokenizer';
+import { tokenizeXmlText } from '../../shared/utils/xml-tokenizer';
+import { splitTokensIntoLines } from '../../shared/utils/line-tokenizer';
+import { JsonTokensComponent } from '../../shared/components/json-tokens/json-tokens.component';
+import { JsonTreeComponent } from '../json-tree/json-tree.component';
+import { XmlTreeNodeComponent } from './xml-tree-node.component';
 
 export type FieldActionKind = 'eq' | 'neq' | 'col' | 'ex';
 
@@ -36,6 +43,9 @@ function remember<V>(map: Map<string, V>, key: string, value: V): void {
     map.set(key, value);
 }
 const MASK = '•••';
+/** Table values longer than this (characters or lines) show their first lines with Show all / Open. */
+const LONG_VALUE_CHARS = 240;
+const LONG_VALUE_LINES = 3;
 
 interface TableRow {
   readonly path: string;
@@ -53,7 +63,7 @@ interface TableRow {
 @Component({
   selector: 'app-log-line-data',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet],
+  imports: [FormsModule, NgTemplateOutlet, JsonTokensComponent, JsonTreeComponent, XmlTreeNodeComponent],
   templateUrl: './log-line-data.component.html',
 })
 export class LogLineDataComponent {
@@ -77,7 +87,6 @@ export class LogLineDataComponent {
   readonly viewChange = output<'TABLE' | 'JSON'>();
   readonly fieldAction = output<FieldAction>();
   readonly commentsChanged = output<void>();
-  readonly openDrawer = output<void>();
 
   readonly folded = signal<ReadonlySet<string>>(new Set());
   readonly editing = signal<string | null>(null);
@@ -85,6 +94,49 @@ export class LogLineDataComponent {
   readonly draftError = signal('');
   readonly revealed = signal(false);
   readonly copied = signal(false);
+  /** Long values shown in full in the Table view (Show all); the rest show their first lines. */
+  readonly expanded = signal<ReadonlySet<string>>(new Set());
+  /** A value opened in its own window (⤢ Open): the same text, with find, wrap and Copy. */
+  readonly opened = signal<{ path: string; value: string } | null>(null);
+  readonly openedFind = signal('');
+  readonly openedWrap = signal(true);
+  readonly openedCopied = signal(false);
+  readonly openedLines = computed(() => (this.opened()?.value ?? '').split('\n'));
+  /** JSON or XML found in the opened value, as the window opens (null = neither, or it does not parse). */
+  readonly openedDetected = computed(() => {
+    const o = this.opened();
+    return o ? detectValue(o.value) : null;
+  });
+  /** Original (exactly as stored) · Formatted · Tree. */
+  readonly openedMode = signal<'orig' | 'fmt' | 'tree'>('orig');
+  /** The "JSON found - Format / Tree / Keep as is" bar, until one of them is picked. */
+  readonly openedOffer = signal(true);
+  /** "Check format": why the value is not shown as JSON or XML. */
+  readonly openedProblem = signal<FormatProblem | null>(null);
+  /** The Formatted view: indented, coloured like call bodies, one row per line, with find matches. */
+  readonly openedFormatted = computed(() => {
+    const d = this.openedDetected();
+    if (!d) return null;
+    const tokens = d.kind === 'json' ? tokenizeJsonText(d.pretty) : tokenizeXmlText(d.pretty);
+    const h = highlightTokens(tokens, this.openedFind().trim());
+    return { lines: splitTokensIntoLines(h.tokens), matches: h.matchCount };
+  });
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+  /** Find in the window: the matches on screen (any view) and the one shown now (-1 = none). */
+  readonly openedTotal = signal(0);
+  readonly openedCur = signal(-1);
+  readonly openedHits = computed(() => {
+    const q = this.openedFind().trim().toLowerCase();
+    if (!q) return 0;
+    if (this.openedMode() === 'fmt') return this.openedFormatted()?.matches ?? 0;
+    let n = 0;
+    for (const l of this.openedLines()) {
+      const low = l.toLowerCase();
+      for (let i = low.indexOf(q); i >= 0; i = low.indexOf(q, i + q.length)) n++;
+    }
+    return n;
+  });
   readonly profiles = signal<Profile[]>([]);
   readonly profileId = signal<string | null>(readProfile());
   /** Bumped when this line's remembered layout / folded groups change (they live in module maps). */
@@ -251,6 +303,120 @@ export class LogLineDataComponent {
   act(kind: FieldActionKind, row: TableRow): void {
     if (!row.field) return;
     this.fieldAction.emit({ kind, label: row.field.label, value: row.masked ? null : row.value });
+  }
+
+  /**
+   * A value long enough to collapse: more than LONG_VALUE_CHARS characters or LONG_VALUE_LINES lines.
+   * It shows its first lines (faded); nothing about the text itself changes.
+   */
+  isLong(value: string): boolean {
+    return value.length > LONG_VALUE_CHARS || value.split('\n', LONG_VALUE_LINES + 1).length > LONG_VALUE_LINES;
+  }
+
+  isExpanded(path: string): boolean {
+    return this.expanded().has(path);
+  }
+
+  toggleExpanded(path: string): void {
+    const next = new Set(this.expanded());
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    this.expanded.set(next);
+  }
+
+  openValue(path: string, value: string): void {
+    this.openedFind.set('');
+    this.openedCopied.set(false);
+    this.openedMode.set('orig');
+    this.openedOffer.set(true);
+    this.openedProblem.set(null);
+    this.openedTotal.set(0);
+    this.openedCur.set(-1);
+    this.opened.set({ path, value });
+  }
+
+  setOpenedMode(mode: 'orig' | 'fmt' | 'tree'): void {
+    this.openedMode.set(mode);
+    this.openedOffer.set(false);
+    this.findMatches();
+  }
+
+  /** The find text changed: highlight every match and go to the first. */
+  setOpenedFind(text: string): void {
+    this.openedFind.set(text);
+    this.findMatches();
+  }
+
+  /**
+   * After the view re-renders with its highlights, counts them and goes to the first. Works the same in
+   * every view because each marks its matches with <mark> (the formatted view and the trees through the
+   * call panels' own token / tree components).
+   */
+  private findMatches(): void {
+    afterNextRender(() => {
+      const marks = this.marks();
+      this.openedTotal.set(marks.length);
+      this.openedCur.set(-1);
+      if (marks.length && this.openedFind().trim()) this.goToMatch(0);
+    }, { injector: this.injector });
+  }
+
+  private marks(): HTMLElement[] {
+    return Array.from(this.host.nativeElement.querySelectorAll<HTMLElement>('.lg-vbody mark'));
+  }
+
+  /** Next / previous match (wrapping); Enter and Shift+Enter in the find box, or the ▲ ▼ buttons. */
+  stepMatch(step: number): void {
+    const n = this.marks().length;
+    if (!n) return;
+    this.goToMatch((Math.max(this.openedCur(), step > 0 ? -1 : 0) + step + n) % n);
+  }
+
+  /** Shows match `i`: opens the tree nodes around it, scrolls it to the middle and marks it as the current one. */
+  private goToMatch(i: number): void {
+    const marks = this.marks();
+    const el = marks[i];
+    if (!el) return;
+    marks.forEach((m) => m.classList.remove('lg-cur'));
+    for (let d = el.closest('details'); d; d = d.parentElement?.closest('details') ?? null) d.open = true;
+    el.classList.add('lg-cur');
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    this.openedCur.set(i);
+  }
+
+  onFindKey(ev: KeyboardEvent): void {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    this.stepMatch(ev.shiftKey ? -1 : 1);
+  }
+
+  checkFormat(): void {
+    const o = this.opened();
+    if (o) this.openedProblem.set(explainValue(o.value));
+  }
+
+  /** Expand all / Collapse all in the Tree view (JSON and XML trees are both <details> nodes). */
+  setTreeOpen(open: boolean): void {
+    this.host.nativeElement.querySelectorAll<HTMLDetailsElement>('.lg-vbody details').forEach((d, i) => {
+      // The root stays open on Collapse all, so the first level is still visible.
+      d.open = open || i === 0;
+    });
+  }
+
+  /** Find-in-value highlights: the window's own search, not the query bar's terms. */
+  openedSegments(text: string) {
+    const q = this.openedFind().trim();
+    return highlightSegments(text, q ? [q] : []);
+  }
+
+  async copyOpened(): Promise<void> {
+    const v = this.opened();
+    if (!v) return;
+    // What you see: the stored text, or the indented one in Formatted / Tree.
+    const d = this.openedDetected();
+    await copyToClipboard(this.openedMode() !== 'orig' && d ? d.pretty : v.value);
+    this.openedCopied.set(true);
+    setTimeout(() => this.openedCopied.set(false), 1500);
   }
 
   async copy(): Promise<void> {

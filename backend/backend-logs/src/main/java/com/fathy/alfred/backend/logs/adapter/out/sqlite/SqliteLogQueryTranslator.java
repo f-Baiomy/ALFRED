@@ -77,11 +77,24 @@ final class SqliteLogQueryTranslator {
             parts.add("ts_ms <= ?");
             params.add(q.to());
         }
+        // Consecutive filters joined by "or" are one group (any of them); groups are ANDed.
+        List<List<LogQuery.Pill>> groups = new ArrayList<>();
         for (LogQuery.Pill p : q.pills() == null ? List.<LogQuery.Pill>of() : q.pills()) {
-            Sql one = pill(sourceId, s, p);
-            parts.add("(" + one.where() + ")");
-            params.addAll(one.params());
-            slow |= one.slow();
+            if (p.orWithPrevious() && !groups.isEmpty()) {
+                groups.get(groups.size() - 1).add(p);
+            } else {
+                groups.add(new ArrayList<>(List.of(p)));
+            }
+        }
+        for (List<LogQuery.Pill> g : groups) {
+            List<String> any = new ArrayList<>();
+            for (LogQuery.Pill p : g) {
+                Sql one = negatable(sourceId, s, p);
+                any.add("(" + one.where() + ")");
+                params.addAll(one.params());
+                slow |= one.slow();
+            }
+            parts.add("(" + String.join(" OR ", any) + ")");
         }
         return new Sql(parts.isEmpty() ? "1=1" : String.join(" AND ", parts), params, slow);
     }
@@ -89,6 +102,18 @@ final class SqliteLogQueryTranslator {
     /** A pill list as one boolean expression (used for the minimap's condition). */
     static Sql condition(String sourceId, LogStructure s, List<LogQuery.Pill> pills) {
         return where(sourceId, s, new LogQuery(pills, null, null, null, null, 0));
+    }
+
+    /**
+     * A filter, or its opposite when it "filters out". The opposite keeps lines the filter cannot judge (no such
+     * field: its condition is NULL), the way NEQ / NOT_EXISTS always have.
+     */
+    static Sql negatable(String sourceId, LogStructure s, LogQuery.Pill p) {
+        Sql one = pill(sourceId, s, p);
+        if (!p.negated()) {
+            return one;
+        }
+        return new Sql("NOT coalesce((" + one.where() + "), 0)", one.params(), one.slow());
     }
 
     static Sql pill(String sourceId, LogStructure s, LogQuery.Pill p) {
@@ -108,8 +133,16 @@ final class SqliteLogQueryTranslator {
             }
             case EXISTS -> Sql.of(filterCol(s, field(s, p), false) + " IS NOT NULL", List.of());
             case NOT_EXISTS -> Sql.of(filterCol(s, field(s, p), false) + " IS NULL", List.of());
+            case CONTAINS -> {
+                FieldDef f = field(s, p);
+                String col = isLevelField(s, f) ? "level" : text(f);
+                yield Sql.of(col + " LIKE ? ESCAPE '\\'", List.of(like(nn(p.value()))));
+            }
             case EQ -> {
                 FieldDef f = field(s, p);
+                if (p.anyOf()) {
+                    yield in(s, f, p.values(), false);
+                }
                 if (isLevelField(s, f)) {
                     yield Sql.of("level = ?", List.of(nn(LineBuilder.normalizeLevel(p.value()))));
                 }
@@ -118,6 +151,9 @@ final class SqliteLogQueryTranslator {
             }
             case NEQ -> {
                 FieldDef f = field(s, p);
+                if (p.anyOf()) {
+                    yield in(s, f, p.values(), true);
+                }
                 if (isLevelField(s, f)) {
                     yield Sql.of("level IS NULL OR level <> ?", List.of(nn(LineBuilder.normalizeLevel(p.value()))));
                 }
@@ -162,6 +198,26 @@ final class SqliteLogQueryTranslator {
             return text(f) + " LIKE ? ESCAPE '\\'";
         }).collect(Collectors.joining(" OR "));
         return new Sql(expr, params, true);
+    }
+
+    /** "is any of" / "is none of": IN on the column EQ / NEQ use, each value converted the way EQ converts it. */
+    private static Sql in(LogStructure s, FieldDef f, List<String> values, boolean negate) {
+        List<Object> params = new ArrayList<>();
+        String col;
+        if (isLevelField(s, f)) {
+            col = "level";
+            values.forEach(v -> params.add(nn(LineBuilder.normalizeLevel(v))));
+        } else {
+            boolean allTyped = f.typed() && values.stream().allMatch(v -> typedOrNull(f, v) != null);
+            col = allTyped ? typedCol(f) : text(f);
+            values.forEach(v -> params.add(allTyped ? typedOrNull(f, v) : nn(v)));
+        }
+        String marks = values.stream().map(v -> "?").collect(Collectors.joining(","));
+        return negate ? Sql.of(col + " IS NULL OR " + col + " NOT IN (" + marks + ")", params) : Sql.of(col + " IN (" + marks + ")", params);
+    }
+
+    private static String like(String v) {
+        return "%" + v.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
     /**

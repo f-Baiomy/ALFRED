@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Filters and time - design B++ (mock)</title>
+<style>
+  :root {
+    --bg: #0a0e2a; --card: #141a45; --inner: #070a24; --pop: #161c4a; --pop2: #1d2458;
+    --border: rgba(255,255,255,.09); --border-s: rgba(255,255,255,.18);
+    --text: #eef0ff; --dim: #a3a8d6; --faint: #6b70a3; --purple: #7c6cf0; --purple-l: #c4b5fd;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --cyan: #67e8f9; --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  .note { color: var(--dim); max-width: 1180px; margin: 0 0 10px; }
+  .callout { border-left: 3px solid var(--green); background: color-mix(in srgb, var(--green) 8%, transparent); padding: 8px 12px; border-radius: 6px; margin: 0 0 14px; max-width: 1180px; color: var(--dim); }
+  .callout b { color: var(--text); }
+  .num { display: inline-block; min-width: 18px; height: 18px; border-radius: 9px; background: var(--green); color: #052; font-size: 11px; font-weight: 800; text-align: center; line-height: 18px; margin-right: 4px; }
+  .faint { color: var(--faint); }
+  .sp { flex: 1; }
+  button { font-family: inherit; }
+  .btn { background: transparent; border: 1px solid var(--border-s); color: var(--text); border-radius: 8px; font: 600 12px "Segoe UI"; padding: 5px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--purple-l); }
+  .btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .btn.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+  .seg { display: inline-flex; border: 1px solid var(--border-s); border-radius: 9px; padding: 2px; background: var(--inner); }
+  .seg button { background: none; border: 0; color: var(--dim); font: 600 12px "Segoe UI"; padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+  .seg button.on { background: var(--purple); color: #fff; }
+
+  /* toolbar */
+  .top { display: flex; align-items: center; gap: 10px; max-width: 1180px; margin-bottom: 8px; color: var(--dim); }
+  .clocksw { display: inline-flex; align-items: center; gap: 6px; }
+  .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; max-width: 1180px; position: relative; }
+  .qin { flex: 1; min-width: 180px; background: none; border: 0; outline: none; color: var(--text); font: 14px "Segoe UI"; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font: 12.5px "Segoe UI"; border-radius: 999px; padding: 3px 6px 3px 10px; cursor: pointer; border: 1px solid; }
+  .pill .f { font-weight: 700; } .pill .o { opacity: .8; }
+  .pill.inc { color: #bfdbfe; border-color: color-mix(in srgb, var(--blue) 55%, transparent); background: color-mix(in srgb, var(--blue) 14%, transparent); }
+  .pill.exc { color: #fecaca; border-color: color-mix(in srgb, var(--red) 55%, transparent); background: color-mix(in srgb, var(--red) 14%, transparent); }
+  .pill.exc .f::before { content: "NOT "; font-weight: 800; color: var(--red); }
+  .pill.time { color: #a5f3fc; border-color: color-mix(in srgb, var(--cyan) 55%, transparent); background: color-mix(in srgb, var(--cyan) 12%, transparent); }
+  .pill button { background: none; border: 0; color: inherit; opacity: .7; cursor: pointer; padding: 0 2px; }
+  .pill:hover { filter: brightness(1.2); }
+  .timebtn { display: inline-flex; flex-direction: column; align-items: flex-start; background: var(--inner); border: 1px solid var(--border-s); border-radius: 10px; color: var(--text); padding: 4px 12px; cursor: pointer; text-align: left; }
+  .timebtn b { font-size: 13px; } .timebtn span { font-size: 11px; color: var(--faint); }
+  .timebtn:hover { border-color: var(--purple-l); }
+
+  /* filter editor popover */
+  .fed { position: absolute; z-index: 6; width: 360px; background: var(--pop2); border: 1px solid var(--border-s); border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.7); padding: 12px; display: none; }
+  .fed.show { display: block; }
+  .fed h3 { margin: 0 0 10px; font-size: 13px; }
+  .frow { display: grid; grid-template-columns: 70px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .frow label { color: var(--dim); font-weight: 600; font-size: 12px; }
+  .fed select, .fed input { background: var(--inner); border: 1px solid var(--border-s); border-radius: 8px; color: var(--text); padding: 5px 8px; font: 13px "Segoe UI"; width: 100%; color-scheme: dark; }
+  .fwrap { position: relative; }
+  .fs { position: absolute; left: 0; right: 0; top: calc(100% + 3px); z-index: 8; background: #232b66; border: 1px solid var(--border-s); border-radius: 9px; box-shadow: 0 12px 30px rgba(0,0,0,.6); max-height: 220px; overflow: auto; display: none; padding: 3px; }
+  .fs.show { display: block; }
+  .fs div { display: flex; gap: 8px; align-items: center; padding: 4px 8px; border-radius: 6px; cursor: pointer; font: 12.5px Consolas, monospace; }
+  .fs div.on, .fs div:hover { background: color-mix(in srgb, var(--purple) 35%, transparent); }
+  .fs .ty { width: 18px; color: var(--faint); text-align: center; }
+  .fs .cnt { margin-left: auto; color: var(--faint); font: 11px "Segoe UI"; }
+  .fs mark { background: none; color: var(--purple-l); font-weight: 700; }
+  .ferr { color: var(--red); font-size: 12px; margin: -4px 0 6px 78px; }
+  .callout.pp { border-left: 3px solid var(--cyan); background: color-mix(in srgb, var(--cyan) 7%, transparent); padding: 8px 12px; border-radius: 6px; margin: 0 0 10px; max-width: 1180px; color: var(--dim); }
+  .callout.pp b { color: var(--text); }
+  .num.pp { background: var(--cyan); color: #033; }
+  .new2 { display: inline-block; font: 800 10px "Segoe UI"; color: #033; background: var(--cyan); border-radius: 4px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
+  kbd { font: 11px Consolas, monospace; background: var(--card); border: 1px solid var(--border-s); border-radius: 4px; padding: 0 4px; color: var(--text); }
+  .conj { font: 700 10.5px "Segoe UI"; text-transform: uppercase; color: var(--faint); border: 1px dashed var(--border-s); border-radius: 6px; padding: 0 5px; cursor: pointer; margin: 0 2px; user-select: none; }
+  .conj.or { color: var(--amber); border-color: var(--amber); border-style: solid; }
+  .undo { display: inline-flex; gap: 2px; }
+  .undo button { background: none; border: 1px solid var(--border-s); color: var(--dim); border-radius: 7px; padding: 1px 7px; cursor: pointer; font-size: 14px; }
+  .undo button:disabled { opacity: .3; cursor: default; }
+  .lvchips { display: flex; gap: 6px; align-items: center; max-width: 1180px; margin-top: 10px; flex-wrap: wrap; }
+  .lvchip { border: 1px solid var(--border-s); background: var(--card); color: var(--dim); border-radius: 999px; padding: 2px 10px; font: 600 12px "Segoe UI"; cursor: pointer; }
+  .lvchip.on { color: #fff; border-color: currentColor; }
+  .lvchip.ERROR.on { color: var(--red); } .lvchip.WARN.on { color: var(--amber); } .lvchip.INFO.on { color: var(--blue); }
+  .lvchip i { font-style: normal; opacity: .7; margin-left: 4px; }
+  .selbar { display: none; gap: 8px; align-items: center; padding: 6px 12px; background: color-mix(in srgb, var(--cyan) 10%, transparent); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+  .selbar.show { display: flex; }
+  .lr.ck { grid-template-columns: 22px 210px 70px 220px 1fr; }
+  .lh.ck { grid-template-columns: 22px 210px 70px 220px 1fr; }
+  .lr.picked { background: color-mix(in srgb, var(--cyan) 10%, transparent); }
+  .qtext { display: flex; gap: 6px; align-items: center; max-width: 1180px; margin-top: 8px; }
+  .qtext input { flex: 1; background: var(--inner); border: 1px solid var(--border-s); border-radius: 8px; color: var(--text); padding: 5px 8px; font: 12px Consolas, monospace; }
+  .hlab { position: absolute; top: -1px; font: 10.5px Consolas, monospace; color: #fff; background: var(--purple); border-radius: 4px; padding: 0 4px; white-space: nowrap; pointer-events: none; }
+  .hlab.l { left: 4px; } .hlab.r { right: 4px; }
+  .bcount { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); font: 700 11px "Segoe UI"; color: #fff; text-shadow: 0 1px 2px #000; pointer-events: none; white-space: nowrap; }
+  .callout.plus { border-left-color: var(--amber); background: color-mix(in srgb, var(--amber) 8%, transparent); }
+  .num.p { background: var(--amber); color: #3a2a00; }
+  .new { display: inline-block; font: 800 10px "Segoe UI"; color: #3a2a00; background: var(--amber); border-radius: 4px; padding: 0 4px; margin-left: 4px; vertical-align: middle; letter-spacing: .03em; }
+  .pill .dot { width: 9px; height: 9px; border-radius: 5px; border: 1.5px solid currentColor; background: currentColor; cursor: pointer; flex: none; }
+  .pill.off { opacity: .45; filter: grayscale(.8); }
+  .pill.off .dot { background: none; }
+  .pill.off b, .pill.off .f { text-decoration: line-through; }
+  .pill .hid { font-size: 11px; opacity: .8; }
+  .pill .step { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 2px; opacity: .8; }
+  .sugg button.on { background: color-mix(in srgb, var(--purple) 45%, transparent); border-color: var(--purple-l); }
+  .rangecount { color: var(--text); font-weight: 600; }
+  .quick .recent { font-size: 12px; color: var(--dim); }
+  .sugg { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 8px 78px; }
+  .sugg button { background: var(--card); border: 1px solid var(--border-s); color: var(--text); border-radius: 999px; padding: 1px 8px; font: 12px "Segoe UI"; cursor: pointer; }
+  .sugg button i { font-style: normal; color: var(--faint); margin-left: 4px; }
+  .sugg button:hover { border-color: var(--purple-l); }
+  .factions { display: flex; gap: 8px; margin-top: 6px; }
+
+  /* time panel */
+  .tp { position: absolute; z-index: 5; right: 8px; top: calc(100% + 6px); width: 860px; background: var(--pop); border: 1px solid var(--border-s); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.65); display: none; }
+  .tp.show { display: block; }
+  .tphead { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .nl { flex: 1; background: var(--inner); border: 1px solid var(--border-s); border-radius: 9px; color: var(--text); padding: 6px 10px; font: 13px "Segoe UI"; }
+  .nlok { font-size: 12px; color: var(--green); } .nlbad { font-size: 12px; color: var(--amber); }
+  .tpbody { display: grid; grid-template-columns: 170px 270px 1fr; }
+  .quick { border-right: 1px solid var(--border); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .quick button { background: none; border: 0; color: var(--dim); text-align: left; padding: 5px 8px; border-radius: 7px; cursor: pointer; font: 13px "Segoe UI"; }
+  .quick button:hover { background: var(--card); color: var(--text); }
+  .quick button.on { background: color-mix(in srgb, var(--purple) 30%, transparent); color: #fff; }
+  .quick hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; width: 100%; }
+  .cal { border-right: 1px solid var(--border); padding: 10px; }
+  .calh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-weight: 700; }
+  .calh button { background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 15px; }
+  .calg { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+  .calg .dow { color: var(--faint); font-size: 11px; padding: 2px 0; }
+  .day { padding: 5px 0; border-radius: 7px; cursor: pointer; font-size: 12.5px; position: relative; }
+  .day:hover { background: var(--card); }
+  .day.other { color: var(--faint); }
+  .day.has::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px; border-radius: 2px; background: var(--cyan); }
+  .day.inr { background: color-mix(in srgb, var(--purple) 22%, transparent); border-radius: 0; }
+  .day.sel { background: var(--purple); color: #fff; border-radius: 7px; }
+  .calhint { font-size: 11.5px; color: var(--faint); margin-top: 6px; }
+  .spin { display: inline-flex; align-items: center; background: var(--inner); border: 1px solid var(--border-s); border-radius: 9px; padding: 2px 4px; font: 15px Consolas, monospace; }
+  .unit { display: inline-flex; flex-direction: column; align-items: center; }
+  .unit button { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 9px; line-height: 1; padding: 1px 4px; }
+  .unit button:hover { color: var(--purple-l); }
+  .unit input { width: 30px; text-align: center; background: none; border: 0; color: var(--text); font: 15px Consolas, monospace; outline: none; }
+  .colon { color: var(--faint); }
+  /* From / To: one card each - label + date, then the time (▲▼ and 🕒 on one line), then shortcuts */
+  .times { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .tcard { background: var(--inner); border: 1px solid var(--border); border-radius: 11px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .tcardh { display: flex; align-items: baseline; gap: 8px; }
+  .tlabel { font: 800 10.5px "Segoe UI"; letter-spacing: .08em; text-transform: uppercase; color: var(--purple-l); width: 38px; }
+  .tdate { font-weight: 700; font-size: 14px; }
+  .tcardh .other { margin: 0 0 0 auto; }
+  .ttime { display: flex; align-items: center; gap: 8px; }
+  .ttime .spin { height: 48px; }
+  .ttime .clockbtn { height: 48px; width: 44px; font-size: 18px; padding: 0; }
+  .ctx { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tmid { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 4px; color: var(--dim); font-size: 12px; }
+  .tmid b { color: var(--text); }
+  .tmid .sep { width: 1px; height: 16px; background: var(--border-s); }
+  .livechk { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; color: var(--dim); cursor: pointer; }
+  .ctx button { background: var(--card); border: 1px solid var(--border); color: var(--dim); border-radius: 6px; font: 11px "Segoe UI"; padding: 1px 6px; cursor: pointer; }
+  .ctx button:hover { color: var(--text); border-color: var(--purple-l); }
+  .other { font: 11.5px Consolas, monospace; color: var(--faint); margin-top: 2px; }
+  .clockbtn { background: var(--inner); border: 1px solid var(--border-s); border-radius: 9px; color: var(--text); font-size: 16px; padding: 4px 8px; cursor: pointer; }
+  .clockbtn:hover { border-color: var(--purple-l); }
+  .tp { overflow: visible; }
+  .clock { position: absolute; z-index: 9; background: #232b66; border: 1px solid var(--border-s); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.7); padding: 10px; display: none; width: 244px; }
+  .clock.show { display: block; }
+  .chead { display: flex; justify-content: center; align-items: center; gap: 2px; font: 700 26px Consolas, monospace; color: var(--faint); margin-bottom: 6px; }
+  .chead button { background: none; border: 0; color: var(--dim); font: inherit; cursor: pointer; padding: 0 4px; border-radius: 6px; }
+  .chead button.on { color: #fff; background: color-mix(in srgb, var(--purple) 45%, transparent); }
+  #dial { display: block; margin: 0 auto; cursor: pointer; user-select: none; touch-action: none; }
+  #dial text { fill: var(--dim); font: 12px "Segoe UI"; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  #dial text.in { font-size: 10.5px; fill: var(--faint); }
+  #dial text.sel { fill: #fff; font-weight: 700; }
+  .cfoot { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+  .cfoot .sp { flex: 1; }
+  .link { background: none; border: 0; color: var(--purple-l); font: 600 12px "Segoe UI"; cursor: pointer; padding: 0; }
+  /* timeline brush */
+  .tl { padding: 8px 14px 12px; border-top: 1px solid var(--border); }
+  .tlh { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; margin-bottom: 4px; }
+  .bars i.st { display: flex; flex-direction: column; background: none !important; border-radius: 2px 2px 0 0; overflow: hidden; }
+  .bars i.st b { display: block; width: 100%; flex: none; }
+  .bars i.st b.e { background: #e06c75; } .bars i.st b.w { background: #e5a54b; } .bars i.st b.n { background: #2b7aa8; }
+  .tlegend { display: flex; justify-content: center; gap: 14px; font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+  .tlegend span::before { content: "●"; margin-right: 4px; }
+  .tlegend .e::before { color: #e06c75; } .tlegend .w::before { color: #e5a54b; } .tlegend .n::before { color: #2b7aa8; }
+  .tlh .sp { flex: 1; }
+  .btn.mini { padding: 1px 8px; font-size: 11.5px; }
+  .ov { position: relative; height: 18px; background: var(--inner); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; overflow: hidden; cursor: pointer; user-select: none; touch-action: none; }
+  .ovbars { position: absolute; inset: 2px 0; display: flex; align-items: flex-end; gap: 0; pointer-events: none; }
+  .ovbars i { flex: 1; background: color-mix(in srgb, var(--blue) 45%, transparent); }
+  .ovsel { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--purple) 55%, transparent); pointer-events: none; }
+  .ovwin { position: absolute; top: 0; bottom: 0; border: 1.5px solid var(--purple-l); border-radius: 4px; background: rgba(255,255,255,.06); cursor: grab; }
+  .tip { position: absolute; top: 2px; padding: 1px 6px; border-radius: 5px; background: #000c; color: var(--text); font: 11px Consolas, monospace; pointer-events: none; display: none; white-space: nowrap; transform: translateX(-50%); }
+  .track { position: relative; height: 58px; background: var(--inner); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; user-select: none; touch-action: none; }
+  .bars { position: absolute; inset: 6px 0 14px 0; display: flex; align-items: flex-end; gap: 1px; pointer-events: none; }
+  .bars i { flex: 1; background: color-mix(in srgb, var(--blue) 55%, transparent); border-radius: 1px 1px 0 0; }
+  .brush { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--purple) 28%, transparent); border-left: 2px solid var(--purple-l); border-right: 2px solid var(--purple-l); cursor: grab; }
+  .brush:active { cursor: grabbing; }
+  .handle { position: absolute; top: 50%; width: 10px; height: 26px; margin-top: -13px; background: var(--purple-l); border-radius: 4px; cursor: ew-resize; }
+  .handle.l { left: -6px; } .handle.r { right: -6px; }
+  .axis { display: flex; justify-content: space-between; font: 10.5px Consolas, monospace; color: var(--faint); margin-top: 2px; }
+  .tpfoot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }
+  .search-note { font: 12px Consolas, monospace; color: var(--dim); }
+  .search-note b { color: var(--cyan); font-weight: 400; }
+
+  .lines { max-width: 1180px; margin-top: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .lh, .lr { display: grid; grid-template-columns: 210px 70px 220px 1fr; gap: 10px; padding: 5px 12px; }
+  .lh { background: var(--pop); color: var(--faint); font-size: 11px; font-weight: 600; border-bottom: 1px solid var(--border-s); }
+  .lr { font: 12.5px Consolas, monospace; border-bottom: 1px solid var(--border); }
+  .lr.out { opacity: .22; }
+  .lv { font: 700 11px "Segoe UI"; } .lv.ERROR { color: var(--red); } .lv.INFO { color: var(--blue); } .lv.WARN { color: var(--amber); }
+</style>
+</head>
+<body>
+<h1>Design B++ - B+ with seven more ideas</h1>
+<div class="callout pp">
+  Everything from B and B+ is unchanged. The <span class="new2">NEW 2</span> ideas, each optional:<br />
+  <span class="num pp">1</span><b>AND / OR between filters</b> - click the small "and" between two pills to make it "or" (<i>level is ERROR <b>or</b> timeTaken &gt; 6000</i>).<br />
+  <span class="num pp">2</span><b>Undo / Redo</b> (↶ ↷, Ctrl+Z / Ctrl+Y) for every filter and time change - no fear of losing a careful setup.<br />
+  <span class="num pp">3</span><b>Range from lines</b>: tick two (or more) lines in the list → "⏱ Use as time range" - from the first to the last, optionally with a margin.<br />
+  <span class="num pp">4</span><b>Level chips above the list</b> (ERROR 87 · WARN 15 · INFO 158): click to show only that level, click again to undo - the fastest common filter.<br />
+  <span class="num pp">5</span><b>Copy the search as text</b> and <b>paste one back</b> - share "what I was looking at" in chat, or keep it in a ticket.<br />
+  <span class="num pp">6</span><b>Keyboard</b>: <kbd>[</kbd> / <kbd>]</kbd> previous / next window, <kbd>/</kbd> jump to the search box, <kbd>Ctrl+Z</kbd> undo.<br />
+  <span class="num pp">7</span><b>The timeline selection labels itself</b> - its start and end time on the handles and the line count inside it, while you drag.
+</div>
+<div class="callout plus">
+  Everything from B is unchanged. The <span class="new">NEW</span> ideas below can each be taken or left:<br />
+  <span class="num p">1</span><b>Turn a filter off without deleting it</b> - the dot on each pill; it greys out and stops filtering, click again to turn it back on.<br />
+  <span class="num p">2</span><b>Each filter says how many lines it hides</b> ("−87"), so you see which one empties the list.<br />
+  <span class="num p">3</span><b>"is any of"</b> - click several values in the form (ERROR <i>and</i> WARN) for one pill: <b>level is ERROR, WARN</b>.<br />
+  <span class="num p">4</span><b>◀ ▶ step the range</b> by its own length - the previous / next 2 hours - from the time pill or the panel. Made for reading a log hour by hour.<br />
+  <span class="num p">5</span><b>Around a moment</b>: "± 5 min around From" (or ± 1 min, ± 1 h) - the usual question when a line looks wrong.<br />
+  <span class="num p">6</span><b>Recent ranges</b>: the last ranges you applied, one click away in the quick list.<br />
+  <span class="num p">7</span><b>The timeline is coloured by level</b> (errors red, warnings amber), and <b>double-click a bar</b> to select just that slice.<br />
+  <span class="num p">8</span><b>"To = now, keep moving"</b> - a live range that follows new lines; and the panel tells you <b>how many lines</b> the range holds before you apply it.
+</div>
+<p class="note">Static mock, lines stored in UTC. Click a pill to edit it, "+ Add filter" to add one, and the time button to open the range panel. Lines outside the filters fade out.</p>
+<div class="callout">
+  <span class="num">1</span><b>Filters are edited in a small form, not as text</b>: click a pill → <b>Include / Exclude</b>, <b>Field</b> (type any part of the name - matching fields are suggested as you type, with their type and how many lines have them), <b>Condition</b>
+  (is, is not, contains, exists, missing, greater, less), <b>Value</b> with the field's most common values to click (and their counts). "Exclude" pills read
+  <b>NOT level is ERROR</b> in red. Typing in the search bar still works for people who like it.<br />
+  <span class="num">2</span><b>One clock switch for the whole page</b> (top right): <b>UTC</b> or <b>Local</b> - every time shown, typed and picked follows it, and each time in the
+  range panel shows its other-clock twin underneath. No separate "times I type are" choice.<br />
+  <span class="num">3</span><b>Time range panel</b>: quick ranges on the left (incl. Today, Yesterday); a <b>calendar</b> - click a start day, then an end day
+  (days that have log lines get a dot); <b>From / To times with ▲▼ per hour, minute and second</b> (or type them, or scroll the mouse wheel on a number),
+  plus a <b>🕒 button that opens a clock dial</b> (hour ring, then minutes, then seconds) - both set the same time; "start of day / end of day / now" shortcuts;
+  and a <b>timeline of your data</b> that <b>zooms to your range</b> (it shows the selection with a margin either side, so a 10-minute range is wide, not a sliver):
+  drag anywhere on it to select, drag the edges to resize, drag the middle to <b>slide it while keeping its length</b>; the mouse wheel zooms, ⤢ Fit / All data
+  jump; a thin <b>overview strip</b> above shows all your data and where the zoomed view sits (drag its box to move the view); hovering a bar shows its time
+  and how many lines it holds.<br />
+  <span class="num">4</span><b>Type it in words</b>: "yesterday 14:00 to 16:30", "last 90 minutes", "today", "2026-10-04 09:00 to 12:00" - it fills the calendar and times.<br />
+  <span class="num">5</span><b>The length is shown and can be locked</b> ("2 h 30 min · 🔒 keep"), and To follows From until you set To, like design A.
+</div>
+
+<div class="top">
+  <span>wildfly · 5,133 lines · raw copied into Alfred · <b id="tzline" style="color:var(--text)">times in UTC</b></span>
+  <span class="sp"></span>
+  <span class="clocksw">🌐 Show and pick times in <span class="seg" id="clk"><button data-z="utc" class="on" onclick="setClock('utc')">UTC</button><button data-z="local" onclick="setClock('local')">Local <span id="lo"></span></button></span></span>
+</div>
+
+<div class="bar" id="bar">
+  <span class="faint">⌕</span>
+  <span id="pills"></span>
+  <span class="undo" title="Undo / redo filter and time changes (Ctrl+Z / Ctrl+Y)"><button id="undoB" onclick="undo()" disabled>↶</button><button id="redoB" onclick="redo()" disabled>↷</button></span>
+  <button class="btn" onclick="addFilter(this)">+ Add filter</button>
+  <input class="qin" placeholder="or type: level:ERROR · -logger:Detail · timeTaken>6000" />
+  <button class="timebtn" id="timebtn" onclick="toggleTp()"><b id="tbmain">All time</b><span id="tbsub">click to pick a range</span></button>
+
+  <div class="fed" id="fed">
+    <h3 id="fedtitle">Edit filter</h3>
+    <div class="frow"><label>Lines</label><span class="seg" id="incseg"><button data-v="inc" onclick="setInc(true)">Include</button><button data-v="exc" onclick="setInc(false)">Exclude</button></span></div>
+    <div class="frow"><label>Field</label><div class="fwrap"><input id="ffield" autocomplete="off" placeholder="type a field name…" oninput="fieldInput()" onfocus="fieldInput()" onkeydown="fieldKey(event)" onblur="setTimeout(hideFs, 150)" /><div class="fs" id="fs"></div></div></div>
+    <div class="ferr" id="ferr"></div>
+    <div class="frow"><label>Condition</label><select id="fop" onchange="drawSugg()"><option value="is">is</option><option value="contains">contains</option><option value="exists">exists (has any value)</option><option value="gt">greater than</option><option value="lt">less than</option></select></div>
+    <div class="frow" id="valrow"><label>Value</label><input id="fval" placeholder="value" /></div>
+    <div class="sugg" id="sugg"></div>
+    <div class="factions"><button class="btn danger" id="fdel" onclick="delFilter()">Remove</button><span class="sp"></span><button class="btn" onclick="closeFed()">Cancel</button><button class="btn primary" onclick="saveFilter()">Apply</button></div>
+  </div>
+
+  <div class="tp" id="tp">
+    <div class="tphead">
+      <input class="nl" id="nl" placeholder='Type a range: "yesterday 14:00 to 16:30", "last 90 minutes", "today", "2026-10-04 09:00 to 12:00"' onkeydown="if(event.key==='Enter')nlApply()" oninput="nlCheck()" />
+      <span id="nlmsg"></span>
+    </div>
+    <div class="tpbody">
+      <div class="quick" id="quick">
+        <button onclick="quick('15m')">Last 15 minutes</button>
+        <button onclick="quick('1h')">Last 1 hour</button>
+        <button onclick="quick('6h')">Last 6 hours</button>
+        <button onclick="quick('24h')">Last 24 hours</button>
+        <button onclick="quick('7d')">Last 7 days</button>
+        <hr />
+        <button onclick="quick('today')">Today</button>
+        <button onclick="quick('yesterday')">Yesterday</button>
+        <hr />
+        <button onclick="quick('all')">All time</button>
+        <hr />
+        <span class="faint" style="font-size:11px;padding:0 8px">Recent <span class="new">NEW</span></span>
+        <div id="recent" style="display:flex;flex-direction:column"></div>
+        <span class="faint" style="font-size:11px;padding:4px 8px">"Last …" counts back from the newest line, so a quiet log still shows something.</span>
+      </div>
+      <div class="cal">
+        <div class="calh"><button onclick="month(-1)">‹</button><span id="calt"></span><button onclick="month(1)">›</button></div>
+        <div class="calg" id="calg"></div>
+        <div class="calhint" id="calhint">Click a start day, then an end day. • = has log lines.</div>
+      </div>
+      <div class="times">
+        <div class="tcard">
+          <div class="tcardh"><span class="tlabel">From</span><span class="tdate" id="fdate">-</span><span class="other" id="fother"></span></div>
+          <div class="ttime" id="fspin"></div>
+          <div class="ctx"><button onclick="ctx('f','sod')">start of day</button><button onclick="ctx('f','oldest')">oldest line</button></div>
+        </div>
+        <div class="tmid">↕ <b id="len">-</b><button class="btn mini" id="lock" onclick="toggleLock()">🔓 keep this length</button><span class="faint" id="follow"></span></div><div class="tmid"><span>Around From <span class="new">NEW</span></span><button class="btn mini" onclick="around(1)">± 1 min</button><button class="btn mini" onclick="around(5)">± 5 min</button><button class="btn mini" onclick="around(60)">± 1 h</button></div>
+        <div class="tcard">
+          <div class="tcardh"><span class="tlabel">To</span><span class="tdate" id="tdate">-</span><span class="other" id="tother"></span></div>
+          <div class="ttime" id="tspin"></div>
+          <div class="ctx"><button onclick="ctx('t','eod')">end of day</button><button onclick="ctx('t','now')">now</button><button onclick="ctx('t','newest')">newest line</button><label class="livechk"><input type="checkbox" id="live" onchange="liveTo=this.checked; renderTp()" /> To = now, keep moving <span class="new">NEW</span></label></div>
+        </div>
+      </div>
+    </div>
+    <div class="clock" id="clock">
+      <div class="chead">
+        <button data-st="h" onclick="stage('h')" id="ch">00</button>:<button data-st="m" onclick="stage('m')" id="cm">00</button>:<button data-st="s" onclick="stage('s')" id="cs">00</button>
+      </div>
+      <svg id="dial" viewBox="-110 -110 220 220" width="220" height="220"></svg>
+      <div class="cfoot"><button class="link" onclick="clockNow()">Now</button><span class="sp"></span><button class="btn" onclick="closeClock()">Cancel</button><button class="btn primary" onclick="clockOk()">OK</button></div>
+    </div>
+    <div class="tl">
+      <div class="tlh">Your data over time <span class="faint">- drag to select · edges resize · middle slides · wheel zooms · double-click a bar <span class="new">NEW</span></span><span class="sp"></span>
+        <span class="faint" id="scopeinfo"></span>
+        <button class="btn mini" onclick="zoom(0.5)" title="Zoom in">+</button><button class="btn mini" onclick="zoom(2)" title="Zoom out">−</button>
+        <button class="btn mini" onclick="fitSel(true)" title="Zoom to the selection">⤢ Fit</button><button class="btn mini" onclick="showAll()" title="Show all your data">All data</button>
+      </div>
+      <div class="ov" id="ov"><div class="ovbars" id="ovbars"></div><div class="ovsel" id="ovsel"></div><div class="ovwin" id="ovwin"></div></div>
+      <div class="track" id="track"><div class="bars" id="bars"></div><div class="brush" id="brush" style="display:none"><div class="handle l" data-h="l"></div><div class="handle r" data-h="r"></div></div><div class="tip" id="tip"></div></div>
+      <div class="axis" id="axis"></div>
+      <div class="tlegend"><span class="e">ERROR</span><span class="w">WARN</span><span class="n">INFO</span></div>
+    </div>
+    <div class="tpfoot">
+      <span class="search-note" id="snote"></span><span class="rangecount" id="rcount"></span><span class="sp"></span>
+      <button class="btn" onclick="stepDraft(-1)" title="Previous window of the same length">◀</button><button class="btn" onclick="stepDraft(1)" title="Next window of the same length">▶</button>
+      <button class="btn" onclick="clearRange()">Clear</button><button class="btn" onclick="toggleTp(false)">Cancel</button><button class="btn primary" onclick="applyRange()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<div class="qtext"><span class="faint">Search as text <span class="new2">NEW 2</span></span><input id="qtext" onkeydown="if(event.key==='Enter') pasteQuery()" title="Edit or paste a search, then Enter" /><button class="btn mini" onclick="copyQuery()" id="copyq">⧉ Copy</button><button class="btn mini" onclick="pasteQuery()">Use this</button></div>
+<div class="lvchips"><span class="faint">Show only <span class="new2">NEW 2</span></span><span id="lvchips"></span><span class="sp"></span><span class="faint">Tick lines to use them as a time range <span class="new2">NEW 2</span></span></div>
+<div class="lines">
+  <div class="selbar" id="selbar"><span id="selinfo"></span><button class="btn mini primary" onclick="rangeFromLines(0)">⏱ Use as time range</button><button class="btn mini" onclick="rangeFromLines(60e3)">… with ± 1 min</button><button class="btn mini" onclick="picked.clear(); renderAll()">Clear ticks</button></div>
+  <div class="lh ck"><span></span><span>Time ▼</span><span>Level</span><span>message.methodName</span><span>message</span></div>
+  <div id="rows"></div>
+</div>
+
+<script>
+  const H = 3600e3, D = 24 * H;
+  // ---- data (UTC), spread over 3 weeks so the calendar and timeline have something to show
+  const BASE = Date.UTC(2026, 9, 4, 12, 0, 0);
+  const METHODS = ['loginAction', 'fareConfirm', 'performOperation', 'getSearchResult', 'error', 'handleCallingError'];
+  const MSGS = ['API request', 'API response', 'End external system call', 'Generic error'];
+  let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+  const LINES = [];
+  for (let i = 0; i < 260; i++) {
+    const ts = BASE - Math.floor(Math.pow(rnd(), 1.7) * 20 * D);
+    const m = METHODS[Math.floor(rnd() * METHODS.length)];
+    const level = m === 'error' || m === 'handleCallingError' ? 'ERROR' : rnd() < .1 ? 'WARN' : 'INFO';
+    LINES.push({ ts, level, 'message.methodName': m, message: level === 'ERROR' ? 'Generic error' : MSGS[Math.floor(rnd() * 3)], logger: 'DetailLogger', timeTaken: Math.floor(rnd() * 9000) });
+  }
+  LINES.sort((a, b) => b.ts - a.ts);
+  const OLDEST = LINES[LINES.length - 1].ts, NEWEST = LINES[0].ts;
+  const FIELDS = ['level', 'message.methodName', 'message', 'logger', 'timeTaken'];
+
+  // ---- clock
+  let clock = 'utc';
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const off = () => { const o = -new Date().getTimezoneOffset(); return `UTC${o >= 0 ? '+' : '-'}${pad(Math.floor(Math.abs(o) / 60))}:${pad(Math.abs(o) % 60)}`; };
+  document.getElementById('lo').textContent = `(${off()})`;
+  const ZFMT = {};
+  const DOW = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  /** Wall-clock parts of an instant in UTC, this computer's zone, or any IANA zone (Asia/Dubai, ...). */
+  const parts = (ms, z = clock) => { const d = new Date(ms);
+    if (z === 'utc') return { Y: d.getUTCFullYear(), M: d.getUTCMonth(), D: d.getUTCDate(), h: d.getUTCHours(), m: d.getUTCMinutes(), s: d.getUTCSeconds(), ms: d.getUTCMilliseconds(), dow: d.getUTCDay() };
+    if (z === 'local') return { Y: d.getFullYear(), M: d.getMonth(), D: d.getDate(), h: d.getHours(), m: d.getMinutes(), s: d.getSeconds(), ms: d.getMilliseconds(), dow: d.getDay() };
+    const f = ZFMT[z] ??= new Intl.DateTimeFormat('en-US', { timeZone: z, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', weekday: 'short' });
+    const o = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+    return { Y: +o.year, M: +o.month - 1, D: +o.day, h: +o.hour % 24, m: +o.minute, s: +o.second, ms: d.getUTCMilliseconds(), dow: DOW[o.weekday] };
+  };
+  /** An instant from wall-clock parts in a zone (two passes settle daylight-saving edges). */
+  const make = (Y, M, Dd, h = 0, m = 0, s = 0, z = clock) => {
+    if (z === 'utc') return Date.UTC(Y, M, Dd, h, m, s);
+    if (z === 'local') return new Date(Y, M, Dd, h, m, s).getTime();
+    const want = Date.UTC(Y, M, Dd, h, m, s); let t = want;
+    for (let i = 0; i < 2; i++) { const p = parts(t, z); t += want - Date.UTC(p.Y, p.M, p.D, p.h, p.m, p.s); }
+    return t;
+  };
+  const zoneName = (z) => (z === 'utc' ? 'UTC' : z === 'local' ? `local (${off()})` : z);
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dateText = (ms, z = clock) => { const p = parts(ms, z); return `${p.D} ${MON[p.M]} ${p.Y}`; };
+  const timeText = (ms, z = clock, withMs) => { const p = parts(ms, z); return `${pad(p.h)}:${pad(p.m)}:${pad(p.s)}${withMs ? '.' + pad(p.ms, 3) : ''}`; };
+  const full = (ms, z = clock, withMs) => { const p = parts(ms, z); return `${p.Y}-${pad(p.M + 1)}-${pad(p.D)} ${timeText(ms, z, withMs)}`; };
+  function setClock(z) {
+    clock = z;
+    document.querySelectorAll('#clk button').forEach((b) => b.classList.toggle('on', b.dataset.z === z));
+    document.getElementById('tzline').textContent = z === 'utc' ? 'times in UTC' : z === 'local' ? `times in local, ${off()}` : `times in ${z}`;
+    if (draft.from != null) { const p = parts(draft.from); calY = p.Y; calM = p.M; }
+    renderAll();
+  }
+
+  // ---- filters
+  let pills = [{ inc: true, field: 'message', op: 'is', value: 'API request' }, { inc: false, field: 'level', op: 'is', value: 'ERROR' }];
+  let editing = null, incDraft = true;
+  const opWord = (p) => (p.op === 'is' && p.value.includes(', ') ? 'is any of' : { is: 'is', contains: 'contains', exists: 'exists', gt: '>', lt: '<' }[p.op]);
+  /** How many lines (of those the other filters and the time range keep) this one filter hides. */
+  function hiddenBy(i) {
+    const others = (l) => matchesWith(l, pills.filter((_, j) => j !== i));
+    return LINES.filter((l) => others(l) && !matchesWith(l, [pills[i]])).length;
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  function renderPills() {
+    let h = pills.map((p, i) => {
+      const hid = p.off ? '' : `<span class="hid" title="lines this filter hides">−${hiddenBy(i)}</span>`;
+      return `<span class="pill ${p.inc ? 'inc' : 'exc'} ${p.off ? 'off' : ''}" onclick="editFilter(${i}, this)" title="Click to edit"><span class="dot" title="${p.off ? 'Turn on' : 'Turn off (keep it)'}" onclick="event.stopPropagation(); pills[${i}].off = !pills[${i}].off; renderAll()"></span><span class="f">${esc(p.field)}</span><span class="o">${opWord(p)}</span>${p.op === 'exists' ? '' : `<b>${esc(p.value)}</b>`}${hid}<button onclick="event.stopPropagation(); pills.splice(${i},1); renderAll()" title="Remove">✕</button></span>`;
+    }).map((html, i) => (i === 0 ? html : `<span class="conj ${pills[i].or ? 'or' : ''}" title="Click to switch AND / OR" onclick="pills[${i}].or = !pills[${i}].or; renderAll()">${pills[i].or ? 'or' : 'and'}</span>${html}`)).join(' ');
+    if (range) h += ` <span class="pill time" onclick="toggleTp(true)" title="Click to change"><button class="step" title="Previous ${human(rangeLen())}" onclick="event.stopPropagation(); stepRange(-1)">◀</button><span class="f">time</span><span>${esc(range.live ? rangeLabel(range).replace(/→ .*$/, '→ now (live)') : rangeLabel(range))}</span><button class="step" title="Next ${human(rangeLen())}" onclick="event.stopPropagation(); stepRange(1)">▶</button><button onclick="event.stopPropagation(); clearRange()" title="Clear">✕</button></span>`;
+    document.getElementById('pills').innerHTML = h;
+  }
+  function placeFed(anchor) {
+    const fed = document.getElementById('fed'), bar = document.getElementById('bar');
+    const a = anchor.getBoundingClientRect(), b = bar.getBoundingClientRect();
+    fed.style.left = Math.min(a.left - b.left, b.width - 370) + 'px'; fed.style.top = (a.bottom - b.top + 6) + 'px';
+    fed.classList.add('show');
+  }
+  function fillFieldSelect(sel) { document.getElementById('ffield').value = sel; document.getElementById('ferr').textContent = ''; hideFs(); }
+  // Field: free text with suggestions - any part of the name matches; arrows + Enter or a click picks.
+  const TYPE = { level: 't', 'message.methodName': 't', message: 't', logger: 't', timeTaken: '#' };
+  const PRESENT = Object.fromEntries(FIELDS.map((f) => [f, LINES.filter((l) => l[f] != null).length]));
+  let fsIdx = 0, fsList = [];
+  function fieldInput() {
+    const q = document.getElementById('ffield').value.trim().toLowerCase();
+    document.getElementById('ferr').textContent = '';
+    fsList = FIELDS.filter((f) => f.toLowerCase().includes(q));
+    fsIdx = 0;
+    const fs = document.getElementById('fs');
+    fs.innerHTML = fsList.map((f, i) => {
+      const at = f.toLowerCase().indexOf(q);
+      const name = q ? `${esc(f.slice(0, at))}<mark>${esc(f.slice(at, at + q.length))}</mark>${esc(f.slice(at + q.length))}` : esc(f);
+      return `<div class="${i === fsIdx ? 'on' : ''}" onmousedown="event.preventDefault(); pickField('${f}')"><span class="ty">${TYPE[f] ?? 't'}</span><span>${name}</span><span class="cnt">${PRESENT[f]} lines</span></div>`;
+    }).join('') || '<div class="faint" style="cursor:default">No field matches</div>';
+    fs.classList.add('show');
+    drawSugg();
+  }
+  function fieldKey(e) {
+    const fs = document.getElementById('fs');
+    if (!fs.classList.contains('show') || !fsList.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); fsIdx = (fsIdx + (e.key === 'ArrowDown' ? 1 : -1) + fsList.length) % fsList.length;
+      [...fs.children].forEach((c, i) => c.classList.toggle('on', i === fsIdx));
+    } else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickField(fsList[fsIdx]); }
+    else if (e.key === 'Escape') { e.stopPropagation(); hideFs(); }
+  }
+  function pickField(f) { document.getElementById('ffield').value = f; hideFs(); drawSugg(); document.getElementById('fval').focus(); }
+  function hideFs() { document.getElementById('fs').classList.remove('show'); }
+  function editFilter(i, el) {
+    editing = i; const p = pills[i];
+    document.getElementById('fedtitle').textContent = 'Edit filter'; document.getElementById('fdel').style.display = '';
+    fillFieldSelect(p.field); document.getElementById('fop').value = p.op; document.getElementById('fval').value = p.value ?? '';
+    setInc(p.inc); drawSugg(); placeFed(el);
+  }
+  function addFilter(el) {
+    editing = -1; document.getElementById('fedtitle').textContent = 'Add filter'; document.getElementById('fdel').style.display = 'none';
+    fillFieldSelect('level'); document.getElementById('fop').value = 'is'; document.getElementById('fval').value = '';
+    setInc(true); drawSugg(); placeFed(el);
+  }
+  function setInc(v) { incDraft = v; document.querySelectorAll('#incseg button').forEach((b) => b.classList.toggle('on', (b.dataset.v === 'inc') === v)); }
+  function drawSugg() {
+    const f = document.getElementById('ffield').value, op = document.getElementById('fop').value;
+    document.getElementById('valrow').style.display = op === 'exists' ? 'none' : '';
+    if (!FIELDS.includes(f)) { document.getElementById('sugg').innerHTML = ''; return; }
+    const counts = {}; LINES.forEach((l) => { const v = String(l[f]); counts[v] = (counts[v] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, f === 'timeTaken' ? 0 : 6);
+    const chosen = new Set(document.getElementById('fval').value.split(',').map((x) => x.trim()).filter(Boolean));
+    document.getElementById('sugg').innerHTML = op === 'exists' || !top.length ? '' : top.map(([v, n]) => `<button class="${chosen.has(v) ? 'on' : ''}" onclick="toggleVal(this.dataset.v)" data-v="${esc(v)}" title="Click to add or remove - several values = any of them">${esc(v)}<i>${n}</i></button>`).join('')
+      + (op === 'is' ? '<span class="faint" style="font-size:11px;align-self:center">click several = any of them <span class="new">NEW</span></span>' : '');
+  }
+  function toggleVal(v) {
+    const el = document.getElementById('fval');
+    const vals = el.value.split(',').map((x) => x.trim()).filter(Boolean);
+    const i = vals.indexOf(v);
+    if (i >= 0) vals.splice(i, 1); else if (document.getElementById('fop').value === 'is') vals.push(v); else vals.splice(0, vals.length, v);
+    el.value = vals.join(', '); drawSugg();
+  }
+  function saveFilter() {
+    const p = { inc: incDraft, field: document.getElementById('ffield').value, op: document.getElementById('fop').value, value: document.getElementById('fval').value.trim() };
+    if (!FIELDS.includes(p.field)) { document.getElementById('ferr').textContent = `No field named "${p.field}" - pick one from the suggestions.`; return; }
+    if (p.op !== 'exists' && !p.value) return;
+    if (editing >= 0) pills[editing] = p; else pills.push(p);
+    closeFed(); renderAll();
+  }
+  function delFilter() { if (editing >= 0) pills.splice(editing, 1); closeFed(); renderAll(); }
+  function closeFed() { document.getElementById('fed').classList.remove('show'); }
+
+  // ---- time range
+  let range = null;            // applied { from, to, label }
+  let draft = { from: null, to: null }, follows = true, locked = false, picking = null;
+  let calY, calM;
+  function rangeLabel(r) {
+    if (r.label) return r.label;
+    const z = clock === 'utc' ? 'UTC' : clock === 'local' ? 'local' : clock;
+    const same = r.from != null && r.to != null && dateText(r.from) === dateText(r.to);
+    return `${r.from != null ? full(r.from) : '…'} → ${r.to != null ? (same ? timeText(r.to) : full(r.to)) : '…'} ${z}`;
+  }
+  function toggleTp(show) {
+    const tp = document.getElementById('tp'), open = show ?? !tp.classList.contains('show');
+    tp.classList.toggle('show', open); closeFed();
+    if (open) { draft = range ? { from: range.from, to: range.to } : { from: null, to: null }; follows = !range; const p = parts(draft.from ?? NEWEST); calY = p.Y; calM = p.M; renderTp(); }
+  }
+  function setDraft(side, ms, byUser = true) {
+    if (ms == null) return;
+    const len = draft.from != null && draft.to != null ? draft.to - draft.from : 0;
+    draft[side] = ms;
+    if (locked) { if (side === 'from') draft.to = ms + len; else draft.from = ms - len; }
+    else if (side === 'from' && follows) draft.to = ms;
+    if (side === 'to' && byUser) follows = false;
+    renderTp();
+  }
+  function quick(k) {
+    const map = { '15m': 15 * 60e3, '1h': H, '6h': 6 * H, '24h': D, '7d': 7 * D };
+    if (k === 'all') { draft = { from: null, to: null }; }
+    else if (map[k]) { draft = { from: NEWEST - map[k], to: NEWEST }; }
+    else { const p = parts(Date.now()); const start = make(p.Y, p.M, p.D) - (k === 'yesterday' ? D : 0); draft = { from: start, to: start + D - 1000 }; }
+    follows = false; renderTp();
+  }
+  function month(d) { calM += d; if (calM < 0) { calM = 11; calY--; } if (calM > 11) { calM = 0; calY++; } renderTp(); }
+  function dayClick(Y, M, Dd) {
+    const start = make(Y, M, Dd), end = start + D - 1000;
+    if (picking === null || (draft.from != null && start < draft.from && picking === 'end')) {
+      const keepH = draft.from != null ? parts(draft.from) : { h: 0, m: 0, s: 0 };
+      draft.from = make(Y, M, Dd, keepH.h, keepH.m, keepH.s);
+      if (!locked) { draft.to = end; follows = true; }
+      else setDraft('from', draft.from);
+      picking = 'end';
+      document.getElementById('calhint').textContent = 'Now click the end day (or the same day again for one day).';
+    } else {
+      const keepH = draft.to != null ? parts(draft.to) : { h: 23, m: 59, s: 59 };
+      draft.to = make(Y, M, Dd, keepH.h, keepH.m, keepH.s); follows = false; picking = null;
+      document.getElementById('calhint').textContent = 'Click a start day, then an end day. • = has log lines.';
+    }
+    renderTp();
+  }
+  function ctx(side, what) {
+    const base = side === 'f' ? draft.from : draft.to;
+    const p = parts(base ?? NEWEST);
+    const v = what === 'sod' ? make(p.Y, p.M, p.D) : what === 'eod' ? make(p.Y, p.M, p.D, 23, 59, 59) : what === 'now' ? Date.now() : what === 'newest' ? NEWEST : OLDEST;
+    setDraft(side === 'f' ? 'from' : 'to', v);
+  }
+  function spin(side, unit, delta) {
+    const key = side === 'f' ? 'from' : 'to'; const cur = draft[key] ?? NEWEST;
+    setDraft(key, cur + delta * { h: H, m: 60e3, s: 1e3 }[unit]);
+  }
+  function typed(side, unit, val) {
+    const key = side === 'f' ? 'from' : 'to'; const cur = draft[key] ?? NEWEST; const p = parts(cur);
+    const n = Math.max(0, Math.min(unit === 'h' ? 23 : 59, parseInt(val, 10) || 0)); p[unit] = n;
+    setDraft(key, make(p.Y, p.M, p.D, p.h, p.m, p.s));
+  }
+  function spinHtml(side, ms) {
+    if (ms == null) return '<span class="faint">pick a day or type above</span>';
+    const p = parts(ms);
+    const u = (k, v) => `<span class="unit"><button onclick="spin('${side}','${k}',1)">▲</button><input onwheel="event.preventDefault(); spin('${side}','${k}', event.deltaY < 0 ? 1 : -1)" value="${pad(v)}" onchange="typed('${side}','${k}',this.value)" onfocus="this.select()" /><button onclick="spin('${side}','${k}',-1)">▼</button></span>`;
+    return `<span class="spin">${u('h', p.h)}<span class="colon">:</span>${u('m', p.m)}<span class="colon">:</span>${u('s', p.s)}</span>`
+      + `<button class="clockbtn" title="Pick on a clock" onclick="openClock('${side}', this)">🕒</button>`;
+  }
+  function toggleLock() { if (draft.from == null || draft.to == null) return; locked = !locked; renderTp(); }
+  function human(ms) {
+    const s = Math.round(Math.abs(ms) / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return [d && `${d} day${d === 1 ? '' : 's'}`, h && `${h} h`, m && `${m} min`, x && `${x} s`].filter(Boolean).join(' ') || '0 s';
+  }
+  function stepDraft(dir) {
+    if (draft.from == null || draft.to == null) return;
+    const len = draft.to - draft.from; draft = { from: draft.from + dir * len, to: draft.to + dir * len }; renderTp();
+  }
+  function renderTp() {
+    renderRecent();
+    const inRange = LINES.filter((l) => (draft.from == null || l.ts >= draft.from) && (liveTo || draft.to == null || l.ts <= draft.to)).length;
+    document.getElementById('rcount').textContent = ` · ${inRange} line${inRange === 1 ? '' : 's'} in this range`;
+    // calendar
+    document.getElementById('calt').textContent = `${MON[calM]} ${calY}`;
+    const first = make(calY, calM, 1), startDow = (parts(first).dow + 6) % 7, days = new Date(Date.UTC(calY, calM + 1, 0)).getUTCDate();
+    const has = new Set(LINES.map((l) => { const p = parts(l.ts); return `${p.Y}-${p.M}-${p.D}`; }));
+    const dayKey = (ms) => { if (ms == null) return null; const p = parts(ms); return make(p.Y, p.M, p.D); };
+    const fk = dayKey(draft.from), tk = dayKey(draft.to);
+    let g = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => `<span class="dow">${d}</span>`).join('');
+    for (let i = 0; i < startDow; i++) g += '<span></span>';
+    for (let d = 1; d <= days; d++) {
+      const k = make(calY, calM, d), cls = ['day', has.has(`${calY}-${calM}-${d}`) ? 'has' : '', k === fk || k === tk ? 'sel' : fk != null && tk != null && k > fk && k < tk ? 'inr' : ''].join(' ');
+      g += `<span class="${cls}" onclick="dayClick(${calY},${calM},${d})">${d}</span>`;
+    }
+    document.getElementById('calg').innerHTML = g;
+    // times
+    const other = clock === 'utc' ? 'local' : 'UTC';
+    document.getElementById('fdate').textContent = draft.from != null ? dateText(draft.from) : 'oldest line';
+    document.getElementById('tdate').textContent = draft.to != null ? dateText(draft.to) : 'newest line';
+    document.getElementById('fspin').innerHTML = spinHtml('f', draft.from);
+    document.getElementById('tspin').innerHTML = spinHtml('t', draft.to);
+    document.getElementById('fother').textContent = draft.from != null ? `${full(draft.from, clock === 'utc' ? 'local' : 'utc')} ${clock === 'utc' ? 'local' : 'UTC'}` : '';
+    document.getElementById('tother').textContent = draft.to != null ? `${full(draft.to, clock === 'utc' ? 'local' : 'utc')} ${clock === 'utc' ? 'local' : 'UTC'}` : '';
+    const bad = draft.from != null && draft.to != null && draft.from > draft.to;
+    document.getElementById('len').textContent = draft.from != null && draft.to != null ? (bad ? 'From is after To' : human(draft.to - draft.from)) : '-';
+    document.getElementById('len').style.color = bad ? 'var(--red)' : '';
+    document.getElementById('lock').textContent = locked ? '🔒 length kept' : '🔓 keep this length';
+    document.getElementById('lock').classList.toggle('primary', locked);
+    document.getElementById('follow').textContent = !locked && follows ? '· To follows From until you set To' : '';
+    // timeline
+    renderBrush();
+    const z = zoneName(clock);
+    document.getElementById('snote').innerHTML = draft.from == null && draft.to == null ? 'All time'
+      : `Searches <b>${draft.from != null ? full(draft.from, 'utc') : 'oldest'}</b> → <b>${draft.to != null ? full(draft.to, 'utc') : 'newest'}</b> UTC <span class="faint">(you picked in ${z})</span>`;
+  }
+  // ---- timeline: an overview of all the data, and a main view zoomed to the selection
+  const BUCKETS = 90, MIN_SCOPE = 2 * 60e3;
+  const SPAN = NEWEST - OLDEST || 1;
+  let scope = { a: OLDEST, b: NEWEST }, dragMode = null;
+  function bucketsOver(a, b, n) {
+    const c = new Array(n).fill(0), w = (b - a) / n;
+    LINES.forEach((l) => { if (l.ts >= a && l.ts <= b) c[Math.min(n - 1, Math.floor((l.ts - a) / w))]++; });
+    return c;
+  }
+  function barsHtml(c) { const max = Math.max(1, ...c); return c.map((x) => `<i style="height:${x ? Math.max(8, (x / max) * 100) : 0}%"></i>`).join(''); }
+  /** Bars stacked by level: errors red at the bottom, warnings amber, the rest blue. */
+  function levelBars(a, b, n) {
+    const w = (b - a) / n, c = Array.from({ length: n }, () => ({ e: 0, w: 0, i: 0 }));
+    LINES.forEach((l) => { if (l.ts >= a && l.ts <= b) { const k = c[Math.min(n - 1, Math.floor((l.ts - a) / w))]; l.level === 'ERROR' ? k.e++ : l.level === 'WARN' ? k.w++ : k.i++; } });
+    const max = Math.max(1, ...c.map((k) => k.e + k.w + k.i));
+    return c.map((k) => { const t = k.e + k.w + k.i; if (!t) return '<i style="height:0"></i>';
+      const hgt = Math.max(8, (t / max) * 100);
+      return `<i style="height:${hgt}%;background:linear-gradient(to top, var(--red) 0 ${k.e / t * 100}%, var(--amber) ${k.e / t * 100}% ${(k.e + k.w) / t * 100}%, color-mix(in srgb, var(--blue) 60%, transparent) ${(k.e + k.w) / t * 100}% 100%)"></i>`; }).join('');
+  }
+  function renderBars() { document.getElementById('ovbars').innerHTML = barsHtml(bucketsOver(OLDEST, NEWEST, 140)); }
+  const fr = (ms) => (ms - scope.a) / (scope.b - scope.a);
+  const at = (f) => scope.a + f * (scope.b - scope.a);
+  const ofr = (ms) => (ms - OLDEST) / SPAN;
+  /** The main view's scope: the selection plus a third of its length either side (never below MIN_SCOPE). */
+  function fitSel(force) {
+    if (draft.from == null && draft.to == null) { scope = { a: OLDEST, b: NEWEST }; if (force) _renderTp(); return; }
+    const f = draft.from ?? OLDEST, t = draft.to ?? NEWEST, len = Math.max(t - f, MIN_SCOPE / 3);
+    const pad = Math.max(len / 3, (MIN_SCOPE - len) / 2);
+    scope = { a: f - pad, b: t + pad };
+    if (force) _renderTp();
+  }
+  function showAll() { scope = { a: OLDEST - SPAN * .01, b: NEWEST + SPAN * .01 }; _renderTp(); }
+  function zoom(k, centerFrac = .5) {
+    const c = at(centerFrac), len = Math.max(MIN_SCOPE, (scope.b - scope.a) * k);
+    scope = { a: c - len * centerFrac, b: c + len * (1 - centerFrac) }; _renderTp();
+  }
+  const short = (ms, len) => (len > 3 * D ? full(ms).slice(5, 16) : len > 2 * H ? full(ms).slice(5, 16) : timeText(ms));
+  /** Bars stacked by level, like the explorer's histogram: INFO (blue) at the bottom, WARN (amber), ERROR (red) on top. */
+  function stackedBars(a, b, n) {
+    const w = (b - a) / n, c = Array.from({ length: n }, () => ({ e: 0, w: 0, i: 0 }));
+    LINES.forEach((l) => { if (l.ts >= a && l.ts <= b) { const k = c[Math.min(n - 1, Math.floor((l.ts - a) / w))]; l.level === 'ERROR' ? k.e++ : l.level === 'WARN' ? k.w++ : k.i++; } });
+    const max = Math.max(1, ...c.map((k) => k.e + k.w + k.i));
+    return c.map((k) => {
+      const t = k.e + k.w + k.i;
+      if (!t) return '<i class="st" style="height:0"></i>';
+      const pct = (x) => (x / t) * 100;
+      return `<i class="st" style="height:${Math.max(8, (t / max) * 100)}%" title="${t} lines: ${k.e} error, ${k.w} warn, ${k.i} info">`
+        + (k.e ? `<b class="e" style="height:${pct(k.e)}%"></b>` : '') + (k.w ? `<b class="w" style="height:${pct(k.w)}%"></b>` : '')
+        + (k.i ? `<b class="n" style="height:${pct(k.i)}%"></b>` : '') + '</i>';
+    }).join('');
+  }
+  function renderBrush() {
+    const len = scope.b - scope.a;
+    document.getElementById('bars').innerHTML = stackedBars(scope.a, scope.b, BUCKETS);
+    const b = document.getElementById('brush');
+    if (draft.from == null && draft.to == null) b.style.display = 'none';
+    else {
+      const l = fr(draft.from ?? OLDEST), r = fr(draft.to ?? NEWEST);
+      const cl = Math.max(-0.02, l), cr = Math.min(1.02, r);
+      b.style.display = cr <= 0 || cl >= 1 ? 'none' : '';
+      b.style.left = cl * 100 + '%'; b.style.width = Math.max(0.4, (cr - cl) * 100) + '%';
+      const n = LINES.filter((l) => l.ts >= (draft.from ?? OLDEST) && l.ts <= (draft.to ?? NEWEST)).length;
+      const lenSel = (draft.to ?? NEWEST) - (draft.from ?? OLDEST);
+      const sameDay = dateText(draft.from ?? OLDEST) === dateText(draft.to ?? NEWEST);
+      const lab = (ms) => (sameDay ? timeText(ms) : full(ms).slice(5, 16));
+      b.querySelectorAll('.hlab, .bcount').forEach((x) => x.remove());
+      b.insertAdjacentHTML('beforeend', `<span class="hlab l">${lab(draft.from ?? OLDEST)}</span><span class="hlab r">${lab(draft.to ?? NEWEST)}</span><span class="bcount">${n} lines</span>`);
+    }
+    document.getElementById('axis').innerHTML = [0, .25, .5, .75, 1].map((f) => `<span>${short(at(f), len)}</span>`).join('');
+    document.getElementById('scopeinfo').textContent = `showing ${human(len)} · ${bucketsOver(scope.a, scope.b, 1)[0]} lines`;
+    // overview: the selection and the window the main view shows
+    const ow = document.getElementById('ovwin'), os = document.getElementById('ovsel');
+    ow.style.left = Math.max(0, ofr(scope.a)) * 100 + '%'; ow.style.width = Math.max(1, (Math.min(1, ofr(scope.b)) - Math.max(0, ofr(scope.a))) * 100) + '%';
+    if (draft.from == null && draft.to == null) os.style.display = 'none';
+    else { os.style.display = ''; os.style.left = Math.max(0, ofr(draft.from ?? OLDEST)) * 100 + '%'; os.style.width = Math.max(.3, (Math.min(1, ofr(draft.to ?? NEWEST)) - Math.max(0, ofr(draft.from ?? OLDEST))) * 100) + '%'; }
+  }
+  // Refit the main view whenever From / To change from anywhere but a drag on the timeline itself.
+  const _renderTp = renderTp;
+  renderTp = function () { if (!dragMode) fitSel(false); _renderTp(); };
+  (function timelineDrag() {
+    const track = document.getElementById('track'), tip = document.getElementById('tip');
+    let x0 = 0, f0 = 0, t0 = 0, anchor = 0;
+    const fx = (e) => { const r = track.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); };
+    const snap = (ms) => Math.round(ms / 1000) * 1000;
+    track.addEventListener('pointerdown', (e) => {
+      track.setPointerCapture(e.pointerId); x0 = fx(e);
+      if (e.target.dataset.h) dragMode = e.target.dataset.h;
+      else if (e.target.closest('.brush')) dragMode = 'move';
+      else { dragMode = 'new'; anchor = snap(at(x0)); draft.from = anchor; draft.to = anchor; follows = false; }
+      f0 = draft.from ?? OLDEST; t0 = draft.to ?? NEWEST; _renderTp();
+    });
+    track.addEventListener('pointermove', (e) => {
+      const x = fx(e), t = at(x);
+      const c = bucketsOver(scope.a, scope.b, BUCKETS)[Math.min(BUCKETS - 1, Math.floor(x * BUCKETS))];
+      tip.style.display = 'block'; tip.style.left = x * 100 + '%'; tip.textContent = `${full(t)} · ${c} line${c === 1 ? '' : 's'}`;
+      if (!dragMode) return;
+      const d = (x - x0) * (scope.b - scope.a);
+      if (dragMode === 'move') { draft.from = snap(f0 + d); draft.to = snap(t0 + d); }
+      else if (dragMode === 'l') draft.from = snap(Math.min(t0, f0 + d));
+      else if (dragMode === 'r') draft.to = snap(Math.max(f0, t0 + d));
+      else { const tt = snap(t); draft.from = Math.min(anchor, tt); draft.to = Math.max(anchor, tt); }
+      follows = false; _renderTp();
+    });
+    track.addEventListener('pointerleave', () => (tip.style.display = 'none'));
+    track.addEventListener('pointerup', () => { const was = dragMode; dragMode = null; if (was === 'new' || was === 'l' || was === 'r') { fitSel(false); } _renderTp(); });
+    track.addEventListener('dblclick', (e) => {
+      const x = fx(e), w = (scope.b - scope.a) / BUCKETS, k = Math.min(BUCKETS - 1, Math.floor(x * BUCKETS));
+      draft = { from: snap(scope.a + k * w), to: snap(scope.a + (k + 1) * w) }; follows = false; renderTp();
+    });
+    track.addEventListener('wheel', (e) => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.25 : 0.8, fx(e)); }, { passive: false });
+    // overview: drag the window to move the view, click elsewhere to centre the view there
+    const ov = document.getElementById('ov'); let ovDrag = null;
+    const ox = (e) => { const r = ov.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); };
+    ov.addEventListener('pointerdown', (e) => {
+      ov.setPointerCapture(e.pointerId); const len = scope.b - scope.a;
+      if (!e.target.closest('.ovwin')) { const c = OLDEST + ox(e) * SPAN; scope = { a: c - len / 2, b: c + len / 2 }; }
+      ovDrag = { x: ox(e), a: scope.a, len }; _renderTp();
+    });
+    ov.addEventListener('pointermove', (e) => { if (!ovDrag) return; const a = ovDrag.a + (ox(e) - ovDrag.x) * SPAN; scope = { a, b: a + ovDrag.len }; dragMode = 'pan'; _renderTp(); dragMode = null; });
+    ov.addEventListener('pointerup', () => (ovDrag = null));
+  })();
+  // natural language
+  function nlParse(t) {
+    t = t.trim().toLowerCase(); if (!t) return null; let m;
+    if ((m = t.match(/^last (\d+)\s*(minutes?|mins?|hours?|h|days?|d)$/))) { const n = +m[1], u = m[2][0]; const ms = n * (u === 'm' ? 60e3 : u === 'h' ? H : D); return { from: NEWEST - ms, to: NEWEST }; }
+    const p = parts(Date.now()); const today = make(p.Y, p.M, p.D);
+    if (t === 'today') return { from: today, to: today + D - 1000 };
+    if (t === 'yesterday') return { from: today - D, to: today - 1000 };
+    const tm = (s) => { const x = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/); return x ? [+x[1], +x[2], +(x[3] || 0)] : null; };
+    if ((m = t.match(/^(today|yesterday)\s+(\S+)\s+to\s+(\S+)$/))) { const base = m[1] === 'today' ? today : today - D; const a = tm(m[2]), b = tm(m[3]); if (a && b) { const q = parts(base); return { from: make(q.Y, q.M, q.D, ...a), to: make(q.Y, q.M, q.D, ...b) }; } }
+    if ((m = t.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\S+)\s+to\s+(?:(\d{4})-(\d{2})-(\d{2})\s+)?(\S+)$/))) {
+      const a = tm(m[4]), b = tm(m[8]); if (a && b) return { from: make(+m[1], +m[2] - 1, +m[3], ...a), to: make(+(m[5] || m[1]), +(m[6] || m[2]) - 1, +(m[7] || m[3]), ...b) };
+    }
+    return undefined;
+  }
+  function nlCheck() {
+    const r = nlParse(document.getElementById('nl').value), el = document.getElementById('nlmsg');
+    el.className = r === undefined ? 'nlbad' : 'nlok';
+    el.textContent = r === null ? '' : r === undefined ? 'not understood yet' : `✓ ${full(r.from)} → ${full(r.to)} - Enter to use`;
+  }
+  function nlApply() { const r = nlParse(document.getElementById('nl').value); if (!r) return; draft = r; follows = false; const p = parts(r.from); calY = p.Y; calM = p.M; renderTp(); }
+  const rangeLen = () => (range && range.from != null && range.to != null ? range.to - range.from : H);
+  /** ◀ ▶: the previous / next window of the same length. */
+  function stepRange(dir) {
+    if (!range || range.from == null || range.to == null) return;
+    const len = range.to - range.from;
+    range = { from: range.from + dir * len, to: range.to + dir * len };
+    renderAll();
+  }
+  function around(mins) {
+    const c = draft.from ?? NEWEST;
+    draft = { from: c - mins * 60e3, to: c + mins * 60e3 }; follows = false; renderTp();
+  }
+  let recent = [], liveTo = false;
+  function renderRecent() {
+    document.getElementById('recent').innerHTML = recent.length
+      ? recent.map((r, i) => `<button class="recent" onclick="draft={from:recent[${i}].from,to:recent[${i}].to}; follows=false; renderTp()">${esc(full(r.from).slice(5, 16))} → ${esc(full(r.to).slice(5, 16))}</button>`).join('')
+      : '<span class="faint" style="font-size:11px;padding:2px 8px">none yet - applied ranges appear here</span>';
+  }
+  function applyRange() {
+    if (draft.from != null && draft.to != null && draft.from > draft.to) return;
+    range = draft.from == null && draft.to == null ? null : { from: draft.from, to: liveTo ? NEWEST : draft.to, live: liveTo };
+    if (range && range.from != null && range.to != null && !recent.some((r) => r.from === range.from && r.to === range.to)) { recent.unshift({ from: range.from, to: range.to }); recent = recent.slice(0, 5); }
+    document.getElementById('tbmain').textContent = range ? 'Custom range' : 'All time';
+    document.getElementById('tbsub').textContent = range ? rangeLabel(range) : 'click to pick a range';
+    toggleTp(false); renderAll();
+  }
+  function clearRange() { range = null; draft = { from: null, to: null }; locked = false; document.getElementById('tbmain').textContent = 'All time'; document.getElementById('tbsub').textContent = 'click to pick a range'; toggleTp(false); renderAll(); }
+
+  // ---- list
+  function pillOk(l, p) {
+    const v = String(l[p.field] ?? ''); let ok;
+    if (p.op === 'is') ok = p.value.split(', ').includes(v); else if (p.op === 'contains') ok = v.toLowerCase().includes(p.value.toLowerCase());
+    else if (p.op === 'exists') ok = l[p.field] != null; else if (p.op === 'gt') ok = +v > +p.value; else ok = +v < +p.value;
+    return ok === p.inc;
+  }
+  /** Pills joined by "or" form one group (any of them); groups are joined by "and" (all of them). */
+  function matchesWith(l, list) {
+    const groups = [];
+    for (const p of list) { if (p.off) continue; if (p.or && groups.length) groups[groups.length - 1].push(p); else groups.push([p]); }
+    for (const g of groups) if (!g.some((p) => pillOk(l, p))) return false;
+    if (levelOnly && l.level !== levelOnly) return false;
+    if (range && range.from != null && l.ts < range.from) return false;
+    if (range && range.to != null && !range.live && l.ts > range.to) return false;
+    return true;
+  }
+  function matches(l) {
+    return matchesWith(l, pills);
+  }
+  function matchesOld(l) {
+    for (const p of pills) {
+      const v = String(l[p.field] ?? ''); let ok;
+      if (p.op === 'is') ok = v === p.value; else if (p.op === 'contains') ok = v.toLowerCase().includes(p.value.toLowerCase());
+      else if (p.op === 'exists') ok = l[p.field] != null; else if (p.op === 'gt') ok = +v > +p.value; else ok = +v < +p.value;
+      if (ok !== p.inc) return false;
+    }
+    if (range && range.from != null && l.ts < range.from) return false;
+    if (range && range.to != null && l.ts > range.to) return false;
+    return true;
+  }
+  let past = [], future = [], lastSnap = null, travelling = false;
+  const snap = () => JSON.stringify({ pills, range, levelOnly });
+  function recordHistory() {
+    const now = snap();
+    if (lastSnap !== null && now !== lastSnap && !travelling) { past.push(lastSnap); future = []; if (past.length > 50) past.shift(); }
+    lastSnap = now; travelling = false;
+    document.getElementById('undoB').disabled = !past.length; document.getElementById('redoB').disabled = !future.length;
+  }
+  function restore(state) { const o = JSON.parse(state); pills = o.pills; range = o.range; levelOnly = o.levelOnly; travelling = true;
+    document.getElementById('tbmain').textContent = range ? 'Custom range' : 'All time'; if (!range) document.getElementById('tbsub').textContent = 'click to pick a range'; renderAll(); }
+  function undo() { if (!past.length) return; future.push(snap()); restore(past.pop()); }
+  function redo() { if (!future.length) return; past.push(snap()); restore(future.pop()); }
+  // level chips: show only one level
+  let levelOnly = null;
+  function renderLevelChips() {
+    const counts = {}; LINES.forEach((l) => { if (matchesWith(l, pills) || levelOnly) counts[l.level] = (counts[l.level] || 0) + 1; });
+    document.getElementById('lvchips').innerHTML = ['ERROR', 'WARN', 'INFO'].map((lv) => `<button class="lvchip ${lv} ${levelOnly === lv ? 'on' : ''}" onclick="levelOnly = levelOnly === '${lv}' ? null : '${lv}'; renderAll()">${lv}<i>${counts[lv] ?? 0}</i></button>`).join(' ');
+  }
+  // tick lines -> time range from the first to the last
+  const picked = new Set();
+  function pick2(i) { picked.has(i) ? picked.delete(i) : picked.add(i); renderAll(); }
+  function rangeFromLines(margin) {
+    const ts = [...picked].map((i) => LINES[i].ts); if (ts.length < 1) return;
+    range = { from: Math.min(...ts) - margin, to: Math.max(...ts) + margin };
+    document.getElementById('tbmain').textContent = 'Custom range'; picked.clear(); renderAll();
+  }
+  // the search as one line of text, and back
+  function queryText() {
+    const q = pills.filter((p) => !p.off).map((p, i) => {
+      const v = p.op === 'exists' ? '*' : /[\s,]/.test(p.value) ? `"${p.value}"` : p.value;
+      const t = p.op === 'gt' ? `${p.field}>${p.value}` : p.op === 'lt' ? `${p.field}<${p.value}` : p.op === 'contains' ? `${p.field}~${v}` : `${p.field}:${v}`;
+      return `${i ? (p.or ? 'OR ' : 'AND ') : ''}${p.inc ? '' : '-'}${t}`;
+    }).join(' ');
+    const lv = levelOnly ? ` AND level:${levelOnly}` : '';
+    const tm = range ? ` @${new Date(range.from ?? OLDEST).toISOString()}..${new Date(range.to ?? NEWEST).toISOString()}` : '';
+    return (q + lv + tm).trim();
+  }
+  function copyQuery() { navigator.clipboard?.writeText(document.getElementById('qtext').value); const b = document.getElementById('copyq'); b.textContent = '✓ Copied'; setTimeout(() => (b.textContent = '⧉ Copy'), 1200); }
+  function pasteQuery() {
+    let t = document.getElementById('qtext').value.trim(); const m = t.match(/@(\S+)\.\.(\S+)$/);
+    range = m ? { from: Date.parse(m[1]), to: Date.parse(m[2]) } : null; if (m) t = t.slice(0, m.index).trim();
+    levelOnly = null;
+    const toks = t.match(/(AND |OR )?-?[\w.]+(?::"[^"]*"|:[^\s]+|~"[^"]*"|~[^\s]+|[<>][^\s]+)/g) || [];
+    pills = toks.map((tok) => {
+      const or = tok.startsWith('OR '); tok = tok.replace(/^(AND |OR )/, '');
+      const inc = !tok.startsWith('-'); tok = tok.replace(/^-/, '');
+      const mm = tok.match(/^([\w.]+)([:~<>])(.*)$/); let v = mm[3].replace(/^"|"$/g, '');
+      const op = mm[2] === '>' ? 'gt' : mm[2] === '<' ? 'lt' : mm[2] === '~' ? 'contains' : v === '*' ? 'exists' : 'is';
+      return { inc, field: mm[1], op, value: op === 'exists' ? '' : v, or };
+    });
+    document.getElementById('tbmain').textContent = range ? 'Custom range' : 'All time'; renderAll();
+  }
+  function renderAll() {
+    renderPills();
+    recordHistory();
+    renderLevelChips();
+    document.getElementById('qtext').value = queryText();
+    if (range) document.getElementById('tbsub').textContent = rangeLabel(range);
+    const pk = [...picked].map((i) => LINES[i].ts);
+    document.getElementById('selbar').classList.toggle('show', pk.length > 0);
+    if (pk.length) document.getElementById('selinfo').innerHTML = `<b>${pk.length}</b> line${pk.length === 1 ? '' : 's'} ticked · ${full(Math.min(...pk))} → ${full(Math.max(...pk))} (${human(Math.max(...pk) - Math.min(...pk))})`;
+    document.getElementById('rows').innerHTML = LINES.slice(0, 40).map((l, i) => `<div class="lr ck ${matches(l) ? '' : 'out'} ${picked.has(i) ? 'picked' : ''}"><input type="checkbox" ${picked.has(i) ? 'checked' : ''} onchange="pick2(${i})" /><span title="${clock === 'utc' ? 'local ' + full(l.ts, 'local', true) : 'UTC ' + full(l.ts, 'utc', true)}">${full(l.ts, clock, true)}</span><span class="lv ${l.level}">${l.level}</span><span>${l['message.methodName']}</span><span>${l.message}</span></div>`).join('');
+    if (document.getElementById('tp').classList.contains('show')) renderTp();
+  }
+  // ---- Clock dial (from design A): hour (outer 1-12, inner 13-00), then minutes, then seconds.
+  let clockSide = null, cst = 'h', cv = { h: 0, m: 0, s: 0 }, dragging = false;
+  function openClock(side, btn) {
+    clockSide = side;
+    const p = parts(draft[side === 'f' ? 'from' : 'to'] ?? NEWEST);
+    cv = { h: p.h, m: p.m, s: p.s };
+    const c = document.getElementById('clock'), tp = document.getElementById('tp');
+    const b = btn.getBoundingClientRect(), r = tp.getBoundingClientRect();
+    c.style.left = Math.min(b.left - r.left, r.width - 250) + 'px'; c.style.top = (b.bottom - r.top + 6) + 'px';
+    c.classList.add('show'); stage('h');
+  }
+  function closeClock() { document.getElementById('clock').classList.remove('show'); }
+  function clockOk() {
+    const key = clockSide === 'f' ? 'from' : 'to'; const p = parts(draft[key] ?? NEWEST);
+    closeClock(); setDraft(key, make(p.Y, p.M, p.D, cv.h, cv.m, cv.s));
+  }
+  function clockNow() { const p = parts(Date.now()); cv = { h: p.h, m: p.m, s: p.s }; drawDial(); }
+  function stage(st) { cst = st; document.querySelectorAll('.chead button').forEach((b) => b.classList.toggle('on', b.dataset.st === st)); drawDial(); }
+  function drawDial() {
+    document.getElementById('ch').textContent = pad(cv.h); document.getElementById('cm').textContent = pad(cv.m); document.getElementById('cs').textContent = pad(cv.s);
+    const pos = (f, r) => [Math.sin(f * 2 * Math.PI) * r, -Math.cos(f * 2 * Math.PI) * r];
+    let h = '<circle r="104" fill="#121741" />', sel;
+    if (cst === 'h') {
+      sel = pos((cv.h % 12) / 12, cv.h >= 1 && cv.h <= 12 ? 86 : 58);
+      h += `<line x1="0" y1="0" x2="${sel[0]}" y2="${sel[1]}" stroke="#7c6cf0" stroke-width="2"/><circle r="3" fill="#7c6cf0"/><circle cx="${sel[0]}" cy="${sel[1]}" r="14" fill="#7c6cf0"/>`;
+      for (let i = 1; i <= 12; i++) { const [x, y] = pos(i / 12, 86); h += `<text x="${x}" y="${y}" class="${cv.h === i ? 'sel' : ''}">${i}</text>`; }
+      for (let i = 13; i <= 24; i++) { const v = i % 24; const [x, y] = pos((i - 12) / 12, 58); h += `<text x="${x}" y="${y}" class="in ${cv.h === v ? 'sel' : ''}">${pad(v)}</text>`; }
+    } else {
+      const v = cv[cst]; sel = pos(v / 60, 86);
+      h += `<line x1="0" y1="0" x2="${sel[0]}" y2="${sel[1]}" stroke="#7c6cf0" stroke-width="2"/><circle r="3" fill="#7c6cf0"/><circle cx="${sel[0]}" cy="${sel[1]}" r="14" fill="#7c6cf0"/>`;
+      if (v % 5) h += `<circle cx="${sel[0]}" cy="${sel[1]}" r="3" fill="#fff"/>`;
+      for (let i = 0; i < 60; i += 5) { const [x, y] = pos(i / 60, 86); h += `<text x="${x}" y="${y}" class="${v === i ? 'sel' : ''}">${pad(i)}</text>`; }
+    }
+    document.getElementById('dial').innerHTML = h;
+  }
+  function pick(ev) {
+    const r = document.getElementById('dial').getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width * 220 - 110, y = (ev.clientY - r.top) / r.height * 220 - 110;
+    let f = Math.atan2(x, -y) / (2 * Math.PI); if (f < 0) f += 1;
+    if (cst === 'h') { const n = Math.round(f * 12) % 12; cv.h = Math.hypot(x, y) < 72 ? (n === 0 ? 0 : n + 12) : (n === 0 ? 12 : n); }
+    else cv[cst] = Math.round(f * 60) % 60;
+    drawDial();
+  }
+  const dial = document.getElementById('dial');
+  dial.addEventListener('pointerdown', (e) => { dragging = true; dial.setPointerCapture(e.pointerId); pick(e); });
+  dial.addEventListener('pointermove', (e) => { if (dragging) pick(e); });
+  dial.addEventListener('pointerup', () => { dragging = false; if (cst === 'h') stage('m'); else if (cst === 'm') stage('s'); });
+  document.addEventListener('keydown', (e) => {
+    const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName ?? '');
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); }
+    else if (!typing && e.key === '[') stepRange(-1);
+    else if (!typing && e.key === ']') stepRange(1);
+    else if (!typing && e.key === '/') { e.preventDefault(); document.querySelector('.qin').focus(); }
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (document.getElementById('clock').classList.contains('show')) return closeClock(); closeFed(); toggleTp(false); } });
+  renderBars(); renderAll();
+</script>
+</body>
+</html>

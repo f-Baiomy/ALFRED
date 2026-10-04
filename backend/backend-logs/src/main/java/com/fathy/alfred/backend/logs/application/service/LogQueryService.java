@@ -52,7 +52,7 @@ public class LogQueryService implements QueryLogsUseCase, AnnotateLogsUseCase {
     static final int MAX_CONTEXT = 100;
     static final int TRACE_LIMIT = 2_000;
     static final int GROUP_PAGE = 500;
-    static final int HISTOGRAM_BUCKETS = 120;
+    static final int HISTOGRAM_BUCKETS = 200;
     static final int MINIMAP_BUCKETS = 200;
     static final long MINIMAP_SAMPLE_ABOVE = 5_000_000;
     static final int PATTERN_LIMIT = 500;
@@ -213,6 +213,27 @@ public class LogQueryService implements QueryLogsUseCase, AnnotateLogsUseCase {
         int n = Math.max(1, Math.min(HISTOGRAM_BUCKETS, buckets));
         LogQuery q = normalize(query);
         return tracker.cached(sourceId, "histogram:" + n, q, () -> guarded(() -> lines.histogram(sourceId, s, q, n)));
+    }
+
+    @Override
+    public List<Long> pillImpact(String sourceId, LogQuery query) {
+        LogStructure s = structure(sourceId);
+        LogQuery q = normalize(query);
+        return tracker.cached(sourceId, "impact", q, () -> guarded(() -> {
+            long all = lines.countMatching(sourceId, s, q);
+            List<Long> out = new java.util.ArrayList<>();
+            for (int i = 0; i < q.pills().size(); i++) {
+                List<LogQuery.Pill> without = new java.util.ArrayList<>(q.pills());
+                LogQuery.Pill removed = without.remove(i);
+                // The next filter may be OR-joined to this one: it now joins the one before instead (or starts a group).
+                if (i < without.size() && without.get(i).orWithPrevious() && !removed.orWithPrevious()) {
+                    LogQuery.Pill n = without.get(i);
+                    without.set(i, new LogQuery.Pill(n.op(), n.field(), n.value(), n.from(), n.to(), n.lineIds(), n.values(), n.not(), false));
+                }
+                out.add(lines.countMatching(sourceId, s, new LogQuery(without, q.from(), q.to(), q.sort(), null, q.limit())) - all);
+            }
+            return List.copyOf(out);
+        }));
     }
 
     @Override

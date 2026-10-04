@@ -7,8 +7,10 @@
         @if (view$(); as v) {
           {{ v.source.lineCount | number }} lines · {{ v.inputs.length }} inputs · raw {{ v.source.rawMode === 'COPY' ? 'copied into Alfred' : 'read from the original files' }}
           @if (v.source.privacyMode === 'MASK') { · sensitive fields masked }
-          · times in {{ zone() }}
         }
+        <span class="lg-clocksw" title="Display only: every search runs on the same instants">
+          <button [class.on]="!viewLocal()" (click)="setClock(false)">{{ sourceZone() }}</button><button [class.on]="viewLocal()" (click)="setClock(true)">Local</button>
+        </span>
       </div>
     </div>
     <span class="lg-sp"></span>
@@ -113,27 +115,74 @@
   <div class="lg-qbar" style="margin-top: 12px">
     <span class="lg-faint">⌕</span>
     @for (p of pills(); track $index; let i = $index) {
-      <span class="lg-qp" [class]="'lg-qp ' + pillClass(p)">{{ pillText(p) }}<button (click)="removePill(i)" aria-label="Remove filter">✕</button></span>
+      @if (i > 0) {
+        <button class="lg-conj" [class.or]="p.or" (click)="toggleOr(i)" title="Click to switch AND / OR">{{ p.or ? 'OR' : 'AND' }}</button>
+      }
+      <span class="lg-qp" [class]="'lg-qp ' + pillClass(p)" [class.off]="p.off" [class.editing]="editing() === i"
+            [class.dragging]="dragPill() === i" [class.drop-before]="dropPill() === i && dragPill() !== null && dragPill()! > i"
+            [class.drop-after]="dropPill() === i && dragPill() !== null && dragPill()! < i"
+            draggable="true" (dragstart)="onPillDragStart($event, i)" (dragover)="onPillDragOver($event, i)" (drop)="onPillDrop($event, i)" (dragend)="onPillDragEnd()"
+            title="Drag to reorder">
+        <button class="lg-qp-dot" (click)="togglePillOff(i)" [title]="p.off ? 'Turn this filter on' : 'Turn this filter off (keep it)'" aria-label="Turn filter on or off"></button>
+        <span class="lg-qp-txt" (click)="editPill(i)" title="Click to edit">
+          @if (pillWords(p); as w) {
+            @if (w.not) { <b class="lg-qp-not">NOT</b> }
+            @if (w.field) { <span class="f">{{ w.field }}</span> }<span class="w">{{ w.word }}</span>@if (w.value) { <span class="v">{{ w.value }}</span> }
+          } @else { {{ pillText(p) }} }
+        </span>
+        @if (impacts()[i]; as n) {
+          @if (n > 0) { <span class="lg-qp-n" title="Lines this filter hides">−{{ n | number }}</span> }
+          @else { <span class="lg-qp-n" title="Lines this filter brings in (it is OR-joined)">+{{ -n | number }}</span> }
+        }
+        <button (click)="removePill(i)" aria-label="Remove filter">✕</button>
+      </span>
     }
-    @if (customRange(); as c) {
-      <span class="lg-qp lg-qp-range">time {{ time(c.from).slice(0, 8) }} – {{ time(c.to).slice(0, 8) }}<button (click)="clearCustomRange()" aria-label="Remove time range">✕</button></span>
-    }
+    <button class="lg-btn xs lg-addf" [class.on]="editing() === -1" (click)="editPill(-1)">+ Add filter</button>
     <input #qin class="lg-qin" type="text" autocomplete="off" aria-label="Search"
            placeholder='field:value · -field:value · field:* · timeTaken>6000 · "free text"'
            [ngModel]="qtext()" (ngModelChange)="onQueryInput($event)" (keydown)="onQueryKey($event)" (blur)="ac.set([])" />
-    <select style="width: 150px" [ngModel]="range()" (ngModelChange)="setRange($event)" aria-label="Time range" title="Remembered per source in this browser">
-      <option value="1h">Last 1 h of data</option>
-      <option value="6h">Last 6 h of data</option>
-      <option value="24h">Last 24 h of data</option>
-      <option value="7d">Last 7 days of data</option>
-      <option value="all">All time</option>
-    </select>
+    <span class="lg-qtools">
+      <button class="lg-btn xs" (click)="undo()" [disabled]="!canUndo()" title="Undo (Ctrl+Z)">↶</button>
+      <button class="lg-btn xs" (click)="redo()" [disabled]="!canRedo()" title="Redo (Ctrl+Y)">↷</button>
+      <button class="lg-btn xs" [class.on]="textOpen()" (click)="openText()" title="The whole search as text: copy it, paste one back">{{ '{ }' }} as text</button>
+    </span>
+    <span class="lg-timebtn" [class.set]="customRange() || range() !== 'all'">
+      <button class="lg-tb-step" (click)="stepTime(-1)" [disabled]="!rangeLength()" title="Previous window of the same length ( [ )">◀</button>
+      <button class="lg-tb-main" (click)="editing.set(null); textOpen.set(false); timeOpen.set(!timeOpen())">
+        <b>🕒 {{ timeButton().main }}</b><small>{{ timeButton().sub }}</small>
+      </button>
+      <button class="lg-tb-step" (click)="stepTime(1)" [disabled]="!rangeLength()" title="Next window of the same length ( ] )">▶</button>
+      @if (customRange() || range() !== 'all') { <button class="lg-tb-x" (click)="applyTime(null)" aria-label="Clear time range">✕</button> }
+    </span>
     @if (ac().length) {
       <div class="lg-ac">
         @for (a of ac(); track $index; let i = $index) {
           <div [class.on]="i === acIdx()" (mousedown)="$event.preventDefault(); applyAc(a)"><span>{{ a.show }}</span><span class="lg-faint">{{ a.note }}</span></div>
         }
         <div class="lg-faint" style="cursor: default">↑↓ choose · Tab complete · Enter add</div>
+      </div>
+    }
+    @if (editing() !== null) {
+      <app-log-filter-editor class="lg-qpop" [pill]="editing()! >= 0 ? pills()[editing()!] : null" [fields]="fields()" [values]="editing()! >= 0 ? (editValues() ?? values()) : values()"
+                             (save)="onFilterSave($event)" (remove)="onFilterRemove()" (cancel)="editing.set(null)" />
+    }
+    @if (timeOpen()) {
+      <app-log-time-panel class="lg-qpop right" [sourceId]="id" [zone]="zone()" [otherZone]="otherZone()" [zoneLabel]="zoneLabel()" [otherLabel]="otherLabel()"
+                          [oldest]="oldestTs() ?? 0" [newest]="newestTs() ?? 0" [pills]="activePills()" [current]="timeRange()"
+                          (apply)="applyTime($event)" (cancel)="timeOpen.set(false)" />
+    }
+    @if (textOpen()) {
+      <div class="lg-qpop lg-qtext" (click)="$event.stopPropagation()">
+        <div class="lg-dim">The whole search - filters, AND/OR and time - as one line. Copy it into a ticket, or paste one back.</div>
+        <textarea rows="3" [value]="textValue()" (input)="textValue.set($any($event.target).value); textError.set('')" (keydown.control.enter)="applyText()" aria-label="Search as text"></textarea>
+        @if (textError()) { <div class="lg-error-text">{{ textError() }}</div> }
+        <div class="lg-row" style="gap: 6px">
+          <span class="lg-faint">field:v · -field:v · field:a|b · field~v · field:* · field&gt;v · "text" · OR · &#64;last:24h</span>
+          <span class="lg-sp"></span>
+          <button class="lg-btn xs" (click)="copyText()">{{ textCopied() ? 'Copied ✓' : 'Copy' }}</button>
+          <button class="lg-btn xs" (click)="textOpen.set(false)">Cancel</button>
+          <button class="lg-btn xs primary" (click)="applyText()">Apply</button>
+        </div>
       </div>
     }
   </div>
@@ -154,6 +203,16 @@
       <span>{{ h.buckets.length ? time(h.from) : '' }}</span>
       <span><span class="lg-cdot" style="background: var(--lg-error)"></span>ERROR <span class="lg-cdot" style="background: var(--lg-warn); margin-left: 8px"></span>WARN <span class="lg-cdot" style="background: var(--lg-info); margin-left: 8px"></span>INFO · drag across bars to zoom the time range</span>
       <span>{{ h.buckets.length ? time(h.to) : '' }}</span>
+    </div>
+  }
+
+  @if (levelChips().length) {
+    <div class="lg-lvchips">
+      <span class="lg-dim">Level:</span>
+      @for (c of levelChips(); track c.level) {
+        <button class="lg-lvchip" [attr.data-lv]="c.level" [class.on]="levelChipOn(c.level)" (click)="toggleLevelChip(c.level)"
+                [title]="levelChipOn(c.level) ? 'Show all levels again' : 'Show only ' + c.level">{{ c.level }} <b>{{ c.count | number }}</b></button>
+      }
     </div>
   }
 
@@ -196,6 +255,8 @@
       <b>{{ sel().ids.size | number }} selected</b>
       @if (hiddenSelected()) { <span class="lg-hint">({{ hiddenSelected() }} hidden by current filters)</span> }
       <button class="lg-btn xs" (click)="selectAllMatching()">Select all {{ total() | number }} matching</button>
+      <button class="lg-btn xs" (click)="selectionAsRange()" title="From the first to the last selected line">⏱ Use as time range{{ selectionSpan() ? ' (' + selectionSpan() + ')' : '' }}</button>
+      <button class="lg-btn xs" (click)="selectionAsRange(60000)" title="The same, with a minute either side">± 1 min</button>
       @if (mode() === 'grouped') { <button class="lg-btn xs" (click)="addChildrenOfSelected()">+ children of selected</button> }
       <span style="width: 1px; height: 18px; background: var(--border-strong)"></span>
       <button class="lg-btn xs" [class.primary]="sel().ids.size === 2" (click)="openCompare()" title="Exactly two rows">Compare{{ sel().ids.size === 2 ? '' : ' (pick 2)' }}</button>
@@ -219,7 +280,7 @@
     </div>
   }
 
-  <div class="lg-grid" [class.dr]="drawer()">
+  <div class="lg-grid">
     <!-- Sidebar -->
     <div class="lg-card lg-side">
       <div class="lg-hint" style="margin-bottom: 2px">ROLES</div>
@@ -421,71 +482,10 @@
       </div>
     </div>
 
-    <!-- Drawer -->
-    @if (drawer(); as d) {
-      <div class="lg-card lg-drawer">
-        @if (full().get(d); as l) {
-          <div class="lg-row">
-            <span class="lg-lvl" [class]="'lg-lvl ' + (l.level ?? 'other')">{{ l.level ?? '-' }}</span>
-            <span class="lg-mono lg-dim" [title]="utc(l.ts)">{{ dateTime(l.ts) }}</span>
-            <span class="lg-sp"></span><span class="lg-hint">j / k move</span>
-            <button class="lg-ib" (click)="drawer.set(null)" aria-label="Close drawer">✕</button>
-          </div>
-          <div style="margin-top: 6px">{{ renderSummary(l) }}</div>
-          <div class="lg-tabs">
-            <button [class.on]="dtab() === 'fields'" (click)="setTab('fields')">Fields</button>
-            <button [class.on]="dtab() === 'raw'" (click)="setTab('raw')">Raw</button>
-            <button [class.on]="dtab() === 'context'" (click)="setTab('context')">Context</button>
-            <button [class.on]="dtab() === 'trace'" (click)="setTab('trace')">Trace</button>
-            <button [class.on]="dtab() === 'comments'" (click)="setTab('comments')">Comments{{ commentsFor(d).length ? ' (' + commentsFor(d).length + ')' : '' }}</button>
-          </div>
-          @if (drawerError()) { <div class="lg-error-text">{{ drawerError() }}</div> }
-          @switch (dtab()) {
-            @case ('fields') {
-              <app-log-line-data [sourceId]="id" [line]="l" [structure]="structure()!" [defaultLayout]="structure()!.defaultFieldLayout ?? 'GROUPED'" [comments]="commentsFor(d)" view="TABLE" [showHeader]="false"
-                                 [terms]="terms()" [columns]="columns()" [mask]="masked()" (fieldAction)="onFieldAction($event)" (commentsChanged)="reloadOne(d)" />
-            }
-            @case ('raw') {
-              <div class="lg-hint">Exactly as received ({{ (l.raw?.length ?? 0) | number }} characters)</div>
-              <pre class="lg-json" style="white-space: pre-wrap; word-break: break-all">{{ l.raw ?? l.rawUnavailable }}</pre>
-            }
-            @case ('context') {
-              <div class="lg-hint">±20 lines around this one, in original input order</div>
-              @for (c of contextRows(); track c.lineId) {
-                <div class="lg-mono" style="font-size: 11.5px; padding: 2px 0; cursor: pointer" [style.color]="c.lineId === d ? 'var(--text)' : 'var(--text-dim)'" [style.background]="c.lineId === d ? 'color-mix(in srgb, var(--purple) 20%, transparent)' : null" (click)="openDrawer(c.lineId)">
-                  {{ time(c.ts) }} {{ c.level ?? '?' }} {{ summary(c) }}
-                </div>
-              }
-            }
-            @case ('trace') {
-              @if (traceBars().length) {
-                <div class="lg-hint">{{ roleLabel()['CORRELATION'] }} · {{ traceBars().length }} lines</div>
-                @for (b of traceBars(); track b.r.lineId) {
-                  <div class="lg-wf" style="cursor: pointer" (click)="openDrawer(b.r.lineId)">
-                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap" [title]="summary(b.r)">{{ summary(b.r) }}</span>
-                    <div class="t"><div [class]="b.r.level ?? ''" [style.left.%]="b.left" [style.width.%]="b.width"></div></div>
-                    <span class="lg-hint" style="text-align: right">{{ b.d ? duration(b.d) : time(b.r.ts).slice(3, 8) }}</span>
-                  </div>
-                }
-              } @else if (!drawerError()) {
-                <div class="lg-dim">This line has no correlation value.</div>
-              }
-            }
-            @case ('comments') {
-              <app-log-line-data [sourceId]="id" [line]="l" [structure]="structure()!" [defaultLayout]="structure()!.defaultFieldLayout ?? 'GROUPED'" [comments]="commentsFor(d)" view="TABLE" [showHeader]="false"
-                                 [terms]="[]" [columns]="columns()" [mask]="masked()" (commentsChanged)="reloadOne(d)" />
-              <div class="lg-hint">Comments sit on their fields above; hover a field's 💬 to add one. Commenting pins this line.</div>
-            }
-          }
-        } @else {
-          <div class="lg-hint">Loading…</div>
-        }
-      </div>
-    }
   </div>
 </div>
 
-<!-- One row: summary or columns, level stripe, toggles, selection, duration, drawer (mock rowHtml) -->
+<!-- One row: summary or columns, level stripe, toggles, selection, duration (mock rowHtml) -->
 <ng-template #row let-r let-depth="depth" let-nodeInfo="node" let-sib="sib" let-mark="mark">
   <div class="lg-lr" [id]="'lg-row-' + r.lineId" [class.fresh]="freshIds().has(r.lineId)" [class.sel]="current() === r.lineId" [style.grid-template-columns]="gridColumns()" [style.padding-left.px]="depth * 20" (click)="toggleData(r.lineId)">
     <span class="lg-stripe" [class]="'lg-stripe ' + levelOf(r)"></span>
@@ -523,16 +523,56 @@
       }
     </span>
     <span class="lg-row" style="gap: 2px">
-      <button class="lg-ib" (click)="$event.stopPropagation(); openDrawer(r.lineId)" title="Open in side drawer">⇥</button>
       @if (r.commentCount) { <span class="lg-faint" [title]="r.commentCount + ' comments'">💬</span> }
     </span>
   </div>
   @if (openData().has(r.lineId)) {
     <div class="lg-data" [style.margin-left.px]="depth * 20 + 42">
       @if (full().get(r.lineId); as l) {
-        <app-log-line-data [sourceId]="id" [line]="l" [structure]="structure()!" [defaultLayout]="structure()!.defaultFieldLayout ?? 'GROUPED'" [comments]="commentsFor(r.lineId)" [view]="dataView()"
-                           [terms]="terms()" [columns]="columns()" [mask]="masked()" [levelIds]="levelIds(r.lineId)"
-                           (viewChange)="setDataView($event)" (fieldAction)="onFieldAction($event)" (commentsChanged)="reloadOne(r.lineId)" (openDrawer)="openDrawer(r.lineId)" />
+        <!-- What the side drawer used to hold, in the line itself: its fields, the raw line, the lines around it, its trace. -->
+        <div class="lg-tabs lg-ltabs">
+          <button [class.on]="tabOf(r.lineId) === 'fields'" (click)="setLineTab(r.lineId, 'fields')">Fields</button>
+          <button [class.on]="tabOf(r.lineId) === 'raw'" (click)="setLineTab(r.lineId, 'raw')">Raw</button>
+          <button [class.on]="tabOf(r.lineId) === 'context'" (click)="setLineTab(r.lineId, 'context')">Context</button>
+          <button [class.on]="tabOf(r.lineId) === 'trace'" (click)="setLineTab(r.lineId, 'trace')">Trace</button>
+        </div>
+        @switch (tabOf(r.lineId)) {
+          @case ('raw') {
+            <div class="lg-hint">Exactly as received ({{ (l.raw?.length ?? 0) | number }} characters)</div>
+            <pre class="lg-json" style="white-space: pre-wrap; word-break: break-all">{{ l.raw ?? l.rawUnavailable }}</pre>
+          }
+          @case ('context') {
+            <div class="lg-hint">±20 lines around this one, in original input order</div>
+            @if (lineError().get(r.lineId); as err) { <div class="lg-error-text">{{ err }}</div> }
+            @for (c of contextOf(r.lineId); track c.lineId) {
+              <div class="lg-mono lg-ctx" [class.me]="c.lineId === r.lineId" [class.go]="isListed(c.lineId)" (click)="goToLine(c.lineId)">
+                {{ time(c.ts) }} {{ c.level ?? '?' }} {{ summary(c) }}
+              </div>
+            }
+          }
+          @case ('trace') {
+            @if (lineError().get(r.lineId); as err) { <div class="lg-error-text">{{ err }}</div> }
+            @if (traceBarsOf(r.lineId); as bars) {
+              @if (bars.length) {
+                <div class="lg-hint">{{ roleLabel()['CORRELATION'] }} · {{ bars.length }} lines</div>
+                @for (b of bars; track b.r.lineId) {
+                  <div class="lg-wf" [class.go]="isListed(b.r.lineId)" (click)="goToLine(b.r.lineId)">
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap" [title]="summary(b.r)">{{ summary(b.r) }}</span>
+                    <div class="t"><div [class]="b.r.level ?? ''" [style.left.%]="b.left" [style.width.%]="b.width"></div></div>
+                    <span class="lg-hint" style="text-align: right">{{ b.d ? duration(b.d) : time(b.r.ts).slice(3, 8) }}</span>
+                  </div>
+                }
+              } @else if (!lineError().get(r.lineId)) {
+                <div class="lg-dim">This line has no correlation value.</div>
+              }
+            }
+          }
+          @default {
+            <app-log-line-data [sourceId]="id" [line]="l" [structure]="structure()!" [defaultLayout]="structure()!.defaultFieldLayout ?? 'GROUPED'" [comments]="commentsFor(r.lineId)" [view]="dataView()"
+                               [terms]="terms()" [columns]="columns()" [mask]="masked()" [levelIds]="levelIds(r.lineId)"
+                               (viewChange)="setDataView($event)" (fieldAction)="onFieldAction($event)" (commentsChanged)="reloadOne(r.lineId)" />
+          }
+        }
       } @else {
         <div class="lg-hint">Loading…</div>
       }

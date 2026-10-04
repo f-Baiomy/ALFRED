@@ -150,6 +150,65 @@ class LogsIngestAndQueryIntegrationTest {
         return new LogQuery.Pill(op, field, value, null, null, null);
     }
 
+    private java.util.Set<String> ids(String id, LogQuery.Pill... pills) {
+        return query.lines(id, new LogQuery(List.of(pills), null, null, null, null, 500)).lines().stream().map(l -> l.lineId())
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private static LogQuery.Pill full(LogQuery.Op op, String field, String value, List<String> values, Boolean not, Boolean or) {
+        return new LogQuery.Pill(op, field, value, null, null, null, values, not, or);
+    }
+
+    @Test
+    void filtersCombineWithOrAnyOfContainsAndFilterOutAndSayWhatEachHides() throws Exception {
+        String id = loadSource();
+        var all = ids(id);
+        var error = ids(id, pill(LogQuery.Op.EQ, "level", "ERROR"));
+        var slow = ids(id, pill(LogQuery.Op.GT, "timeTaken", "5000"));
+        var withCall = ids(id, pill(LogQuery.Op.EXISTS, "externalCallId", null));
+
+        // OR between two filters = the union; a third, ANDed filter narrows the union.
+        var either = ids(id, pill(LogQuery.Op.EQ, "level", "ERROR"), full(LogQuery.Op.GT, "timeTaken", "5000", null, null, true));
+        var union = new java.util.HashSet<>(error);
+        union.addAll(slow);
+        assertThat(either).isEqualTo(union);
+        var narrowed = ids(id, pill(LogQuery.Op.EQ, "level", "ERROR"), full(LogQuery.Op.GT, "timeTaken", "5000", null, null, true),
+                pill(LogQuery.Op.EXISTS, "externalCallId", null));
+        var expected = new java.util.HashSet<>(union);
+        expected.retainAll(withCall);
+        assertThat(narrowed).isEqualTo(expected);
+
+        // "is any of" = several EQ ORed; "is none of" keeps lines without the field.
+        var codes = List.of("504", "429");
+        var anyOf = ids(id, full(LogQuery.Op.EQ, "code", null, codes, null, null));
+        var byOr = ids(id, pill(LogQuery.Op.EQ, "code", codes.get(0)), full(LogQuery.Op.EQ, "code", codes.get(1), null, null, true));
+        assertThat(anyOf).isEqualTo(byOr).isNotEmpty();
+        var noneOf = ids(id, full(LogQuery.Op.NEQ, "code", null, codes, null, null));
+        var rest = new java.util.HashSet<>(all);
+        rest.removeAll(anyOf);
+        assertThat(noneOf).isEqualTo(rest);
+
+        // "contains" on one field, case-insensitive; "filter out" of any filter = everything else (missing field included).
+        var contains = ids(id, pill(LogQuery.Op.CONTAINS, "level", "err"));
+        assertThat(contains).isEqualTo(error);
+        var notSlow = ids(id, full(LogQuery.Op.GT, "timeTaken", "5000", null, true, null));
+        var notSlowExpected = new java.util.HashSet<>(all);
+        notSlowExpected.removeAll(slow);
+        assertThat(notSlow).isEqualTo(notSlowExpected);
+
+        // How many lines each filter hides: matches without it minus matches with it.
+        var impact = query.pillImpact(id, q(pill(LogQuery.Op.EXISTS, "externalCallId", null), pill(LogQuery.Op.GT, "timeTaken", "5000")));
+        var both = new java.util.HashSet<>(withCall);
+        both.retainAll(slow);
+        assertThat(impact).containsExactly((long) slow.size() - both.size(), (long) withCall.size() - both.size());
+
+        // An explicit span: the histogram covers exactly it, empty edges included.
+        long t0 = query.lines(id, q()).lines().stream().mapToLong(l -> l.ts()).min().orElseThrow();
+        var h = query.histogram(id, new LogQuery(List.of(), t0 - 3_600_000L, t0 + 3_600_000L, null, null, 0), 4);
+        assertThat(h.from()).isEqualTo(t0 - 3_600_000L);
+        assertThat(h.buckets()).hasSize(4);
+    }
+
     @Test
     void loadsSearchesAndShowsEveryLineExactlyAsReceived() throws Exception {
         String id = loadSource();

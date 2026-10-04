@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Value window - JSON / XML (mock)</title>
+<style>
+  :root {
+    --bg: #0a0e2a; --card: #141a45; --inner: #070a24; --pop: #161c4a;
+    --border: rgba(255,255,255,.09); --border-s: rgba(255,255,255,.18);
+    --text: #eef0ff; --dim: #a3a8d6; --faint: #6b70a3; --purple: #7c6cf0; --purple-l: #c4b5fd;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --cyan: #67e8f9;
+    --k: #93c5fd; --s: #86efac; --n: #fbbf24; --b: #f472b6; --nul: #a3a8d6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  .note { color: var(--dim); max-width: 1100px; margin: 0 0 10px; }
+  .callout { border-left: 3px solid var(--purple); background: color-mix(in srgb, var(--purple) 10%, transparent); padding: 8px 12px; border-radius: 6px; margin: 0 0 14px; max-width: 1100px; color: var(--dim); }
+  .callout b { color: var(--text); }
+  .num { display: inline-block; min-width: 18px; height: 18px; border-radius: 9px; background: var(--purple); color: #fff; font-size: 11px; font-weight: 700; text-align: center; line-height: 18px; margin-right: 4px; }
+  .pick { display: flex; gap: 8px; margin-bottom: 10px; }
+  .win { max-width: 1200px; background: var(--pop); border: 1px solid var(--border-s); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.6); }
+  .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .head h2 { margin: 0; font: 700 15px Consolas, monospace; }
+  .faint { color: var(--faint); font-size: 12px; }
+  .sp { flex: 1; }
+  .btn { background: transparent; border: 1px solid var(--border-s); color: var(--text); border-radius: 8px; font: 600 12px "Segoe UI"; padding: 4px 10px; cursor: pointer; }
+  .btn:hover { border-color: var(--purple-l); }
+  .btn.json { border-color: color-mix(in srgb, var(--purple) 60%, transparent); color: var(--purple-l); }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+  .seg button { background: none; border: 0; color: var(--dim); font: 600 12px "Segoe UI"; padding: 3px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button.on { background: var(--purple); color: #fff; }
+  .find { width: 190px; background: var(--inner); border: 1px solid var(--border-s); border-radius: 8px; color: var(--text); padding: 4px 8px; font: 12px Consolas, monospace; }
+  .bar { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--purple) 8%, transparent); }
+  .bar.warn { background: color-mix(in srgb, var(--amber) 8%, transparent); color: var(--amber); }
+  .ok { color: var(--green); font-weight: 600; }
+  .body { margin: 12px 14px 14px; max-height: 460px; overflow: auto; background: var(--inner); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: 12.5px/1.55 Consolas, monospace; }
+  .body.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .body.nowrap { white-space: pre; }
+  .ln { color: var(--faint); display: inline-block; width: 34px; text-align: right; margin-right: 10px; user-select: none; }
+  .k { color: var(--k); } .s { color: var(--s); } .n { color: var(--n); } .b { color: var(--b); } .nul { color: var(--nul); font-style: italic; } .p { color: var(--dim); }
+  .tree { white-space: normal; }
+  .tn { padding-left: 16px; }
+  .tr { display: flex; gap: 4px; align-items: baseline; padding: 1px 0; }
+  .tg { width: 14px; color: var(--faint); cursor: pointer; user-select: none; }
+  .cnt { color: var(--faint); font-size: 11.5px; }
+</style>
+</head>
+<body>
+<h1>⤢ Open - JSON / XML detector, formatted / tree view, read-only</h1>
+<p class="note">Mock of the value window from the Logs explorer. Pick a sample value, it is checked as the window opens. Static data, nothing talks to Alfred.</p>
+<div class="callout">
+  <span class="num">1</span>The window opens with the value <b>exactly as stored</b> (as today).<br />
+  <span class="num">2</span>It is <b>checked for JSON or XML as the window opens</b> - no click. Found → a bar offers
+  <b>Format</b>, <b>Tree</b> or <b>Keep as is</b> (and the switch appears). JSON stored as a string inside a string (escaped quotes) is unwrapped too, and says so.
+  Not found → the text stays exactly as stored, and a <b>{ } Check format</b> button explains why: it tells whether it looks like JSON or XML and
+  where it breaks (line, column, the text around it - e.g. JSON cut off by the logger's length limit), or that it is plain text.<br />
+  <span class="num">3</span>Once detected, a switch stays in the header: <b>Original · Formatted · Tree</b> - "Original" is the unformat.
+  Formatted is the same coloured view as call request/response bodies (JSON or XML colours); Tree is a collapsible tree, with <b>Expand all / Collapse all</b> -
+  for XML each element is a node, its attributes listed as <code>@name</code>, its text as the value.<br />
+  <span class="num">4</span><b>Read-only</b> everywhere - nothing can be edited. Find works in every view. <b>Copy</b> copies what you see (original or formatted text).
+</div>
+
+<div class="pick">
+  <button class="btn" onclick="load('json')">Sample: returnValue (JSON)</button>
+  <button class="btn" onclick="load('nested')">Sample: JSON inside a string</button>
+  <button class="btn" onclick="load('xml')">Sample: SOAP body (XML)</button>
+  <button class="btn" onclick="load('cut')">Sample: JSON cut off by the logger</button>
+  <button class="btn" onclick="load('badxml')">Sample: broken XML</button>
+  <button class="btn" onclick="load('text')">Sample: stack-trace text (neither)</button>
+</div>
+
+<div class="win">
+  <div class="head">
+    <h2 id="title">message.context.returnValue</h2><span class="faint" id="size"></span>
+    <span class="sp"></span>
+    <button class="btn json" id="detect" onclick="check()" title="Why isn't this shown as JSON or XML?">{ } Check format</button>
+    <div class="seg" id="mode" style="display:none">
+      <button data-m="orig" onclick="setMode('orig')">Original</button>
+      <button data-m="fmt" onclick="setMode('fmt')">Formatted</button>
+      <button data-m="tree" onclick="setMode('tree')">Tree</button>
+    </div>
+    <span id="treeBtns" style="display:none"><button class="btn" onclick="all(true)">Expand all</button> <button class="btn" onclick="all(false)">Collapse all</button></span>
+    <input class="find" placeholder="Find in value…" oninput="q=this.value;render()" />
+    <span class="faint" id="hits"></span>
+    <div class="seg" id="wrap"><button class="on" onclick="setWrap(true,this)">Wrap</button><button onclick="setWrap(false,this)">No wrap</button></div>
+    <button class="btn">Copy</button>
+    <button class="btn">Close</button>
+  </div>
+  <div class="bar" id="bar" style="display:none"></div>
+  <div class="body wrap" id="body"></div>
+</div>
+
+<script>
+  const SAMPLES = {
+    json: { title: 'message.context.returnValue', text: '{"pnr":{"supplier":"TravelportNdc","pnr":"BNB8NC","gdsPNR":"HN9G3T","bookingToken":null,"bookingStatus":"Booked","relatedPnrs":[],"creationDate":"2026-10-04T00:00:00Z","journeys":{"1":{"origin":"CAI","destination":"DXB","numberOfStops":0,"segmentRefIds":["1"]}},"passengersList":{"1":{"title":"MR","name":{"first":"RADWAN","middle":null,"last":"ESSA"},"age":26},"2":{"title":"MRS","name":{"first":"RANA","middle":null,"last":"MAHMOUD"},"age":1}},"tickets":{"3":{"ticketNumber":"1765763961745","price":{"totalAmount":{"amount":12232.8,"currency":"EGP"}},"refundable":false}}}}' },
+    nested: { title: 'response.body', text: '"{\\"status\\":\\"OK\\",\\"items\\":[{\\"id\\":1,\\"code\\":\\"EGY\\"},{\\"id\\":2,\\"code\\":\\"DXB\\"}],\\"total\\":2}"' },
+    xml: { title: 'request.body', text: '<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns1:PNRRetrieveRequest xmlns:ns1="http://www.travelport.com/schema" TargetBranch="P7181" AuthorizedBy="ALFRED"><ns1:BillingPointOfSaleInfo OriginApplication="UAPI"/><ns1:ProviderReservationInfo ProviderCode="1G" ProviderLocatorCode="HN9G3T"/><ns1:Remark>retrieve for refund &amp; reissue</ns1:Remark></ns1:PNRRetrieveRequest></soap:Body></soap:Envelope>' },
+    cut: { title: 'message.context.response', text: '{"pnr":{"supplier":"TravelportNdc","pnr":"BNB8NC","passengersList":{"1":{"title":"MR","name":{"first":"RADWAN","last":"ESSA"}},"2":{"title":"MRS","name":{"first":"RA' },
+    badxml: { title: 'request.body', text: '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><ns1:Ping xmlns:ns1="urn:x">hello</ns1:Pong></soap:Body></soap:Envelope>' },
+    text: { title: 'context.exception', text: 'UnrecognizedPropertyException : Unrecognized field "error" (class com.ws.ErrorType), not marked as ignorable\n at [Source: (String)"{"error": "Blocked"}"; line: 1, column: 12]' },
+  };
+  let cur, parsed = null, mode = 'orig', q = '', nested = false, closed = new Set();
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const mark = (h) => { if (!q) return h; const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'); return h.replace(re, (m) => `<mark>${m}</mark>`); };
+  function load(k) {
+    cur = SAMPLES[k]; parsed = null; xmlDoc = null; kindFound = ''; mode = 'orig'; nested = false; closed = new Set();
+    document.getElementById('title').textContent = cur.title;
+    document.getElementById('size').textContent = `${cur.text.length.toLocaleString()} chars · ${cur.text.split('\n').length} line(s)`;
+    document.getElementById('mode').style.display = 'none';
+    document.getElementById('treeBtns').style.display = 'none';
+    document.getElementById('bar').style.display = 'none';
+    document.getElementById('detect').style.display = 'none';
+    render();
+    detect(true);
+  }
+  let xmlDoc = null, kindFound = '';
+  function detect(auto) {
+    const t = cur.text.trim();
+    if (t.startsWith('<')) {
+      const d = new DOMParser().parseFromString(t, 'application/xml');
+      if (!d.querySelector('parsererror')) {
+        xmlDoc = d; kindFound = 'xml'; parsed = null;
+        const bar = document.getElementById('bar');
+        bar.style.display = 'flex'; bar.className = 'bar';
+        bar.innerHTML = `<span class="ok">✓ XML</span> <span class="faint">root &lt;${esc(d.documentElement.nodeName)}&gt; · ${d.getElementsByTagName('*').length} elements</span><span class="sp"></span>
+          <button class="btn" onclick="setMode('fmt')">Format</button><button class="btn" onclick="setMode('tree')">Tree</button><button class="btn" onclick="setMode('orig')">Keep as is</button>`;
+        document.getElementById('detect').style.display = 'none';
+        document.getElementById('mode').style.display = 'flex';
+        setMode('orig', true);
+        return;
+      }
+    }
+    kindFound = 'json';
+    let v;
+    try { v = JSON.parse(cur.text.trim()); } catch { v = undefined; }
+    if (typeof v === 'string') { try { v = JSON.parse(v); nested = true; } catch { v = undefined; } }
+    const bar = document.getElementById('bar');
+    bar.style.display = 'flex';
+    if (v === undefined || v === null || typeof v !== 'object') {
+      bar.style.display = 'none';
+      document.getElementById('detect').style.display = '';
+      return;
+    }
+    parsed = v;
+    bar.className = 'bar';
+    const kind = Array.isArray(v) ? `array of ${v.length}` : `object with ${Object.keys(v).length} key(s)`;
+    bar.innerHTML = `<span class="ok">✓ JSON</span> <span class="faint">${kind}${nested ? ' · it was stored as a string inside quotes - unwrapped' : ''}</span><span class="sp"></span>
+      <button class="btn" onclick="setMode('fmt')">Format</button><button class="btn" onclick="setMode('tree')">Tree</button><button class="btn" onclick="setMode('orig')">Keep as is</button>`;
+    document.getElementById('detect').style.display = 'none';
+    document.getElementById('mode').style.display = 'flex';
+    setMode('orig', true);
+  }
+  /** "Check format": why the value is not JSON or XML - where it breaks, or that it is plain text. */
+  function check() {
+    const t = cur.text.trim(), bar = document.getElementById('bar');
+    bar.style.display = 'flex'; bar.className = 'bar warn';
+    if (t.startsWith('<')) {
+      const err = new DOMParser().parseFromString(t, 'application/xml').querySelector('parsererror');
+      const msg = (err?.textContent || '').replace(/\s+/g, ' ').replace(/^This page contains the following errors:\s*/i, '').replace(/Below is a rendering.*$/i, '');
+      bar.innerHTML = `<b>Looks like XML, but it does not parse.</b>&nbsp;<span>${esc(msg.trim())}</span>`;
+      return;
+    }
+    if (t.startsWith('{') || t.startsWith('[')) {
+      try { JSON.parse(t); } catch (e) {
+        const m = /position (\d+)/.exec(e.message);
+        const pos = m ? +m[1] : t.length;
+        const before = t.slice(0, pos), line = before.split('\n').length, col = pos - before.lastIndexOf('\n');
+        const end = pos >= t.length;
+        bar.innerHTML = `<b>Looks like JSON, but it does not parse${end ? ' - it ends too early' : ''}.</b>&nbsp;line ${line}, column ${col}:
+          <code style="font-family:Consolas">…${esc(t.slice(Math.max(0, pos - 30), pos))}<mark>${esc(t.slice(pos, pos + 1) || '⏎')}</mark>${esc(t.slice(pos + 1, pos + 20))}</code>
+          ${end ? '<span class="faint">&nbsp;(cut off - e.g. the logger\'s length limit)</span>' : ''}`;
+        return;
+      }
+    }
+    bar.innerHTML = '<b>Plain text</b>&nbsp;- not JSON or XML (it does not start with { [ or &lt;).';
+  }
+  function setMode(m, keepBar) {
+    mode = m;
+    if (!keepBar) document.getElementById('bar').style.display = 'none';
+    document.querySelectorAll('#mode button').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
+    document.getElementById('treeBtns').style.display = m === 'tree' ? '' : 'none';
+    render();
+  }
+  function color(line) {
+    return esc(line).replace(/("(?:[^"\\]|\\.)*")(\s*:)?|\b(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b|\b(true|false)\b|\bnull\b/g, (m, str, colon, num, bool) => {
+      if (str) return colon ? `<span class="k">${str}</span><span class="p">${colon}</span>` : `<span class="s">${str}</span>`;
+      if (num) return `<span class="n">${num}</span>`;
+      if (bool) return `<span class="b">${bool}</span>`;
+      return `<span class="nul">null</span>`;
+    });
+  }
+  function treeHtml(v, key, path) {
+    const label = key === null ? '' : `<span class="k">${esc(JSON.stringify(key))}</span><span class="p">: </span>`;
+    if (v !== null && typeof v === 'object') {
+      const entries = Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v);
+      const open = !closed.has(path);
+      const br = Array.isArray(v) ? ['[', ']'] : ['{', '}'];
+      return `<div class="tr"><span class="tg" onclick="tog('${path}')">${open ? '▾' : '▸'}</span>${label}<span class="p">${br[0]}</span>${open ? '' : `<span class="cnt"> ${entries.length} ${Array.isArray(v) ? 'items' : 'keys'} </span><span class="p">${br[1]}</span>`}</div>`
+        + (open ? `<div class="tn">${entries.map(([k, x]) => treeHtml(x, Array.isArray(v) ? k : k, path + '/' + k)).join('')}</div><div class="tr"><span class="tg"></span><span class="p">${br[1]}</span></div>` : '');
+    }
+    return `<div class="tr"><span class="tg"></span>${label}${mark(color(JSON.stringify(v)))}</div>`;
+  }
+  function xmlFormat(node, depth, out) {
+    const pad = '  '.repeat(depth);
+    for (const c of node.childNodes) {
+      if (c.nodeType === 3) { const t = c.nodeValue.trim(); if (t) out.push({ pad, parts: [['t', t]] }); continue; }
+      if (c.nodeType !== 1) continue;
+      const attrs = [...c.attributes].flatMap((a) => [['p', ' '], ['a', a.name], ['p', '='], ['v', '"' + a.value + '"']]);
+      const kids = [...c.childNodes].filter((x) => x.nodeType === 1 || (x.nodeType === 3 && x.nodeValue.trim()));
+      const open = [['k', '<' + c.nodeName], ...attrs];
+      if (!kids.length) out.push({ pad, parts: [...open, ['k', '/>']] });
+      else if (kids.length === 1 && kids[0].nodeType === 3) out.push({ pad, parts: [...open, ['k', '>'], ['t', kids[0].nodeValue.trim()], ['k', '</' + c.nodeName + '>']] });
+      else { out.push({ pad, parts: [...open, ['k', '>']] }); xmlFormat(c, depth + 1, out); out.push({ pad, parts: [['k', '</' + c.nodeName + '>']] }); }
+    }
+    return out;
+  }
+  const XCLS = { k: 'k', a: 'b', v: 's', t: 'n', p: 'p' };
+  function xmlLine(l) { return l.pad + l.parts.map(([c, t]) => `<span class="${XCLS[c]}">${mark(esc(t))}</span>`).join(''); }
+  function xmlTree(el, path) {
+    const kids = [...el.children];
+    const text = [...el.childNodes].filter((x) => x.nodeType === 3).map((x) => x.nodeValue.trim()).join(' ');
+    const attrs = [...el.attributes].map((a) => `<div class="tr"><span class="tg"></span><span class="b">@${esc(a.name)}</span><span class="p">: </span><span class="s">${mark(esc(a.value))}</span></div>`).join('');
+    if (!kids.length && !el.attributes.length) return `<div class="tr"><span class="tg"></span><span class="k">${esc(el.nodeName)}</span><span class="p">: </span><span class="n">${mark(esc(text))}</span></div>`;
+    const open = !closed.has(path);
+    return `<div class="tr"><span class="tg" onclick="tog('${path}')">${open ? '▾' : '▸'}</span><span class="k">&lt;${esc(el.nodeName)}&gt;</span>${open ? '' : `<span class="cnt"> ${kids.length} child(ren), ${el.attributes.length} attribute(s)</span>`}</div>`
+      + (open ? `<div class="tn">${attrs}${text ? `<div class="tr"><span class="tg"></span><span class="n">${mark(esc(text))}</span></div>` : ''}${kids.map((k, i) => xmlTree(k, path + '/' + i)).join('')}</div>` : '');
+  }
+  function xmlPaths(el, path, out) { if (el.children.length || el.attributes.length) out.push(path); [...el.children].forEach((k, i) => xmlPaths(k, path + '/' + i, out)); return out; }
+  function paths(v, path, out) { if (v !== null && typeof v === 'object') { out.push(path); (Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v)).forEach(([k, x]) => paths(x, path + '/' + k, out)); } return out; }
+  function tog(p) { closed.has(p) ? closed.delete(p) : closed.add(p); render(); }
+  function all(open) { closed = open ? new Set() : new Set((kindFound === 'xml' ? xmlPaths(xmlDoc.documentElement, '$', []) : paths(parsed, '$', [])).filter((p) => p !== '$')); render(); }
+  function render() {
+    const body = document.getElementById('body');
+    let hits = 0;
+    if (mode !== 'orig' && kindFound === 'xml') {
+      body.classList.toggle('tree', mode === 'tree');
+      body.innerHTML = mode === 'tree' ? xmlTree(xmlDoc.documentElement, '$')
+        : xmlFormat(xmlDoc, 0, []).map((l, i) => `<span class="ln">${i + 1}</span>${xmlLine(l)}`).join('\n');
+    } else if (mode === 'tree') {
+      body.classList.add('tree');
+      body.innerHTML = treeHtml(parsed, null, '$');
+    } else {
+      body.classList.remove('tree');
+      const text = mode === 'fmt' ? JSON.stringify(parsed, null, 2) : (nested && parsed && mode === 'orig' ? cur.text : cur.text);
+      body.innerHTML = text.split('\n').map((l, i) => `<span class="ln">${i + 1}</span>${mark(mode === 'fmt' ? color(l) : esc(l))}`).join('\n');
+    }
+    hits = body.querySelectorAll('mark').length;
+    document.getElementById('hits').textContent = q ? `${hits} found` : '';
+  }
+  function setWrap(w, b) { document.querySelectorAll('#wrap button').forEach((x) => x.classList.toggle('on', x === b)); const body = document.getElementById('body'); body.classList.toggle('wrap', w); body.classList.toggle('nowrap', !w); }
+  load('json');
+</script>
+</body>
+</html>

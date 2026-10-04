@@ -56,7 +56,7 @@ sources (3,000 / 5,000 / 36,880 lines, up to 900 fields); `SqliteLogQueryTransla
   picked with the arrow keys, when only a field name or `field:` is typed, or when it completes the typed value
   (`level:E` -> `level:ERROR`); otherwise the typed text is the filter.
 - **=, ≠** are exact and case-sensitive on the original text (typed fields compare as their type: `2201.0` = `2201`).
-  ≠ and "missing" include lines without the field (as OpenSearch does). Pills are ANDed.
+  ≠ and "missing" include lines without the field (as OpenSearch does). Pills are ANDed unless joined with OR (below).
 - **The level role's first field** filters, counts (sidebar) and sorts by the LINE's level - that field or the
   role's next field a line has, normalised (WARNING = WARN, FATAL/SEVERE = ERROR, any case) - so `level:ERROR`
   matches what the histogram and minimap count as ERROR. Its other fields keep their own values.
@@ -71,6 +71,39 @@ sources (3,000 / 5,000 / 36,880 lines, up to 900 fields); `SqliteLogQueryTransla
   label (`timestamp` after `_source.attributes.timestamp`) is labelled `timestamp_2`; structures saved before this
   are repaired on load. Two fields sharing a label made every filter reach only the first.
 - Saved views keep pills, range or zoomed time range, view and sort.
+
+## Filters and time (design B++, 2026-10-04)
+
+Mocks: `specs/004-logs-explorer/mock-filters-time-b-plusplus.html` (and the B / B+ compare pages beside it).
+
+- **A pill is a small form** (`log-filter-editor`): Include / Exclude, a typed field with suggestions (any part of
+  the name), condition (is / contains / exists / greater / less), value with the field's top values and counts.
+  Several clicked values = one **is any of** pill (`values`, SQL `IN` / `NOT IN`). Exclude sets `not`, which wraps
+  the condition as `NOT coalesce((cond), 0)` so lines without the field count as "not matching".
+  `CONTAINS` is `LIKE %v%` on the field's text (the level role uses the normalised level).
+- **AND / OR**: a pill with `or: true` joins the pill before it; `SqliteLogQueryTranslator.where()` builds OR groups
+  and ANDs the groups (AND binds tighter, as in most query languages).
+- **On / off dot**: an off pill stays in the bar but is not sent (`off` is explorer-only).
+- **"−N" per pill**: `POST /logs/sources/{id}/pills/impact` returns, per sent pill, matches without it minus
+  matches with all of them (removing an OR-joined pill clears the `or` of its successor). Negative = an OR pill
+  that brings lines in, shown as "+N". Cached with the other aggregates.
+- **Level chips** above the list count per level for the filters minus the level-field pills; a click shows only
+  that level, again shows all.
+- **Time** (`log-time-panel`, `log-timeline`, `log-clock-dial`, `shared/utils/logs-time-range.ts`): quick ranges
+  count back from the newest line; Today / Yesterday; words ("yesterday 14:00 to 16:30"); calendar with day dots;
+  From / To cards with ▲▼, typing, wheel and a clock dial; To follows From until To is changed; a length lock;
+  "around From"; "To = now, keep moving" (`to: null`); recent ranges (localStorage per source); the line count before
+  Apply. The timeline zooms to the selection; the histogram honours an explicit from/to exactly (bucket width =
+  span / buckets), so zoomed bars line up with the selection.
+- **UTC | Local** in the header changes display and picking only - every query is epoch ms.
+- **◀ ▶ / `[` `]`** step the range by its length; **Ctrl+Z / Ctrl+Y** undo / redo filters and time (a snapshot is
+  recorded on every refresh); ticked lines → **⏱ Use as time range** (± 1 min).
+- **Search as text** (`shared/utils/logs-filter.ts` `toQueryText` / `parseQueryText`): `field:v`, `-field:v`,
+  `field:a|b`, `field~v`, `field:*`, `field>v`, `"text"`, `OR`, `@last:24h` or `@ISO..ISO|now`; field names with
+  spaces are quoted. The parser is the exact inverse of the writer.
+- Explorer inputs bound to child components must be stable signals (`activePills`, `timeRange` are `computed`):
+  a method returning a new array each change detection re-fired the timeline's fetch effect forever and froze
+  the tab.
 
 ## Lines with different structures (FR-045 as amended 2026-10-04)
 
