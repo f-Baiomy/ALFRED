@@ -21,5 +21,9 @@ COPY docker-entrypoint.d/10-generate-env.sh /docker-entrypoint.d/10-generate-env
 # the kernel look for a nonexistent "/bin/sh\r" interpreter and this script silently fails to run
 # (confirmed live on a Windows checkout where core.autocrlf re-introduced CRLF at build time).
 RUN sed -i 's/\r$//' /docker-entrypoint.d/10-generate-env.sh && chmod +x /docker-entrypoint.d/10-generate-env.sh
+# The base image's IPv6 helper only adds "listen [::]:80" (the gateway reaches us over IPv4), but it
+# checksums the config with `apk manifest`, which stalled container start for a minute or more on
+# Docker Desktop - the gateway answered 502 the whole time.
+RUN rm -f /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
 
 EXPOSE 80
