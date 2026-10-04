@@ -539,3 +539,52 @@
 @media (max-width: 640px) {
   .db-settings .set-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+// ---- investigation: Search/SQL over statements and rows, value tracing, Tables view ----
+.db-window {
+  .toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+
+    button { background: none; border: none; color: var(--text-dim); font-size: 0.72rem; padding: 0.3rem 0.7rem; cursor: pointer; }
+    button.on { background: color-mix(in srgb, var(--purple) 25%, transparent); color: var(--text); font-weight: 600; }
+  }
+
+  .stmt-sql { padding: 0.5rem 1.3rem 0.2rem; border-bottom: 1px solid var(--border); }
+  .stmt-sql .rq-actions + .rq-actions { margin-top: 0.25rem; }
+  .rq-bar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.45rem; }
+  .rq-bar .rq-search { flex: 1 1 240px; }
+  .rq-hint { font-size: 0.7rem; color: var(--text-faint); }
+  .rq-hint code, .sq-note code { font-family: var(--db-mono); color: var(--purple-light); }
+  .rq-sql { margin-bottom: 0.45rem; }
+
+  .rq-sql textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 54px;
+    background: var(--card-inner);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--db-sql-block);
+    font-family: var(--db-mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    padding: 0.45rem 0.6rem;
+
+    &:focus { outline: none; border-color: var(--border-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--purple) 18%, transparent); }
+  }
+
+  .rq-actions { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-top: 0.35rem; }
+  .action-btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .sq-note { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.2rem 0 0.5rem; padding: 0.4rem 0.65rem; border: 1px solid color-mix(in srgb, var(--db) 40%, transparent); background: color-mix(in srgb, var(--db) 7%, transparent); border-radius: 8px; font-size: 0.74rem; }
+  .sq-note b { color: var(--db); }
+  .loc { font-size: 0.7rem; color: var(--text); border: 1px solid var(--border); background: var(--card-inner); border-radius: 999px; padding: 0.08rem 0.5rem; cursor: pointer; white-space: nowrap; }
+  .loc:hover { border-color: var(--amber); }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--purple-light); }
+  .tbl-view tr:hover td { background: color-mix(in srgb, var(--purple) 8%, transparent); }
+  .tbl-view .w { color: var(--amber); }
+  .tbl-view .x { color: var(--red); }
+}

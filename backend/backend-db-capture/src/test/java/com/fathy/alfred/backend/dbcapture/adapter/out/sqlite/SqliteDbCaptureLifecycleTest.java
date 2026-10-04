@@ -48,7 +48,8 @@ class SqliteDbCaptureLifecycleTest {
         field.setAccessible(true);
         field.set(repo, tempDir.resolve("db-capture.db").toString());
         repo.init();
-        service = new DbCaptureService(repo, mock(DbCaptureNotificationPort.class), mock(DbCaptureTogglePort.class), List.of(), Optional.empty());
+        service = new DbCaptureService(repo, mock(DbCaptureNotificationPort.class), mock(DbCaptureTogglePort.class),
+                List.of(new com.fathy.alfred.backend.dbcapture.application.service.DbCaptureFlagsListener(repo)), Optional.empty());
         query = new DbCaptureQueryService(repo, service);
     }
 
@@ -151,6 +152,34 @@ class SqliteDbCaptureLifecycleTest {
         assertThat(again.statements().get(0).rows()).isEqualTo(exported.statements().get(0).rows());
         assertThat(again.supplierMarkers()).hasSize(1);
         assertThat(again.summary().statementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void flagsTraceTablesAndStatementQueriesWorkOnARecordedCall() {
+        ingest(List.of(Fixtures.select("a:1", "c1", 1, 3),
+                        statement("a:2", "c1", 2, StatementKind.DELETE, "DELETE FROM rate_cache", Fixtures.updated(212), null, null),
+                        statement("a:3", "c1", 3, StatementKind.INSERT, "INSERT INTO audit VALUES (?)", failed("23505", 1, "duplicate"), null, null)),
+                List.of());
+        service.callCompleted("c1", 200, null);
+
+        var flags = repo.summary("c1").orElseThrow().flags();
+        assertThat(flags).extracting(f -> f.type().name()).containsExactly("NO_WHERE", "FAILED_SWALLOWED", "LARGE_DELETE");
+
+        var investigation = new com.fathy.alfred.backend.dbcapture.application.service.DbCaptureInvestigationService(repo, new InMemoryQuerySandbox());
+        // Fixtures.select rows: (i, "row i"); the parameter of every fixture statement is BIGINT 1042.
+        assertThat(investigation.trace("c1", "row 2")).extracting(h -> h.seq() + ":" + h.where()).containsExactly("1:ROW");
+        assertThat(investigation.trace("c1", "1042")).extracting(h -> h.seq()).containsExactly(1, 2, 3);
+        assertThat(investigation.tables("c1")).extracting(t -> t.table()).first().isEqualTo("rate_cache");
+
+        var query = investigation.queryStatements("c1",
+                new com.fathy.alfred.backend.dbcapture.domain.model.RecordedQueryRequest("sql", "SELECT n, verb FROM statements WHERE write = 1", null, null, 0, 50));
+        assertThat(query.error()).isNull();
+        assertThat(query.statementSeqs()).containsExactly(2, 3);
+
+        long selectId = repo.allStatements("c1", 10).get(0).id();
+        var search = investigation.queryRows(selectId, "RESULT",
+                new com.fathy.alfred.backend.dbcapture.domain.model.RecordedQueryRequest("search", "row 1", "id", "desc", 0, 50)).orElseThrow();
+        assertThat(search.rows()).extracting(r -> r.get(1)).containsExactly("row 1");
     }
 
     @Test

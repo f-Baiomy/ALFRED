@@ -26,8 +26,10 @@ export class DbWindowState {
   readonly flashSeq = signal<number | null>(null);
   /** The call's outbound (supplier) calls the page has loaded, by their place in the call's sequence. */
   readonly suppliersBySeq = signal<ReadonlyMap<number, CallRecord>>(new Map());
+  /** The statements a SQL query over `statements` selected (by `n`), or null when no query is applied. */
+  readonly statementSeqs = signal<ReadonlySet<number> | null>(null);
 
-  readonly filtering = computed(() => !!this.search() || this.kind() !== 'all' || !!this.table());
+  readonly filtering = computed(() => !!this.search() || this.kind() !== 'all' || !!this.table() || this.statementSeqs() != null);
 
   toggleOpen(seq: number): void {
     const next = new Set(this.open());
@@ -53,6 +55,8 @@ export class DbWindowState {
   }
 
   matches(s: CapturedStatement): boolean {
+    const selected = this.statementSeqs();
+    if (selected && !selected.has(s.seq)) return false;
     switch (this.kind()) {
       case 'read':
         if (isWrite(s) || isTxEnd(s)) return false;

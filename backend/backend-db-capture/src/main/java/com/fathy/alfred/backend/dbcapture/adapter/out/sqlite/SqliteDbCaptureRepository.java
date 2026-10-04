@@ -17,6 +17,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.MarkerType;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementTransaction;
+import com.fathy.alfred.backend.dbcapture.domain.model.TraceHit;
 import com.fathy.alfred.backend.dbcapture.domain.model.TypedValue;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -175,9 +176,10 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                   delete_count INTEGER NOT NULL, failed_count INTEGER NOT NULL, tx_count INTEGER NOT NULL,
                   rolled_back_count INTEGER NOT NULL, db_us INTEGER NOT NULL, dropped_count INTEGER NOT NULL DEFAULT 0,
                   flags_json TEXT NOT NULL DEFAULT '[]', last_seq INTEGER NOT NULL, complete INTEGER NOT NULL DEFAULT 0,
-                  ended_early INTEGER NOT NULL DEFAULT 0, first_seen TEXT NOT NULL
+                  ended_early INTEGER NOT NULL DEFAULT 0, first_seen TEXT NOT NULL, project TEXT
                 )
                 """);
+        addColumnIfMissing("call_db_summary", "project", "TEXT");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_summary_first_seen ON call_db_summary(first_seen)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
@@ -373,6 +375,24 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 txCounts.get("tx"), txCounts.get("rolled"), counts.get("db_us"), lastSeq, Instant.now().toString());
     }
 
+    private void addColumnIfMissing(String table, String column, String type) {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(" + table + ")", (rs, n) -> rs.getString("name"));
+        if (!columns.contains(column)) {
+            jdbcTemplate.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
+        }
+    }
+
+    @Override
+    public void setCallProject(String callId, String project) {
+        jdbcTemplate.update("UPDATE call_db_summary SET project = ? WHERE call_id = ? AND project IS NULL", project, callId);
+    }
+
+    @Override
+    public Optional<String> callProject(String callId) {
+        List<String> found = jdbcTemplate.queryForList("SELECT project FROM call_db_summary WHERE call_id = ? AND project IS NOT NULL", String.class, callId);
+        return found.stream().findFirst();
+    }
+
     @Override
     public void saveFlags(String callId, List<DbFlag> flags) {
         jdbcTemplate.update("UPDATE call_db_summary SET flags_json = ? WHERE call_id = ?", json(flags), callId);
@@ -504,6 +524,26 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     public List<List<TypedValue>> rows(long statementId, String part, int offset, int limit) {
         return jdbcTemplate.query("SELECT values_json FROM result_rows WHERE statement_id = ? AND part = ? AND row_index >= ? ORDER BY row_index LIMIT ?",
                 (rs, n) -> read(rs.getString("values_json"), VALUE_ROW), statementId, part, offset, limit);
+    }
+
+    @Override
+    public List<TraceHit> rowsContaining(String callId, String value, int limit) {
+        // A cheap LIKE narrows to rows that mention the value; the exact cell match happens here.
+        String needle = "%" + value.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+        List<TraceHit> hits = new ArrayList<>();
+        jdbcTemplate.query("""
+                SELECT s.seq, r.part, r.row_index, r.values_json FROM result_rows r JOIN statements s ON s.id = r.statement_id
+                WHERE s.call_id = ? AND r.values_json LIKE ? ESCAPE '!' ORDER BY s.seq, r.part, r.row_index LIMIT ?
+                """, rs -> {
+            List<TypedValue> row = read(rs.getString("values_json"), VALUE_ROW);
+            for (int i = 0; i < row.size(); i++) {
+                if (value.equals(row.get(i).value())) {
+                    hits.add(new TraceHit(rs.getInt("seq"), BEFORE_IMAGE.equals(rs.getString("part")) ? TraceHit.BEFORE_IMAGE : TraceHit.ROW,
+                            rs.getInt("row_index"), String.valueOf(i)));
+                }
+            }
+        }, callId, needle, limit);
+        return hits;
     }
 
     @Override

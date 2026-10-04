@@ -53,4 +53,26 @@ describe('DbRowsTableComponent', () => {
     expect(fixture.nativeElement.querySelector('.rows-scroll').classList).not.toContain('fixed');
     expect(fixture.nativeElement.textContent).toContain('120,480 rows returned - 3 stored');
   });
+
+  it('searches the recorded rows on the server and pages the matches the same way', async () => {
+    const rows = jasmine.createSpy('rows').and.callFake((_id: number, _part: string, offset: number) => of(page(offset, Math.min(100, 250 - offset), 250)));
+    const queryRows = jasmine.createSpy('queryRows').and.returnValue(of({ columns: ['id'], rows: [['17'], ['170']], total: 2 }));
+    TestBed.configureTestingModule({
+      imports: [DbRowsTableComponent],
+      providers: [{ provide: DbCaptureApiService, useValue: { rows, queryRows } }, { provide: RedactionsStore, useValue: { all: signal([]) } }],
+    });
+    const fixture = TestBed.createComponent(DbRowsTableComponent);
+    fixture.componentRef.setInput('statementId', 7);
+    fixture.detectChanges();
+
+    const input: HTMLInputElement = fixture.nativeElement.querySelector('.rq-search');
+    input.value = '17';
+    input.dispatchEvent(new Event('input'));
+    await new Promise((r) => setTimeout(r, 300));
+    fixture.detectChanges();
+
+    expect(queryRows).toHaveBeenCalledWith(7, jasmine.objectContaining({ mode: 'search', text: '17', offset: 0 }), 'RESULT');
+    expect(fixture.nativeElement.querySelectorAll('tbody tr').length).toBe(2);
+    expect(fixture.nativeElement.textContent).toContain('2 match · 250 rows recorded');
+  });
 });

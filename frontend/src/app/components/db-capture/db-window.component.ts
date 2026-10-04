@@ -1,19 +1,23 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, input, output, signal,
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, effect, inject, input, output, signal, untracked,
 } from '@angular/core';
-import { EMPTY, Observable, expand, reduce } from 'rxjs';
+import { EMPTY, Observable, catchError, expand, forkJoin, map, of, reduce } from 'rxjs';
 import { CallRecord } from '../../core/models/call.model';
 import {
-  CallStatementsPage, CapturedStatement, DbFlag, StatementTransaction, SupplierMarker,
+  CallStatementsPage, CapturedStatement, DbFlag, RecordedQueryResult, StatementTransaction, SupplierMarker, TableSummary,
 } from '../../core/models/db-capture.model';
+import { QueryExample, STATEMENT_QUERY_COLUMNS, statementQueryExamples } from '../../shared/utils/db-row-query-examples';
+import { DbTraceLocation, supplierBodyHits, traceLocations } from '../../shared/utils/db-trace';
+import { DbNode } from '../../shared/utils/db-statement-tree';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { CallsStateService } from '../../core/state/calls-state.service';
 import { buildStatementTree, initiallyFolded, pathTo } from '../../shared/utils/db-statement-tree';
-import { flagText, isDelete, isFailed, isWrite, msText } from '../../shared/utils/db-statement-display';
+import { isDelete, isFailed, isWrite, msText } from '../../shared/utils/db-statement-display';
+import { flagTarget, flagText } from '../../shared/utils/db-flags';
 import { buildSqlScript } from '../../shared/utils/sql-export-builder';
 import { DbStatementListComponent } from './db-statement-list.component';
-import { DbKindFilter, DbWindowState } from './db-window-state';
+import { DbDetailTab, DbKindFilter, DbWindowState } from './db-window-state';
 import { DbWindowRequest } from './db-window.service';
 
 const PAGE = 500;
@@ -63,6 +67,20 @@ export class DbWindowComponent implements OnInit {
   readonly exportNote = signal<string | null>(null);
   private fetching = false;
 
+  /** Statements | Tables (mock: the views row). */
+  readonly view = signal<'stmts' | 'tables'>('stmts');
+  readonly tableSummaries = signal<readonly TableSummary[] | null>(null);
+
+  /** The Search/SQL toggle over statements, and the last SQL result (null = showing all statements). */
+  readonly searchMode = signal<'search' | 'sql'>('search');
+  readonly statementSql = signal('');
+  readonly sqlResult = signal<RecordedQueryResult | null>(null);
+  readonly sqlOrdered = signal(false);
+  readonly statementColumns = STATEMENT_QUERY_COLUMNS.join(', ');
+
+  /** Every place the traced value appears, in run order (statements from the server, supplier bodies from here). */
+  readonly traceHits = signal<readonly DbTraceLocation[]>([]);
+
   readonly call = computed<CallRecord | null>(() => {
     const r = this.request();
     return r.kind === 'call' ? r.call : null;
@@ -99,6 +117,24 @@ export class DbWindowComponent implements OnInit {
   readonly droppedCount = computed(() => this.summary()?.droppedCount ?? 0);
   readonly callMs = computed(() => this.call()?.duration_ms ?? null);
 
+  readonly tableCount = computed(() => this.tableSummaries()?.length ?? new Set(this.statements().filter((s) => s.table).map((s) => s.table)).size);
+
+  readonly statementExamples = computed<QueryExample[]>(() => {
+    const all = this.statements();
+    const write = all.find((s) => ['INSERT', 'UPDATE', 'DELETE', 'MERGE'].includes(s.kind) && s.table)?.table ?? null;
+    const tx = all.find((s) => s.txId)?.txId ?? null;
+    const code = all.find((s) => s.codeLocation)?.codeLocation?.split('.')[0] ?? null;
+    return statementQueryExamples(write, tx, code);
+  });
+
+  /** ORDER BY in the query: the statements in its order, flat (the tree's order is run order). */
+  readonly orderedNodes = computed<DbNode[]>(() => {
+    const seqs = this.sqlResult()?.statementSeqs;
+    if (!this.sqlOrdered() || !seqs) return [];
+    const bySeq = new Map(this.statements().map((s) => [s.seq, s]));
+    return seqs.map((seq) => bySeq.get(seq)).filter((s): s is CapturedStatement => !!s).map((s) => ({ type: 'stmt' as const, seq: s.seq, statement: s }));
+  });
+
   readonly kinds: readonly { readonly key: DbKindFilter; readonly label: string }[] = [
     { key: 'all', label: 'All' }, { key: 'read', label: 'Reads' }, { key: 'write', label: 'Writes' },
     { key: 'delete', label: 'Deletes' }, { key: 'fail', label: 'Failed' },
@@ -134,6 +170,90 @@ export class DbWindowComponent implements OnInit {
     const lastEnd = statements.length ? Math.max(...statements.map((s) => s.offsetMicros + s.durationMicros)) / 1000 : 0;
     return Math.round(Math.max(this.callMs() ?? 0, lastEnd));
   });
+
+  constructor() {
+    // A clicked value is traced through the whole call - the server knows every statement and stored row; the
+    // supplier calls' bodies are searched here.
+    effect(() => {
+      const value = this.state.trace();
+      untracked(() => this.runTrace(value));
+    });
+  }
+
+  private runTrace(value: string): void {
+    const call = this.call();
+    if (!value || !call) {
+      this.traceHits.set([]);
+      return;
+    }
+    const suppliers = [...this.state.suppliersBySeq().entries()];
+    const bodies$ = suppliers.length && this.calls
+      ? forkJoin(suppliers.map(([seq, sup]) => this.calls!.getCallDetail(sup.id, sup.source).pipe(
+        map((d) => ({ seq, request: d.request?.body ?? '', response: d.response?.body ?? '' })),
+        catchError(() => of({ seq, request: '', response: '' })))))
+      : of([] as { seq: number; request: string; response: string }[]);
+    forkJoin({ hits: this.api.trace(call.id, value).pipe(map((r) => r.hits), catchError(() => of([]))), bodies: bodies$ }).subscribe(({ hits, bodies }) => {
+      if (this.state.trace() !== value) return;
+      this.traceHits.set([...traceLocations(hits, this.statements()), ...supplierBodyHits(bodies, value)].sort((a, b) => a.seq - b.seq));
+    });
+  }
+
+  goTo(location: DbTraceLocation): void {
+    this.jump(location.seq, location.tab);
+  }
+
+  setView(view: 'stmts' | 'tables'): void {
+    this.view.set(view);
+    const call = this.call();
+    if (view === 'tables' && call && !this.tableSummaries()) {
+      this.api.tables(call.id).subscribe({ next: (t) => this.tableSummaries.set(t), error: () => this.tableSummaries.set([]) });
+    }
+  }
+
+  filterTable(table: string): void {
+    this.state.table.set(table.replace(/ \(procedure\)$/, ''));
+    this.view.set('stmts');
+  }
+
+  setSearchMode(mode: 'search' | 'sql'): void {
+    this.searchMode.set(mode);
+    if (mode === 'search') this.clearStatementSql();
+  }
+
+  onStatementSqlKey(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      this.runStatementSql();
+    }
+  }
+
+  runStatementSql(sql = this.statementSql()): void {
+    const call = this.call();
+    this.statementSql.set(sql);
+    if (!call || !sql.trim()) {
+      this.clearStatementSql();
+      return;
+    }
+    // Every statement must be loaded for the tree to show what the query selected.
+    this.allStatements().subscribe((all) => {
+      if (all.length > this.statements().length) {
+        this.statements.set(all);
+        this.hasMore.set(false);
+      }
+      this.api.queryStatements(call.id, { mode: 'sql', text: sql, offset: 0, limit: 1000 }).subscribe((result) => {
+        this.sqlResult.set(result);
+        this.sqlOrdered.set(/\bORDER\s+BY\b/i.test(sql) && !!result.statementSeqs);
+        this.state.statementSeqs.set(!result.error && result.statementSeqs ? new Set(result.statementSeqs) : null);
+      });
+    });
+  }
+
+  clearStatementSql(): void {
+    this.statementSql.set('');
+    this.sqlResult.set(null);
+    this.sqlOrdered.set(false);
+    this.state.statementSeqs.set(null);
+  }
 
   ngOnInit(): void {
     const call = this.call();
@@ -247,24 +367,49 @@ export class DbWindowComponent implements OnInit {
     this.state.folded.set(initiallyFolded(this.tree()));
   }
 
-  /** Flag / time-strip click: unfold, open and flash that statement. */
-  jump(seq: number): void {
+  /** Flag / time-strip / trace click: clear filters, unfold its groups, open it on the right tab and flash it. */
+  jump(seq: number, tab?: DbDetailTab): void {
     this.state.search.set('');
     this.state.kind.set('all');
     this.state.table.set('');
+    this.state.statementSeqs.set(null);
     const folded = new Set(this.state.folded());
     pathTo(this.tree(), seq).forEach((k) => folded.delete(k));
     this.state.folded.set(folded);
-    if (this.statements().some((s) => s.seq === seq)) this.state.open.set(new Set(this.state.open()).add(seq));
+    if (this.statements().some((s) => s.seq === seq)) {
+      this.state.open.set(new Set(this.state.open()).add(seq));
+      if (tab) this.state.setTab(seq, tab);
+    }
+    this.flash(`[data-seq="${seq}"]`, seq);
+  }
+
+  private jumpGroup(txId: string): void {
+    const key = `tx:${txId}`;
+    const folded = new Set(this.state.folded());
+    folded.delete(key);
+    this.state.folded.set(folded);
+    this.flash(`[data-group="${CSS.escape(key)}"]`, null);
+  }
+
+  private flash(selector: string, seq: number | null): void {
     this.state.flashSeq.set(seq);
     setTimeout(() => {
-      this.host.nativeElement.querySelector(`[data-seq="${seq}"]`)?.scrollIntoView({ block: 'center' });
+      const el = this.host.nativeElement.querySelector(selector) as HTMLElement | null;
+      el?.scrollIntoView({ block: 'center' });
+      if (seq == null && el) {
+        el.classList.remove('flash');
+        void el.offsetWidth;
+        el.classList.add('flash');
+      }
       setTimeout(() => this.state.flashSeq.set(null), 1400);
     });
   }
 
   jumpFlag(flag: DbFlag): void {
-    if (flag.seqs.length) this.jump(flag.seqs[0]);
+    const target = flagTarget(flag);
+    if (!target) return;
+    if (target.groupTxId) this.jumpGroup(target.groupTxId);
+    else this.jump(target.seq, target.tab);
   }
 
   flagLabel(flag: DbFlag): string {

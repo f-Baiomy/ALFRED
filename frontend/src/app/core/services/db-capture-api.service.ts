@@ -55,8 +55,8 @@ export class DbCaptureApiService {
     });
   }
 
-  queryRows(id: number, request: RecordedQueryRequest): Observable<RecordedQueryResult> {
-    return this.http.post<RecordedQueryResult>(`${this.base}/statements/${id}/rows/query`, request);
+  queryRows(id: number, request: RecordedQueryRequest, part: RowsPart = 'RESULT'): Observable<RecordedQueryResult> {
+    return this.http.post<RecordedQueryResult>(`${this.base}/statements/${id}/rows/query`, request, { params: new HttpParams().set('part', part) });
   }
 
   queryStatements(callId: string, request: RecordedQueryRequest): Observable<RecordedQueryResult> {

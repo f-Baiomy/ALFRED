@@ -52,10 +52,22 @@
       </div>
     </div>
     <div class="views">
-      <button type="button" class="on">Statements<span class="count">{{ totalCount() }}</span></button>
+      <button type="button" [class.on]="view() === 'stmts'" (click)="setView('stmts')">Statements<span class="count">{{ totalCount() }}</span></button>
+      @if (call()) {
+        <button type="button" [class.on]="view() === 'tables'" (click)="setView('tables')">Tables<span class="count">{{ tableCount() }}</span></button>
+      }
     </div>
+    @if (view() === 'stmts') {
     <div class="dbw-tools">
-      <input class="dbw-search" placeholder="Search SQL, table or value - e.g. wallet, 1042" [value]="state.search()" (input)="onSearch($event)">
+      @if (call()) {
+        <div class="toggle">
+          <button type="button" [class.on]="searchMode() === 'search'" (click)="setSearchMode('search')">Search</button>
+          <button type="button" [class.on]="searchMode() === 'sql'" (click)="setSearchMode('sql')">SQL</button>
+        </div>
+      }
+      @if (searchMode() === 'search') {
+        <input class="dbw-search" placeholder="Search SQL, table or value - e.g. wallet, 1042" [value]="state.search()" (input)="onSearch($event)">
+      }
       @if (state.table()) {
         <span class="table-chip" (click)="state.table.set('')">table: {{ state.table() }} ✕</span>
       }
@@ -71,10 +83,64 @@
       <button type="button" class="action-btn" (click)="expandAll()">Expand all</button>
       <button type="button" class="action-btn" (click)="collapseAll()">Collapse all</button>
     </div>
+    @if (searchMode() === 'sql') {
+      <div class="stmt-sql">
+        <div class="rq-sql">
+          <textarea rows="2" spellcheck="false" [value]="statementSql()" (input)="statementSql.set($any($event.target).value)" (keydown)="onStatementSqlKey($event)"
+                    placeholder="SELECT * FROM statements WHERE ms > 5 ORDER BY ms DESC"></textarea>
+          <div class="rq-actions">
+            <button type="button" class="action-btn primary" (click)="runStatementSql()">▶ Run</button>
+            <button type="button" class="action-btn" (click)="clearStatementSql()">Clear</button>
+            <span class="rq-hint">Table <code>statements</code>: <code>{{ statementColumns }}</code> · Ctrl+Enter runs</span>
+          </div>
+          <div class="rq-actions">
+            <span class="rq-hint">Try:</span>
+            @for (ex of statementExamples(); track ex.label) {
+              <button type="button" class="loc" (click)="runStatementSql(ex.sql)">{{ ex.label }}</button>
+            }
+          </div>
+        </div>
+      </div>
+    }
+    }
     <div class="dbw-body" (scroll)="onBodyScroll($event)">
+      @if (view() === 'tables') {
+        <p class="dialog-sub" style="margin:.3rem 0 .6rem">What this call read and changed, per table. Click a table to see its statements.</p>
+        @if (tableSummaries(); as tables) {
+          <table class="kvt tbl-view">
+            <tr><th>Table</th><th>Reads</th><th>Inserts</th><th>Updates</th><th>Deleted</th><th>Failed</th><th>Rows read</th><th>Time</th></tr>
+            @for (t of tables; track t.table) {
+              <tr (click)="filterTable(t.table)">
+                <td>{{ t.table }}</td><td>{{ t.reads || '' }}</td><td class="w">{{ t.inserts || '' }}</td><td class="w">{{ t.updates || '' }}</td>
+                <td class="x">{{ t.deletedRows ? t.deletedRows.toLocaleString() + ' rows' : '' }}</td><td class="x">{{ t.failed || '' }}</td>
+                <td>{{ t.rowsRead ? t.rowsRead.toLocaleString() : '' }}</td><td>{{ msText(t.micros) }}</td>
+              </tr>
+            }
+          </table>
+        } @else {
+          <div class="empty">Loading…</div>
+        }
+      } @else {
       @if (state.trace()) {
-        <div class="trace">Tracing <b>{{ state.trace() }}</b> · every place this value appears is highlighted
+        <div class="trace">Tracing <b>{{ state.trace() }}</b> · found in {{ traceHits().length }} place{{ traceHits().length === 1 ? '' : 's' }}, in order:
+          @for (h of traceHits(); track $index) {
+            @if (!$first) {<span style="color:var(--text-faint)">→</span>}
+            <span class="loc" (click)="goTo(h)">{{ h.text }}</span>
+          }
           <button type="button" class="action-btn" style="margin-left:auto" (click)="state.trace.set('')">✕ Stop tracing</button></div>
+      }
+      @if (sqlResult(); as r) {
+        @if (r.error) {
+          <div class="rq-err">✕ {{ r.error }}</div>
+        } @else if (!r.statementSeqs) {
+          <div class="sq-note"><b>{{ r.total }}</b>&nbsp;result rows from <code>statements</code> - a summary, not a list of statements. Add <code>n</code> to the columns to get the statements themselves.
+            <button type="button" class="action-btn" style="margin-left:auto" (click)="clearStatementSql()">Back to all statements</button></div>
+          <table class="kvt"><thead><tr>@for (c of r.columns; track $index) {<th>{{ c }}</th>}</tr></thead>
+            <tbody>@for (row of r.rows; track $index) {<tr>@for (v of row; track $index) {<td (click)="state.toggleTrace(v)">{{ v ?? 'NULL' }}</td>}</tr>}</tbody></table>
+        } @else {
+          <div class="sq-note"><b>{{ r.statementSeqs.length }}</b>&nbsp;{{ sqlOrdered() ? "statements, in the query's order - the tree is flattened because of ORDER BY." : 'statements match - shown in run order, inside their transactions.' }}
+            <button type="button" class="action-btn" style="margin-left:auto" (click)="clearStatementSql()">Back to all statements</button></div>
+        }
       }
       @if (error()) {
         <div class="empty">{{ error() }}</div>
@@ -82,6 +148,10 @@
         <div class="empty">Loading statements…</div>
       } @else if (!statements().length) {
         <div class="empty">{{ call() ? 'The agent saw no database statements for this call.' : 'No statements outside calls.' }}</div>
+      } @else if (sqlResult() && !sqlResult()!.error && !sqlResult()!.statementSeqs) {
+        <!-- a summary query: its table is the answer -->
+      } @else if (sqlOrdered()) {
+        <app-db-statement-list [nodes]="orderedNodes()" (showCall)="showCall($event)" />
       } @else if (call()) {
         <app-db-statement-list [nodes]="tree()" (showCall)="showCall($event)" />
         @if (!shownCount()) {
@@ -96,9 +166,16 @@
       @if (hasMore()) {
         <div class="more">More statements load as you scroll…</div>
       }
+      }
     </div>
     <div class="dbw-foot">
-      <span>Showing {{ shownCount().toLocaleString() }} of {{ totalCount().toLocaleString() }} statements</span>
+      @if (view() === 'stmts') {
+        @if (sqlResult() && !sqlResult()!.error && !sqlResult()!.statementSeqs) {
+          <span>Summary of {{ totalCount().toLocaleString() }} statements</span>
+        } @else {
+          <span>Showing {{ shownCount().toLocaleString() }} of {{ totalCount().toLocaleString() }} statements</span>
+        }
+      }
       <span>· Click any value to trace it · included in this call's .md / .json / .html exports</span>
       <div class="right">
         @if (exportNote()) {<span class="dimtxt">{{ exportNote() }}</span>}

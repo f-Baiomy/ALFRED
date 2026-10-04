@@ -1,4 +1,4 @@
-import { CapturedStatement, DbFlag, NOT_READ_TYPE, TypedValue } from '../../core/models/db-capture.model';
+import { CapturedStatement, NOT_READ_TYPE, TypedValue } from '../../core/models/db-capture.model';
 
 /** How one captured statement reads in the window and in exports: its verb badge, its result line, its time. */
 
@@ -114,21 +114,4 @@ export function codeFileLine(location: string | null | undefined): { readonly fi
   return m ? { file: m[1], line: Number(m[2]) } : null;
 }
 
-export function flagText(flag: DbFlag): string {
-  const d = flag.detail ?? {};
-  const at = (k: string) => (d[k] ? ` · ${d[k]}` : '');
-  switch (flag.type) {
-    case 'NO_WHERE': return `${d['verb'] ?? 'DELETE'} without WHERE${at('table')}${d['rows'] ? ` · ${d['rows']} rows` : ''}`;
-    case 'FAILED_SWALLOWED': return `Failed and swallowed${at('error')}${d['status'] ? ` · call still returned ${d['status']}` : ''}`;
-    case 'FAILED': return `Failed${at('error')}`;
-    case 'ROLLED_BACK': return `Rolled back${at('tx')}`;
-    case 'LOCK_DURING_SUPPLIER_CALL': return `Row lock held during supplier call${at('tx')}${d['ms'] ? ` · ${d['ms']} ms` : ''}`;
-    case 'CASCADE': return `Cascade${d['table'] ? ` · ${d['table']} → ${d['children'] ?? 'children'}` : ''} not visible`;
-    case 'BEFORE_NOT_CAPTURED': return `Not captured${d['count'] ? ` · ${d['count']} writes have no before-image` : ' · no before-image'}`;
-    case 'REPEATED_QUERY': return `${d['cacheable'] === 'true' ? 'Cacheable' : 'N+1'}${at('table')}${d['count'] ? ` ×${d['count']}` : ''}`;
-    case 'SLOW': return `Slow${d['ms'] ? ` · ${d['ms']} ms` : ''}${at('table')}`;
-    case 'HUGE_RESULT': return `Huge result${d['rows'] ? ` · ${d['rows']} rows` : ''}`;
-    case 'LARGE_DELETE': return `Large delete${at('table')}${d['rows'] ? ` · ${d['rows']} rows` : ''}`;
-    default: return flag.type;
-  }
-}
+export { flagText } from './db-flags';

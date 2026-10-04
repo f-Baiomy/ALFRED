@@ -43,6 +43,8 @@ class DbCaptureControllerTest {
     private DeleteCallStatementsUseCase delete;
     @MockBean
     private com.fathy.alfred.backend.dbcapture.application.port.in.ExportCallStatementsUseCase export;
+    @MockBean
+    private com.fathy.alfred.backend.dbcapture.application.port.in.InvestigateCallUseCase investigate;
 
     @Test
     void summariesSplitTheIdListAndAnswerOnlyCapturedCalls() throws Exception {

@@ -35,6 +35,11 @@ public interface DbCaptureStorePort {
 
     void saveFlags(String callId, List<DbFlag> flags);
 
+    /** Records which project a call's statements came from (its agent's), once - settings and flags are per project. */
+    void setCallProject(String callId, String project);
+
+    Optional<String> callProject(String callId);
+
     void markComplete(String callId, boolean endedEarly);
 
     /** Sets {@code swallowed} on every failed statement of the call - decided once the call's own status is known. */
@@ -66,6 +71,9 @@ public interface DbCaptureStorePort {
     List<List<TypedValue>> rows(long statementId, String part, int offset, int limit);
 
     long rowCount(long statementId, String part);
+
+    /** Stored result / before-image cells of a call equal to {@code value} - for value tracing. */
+    List<com.fathy.alfred.backend.dbcapture.domain.model.TraceHit> rowsContaining(String callId, String value, int limit);
 
     /** Removes every statement, row, transaction, marker and summary of these calls. */
     int deleteForCalls(Collection<String> callIds);

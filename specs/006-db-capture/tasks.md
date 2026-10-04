@@ -201,21 +201,21 @@ captured; the switch is unavailable while inbound logging is off; an unattached 
 flag; each flag opens the right statement; a SQL query over statements returns the expected subset; tracing a
 value finds it in params, rows and supplier bodies.
 
-- [ ] T085 [P] [US3] `dbcapture/domain/StatementFlags.java` (all `DbFlagType`s except before-image ones which come in US4; thresholds from settings; expected fingerprints suppressed) + `StatementFlagsTest` over reference recordings (SC-007: present → raised, absent → not)
-- [ ] T086 [US3] Compute flags in ingest/completion into `call_db_summary.flags_json`; `POST /db-capture/projects/{p}/expected`; `LOCK_DURING_SUPPLIER_CALL` uses the call's stored `HTTP_OUT` markers (seq inside an open transaction) - no cross-slice read, correct before the call is opened
-- [ ] T087 [US3] `adapter/out/sqlite/InMemoryQuerySandbox` + `QueryRecordedDataUseCase`: fresh in-memory SQLite per request, one table (`result` or `statements` with columns `n, verb, table, sql, ms, rows, tx, write, failed, offset, code`), `PRAGMA query_only=ON`, single `SELECT`/`WITH` only, `ProgressHandler` 3 s, ≤ 50,000 rows paged, friendly errors (unknown column lists columns); search/sort generate the query
-- [ ] T088 [US3] Endpoints `POST /db-capture/statements/{id}/rows/query`, `POST /db-capture/calls/{id}/statements/query` (returns `statementSeqs` when `n` selected), `GET /db-capture/calls/{id}/trace`, `GET /db-capture/calls/{id}/tables`
-- [ ] T089 [P] [US3] Tests: `InMemoryQuerySandboxTest` (GROUP BY/ORDER BY/LIMIT, rejects INSERT/ATTACH/PRAGMA/multiple statements, timeout, cannot see `db-capture.db`), trace + tables service tests, controller tests
-- [ ] T090 [P] [US3] `components/db-capture/db-flags` + `shared/utils/db-flags.ts` (labels/order/severity as the mock; click → jump: open groups, expand, choose tab, scroll, flash)
-- [ ] T091 [P] [US3] `components/db-capture/db-time-strip` + `shared/utils/db-time-strip.ts` (DB/supplier/failed segments to scale, legend with DB/Suppliers/App ms, click → jump)
-- [ ] T092 [P] [US3] `components/db-capture/db-tables-view` (Table, Reads, Inserts, Updates, Deleted, Failed, Rows read, Time; click → table filter chip in tools)
-- [ ] T093 [US3] `components/db-capture/db-trace-bar` + `shared/utils/db-trace.ts` (+spec): click any value → backend hits + hits in the call's supplier request/response bodies (already loadable) → ordered locations, highlight, jump, ✕ Stop tracing
-- [ ] T094 [US3] Search/SQL toggle in `db-statement-tools` (textarea, ▶ Run, Ctrl+Enter, Clear, column list, "Try:" chips incl. slowest / writes to wallet-style examples / time per table / failed or rolled back / deletes / inside tx / from code) and `db-statement-query-result` (filter tree; flatten on ORDER BY; summary table; Back to all statements; footer "Summary of N statements")
-- [ ] T095 [US3] Search/SQL bar in `db-rows-table` (Search + click-to-sort ▲▼; SQL textarea + "Try:" chips from `shared/utils/db-row-query-examples.ts` built from the result's columns; results in the same fixed box with load-on-scroll; count line "N match · M rows recorded"; errors shown)
-- [ ] T096 [US3] Settings: thresholds, expected and ignore rows editable in `app-db-capture-settings`; agent picks up ignore patterns from heartbeat
-- [ ] T097 [US3] Move the new CSS (flags, strip, trace, rq-*, sq-note, toggle) from the mock into `_db-capture.scss`
-- [ ] T098 [US3] Run suites; manual check against the reference call (SC-006: find the swallowed failure among 200 in < 30 s)
-- [ ] T099 [US3] Commit Phase 5: `feat(db-capture): flags, time strip, value tracing, tables view and SQL over statements and rows`
+- [X] T085 [P] [US3] `dbcapture/domain/StatementFlags.java` (all `DbFlagType`s except before-image ones which come in US4; thresholds from settings; expected fingerprints suppressed) + `StatementFlagsTest` over reference recordings (SC-007: present → raised, absent → not)
+- [X] T086 [US3] Compute flags in ingest/completion into `call_db_summary.flags_json`; `POST /db-capture/projects/{p}/expected`; `LOCK_DURING_SUPPLIER_CALL` uses the call's stored `HTTP_OUT` markers (seq inside an open transaction) - no cross-slice read, correct before the call is opened
+- [X] T087 [US3] `adapter/out/sqlite/InMemoryQuerySandbox` + `QueryRecordedDataUseCase`: fresh in-memory SQLite per request, one table (`result` or `statements` with columns `n, verb, table, sql, ms, rows, tx, write, failed, offset, code`), `PRAGMA query_only=ON`, single `SELECT`/`WITH` only, `ProgressHandler` 3 s, ≤ 50,000 rows paged, friendly errors (unknown column lists columns); search/sort generate the query
+- [X] T088 [US3] Endpoints `POST /db-capture/statements/{id}/rows/query`, `POST /db-capture/calls/{id}/statements/query` (returns `statementSeqs` when `n` selected), `GET /db-capture/calls/{id}/trace`, `GET /db-capture/calls/{id}/tables`
+- [X] T089 [P] [US3] Tests: `InMemoryQuerySandboxTest` (GROUP BY/ORDER BY/LIMIT, rejects INSERT/ATTACH/PRAGMA/multiple statements, timeout, cannot see `db-capture.db`), trace + tables service tests, controller tests
+- [X] T090 [P] [US3] `components/db-capture/db-flags` + `shared/utils/db-flags.ts` (labels/order/severity as the mock; click → jump: open groups, expand, choose tab, scroll, flash)
+- [X] T091 [P] [US3] `components/db-capture/db-time-strip` + `shared/utils/db-time-strip.ts` (DB/supplier/failed segments to scale, legend with DB/Suppliers/App ms, click → jump)
+- [X] T092 [P] [US3] `components/db-capture/db-tables-view` (Table, Reads, Inserts, Updates, Deleted, Failed, Rows read, Time; click → table filter chip in tools)
+- [X] T093 [US3] `components/db-capture/db-trace-bar` + `shared/utils/db-trace.ts` (+spec): click any value → backend hits + hits in the call's supplier request/response bodies (already loadable) → ordered locations, highlight, jump, ✕ Stop tracing
+- [X] T094 [US3] Search/SQL toggle in `db-statement-tools` (textarea, ▶ Run, Ctrl+Enter, Clear, column list, "Try:" chips incl. slowest / writes to wallet-style examples / time per table / failed or rolled back / deletes / inside tx / from code) and `db-statement-query-result` (filter tree; flatten on ORDER BY; summary table; Back to all statements; footer "Summary of N statements")
+- [X] T095 [US3] Search/SQL bar in `db-rows-table` (Search + click-to-sort ▲▼; SQL textarea + "Try:" chips from `shared/utils/db-row-query-examples.ts` built from the result's columns; results in the same fixed box with load-on-scroll; count line "N match · M rows recorded"; errors shown)
+- [X] T096 [US3] Settings: thresholds, expected and ignore rows editable in `app-db-capture-settings`; agent picks up ignore patterns from heartbeat
+- [X] T097 [US3] Move the new CSS (flags, strip, trace, rq-*, sq-note, toggle) from the mock into `_db-capture.scss`
+- [X] T098 [US3] Run suites; manual check against the reference call (SC-006: find the swallowed failure among 200 in < 30 s)
+- [X] T099 [US3] Commit Phase 5: `feat(db-capture): flags, time strip, value tracing, tables view and SQL over statements and rows`
 
 **Checkpoint**: investigation at real volume.
 

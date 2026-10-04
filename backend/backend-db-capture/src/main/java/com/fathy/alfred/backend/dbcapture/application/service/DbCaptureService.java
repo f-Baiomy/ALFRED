@@ -66,6 +66,9 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         for (Map.Entry<String, Integer> entry : lastSeqByCall.entrySet()) {
             store.refreshTransactions(entry.getKey());
             store.refreshSummary(entry.getKey());
+            if (batch.project() != null && !batch.project().isBlank()) {
+                store.setCallProject(entry.getKey(), batch.project());
+            }
         }
         store.addDropped(batch.droppedByCall());
         for (String callId : lastSeqByCall.keySet()) {

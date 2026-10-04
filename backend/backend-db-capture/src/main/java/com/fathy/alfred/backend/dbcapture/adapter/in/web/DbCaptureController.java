@@ -5,6 +5,11 @@ import com.fathy.alfred.backend.dbcapture.application.port.in.ExportCallStatemen
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetCallDbSummariesUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetCallStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetStatementUseCase;
+import com.fathy.alfred.backend.dbcapture.application.port.in.InvestigateCallUseCase;
+import com.fathy.alfred.backend.dbcapture.domain.model.RecordedQueryRequest;
+import com.fathy.alfred.backend.dbcapture.domain.model.RecordedQueryResult;
+import com.fathy.alfred.backend.dbcapture.domain.model.TableSummary;
+import com.fathy.alfred.backend.dbcapture.domain.model.TraceHit;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbCaptureExport;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallStatementsPage;
@@ -33,14 +38,39 @@ public class DbCaptureController {
     private final GetStatementUseCase statement;
     private final DeleteCallStatementsUseCase delete;
     private final ExportCallStatementsUseCase export;
+    private final InvestigateCallUseCase investigate;
 
     public DbCaptureController(GetCallDbSummariesUseCase summaries, GetCallStatementsUseCase statements, GetStatementUseCase statement,
-                               DeleteCallStatementsUseCase delete, ExportCallStatementsUseCase export) {
+                               DeleteCallStatementsUseCase delete, ExportCallStatementsUseCase export, InvestigateCallUseCase investigate) {
         this.summaries = summaries;
         this.statements = statements;
         this.statement = statement;
         this.delete = delete;
         this.export = export;
+        this.investigate = investigate;
+    }
+
+    /** Search or SQL over one statement's stored rows (table {@code result}) - recorded data only. */
+    @PostMapping("/db-capture/statements/{id}/rows/query")
+    public ResponseEntity<RecordedQueryResult> queryRows(@PathVariable long id, @RequestParam(defaultValue = "RESULT") String part,
+                                                         @RequestBody RecordedQueryRequest request) {
+        return investigate.queryRows(id, part, request).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Search or SQL over a call's statements (table {@code statements}); {@code statementSeqs} when {@code n} is selected. */
+    @PostMapping("/db-capture/calls/{callId}/statements/query")
+    public RecordedQueryResult queryStatements(@PathVariable String callId, @RequestBody RecordedQueryRequest request) {
+        return investigate.queryStatements(callId, request);
+    }
+
+    @GetMapping("/db-capture/calls/{callId}/trace")
+    public Map<String, List<TraceHit>> trace(@PathVariable String callId, @RequestParam String value) {
+        return Map.of("hits", investigate.trace(callId, value));
+    }
+
+    @GetMapping("/db-capture/calls/{callId}/tables")
+    public List<TableSummary> tables(@PathVariable String callId) {
+        return investigate.tables(callId);
     }
 
     /** Every statement of a call with every stored row - what a .json/.md/.html export embeds. 404 when not captured. */
