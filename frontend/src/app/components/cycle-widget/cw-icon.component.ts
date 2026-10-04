@@ -21,7 +21,8 @@ export type CwIconName =
   | 'bolt'
   | 'check'
   | 'copy'
-  | 'flag';
+  | 'flag'
+  | 'trash';
 
 /**
  * The widget's handful of line icons, inline SVG. Alfred has no icon font, and the widget also runs
@@ -127,6 +128,13 @@ export type CwIconName =
         @case ('flag') {
           <path d="M4 22V4" />
           <path d="M4 4h13l-2.5 4.5L17 13H4" />
+        }
+        @case ('trash') {
+          <path d="M3 6h18" />
+          <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
         }
       }
     </svg>

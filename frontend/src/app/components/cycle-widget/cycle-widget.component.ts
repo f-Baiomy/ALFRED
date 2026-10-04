@@ -56,13 +56,14 @@ export class CycleWidgetComponent implements OnDestroy {
   readonly newError = signal<string | null>(null);
   readonly busy = signal(false);
   /** What's open under the collapsed pill - the window grows to fit it, and shrinks back when it closes. */
-  readonly pillPanel = signal<'list' | 'new' | 'spacer' | null>(null);
+  readonly pillPanel = signal<'list' | 'new' | 'spacer' | 'clear' | null>(null);
   readonly cycleSorts = WIDGET_CYCLE_SORTS;
   /** A short confirmation the minimized status line shows in place of its summary ("Spacer added"). */
   readonly statusNote = signal<string | null>(null);
   private statusNoteTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly pillSpacer = viewChild<ElementRef<HTMLInputElement>>('pillSpacer');
   private readonly pillName = viewChild<ElementRef<HTMLInputElement>>('pillName');
+  private readonly clearCancel = viewChild<ElementRef<HTMLButtonElement>>('clearCancel');
 
   readonly toast = signal<ToastView | null>(null);
   readonly toastVisible = signal(false);
@@ -205,13 +206,33 @@ export class CycleWidgetComponent implements OnDestroy {
 
   // ---- header panels, expand/minimize ----
 
-  togglePillPanel(panel: 'list' | 'new' | 'spacer'): void {
+  togglePillPanel(panel: 'list' | 'new' | 'spacer' | 'clear'): void {
     const next = this.pillPanel() === panel ? null : panel;
     this.pillPanel.set(next);
     this.newError.set(null);
     this.sourcesOpen.set(false);
     if (next === 'new') afterNextRender(() => this.pillName()?.nativeElement.focus(), { injector: this.injector });
     if (next === 'spacer') afterNextRender(() => this.pillSpacer()?.nativeElement.focus(), { injector: this.injector });
+    // Cancel takes the focus: Enter or Space straight after opening the warning never clears anything.
+    if (next === 'clear') afterNextRender(() => this.clearCancel()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  /** The warning's own button: deletes the selected cycle's calls and spacers. */
+  clearAll(): void {
+    const name = this.cycle()?.name;
+    if (this.busy() || !name) return;
+    this.busy.set(true);
+    this.state.clearCalls().subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.pillPanel.set(null);
+        this.flashStatus(`Cleared every call in "${name}"`);
+      },
+      error: () => {
+        this.busy.set(false);
+        this.newError.set("Couldn't clear the calls. Try again.");
+      },
+    });
   }
 
   // ---- spacers ----

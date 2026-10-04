@@ -54,6 +54,16 @@
         >
           <app-cw-icon name="flag" />
         </button>
+        <button
+          type="button"
+          class="cw-ib cw-ib-danger"
+          [class.active]="pillPanel() === 'clear'"
+          (click)="togglePillPanel('clear')"
+          aria-label="Clear all calls"
+          title="Clear all calls in this cycle"
+        >
+          <app-cw-icon name="trash" />
+        </button>
         @if (win.collapsed()) {
           @if (recording()) {
             <button type="button" class="cw-ib" (click)="toggleRecording()" [disabled]="busy()" aria-label="Pause recording" title="Pause recording">
@@ -152,6 +162,24 @@
             </button>
           }
         </div>
+      </div>
+    } @else if (pillPanel() === 'clear' && cycle()) {
+      <div class="cw-pill-panel cw-clear" role="alertdialog" aria-labelledby="cw-clear-title" aria-describedby="cw-clear-text">
+        <div id="cw-clear-title" class="cw-clear-title">Clear all calls in "{{ cycle()?.name }}"?</div>
+        <div id="cw-clear-text" class="cw-hint">
+          Deletes its {{ state.calls().length }} captured call{{ state.calls().length === 1 ? '' : 's' }}
+          @if (state.spacers().length) {
+            and {{ state.spacers().length }} spacer{{ state.spacers().length === 1 ? '' : 's' }}
+          }
+          for everyone. This can't be undone. The cycle stays{{ recording() ? ' and keeps recording' : '' }}.
+        </div>
+        <div class="cw-new-row cw-clear-actions">
+          <button #clearCancel type="button" class="cw-secondary" (click)="pillPanel.set(null)">Cancel</button>
+          <button type="button" class="cw-danger" [disabled]="busy()" (click)="clearAll()">Clear all</button>
+        </div>
+        @if (newError(); as err) {
+          <div class="cw-error">{{ err }}</div>
+        }
       </div>
     } @else if (pillPanel() === 'spacer') {
       <form class="cw-pill-panel cw-new-form" (submit)="$event.preventDefault(); addSpacerFromPill(pillSpacer.value)">

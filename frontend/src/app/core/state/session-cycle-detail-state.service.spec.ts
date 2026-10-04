@@ -1,12 +1,17 @@
 import { TestBed, fakeAsync, tick, discardPeriodicTasks } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
-import { Observable, of, throwError } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
+import { SessionCyclesStateService } from './session-cycles-state.service';
 import { SessionCycleDetailStateService } from './session-cycle-detail-state.service';
 import { SessionCyclesApiService } from '../services/session-cycles-api.service';
 import { InternalCallServiceDto, InternalLoggingApiService } from '../services/internal-logging-api.service';
 import { CallEndpointSource, CallRecord, CallSummaryDto, CapturedCall } from '../models/call.model';
 import { CycleSpacer } from './call-selection.tokens';
 import { CallsQuery } from './call-list-view';
+
+/** The /ws/session-cycles "cycle-content-changed" signal, driven by hand (no real socket in a unit test). */
+const contentChanged = new Subject<string>();
+const CYCLES_STATE_STUB = { provide: SessionCyclesStateService, useValue: { contentChanged$: contentChanged } };
 
 const PIN_STORAGE_KEY = 'alfred_pinned_calls';
 
@@ -93,6 +98,7 @@ function setupWithSources(
     providers: [
       SessionCycleDetailStateService,
       { provide: SessionCyclesApiService, useValue: apiStub },
+      CYCLES_STATE_STUB,
       { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
       { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id: 'cycle-1' })) } },
     ],
@@ -207,6 +213,23 @@ describe('SessionCycleDetailStateService', () => {
     discardPeriodicTasks();
   }));
 
+  it('reloads when this cycle is cleared or changed elsewhere (the widget, another tab), and ignores other cycles', fakeAsync(() => {
+    const call = makeCall({ id: 'call-1' });
+    const { state, listCalls } = setupWithSources([makeCaptured(call)], []);
+    tick();
+    expect(state.calls().length).toBe(1);
+    listCalls.length = 0;
+
+    contentChanged.next('another-cycle');
+    tick();
+    expect(listCalls.length).toBe(0);
+
+    contentChanged.next('cycle-1');
+    tick();
+    expect(listCalls.length).toBeGreaterThan(0);
+    discardPeriodicTasks();
+  }));
+
   it('clearAllCalls hits the clear endpoint for this cycle, clears the selection, and re-fetches from scratch', fakeAsync(() => {
     const call = makeCall({ id: 'call-1' });
     const { state, clearCalls, listCalls } = setupWithSources([makeCaptured(call)], []);
@@ -277,6 +300,7 @@ function setupForSpacers(initialSpacers: CycleSpacer[] = []): {
     providers: [
       SessionCycleDetailStateService,
       { provide: SessionCyclesApiService, useValue: apiStub },
+      CYCLES_STATE_STUB,
       { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
       { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id: 'cycle-1' })) } },
     ],
@@ -406,7 +430,8 @@ describe('SessionCycleDetailStateService initial fetch', () => {
       providers: [
         SessionCycleDetailStateService,
         { provide: SessionCyclesApiService, useValue: apiStub },
-        { provide: InternalLoggingApiService, useValue: internalLogging },
+        CYCLES_STATE_STUB,
+      { provide: InternalLoggingApiService, useValue: internalLogging },
         { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id: 'cycle-1' })) } },
       ],
     });

@@ -286,6 +286,24 @@ export class CycleWidgetStateService {
     writeStorage(CALL_ORDER_KEY, order);
   }
 
+  /**
+   * Deletes every captured call (outbound and inbound) and spacer of the selected cycle - the same
+   * "Clear all calls" the cycle's page has. The cycle itself, its name and its recording state stay.
+   * Other views of the cycle reload from the cycle-content-changed signal.
+   */
+  clearCalls(): Observable<void> {
+    const id = this.selectedCycle()?.id;
+    if (!id) return of(undefined);
+    return this.api.clearCalls(id).pipe(
+      map(() => {
+        if (this.selectedCycle()?.id === id) {
+          this.calls.set([]);
+          this.spacers.set([]);
+        }
+      })
+    );
+  }
+
   // ---- spacers ----
 
   /**

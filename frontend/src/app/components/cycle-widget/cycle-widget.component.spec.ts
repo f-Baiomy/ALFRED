@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
-import { computed, signal } from '@angular/core';
+import { ApplicationRef, computed, signal } from '@angular/core';
 import { Subject, of } from 'rxjs';
 import { CycleWidgetComponent, relativeTime } from './cycle-widget.component';
 import { CycleWidgetStateService, WidgetArrival, WidgetSource } from '../../core/state/cycle-widget-state.service';
@@ -88,6 +88,7 @@ describe('CycleWidgetComponent', () => {
       addSpacer: jasmine.createSpy('addSpacer').and.returnValue(of({ id: 's', label: 'x' })),
       renameSpacer: jasmine.createSpy('renameSpacer'),
       deleteSpacer: jasmine.createSpy('deleteSpacer'),
+      clearCalls: jasmine.createSpy('clearCalls').and.returnValue(of(undefined)),
       activate: jasmine.createSpy('activate'),
       deactivate: jasmine.createSpy('deactivate'),
     };
@@ -246,6 +247,34 @@ describe('CycleWidgetComponent', () => {
       tick(2600);
     }));
 
+    it('clears every call of the cycle only after its warning is confirmed', fakeAsync(() => {
+      collapse();
+      el('.cw-pill button[aria-label="Clear all calls"]')!.click();
+      fixture.detectChanges();
+      TestBed.inject(ApplicationRef).tick(); // runs the afterNextRender that moves the focus
+      tick();
+      const panel = el('.cw-pill-panel.cw-clear')!;
+      expect(panel.getAttribute('role')).toBe('alertdialog');
+      expect(panel.textContent).toContain("can't be undone");
+      // Nothing is cleared by opening it, and Cancel holds the focus.
+      expect(state['clearCalls']).not.toHaveBeenCalled();
+      expect(document.activeElement!.textContent!.trim()).toBe('Cancel');
+
+      (Array.from(panel.querySelectorAll('button')) as HTMLButtonElement[]).find((b) => b.textContent!.trim() === 'Cancel')!.click();
+      fixture.detectChanges();
+      expect(el('.cw-pill-panel')).toBeNull();
+      expect(state['clearCalls']).not.toHaveBeenCalled();
+
+      el('.cw-pill button[aria-label="Clear all calls"]')!.click();
+      fixture.detectChanges();
+      el('.cw-pill-panel .cw-danger')!.click();
+      fixture.detectChanges();
+      expect(state['clearCalls']).toHaveBeenCalledTimes(1);
+      expect(el('.cw-pill-panel')).toBeNull();
+      expect(el('.cw-pill-idle')!.textContent).toContain('Cleared every call');
+      tick(2600);
+    }));
+
     it('sorts the cycle list from the list itself', () => {
       collapse();
       el('.cw-pill-name')!.click();
@@ -258,7 +287,7 @@ describe('CycleWidgetComponent', () => {
     it('groups the header: cycles on the left, this recording in the middle, the window at the end', () => {
       collapse();
       const labels = [...fixture.nativeElement.querySelectorAll('.cw-pill > button')].map((b: Element) => b.getAttribute('aria-label') ?? 'cycle');
-      expect(labels).toEqual(['New cycle', 'cycle', 'Add spacer', 'Pause recording', 'Stop keeping on top', 'Expand']);
+      expect(labels).toEqual(['New cycle', 'cycle', 'Add spacer', 'Clear all calls', 'Pause recording', 'Stop keeping on top', 'Expand']);
       // + leads, left of the cycle picker; Add spacer is on the far side of the flexible gap.
       expect(el('.cw-pill')!.firstElementChild!.getAttribute('aria-label')).toBe('New cycle');
       expect(el('.cw-pill .cw-pill-name')!.nextElementSibling!.classList).toContain('cw-spacer');

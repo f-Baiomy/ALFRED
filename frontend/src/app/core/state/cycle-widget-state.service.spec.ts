@@ -55,7 +55,7 @@ function setup(cycles: SessionCycle[], calls: { external?: CallRecord[]; interna
     ['refreshNow', 'create', 'startRecording', 'pauseRecording', 'bulkPauseRecording'],
     { cycles: cyclesSignal }
   );
-  const api = jasmine.createSpyObj<SessionCyclesApiService>('SessionCyclesApiService', ['listCalls', 'listSpacers', 'createSpacer', 'renameSpacer', 'deleteSpacer']);
+  const api = jasmine.createSpyObj<SessionCyclesApiService>('SessionCyclesApiService', ['listCalls', 'listSpacers', 'createSpacer', 'renameSpacer', 'deleteSpacer', 'clearCalls']);
   api.listSpacers.and.returnValue(of([{ id: 's1', label: 'Login done', afterCallId: null, anchorTimestamp: null }]));
   api.createSpacer.and.callFake((_id, label, afterCallId, anchorTimestamp) => of({ id: 'new', label, afterCallId, anchorTimestamp }));
   api.renameSpacer.and.callFake((_id, spacerId, label) => of({ id: spacerId, label }));
@@ -126,6 +126,17 @@ describe('CycleWidgetStateService', () => {
     changed('another-cycle');
     expect(state.calls().length).toBe(2);
     changed('c1');
+    expect(state.calls()).toEqual([]);
+    expect(state.spacers()).toEqual([]);
+  });
+
+  it('clears every call and spacer of the selected cycle', () => {
+    const { state, api } = setup([cycle({ id: 'c1' })], { external: [call('a', 'external', {}, 0)] });
+    api.clearCalls.and.returnValue(of(undefined));
+    load(state);
+    expect(state.calls().length).toBe(1);
+    state.clearCalls().subscribe();
+    expect(api.clearCalls).toHaveBeenCalledWith('c1');
     expect(state.calls()).toEqual([]);
     expect(state.spacers()).toEqual([]);
   });

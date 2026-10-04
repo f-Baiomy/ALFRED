@@ -1,5 +1,5 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { Observable, Subscription, forkJoin, map, of, tap } from 'rxjs';
 import {
@@ -22,6 +22,7 @@ import { InternalCallServiceDto, InternalLoggingApiService } from '../services/i
 import { BulkSelectionState, CallListControlsState, CallReorderState, CallRemovalState, CallSelectionState, CycleSpacer } from './call-selection.tokens';
 import { CallListView, CallOverlapQuery, CallStatusFilter, CallsPageResult, CallsQuery, InterceptionFilter, ResendFilter, createCallListView } from './call-list-view';
 import { reconnectingSocket } from './reconnecting-socket';
+import { SessionCyclesStateService } from './session-cycles-state.service';
 import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
 
@@ -104,6 +105,12 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       fetchPage: (query) => this.fetchPageForSource(query),
       fetchOverlaps: (query) => this.fetchOverlapsForSource(query),
     });
+
+    // This cycle's calls or spacers changed somewhere else - the session-cycle widget (often in its
+    // own window), another tab or another user cleared, removed, copied in or re-spaced them.
+    inject(SessionCyclesStateService)
+      .contentChanged$.pipe(takeUntilDestroyed())
+      .subscribe((cycleId) => this.onCycleContentChanged(cycleId));
 
     // A different cycle is an entirely different data source, not just a query change - clears
     // everything loaded so far (including the id lookup) and refetches page one, rather than
@@ -479,6 +486,18 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         this.spacers.set([]);
       })
     );
+  }
+
+  /**
+   * Reloads the page and the spacers when the change was to this cycle. The live-push buffer is
+   * emptied first: a call cleared or removed elsewhere would otherwise be spliced back in from it
+   * (see removeCall's doc). A change this page made itself arrives here too, which costs one refetch.
+   */
+  private onCycleContentChanged(cycleId: string): void {
+    if (cycleId !== this.cycleId()) return;
+    this.liveCalls.set([]);
+    this.view.refresh();
+    this.reloadSpacers();
   }
 
   /** Re-fetches this cycle's spacers from the backend - used after removing calls, since a spacer anchored to a removed call is repointed server-side (see CycleSpacersStorePort.dropAnchorsTo) and the local signal has no way to derive that on its own. */
