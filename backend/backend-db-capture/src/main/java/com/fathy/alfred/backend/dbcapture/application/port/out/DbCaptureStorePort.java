@@ -1,0 +1,85 @@
+package com.fathy.alfred.backend.dbcapture.application.port.out;
+
+import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
+import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
+import com.fathy.alfred.backend.dbcapture.domain.model.Column;
+import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
+import com.fathy.alfred.backend.dbcapture.domain.model.DbFlag;
+import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
+import com.fathy.alfred.backend.dbcapture.domain.model.StatementTransaction;
+import com.fathy.alfred.backend.dbcapture.domain.model.TypedValue;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+/** Everything database capture keeps (db-capture.db). Every list read is windowed; rows are paged. */
+public interface DbCaptureStorePort {
+
+    /** Saves new statements (ignoring sids already stored) and appends continuation rows. Returns how many were new. */
+    int saveStatements(List<IncomingStatement> statements);
+
+    void saveMarkers(List<CallMarker> markers);
+
+    void addDropped(Map<String, Long> droppedByCall);
+
+    /** Marks every statement of a rolled-back transaction as undone and upserts the transaction rows of these calls. */
+    void refreshTransactions(String callId);
+
+    /** Recounts a call's summary from its stored statements (creating it if a marker or statement exists). */
+    void refreshSummary(String callId);
+
+    void saveFlags(String callId, List<DbFlag> flags);
+
+    void markComplete(String callId, boolean endedEarly);
+
+    Map<String, CallDbSummary> summaries(Collection<String> callIds);
+
+    Optional<CallDbSummary> summary(String callId);
+
+    /** A call's statements after {@code afterSeq}, in order - full records without rows. */
+    List<CapturedStatement> statementsAfter(String callId, int afterSeq, int limit);
+
+    /** Every statement of a call, in order - used by flag computation and queries; bounded by the caller's limit. */
+    List<CapturedStatement> allStatements(String callId, int limit);
+
+    List<CapturedStatement> outsideStatements(String thread, int offset, int limit);
+
+    List<StatementTransaction> transactions(String callId);
+
+    List<CallMarker> markers(String callId);
+
+    Optional<CapturedStatement> statement(long id);
+
+    List<Column> columns(long statementId, String part);
+
+    List<List<TypedValue>> rows(long statementId, String part, int offset, int limit);
+
+    long rowCount(long statementId, String part);
+
+    /** Removes every statement, row, transaction, marker and summary of these calls. */
+    int deleteForCalls(Collection<String> callIds);
+
+    void deleteAllCallStatements();
+
+    /** Bytes used, for the size cap. */
+    long totalBytes();
+
+    /** Oldest-first call ids for eviction, skipping {@code keep}. */
+    List<String> oldestCallIds(int limit, Set<String> keep);
+
+    /** Removes outside-call statements older than {@code beforeInstant}, or the oldest ones past {@code maxBytes}. */
+    void trimOutside(String beforeInstant, long maxBytes);
+
+    DbCaptureSettings settings(String project);
+
+    void saveSettings(String project, DbCaptureSettings settings);
+
+    void saveAgent(AgentStatus status);
+
+    List<AgentStatus> agents();
+}

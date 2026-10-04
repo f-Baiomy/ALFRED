@@ -256,4 +256,31 @@ class HexagonalArchitectureTest {
                         "..backend.relive..")
                 .check(classes);
     }
+
+    // dbcapture is a leaf slice: it stores what the db-agent records inside the application, keyed by the inbound
+    // call id as a plain string. Where it must cooperate with other slices (calls retained by session/Relive cycles,
+    // deleting statements with their call, inbound completion), backend-app bridges through its ports.
+    @Test
+    void dbCaptureSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.dbcapture..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..", "..backend.logs..")
+                .check(classes);
+    }
+
+    @Test
+    void noOtherSliceDependsOnDbCapture() {
+        noClasses().that().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..", "..backend.logs..")
+                .should().dependOnClassesThat().resideInAPackage("..backend.dbcapture..")
+                .check(classes);
+    }
 }

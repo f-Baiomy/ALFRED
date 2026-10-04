@@ -398,6 +398,14 @@ public class SqliteCallsRepository {
         if (!columns.contains("reached_upstream")) {
             jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN reached_upstream INTEGER");
         }
+        // The exact parent inbound call and order, from the db-agent's X-Alfred-Parent header (docs/db-capture.md).
+        // Known at prepare time, written by the initial INSERT like relive_json.
+        if (!columns.contains("parent_call_id")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN parent_call_id TEXT");
+        }
+        if (!columns.contains("parent_seq")) {
+            jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN parent_seq INTEGER");
+        }
     }
 
     /** {@code service_name} postdates even session_id/operation_id - added explicitly via ALTER TABLE for a database created before this field existed, same pattern as {@link #addSessionOperationColumnsIfMissing}. */
@@ -539,8 +547,9 @@ public class SqliteCallsRepository {
     private static final String INSERT_METADATA_SQL = """
             INSERT INTO call_metadata (id, original_url, url, method, timestamp, timestamp_millis, duration_ms,
                                status, status_rank, supplier, supplier_name, error, haystack, status_state, request_haystack,
-                               session_id, operation_id, service_name, resend_of, resend_edits, relive_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                               session_id, operation_id, service_name, resend_of, resend_edits, relive_json,
+                               parent_call_id, parent_seq)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
 
     private static final String INSERT_REQUEST_SQL = "INSERT INTO call_request (call_id, headers, body) VALUES (?,?,?)";
@@ -587,6 +596,12 @@ public class SqliteCallsRepository {
         ps.setString(19, normalized.resendOf());
         ps.setString(20, writeJson(normalized.resendEdits()));
         ps.setString(21, writeJson(normalized.relive()));
+        ps.setString(22, normalized.parentCallId());
+        if (normalized.parentSeq() != null) {
+            ps.setInt(23, normalized.parentSeq());
+        } else {
+            ps.setNull(23, Types.INTEGER);
+        }
     }
 
     /** Binds one call's request-table row - always inserted (headers/body null if there is no request data). */
@@ -810,7 +825,7 @@ public class SqliteCallsRepository {
      * The row itself is unchanged; GET /calls/{id}/interception reads the full document.
      */
     private static final String SUMMARY_SQL =
-            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, json_remove(interception, '$.originalRequest.body', '$.originalResponse.body', '$.finalRequest.body', '$.finalResponse.body') AS interception, resend_of, resend_edits, relive_json, reached_upstream FROM ";
+            "SELECT id, original_url, url, method, timestamp, duration_ms, status, error, supplier_name, status_state, session_id, operation_id, service_name, connect_ms, tls_ms, ttfb_ms, download_ms, reused_connection, json_remove(interception, '$.originalRequest.body', '$.originalResponse.body', '$.finalRequest.body', '$.finalResponse.body') AS interception, resend_of, resend_edits, relive_json, reached_upstream, parent_call_id, parent_seq FROM ";
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
@@ -1105,7 +1120,7 @@ public class SqliteCallsRepository {
             SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                    cm.session_id, cm.operation_id, cm.service_name,
                    cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
-                   cm.resend_of, cm.resend_edits, cm.relive_json, cm.reached_upstream,
+                   cm.resend_of, cm.resend_edits, cm.relive_json, cm.reached_upstream, cm.parent_call_id, cm.parent_seq,
                    cr.headers AS request_headers, cr.body AS request_body,
                    cp.headers AS response_headers, cp.body AS response_body
             FROM call_metadata cm
@@ -1132,7 +1147,7 @@ public class SqliteCallsRepository {
                 SELECT cm.id, cm.original_url, cm.url, cm.method, cm.timestamp, cm.duration_ms, cm.status, cm.error, cm.status_state,
                        cm.session_id, cm.operation_id, cm.service_name,
                        cm.connect_ms, cm.tls_ms, cm.ttfb_ms, cm.download_ms, cm.reused_connection, cm.interception,
-                       cm.resend_of, cm.resend_edits, cm.relive_json, cm.reached_upstream,
+                       cm.resend_of, cm.resend_edits, cm.relive_json, cm.reached_upstream, cm.parent_call_id, cm.parent_seq,
                        cr.headers AS request_headers, cr.body AS request_body,
                        cp.headers AS response_headers, cp.body AS response_body
                 FROM call_metadata cm
@@ -1304,7 +1319,9 @@ public class SqliteCallsRepository {
                 rs.getString("resend_of"),
                 resendEditsOf(rs),
                 reliveOf(rs),
-                reachedUpstreamOf(rs));
+                reachedUpstreamOf(rs),
+                rs.getString("parent_call_id"),
+                parentSeqOf(rs));
     };
 
     /** Reads a row of the OLD (pre-split) single-table {@code calls} shape - used only by {@link #migrateLegacySingleTableIfPresent}. That legacy table predates service_name entirely (it predates even session_id/operation_id), so this always passes null for it rather than reading a column that was never added to {@code calls}. */
@@ -1405,7 +1422,9 @@ public class SqliteCallsRepository {
                 rs.getString("resend_of"),
                 resendEditsOf(rs),
                 reliveOf(rs),
-                reachedUpstreamOf(rs));
+                reachedUpstreamOf(rs),
+                rs.getString("parent_call_id"),
+                parentSeqOf(rs));
     };
 
     /**
@@ -1484,6 +1503,11 @@ public class SqliteCallsRepository {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             return null;
         }
+    }
+
+    private static Integer parentSeqOf(ResultSet rs) throws SQLException {
+        Object value = rs.getObject("parent_seq");
+        return value == null ? null : rs.getInt("parent_seq");
     }
 
     private static Boolean reachedUpstreamOf(ResultSet rs) throws SQLException {

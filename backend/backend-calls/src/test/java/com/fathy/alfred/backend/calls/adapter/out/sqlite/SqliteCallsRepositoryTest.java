@@ -96,6 +96,24 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
+    void theDbAgentParentLinkRoundTripsThroughDetailAndSummary() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord c = call("https://pay.supplier.com/v1/charge", "2026-10-04T18:02:43Z", 310.0, 200, null);
+        CallRecord linked = new CallRecord(c.id(), c.originalUrl(), c.url(), c.method(), c.request(), c.timestamp(), c.durationMs(),
+                c.response(), c.error(), c.state(), null, null, null, null, null, null, null, null, null, "inbound-1", 18);
+        CallRecord unlinked = call("https://other.com/x", "2026-10-04T18:02:44Z", 1.0, 200, null);
+        repo.save(linked);
+        repo.save(unlinked);
+
+        assertThat(repo.findById(linked.id()).orElseThrow().parentCallId()).isEqualTo("inbound-1");
+        assertThat(repo.findById(linked.id()).orElseThrow().parentSeq()).isEqualTo(18);
+        assertThat(repo.findById(unlinked.id()).orElseThrow().parentSeq()).isNull();
+        assertThat(repo.query("", "", "oldest", 0, 50, true, "", "", "", "").items())
+                .extracting(CallSummary::parentCallId, CallSummary::parentSeq)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("inbound-1", 18), org.assertj.core.groups.Tuple.tuple(null, null));
+    }
+
+    @Test
     void saveThenFindByIdRoundTrips() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
         CallRecord call = call("https://a.com/x", "t", 42.0, 200, null);

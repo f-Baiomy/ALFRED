@@ -22,6 +22,9 @@ import com.fathy.alfred.backend.calls.domain.model.RequestData;
  * {@code relive} is the relive attribution ALFRED's own proxy addon computed for this call at
  * request time (research D2.3/FR-050a) - present only while a relive run is active for this call's
  * project; opaque to this DTO, forwarded verbatim into CallRecord.relive.
+ * {@code parentCallId}/{@code parentSeq} come from the X-Alfred-Parent header the db-agent adds inside the
+ * application and the proxy pops (docs/db-capture.md) - present only for a supplier call made while the agent was
+ * tracking an inbound call.
  */
 public record PrepareCallRequestDto(
         String id,
@@ -35,6 +38,8 @@ public record PrepareCallRequestDto(
         @JsonProperty("service_name") String serviceName,
         @JsonProperty("resend_of") String resendOf,
         @JsonProperty("resend_edits") Object resendEdits,
-        JsonNode relive
+        JsonNode relive,
+        @JsonProperty("parent_call_id") String parentCallId,
+        @JsonProperty("parent_seq") Integer parentSeq
 ) {
 }

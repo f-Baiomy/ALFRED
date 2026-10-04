@@ -19,12 +19,29 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.release>8</maven.compiler.release>
+    <!-- Java 8 bytecode either way: release=8 on a modern JDK (jdk9plus profile), source/target 1.8 on JDK 8 itself,
+         which is how the agent's tests are also run on the Java version the owner's applications use. -->
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
     <bytebuddy.version>1.15.10</bytebuddy.version>
     <junit.version>5.10.2</junit.version>
     <assertj.version>3.25.3</assertj.version>
     <h2.version>2.2.224</h2.version>
+    <!-- Java 21 warns about (and will one day refuse) agents loaded into a running JVM unless told it is wanted;
+         Java 8 does not know the flag and would refuse to start - see the jdk9plus profile. -->
+    <dynamicAgentFlag></dynamicAgentFlag>
   </properties>
+
+  <profiles>
+    <profile>
+      <id>jdk9plus</id>
+      <activation><jdk>[9,)</jdk></activation>
+      <properties>
+        <dynamicAgentFlag>-XX:+EnableDynamicAgentLoading</dynamicAgentFlag>
+        <maven.compiler.release>8</maven.compiler.release>
+      </properties>
+    </profile>
+  </profiles>
 
   <dependencies>
     <dependency>
@@ -52,6 +69,12 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>javax.servlet</groupId>
+      <artifactId>javax.servlet-api</artifactId>
+      <version>4.0.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy-agent</artifactId>
       <version>${bytebuddy.version}</version>
@@ -73,7 +96,11 @@
         <version>3.2.5</version>
         <configuration>
           <!-- The tests install the agent into this very JVM through ByteBuddyAgent (self-attach). -->
-          <argLine>-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading</argLine>
+          <argLine>-Djdk.attach.allowAttachSelf=true ${dynamicAgentFlag}</argLine>
+          <includes>
+            <include>**/*Test.java</include>
+            <include>**/*IT.java</include>
+          </includes>
         </configuration>
       </plugin>
       <plugin>

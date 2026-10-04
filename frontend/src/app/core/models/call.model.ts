@@ -103,6 +103,13 @@ export interface CallRecord {
   readonly source?: CallEndpointSource;
   /** Present only for a call Relive attributed or blocked - see ReliveCallTag. */
   readonly relive?: ReliveCallTag | null;
+  /**
+   * The inbound call this outbound call was made while handling, and its place in that call's sequence of
+   * database statements and supplier calls - set from the db-agent's X-Alfred-Parent header (docs/db-capture.md).
+   * Exact; when present the call tree uses it instead of guessing the parent from time windows.
+   */
+  readonly parentCallId?: string | null;
+  readonly parentSeq?: number | null;
 }
 
 /**
@@ -145,6 +152,9 @@ export interface CallSummaryDto {
   readonly resend_edits?: Record<string, unknown> | null;
   /** Present only for a call Relive attributed or blocked - see CallRecord.relive. */
   readonly relive?: ReliveCallTag | null;
+  /** See CallRecord.parentCallId. */
+  readonly parent_call_id?: string | null;
+  readonly parent_seq?: number | null;
 }
 
 /** Set by the proxy addons when a call was attributed to (or blocked as ambiguous for) an active

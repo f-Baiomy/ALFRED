@@ -67,8 +67,24 @@ public record CallRecord(
          */
         JsonNode relive,
         /** Whether this call actually reached a real external system (vs. answered by a rule/mock) - null when unknown/not measured (a call logged before this field existed). Drives Relive's Live-calls log (FR-015b). */
-        @JsonProperty("reached_upstream") Boolean reachedUpstream
+        @JsonProperty("reached_upstream") Boolean reachedUpstream,
+        /**
+         * The inbound call this outbound call was made while handling, and its position in that call's sequence of
+         * database statements and supplier calls - from the X-Alfred-Parent header the db-agent adds inside the
+         * application (docs/db-capture.md). Exact, unlike the time-window guess the call tree falls back to when
+         * these are null (no agent, or a call logged before this field existed).
+         */
+        @JsonProperty("parent_call_id") String parentCallId,
+        @JsonProperty("parent_seq") Integer parentSeq
 ) {
+    /** Pre-db-capture shape - parentCallId/parentSeq null: no agent linked this call to its parent. */
+    public CallRecord(String id, String originalUrl, String url, String method, RequestData request,
+                       String timestamp, Double durationMs, ResponseData response, String error, CallLifecycleStatus state,
+                       String sessionId, String operationId, String serviceName, CallTiming timing, CallInterception interception,
+                       String resendOf, Object resendEdits, JsonNode relive, Boolean reachedUpstream) {
+        this(id, originalUrl, url, method, request, timestamp, durationMs, response, error, state, sessionId, operationId, serviceName, timing, interception, resendOf, resendEdits, relive, reachedUpstream, null, null);
+    }
+
     /**
      * Pre-relive shape - the newest fields, added the same backward-compatible way as resend
      * before them. Null means no relive attribution/measurement, the overwhelmingly common case.
@@ -154,6 +170,7 @@ public record CallRecord(
         // timing, interception and the resend fields of any call normalized on its way into storage.
         return new CallRecord(call.id(), call.originalUrl(), call.url(), call.method(), call.request(),
                 call.timestamp(), call.durationMs(), call.response(), call.error(), derived, call.sessionId(), call.operationId(), call.serviceName(),
-                call.timing(), call.interception(), call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream());
+                call.timing(), call.interception(), call.resendOf(), call.resendEdits(), call.relive(), call.reachedUpstream(),
+                call.parentCallId(), call.parentSeq());
     }
 }

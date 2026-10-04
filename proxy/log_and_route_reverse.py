@@ -64,6 +64,16 @@ UNKNOWN_NAME = 'unknown'
 # logging works out of the box for every project the moment it's added to REVERSE_PROXY_PORT_MAP.
 TOGGLE_FILE = os.environ.get('TOGGLE_FILE', '/home/mitmproxy/reverse-proxy-enabled.flag')
 
+# Database capture's per-project switch (docs/db-capture.md) - same "name=on|off" format, written by
+# backend-db-capture. Unlike TOGGLE_FILE a project with no line is OFF: capturing an application's database
+# work is something the user turns on, never a side effect of adding a project.
+DB_CAPTURE_TOGGLE_FILE = os.environ.get('DB_CAPTURE_TOGGLE_FILE', '/home/mitmproxy/db-capture-enabled.flag')
+
+# Stamped on every request forwarded for a project whose inbound logging is on, read by the db-agent inside the
+# application (specs/006-db-capture/contracts/proxy-headers.md). A client-sent copy is always removed first so a
+# caller can never attach its statements to someone else's call.
+ALFRED_CALL_HEADER = 'X-Alfred-Call'
+
 # "name:listenPort:upstreamPort" triples, comma-separated - the same value
 # reverse-proxy-entrypoint.sh turned into one --mode flag per project. PORT_MAP:
 # {listenPort -> (name, upstreamPort)}, keyed on arrival port since that's what identifies a
@@ -118,24 +128,31 @@ if WEBHOOK_URL:
 
 
 class _ToggleState:
-    """Re-reads TOGGLE_FILE only when its mtime changes - same cache-validated-by-mtime idiom the backend's file adapters use, so a live toggle flip is picked up on the very next request without stat-ing the file more than once per change. One "name=on"/"name=off" line per project; a name with no line (including one never toggled, or a brand-new project just added to REVERSE_PROXY_PORT_MAP) defaults to enabled."""
+    """Re-reads a flag file only when its mtime changes - same cache-validated-by-mtime idiom the backend's file adapters use, so a live toggle flip is picked up on the very next request without stat-ing the file more than once per change. One "name=on"/"name=off" line per project; a name with no line (including one never toggled, or a brand-new project just added to REVERSE_PROXY_PORT_MAP) gets `default` - enabled for inbound logging (TOGGLE_FILE), disabled for database capture (DB_CAPTURE_TOGGLE_FILE).
 
-    def __init__(self):
+    The path is looked up by module-global NAME on every call rather than captured at construction, so a test (or
+    anything else) patching the constant is honoured."""
+
+    def __init__(self, file_global='TOGGLE_FILE', default=True):
+        self._file_global = file_global
+        self._default = default
         self._mtime = None
         self._states = {}
 
     def enabled(self, name):
+        path = globals()[self._file_global]
         try:
-            mtime = os.path.getmtime(TOGGLE_FILE)
+            mtime = os.path.getmtime(path)
         except OSError:
-            # File absent (never created, or removed) - default to enabled rather than
-            # silently going dark the moment the bind-mounted file happens to be missing.
-            return True
+            # File absent (never created, or removed) - inbound logging defaults to enabled rather than
+            # silently going dark the moment the bind-mounted file happens to be missing; database
+            # capture stays off.
+            return self._default
         if mtime != self._mtime:
             self._mtime = mtime
             states = {}
             try:
-                with open(TOGGLE_FILE, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8') as f:
                     for line in f:
                         line = line.strip()
                         if not line or '=' not in line:
@@ -145,10 +162,21 @@ class _ToggleState:
             except OSError:
                 pass
             self._states = states
-        return self._states.get(name, True)
+        return self._states.get(name, self._default)
 
 
 _toggle = _ToggleState()
+_db_capture = _ToggleState('DB_CAPTURE_TOGGLE_FILE', default=False)
+
+
+def alfred_call_header(call_id, db_on, relive_info):
+    """The X-Alfred-Call value for a logged inbound call: its id, whether the db-agent should record its
+    statements, and - for a Relive step - the run tag the agent stores on them (FR-043, unused until Relive
+    replays statements)."""
+    value = f'id={call_id}; db={1 if db_on else 0}'
+    if relive_info and relive_info.get('runId') and relive_info.get('stepKey'):
+        value += f"; run={relive_info['runId']}/{relive_info['stepKey']}"
+    return value
 
 
 ENGINE = interception.InterceptionEngine('inbound')
@@ -166,6 +194,10 @@ class RouteAndLog:
         listen_port = self._listen_port(flow)
         name, upstream_port = PORT_MAP.get(listen_port, (UNKNOWN_NAME, None))
         flow.metadata['service_name'] = name
+
+        # Only this proxy may say which call a request is - see ALFRED_CALL_HEADER.
+        if ALFRED_CALL_HEADER in flow.request.headers:
+            del flow.request.headers[ALFRED_CALL_HEADER]
 
         # Popped before interception and logging see the request at all, so neither a rule nor the
         # call log ever observes these headers - see interception.take_resend_headers.
@@ -238,6 +270,9 @@ class RouteAndLog:
         if relive_info:
             call_log['relive'] = relive_info
             call_log['reachedUpstream'] = reached_upstream
+        # Added after call_log captured the headers, so the recorded request is what the client sent - the
+        # header is ALFRED's own plumbing, re-added on every forward (including a resend of this call).
+        flow.request.headers[ALFRED_CALL_HEADER] = alfred_call_header(call_id, _db_capture.enabled(name), relive_info)
         if relive_info and reached_upstream:
             # The application can issue a supplier call as soon as this inbound request arrives.
             # Register the parent with Relive before forwarding so that child is replayed instead

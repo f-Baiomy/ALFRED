@@ -157,7 +157,7 @@ public class CallsService implements GetCallsUseCase, FindReliveRunCallsUseCase,
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
                 partial.sessionId(), partial.operationId(), partial.serviceName(), null, null,
-                partial.resendOf(), partial.resendEdits(), partial.relive(), null);
+                partial.resendOf(), partial.resendEdits(), partial.relive(), null, partial.parentCallId(), partial.parentSeq());
         if (callFilterPort.isPresent() && !callFilterPort.get().isAllowed(prepared)) {
             return Optional.empty();
         }

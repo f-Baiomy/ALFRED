@@ -102,6 +102,23 @@ class CallsWebhookControllerTest {
     }
 
     @Test
+    void prepareCarriesTheDbAgentParentLinkIntoTheCall() throws Exception {
+        when(receivePreparedCallUseCase.receivePreparedCall(any(CallRecord.class))).thenReturn(Optional.of("call-9"));
+
+        mockMvc.perform(post("/calls/webhook/prepare")
+                        .header("X-Webhook-Secret", "correct-secret")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":\"call-9\",\"url\":\"https://pay.supplier.com/v1/charge\",\"method\":\"POST\","
+                                + "\"parent_call_id\":\"inbound-1\",\"parent_seq\":18}"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<CallRecord> captor = org.mockito.ArgumentCaptor.forClass(CallRecord.class);
+        org.mockito.Mockito.verify(receivePreparedCallUseCase).receivePreparedCall(captor.capture());
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().parentCallId()).isEqualTo("inbound-1");
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().parentSeq()).isEqualTo(18);
+    }
+
+    @Test
     void prepareReturnsNoContentWhenTheFilterRejectsTheCall() throws Exception {
         when(receivePreparedCallUseCase.receivePreparedCall(any(CallRecord.class))).thenReturn(Optional.empty());
 

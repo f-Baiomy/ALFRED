@@ -195,7 +195,7 @@ public class FileCallLogAdapter implements CallLogPort {
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
                         partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(),
                         partial.serviceName(), timing, interception, partial.resendOf(), partial.resendEdits(),
-                        partial.relive(), reachedUpstream)
+                        partial.relive(), reachedUpstream, partial.parentCallId(), partial.parentSeq())
                 // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
                 // in between) - persist what the completion payload alone can offer rather than
                 // silently dropping it. sessionId/operationId/serviceName/resend/relive unknown too

@@ -151,6 +151,29 @@ if WEBHOOK_URL:
 ENGINE = interception.InterceptionEngine('outbound')
 
 
+ALFRED_PARENT_HEADER = 'X-Alfred-Parent'
+
+
+def take_parent_header(flow):
+    """Pops X-Alfred-Parent ("<callId>; seq=<n>", specs/006-db-capture/contracts/proxy-headers.md) and returns
+    (call_id, seq) - (None, None) when absent or malformed. Always removed, even when malformed, so it never
+    reaches a supplier."""
+    if ALFRED_PARENT_HEADER not in flow.request.headers:
+        return None, None
+    raw = flow.request.headers.get(ALFRED_PARENT_HEADER) or ''
+    del flow.request.headers[ALFRED_PARENT_HEADER]
+    call_id, _, rest = raw.partition(';')
+    call_id = call_id.strip()
+    seq = None
+    for part in rest.split(';'):
+        key, _, value = part.strip().partition('=')
+        if key == 'seq' and value.isdigit():
+            seq = int(value)
+    if not call_id or seq is None:
+        return None, None
+    return call_id, seq
+
+
 class RouteAndLog:
 
     async def request(self, flow):
@@ -173,6 +196,11 @@ class RouteAndLog:
         # Popped before interception and logging see the request at all, so neither a rule nor the
         # call log ever observes these headers - see interception.take_resend_headers.
         resend_of, resend_edits = interception.take_resend_headers(flow, BACKEND_ADDRESSES)
+
+        # Set by the db-agent inside the application on every supplier call it makes while handling an inbound
+        # call (docs/db-capture.md). Popped here, before interception and forwarding, so the supplier never sees
+        # it; recorded as the exact parent and order instead of being guessed from timing.
+        parent_call_id, parent_seq = take_parent_header(flow)
 
         # Relive (research D2/D4): decide whether this call belongs to an active run BEFORE the
         # ordinary engine call - a run's own STEP/CYCLE/GLOBAL tiers replace the plain global-only
@@ -258,6 +286,9 @@ class RouteAndLog:
         # decision already made not to forward (verdict.terminal set) never reverses into one.
         if relive_info:
             call_log['relive'] = relive_info
+        if parent_call_id:
+            call_log['parent_call_id'] = parent_call_id
+            call_log['parent_seq'] = parent_seq
             call_log['reachedUpstream'] = reached_upstream
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 

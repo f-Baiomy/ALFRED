@@ -83,6 +83,49 @@ describe('buildCallTree', () => {
     expect(indexCallTree(calls).get('shared')!.ambiguous).toBe(true);
   });
 
+  it('uses the parent the db-agent named, which resolves the overlap containment cannot decide', () => {
+    // Same two overlapping owners as above, but the agent inside proj-b tagged the supplier call.
+    const calls = [
+      call({ id: 'proj-a', startMs: 0, durationMs: 5000, service_name: 'proj-a' }),
+      call({ id: 'proj-b', startMs: 1000, durationMs: 5000, service_name: 'proj-b' }),
+      call({ id: 'shared', startMs: 2000, durationMs: 500, source: 'external', service_name: null, parentCallId: 'proj-b', parentSeq: 3 }),
+    ];
+    const tree = buildCallTree(calls);
+
+    expect(tree.find((n) => n.call.id === 'proj-b')!.children.map((c) => c.call.id)).toEqual(['shared']);
+    expect(indexCallTree(calls).get('shared')!.ambiguous).toBe(false);
+  });
+
+  it('wins over containment even when the named parent does not contain the call in time', () => {
+    // Clocks differ between the proxy and the app; the agent's link is still the truth.
+    const calls = [
+      call({ id: 'odeysys', startMs: 0, durationMs: 27000, service_name: 'odeysys' }),
+      call({ id: 'core', startMs: 4000, durationMs: 4800, service_name: 'core-service' }),
+      call({ id: 'late', startMs: 9000, durationMs: 100, source: 'external', service_name: 'core-service', parentCallId: 'core', parentSeq: 1 }),
+    ];
+    const core = buildCallTree(calls)[0].children.find((c) => c.call.id === 'core')!;
+
+    expect(core.children.map((c) => c.call.id)).toEqual(['late']);
+  });
+
+  it('falls back to containment when the named parent is not in the list', () => {
+    const calls = [...chainFixture().slice(0, 2),
+      call({ id: 'orphan', startMs: 4200, durationMs: 100, source: 'external', service_name: 'core-service', parentCallId: 'gone', parentSeq: 2 })];
+    const core = buildCallTree(calls)[0].children[0];
+
+    expect(core.children.map((c) => c.call.id)).toEqual(['orphan']);
+  });
+
+  it('orders siblings the agent placed by its sequence, not by clock', () => {
+    const calls = [
+      call({ id: 'core', startMs: 4000, durationMs: 4800, service_name: 'core-service' }),
+      call({ id: 'second', startMs: 4100, durationMs: 100, source: 'external', service_name: 'core-service', parentCallId: 'core', parentSeq: 9 }),
+      call({ id: 'first', startMs: 4300, durationMs: 100, source: 'external', service_name: 'core-service', parentCallId: 'core', parentSeq: 4 }),
+    ];
+
+    expect(buildCallTree(calls)[0].children.map((c) => c.call.id)).toEqual(['first', 'second']);
+  });
+
   it('never nests a call under an external call, or under a still-in-progress one', () => {
     const calls = [
       call({ id: 'outer-external', startMs: 0, durationMs: 9000, source: 'external', service_name: null }),

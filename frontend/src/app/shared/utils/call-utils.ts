@@ -41,6 +41,8 @@ export function toCallRecord(dto: CallSummaryDto, source?: CallEndpointSource): 
     resendOf: dto.resend_of,
     resendEdits: dto.resend_edits,
     relive: dto.relive,
+    parentCallId: dto.parent_call_id,
+    parentSeq: dto.parent_seq,
     source,
   };
 }

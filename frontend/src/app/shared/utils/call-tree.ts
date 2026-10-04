@@ -230,15 +230,32 @@ function resolveParentWindow(child: CallWindow, windows: readonly CallWindow[]):
  */
 function resolveAllParents(calls: readonly CallRecord[]): Map<string, Parented> {
   const windows = indexWindows(calls);
+  const byId = new Map(calls.map((call) => [call.id, call] as const));
   const resolved = new Map<string, Parented>();
   for (const window of windows) {
-    resolved.set(window.call.id, resolveParentWindow(window, windows));
+    // A parent named by the db-agent (X-Alfred-Parent, docs/db-capture.md) is a fact, not an inference: it wins
+    // over time containment and is never ambiguous - which is exactly the concurrent case containment cannot
+    // decide. Only honoured when that parent is in the list being drawn; otherwise fall back as before.
+    const named = window.call.parentCallId ? byId.get(window.call.parentCallId) : undefined;
+    resolved.set(
+      window.call.id,
+      named && named.id !== window.call.id ? { parent: named, ambiguous: false } : resolveParentWindow(window, windows)
+    );
   }
   return resolved;
 }
 
 function startOf(node: CallTreeNode): number {
   return new Date(node.call.timestamp).getTime();
+}
+
+/** Siblings both placed by the db-agent keep its exact order (parentSeq, clock-independent); anything else falls
+ *  back to start time. */
+function siblingOrder(a: CallTreeNode, b: CallTreeNode): number {
+  const aSeq = a.call.parentSeq;
+  const bSeq = b.call.parentSeq;
+  if (aSeq != null && bSeq != null && a.call.parentCallId === b.call.parentCallId) return aSeq - bSeq;
+  return startOf(a) - startOf(b);
 }
 
 /**
@@ -276,7 +293,7 @@ function buildTreeFrom(calls: readonly CallRecord[], resolved: Map<string, Paren
     depth,
     children: (childrenByParentId.get(call.id) ?? [])
       .map((child) => build(child, depth + 1))
-      .sort((a, b) => startOf(a) - startOf(b)),
+      .sort(siblingOrder),
   });
 
   return roots.map((root) => build(root, 0));
