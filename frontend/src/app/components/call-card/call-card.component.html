@@ -213,6 +213,7 @@
           <span class="badge supplier-badge">{{ call().supplierName }}</span>
         }
         <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
+        @if (call().source === 'internal') {<app-db-chip [call]="call()" />}
         <!-- On the COLLAPSED card, because the point is that you should not have to open a call to
              learn that what you are reading is not what your client actually sent. -->
         @if (interception(); as intercepted) {
@@ -339,6 +340,7 @@
         <span class="badge supplier-badge">{{ call().supplierName }}</span>
       }
       <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
+        @if (call().source === 'internal') {<app-db-chip [call]="call()" />}
       <!-- On the COLLAPSED card, because the point is that you should not have to open a call to
            learn that what you are reading is not what your client actually sent. -->
       @if (interception(); as intercepted) {

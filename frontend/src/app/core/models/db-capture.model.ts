@@ -119,6 +119,20 @@ export interface CallStatementsPage {
 
 export type RowsPart = 'RESULT' | 'BEFORE_IMAGE';
 
+/** A statement as a .json export carries it: the record plus every stored row (nothing cut). */
+export interface ExportedDbStatement extends CapturedStatement {
+  readonly rows?: readonly (readonly TypedValue[])[] | null;
+  readonly beforeImageRows?: readonly (readonly TypedValue[])[] | null;
+}
+
+/** A call's whole database capture - `dbCapture` on its export event (contracts/export-format.md). */
+export interface CallDbCapture {
+  readonly summary?: CallDbSummary | null;
+  readonly transactions: readonly StatementTransaction[];
+  readonly supplierMarkers?: readonly SupplierMarker[] | null;
+  readonly statements: readonly ExportedDbStatement[];
+}
+
 export interface RowsPage {
   readonly columns: readonly DbColumn[];
   readonly rows: readonly (readonly TypedValue[])[];

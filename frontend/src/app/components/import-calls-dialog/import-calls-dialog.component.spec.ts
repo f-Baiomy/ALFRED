@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { of } from 'rxjs';
 import { ImportCallsDialogComponent } from './import-calls-dialog.component';
 import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
@@ -56,6 +57,7 @@ describe('ImportCallsDialogComponent', () => {
       providers: [
         { provide: SessionCyclesApiService, useValue: apiStub },
         { provide: SessionCyclesStateService, useValue: stateStub },
+        { provide: DbCaptureApiService, useValue: { import: () => of({ imported: 0 }) } },
       ],
     });
 

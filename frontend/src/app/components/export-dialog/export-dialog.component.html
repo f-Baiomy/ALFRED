@@ -91,7 +91,7 @@
         <button type="button" class="dialog-btn secondary" (click)="copyToClipboard()">
           {{ copyFeedback() ? 'Copied!' : 'Copy to Clipboard' }}
         </button>
-        <button type="button" class="dialog-btn primary" (click)="confirmExport()">{{ exportFeedback() ? 'Saved!' : 'Export ' + formatExtension() }}</button>
+        <button type="button" class="dialog-btn primary" [disabled]="loadingDb()" (click)="confirmExport()">{{ loadingDb() ? 'Loading database statements…' : exportFeedback() ? 'Saved!' : 'Export ' + formatExtension() }}</button>
       </div>
     </div>
   </div>

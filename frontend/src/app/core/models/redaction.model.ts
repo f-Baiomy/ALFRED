@@ -7,7 +7,10 @@ export type RedactionKind =
   | 'response-header'
   | 'request-body-key'
   | 'response-body-key'
-  | 'url-param';
+  | 'url-param'
+  /** A database column (docs/db-capture.md): its values in captured result rows and before-images, and the
+   *  parameters bound to it (INSERT column lists, `SET col = ?`, `WHERE col = ?`). */
+  | 'db-column';
 
 /** `call` hides this name on one call; `all` hides it on every call in every export. */
 export type RedactionScope = 'call' | 'all';
@@ -18,6 +21,7 @@ export const REDACTION_KIND_LABELS: Record<RedactionKind, string> = {
   'request-body-key': 'Request body field',
   'response-body-key': 'Response body field',
   'url-param': 'URL parameter',
+  'db-column': 'Database column',
 };
 
 /** A user's decision to hide one named thing from exports. Never applied to the live UI - the value stays readable in Alfred, because you need it to debug; it is the shared artifact that leaks. */

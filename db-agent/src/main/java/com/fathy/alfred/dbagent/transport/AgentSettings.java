@@ -4,6 +4,8 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 
 /**
@@ -19,6 +21,10 @@ public final class AgentSettings {
     private volatile boolean outsideCallCapture;
     private volatile boolean captureEnabled;
     private volatile List<String> ignorePatterns = Collections.singletonList("SELECT 1");
+    /** Per-SQL answers of {@link #ignored}: matching compiles regexes, far too slow to repeat for every statement.
+     *  Replaced (not cleared) when the patterns change, so a reader never mixes old and new answers. */
+    private volatile Map<String, Boolean> ignoredCache = new ConcurrentHashMap<>();
+    private static final int CACHE_LIMIT = 4096;
 
     public int rowsPerResult() {
         return rowsPerResult;
@@ -38,13 +44,24 @@ public final class AgentSettings {
         if (sql == null) {
             return false;
         }
+        Map<String, Boolean> cache = ignoredCache;
+        Boolean known = cache.get(sql);
+        if (known != null) {
+            return known;
+        }
+        boolean result = false;
         String normalized = sql.trim().toUpperCase(Locale.ROOT);
         for (String pattern : ignorePatterns) {
             if (matches(normalized, pattern.trim().toUpperCase(Locale.ROOT))) {
-                return true;
+                result = true;
+                break;
             }
         }
-        return false;
+        if (cache.size() >= CACHE_LIMIT) {
+            cache.clear(); // applications with unbounded distinct SQL (literals inlined) must not grow it forever
+        }
+        cache.put(sql, result);
+        return result;
     }
 
     static boolean matches(String sql, String pattern) {
@@ -71,6 +88,9 @@ public final class AgentSettings {
         this.beforeImageTables = Collections.unmodifiableSet(lower);
         this.outsideCallCapture = outside;
         this.captureEnabled = enabled;
-        this.ignorePatterns = Collections.unmodifiableList(ignore);
+        if (!ignore.equals(this.ignorePatterns)) {
+            this.ignorePatterns = Collections.unmodifiableList(ignore);
+            this.ignoredCache = new ConcurrentHashMap<>();
+        }
     }
 }

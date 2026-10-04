@@ -1,4 +1,5 @@
 import { CallInterception } from './interception.model';
+import { CallDbCapture } from './db-capture.model';
 import { WsMessage } from './ws-message.model';
 /** Which REST resource/store a call came from - selecting sources that span both is handled one level up by requesting 'external' and 'internal' separately and merging (see CallsStateService.fetchPageForSource). */
 export type CallEndpointSource = 'external' | 'internal';
@@ -110,6 +111,11 @@ export interface CallRecord {
    */
   readonly parentCallId?: string | null;
   readonly parentSeq?: number | null;
+  /**
+   * The database statements this inbound call ran (docs/db-capture.md) - fetched and attached only when exporting,
+   * like wsMessages, and read back by import-parser.ts. Undefined everywhere else: the window fetches its own pages.
+   */
+  readonly dbCapture?: CallDbCapture;
 }
 
 /**

@@ -8,4 +8,7 @@ public interface DeleteCallStatementsUseCase {
 
     /** Every call's statements - "clear all calls". Outside-call statements are kept: they belong to no call. */
     void deleteAllCallStatements();
+
+    /** The statements of Relive runs whose history is deleted (their run tag names the run). */
+    int deleteForRuns(Collection<String> runIds);
 }

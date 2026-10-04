@@ -1,0 +1,110 @@
+<div class="dialog-backdrop" (click)="onBackdrop($event)">
+  <div class="dialog-card db-window" [class.compact]="compact()" role="dialog" aria-label="Database statements">
+    <div class="dbw-head">
+      <div class="title">
+        @if (call(); as c) {
+          <h2>Database · {{ c.method }} <span class="url">{{ c.url }}</span></h2>
+          <p class="dialog-sub">Request {{ shortId(c.id) }}{{ c.service_name ? ' · ' + c.service_name : '' }} · {{ when(c.timestamp) }} · in the order they ran</p>
+        } @else {
+          <h2>Database · outside any call</h2>
+          <p class="dialog-sub">Scheduled jobs, message listeners and startup - statements no inbound call caused, grouped by thread</p>
+        }
+        <div class="stats">
+          <span class="stat"><b>{{ totalCount().toLocaleString() }}</b> statements</span>
+          <span class="stat w"><b>{{ writeCount() }}</b> writes · {{ deleteCount() }} deletes</span>
+          <span class="stat" [style.border-color]="failedCount() ? 'color-mix(in srgb,var(--red) 45%,transparent)' : null"><b style="color:var(--red)">{{ failedCount() }}</b> failed</span>
+          <span class="stat"><b>{{ txCount() }}</b> transactions · {{ rolledBackCount() }} rolled back</span>
+          <span class="stat"><b>{{ msText(dbMicros()) }}</b> in DB{{ callMs() != null ? ' of ' + callMs() + ' ms' : '' }}</span>
+          @if (droppedCount()) {
+            <span class="stat" style="border-color:color-mix(in srgb,var(--amber) 45%,transparent)" title="The agent's send queue was full - these statements were counted, not kept"><b style="color:var(--amber)">{{ droppedCount() }}</b> not kept</span>
+          }
+          @if (summary()?.endedEarly) {
+            <span class="stat" style="border-color:color-mix(in srgb,var(--red) 45%,transparent)" title="The call ended with an error while statements were still being captured - the application may have died mid-call">capture ended early</span>
+          }
+        </div>
+        @if (flags().length) {
+          <div class="flags">
+            @for (f of flags(); track $index) {
+              <span class="flag" [class.bad]="f.severity === 'BAD'" (click)="jumpFlag(f)">{{ f.severity === 'BAD' ? '✕' : '⚠' }} {{ flagLabel(f) }}</span>
+            }
+          </div>
+        }
+        @if (strip().length) {
+          <div class="strip-wrap">
+            <div class="strip">
+              @for (seg of strip(); track seg.kind + seg.seq) {
+                <span class="tseg" [class]="seg.kind" [style.left.%]="seg.left" [style.width.%]="seg.width" [title]="seg.title" (click)="jump(seg.seq)"></span>
+              }
+            </div>
+            <div class="strip-legend">
+              <span><i style="background:var(--db)"></i>DB {{ msText(dbMicros()) }}</span>
+              <span><i style="background:var(--cyan)"></i>Suppliers {{ supplierMs() }} ms</span>
+              <span><i style="background:var(--red)"></i>Failed</span>
+              <span style="margin-left:auto">0 ms</span><span>{{ stripTotalMs() }} ms</span>
+            </div>
+          </div>
+        }
+      </div>
+      <div style="display:flex;gap:.4rem;flex:0 0 auto">
+        <button type="button" class="dbw-close" [attr.aria-label]="compact() ? 'Show summary' : 'Hide summary'"
+                [title]="compact() ? 'Show summary' : 'Hide summary - more room for statements'" (click)="compact.set(!compact())">{{ compact() ? '▾' : '▴' }}</button>
+        <button type="button" class="dbw-close" aria-label="Close" (click)="close()">✕</button>
+      </div>
+    </div>
+    <div class="views">
+      <button type="button" class="on">Statements<span class="count">{{ totalCount() }}</span></button>
+    </div>
+    <div class="dbw-tools">
+      <input class="dbw-search" placeholder="Search SQL, table or value - e.g. wallet, 1042" [value]="state.search()" (input)="onSearch($event)">
+      @if (state.table()) {
+        <span class="table-chip" (click)="state.table.set('')">table: {{ state.table() }} ✕</span>
+      }
+      <div class="seg">
+        @for (k of kinds; track k.key) {
+          <button type="button" [class.on]="state.kind() === k.key" (click)="setKind(k.key)">{{ k.label }}</button>
+        }
+      </div>
+      @if (call()) {
+        <label class="chk"><input type="checkbox" [checked]="state.showSuppliers()" (change)="state.showSuppliers.set(!state.showSuppliers())"> Supplier calls</label>
+      }
+      <label class="chk"><input type="checkbox" [checked]="state.fill()" (change)="state.fill.set(!state.fill())"> Fill in values</label>
+      <button type="button" class="action-btn" (click)="expandAll()">Expand all</button>
+      <button type="button" class="action-btn" (click)="collapseAll()">Collapse all</button>
+    </div>
+    <div class="dbw-body" (scroll)="onBodyScroll($event)">
+      @if (state.trace()) {
+        <div class="trace">Tracing <b>{{ state.trace() }}</b> · every place this value appears is highlighted
+          <button type="button" class="action-btn" style="margin-left:auto" (click)="state.trace.set('')">✕ Stop tracing</button></div>
+      }
+      @if (error()) {
+        <div class="empty">{{ error() }}</div>
+      } @else if (loading()) {
+        <div class="empty">Loading statements…</div>
+      } @else if (!statements().length) {
+        <div class="empty">{{ call() ? 'The agent saw no database statements for this call.' : 'No statements outside calls.' }}</div>
+      } @else if (call()) {
+        <app-db-statement-list [nodes]="tree()" (showCall)="showCall($event)" />
+        @if (!shownCount()) {
+          <div class="empty">No statement matches.</div>
+        }
+      } @else {
+        @for (t of threads(); track t.thread) {
+          <div class="db-thread">{{ t.thread }}</div>
+          <app-db-statement-list [nodes]="t.nodes" />
+        }
+      }
+      @if (hasMore()) {
+        <div class="more">More statements load as you scroll…</div>
+      }
+    </div>
+    <div class="dbw-foot">
+      <span>Showing {{ shownCount().toLocaleString() }} of {{ totalCount().toLocaleString() }} statements</span>
+      <span>· Click any value to trace it · included in this call's .md / .json / .html exports</span>
+      <div class="right">
+        @if (exportNote()) {<span class="dimtxt">{{ exportNote() }}</span>}
+        <button type="button" class="action-btn" (click)="copyAllSql()">Copy all SQL</button>
+        <button type="button" class="action-btn" (click)="exportSql()">Export .sql</button>
+      </div>
+    </div>
+  </div>
+</div>

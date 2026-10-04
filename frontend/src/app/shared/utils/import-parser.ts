@@ -1,6 +1,7 @@
 import { CallEndpointSource, CallRecord } from '../../core/models/call.model';
 import { CallInterception } from '../../core/models/interception.model';
 import { WsMessage } from '../../core/models/ws-message.model';
+import { CallDbCapture } from '../../core/models/db-capture.model';
 
 /**
  * Reads an Alfred .json export back into CallRecords - the inverse of bulk-json-builder.ts.
@@ -33,6 +34,7 @@ interface Partial_ {
   supplierName?: string | null;
   interception?: CallInterception;
   wsMessages?: readonly WsMessage[];
+  dbCapture?: CallDbCapture;
 }
 
 export interface ImportParseResult {
@@ -176,6 +178,7 @@ function mergeEvents(events: readonly unknown[]): ImportParseResult {
       operation_id: partial.operation_id,
       interception: partial.interception,
       wsMessages: partial.wsMessages,
+      dbCapture: partial.dbCapture,
     });
   }
 
@@ -219,6 +222,12 @@ function fill(into: Partial_, raw: Record<string, unknown>): void {
   const wsMessages = raw['wsMessages'];
   if (Array.isArray(wsMessages)) {
     set('wsMessages', wsMessages as readonly WsMessage[]);
+  }
+
+  // Written by bulk-json-builder on the event that completes the call - accepted only in the shape it is written in.
+  const dbCapture = raw['dbCapture'];
+  if (dbCapture && typeof dbCapture === 'object' && Array.isArray((dbCapture as CallDbCapture).statements)) {
+    set('dbCapture', dbCapture as CallDbCapture);
   }
 
   // A split call's request event carries the request timestamp and its response event carries the

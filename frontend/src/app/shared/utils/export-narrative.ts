@@ -745,6 +745,21 @@ function emptyNarrative(): ExportNarrative {
  * injectables, so every branch of it is directly testable.
  */
 export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
+  const narrative = buildNarrative(input);
+  const sentence = dbCaptureSentence(input.calls);
+  return sentence ? { ...narrative, description: `${narrative.description} ${sentence}` } : narrative;
+}
+
+/** One sentence when calls carry their database statements - a reader should know the section is there. */
+function dbCaptureSentence(calls: readonly CallRecord[]): string {
+  const captured = calls.filter((call) => call.dbCapture);
+  if (!captured.length) return '';
+  const statements = captured.reduce((sum, call) => sum + (call.dbCapture?.statements.length ?? 0), 0);
+  const which = captured.length === 1 && calls.length === 1 ? 'The call also carries' : `${captured.length} of the calls also carry`;
+  return `${which} the database statements the application ran while handling ${captured.length === 1 ? 'it' : 'them'} (${statements} in all), in run order, with their values and every stored row - see each call's Database section.`;
+}
+
+function buildNarrative(input: NarrativeInput): ExportNarrative {
   const { calls, commentsByCallId, splitCallIds, overlapCandidates = [], cycle = null } = input;
   if (calls.length === 0) return { ...emptyNarrative(), cycle, description: cycleSentence(cycle, 0) || 'An Alfred export containing no calls.' };
 

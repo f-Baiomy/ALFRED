@@ -1,7 +1,8 @@
 import { Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
-import { forkJoin } from 'rxjs';
+import { catchError, forkJoin, of } from 'rxjs';
 import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
 import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
+import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { CallRecord, SessionCycle } from '../../core/models/call.model';
 import { parseImportedCalls } from '../../shared/utils/import-parser';
@@ -25,6 +26,7 @@ import { ProfilePickerComponent } from '../profile-picker/profile-picker.compone
 export class ImportCallsDialogComponent {
   private readonly service = inject(ImportCallsDialogService);
   private readonly api = inject(SessionCyclesApiService);
+  private readonly dbCaptureApi = inject(DbCaptureApiService);
   private readonly cyclesState = inject(SessionCyclesStateService);
 
   readonly dialogState = this.service.state;
@@ -189,13 +191,20 @@ export class ImportCallsDialogComponent {
     if (!calls || calls.length === 0 || ids.length === 0) return;
 
     this.importing.set(true);
-    forkJoin(ids.map((id) => this.api.copyCallsInto(id, calls))).subscribe((results) => {
+    // Database statements travel with their calls (contracts/export-format.md) - stored once, by call id.
+    const captures = calls.filter((c) => c.dbCapture).map((c) => ({ callId: c.id, dbCapture: c.dbCapture! }));
+    const dbImport$ = captures.length
+      ? this.dbCaptureApi.import(captures).pipe(catchError(() => of({ imported: -1 })))
+      : of({ imported: 0 });
+    forkJoin({ results: forkJoin(ids.map((id) => this.api.copyCallsInto(id, calls))), db: dbImport$ }).subscribe(({ results, db }) => {
       this.importing.set(false);
       const added = results.reduce((sum, r) => sum + r.added, 0);
       const skipped = results.reduce((sum, r) => sum + r.skipped, 0);
       this.resultMessage.set(
         `Imported ${added} call${added === 1 ? '' : 's'} into ${ids.length} cycle${ids.length === 1 ? '' : 's'}` +
-          (skipped > 0 ? ` (skipped ${skipped} already there).` : '.')
+          (skipped > 0 ? ` (skipped ${skipped} already there).` : '.') +
+          (db.imported > 0 ? ` Restored ${db.imported} database statement${db.imported === 1 ? '' : 's'}.` : '') +
+          (db.imported < 0 ? ' The database statements in the file could not be restored.' : '')
       );
     });
   }

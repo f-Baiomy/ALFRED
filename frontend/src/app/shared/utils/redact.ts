@@ -1,6 +1,8 @@
 import { CallRecord } from '../../core/models/call.model';
 import { Redaction, RedactionKind } from '../../core/models/redaction.model';
 import { OriginalHttp } from '../../core/models/interception.model';
+import { CallDbCapture, ExportedDbStatement, TypedValue } from '../../core/models/db-capture.model';
+import { paramColumns } from './sql-param-columns';
 
 /**
  * Masking every export format goes through this one module, applied ONCE to the calls before any
@@ -222,6 +224,13 @@ export function redactSecrets(text: string): string {
 
 function redactByName(call: CallRecord, redactions: readonly Redaction[]): { call: CallRecord; count: number } {
   if (redactions.length === 0) return { call, count: 0 };
+  const db = call.dbCapture ? redactDbCapture(call.dbCapture, namesOfKind(redactions, call.id, 'db-column')) : null;
+  const httpPart = redactHttpByName(call, redactions);
+  if (!db || db.count === 0) return httpPart;
+  return { call: { ...httpPart.call, dbCapture: db.capture }, count: httpPart.count + db.count };
+}
+
+function redactHttpByName(call: CallRecord, redactions: readonly Redaction[]): { call: CallRecord; count: number } {
 
   const reqHeaders = redactHeaders(call.request?.headers, namesOfKind(redactions, call.id, 'request-header'));
   const resHeaders = redactHeaders(call.response?.headers, namesOfKind(redactions, call.id, 'response-header'));
@@ -280,6 +289,51 @@ function redactByName(call: CallRecord, redactions: readonly Redaction[]): { cal
     },
     count,
   };
+}
+
+function maskValue(v: TypedValue): TypedValue {
+  return { type: v.type, value: REDACTED };
+}
+
+/** Masks the cells of the named columns; rows are copied only when something matched. */
+function redactRows(
+  rows: readonly (readonly TypedValue[])[] | null | undefined,
+  columns: readonly { readonly name: string }[] | null | undefined,
+  names: ReadonlySet<string>,
+  counter: { n: number },
+): readonly (readonly TypedValue[])[] | null | undefined {
+  if (!rows || !columns) return rows;
+  const hidden = columns.map((c, i) => (names.has(c.name.toLowerCase()) ? i : -1)).filter((i) => i >= 0);
+  if (!hidden.length) return rows;
+  return rows.map((row) => row.map((v, i) => {
+    if (!hidden.includes(i) || v.value == null) return v;
+    counter.n++;
+    return maskValue(v);
+  }));
+}
+
+function redactStatement(s: ExportedDbStatement, names: ReadonlySet<string>, counter: { n: number }): ExportedDbStatement {
+  const before = counter.n;
+  const bound = paramColumns(s.sql);
+  const params = bound.some((c) => c && names.has(c))
+    ? s.params.map((set) => set.map((v, i) => {
+      const col = bound[i];
+      if (!col || !names.has(col) || v.value == null) return v;
+      counter.n++;
+      return maskValue(v);
+    }))
+    : s.params;
+  const rows = redactRows(s.rows, s.outcome.columns, names, counter);
+  const beforeImageRows = redactRows(s.beforeImageRows, s.beforeImage?.columns, names, counter);
+  return counter.n === before ? s : { ...s, params, rows, beforeImageRows };
+}
+
+/** `db-column` redactions over a call's captured statements. The live window is never masked - only exports. */
+function redactDbCapture(capture: CallDbCapture, names: ReadonlySet<string>): { capture: CallDbCapture; count: number } {
+  if (names.size === 0) return { capture, count: 0 };
+  const counter = { n: 0 };
+  const statements = capture.statements.map((s) => redactStatement(s, names, counter));
+  return counter.n === 0 ? { capture, count: 0 } : { capture: { ...capture, statements }, count: counter.n };
 }
 
 /** The choke point every export path calls before handing calls to a builder. */

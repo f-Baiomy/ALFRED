@@ -16,6 +16,10 @@ import { downloadText, downloadJson, resolveExportFilename } from '../../shared/
 import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { redactCalls } from '../../shared/utils/redact';
+import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
+import { CallDbCapture } from '../../core/models/db-capture.model';
+import { CallRecord } from '../../core/models/call.model';
+import { catchError, from, map, mergeMap, of, toArray } from 'rxjs';
 
 /** The two report formats a user can toggle between inside the dialog - distinct from
  * ExportFormat, which also includes 'json' (a separate, non-toggleable export the dialog still
@@ -38,13 +42,31 @@ type ReportFormat = 'markdown' | 'html';
 export class ExportDialogComponent {
   private readonly dialogService = inject(ExportDialogService);
   private readonly redactions = inject(RedactionsStore);
+  private readonly dbCaptureApi = inject(DbCaptureApiService);
   readonly state = this.dialogService.state;
+
+  /**
+   * The database statements of the inbound calls being exported (docs/db-capture.md), fetched when the dialog opens -
+   * every statement and stored row, since exports never cut anything. Export waits for them: a file written before
+   * they arrived would silently lack its Database sections.
+   */
+  private readonly dbCaptures = signal<ReadonlyMap<string, CallDbCapture>>(new Map());
+  readonly loadingDb = signal(false);
+  private dbRequest = 0;
+
+  /** The calls to export, with their database capture attached. */
+  private readonly callsWithDb = computed<readonly CallRecord[]>(() => {
+    const current = this.state();
+    if (!current) return [];
+    const captures = this.dbCaptures();
+    return captures.size ? current.calls.map((c) => (captures.has(c.id) ? { ...c, dbCapture: captures.get(c.id) } : c)) : current.calls;
+  });
 
   /** How many values the current selection would have masked, so the dialog can say so before the user commits to sending the file. */
   readonly redactedValueCount = computed(() => {
     const current = this.state();
     if (!current) return 0;
-    return redactCalls(current.calls, this.redactions.all()).redactedValueCount;
+    return redactCalls(this.callsWithDb(), this.redactions.all()).redactedValueCount;
   });
 
   readonly supplierName = signal('');
@@ -109,9 +131,35 @@ export class ExportDialogComponent {
         this.exportedFormats.set(new Set());
         this.exportFeedback.set(false);
         this.reportFormat.set(current.format === 'html' ? 'html' : 'markdown');
+        this.loadDbCaptures(current.calls, current.format);
       },
       { allowSignalWrites: true }
     );
+  }
+
+  private loadDbCaptures(calls: readonly CallRecord[], format: ExportFormat): void {
+    const request = ++this.dbRequest;
+    this.dbCaptures.set(new Map());
+    // Only inbound calls can have captured statements; a Postman collection never carries them.
+    const inbound = format === 'postman' ? [] : calls.filter((c) => c.source === 'internal' && !c.dbCapture);
+    if (!inbound.length) {
+      this.loadingDb.set(false);
+      return;
+    }
+    this.loadingDb.set(true);
+    from(inbound)
+      .pipe(
+        mergeMap((call) => this.dbCaptureApi.exportCall(call.id).pipe(
+          map((capture): readonly [string, CallDbCapture | null] => [call.id, capture]),
+          catchError(() => of([call.id, null] as const)), // 404: not captured
+        ), 4),
+        toArray(),
+      )
+      .subscribe((pairs) => {
+        if (request !== this.dbRequest) return;
+        this.dbCaptures.set(new Map(pairs.filter((p): p is readonly [string, CallDbCapture] => p[1] != null)));
+        this.loadingDb.set(false);
+      });
   }
 
   setEnvironment(env: Environment): void {
@@ -135,6 +183,7 @@ export class ExportDialogComponent {
    * failed.
    */
   confirmExport(): void {
+    if (this.loadingDb()) return;
     const built = this.buildContent(this.effectiveFormat());
     if (!built) return;
 
@@ -155,6 +204,7 @@ export class ExportDialogComponent {
    * in both. 'json'/'postman' export is a different case entirely (raw data, not a report) and
    * keeps copying that same raw data as-is. */
   copyToClipboard(): void {
+    if (this.loadingDb()) return;
     const built = this.buildContent(this.isRawExportMode() ? this.state()!.format : 'markdown');
     if (!built) return;
 
@@ -202,7 +252,7 @@ export class ExportDialogComponent {
     // JSON and Postman at once - and covers a format added later without its author knowing this
     // exists. Deliberately not done inside the builders: six implementations is six chances to
     // forget one, and forgetting ships the user's bearer token to whoever they sent the file to.
-    const { calls, redactedValueCount } = redactCalls(current.calls, this.redactions.all());
+    const { calls, redactedValueCount } = redactCalls(this.callsWithDb(), this.redactions.all());
 
     if (format === 'json') {
       const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, redactedValueCount, current.cycle);

@@ -149,6 +149,19 @@ class RedactionsControllerTest {
     }
 
     @Test
+    void acceptsADatabaseColumnRedaction() throws Exception {
+        when(createRedactionUseCase.create(any())).thenReturn(
+                new Redaction("r9", RedactionScope.ALL, null, RedactionKind.DB_COLUMN, "card_token", "2026-10-05T00:00:00Z"));
+        mockMvc.perform(post("/redactions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scope":"ALL","callId":null,"kind":"db-column","name":"card_token"}
+                                """))
+                .andExpect(status().isOk());
+        verify(createRedactionUseCase).create(new NewRedaction(RedactionScope.ALL, null, RedactionKind.DB_COLUMN, "card_token"));
+    }
+
+    @Test
     void rejectsARedactionWithNoKind() throws Exception {
         mockMvc.perform(post("/redactions")
                         .contentType(MediaType.APPLICATION_JSON)

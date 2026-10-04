@@ -4,6 +4,8 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { CallRecord } from '../../core/models/call.model';
 import { ExportedCycle } from '../../core/models/export-metadata.model';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
+import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
+import { throwError } from 'rxjs';
 import { ExportDialogComponent } from './export-dialog.component';
 
 function call(id = 'c1'): CallRecord {
@@ -37,7 +39,12 @@ describe('ExportDialogComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [ExportDialogComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        // None of these calls was database-captured (404) - the export is not held back waiting for statements.
+        { provide: DbCaptureApiService, useValue: { exportCall: () => throwError(() => ({ status: 404 })) } },
+      ],
     });
     dialogService = TestBed.inject(ExportDialogService);
     downloadedNames = [];

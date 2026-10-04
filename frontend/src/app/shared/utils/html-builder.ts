@@ -9,6 +9,7 @@ import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
 import { buildExportNarrative, depthByCallId, depthSentence, ExportNarrative, NarrativeTimingRow } from './export-narrative';
 import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallStatusText } from './waterfall';
 import { REPORT_CHROME_SCRIPT, REPORT_CHROME_STYLE, TOC_OPEN_HTML, TOC_TOGGLE_HTML } from './report-chrome';
+import { DB_SECTION_STYLE, dbSectionHtml } from './db-export-section';
 import { CallExportOverview, ExportListOrder, GlossaryUse, orderBlocksAsShown, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
 /** Exported so every HTML export (calls, log lines) escapes through this one function. */
@@ -895,7 +896,7 @@ function documentShell(title: string, tocHtml: string, bodyHtml: string, blocks:
 <head>
 <meta charset="UTF-8" />
 <title>${escapeHtml(title)}</title>
-<style>${STYLE}${REPORT_CHROME_STYLE}</style>
+<style>${STYLE}${REPORT_CHROME_STYLE}${DB_SECTION_STYLE}</style>
 </head>
 <body>
   <div class="doc">
@@ -1046,6 +1047,7 @@ function responsePartHtml(call: CallRecord, comments: readonly Comment[], idPref
   parts.push(changed.html);
   const ws = wsMessagesPartHtml(call, idPrefix);
   parts.push(ws.html);
+  parts.push(dbSectionHtml(call));
 
   return { html: parts.join(''), blocks: [resHeaders, resBody, ...changed.blocks, ...ws.blocks] };
 }

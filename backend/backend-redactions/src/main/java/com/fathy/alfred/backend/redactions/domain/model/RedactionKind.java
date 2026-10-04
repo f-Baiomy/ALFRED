@@ -29,7 +29,13 @@ public enum RedactionKind {
     RESPONSE_BODY_KEY("response-body-key"),
 
     /** {@code name} is a query-parameter name from the URL, e.g. {@code credential}. */
-    URL_PARAM("url-param");
+    URL_PARAM("url-param"),
+
+    /**
+     * {@code name} is a database column, e.g. {@code card_token}: its values in captured result rows and
+     * before-images, and the statement parameters bound to it (docs/db-capture.md).
+     */
+    DB_COLUMN("db-column");
 
     private final String wireValue;
 

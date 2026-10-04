@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { AppConfigService } from './app-config.service';
 import {
+  CallDbCapture,
   CallDbSummary,
   CallStatementsPage,
   CapturedStatement,
@@ -92,7 +93,12 @@ export class DbCaptureApiService {
     return this.http.post<DbCaptureSettings>(`${this.base}/projects/${encodeURIComponent(project)}/expected`, { fingerprint });
   }
 
-  import(calls: readonly { readonly callId: string; readonly dbCapture: unknown }[]): Observable<{ readonly imported: number }> {
+  /** Every statement of a call with every stored row - what exports embed. 404 when the call was not captured. */
+  exportCall(callId: string): Observable<CallDbCapture> {
+    return this.http.get<CallDbCapture>(`${this.base}/calls/${encodeURIComponent(callId)}/export`);
+  }
+
+  import(calls: readonly { readonly callId: string; readonly dbCapture: CallDbCapture }[]): Observable<{ readonly imported: number }> {
     return this.http.post<{ readonly imported: number }>(`${this.base}/import`, { calls });
   }
 }

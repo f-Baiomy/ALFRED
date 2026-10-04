@@ -37,6 +37,12 @@ public interface DbCaptureStorePort {
 
     void markComplete(String callId, boolean endedEarly);
 
+    /** Sets {@code swallowed} on every failed statement of the call - decided once the call's own status is known. */
+    void markFailuresSwallowed(String callId, boolean swallowed);
+
+    /** Calls whose statements carry a run tag of one of these Relive runs ({@code runId/stepKey}). */
+    List<String> callIdsOfRuns(Collection<String> runIds);
+
     Map<String, CallDbSummary> summaries(Collection<String> callIds);
 
     Optional<CallDbSummary> summary(String callId);
@@ -69,7 +75,7 @@ public interface DbCaptureStorePort {
     /** Bytes used, for the size cap. */
     long totalBytes();
 
-    /** Oldest-first call ids for eviction, skipping {@code keep}. */
+    /** Oldest-first call ids for eviction, skipping {@code keep} and every call with Relive-run statements. */
     List<String> oldestCallIds(int limit, Set<String> keep);
 
     /** Removes outside-call statements older than {@code beforeInstant}, or the oldest ones past {@code maxBytes}. */

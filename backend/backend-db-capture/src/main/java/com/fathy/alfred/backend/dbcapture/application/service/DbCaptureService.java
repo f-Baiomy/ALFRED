@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.dbcapture.application.service;
 
+import com.fathy.alfred.backend.dbcapture.application.port.in.CompleteCallCaptureUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.DeleteCallStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.IngestStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.RecordAgentHeartbeatUseCase;
@@ -33,7 +34,8 @@ import java.util.Optional;
  * size cap - and one {@code statements-appended} signal goes out per call.
  */
 @Service
-public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHeartbeatUseCase, DeleteCallStatementsUseCase {
+public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHeartbeatUseCase, DeleteCallStatementsUseCase,
+        CompleteCallCaptureUseCase {
 
     private final DbCaptureStorePort store;
     private final DbCaptureNotificationPort notifications;
@@ -108,5 +110,35 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
     @Override
     public void deleteAllCallStatements() {
         store.deleteAllCallStatements();
+    }
+
+    @Override
+    public int deleteForRuns(Collection<String> runIds) {
+        if (runIds == null || runIds.isEmpty()) {
+            return 0;
+        }
+        return deleteForCalls(store.callIdsOfRuns(runIds));
+    }
+
+    /**
+     * A failure the call answered below 500 over was swallowed (the app carried on as if nothing happened). No status
+     * at all - a transport error - while the capture was still open means the application died mid-call.
+     */
+    @Override
+    public void callCompleted(String callId, Integer status, String error) {
+        if (callId == null || callId.isBlank()) {
+            return;
+        }
+        Optional<com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary> summary = store.summary(callId);
+        if (summary.isEmpty()) {
+            return;
+        }
+        boolean answered = status != null && status > 0;
+        if (summary.get().failedCount() > 0) {
+            store.markFailuresSwallowed(callId, answered && status < 500);
+        }
+        store.markComplete(callId, !answered && error != null && !error.isBlank() && !summary.get().complete());
+        listeners.forEach(listener -> listener.callIngested(callId));
+        notifications.statementsAppended(callId, summary.get().lastSeq(), true);
     }
 }

@@ -2,6 +2,7 @@ import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
+import { dbSectionMarkdown } from './db-export-section';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
@@ -325,6 +326,7 @@ export function buildExportMarkdown(
   lines.push('');
   lines.push(...interceptionSection(call, 'response', 3));
   lines.push(...wsMessagesSection(call, 3));
+  lines.push(...dbSectionMarkdown(call, 3));
   lines.push('---', '');
   lines.push(...glossaryMarkdown({ flagged: comments.length > 0, changed: !!call.interception }));
   lines.push('---', '');
@@ -575,6 +577,10 @@ function renderBlockBody(block: RenderBlock, allComments: readonly Comment[]): s
     }
     lines.push(...interceptionSection(call, 'response', 4));
     lines.push(...wsMessagesSection(call, 4));
+  }
+  // The database section follows the response - or, for a call still in progress, its request.
+  if (variant !== 'request' || isInProgress(call)) {
+    lines.push(...dbSectionMarkdown(call, 4));
   }
 
   return lines;

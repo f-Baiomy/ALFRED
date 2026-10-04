@@ -1,6 +1,7 @@
 import { CallEndpointSource, CallLifecycleState, CallOverlapCandidate, CallRecord, CallResponse, HttpMessageData } from '../../core/models/call.model';
 import { CallInterception } from '../../core/models/interception.model';
 import { WsMessage } from '../../core/models/ws-message.model';
+import { CallDbCapture } from '../../core/models/db-capture.model';
 import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment } from '../../core/models/comment.model';
 import { CallStatusFilter, isInProgress } from './call-utils';
@@ -30,6 +31,8 @@ export interface BulkExportRequestEvent {
   readonly interception?: CallInterception;
   /** See BulkExportCallEvent.wsMessages - rides on the request event for a split internal call, same as comments/interception. */
   readonly wsMessages?: readonly WsMessage[];
+  /** See BulkExportCallEvent.dbCapture - here only for a call still in progress (its request is its only event). */
+  readonly dbCapture?: CallDbCapture;
 }
 
 /** The response-side counterpart to a BulkExportRequestEvent, correlated purely by sharing the same callId. */
@@ -42,6 +45,8 @@ export interface BulkExportResponseEvent {
   readonly timestamp: string;
   readonly response?: CallResponse;
   readonly state?: CallLifecycleState;
+  /** See BulkExportCallEvent.dbCapture - on the response event, the one that completes a split call. */
+  readonly dbCapture?: CallDbCapture;
 }
 
 /** An unsplit call - every external call, or an internal call that isn't resolved yet and shouldn't emit a synthetic response. */
@@ -88,6 +93,12 @@ export interface BulkExportCallEvent {
    * WebSocket call, or wasn't fetched before export (see CallRecord.wsMessages).
    */
   readonly wsMessages?: readonly WsMessage[];
+  /**
+   * The database statements this inbound call ran, with every stored row (contracts/export-format.md). Sits on the
+   * event that COMPLETES the call - this one, a split call's response event, or the request event of a call still in
+   * progress - so a reader's groupBy(callId) + merge finds it once. Absent when the call was not captured.
+   */
+  readonly dbCapture?: CallDbCapture;
 }
 
 export type BulkExportEvent = BulkExportRequestEvent | BulkExportResponseEvent | BulkExportCallEvent;
@@ -264,6 +275,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     comments,
     interception: call.interception ?? undefined,
     wsMessages: call.wsMessages,
+    dbCapture: call.dbCapture,
   });
 
   if (call.source !== 'internal') {
@@ -290,7 +302,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     wsMessages: call.wsMessages,
   };
 
-  if (!resolved) return [requestEvent];
+  if (!resolved) return [{ ...requestEvent, dbCapture: call.dbCapture }];
   if (!staysSplitIds.has(call.id)) return [asCallEvent()];
 
   const responseEvent: BulkExportResponseEvent = {
@@ -302,6 +314,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     timestamp: responseTimestamp(call),
     response: call.response,
     state: call.state,
+    dbCapture: call.dbCapture,
   };
   return [requestEvent, responseEvent];
 }

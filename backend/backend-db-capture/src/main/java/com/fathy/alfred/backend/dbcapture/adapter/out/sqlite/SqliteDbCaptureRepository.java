@@ -148,6 +148,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_call_seq ON statements(call_id, seq) WHERE call_id IS NOT NULL");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_outside ON statements(thread_name, started_at) WHERE call_id IS NULL");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_started ON statements(started_at)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_run ON statements(run_tag) WHERE run_tag IS NOT NULL");
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS result_rows (
                   statement_id INTEGER NOT NULL, part TEXT NOT NULL, row_index INTEGER NOT NULL, values_json TEXT NOT NULL,
@@ -382,6 +383,27 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         jdbcTemplate.update("UPDATE call_db_summary SET complete = 1, ended_early = ? WHERE call_id = ?", endedEarly ? 1 : 0, callId);
     }
 
+    @Override
+    public void markFailuresSwallowed(String callId, boolean swallowed) {
+        jdbcTemplate.update("UPDATE statements SET outcome_json = json_set(outcome_json, '$.swallowed', json(?)) "
+                + "WHERE call_id = ? AND json_extract(outcome_json, '$.kind') = 'FAILED'", swallowed ? "true" : "false", callId);
+    }
+
+    @Override
+    public List<String> callIdsOfRuns(Collection<String> runIds) {
+        List<String> result = new ArrayList<>();
+        for (String runId : runIds) {
+            if (runId == null || runId.isBlank()) {
+                continue;
+            }
+            // run_tag is "<runId>/<stepKey>"; escape LIKE wildcards in the id.
+            String prefix = runId.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "/%";
+            result.addAll(jdbcTemplate.queryForList("SELECT DISTINCT call_id FROM statements WHERE call_id IS NOT NULL AND run_tag LIKE ? ESCAPE '!'",
+                    String.class, prefix));
+        }
+        return result;
+    }
+
     // ------------------------------------------------------------------ reads
 
     private final RowMapper<CallDbSummary> summaryMapper = (rs, n) -> new CallDbSummary(
@@ -534,7 +556,9 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         int offset = 0;
         int page = Math.max(limit * 2, 100);
         while (result.size() < limit) {
-            List<String> ids = jdbcTemplate.queryForList("SELECT call_id FROM call_db_summary ORDER BY first_seen LIMIT ? OFFSET ?",
+            List<String> ids = jdbcTemplate.queryForList("SELECT call_id FROM call_db_summary s WHERE NOT EXISTS "
+                            + "(SELECT 1 FROM statements r WHERE r.call_id = s.call_id AND r.run_tag IS NOT NULL) "
+                            + "ORDER BY first_seen LIMIT ? OFFSET ?",
                     String.class, page, offset);
             if (ids.isEmpty()) {
                 break;
