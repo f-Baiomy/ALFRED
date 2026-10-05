@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { Duplex } from 'node:stream';
 import type { AddressInfo } from 'node:net';
 import type {
   CallDbSummary, CallRecord, CallStatementsPage, CapturedStatement, Comment, CycleSpacer, Redaction, SessionCycle, RowsPage, RecordedQueryResult,
@@ -28,6 +30,13 @@ export interface FakeState {
   rows: Record<number, RowsPage>;
   query: RecordedQueryResult;
   trace: { seq: number; where: string; index: number; column?: string }[];
+  rules: Record<string, unknown>[];
+  interceptionEnabled: boolean;
+  reliveCycles: Record<string, unknown>[];
+  /** Run details by relive cycle id, newest first. */
+  runs: Map<string, Record<string, unknown>[]>;
+  services: { name: string; listenPort: number | null; upstreamPort: number | null; enabled: boolean }[];
+  captureProjects: { project: string; enabled: boolean; inboundLogging: boolean; attached: boolean; agent: null }[];
 }
 
 export function emptyState(): FakeState {
@@ -35,6 +44,16 @@ export function emptyState(): FakeState {
     calls: [], cycles: [], cycleEntries: new Map(), spacers: new Map(), comments: [], redactions: [],
     variables: { variables: {}, fallbacks: {}, secrets: [] }, dbSummaries: {}, statements: {}, rows: {},
     query: { columns: [], rows: [], total: 0 }, trace: [],
+    rules: [], interceptionEnabled: true, reliveCycles: [], runs: new Map(),
+    services: [
+      { name: 'odeysys', listenPort: 8080, upstreamPort: 9001, enabled: true },
+      { name: 'core-service', listenPort: 8083, upstreamPort: 9003, enabled: false },
+      { name: 'unknown', listenPort: null, upstreamPort: null, enabled: true },
+    ],
+    captureProjects: [
+      { project: 'odeysys', enabled: false, inboundLogging: true, attached: true, agent: null },
+      { project: 'core-service', enabled: false, inboundLogging: false, attached: false, agent: null },
+    ],
   };
 }
 
@@ -52,6 +71,7 @@ export function summaryOf(record: CallRecord): Record<string, unknown> {
     error: record.error ?? null, supplierName: record.supplierName ?? null, state: record.state ?? 'COMPLETED',
     original_url: record.original_url, duration_ms: record.duration_ms, session_id: null, operation_id: null,
     service_name: record.service_name ?? null, timing: record.timing ?? null, parent_call_id: record.parentCallId ?? null, parent_seq: record.parentSeq ?? null,
+    interception: record.interception ?? null,
   };
 }
 
@@ -95,6 +115,8 @@ export class FakeAlfred {
   readonly log: LoggedRequest[] = [];
   private server?: Server;
   private nextId = 1;
+  /** Open WebSocket connections by path - Alfred's change signals, served by a minimal RFC 6455 server (text frames only). */
+  private readonly sockets: { path: string; socket: Duplex }[] = [];
 
   get url(): string {
     return `http://127.0.0.1:${(this.server!.address() as AddressInfo).port}`;
@@ -102,12 +124,44 @@ export class FakeAlfred {
 
   async start(): Promise<this> {
     this.server = createServer((req, res) => void this.handle(req, res));
+    this.server.on('upgrade', (req, socket) => this.upgrade(req, socket));
     await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve));
     return this;
   }
 
   async stop(): Promise<void> {
+    for (const s of this.sockets.splice(0)) s.socket.destroy();
     await new Promise<void>((resolve) => this.server?.close(() => resolve()));
+  }
+
+  /** Paths with an open WebSocket right now. */
+  openSockets(): string[] {
+    return this.sockets.map((s) => s.path);
+  }
+
+  /** Sends one text frame to every socket open on `path`, as the backend does on a change. */
+  broadcast(path: string, text: string): void {
+    const payload = Buffer.from(text, 'utf8');
+    const header = payload.length < 126 ? Buffer.from([0x81, payload.length])
+      : payload.length < 65536 ? Buffer.from([0x81, 126, payload.length >> 8, payload.length & 0xff])
+      : (() => { const h = Buffer.alloc(10); h[0] = 0x81; h[1] = 127; h.writeBigUInt64BE(BigInt(payload.length), 2); return h; })();
+    for (const s of this.sockets.filter((x) => x.path === path)) s.socket.write(Buffer.concat([header, payload]));
+  }
+
+  private upgrade(req: IncomingMessage, socket: Duplex): void {
+    const key = req.headers['sec-websocket-key'];
+    if (typeof key !== 'string') { socket.destroy(); return; }
+    const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+    socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${accept}`, '', ''].join('\r\n'));
+    const entry = { path: new URL(req.url!, 'http://x').pathname, socket };
+    this.sockets.push(entry);
+    const drop = () => { const i = this.sockets.indexOf(entry); if (i >= 0) this.sockets.splice(i, 1); };
+    socket.on('data', (chunk: Buffer) => {
+      // A client close frame (opcode 8): answer with one and end - the clients here never send data.
+      if ((chunk[0] & 0x0f) === 8) { drop(); socket.end(Buffer.from([0x88, 0])); }
+    });
+    socket.on('close', drop);
+    socket.on('error', drop);
   }
 
   requests(method: string, pathPart: string): LoggedRequest[] {
@@ -146,6 +200,41 @@ export class FakeAlfred {
   private route(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
     const s = this.state;
     const live = (seg: string) => (seg === 'internal-calls' ? 'internal' : 'external');
+    // ---- projects and their switches
+    if (p[0] === 'internal-calls' && p[1] === 'feature-enabled') return [200, { enabled: true }];
+    if (p[0] === 'internal-calls' && p[1] === 'services' && p.length === 2) return [200, s.services];
+    if (p[0] === 'internal-calls' && p[1] === 'services' && p[3] === 'logging-enabled' && method === 'POST') {
+      const svc = s.services.find((x) => x.name === p[2]);
+      if (!svc) return [404];
+      svc.enabled = !!body.enabled;
+      const cap = s.captureProjects.find((c) => c.project === p[2]);
+      if (cap) cap.inboundLogging = svc.enabled;
+      return [200, s.services];
+    }
+    if (p[0] === 'db-capture' && p[1] === 'projects' && p.length === 2) return [200, s.captureProjects];
+    if (p[0] === 'db-capture' && p[1] === 'projects' && p[3] === 'enabled' && method === 'PUT') {
+      const cap = s.captureProjects.find((c) => c.project === p[2]);
+      if (!cap) return [400, { error: 'unknown project' }];
+      if (body.enabled && !cap.inboundLogging) return [409, { error: 'inbound logging is off' }];
+      cap.enabled = !!body.enabled;
+      return [200, s.captureProjects];
+    }
+    // ---- interception rules and Relive (read-only here)
+    if (p[0] === 'interception' && p[1] === 'enabled') return [200, { enabled: s.interceptionEnabled }];
+    if (p[0] === 'interception' && p[1] === 'rules' && p.length === 2) return [200, s.rules];
+    if (p[0] === 'interception' && p[1] === 'rules' && p.length === 3) {
+      const rule = s.rules.find((r) => r['id'] === p[2]);
+      return rule ? [200, rule] : [404];
+    }
+    if (p[0] === 'relive-cycles' && p.length === 1) return [200, s.reliveCycles];
+    if (p[0] === 'relive-cycles' && p[2] === 'runs' && p.length === 3) {
+      const limit = Number(q.get('limit') ?? 50);
+      return [200, (s.runs.get(p[1]) ?? []).slice(0, limit).map(({ definition: _d, stepResults: _r, ...row }) => row)];
+    }
+    if (p[0] === 'relive-cycles' && p[2] === 'runs' && p.length === 4) {
+      const run = (s.runs.get(p[1]) ?? []).find((r) => r['id'] === p[3]);
+      return run ? [200, run] : [404];
+    }
     // ---- live calls
     if ((p[0] === 'calls' || p[0] === 'internal-calls') && p.length === 1 && method === 'GET') {
       const source = live(p[0]);
@@ -212,8 +301,12 @@ export class FakeAlfred {
       if (p[2] === 'calls' || p[2] === 'internal-calls') {
         const source = live(p[2]);
         if (p.length === 3 && method === 'GET') {
+          const services = (q.get('serviceNames') ?? '').split(',').filter(Boolean);
           const list = sortCalls(entries.filter((e) => e.source === source), q.get('sort'))
-            .filter((e) => !q.get('requestId') || e.record.id.includes(q.get('requestId')!));
+            .filter((e) => !q.get('requestId') || e.record.id.includes(q.get('requestId')!))
+            .filter((e) => matchesSearch(e.record, q.get('search') ?? ''))
+            .filter((e) => !services.length || services.includes(e.record.service_name ?? 'unknown'))
+            .filter((e) => !q.get('supplier') || new URL(e.record.url).hostname === q.get('supplier'));
           const offset = Number(q.get('offset') ?? 0);
           const limit = Number(q.get('limit') ?? 10);
           return [200, { calls: list.slice(offset, offset + limit).map((e) => ({ id: e.capturedId, capturedAt: e.capturedAt, call: summaryOf(e.record) })), total: list.length }];
@@ -244,6 +337,17 @@ export class FakeAlfred {
     }
     // ---- comments
     if (p[0] === 'comments') {
+      if (method === 'GET' && p[1] === 'counts') {
+        const ids = new Set((q.get('callIds') ?? '').split(',').filter(Boolean));
+        if (ids.size > 500) return [400];
+        const out: Record<string, { total: number; byBlock: Record<string, number> }> = {};
+        for (const c of s.comments.filter((x) => ids.has(x.callId))) {
+          const entry = (out[c.callId] ??= { total: 0, byBlock: {} });
+          entry.total++;
+          entry.byBlock[c.block] = (entry.byBlock[c.block] ?? 0) + 1;
+        }
+        return [200, out];
+      }
       if (method === 'GET') return [200, s.comments.filter((c) => c.callId === q.get('callId'))];
       if (method === 'POST') {
         const comment: Comment = { id: `cm-${this.nextId++}`, createdAt: new Date().toISOString(), ...body };

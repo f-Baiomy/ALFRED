@@ -14,7 +14,7 @@ export type {
   CapturedStatement, CallStatementsPage, CallDbSummary, CallDbCapture, CallDbAnalysis, RecordedQueryRequest,
   RecordedQueryResult, TraceHit, RowsPage, DbFindingSummary, StatementTransaction, SupplierMarker, TypedValue, ExportedDbStatement,
 } from '../../frontend/src/app/core/models/db-capture.model.ts';
-export type { Comment, CommentBlock } from '../../frontend/src/app/core/models/comment.model.ts';
+export type { Comment, CommentBlock, CommentCount } from '../../frontend/src/app/core/models/comment.model.ts';
 export type { Redaction } from '../../frontend/src/app/core/models/redaction.model.ts';
 export type { ExportedCycle, ExportedSpacer, ExportFormData } from '../../frontend/src/app/core/models/export-metadata.model.ts';
 export type { CycleSpacer } from '../../frontend/src/app/core/state/call-selection.tokens.ts';
@@ -27,3 +27,4 @@ export { detectAndFormatBody } from '../../frontend/src/app/shared/utils/body-fo
 export type { ExportMetadata } from '../../frontend/src/app/core/models/export-metadata.model.ts';
 export { buildExportFile, type ExportBuildFormat, type BuiltExport } from '../../frontend/src/app/shared/utils/export-build.ts';
 export { softFailureOf, emptyResultOf, type SoftFailure } from '../../frontend/src/app/shared/utils/soft-failure.ts';
+export { diffHeaders, diffLines, sharedBodyKind, type DiffLine, type HeaderDiffRow } from '../../frontend/src/app/shared/utils/interception-diff.ts';

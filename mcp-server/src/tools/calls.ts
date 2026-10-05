@@ -94,6 +94,26 @@ function isFailed(call: CallRecord): boolean {
  * are applied here while paging summaries (never bodies), bounded by SCAN_CAP rows per direction
  * and reported when hit (research R3).
  */
+export interface CallFilters {
+  project?: string;
+  status?: number | string;
+  failed?: boolean;
+  slowMs?: number;
+}
+
+/**
+ * The filters the list API cannot apply, shared by search_calls and search_cycle so both judge a call
+ * alike. `softFailed` reads the body only when it decides the outcome - a call already failing by
+ * status or error never costs a body fetch.
+ */
+export async function passesFilters(call: CallRecord, f: CallFilters, softFailed: () => Promise<boolean>): Promise<boolean> {
+  if (call.source === 'external' && f.project && call.service_name !== f.project) return false;
+  if (!statusMatches(call, f.status)) return false;
+  if (f.slowMs !== undefined && (call.duration_ms ?? 0) < f.slowMs) return false;
+  if (f.failed && !isFailed(call) && !(await softFailed())) return false;
+  return true;
+}
+
 export async function searchCalls(client: AlfredClient, input: SearchInput, want: number): Promise<{ calls: CallRecord[]; scanned: number; scanCapHit: boolean; softCapHit: boolean; more: boolean }> {
   const fromMs = input.from ? Date.parse(input.from) : undefined;
   const toMs = input.to ? Date.parse(input.to) : undefined;
@@ -122,17 +142,14 @@ export async function searchCalls(client: AlfredClient, input: SearchInput, want
         const t = callTime(call);
         if (fromMs !== undefined && t < fromMs) { if (input.sort === 'newest') pastWindow = true; continue; }
         if (toMs !== undefined && t > toMs) { if (input.sort === 'oldest') pastWindow = true; continue; }
-        if (source === 'external' && input.project && call.service_name !== input.project) continue;
-        if (!statusMatches(call, input.status)) continue;
-        if (input.failed && !isFailed(call)) {
+        const pass = await passesFilters(call, input, async () => {
           // A 200 can still be a failure (an error in its body): read that body, within a budget.
-          if (softChecks >= SOFT_CHECK_LIMIT) { softCapHit = true; continue; }
+          if (softChecks >= SOFT_CHECK_LIMIT) { softCapHit = true; return false; }
           softChecks++;
           const bodied = await withParts(client, { id: call.id, source }, call, ['response-body']).catch(() => call);
-          if (!softFailureOf(bodied)) continue;
-        }
-        if (input.slowMs !== undefined && (call.duration_ms ?? 0) < input.slowMs) continue;
-        matches.push(call);
+          return !!softFailureOf(bodied);
+        });
+        if (pass) matches.push(call);
       }
       if (pastWindow || matches.length >= want || page.calls.length < SCAN_PAGE || offset + SCAN_PAGE >= page.total) break;
       if (offset + SCAN_PAGE >= SCAN_CAP) scanCapHit = true;
@@ -202,6 +219,14 @@ export function register(server: McpServer, client: AlfredClient): void {
       ...flagsOf(call),
       parentCallId: call.parentCallId ?? undefined,
       timing: call.timing ?? undefined,
+      ...(call.interception?.applied?.length ? {
+        interception: {
+          applied: call.interception.applied.map((a) => ({ rule: a.ruleName ?? null, ruleId: a.ruleId ?? null, action: a.action, ...(a.detail ? { detail: a.detail } : {}) })),
+          requestChanged: !!call.interception.originalRequest,
+          responseChanged: !!call.interception.originalResponse,
+          more: 'get_rule ruleId shows the rule; the ⚡ panel on the call in the UI shows the before/after of each changed half.',
+        },
+      } : {}),
       request: { headers: call.request?.headers ?? {}, body: bodyView(call.request?.body, call.request?.headers, input.bodyOffset, input.bodyLength) },
       response: { status: call.response?.status ?? null, headers: call.response?.headers ?? {}, body: bodyView(call.response?.body, call.response?.headers, input.bodyOffset, input.bodyLength) },
       ...(extras.children !== undefined ? { children: extras.children } : {}),

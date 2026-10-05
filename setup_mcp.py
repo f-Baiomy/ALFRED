@@ -18,6 +18,9 @@ Usage:
                                                 only you, only in odeysys
     python setup_mcp.py --alfred-url http://host:3000   Alfred not on localhost:3000
     python setup_mcp.py --mask                  start every session with secrets masked in replies
+    python setup_mcp.py --source-root C:/work/odeysys-claude
+                                                where call-chain frames (File.java:line) are looked up -
+                                                by default the folder Claude Code is started in
     python setup_mcp.py --remove                unregister (same --scope/--project-dir rules)
     python setup_mcp.py --dry-run               print what would run, change nothing
 """
@@ -140,6 +143,8 @@ def register(claude, node, args, cwd):
         cmd += ["-e", f"ALFRED_URL={args.alfred_url}"]
     if args.mask:
         cmd += ["-e", "ALFRED_MCP_MASK=1"]
+    if args.source_root:
+        cmd += ["-e", f"ALFRED_SOURCE_ROOT={posix(os.path.abspath(args.source_root))}"]
     cmd += ["--", posix(node) if args.node_path else "node", TSX_CLI, ENTRY]
     run(cmd, cwd=cwd, dry_run=args.dry_run)
 
@@ -166,6 +171,7 @@ def main():
     parser.add_argument("--project-dir", help="project folder for --scope project/local")
     parser.add_argument("--alfred-url", default="http://localhost:3000", help="where Alfred's UI/gateway answers (default http://localhost:3000)")
     parser.add_argument("--mask", action="store_true", help="start every session with secrets masked in tool replies")
+    parser.add_argument("--source-root", help="project folder to resolve call-chain frames in (default: the folder Claude Code is started in)")
     parser.add_argument("--node-path", action="store_true", help="register the absolute path of node instead of plain 'node' (if Claude Code's PATH lacks it)")
     parser.add_argument("--remove", action="store_true", help="unregister instead")
     parser.add_argument("--skip-verify", action="store_true", help="do not start the server once to check it")
@@ -174,6 +180,8 @@ def main():
 
     claude = tool("claude")
     cwd = scope_cwd(args)
+    if args.source_root and not os.path.isdir(args.source_root):
+        fail(f"--source-root is not a folder: {args.source_root}")
 
     if args.remove:
         remove(claude, args, cwd)

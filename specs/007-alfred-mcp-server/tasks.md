@@ -214,3 +214,14 @@ description: "Task list for 007-alfred-mcp-server"
 - Bug 3 (supplier calls missing): not a bug - one outbound call and one agent marker; the rest came from the app's cache.
 - Live UI for every MCP edit: cycles/spacers/calls were already signalled; comments were not. New `/ws/comments` (backend-comments `CommentNotificationPort`), `CommentsStore` re-reads a loaded call on the signal (`COMMENT_EVENTS`).
 - Improvements: soft failures and empty results (`shared/utils/soft-failure.ts`, shared with exports), supplier calls under inbound calls, body previews, OPTIONS hidden by default, compact field rows, `appHost` for inbound, whole-call comments (`block: 'call'` - card notes + exports), `add_comments`, `suggest_spacers`, `wait_for_calls` (WebSocket-driven, ≤ 60 s), `Local` environment, XML/form body redaction + `add_default_redactions`, `includeDb: "summary"` for .md/.html, "At a Glance" at the top of bulk exports (`export-highlights.ts`). No per-export `redact: false` (owner decision).
+
+## Enhancements (2026-10-05, second round)
+
+- `diff_calls` (frontend `interception-diff.ts` reused: case-insensitive headers, JSON/XML-aware line diff) with paged hunks.
+- `get_cycle` comment text only for calls with comments: one `GET /comments/counts` per page.
+- Call-chain frames to project files (`src/source.ts`, `locate_source`, `sources` on `db_statement`, `source` on `db_statements`, `gapSources` on `db_overview`): index by file name under `sourceRoot` (server cwd / `ALFRED_SOURCE_ROOT` / `session_settings`); ambiguous names settled by the method declared at the line, then by the calling frame's import or package. Verified on the real odeysys checkout (two `GenericDAOImpl`, two `OrganizationDaoImpl`).
+- `search_cycle` (cycle list endpoints' text/supplier/project + the shared `passesFilters`).
+- Read-only `list_rules`, `get_rule`, `list_relive_cycles`, `list_relive_runs`, `get_relive_run`; ⚡ rule name on changed calls in `get_cycle`/`get_call`.
+- Prompts `debug_cycle`, `debug_call`.
+- `list_projects`, `set_inbound_logging`, `set_db_capture` - describe-only without `confirm: true`.
+- Fake Alfred: RFC 6455 text-frame WebSocket server; `wait_for_calls` event path tested (wakes on growth, ignores a signal that adds nothing, closes its sockets).

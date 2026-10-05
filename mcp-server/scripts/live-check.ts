@@ -60,6 +60,32 @@ try {
   check('get_cycle: spacer, call, comment and DB line in the story',
     /── search ──[\s\S]*#1 .*id=500d0cdc[\s\S]*💬[\s\S]*◆ DB:/.test(story.text), story.text.split('\n').length + ' lines');
 
+  // ---- search inside the cycle, and a call compared with its own cycle copy
+  const found = await h.call('search_cycle', { cycle: cycleId, text: 'flight-search' });
+  check('search_cycle finds the copied call as #1', found.json?.calls?.[0]?.id === CALL && found.json.calls[0].n === 1, found.isError ? found.text : '');
+  const same = await h.call('diff_calls', { a: CALL, b: CALL, bCycleId: cycleId });
+  check('diff_calls: the live call and its cycle copy are identical', same.json?.request?.body?.identical === true && same.json?.response?.body?.identical === true,
+    same.isError ? same.text : '');
+
+  // ---- read-only views and the project switches (no switch is flipped here)
+  const rules = await h.call('list_rules', {});
+  check('list_rules', !rules.isError && Array.isArray(rules.json?.rules), `${rules.json?.total} rules`);
+  const relive = await h.call('list_relive_cycles', {});
+  check('list_relive_cycles', !relive.isError && Array.isArray(relive.json?.cycles), `${relive.json?.total} cycles`);
+  const projects = await h.call('list_projects', {});
+  const odeysys = projects.json?.projects?.find((p: { name: string }) => p.name === 'odeysys');
+  check('list_projects shows odeysys and its switches', !!odeysys && typeof odeysys.inboundLogging === 'boolean');
+  const ask = await h.call('set_inbound_logging', { project: 'odeysys', enabled: !odeysys?.inboundLogging });
+  check('set_inbound_logging without confirm only asks', ask.json?.needsConfirm === true);
+  const prompts = await h.client.listPrompts();
+  check('prompts listed', prompts.prompts.some((p) => p.name === 'debug_cycle'));
+  if (process.env['ALFRED_SOURCE_ROOT']) {
+    const located = await h.call('locate_source', { frames: ['GenericDAOImpl.executeSQLQuery(GenericDAOImpl.java:927)'] });
+    check('locate_source finds GenericDAOImpl', !!located.json?.frames?.[0]?.source, located.json?.frames?.[0]?.source ?? located.text);
+  } else {
+    process.stdout.write('SKIP  locate_source - set ALFRED_SOURCE_ROOT to the odeysys checkout to check it\n');
+  }
+
   // ---- export .md/.json/.html into a temp folder set for the session
   created.dir = await mkdtemp(join(tmpdir(), 'mcp-live-'));
   const noPath = await h.call('export_calls', { format: 'md', cycleId });

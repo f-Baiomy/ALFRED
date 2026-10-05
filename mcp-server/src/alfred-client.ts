@@ -25,6 +25,8 @@ export interface RequestOptions {
   readonly body?: unknown;
   /** What a 404 means for this request, e.g. "call abc not found" - the default names only the path. */
   readonly notFound?: string;
+  /** Longer than the default only for a known-large answer (a Relive run with its whole definition is megabytes). */
+  readonly timeoutMs?: number;
 }
 
 const TIMEOUT_MS = 4000;
@@ -53,6 +55,10 @@ export class AlfredClient {
     return this.request<T>('POST', path, options);
   }
 
+  put<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.request<T>('PUT', path, options);
+  }
+
   patch<T>(path: string, options: RequestOptions = {}): Promise<T> {
     return this.request<T>('PATCH', path, options);
   }
@@ -78,11 +84,11 @@ export class AlfredClient {
         method,
         headers: options.body !== undefined ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' },
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
       });
     } catch (error) {
       throw new AlfredError('unreachable',
-        `Alfred is not reachable at ${this.baseUrl} (${(error as Error).name === 'TimeoutError' ? 'no answer within 4 s' : (error as Error).message}). `
+        `Alfred is not reachable at ${this.baseUrl} (${(error as Error).name === 'TimeoutError' ? `no answer within ${Math.round((options.timeoutMs ?? TIMEOUT_MS) / 1000)} s` : (error as Error).message}). `
         + 'Start it with `python3 start.py` in the Alfred repo, or set ALFRED_URL.', undefined, `${method} ${url.pathname}`);
     } finally {
       this.release();

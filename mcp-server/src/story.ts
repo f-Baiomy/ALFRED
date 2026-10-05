@@ -2,7 +2,7 @@ import type { AlfredClient } from './alfred-client.ts';
 import { partsFor, select, toRow, withParts, type FieldName } from './calls.ts';
 import { findCycle, listCycleCalls, type CycleEntry } from './cycle-calls.ts';
 import { analysisOf, childrenOf, dbSummaries, loadCapture, nonNoteFindings } from './db-capture.ts';
-import { emptyResultOf, layoutSpacers, softFailureOf, type CallRecord, type Comment, type CycleSpacer } from './frontend.ts';
+import { emptyResultOf, layoutSpacers, softFailureOf, type CallRecord, type Comment, type CommentCount, type CycleSpacer } from './frontend.ts';
 import { maskCall, maskContext, maskMeta, maskText, type MaskContext } from './masking.ts';
 import { ok, preview, REPLY_BUDGET, text, type ToolReply } from './reply.ts';
 
@@ -42,7 +42,10 @@ function storyLine(n: number, call: CallRecord): string {
   const row = toRow(call);
   const status = row.status ?? (call.error ? `ERROR ${call.error}` : call.state ?? '-');
   const ms = row.durationMs != null ? `${Math.round(row.durationMs)} ms` : 'in progress';
-  return `#${n} ${hhmmss(call.timestamp)} ${row.direction === 'inbound' ? 'IN ' : 'OUT'} ${call.method} ${row.url} → ${status} (${ms}) id=${call.id}`;
+  // ⚡: an interception rule (or a hand edit) changed this call - what is recorded is not what the caller sent or got.
+  const applied = call.interception?.applied ?? [];
+  const changed = applied.length ? ` ⚡ ${[...new Set(applied.map((a) => a.ruleName ?? a.action))].join(', ')}` : '';
+  return `#${n} ${hhmmss(call.timestamp)} ${row.direction === 'inbound' ? 'IN ' : 'OUT'} ${call.method} ${row.url} → ${status} (${ms}) id=${call.id}${changed}`;
 }
 
 function hostOf(url: string): string {
@@ -97,6 +100,11 @@ export async function cycleStory(client: AlfredClient, input: StoryInput): Promi
   const wants = (f: FieldName) => !!input.fields?.includes(f);
   const needsDb = input.includeDb || wants('db');
   const summaries = needsDb ? await dbSummaries(client, pageEntries.filter((e) => e.call.source === 'internal').map((e) => e.call.id)) : {};
+  // One counts request for the whole page; comment text is fetched only for calls that have some.
+  const needsComments = input.includeComments || wants('comments');
+  const commentCounts = needsComments && pageEntries.length
+    ? await client.get<Record<string, CommentCount>>('/comments/counts', { query: { callIds: pageEntries.map((e) => e.call.id).join(',') } })
+    : {};
 
   // Response bodies are read once per call and shared: the page's own calls and the supplier calls
   // listed under an inbound one both need theirs judged.
@@ -123,7 +131,7 @@ export async function cycleStory(client: AlfredClient, input: StoryInput): Promi
     call = maskCall(ctx, call);
     const flags = input.checkBodies ? bodyFlags(ctx, call) : '';
 
-    const comments: Comment[] = input.includeComments || wants('comments')
+    const comments: Comment[] = needsComments && commentCounts[call.id]
       ? await client.get<Comment[]>('/comments', { query: { callId: call.id } }) : [];
     let db: DbView | null = null;
     if (needsDb && call.source === 'internal') {

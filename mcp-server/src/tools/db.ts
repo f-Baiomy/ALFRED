@@ -8,6 +8,7 @@ import type {
 } from '../frontend.ts';
 import { maskCapture, maskContext, maskMeta, maskQueryResult, type MaskContext } from '../masking.ts';
 import { chunkText, fitItems, ok, run } from '../reply.ts';
+import { resolveFrames, sourceIndexInfo } from '../source.ts';
 import { MaskSchema } from './cycles.ts';
 
 const CELL_LIMIT = 300;
@@ -62,8 +63,16 @@ export function register(server: McpServer, client: AlfredClient): void {
     const { call, capture } = await maskedCapture(client, ctx, input.callId, true);
     const analysis = analysisOf(call, capture, await childrenOf(client, call.id));
     const queries = fitItems(analysis.queries.slice(0, input.queries).map((q) => ({ ...q, sql: q.sql.length > 200 ? `${q.sql.slice(0, 200)}…` : q.sql })), JSON.stringify(analysis.findings).length + JSON.stringify(analysis.time).length + 600).items;
+    // Each gap names the frame that ran before it; resolved so the code behind an idle stretch can be opened.
+    // Each gap's chain is resolved whole, so its first frame is settled by the frames that called it.
+    const gapSources: Record<string, string | string[]> = {};
+    for (const g of analysis.time.topGaps) {
+      const first = g.callers?.length ? (await resolveFrames(g.callers))[0] : undefined;
+      if (first && (first.source || first.candidates)) gapSources[first.frame] = first.source ?? first.candidates!;
+    }
     return ok({
       callId: call.id, statements: capture.statements.length, summary: analysis.summary, time: analysis.time,
+      ...(Object.keys(gapSources).length ? { gapSources } : {}),
       findings: analysis.findings, queries, queryCount: analysis.queries.length, ...maskMeta(ctx),
     });
   }));
@@ -94,7 +103,14 @@ export function register(server: McpServer, client: AlfredClient): void {
       .filter((s) => !input.text || s.sql.toLowerCase().includes(input.text.toLowerCase()))
       .filter((s) => input.seqFrom === undefined || s.seq >= input.seqFrom)
       .filter((s) => input.seqTo === undefined || s.seq <= input.seqTo);
-    const fitted = fitItems(matching.slice(input.offset, input.offset + input.limit).map(statementRow), 400);
+    // Each statement's whole call chain is resolved, so an ambiguous first frame is settled by its callers.
+    const rows = await Promise.all(matching.slice(input.offset, input.offset + input.limit).map(async (st) => {
+      const chain = st.callers?.length ? st.callers : st.codeLocation ? [st.codeLocation] : [];
+      const first = chain.length ? (await resolveFrames(chain))[0] : undefined;
+      const source = first?.source ?? first?.candidates;
+      return { ...statementRow(st), ...(source ? { source } : {}) };
+    }));
+    const fitted = fitItems(rows, 400);
     const end = input.offset + fitted.items.length;
     return ok({ total: matching.length, offset: input.offset, nextOffset: end < matching.length ? end : null, statements: fitted.items, ...maskMeta(ctx) });
   }));
@@ -129,6 +145,9 @@ export function register(server: McpServer, client: AlfredClient): void {
       outcome: masked.outcome, durationMs: masked.durationMicros / 1000, startedAt: masked.startedAt, offsetMs: masked.offsetMicros / 1000,
       txId: masked.txId ?? null, undone: masked.undone, expected: masked.expected,
       codeLocation: masked.codeLocation ?? null, callers: masked.callers ?? null, origin: masked.origin ?? null,
+      // The same frames as files of the project Claude is in (session sourceRoot) - open them directly.
+      sources: (await resolveFrames(masked.callers?.length ? masked.callers : masked.codeLocation ? [masked.codeLocation] : []))
+        .filter((r) => r.source || r.candidates),
       rows: page ? {
         part: input.part, columns: page.columns.map((c) => `${c.name}:${c.type}`), offset: input.rowsOffset, total: page.total,
         nextOffset: input.rowsOffset + rows.length < page.total ? input.rowsOffset + rows.length : null,
@@ -174,4 +193,11 @@ export function register(server: McpServer, client: AlfredClient): void {
     // The hits are positions only; the value itself is never echoed back, masked or not.
     return ok({ callId: input.callId, hits: result.hits.slice(0, 500), total: result.hits.length, ...maskMeta(ctx) });
   }));
+
+  server.registerTool('locate_source', {
+    description: 'Find the project files for call-chain frames such as "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)" - the frames '
+      + 'db_statement returns as callers. Answers path/in/project/File.java:line (several candidates when the file name is not unique), '
+      + 'searched under the session sourceRoot (the project folder Claude Code started this server in).',
+    inputSchema: { frames: z.array(z.string().min(1)).min(1).max(100) },
+  }, (input) => run(async () => ok({ ...(await sourceIndexInfo()), frames: await resolveFrames(input.frames) })));
 }

@@ -21,11 +21,19 @@ export function segmentOf(source: CallEndpointSource): 'calls' | 'internal-calls
 }
 
 /** One source's captured calls, every page - summaries only, never bodies. */
-export async function listSource(client: AlfredClient, cycleId: string, source: CallEndpointSource, sort: 'oldest' | 'oldest-call' = 'oldest-call'): Promise<CycleEntry[]> {
+/** Server-side narrowing the cycle list endpoints already do: text (method, URLs, status, error, headers, bodies), supplier host, project. */
+export interface CycleListFilters {
+  readonly search?: string;
+  readonly supplier?: string;
+  readonly serviceNames?: string;
+}
+
+export async function listSource(client: AlfredClient, cycleId: string, source: CallEndpointSource, sort: 'oldest' | 'oldest-call' = 'oldest-call',
+                                 filters: CycleListFilters = {}): Promise<CycleEntry[]> {
   const out: CycleEntry[] = [];
   for (let offset = 0; ; offset += PAGE) {
     const page = await client.get<CapturedPage>(`/session-cycles/${seg(cycleId)}/${segmentOf(source)}`, {
-      query: { paged: true, sort, offset, limit: PAGE },
+      query: { paged: true, sort, offset, limit: PAGE, ...filters },
       notFound: `Session cycle ${cycleId} not found.`,
     });
     out.push(...page.calls.map((c) => ({ capturedId: c.id, capturedAt: c.capturedAt, call: toCallRecord(c.call, source) })));

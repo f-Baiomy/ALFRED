@@ -46,7 +46,9 @@ python setup_mcp.py
 ```
 
 Options: `--scope project --project-dir C:/projects/odeysys` (writes that repo's `.mcp.json`), `--scope local
---project-dir …` (only you, only there), `--alfred-url http://host:3000`, `--mask`, `--remove`, `--dry-run`.
+--project-dir …` (only you, only there), `--alfred-url http://host:3000`, `--mask`, `--source-root <folder>` (where call-chain
+frames are looked up; by default the folder Claude Code is started in - set it only if that is not the project),
+`--remove`, `--dry-run`.
 
 By hand, the same thing:
 
@@ -83,18 +85,26 @@ Check it: `claude mcp list` shows `alfred` connected; in a session, "list my Alf
 
 | Area | Tools |
 |---|---|
-| Session | `session_settings` - mask secrets in replies on/off; default export folder |
+| Session | `session_settings` - mask secrets in replies on/off; default export folder; `sourceRoot` (the project call chains resolve in) |
 | Cycles | `list_cycles`, `get_cycle` (the debugging story: ✖ errors inside 200 responses, ∅ empty results, ↳ each inbound call's supplier calls, optional `bodyPreview`, OPTIONS preflights hidden and counted), `wait_for_calls` (new calls in a recording cycle, event-driven, ≤ 60 s), `create_cycle` (empty or from live calls), `rename_cycle`, `start_recording`, `stop_recording`, `add_calls_to_cycle`, `remove_calls_from_cycle` |
+| Search / compare | `search_cycle` (inside one cycle, its own copies: text, direction, project, supplier, status, failed incl. errors inside 200s, slow, time - rows numbered as `get_cycle` numbers them), `diff_calls` (two calls: status/URL/duration, then headers and JSON/XML-aware body hunks; page with `hunkOffset`) |
 | Spacers | `add_spacer`, `rename_spacer`, `move_spacer` (how a story is rearranged - calls stay in recorded-time order), `delete_spacer`, `suggest_spacers` (steps proposed from pauses and URL areas; writes nothing) |
 | Calls | `search_calls` (project, direction, supplier, text, status/class, failed - including errors inside 200s -, slow, time range), `get_call` (everything, or `fields`/`paths` such as `["method","url"]`), `get_call_body` (page through a body) |
 | Database | `db_overview` (summary line, time breakdown, query totals, findings), `db_statements` (filtered, paged), `db_statement` (SQL, params, rows, `callers` = call chain, origin HQL), `db_query` (the window's search/SQL over recorded statements), `trace_value` |
 | Comments | `list_comments`, `add_comment` (a note on the whole call by default, or on a line of request/response headers or body; prefixed `🤖 Claude:`), `add_comments` (many at once), `delete_comment` |
 | Export | `export_calls` - .md / .json / .html of a cycle, chosen calls or a search; the export dialog's own files (masked, untruncated, .json re-importable), opening with "At a Glance" (steps, failures, errors inside 200s, empty results, notes); `includeDb: "summary"` for a report for people; environment `Local` |
+| Code | `locate_source` (call-chain frames → `path/in/project/File.java:line`); `db_statement` (`sources`), `db_statements` (`source`) and `db_overview` (`gapSources`) carry the same |
+| Rules and Relive (read-only) | `list_rules`, `get_rule`, `list_relive_cycles`, `list_relive_runs`, `get_relive_run` (each step: state, status, error, what differed from the recording); a call a rule changed shows ⚡ with the rule name |
+| Projects | `list_projects` (listen ports, inbound logging, database capture and its agent), `set_inbound_logging`, `set_db_capture` - both change what Alfred records for everyone, so they only describe the effect unless called with `confirm: true` after the user agreed |
 | Redactions | `add_default_redactions` - Authorization, Cookie, x-api-key, password (SOAP `wsse:Password` and form fields too), apiKey, tokens; only the missing ones, as normal global Redactions (ask the user first) |
 
+Prompts: `debug_cycle` and `debug_call` (in Claude Code, `/mcp__alfred__debug_cycle`) start a session with the steps that
+find a cause fastest - the story, the flagged calls, the database findings and their code, a diff of two attempts, the
+rules, then a comment.
+
 Deliberately **not** offered: deleting or clearing a cycle, editing recorded call content, reordering calls, resend,
-interception rules, switching proxy logging or database capture, Relive runs - anything that changes live traffic or
-destroys recorded evidence in bulk.
+editing interception rules, running Relive cycles - anything that changes live traffic or destroys recorded evidence in
+bulk. (Switching a project's inbound logging or database capture is offered, behind `confirm: true`.)
 
 Behaviour worth knowing:
 
@@ -122,6 +132,11 @@ The server lives exactly as long as the Claude session, so settings last for the
 - **Export location** - with no path, Claude asks where to save each time. "Save exports to C:/tmp/alfred for this
   session" → `exportFolder`; exports with no path or a relative path go there. An existing file is never
   overwritten unless asked.
+- **Source root** - where `File.java:line` frames are looked up: the folder Claude Code started the server in, unless
+  `ALFRED_SOURCE_ROOT` or `sourceRoot` says otherwise. Source files are indexed by name on first use (build output,
+  `node_modules` and dot-folders skipped). A frame carries no package, so when two classes share a name (odeysys has two
+  `GenericDAOImpl.java`) the server keeps the file whose method at that line is the frame's method, then the one the
+  calling frame's file imports; only a frame that is still ambiguous comes back as `candidates`. A file you edit is re-read.
 
 ## Data warning
 
@@ -136,7 +151,7 @@ cd mcp-server && npm run typecheck && npm test
 ```
 
 `npm test` runs every tool against an in-memory fake Alfred speaking the real wire shapes (summaries, captured-call
-wrappers, 404s), including parity checks: `db_overview` equals `analyzeCapture` on the same capture, exports equal
+wrappers, part details with their nulls, 404s, and its WebSocket change signals), including parity checks: `db_overview` equals `analyzeCapture` on the same capture, exports equal
 the dialog's builders byte for byte apart from the generation time, and the .json re-imports through
 `import-parser.ts`.
 
@@ -145,8 +160,10 @@ cd mcp-server && npm run live-check
 ```
 
 Against the running Alfred: reads call `500d0cdc-…` (the HQL fan-out #19-#25 and the swallowed failure at #42),
-adds a comment, creates a cycle from the call with a spacer, exports .md/.json/.html, records a second cycle while
-sending marker requests through the first project's reverse-proxy listener, then deletes everything it made.
+adds a comment, creates a cycle from the call with a spacer, searches it, diffs the call with its cycle copy, reads the
+rules, Relive cycles and projects (asking - never flipping - a project switch), exports .md/.json/.html, records a
+second cycle while sending marker requests through the first project's reverse-proxy listener (`wait_for_calls` must wake
+on them), then deletes everything it made. With `ALFRED_SOURCE_ROOT=<odeysys checkout>` it also resolves a real frame.
 `-- --pause` stops before the cleanup so the open UI can be checked. `npx tsx scripts/stdio-check.ts` starts the
 server the way Claude Code does and calls a tool over real stdio.
 
