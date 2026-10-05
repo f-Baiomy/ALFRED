@@ -101,6 +101,13 @@ public final class Bridge {
          *  HTTP_OUT marker at the same sequence number. */
         String outboundHeader(String method, String url);
 
+        /** {@link #outboundHeader} once per connection/request object: every later call for the same object returns the
+         *  same value and records no further marker (a connection's hooks run on connect, getOutputStream and every
+         *  getInputStream - one per response header read on HTTPS). */
+        default String outboundHeaderFor(Object connection, String method, String url) {
+            return outboundHeader(method, url);
+        }
+
         /** Tags an Apache HttpClient request object (4.x or 5.x) - reflection, so no client is a dependency. */
         void tagHttpClientRequest(Object request);
     }

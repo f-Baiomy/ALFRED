@@ -56,6 +56,57 @@ class OutboundHeaderIT {
         assertThat(markers.get(0).method).isEqualTo("GET");
     }
 
+    @Test
+    void aPostWithABodyIsOneSupplierCallNotOnePerConnectionMethod() throws Exception {
+        AgentTestSupport.inCall("call-post", () -> {
+            for (int i = 0; i < 2; i++) {
+                HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:" + server.getAddress().getPort() + "/api/FlightSearch/Search")
+                        .openConnection(java.net.Proxy.NO_PROXY);
+                c.setRequestMethod("POST");
+                c.setDoOutput(true);
+                c.connect();
+                try (java.io.OutputStream out = c.getOutputStream()) {
+                    out.write("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                // How response handling code really reads it: status, headers, body - each goes through
+                // getInputStream on an already-connected connection.
+                c.getResponseCode();
+                c.getHeaderField("Content-Type");
+                c.getResponseMessage();
+                c.getResponseCode();
+                try (InputStream ignored = c.getErrorStream()) {
+                    c.disconnect();
+                }
+            }
+        }, true);
+
+        assertThat(seen).containsExactly("call-post; seq=1", "call-post; seq=2");
+        List<MarkerRecord> markers = SINK.markers().stream().filter(m -> m.type.equals("HTTP_OUT")).collect(Collectors.toList());
+        assertThat(markers).extracting(m -> m.seq).containsExactly(1, 2);
+        assertThat(markers.get(0).method).isEqualTo("POST");
+    }
+
+    /**
+     * Over HTTPS the JDK connection does not report X-Alfred-Parent back once connected, so the hook - which runs on
+     * connect, getOutputStream and on every getInputStream behind each status/header read - used to record a new
+     * supplier call each time: 2 real POSTs showed as 40 (odeysys, flight-search). One connection is one call.
+     */
+    @Test
+    void repeatedHooksOnOneConnectionRecordOneSupplierCall() throws Exception {
+        Object connection = new Object();
+        Object other = new Object();
+        String[] headers = new String[4];
+        AgentTestSupport.inCall("call-https", () -> {
+            for (int i = 0; i < 3; i++) {
+                headers[i] = AgentTestSupport.DISPATCHER.outboundHeaderFor(connection, "POST", "https://ndc.example/api/FlightSearch/Search");
+            }
+            headers[3] = AgentTestSupport.DISPATCHER.outboundHeaderFor(other, "POST", "https://ndc.example/api/FlightSearch/Search");
+        }, true);
+
+        assertThat(headers).containsExactly("call-https; seq=1", "call-https; seq=1", "call-https; seq=1", "call-https; seq=2");
+        assertThat(SINK.markers().stream().filter(m -> m.type.equals("HTTP_OUT")).count()).isEqualTo(2);
+    }
+
     private void get(String path) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:" + server.getAddress().getPort() + path).openConnection(java.net.Proxy.NO_PROXY);
         c.getResponseCode();

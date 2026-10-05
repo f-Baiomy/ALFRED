@@ -71,6 +71,8 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
      */
     private final ThreadLocal<int[]> agentWork = ThreadLocal.withInitial(() -> new int[1]);
     private final ConcurrentHashMap<Class<?>, Method> headerGetters = new ConcurrentHashMap<>();
+    /** The X-Alfred-Parent value given to each outbound connection/request object ("" = not ours to tag). */
+    private final WeakIdentityMap<String> outboundTagged = new WeakIdentityMap<>();
 
     public CaptureDispatcher(StatementSink sink, AgentSettings settings, String agentId) {
         this.sink = sink;
@@ -846,6 +848,25 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     }
 
     @Override
+    public String outboundHeaderFor(Object connection, String method, String url) {
+        try {
+            String known = outboundTagged.get(connection);
+            if (known != null) {
+                return known.isEmpty() ? null : known;
+            }
+            if (ContextPropagation.current() == null) {
+                return null;
+            }
+            String header = outboundHeader(method, url);
+            outboundTagged.put(connection, header == null ? "" : header);
+            return header;
+        } catch (Throwable t) {
+            AgentLog.failure("outbound header", t);
+            return null;
+        }
+    }
+
+    @Override
     public void tagHttpClientRequest(Object request) {
         try {
             if (request == null || ContextPropagation.current() == null) {
@@ -860,8 +881,11 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             if (add == null) {
                 return;
             }
+            if (outboundTagged.get(request) != null) {
+                return; // tagged already, though the client did not keep the header where containsHeader looks
+            }
             String[] methodAndUrl = methodAndUrl(request);
-            String header = outboundHeader(methodAndUrl[0], methodAndUrl[1]);
+            String header = outboundHeaderFor(request, methodAndUrl[0], methodAndUrl[1]);
             if (header != null) {
                 add.invoke(request, PARENT_HEADER, header);
             }

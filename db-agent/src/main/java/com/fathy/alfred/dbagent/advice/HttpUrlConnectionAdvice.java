@@ -17,12 +17,12 @@ public final class HttpUrlConnectionAdvice {
             return;
         }
         java.net.HttpURLConnection connection = (java.net.HttpURLConnection) self;
-        // Throws IllegalStateException once connected - which is exactly when there is nothing left to add.
-        if (connection.getRequestProperty("X-Alfred-Parent") == null) {
-            String header = d.outboundHeader(connection.getRequestMethod(), connection.getURL().toString());
-            if (header != null) {
-                connection.setRequestProperty("X-Alfred-Parent", header);
-            }
+        // Once per connection: these methods run many times for one request (connect, getOutputStream, and
+        // getInputStream behind every status/header read), and each time used to record another supplier call.
+        String header = d.outboundHeaderFor(connection, connection.getRequestMethod(), connection.getURL().toString());
+        if (header != null) {
+            // Throws IllegalStateException once connected - which is exactly when there is nothing left to add.
+            connection.setRequestProperty("X-Alfred-Parent", header);
         }
     }
 }
