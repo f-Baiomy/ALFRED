@@ -33,12 +33,17 @@ final class CodeLocation {
     private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> SKIPPED = new java.util.concurrent.ConcurrentHashMap<>();
     private static final int CACHE_LIMIT = 8192;
 
+    /** Whether the last {@link #find()} on this thread walked past a Hibernate frame - SQL Hibernate made on its own
+     *  (an id from a sequence, a version check) outside any query or event the agent tracks. */
+    private static final ThreadLocal<boolean[]> SAW_HIBERNATE = ThreadLocal.withInitial(() -> new boolean[1]);
+
     private static final Walker WALKER = Walker.create();
 
     private CodeLocation() {
     }
 
     static String find() {
+        SAW_HIBERNATE.get()[0] = false;
         try {
             return WALKER.find();
         } catch (Throwable t) {
@@ -56,9 +61,20 @@ final class CodeLocation {
         return null;
     }
 
+    static boolean sawHibernate() {
+        return SAW_HIBERNATE.get()[0];
+    }
+
+    private static void passed(String cls) {
+        if (cls.startsWith("org.hibernate.")) {
+            SAW_HIBERNATE.get()[0] = true;
+        }
+    }
+
     /** The location string when this frame belongs to the application, else null. */
     static String format(String cls, String method, String file, int line) {
         if (skipped(cls)) {
+            passed(cls);
             return null;
         }
         return cls.substring(cls.lastIndexOf('.') + 1) + "." + method + "(" + file + ":" + line + ")";
@@ -135,6 +151,7 @@ final class CodeLocation {
                     Object frame = it.next();
                     String cls = (String) className.invoke(frame);
                     if (skipped(cls)) {
+                        passed(cls);
                         continue;
                     }
                     return format(cls, (String) methodName.invoke(frame), (String) fileName.invoke(frame), (Integer) lineNumber.invoke(frame));

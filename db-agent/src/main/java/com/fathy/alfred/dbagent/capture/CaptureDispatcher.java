@@ -9,6 +9,7 @@ import com.fathy.alfred.dbagent.jdbc.StatementInterceptor;
 import com.fathy.alfred.dbagent.sql.SqlShape;
 import com.fathy.alfred.dbagent.transport.AgentSettings;
 import com.fathy.alfred.dbagent.transport.MarkerRecord;
+import com.fathy.alfred.dbagent.transport.OriginRecord;
 import com.fathy.alfred.dbagent.transport.Outcome;
 import com.fathy.alfred.dbagent.transport.StatementRecord;
 import com.fathy.alfred.dbagent.transport.StatementSink;
@@ -40,6 +41,13 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     private static final Object NESTED = new Object();
     private static final Object SKIPPED = new Object();
+    /** SQL Hibernate ran on its own outside any query or event tracked (a sequence's next value, a version check). */
+    private static final OriginRecord HIBERNATE_INTERNAL = new OriginRecord();
+
+    static {
+        HIBERNATE_INTERNAL.id = "hibernate";
+        HIBERNATE_INTERNAL.kind = "HIBERNATE";
+    }
     static final String PARENT_HEADER = "X-Alfred-Parent";
 
     private final StatementSink sink;
@@ -47,6 +55,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     private final String agentId;
     private final StatementInterceptor interceptor = new CaptureOnlyInterceptor();
     private final Recorder recorder;
+    private final OriginTracker origins;
     private final AtomicLong sids = new AtomicLong();
     private final AtomicInteger outsideSeq = new AtomicInteger();
     private final WeakIdentityMap<StatementState> statements = new WeakIdentityMap<>();
@@ -68,6 +77,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         this.settings = settings;
         this.agentId = agentId;
         this.recorder = new Recorder(sink);
+        this.origins = new OriginTracker(agentId);
     }
 
     private boolean agentBusy() {
@@ -316,6 +326,10 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             record.startedAt = Instant.now().toString();
             record.offsetMicros = context == null ? 0 : context.offsetMicros(now);
             record.codeLocation = CodeLocation.find();
+            record.origin = origins.current();
+            if (record.origin == null && CodeLocation.sawHibernate()) {
+                record.origin = HIBERNATE_INTERNAL;
+            }
             ConnectionState conn = connection(state.connection);
             if (conn != null) {
                 record.connectionId = conn.id;
@@ -743,6 +757,74 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         PendingStatement p = new PendingStatement(record, context, now, outcome);
         recorder.track(p);
         recorder.finish(p);
+    }
+
+    // ------------------------------------------------------------------ Hibernate / JPA
+
+    private boolean originsWanted() {
+        return !agentBusy() && (ContextPropagation.current() != null || settings.captureOutsideCalls());
+    }
+
+    @Override
+    public Object queryEnter(Object query, String method) {
+        if (!originsWanted()) {
+            return null;
+        }
+        try {
+            return origins.queryEnter(query, method);
+        } catch (Throwable t) {
+            AgentLog.failure("query", t);
+            return null;
+        }
+    }
+
+    @Override
+    public void queryParameter(Object query, String method, Object[] args) {
+        if (!originsWanted()) {
+            return;
+        }
+        try {
+            origins.parameter(query, method, args);
+        } catch (Throwable t) {
+            AgentLog.failure("query parameter", t);
+        }
+    }
+
+    @Override
+    public void queryNamed(Object query, String name) {
+        if (!originsWanted()) {
+            return;
+        }
+        try {
+            origins.named(query, name);
+        } catch (Throwable t) {
+            AgentLog.failure("named query", t);
+        }
+    }
+
+    @Override
+    public Object hibernateEventEnter(String type, Object self, Object[] args) {
+        if (!originsWanted()) {
+            return null;
+        }
+        beginAgentWork();
+        try {
+            return origins.eventEnter(type, self, args);
+        } catch (Throwable t) {
+            AgentLog.failure("hibernate event", t);
+            return null;
+        } finally {
+            endAgentWork();
+        }
+    }
+
+    @Override
+    public void originExit(Object token) {
+        try {
+            origins.exit(token);
+        } catch (Throwable t) {
+            AgentLog.failure("origin exit", t);
+        }
     }
 
     // ------------------------------------------------------------------ outbound HTTP

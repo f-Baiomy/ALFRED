@@ -71,6 +71,30 @@ public final class Bridge {
 
         void transactionExit(Object token, Throwable thrown);
 
+        // ---------------------------------------------------------------- Hibernate / JPA (where a statement came from)
+
+        /** A query's list/getResultList/uniqueResult/executeUpdate/... starts; token for {@link #originExit}. */
+        default Object queryEnter(Object query, String method) {
+            return null;
+        }
+
+        /** setParameter/setParameterList/typed setters, setFirstResult/setMaxResults on a query. */
+        default void queryParameter(Object query, String method, Object[] args) {
+        }
+
+        /** createNamedQuery/getNamedQuery returned {@code query} for {@code name}. */
+        default void queryNamed(Object query, String name) {
+        }
+
+        /** A Hibernate event that makes SQL on its own starts (collection initialise, entity load, flush, a flush
+         *  action) - {@code type} is the instrumented class, {@code self}/{@code args} its receiver and arguments. */
+        default Object hibernateEventEnter(String type, Object self, Object[] args) {
+            return null;
+        }
+
+        default void originExit(Object token) {
+        }
+
         // ---------------------------------------------------------------- outbound HTTP
 
         /** The X-Alfred-Parent value for an outbound request made now, or null outside a captured call. Records the

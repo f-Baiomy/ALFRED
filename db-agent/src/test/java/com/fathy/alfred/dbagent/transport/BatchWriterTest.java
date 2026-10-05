@@ -40,4 +40,25 @@ class BatchWriterTest {
                 "\"rows\":[[{\"type\":\"DECIMAL\",\"value\":\"500.00\"},null]]", "\"droppedByCall\":{\"call-1\":2}",
                 "\"markers\":[{\"callId\":\"call-1\",\"seq\":0,\"type\":\"CALL_OPEN\",\"at\":\"t0\"}]");
     }
+
+    @Test
+    void writesTheOriginOfAnOrmStatement() {
+        StatementRecord s = new StatementRecord();
+        s.sid = "a:1";
+        s.thread = "t";
+        s.kind = "SELECT";
+        s.sql = "select o.name from TT_ORG o where o.id=?";
+        s.outcome = new Outcome("ROWS");
+        s.origin = new OriginRecord();
+        s.origin.id = "a:q1";
+        s.origin.kind = "HQL";
+        s.origin.text = "select o.name from Org o where o.id = :orgId";
+        s.origin.method = "list";
+        s.origin.params = Collections.singletonList(new String[]{":orgId", "948"});
+        s.origin.maxResults = 50;
+        String json = BatchWriter.write("a", null, Collections.singletonList(s), Collections.emptyList(), Collections.emptyMap());
+        assertThat(MiniJson.parse(json)).isInstanceOf(Map.class);
+        assertThat(json).contains("\"origin\":{\"id\":\"a:q1\",\"kind\":\"HQL\",\"text\":\"select o.name from Org o where o.id = :orgId\","
+                + "\"method\":\"list\",\"params\":[{\"name\":\":orgId\",\"value\":\"948\"}],\"maxResults\":50}");
+    }
 }

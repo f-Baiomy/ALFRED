@@ -63,6 +63,25 @@ public final class BatchWriter {
         w.field("startedAt", s.startedAt).name("durationMicros").value(s.durationMicros).name("offsetMicros").value(s.offsetMicros)
                 .field("txId", s.txId).field("connectionId", s.connectionId).field("codeLocation", s.codeLocation)
                 .field("dataSource", s.dataSource).stringArray("cascadesTo", s.cascadesTo);
+        if (s.origin != null) {
+            w.name("origin");
+            origin(w, s.origin);
+        }
+        w.endObject();
+    }
+
+    static void origin(JsonWriter w, OriginRecord o) {
+        w.beginObject().name("id").value(o.id).name("kind").value(o.kind).field("text", o.text).field("name", o.name)
+                .field("method", o.method);
+        if (o.params != null) {
+            w.name("params").beginArray();
+            for (String[] p : o.params) {
+                w.beginObject().name("name").value(p[0]).field("value", p[1]).endObject();
+            }
+            w.endArray();
+        }
+        w.field("firstResult", o.firstResult).field("maxResults", o.maxResults).field("entity", o.entity).field("entityId", o.entityId)
+                .field("role", o.role).field("action", o.action).stringArray("changed", o.changed).field("parentId", o.parentId);
         w.endObject();
     }
 

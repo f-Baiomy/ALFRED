@@ -79,6 +79,13 @@
       <version>${h2.version}</version>
       <scope>test</scope>
     </dependency>
+    <!-- HibernateOriginIT: Hibernate 5.6 is what Java EE 8 servers (WildFly 16-26) ship, and still runs on Java 8. -->
+    <dependency>
+      <groupId>org.hibernate</groupId>
+      <artifactId>hibernate-core</artifactId>
+      <version>5.6.15.Final</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>javax.servlet</groupId>
       <artifactId>javax.servlet-api</artifactId>

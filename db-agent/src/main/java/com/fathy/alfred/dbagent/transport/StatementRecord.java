@@ -30,9 +30,11 @@ public final class StatementRecord {
     public String codeLocation;
     public String dataSource;
     public List<String> cascadesTo;
+    /** The ORM query or event that made this statement; null for plain JDBC. */
+    public OriginRecord origin;
 
     public long approxBytes() {
-        long bytes = 200 + (sql == null ? 0 : sql.length());
+        long bytes = 200 + (sql == null ? 0 : sql.length()) + (origin == null || origin.text == null ? 0 : origin.text.length());
         bytes += valuesBytes(params) + valuesBytes(rows) + valuesBytes(beforeImageRows);
         return bytes;
     }
